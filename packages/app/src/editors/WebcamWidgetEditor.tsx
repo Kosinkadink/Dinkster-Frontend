@@ -1,7 +1,7 @@
 import { webcamKind } from '@dinkster/widgets'
 import { createSignal, onCleanup, Show, type Component } from 'solid-js'
 import { ProductButton } from '../ProductControls.js'
-import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
+import { ProductNotice } from '../ProductForm.js'
 import { useAppMessage } from '../locale.js'
 import { captureWebcamFrame, webcamError } from '../webcam.js'
 import { activeProjectId } from '../projects.js'
@@ -13,15 +13,21 @@ const WebcamImplementation: Component<WidgetEditorImplementationProps> = (props)
   const ed = props.editor.ed
   const backend = props.editor.app.backendForTab(ed.tab)
   const project = activeProjectId()
-  const [draft, setDraft] = createSignal(webcamKind.defaultValue({ ...ed.spec!, default: ed.initial }))
+  const initial = webcamKind.defaultValue({ ...ed.spec!, default: ed.initial })
+  const [draft, setDraft] = createSignal(initial)
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal<string>()
   const [preview, setPreview] = createSignal<string>()
   const abort = new AbortController()
   let ownedUrl: string | undefined
   onCleanup(() => { abort.abort(); if (ownedUrl) URL.revokeObjectURL(ownedUrl) })
-  props.editor.bindClickAway?.(props.close)
-  onCleanup(() => props.editor.bindClickAway?.(undefined))
+  props.bindFrame({
+    phase: () => backend.protocol !== 'dinkster' ? 'unavailable' : busy() ? 'invalid'
+      : (draft()?.digest ?? null) !== (initial?.digest ?? null) ? 'changed' : 'unchanged',
+    status: () => busy() ? message('webcam.capturing') : undefined,
+    unavailable: () => backend.protocol !== 'dinkster' ? message('webcam.native') : undefined,
+    apply: () => props.commitValue(draft()),
+  })
   const capture = async () => {
     if (backend.protocol !== 'dinkster' || busy()) return
     const session = ed.tab.store
@@ -55,17 +61,17 @@ const WebcamImplementation: Component<WidgetEditorImplementationProps> = (props)
       if (!abort.signal.aborted) setBusy(false)
     }
   }
-  return <div class="widget-editor webcam-editor" data-testid="webcam-editor">
-    <Show when={preview()}>{(url) => <img src={url()} alt={message('webcam.preview')} />}</Show>
-    <Show when={draft()}>{(ref) => <p>{ref().name}</p>}</Show>
-    <ProductButton type="button" disabled={busy() || backend.protocol !== 'dinkster'} onClick={() => void capture()}>
-      {message(busy() ? 'webcam.capturing' : 'webcam.capture')}
-    </ProductButton>
-    <Show when={error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
-    <ProductActionFooter>
-      <ProductButton type="button" onClick={props.close}>{message('common.cancel')}</ProductButton>
-      <ProductButton type="button" variant="primary" disabled={busy() || !draft()} onClick={() => props.commitValue(draft())}>{message('webcam.use')}</ProductButton>
-    </ProductActionFooter>
+  return <div class="widget-frame-body webcam-editor" data-testid="webcam-editor" data-editor-surface="frame">
+    <div class="dinkster-editor-frame-toolbar">
+      <ProductButton type="button" disabled={busy() || backend.protocol !== 'dinkster'} onClick={() => void capture()}>
+        {message(busy() ? 'webcam.capturing' : 'webcam.capture')}
+      </ProductButton>
+    </div>
+    <div class="dinkster-editor-frame-work">
+      <Show when={preview()}>{(url) => <img src={url()} alt={message('webcam.preview')} />}</Show>
+      <Show when={draft()}>{(ref) => <p>{ref().name}</p>}</Show>
+      <Show when={error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
+    </div>
   </div>
 }
 

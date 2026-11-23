@@ -147,7 +147,7 @@ test('uses one collection shell for grouped models and media', async ({ page }) 
   await expect(modelEditor.getByTestId('collection-group')).toHaveCount(1)
 
   await shared.getByTestId('collection-entry').nth(1).click()
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.model!.values.model)).toEqual({
     digest: C,
     name: 'shared.safetensors',
@@ -162,6 +162,6 @@ test('uses one collection shell for grouped models and media', async ({ page }) 
   await expect(mediaEditor.getByTestId('collection-panel')).toBeVisible()
   await expect(mediaEditor.getByTestId('collection-items')).toHaveAttribute('data-mode', 'grid')
   await expect(mediaEditor.getByTestId('asset-upload-trigger')).toBeEnabled()
-  await expect(mediaEditor.getByRole('status')).toContainText('Uploads up to 256 MiB per file')
+  await expect(mediaEditor.getByText('Uploads up to 256 MiB per file', { exact: true })).toBeVisible()
   await expect(mediaEditor.getByRole('option', { name: /photo\.png/ })).toBeVisible()
 })

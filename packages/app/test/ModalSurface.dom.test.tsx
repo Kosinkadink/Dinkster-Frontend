@@ -33,7 +33,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function mount(blocked = false, onBackdropPointerDown?: (event: PointerEvent) => void) {
+function mount(blocked = false, variant?: 'editor') {
   const root = document.createElement('div')
   document.body.append(root)
   const close = vi.fn()
@@ -47,7 +47,7 @@ function mount(blocked = false, onBackdropPointerDown?: (event: PointerEvent) =>
         modalId="widget-asset"
         dismissBlocked={blocked}
         onRequestClose={() => { close(); setOpen(false) }}
-        {...(onBackdropPointerDown !== undefined ? { onBackdropPointerDown } : {})}
+        {...(variant !== undefined ? { variant } : {})}
       >
         <p id="asset-help">Browse compatible images.</p>
         <button type="button">Choose</button>
@@ -77,6 +77,7 @@ function widgetState(
             },
           },
         },
+        document: createCoreSignal({}),
       },
     } as unknown as Tab,
     graphId: 'g0',
@@ -90,7 +91,7 @@ function widgetState(
 }
 
 function prepareAssetEditorApp(app: AppState, ed: WidgetEditorState): AppState {
-  if (ed.tab.store === undefined) Object.assign(ed.tab, { store: { doc: {}, revision: 0 } })
+  if (ed.tab.store === undefined) Object.assign(ed.tab, { store: { doc: { graphs: {} }, revision: 0, document: createCoreSignal({}) } })
   const backend = app.backendForTab(ed.tab)
   const context = app as unknown as {
     registryForTab?: AppState['registryForTab']
@@ -257,9 +258,8 @@ describe('ModalSurface', () => {
     blocked.unmount()
   })
 
-  it('closes from a synthetic backdrop pointer without handing it to the canvas', () => {
-    const handoff = vi.fn()
-    const mounted = mount(false, handoff)
+  it('closes from a press on the backdrop but not from a press inside', () => {
+    const mounted = mount()
     const dialog = mounted.root.querySelector('dialog')!
     vi.spyOn(dialog, 'getBoundingClientRect').mockReturnValue({
       x: 100, y: 100, left: 100, top: 100, right: 500, bottom: 400,
@@ -271,8 +271,20 @@ describe('ModalSurface', () => {
     expect(dialog.dispatchEvent(backdrop)).toBe(false)
     expect(backdrop.defaultPrevented).toBe(true)
     expect(mounted.close).toHaveBeenCalledOnce()
-    expect(backdrop.isTrusted).toBeFalsy()
-    expect(handoff).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
+  it('keeps a full editor open on a press outside it and stops the press there', () => {
+    const mounted = mount(false, 'editor')
+    const dialog = mounted.root.querySelector('dialog')!
+    vi.spyOn(dialog, 'getBoundingClientRect').mockReturnValue({
+      x: 100, y: 100, left: 100, top: 100, right: 500, bottom: 400,
+      width: 400, height: 300, toJSON: () => ({}),
+    })
+    const outside = new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })
+    expect(dialog.dispatchEvent(outside)).toBe(false)
+    expect(mounted.close).not.toHaveBeenCalled()
+    expect(mounted.root.querySelector('[data-testid="modal-close"]')).toBeNull()
     mounted.unmount()
   })
 
@@ -315,8 +327,8 @@ describe('ASSET widget modal integration', () => {
       if (offline) expect(root.textContent).toContain('Mount discovery offline')
       const pick = [...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((entry) => entry.textContent?.includes(offline ? 'local.png' : 'mounted.png'))!
       pick.click()
-      await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
-      root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+      await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.disabled).toBe(false))
+      root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
       expect(dispatchTo).toHaveBeenLastCalledWith(ed.tab, {
         command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: offline ? local : mounted },
       })
@@ -395,7 +407,7 @@ describe('ASSET widget modal integration', () => {
     await vi.waitFor(() => expect(choices[1]!.classList.contains('selected')).toBe(true))
     expect(mounted.root.querySelectorAll('[data-testid="logical-model-conflict"]')).toHaveLength(1)
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
     expect(mounted.dispatchTo).toHaveBeenCalledOnce()
     expect(mounted.dispatchTo).toHaveBeenCalledWith(mounted.ed.tab, {
       command: 'node.setValue',
@@ -459,7 +471,9 @@ describe('ASSET widget modal integration', () => {
         await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
         if (!stored) root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
         await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name))
-        await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
+        // A stored pick is applied again only once the draft differs: removing it stages null.
+        if (stored) root.querySelector<HTMLButtonElement>('[data-testid="asset-selection-remove"]')!.click()
+        await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.disabled).toBe(false))
         if (scenario === 'edited') expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
           graphId: 'g0', nodeId: 'n1', inputId: 'asset', value: null,
         } })).ok).toBe(true)
@@ -475,14 +489,14 @@ describe('ASSET widget modal integration', () => {
           app.dispose()
         }
         dispatch.mockClear()
-        root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+        root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
         if (scenario === 'live') {
           await vi.waitFor(() => expect(dispatch).toHaveBeenCalledWith(tab, expect.objectContaining({
-            command: 'node.setValue', params: expect.objectContaining({ value: ref }),
+            command: 'node.setValue', params: expect.objectContaining({ value: stored ? null : ref }),
           })))
         } else {
-          expect(root.querySelector('.asset-error')?.textContent)
-            .toContain('The edit was not accepted. Retry or cancel to keep the stored value.')
+          await vi.waitFor(() => expect(root.querySelector('[data-testid="editor-frame-error"]')?.textContent)
+            .toContain('The edit was not accepted. Retry or cancel to keep the stored value.'))
           expect(dispatch).not.toHaveBeenCalled()
         }
       } finally { unmount(); app.dispose(); vi.unstubAllGlobals() }
@@ -490,18 +504,18 @@ describe('ASSET widget modal integration', () => {
   )
 
   it('stages an empty selection through Remove and only commits at the footer', async () => {
-    const mounted = catalogAssetEditor('model/checkpoint')
+    const stored = { digest: `blake3:${'a'.repeat(64)}`, name: 'shared.safetensors', size: 100,
+      mediaType: 'application/x-safetensors', virtualPath: 'a/shared.safetensors' }
+    const mounted = catalogAssetEditor('model/checkpoint', undefined, stored)
     await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
-
-    expect(mounted.root.querySelector('[data-testid="asset-selection-remove"]')).toBeNull()
-    mounted.root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+    expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.disabled).toBe(true)
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-selection-remove"]')).not.toBeNull())
     const remove = mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-selection-remove"]')
     expect(remove).not.toBeNull()
     remove!.click()
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-selection-remove"]')).toBeNull())
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
     expect(mounted.dispatchTo).toHaveBeenCalledOnce()
     expect(mounted.dispatchTo).toHaveBeenCalledWith(mounted.ed.tab, {
       command: 'node.setValue',
@@ -553,7 +567,7 @@ describe('ASSET widget modal integration', () => {
     mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')[1]!.click()
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-chip"]')?.textContent).toContain('shared.safetensors'))
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
     expect(mounted.dispatchTo).toHaveBeenCalledOnce()
     expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({
       command: 'node.setValue',
@@ -589,7 +603,7 @@ describe('ASSET widget modal integration', () => {
     await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="asset-chip"]')).toHaveLength(0))
     canonical.click()
     await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="asset-chip"]')).toHaveLength(1))
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
     const value = (mounted.dispatchTo.mock.calls[0]?.[1] as { params: { value: readonly typeof aliasRef[] } }).params.value
     expect(value).toHaveLength(1)
     expect(value[0]).toEqual({
@@ -617,7 +631,7 @@ describe('ASSET widget modal integration', () => {
     }, [first, second])
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="collection-panel"]')).not.toBeNull())
 
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
     const value = (mounted.dispatchTo.mock.calls[0]?.[1] as { params: { value: readonly typeof first[] } }).params.value
     expect(value).toEqual([first])
     mounted.unmount()
@@ -690,7 +704,7 @@ describe('ASSET widget modal integration', () => {
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-entry="taesd"]')).not.toBeNull())
     mounted.root.querySelector<HTMLElement>('[data-entry="taesd"]')!.click()
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
-    const apply = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === 'Use selection')!
+    const apply = mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!
     apply.click()
     expect(mounted.dispatchTo).toHaveBeenCalledOnce()
     expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({
@@ -713,7 +727,7 @@ describe('ASSET widget modal integration', () => {
     const button = (text: string) => [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === text)!
     button('Browse files').click()
     button('Back to source options').click()
-    button('Use selection').click()
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
     expect(mounted.dispatchTo).toHaveBeenCalledOnce()
     expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({ command: 'node.setValue', params: { value: 'taesd' } })
     mounted.unmount()
@@ -737,11 +751,11 @@ describe('ASSET widget modal integration', () => {
     await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(3))
     const files = mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')
     files[1]!.click()
-    await vi.waitFor(() => expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
+    await vi.waitFor(() => expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.disabled).toBe(false))
     button('Back to source options').click()
     button('Browse files').click()
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
     expect(mounted.dispatchTo).toHaveBeenCalledOnce()
     expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({
       command: 'node.setValue', params: { value: { digest: mounted.digestB, virtualPath: 'b/shared.safetensors' } },
@@ -757,11 +771,11 @@ describe('ASSET widget modal integration', () => {
     const mounted = unresolvedAssetEditor({}, initial, { kind: 'union', names: ['COMBO', 'ASSET'] }, {
       widgetType: 'ASSET', kind: 'model/vae', selection: true, options: {},
     })
-    await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-apply"]')).not.toBeNull())
+    await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="editor-frame-apply"]')).not.toBeNull())
     expect(mounted.root.querySelector('[data-testid="asset-selection-editor"]')).toBeNull()
     expect(mounted.root.textContent).toContain('vae.safetensors')
     expect(mounted.connection.listAssetSelections).not.toHaveBeenCalled()
-    mounted.root.querySelector<HTMLButtonElement>('[aria-label="Close Checkpoint asset editor"]')!.click()
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-close"]')!.click()
     expect(mounted.close).toHaveBeenCalledOnce()
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     expect(initial.virtualPath).toBe('vae/vae.safetensors')
@@ -795,9 +809,9 @@ describe('ASSET widget modal integration', () => {
     expect(row.textContent).toContain(candidate.digest)
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     row.click()
-    await vi.waitFor(() => expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
+    await vi.waitFor(() => expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.disabled).toBe(false))
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
-    mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
     expect(mounted.dispatchTo).toHaveBeenCalledOnce()
     expect(mounted.dispatchTo).toHaveBeenCalledWith(mounted.ed.tab, {
       command: 'node.setValue',
@@ -903,7 +917,7 @@ describe('ASSET widget modal integration', () => {
     expect(close).not.toHaveBeenCalled()
     expect(dispatchTo).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain('byte-proof.bin'))
-    root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+    root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
     await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
     expect(dispatchTo).toHaveBeenCalledOnce()
     expect(dispatchTo).toHaveBeenCalledWith(ed.tab, {
@@ -971,7 +985,7 @@ describe('ASSET widget modal integration', () => {
     await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-search"]')).not.toBeNull())
 
     const dialog = root.querySelector<HTMLDialogElement>('[data-modal="widget-asset"]')!
-    expect(dialog.getAttribute('aria-label')).toBe('Edit Samples latent asset')
+    expect(dialog.getAttribute('aria-label')).toBe('Samples')
     expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('Single latent')
     expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GiB per file')
     expect(root.querySelector('.asset-browser-section')?.getAttribute('aria-label')).toBe('Latents')
@@ -1000,7 +1014,7 @@ describe('ASSET widget modal integration', () => {
       signal: expect.any(AbortSignal),
     })
     expect(dispatchTo).not.toHaveBeenCalled()
-    root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+    root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
     await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
     expect(dispatchTo).toHaveBeenCalledWith(ed.tab, {
       command: 'node.setValue',
@@ -1173,7 +1187,7 @@ describe('ASSET widget modal integration', () => {
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain('large.webm'))
     expect(close).not.toHaveBeenCalled()
     expect(dispatchTo).not.toHaveBeenCalled()
-    root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+    root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
     await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
     expect(dispatchTo).toHaveBeenCalledWith(ed.tab, expect.objectContaining({
       command: 'node.setValue', params: expect.objectContaining({ value: canonical }),
@@ -1297,7 +1311,7 @@ describe('registered interactive widget expanded-editor integration', () => {
       expect(fetchAssetBytes.mock.calls.map((call) => call[0])).toEqual([old.digest])
       const oldRead = fetchAssetBytes.mock.calls[0]![1]
       expect(oldRead.aborted).toBe(false)
-      expect([...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Use asset')!.disabled).toBe(true)
+      expect(root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.disabled).toBe(true)
       expect(dispatchTo).not.toHaveBeenCalled()
       if (outcome === 'closed') click('Cancel')
       if (outcome === 'backend') selectedBackend = { ...backend }
@@ -1310,7 +1324,7 @@ describe('registered interactive widget expanded-editor integration', () => {
         expect(fetchAssetBytes.mock.calls[1]![1].aborted).toBe(false)
         expect(dispatchTo).not.toHaveBeenCalled()
         await vi.waitFor(() => expect(root.querySelector('audio')?.getAttribute('src')).toBe('blob:recording'))
-        click('Use asset')
+        root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
         expect(dispatchTo).toHaveBeenCalledWith(ed.tab, expect.objectContaining({ params: expect.objectContaining({ value: recorded }) }))
       } else if (outcome !== 'closed') {
         await vi.waitFor(() => expect(root.textContent).toContain('Clip retained for retry'))
@@ -1324,16 +1338,16 @@ describe('registered interactive widget expanded-editor integration', () => {
 
   it('opens AUDIO_RECORD through the registry and refuses upload on a non-native backend', () => {
     const mounted = mountWidget(widgetState('AUDIO_RECORD', {}, null))
-    expect(mounted.root.querySelector('[data-testid="audio-record-editor"]')?.textContent).toContain('Recording uploads require a native Dinkster backend')
-    const use = Array.from(mounted.root.querySelectorAll('button')).find((button) => button.textContent === 'Use asset')!
+    expect(mounted.root.querySelector('[role="alert"]')?.textContent).toContain('Recording uploads require a native Dinkster backend')
+    const use = mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!
     expect(use.disabled).toBe(true)
     mounted.clickAway()
-    expect(mounted.close).toHaveBeenCalledOnce()
+    expect(mounted.close).not.toHaveBeenCalled()
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.unmount()
   })
 
-  it('preserves a COLORS draft and discards it on click-away without mutating the initial array', () => {
+  it('preserves a COLORS draft through a press outside and discards it on Cancel without mutating the initial array', () => {
     const initial = ['#A1B2C3dd', '#f00']
     const mounted = mountWidget(widgetState('COLORS', {}, initial))
     const fields = mounted.root.querySelectorAll<HTMLInputElement>('input:not([type="color"])')
@@ -1342,6 +1356,9 @@ describe('registered interactive widget expanded-editor integration', () => {
     fields[0]!.dispatchEvent(new Event('input', { bubbles: true }))
     expect(initial).toEqual(['#A1B2C3dd', '#f00'])
     mounted.clickAway()
+    expect(mounted.close).not.toHaveBeenCalled()
+    expect(fields[0]!.value).toBe('#00ff00')
+    mounted.root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-cancel"]')!.click()
     expect(mounted.close).toHaveBeenCalledOnce()
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.unmount()

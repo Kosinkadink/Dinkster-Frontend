@@ -6,6 +6,8 @@ import type { EditorHostContext } from './editors.js'
 import { useSignal } from './solid-adapter.js'
 import { useAppMessage } from './locale.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { ProductEditorFrame, ProductStringsProvider, type ProductEditorFramePhase } from '@dinkster/ui'
+import { editorFrameStrings } from './WidgetEditorController.js'
 
 const clamp = (value: number): number => Math.max(0, Math.min(1, value))
 const CURVE_WIDTH = 1000
@@ -199,7 +201,7 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
   }
 
   const apply = async (): Promise<void> => {
-    if (applying()) return
+    if (applying() || phase() !== 'changed') return
     const request = target()
     const value = draft()
     const tab = request && tabs().find((candidate) => candidate.id === request.tabId)
@@ -242,16 +244,45 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
     }
   }
 
+  const phase = (): ProductEditorFramePhase => {
+    const request = target()
+    const value = draft()
+    if (currentTarget() === undefined) return 'unavailable'
+    if (!request || !value) return 'loading'
+    if (!isCurveValue(value)) return 'invalid'
+    return canonicalJson(value as unknown as Json) === canonicalJson(request.openedValue as unknown as Json) ? 'unchanged' : 'changed'
+  }
+  /** "Field - Node", as every full editor's frame is titled. */
+  const frameTitle = (request: NonNullable<ReturnType<typeof target>>): string => {
+    const tab = tabs().find((candidate) => candidate.id === request.tabId)
+    const node = tab?.store.doc.graphs[request.graphId]?.nodes[request.nodeId]
+    const title = node === undefined ? undefined : node.title ?? props.app.registryForTab(tab!)?.resolve(node.type)?.displayName ?? node.type
+    return title === undefined || title === '' ? request.inputId : `${request.inputId} - ${title}`
+  }
+  const cancel = (request: NonNullable<ReturnType<typeof target>>): void => {
+    if (!applying()) props.app.closeCurveEditor(request)
+  }
+
   return <section class="curve-editor" data-testid="curve-editor">
     <Show when={target()} fallback={<div class="editor-unavailable"><ProductEmptyState title="No curve target is active." /></div>}>
-      {(request) => <>
-        <header class="curve-editor-header">
-          <div><strong>Curve editor</strong><small>{request().nodeId} / {request().inputId}</small></div>
-          <div>
-            <button onClick={() => props.app.closeCurveEditor(request())}>Cancel</button>
-            <button class="primary" disabled={readonly()} onClick={apply}>Apply</button>
-          </div>
-        </header>
+      {(request) => <ProductStringsProvider strings={editorFrameStrings(appMessage)}>
+        <div class="curve-editor-frame dinkster-root" tabIndex={-1} ref={(element) => {
+          // The keyboard starts in the editor, so Escape cancels it; presses inside keep it there.
+          queueMicrotask(() => { if (element.isConnected && !element.contains(document.activeElement)) element.focus() })
+        }} onKeyDown={(event) => {
+          if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented) return
+          event.preventDefault()
+          cancel(request())
+        }}>
+        <ProductEditorFrame
+          title={frameTitle(request())}
+          phase={phase()}
+          applying={applying()}
+          unavailableLabel={appMessage('curveEditor.targetUnavailable')}
+          {...(error() !== undefined ? { error: error()!, onDismissError: () => setError(undefined) } : {})}
+          onApply={() => { void apply() }}
+          onCancel={() => cancel(request())}
+        >
         <div class="curve-editor-body">
           <aside>
             <label>Interpolation<select
@@ -312,9 +343,9 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
             />}</Index>
           </svg>
         </div>
-        <Show when={currentTarget() === undefined}><div class="curve-editor-error" role="alert">{appMessage('curveEditor.targetUnavailable')}</div></Show>
-        <Show when={error()}>{(message) => <div class="curve-editor-error" role="alert">{message()}</div>}</Show>
-      </>}
+        </ProductEditorFrame>
+        </div>
+      </ProductStringsProvider>}
     </Show>
   </section>
 }

@@ -66,15 +66,9 @@
 .modal-surface[data-modal='canvas-import'] { width: min(560px, 90vw); min-width: min(320px, 90vw); }
 .canvas-import-choice { min-height: 0; padding: var(--dinkster-space-16); overflow: auto; overflow-wrap: anywhere; }
 .canvas-import-choice > p { margin: 0; color: var(--dinkster-text-secondary); }
-.modal-surface[data-modal^='widget-'] {
-  min-width: min(280px, calc(100vw - 16px));
-  width: min(620px, calc(100vw - 16px));
-  max-width: calc(100vw - 16px);
-  max-height: calc(100vh - 16px);
-}
-.modal-surface[data-modal='widget-asset'] { width: min(1180px, calc(100vw - 16px)); max-height: min(820px, calc(100vh - 16px)); }
-.modal-surface[data-modal='widget-video-edit'] { width: min(760px, calc(100vw - 16px)); max-height: min(860px, calc(100vh - 16px)); }
-.modal-surface[data-modal='widget-video-edit'] .widget-modal-help { flex: none; padding: var(--dinkster-space-12) var(--dinkster-space-12) 0; }
+/* A full editor covers the canvas area it was opened over; ModalSurface sets its box. */
+.modal-surface.is-editor { position: fixed; inset: auto; min-width: 0; max-width: none; max-height: none; margin: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.modal-surface.is-editor::backdrop { background: transparent; }
 .customize-layout { padding: 14px; }
 .customize-layout-intro { margin: 0 0 12px; color: var(--dinkster-text-secondary); }
 .customize-layout fieldset { margin: 0; padding: 0; border: 0; }
@@ -389,3 +383,11 @@
 .gesture-refusal-toast button:hover { background: var(--dinkster-interaction-hover); }
 .gesture-refusal-toast button:focus-visible { outline: 2px solid var(--dinkster-border-focus); outline-offset: 1px; }
 .gesture-refusal-toast svg { width: 15px; height: 15px; }
+/* A full editor's own content inside the frame's body. */
+.widget-frame-body { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.widget-frame-body > :is(.dinkster-editor-frame-columns, .dinkster-editor-frame-work) { flex: 1; }
+/* The side panel is narrow: fields put their label above the control, and a row keeps its control at its own size. */
+.dinkster-editor-frame-panel .product-field[data-layout='compact'] { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'copy actions' 'control control' 'message message'; }
+.dinkster-editor-frame-panel .product-field[data-layout='row'] { grid-template-columns: minmax(0, 1fr) auto; }
+.widget-frame-scroll { flex: 1; min-height: 0; padding: var(--dinkster-space-12); overflow: auto; }
+.widget-frame-form { display: grid; align-content: start; gap: var(--dinkster-space-12); }

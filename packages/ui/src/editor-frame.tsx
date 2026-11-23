@@ -36,7 +36,11 @@ export function ProductEditorFrame(props: {
   /** What could not load; default "Could not load the preview." */
   unavailableLabel?: string
   onRetry?: () => void
-  onApply: () => void
+  /**
+   * Stores the draft. An editor that can never store, such as a comparison
+   * view, leaves it out: its footer has one Close button instead.
+   */
+  onApply?: () => void
   onCancel: () => void
   children: JSX.Element
 }) {
@@ -77,13 +81,14 @@ export function ProductEditorFrame(props: {
         <ProductIconButton
           icon={X}
           label={strings.closeEditor}
+          data-testid="editor-frame-close"
           disabled={applying()}
           onClick={() => props.onCancel()}
         />
       </header>
       <Show when={props.error}>
         {(error) => (
-          <div class="dinkster-editor-frame-banner">
+          <div class="dinkster-editor-frame-banner" data-testid="editor-frame-error">
             <ProductErrorBanner
               onDismiss={() => props.onDismissError?.()}
             >
@@ -122,17 +127,31 @@ export function ProductEditorFrame(props: {
         <span class="dinkster-editor-frame-status" role="status">
           {status()}
         </span>
-        <ProductButton disabled={applying()} onClick={() => props.onCancel()}>
-          {strings.cancel}
-        </ProductButton>
-        <ProductButton
-          fill="solid"
-          pending={applying()}
-          disabled={props.phase !== 'changed'}
-          onClick={() => props.onApply()}
+        <Show
+          when={props.onApply}
+          fallback={
+            <ProductButton data-testid="editor-frame-cancel" onClick={() => props.onCancel()}>
+              {strings.close}
+            </ProductButton>
+          }
         >
-          {strings.apply}
-        </ProductButton>
+          {(apply) => (
+            <>
+              <ProductButton data-testid="editor-frame-cancel" disabled={applying()} onClick={() => props.onCancel()}>
+                {strings.cancel}
+              </ProductButton>
+              <ProductButton
+                data-testid="editor-frame-apply"
+                fill="solid"
+                pending={applying()}
+                disabled={props.phase !== 'changed'}
+                onClick={() => apply()()}
+              >
+                {strings.apply}
+              </ProductButton>
+            </>
+          )}
+        </Show>
       </footer>
     </section>
   )

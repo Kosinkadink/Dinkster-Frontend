@@ -3,7 +3,7 @@ import { createSignal, For, onCleanup, onMount, Show, type Component } from 'sol
 import { viewInstancePath } from '../app-state.js'
 import { liveExactnessFor } from '../companion-display.js'
 import { ProductButton, ProductTextInput } from '../ProductControls.js'
-import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm.js'
+import { ProductField, ProductNotice } from '../ProductForm.js'
 import { ProductSelect } from '../ProductSelect.js'
 import { useAppMessage } from '../locale.js'
 import { mountModel3dViewer, type Model3dCameraState, type Model3dTransform, type Model3dViewerHandle } from '../model3d-viewer.js'
@@ -305,9 +305,9 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
       setError(reason instanceof Error ? reason.message : String(reason))
     }
   }
-  const apply = async (): Promise<void> => {
-    if (!viewer || backend.protocol !== 'dinkster' || recording() || busy()) return
-    if (ed.tab.execution || !sourcesCurrent()) { props.close(); return }
+  const apply = async (): Promise<boolean> => {
+    if (!viewer || backend.protocol !== 'dinkster' || recording() || busy()) return false
+    if (ed.tab.execution || !sourcesCurrent()) { props.close(); return false }
     setBusy(true)
     setError(undefined)
     try {
@@ -323,23 +323,21 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         pendingCapture = viewer.capture(Number(inputValue('width') ?? 1024), Number(inputValue('height') ?? 1024))
         const capture = await pendingCapture
         for (const name of ['image', 'mask', 'normal'] as const) {
-          if (!live || !sourcesCurrent()) return
+          if (!live || !sourcesCurrent()) return false
           const file = new File([capture[name]], `viewport-${name}.png`, { type: 'image/png' })
           const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal: abort.signal })
           next[name] = JSON.parse(JSON.stringify(ref)) as Json
         }
         if (video) {
-          if (!live || !sourcesCurrent()) return
+          if (!live || !sourcesCurrent()) return false
           const file = new File([video], 'viewport-recording.webm', { type: video.type })
           const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/video', name: file.name, signal: abort.signal })
           next.recording = JSON.parse(JSON.stringify(ref)) as Json
         } else if (next.recording === undefined) next.recording = ''
       }
-      if (!live || abort.signal.aborted) return
-      if (ed.tab.execution || !sourcesCurrent()) { props.close(); return }
-      props.commitValue(next)
-    } catch (reason) {
-      if (live) setError(reason instanceof Error ? reason.message : String(reason))
+      if (!live || abort.signal.aborted) return false
+      if (ed.tab.execution || !sourcesCurrent()) { props.close(); return false }
+      return await props.commitValue(next)
     } finally { pendingCapture = undefined; if (live) setBusy(false) }
   }
   const changeCamera = (update: Partial<Model3dCameraState>): void => {
@@ -357,10 +355,23 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
     viewer.setModelTransform({ ...state, [field]: { ...state[field], [axis]: value } })
     setTransform(viewer.modelTransform())
   }
-  return <div class="widget-editor widget-modal-editor" data-testid="load3d-widget-editor">
-    <props.header type="LOAD_3D" />
-    <div ref={viewport} inert={busy()} class="load3d-widget-viewport" classList={{ 'load3d-widget-viewport-animated': clips().length > 0 }} data-testid="load3d-viewport" />
-    <Show when={error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
+  // Applying always captures the current view, so a loaded viewer can always apply.
+  props.bindFrame({
+    phase: () => !camera() ? (error() !== undefined ? 'unavailable' : 'loading') : recording() ? 'invalid' : 'changed',
+    status: () => recording() ? message('load3dWidget.recordingStatus') : undefined,
+    unavailable: () => camera() ? undefined : error(),
+    apply,
+  })
+  return <div class="widget-frame-body" data-testid="load3d-widget-editor" data-editor-surface="frame">
+    <Show when={!metadataOnly}><div class="dinkster-editor-frame-toolbar">
+      <ProductButton type="button" disabled={!camera() || busy()} onClick={record}>{message(recording() ? 'load3dWidget.stopRecording' : 'load3dWidget.record')}</ProductButton>
+    </div></Show>
+    <div class="dinkster-editor-frame-columns">
+    <div class="dinkster-editor-frame-work load3d-widget-work">
+      <div ref={viewport} inert={busy()} class="load3d-widget-viewport" data-testid="load3d-viewport" />
+    </div>
+    <div class="dinkster-editor-frame-panel">
+    <Show when={camera() && error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
     <Show when={camera()}>{(state) => <>
       <ProductField layout="compact" controlId="load3d-camera-type" label={message('load3dWidget.camera')}>
         <ProductSelect id="load3d-camera-type" disabled={busy() || recording()} ariaLabel={message('load3dWidget.camera')} selectedId={state().cameraType}
@@ -403,11 +414,8 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
         setAnimationTime(time); setAnimationPlaying(!animationPlaying()); viewer?.setAnimation(clip(), time, animationPlaying(), animationSpeed())
       }}>{message(animationPlaying() ? 'load3dWidget.pauseAnimation' : 'load3dWidget.playAnimation')}</ProductButton>
     </div></Show>
-    <ProductActionFooter>
-      <Show when={!metadataOnly}><ProductButton type="button" disabled={!camera() || busy()} onClick={record}>{message(recording() ? 'load3dWidget.stopRecording' : 'load3dWidget.record')}</ProductButton></Show>
-      <ProductButton type="button" disabled={busy()} onClick={props.close}>{message('common.cancel')}</ProductButton>
-      <ProductButton type="button" variant="primary" disabled={!camera() || busy() || recording()} onClick={() => void apply()}>{message('common.apply')}</ProductButton>
-    </ProductActionFooter>
+    </div>
+    </div>
   </div>
 }
 

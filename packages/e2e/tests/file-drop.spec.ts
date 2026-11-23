@@ -743,7 +743,7 @@ test('latent without a valid workflow uploads canonically and inserts Load Laten
   await page.mouse.click(point.x, point.y)
   const editor = page.getByTestId('asset-editor')
   await expect(editor).toBeVisible()
-  await expect(page.getByRole('dialog', { name: 'Edit latent asset' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'latent - Load Latent' })).toBeVisible()
   await expect(editor.getByTestId('asset-schema-metadata')).toContainText('Single latent')
   await expect(editor.getByTestId('asset-schema-metadata')).toContainText('data/latent')
   await expect(editor.getByTestId('asset-schema-metadata')).toContainText('1 GiB per file')

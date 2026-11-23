@@ -1701,10 +1701,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   })
   onCleanup(retractWidgetFocus)
   let editorClickAway: (() => unknown) | undefined
-  let openAssetWidgetAt = (_clientX: number, _clientY: number): void => {}
   let moveEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _direction: 1 | -1): void => {}
   let editsRowsInPlace = (): boolean => false
-  let focusEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }): void => {}
+  let focusEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _notice?: string): void => {}
   interface ControllerMenuState {
     readonly x: number
     readonly y: number
@@ -4233,7 +4232,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
         setRowFocus(node === undefined || row?.kind !== 'widget' || focus.tabId !== tab.id || focus.graphId !== graphId
           ? undefined
-          : rowFocusAt(tab, node, row))
+          : { ...rowFocusAt(tab, node, row), ...(focus.notice === undefined ? {} : { notice: focus.notice }) })
       }
       const openMenu = untrack(menu)
       // Menu items are a semantic snapshot: they also go stale when the
@@ -5172,7 +5171,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
     }
 
-    focusEditorRow = (from) => {
+    focusEditorRow = (from, notice) => {
       const tab = activeTab()
       const node = rowNodeOf(from.nodeId)?.node
       const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === from.valueKey)
@@ -5180,7 +5179,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setRowFocus(undefined)
         return
       }
-      setRowFocus(rowFocusAt(tab, node, row))
+      const focus = rowFocusAt(tab, node, row)
+      setRowFocus(notice === undefined ? focus : { ...focus, notice })
       canvasEl.focus()
     }
 
@@ -5219,20 +5219,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       canvasEl.removeEventListener('pointerdown', clearRowFocus, true)
       canvasEl.removeEventListener('blur', clearRowFocus)
     })
-
-    // A native modal owns the trusted backdrop pointerdown. After it closes,
-    // hit-test the scene directly instead of replaying an untrusted event.
-    openAssetWidgetAt = (clientX, clientY) => {
-      const rect = canvasEl.getBoundingClientRect()
-      if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return
-      if (document.elementFromPoint(clientX, clientY) !== canvasEl) return
-      const world = renderer.toWorld(clientX - rect.left, clientY - rect.top)
-      const hit = hitTest(renderer.getScene(), world.x, world.y, {
-        scale: renderer.getViewport().scale,
-        detailLevel: renderer.getDetailLevel(),
-      })
-      if (hit.kind === 'widget' && hit.row.spec.widgetType === 'ASSET') openWidgetEditor(hit)
-    }
 
     /**
      * Click on a value source pill: the pill IS the widget, so open its
@@ -7147,9 +7133,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             bindClickAway={(handler) => { editorClickAway = handler }}
             {...(editsRowsInPlace() ? {
               moveRow: (from: { readonly nodeId: string; readonly valueKey: string }, direction: 1 | -1) => moveEditorRow(from, direction),
-              focusRow: (from: { readonly nodeId: string; readonly valueKey: string }) => focusEditorRow(from),
+              focusRow: (from: { readonly nodeId: string; readonly valueKey: string }, notice?: string) => focusEditorRow(from, notice),
             } : {})}
-            onAssetBackdropPointerDown={(event) => openAssetWidgetAt(event.clientX, event.clientY)}
             onClose={() => {
               setEditor(undefined)
               if (editorRestoresCanvasFocus(ed)) queueMicrotask(() => canvasEl.focus())

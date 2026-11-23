@@ -5,8 +5,8 @@ import { asNodeId, companionSourcesOf, occurrencesForView } from '@dinkster/core
 import { createEffect, createSignal, For, onCleanup, onMount, Show, type Component } from 'solid-js'
 import { viewInstancePath } from '../app-state.js'
 import { liveExactnessFor } from '../companion-display.js'
-import { ProductButton, ProductTextInput } from '../ProductControls.js'
-import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from '../ProductForm.js'
+import { ProductTextInput } from '../ProductControls.js'
+import { ProductField, ProductNotice, productFieldIds } from '../ProductForm.js'
 import { useAppMessage } from '../locale.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import './bounding-box-widget-editor.css'
@@ -104,30 +104,33 @@ const BoundingBoxImplementation: Component<WidgetEditorImplementationProps> = (p
     context.lineWidth = Math.max(canvasPaintTokens.editor.boundingBox.strokeMinWidth, image.width / canvasPaintTokens.editor.boundingBox.strokeImageScale)
     context.strokeRect(x, y, width, height)
   })
-  const commit = (): void => { if (valid()) void props.commitValue(box()) }
-  props.editor.bindClickAway?.(props.close)
-  onCleanup(() => { props.editor.bindClickAway?.(undefined) })
+  const changed = (): boolean => fields.some((field) => draft()[field].trim() !== String(initial[field]))
+  props.bindFrame({
+    phase: () => !valid() ? 'invalid' : changed() ? 'changed' : 'unchanged',
+    apply: () => props.commitValue(box()),
+  })
 
-  return <div ref={props.bindPopover} class="widget-editor floating-surface widget-editor-popover" data-testid="bounding-box-editor" data-editor-surface="popover" role="dialog" aria-label={message('boundingBoxWidget.title')}>
-    <props.header type="BOUNDING_BOX" />
-    <canvas ref={canvas} class="bounding-box-preview" classList={{ 'is-ready': preview() !== undefined }} role="img" aria-label={message('boundingBoxWidget.preview')} />
-    <Show when={!preview()}><ProductNotice tone="info">{loading() ? message('boundingBoxWidget.loading') : message('boundingBoxWidget.sourceUnavailable')}</ProductNotice></Show>
-    <For each={fields}>{(field) => {
-      const id = `bounding-box-${field}`
-      return <ProductField controlId={id} label={message(`boundingBoxWidget.${field}`)} layout="compact">
-        <ProductTextInput id={id} aria-labelledby={productFieldIds(id).label} value={draft()[field]} inputmode="numeric" disabled={props.commitPending()}
-          ref={(element) => { if (field === 'x') queueMicrotask(() => { if (element.isConnected) { element.focus(); element.select() } }) }}
-          onInput={(event) => { const value = event.currentTarget.value; setDraft((previous) => ({ ...previous, [field]: value })) }} />
-      </ProductField>
-    }}</For>
-    <Show when={!valid()}><ProductNotice tone="error">{message('boundingBoxWidget.invalid')}</ProductNotice></Show>
-    <ProductActionFooter>
-      <ProductButton type="button" onClick={props.close}>{message('common.cancel')}</ProductButton>
-      <ProductButton type="button" variant="primary" disabled={!valid() || props.commitPending()} onClick={commit}>{message('boundingBoxWidget.apply')}</ProductButton>
-    </ProductActionFooter>
-  </div>
+  return <div class="widget-frame-body" data-testid="bounding-box-editor" data-editor-surface="frame"><div class="dinkster-editor-frame-columns">
+    <div class="dinkster-editor-frame-work">
+      <canvas ref={canvas} class="bounding-box-preview" classList={{ 'is-ready': preview() !== undefined }} role="img" aria-label={message('boundingBoxWidget.preview')} />
+      <Show when={!preview()}><ProductNotice tone="info">{loading() ? message('boundingBoxWidget.loading') : message('boundingBoxWidget.sourceUnavailable')}</ProductNotice></Show>
+    </div>
+    <div class="dinkster-editor-frame-panel">
+      <For each={fields}>{(field) => {
+        const id = `bounding-box-${field}`
+        return <ProductField controlId={id} label={message(`boundingBoxWidget.${field}`)} layout="compact">
+          <ProductTextInput id={id} aria-labelledby={productFieldIds(id).label} value={draft()[field]} inputmode="numeric"
+            ref={(element) => { if (field === 'x') queueMicrotask(() => { if (element.isConnected) { element.focus(); element.select() } }) }}
+            onInput={(event) => { const value = event.currentTarget.value; setDraft((previous) => ({ ...previous, [field]: value })) }} />
+        </ProductField>
+      }}</For>
+      <Show when={!valid()}><ProductNotice tone="error">{message('boundingBoxWidget.invalid')}</ProductNotice></Show>
+    </div>
+  </div></div>
 }
 
-export const BoundingBoxWidgetEditor: Component<WidgetEditorProps> = (props) => (
-  <WidgetEditorController {...props} implementation={BoundingBoxImplementation} />
-)
+export const BoundingBoxWidgetEditor: Component<WidgetEditorProps> = (props) => {
+  const message = useAppMessage()
+  return <WidgetEditorController {...props} implementation={BoundingBoxImplementation}
+    modal={{ type: 'BOUNDING_BOX', help: <>{message('boundingBoxWidget.title')}</> }} />
+}

@@ -164,7 +164,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'editor-rows':
     'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for.',
   'editor-frame':
-    'Every full editor opens in one frame that fills the canvas area: a title with the close button, the editor\'s own body, and a footer with Cancel and one Apply. Shown with the crop editor and the asset browser as examples.',
+    'Every full editor opens in one frame that fills the canvas area: a title with the close button, the editor\'s own body, and a footer with Cancel and one Apply, or one Close for an editor that can never store. Shown with the crop editor, the asset browser and the image comparison as examples.',
   'widget-driven':
     'A row whose value comes from a wire is dimmed and its stored value is struck through.',
   'widget-offered':

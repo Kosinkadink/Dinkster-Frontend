@@ -9,37 +9,39 @@ SAVE_TARGET opens a ready writable mount selector and relative filename prefix.
 The writer adds the descriptor's suffix and numbering; no host path is stored
 in the graph. Empty, absolute, dot-segment and backslash prefixes cannot apply.
 Unavailable current mounts stay visible but cannot apply. The optional gallery
-destination also offers Clear destination; required save targets do not.
+destination also offers Clear destination, which clears the draft so Apply
+stores no destination; required save targets do not.
 Mount grants are checked again by the backend when it writes.
 
 RESOLUTION_PREVIEW opens a proportional rectangle and exact pixel dimensions
 from the node's aspect ratio, megapixels and rounding multiple. The named
-controls update that preview as a draft; Apply resolution writes the three
+controls update that preview as a draft; Apply writes the three
 real inputs as one undoable edit without writing the ignored preview value.
 Dimensions use the backend's 1024-based megapixels and ties-to-even rounding.
 Connected inputs disable this composer instead of showing invented dimensions.
 
 CAMERA_ANGLE_VIEW opens a top-down orbit and side elevation preview with named
-horizontal angle, vertical angle and zoom fields. Apply camera angle updates
+horizontal angle, vertical angle and zoom fields. Apply updates
 the three real numeric inputs as one undoable edit; the presentation-only view
 string is unchanged. Blank, fractional angle and out-of-range drafts cannot be
 applied. Connected numeric inputs disable this composer rather than pretending
 to override their drivers; edit the source inputs or disconnect them first.
-Cancel and outside dismissal discard the draft.
+Cancel discards the draft.
 
 IMAGECOMPARE opens a wipe comparison of the node's executed image_a and
 image_b preview streams. The divider supports pointer and keyboard controls;
 each side has an independent frame selector. A single connected side fills
 the preview without a divider. Unequal image sizes fit without distortion.
-The divider and frame choices are local display state, not graph values.
+The divider and frame choices are local display state, not graph values, so
+its frame has one Close button instead of Cancel and Apply.
 Successful untimed image batches remain browsable within the session's
 existing preview-byte budget; timed animations release their frame rings at
 completion. After eviction or reload, run the comparison again.
 
 BOUNDING_BOX rows summarize X, Y, width and height in pixels. Opening the crop
-region shows four named fields; Apply crop stores the complete region as one
+region shows four named fields; Apply stores the complete region as one
 undoable edit. Coordinates must be nonnegative whole pixels and dimensions
-must be positive whole pixels. Cancel or outside dismissal discards the draft.
+must be positive whole pixels. Cancel discards the draft.
 After running the connected image source, the editor shows its first frame
 with the selected crop outlined and the excluded area shaded. The outline
 matches the backend's edge clamping. An unavailable or stale source leaves
@@ -60,13 +62,52 @@ non-serialized widgets. Import retains their original proxy metadata but does
 not create executable boundary inputs or consume positional widget values for
 them. Real promoted widgets and after-generate controllers keep their order.
 
+## The full editor frame
+
+Every editor that a raised row opens, and the painter, opens in one frame that
+covers the canvas area. It is not a saved tab and has no size of its own. The
+header holds the title, "Field - Node" (the row's label and the node's title),
+and an X named Close editor. The footer holds a status line, one Cancel and
+one Apply; no editor has a second confirming button such as Use asset or
+Apply crop. Each editor keeps its own tools, checks and writes inside the
+frame: an upload, a capture or a batch of writes still happens on Apply. An
+editor that is a picture or a scene fills the body; an editor that is a few
+controls keeps them in one column at the top of the body. The curve editor
+keeps its own route, the tab's center switching to it, inside the same frame.
+
+- Apply is available only when the draft differs from the stored value, is
+  valid and has loaded. Reverting a change makes it unavailable again. The
+  status line says why: No changes, Changes not applied, Fix the problem
+  before applying, or the editor's own reason, such as a recording still in
+  progress.
+- While the editor loads, the frame shows Loading preview. If it cannot load,
+  it says so and offers Try again; Apply stays unavailable.
+- While Apply is pending, Apply keeps its name and shows a spinner, and the
+  body, Cancel, the X, Escape and a second Apply wait for the result. A
+  refusal or failure shows a banner above the body and keeps the draft, so
+  Apply can be tried again.
+- An accepted Apply closes the frame, returns the keyboard to the row and the
+  row's side part says "Applied. Undo takes it back in one step." When the
+  stored value changes elsewhere while the editor is open, the frame closes
+  without writing and the side part says so.
+- Cancel, the X and Escape discard the draft without writing. A press outside
+  the frame does nothing and never reaches the canvas under it.
+- Tab stays inside the frame and the keyboard starts on the editor's first
+  tool. Ctrl+Enter applies a changed draft and runs the workflow once the
+  write is accepted; an unchanged editor closes and runs; an invalid or
+  pending one does neither.
+- An editor that can never store, today the image comparison, has one Close
+  button where Cancel and Apply would be.
+
+A pack editor shown through a host UI provider keeps its own popover.
+
 ## Command acceptance
 
 Shared value commits and scalar text splices keep the editor open until the
 document command is accepted. Pending content is inert and duplicate commits
 are ignored. A refusal keeps the exact draft and shows an inline error for
-retry. Escape, outside dismissal and modal close dismiss only the editor;
-they do not cancel a submitted command. A completed command cannot close a
+retry. Escape and modal close dismiss only the editor; they do not cancel a
+submitted command. A completed command cannot close a
 replacement editor. Combo menu and branch-label edits and video edit batches
 use the same acceptance path. Explicit refresh selection closes a multi-combo
 only after acceptance. Single refresh does not request closure, but a document
@@ -97,7 +138,7 @@ download control. Download approval belongs to the pre-run approval dialog;
 local matching, selection, Cancel and Undo retain their usual behavior.
 
 The audio-recording editor uploads a saved recording and stages the returned
-reference for playback. Use asset changes the document; Cancel does not. A
+reference for playback. Apply changes the document; Cancel does not. A
 failed upload keeps the previous draft and the local clip for retry.
 
 Selected-image and recorded-audio preview byte reads are cancelled when their
@@ -125,7 +166,7 @@ captures its image, mask and normal assets.
 The WEBCAM row opens a camera capture dialog. Capture frame requests browser
 camera permission, takes one PNG resized to the node's width and height, stages
 it on the node's native backend, and releases the camera tracks. A zero width
-uses the camera's native dimensions for both axes. Use frame
+uses the camera's native dimensions for both axes. Apply
 commits the asset reference as an undoable input edit; Cancel or closing the
 dialog leaves the stored value unchanged. Camera errors retain the browser's
 named error (for example NotFoundError when no camera is available).
@@ -584,7 +625,7 @@ directly in its painted rectangle instead. The popovers are non-draggable,
 non-resizable, canvas-stage-clamped, and close through Escape, Cancel, a
 committed selection, or an outside click. Native ASSET source selections use
 the searchable product dialog with backend-provided names from
-`/api/assets/selections`, scoped to the editing tab and project. Use selection writes
+`/api/assets/selections`, scoped to the editing tab and project. Apply writes
 the exact selected name; unavailable stored names remain visible but cannot
 be applied. Cancel preserves the stored value, including a VAE asset reference.
 Ordinary ASSET strings remain unresolved filenames, not source selections.
@@ -667,7 +708,7 @@ blob URL. `core.audioRecord` shows the filename or an empty recording prompt.
 The registered editor reuses AudioRecorder: capture starts only on explicit
 Record with browser permission; Stop, discard and close release the microphone.
 Save recording uploads through the editing tab's native `media/audio` route
-and stages the returned descriptor. Use asset commits one undoable change;
+and stages the returned descriptor. Apply commits one undoable change;
 Cancel, Escape and close discard the draft and abort any pending upload.
 Failed uploads retain the clip for explicit retry. Existing audio can play
 through AudioTransport without changing the graph value. A stored recording's
@@ -690,8 +731,8 @@ fields with keyboard-accessible Up, Down and Remove actions. Add color appends
 white until there are 16 entries; longer imported arrays remain intact.
 Text accepts `#rgb`, `#rrggbb` and `#rrggbbaa` without normalizing case or alpha.
 The RGB picker preserves an existing alpha pair. Invalid drafts stay visible
-and cannot commit. Commit writes the ordered array as one undoable change;
-Cancel, Escape and outside dismissal discard staged edits, additions, removals
+and cannot be applied. Apply writes the ordered array as one undoable change;
+Cancel and Escape discard staged edits, additions, removals
 and reorders. Empty palettes are valid. No server palette or color-space
 conversion is inferred.
 
@@ -788,8 +829,8 @@ another node, activate toolbar chrome, or begin a canvas pan instead of
 requiring a second gesture. A successful change is one document command and
 one undo step. Invalid typed text is dropped on click-away without changing the
 stored value or opening a new error surface. Explicit Cancel and Escape remain
-discard paths. The ASSET native backdrop owns the modal equivalent and its
-upload lock still consumes outside interaction.
+discard paths. Full editors open in the editor frame instead, where an
+outside press does nothing.
 
 ## In-node multiline editing
 
@@ -1121,10 +1162,10 @@ The editor scrolls to reach destination controls and actions rather than
 shrinking the folder rows underneath them. Picking a mounted file stages its
 existing reference without an upload; Cancel preserves the previous value.
 
-The shared action footer presents upload status separately from Upload,
-Cancel, and the primary commit button (`Use asset`, or a staged count under
-multi-select). Removing the whole staged selection is a `Remove` action inside
-the selection panel; like every pick it only stages until the footer commit.
+Upload and its size limit sit in the editor's toolbar; the frame's footer
+shows upload status beside its one Cancel and Apply. Removing the whole staged
+selection is a `Remove` action inside the selection panel; like every pick it
+only stages until Apply.
 Pending upload state disables competing
 writes while Cancel remains available to abort the request. The visible Upload
 file action is a product-owned button with keyboard,

@@ -1,11 +1,10 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
-import type { Json, WidgetSpec } from '@dinkster/core'
+import { jsonSameValue, type Json, type WidgetSpec } from '@dinkster/core'
 import type { RenditionOptions, ValuePeekResult } from '@dinkster/client'
 import type { VideoEditSource } from './video-edit-context.js'
-import { Check, X } from 'lucide-solid'
-import { Icon } from './Icon.js'
+import type { EditorFrameBinding } from './WidgetEditorController.js'
 import { ProductButton, ProductCheckbox } from './ProductControls.js'
-import { ProductActionFooter, ProductNotice } from './ProductForm.js'
+import { ProductNotice } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSlider } from './ProductSlider.js'
 import {
@@ -31,8 +30,9 @@ export interface VideoEditEditorProps {
   readonly source?: VideoEditSource
   readonly sourceReason?: string
   readonly editDisabledReason?: string
-  readonly onCommit: (value: Json, strictDuration: boolean) => void
-  readonly onCancel: () => void
+  /** Stores the draft; the editor frame's Apply calls it. */
+  readonly onCommit: (value: Json, strictDuration: boolean) => Promise<boolean> | boolean
+  readonly bindFrame: (binding: EditorFrameBinding) => void
 }
 
 const number = (value: unknown, fallback = 0): number =>
@@ -188,6 +188,13 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
       (edge.includes('n') ? rect.y : rect.y + rect.height) + (event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0))
   }
 
+  const blocked = () => editError() !== undefined || numericError() !== undefined
+  props.bindFrame({
+    phase: () => blocked() ? 'invalid'
+      : !jsonSameValue(draft(), initial) || strictDuration() !== (props.strictDuration ?? false) ? 'changed' : 'unchanged',
+    apply: () => props.onCommit(draft(), strictDuration()),
+  })
+
   return (
     <div class="video-edit-editor" data-testid="video-edit-editor">
       <Show when={editError()}><ProductNotice tone="error">{editError()}</ProductNotice></Show>
@@ -292,11 +299,6 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
           </div>
         </section>
       </Show>
-
-      <ProductActionFooter>
-        <ProductButton type="button" size="compact" onClick={props.onCancel}><Icon icon={X} /> Cancel</ProductButton>
-        <ProductButton type="button" size="compact" variant="primary" data-testid="video-edit-apply" disabled={editError() !== undefined || numericError() !== undefined} onClick={() => props.onCommit(draft(), strictDuration())}><Icon icon={Check} /> Apply</ProductButton>
-      </ProductActionFooter>
     </div>
   )
 }

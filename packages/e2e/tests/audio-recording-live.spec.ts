@@ -216,7 +216,7 @@ test(PHYSICAL_MICROPHONE
   expect(postedBytes).toEqual(recordedBytes)
   expect(response).toMatchObject({ kind: 'media/audio', asset: { mediaType: 'audio/webm', size: postedBytes.length } })
   await expect(recorder).toContainText('Recording saved to the asset selection')
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect(page.getByTestId('asset-editor')).toBeHidden()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.load!.values.audio))
     .toEqual(response.asset)

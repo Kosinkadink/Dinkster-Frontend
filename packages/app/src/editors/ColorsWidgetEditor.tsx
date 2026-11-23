@@ -1,7 +1,7 @@
 import { colorsKind, hexToHsv, hsvToHex } from '@dinkster/widgets'
-import { createSignal, Index, onCleanup, Show, type Component } from 'solid-js'
+import { createSignal, Index, Show, type Component } from 'solid-js'
 import { ProductButton, ProductColorInput, ProductTextInput } from '../ProductControls.js'
-import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from '../ProductForm.js'
+import { ProductField, ProductNotice, productFieldIds } from '../ProductForm.js'
 import { useAppMessage } from '../locale.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 
@@ -21,17 +21,17 @@ const ColorsImplementation: Component<WidgetEditorImplementationProps> = (props)
     ;[next[index], next[destination]] = [next[destination]!, next[index]!]
     setDraft(next)
   }
-  const commit = (): void => {
-    if (!valid()) return
-    if (draft().length === initial.length && draft().every((color, i) => color === initial[i])) props.close()
-    else props.commitValue([...draft()])
-  }
-  props.editor.bindClickAway?.(props.close)
-  onCleanup(() => props.editor.bindClickAway?.(undefined))
+  props.bindFrame({
+    phase: () => !valid() ? 'invalid'
+      : draft().length === initial.length && draft().every((color, i) => color === initial[i]) ? 'unchanged' : 'changed',
+    apply: () => props.commitValue([...draft()]),
+  })
 
-  return <div ref={props.bindPopover} class="widget-editor floating-surface widget-editor-popover colors-editor" data-testid="colors-editor" data-editor-surface="popover" role="dialog" aria-label={`Edit ${ed.label} COLORS`}>
-    <props.header type="COLORS" />
-    <div class="colors-editor-list">
+  return <div class="widget-frame-body" data-testid="colors-editor" data-editor-surface="frame">
+    <div class="dinkster-editor-frame-toolbar">
+      <ProductButton type="button" disabled={draft().length >= 16} onClick={() => setDraft((values) => [...values, '#ffffff'])}>{message('colorsWidget.add')}</ProductButton>
+    </div>
+    <div class="widget-frame-scroll colors-editor-list">
       <Index each={draft()}>{(color, index) => {
         const id = `palette-color-${index}`
         const ids = productFieldIds(id)
@@ -52,16 +52,12 @@ const ColorsImplementation: Component<WidgetEditorImplementationProps> = (props)
         </ProductField>
       }}</Index>
       <Show when={draft().length === 0}><ProductNotice tone="info">{message('colorsWidget.empty')}</ProductNotice></Show>
+      <Show when={!valid()}><ProductNotice tone="error">{message('colorsWidget.invalid')}</ProductNotice></Show>
     </div>
-    <Show when={!valid()}><ProductNotice tone="error">{message('colorsWidget.invalid')}</ProductNotice></Show>
-    <ProductActionFooter>
-      <ProductButton type="button" disabled={draft().length >= 16} onClick={() => setDraft((values) => [...values, '#ffffff'])}>{message('colorsWidget.add')}</ProductButton>
-      <ProductButton type="button" onClick={props.close}>{message('common.cancel')}</ProductButton>
-      <ProductButton type="button" variant="primary" disabled={!valid()} onClick={commit}>{message('colorsWidget.commit')}</ProductButton>
-    </ProductActionFooter>
   </div>
 }
 
 export const ColorsWidgetEditor: Component<WidgetEditorProps> = (props) => (
-  <WidgetEditorController {...props} implementation={ColorsImplementation} />
+  <WidgetEditorController {...props} implementation={ColorsImplementation}
+    modal={{ type: 'COLORS' }} />
 )

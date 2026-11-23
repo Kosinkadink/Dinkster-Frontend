@@ -1,7 +1,7 @@
 import { asPortId, buildRerouteIndex, defaultValuesOf, inputsOf, normalizedComboOptions, portRefKey, type CommandInvocation } from '@dinkster/core'
-import { createSignal, onCleanup, Show, type Component } from 'solid-js'
-import { ProductButton, ProductTextInput } from '../ProductControls.js'
-import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from '../ProductForm.js'
+import { createSignal, Show, type Component } from 'solid-js'
+import { ProductTextInput } from '../ProductControls.js'
+import { ProductField, ProductNotice, productFieldIds } from '../ProductForm.js'
 import { ProductSelect } from '../ProductSelect.js'
 import { useAppMessage } from '../locale.js'
 import { WidgetEditorController, withMaterializeFrames, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
@@ -47,43 +47,46 @@ const ResolutionImplementation: Component<WidgetEditorImplementationProps> = (pr
     return { width: rounded(width * scale / step), height: rounded(height * scale / step) }
   }
   const revision = ed.tab.store.revision
-  const commit = () => {
-    if (!dimensions() || !node || !target) return
-    if (ed.tab.store.revision !== revision) { props.close(); return }
-    const invocations = [[ratioId, ratio()], [megapixelsId, Number(megapixels())], [multipleId, Number(multiple())]].map(([inputId, value]) => ({
-      command: 'node.setValue', params: { graphId, nodeId: node.id, inputId, value },
-    }))
-    void props.commitCommand(withMaterializeFrames(graphId, node.id, target.materialize,
-      { command: 'batch', params: { invocations } } as unknown as CommandInvocation))
-  }
-  props.editor.bindClickAway?.(props.close)
-  onCleanup(() => { props.editor.bindClickAway?.(undefined) })
-  return <div ref={props.bindPopover} class="widget-editor floating-surface widget-editor-popover" data-testid="resolution-editor" role="dialog" aria-label={message('resolutionWidget.title')}>
-    <props.header type="RESOLUTION_PREVIEW" />
-    <Show when={dimensions()}>{(size) => <>
-      <div class="resolution-preview" role="img" aria-label={message('resolutionWidget.dimensions', size())}>
-        <svg class="resolution-preview-frame" viewBox={`-2 -2 ${size().width + 4} ${size().height + 4}`} aria-hidden="true">
-          <rect width={size().width} height={size().height} vector-effect="non-scaling-stroke" />
-        </svg>
-      </div>
-      <output class="resolution-preview-output">{message('resolutionWidget.dimensions', size())}</output>
-    </>}</Show>
-    <Show when={!available}><ProductNotice tone="info">{message('resolutionWidget.connected')}</ProductNotice></Show>
-    <ProductField controlId="resolution-ratio" label={message('resolutionWidget.ratio')} layout="compact">
-      <ProductSelect id="resolution-ratio" ariaLabel={message('resolutionWidget.ratio')} selectedId={ratio()} options={ratios} disabled={!available || props.commitPending()} onSelect={(option) => setRatio(option.value)} />
-    </ProductField>
-    <ProductField controlId="resolution-megapixels" label={message('resolutionWidget.megapixels')} layout="compact">
-      <ProductTextInput id="resolution-megapixels" aria-labelledby={productFieldIds('resolution-megapixels').label} inputmode="decimal" value={megapixels()} disabled={!available || props.commitPending()} onInput={(event) => setMegapixels(event.currentTarget.value)} />
-    </ProductField>
-    <ProductField controlId="resolution-multiple" label={message('resolutionWidget.multiple')} layout="compact">
-      <ProductTextInput id="resolution-multiple" aria-labelledby={productFieldIds('resolution-multiple').label} inputmode="numeric" value={multiple()} disabled={!available || props.commitPending()} onInput={(event) => setMultiple(event.currentTarget.value)} />
-    </ProductField>
-    <Show when={available && !dimensions()}><ProductNotice tone="error">{message('resolutionWidget.invalid')}</ProductNotice></Show>
-    <ProductActionFooter>
-      <ProductButton type="button" onClick={props.close}>{message('common.cancel')}</ProductButton>
-      <ProductButton type="button" variant="primary" disabled={!dimensions() || props.commitPending()} onClick={commit}>{message('resolutionWidget.apply')}</ProductButton>
-    </ProductActionFooter>
-  </div>
+  const atOpen = { ratio: ratio(), megapixels: megapixels(), multiple: multiple() }
+  const changed = () => ratio() !== atOpen.ratio || megapixels().trim() !== atOpen.megapixels || multiple().trim() !== atOpen.multiple
+  props.bindFrame({
+    phase: () => !available ? 'unchanged' : !dimensions() ? 'invalid' : changed() ? 'changed' : 'unchanged',
+    apply: () => {
+      if (!dimensions() || !node || !target) return false
+      // The three inputs are written together; one changed elsewhere ends the edit.
+      if (ed.tab.store.revision !== revision) { props.close(); return false }
+      const invocations = [[ratioId, ratio()], [megapixelsId, Number(megapixels())], [multipleId, Number(multiple())]].map(([inputId, value]) => ({
+        command: 'node.setValue', params: { graphId, nodeId: node.id, inputId, value },
+      }))
+      return props.commitCommand(withMaterializeFrames(graphId, node.id, target.materialize,
+        { command: 'batch', params: { invocations } } as unknown as CommandInvocation))
+    },
+  })
+  return <div class="widget-frame-body" data-testid="resolution-editor" data-editor-surface="frame"><div class="dinkster-editor-frame-columns">
+    <div class="dinkster-editor-frame-work">
+      <Show when={dimensions()}>{(size) => <>
+        <div class="resolution-preview" role="img" aria-label={message('resolutionWidget.dimensions', size())}>
+          <svg class="resolution-preview-frame" viewBox={`-2 -2 ${size().width + 4} ${size().height + 4}`} aria-hidden="true">
+            <rect width={size().width} height={size().height} vector-effect="non-scaling-stroke" />
+          </svg>
+        </div>
+        <output class="resolution-preview-output">{message('resolutionWidget.dimensions', size())}</output>
+      </>}</Show>
+      <Show when={!available}><ProductNotice tone="info">{message('resolutionWidget.connected')}</ProductNotice></Show>
+    </div>
+    <div class="dinkster-editor-frame-panel">
+      <ProductField controlId="resolution-ratio" label={message('resolutionWidget.ratio')} layout="compact">
+        <ProductSelect id="resolution-ratio" ariaLabel={message('resolutionWidget.ratio')} selectedId={ratio()} options={ratios} disabled={!available} onSelect={(option) => setRatio(option.value)} />
+      </ProductField>
+      <ProductField controlId="resolution-megapixels" label={message('resolutionWidget.megapixels')} layout="compact">
+        <ProductTextInput id="resolution-megapixels" aria-labelledby={productFieldIds('resolution-megapixels').label} inputmode="decimal" value={megapixels()} disabled={!available} onInput={(event) => setMegapixels(event.currentTarget.value)} />
+      </ProductField>
+      <ProductField controlId="resolution-multiple" label={message('resolutionWidget.multiple')} layout="compact">
+        <ProductTextInput id="resolution-multiple" aria-labelledby={productFieldIds('resolution-multiple').label} inputmode="numeric" value={multiple()} disabled={!available} onInput={(event) => setMultiple(event.currentTarget.value)} />
+      </ProductField>
+      <Show when={available && !dimensions()}><ProductNotice tone="error">{message('resolutionWidget.invalid')}</ProductNotice></Show>
+    </div>
+  </div></div>
 }
 
-export const ResolutionWidgetEditor: Component<WidgetEditorProps> = (props) => <WidgetEditorController {...props} implementation={ResolutionImplementation} />
+export const ResolutionWidgetEditor: Component<WidgetEditorProps> = (props) => <WidgetEditorController {...props} implementation={ResolutionImplementation} modal={{ type: 'RESOLUTION_PREVIEW' }} />

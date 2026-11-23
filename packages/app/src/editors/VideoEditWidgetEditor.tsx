@@ -20,14 +20,11 @@ const VideoEditImplementation: Component<WidgetEditorImplementationProps> = (pro
   let live = true
   onCleanup(() => { live = false })
 
-  const commit = (value: Json, strictDuration: boolean): void => {
-    if (!live || context?.editDisabledReason) return
-    if (ed.tab.execution || ed.tab.store.revision !== revision) { props.close(); return }
-    if (ed.target.kind === 'valueSource') {
-      if (jsonSameValue(value, initial)) props.close()
-      else props.commitValue(value)
-      return
-    }
+  const commit = (value: Json, strictDuration: boolean): Promise<boolean> | boolean => {
+    if (!live || context?.editDisabledReason) return false
+    // The trim, crop and strict duration are written as one batch; an edit elsewhere ends this one.
+    if (ed.tab.execution || ed.tab.store.revision !== revision) { props.close(); return false }
+    if (ed.target.kind === 'valueSource') return props.commitValue(value)
     const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
     const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
     const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
@@ -41,38 +38,29 @@ const VideoEditImplementation: Component<WidgetEditorImplementationProps> = (pro
         params: { graphId, nodeId, inputId: 'strict_duration', value: strictDuration },
       })
     }
-    if (invocations.length === 0) { props.close(); return }
+    if (invocations.length === 0) return false
     const action: CommandInvocation = invocations.length === 1
       ? invocations[0]!
       : { command: 'batch', params: { invocations } } as unknown as CommandInvocation
-    props.commitCommand(withMaterializeFrames(graphId, nodeId, ed.target.materialize, action))
+    return props.commitCommand(withMaterializeFrames(graphId, nodeId, ed.target.materialize, action))
   }
 
   return <div
-    class="widget-editor widget-modal-editor video-edit-modal"
+    class="widget-frame-body video-edit-modal"
     data-testid="widget-editor"
     data-editor-mode="VIDEO_EDIT"
-    data-editor-surface="modal"
+    data-editor-surface="frame"
   >
-    <props.header type="VIDEO_EDIT" />
-    <VideoEditEditor
+    <div class="widget-frame-scroll"><VideoEditEditor
       value={initial}
       spec={ed.spec!}
       {...context}
       onCommit={commit}
-      onCancel={props.close}
-    />
+      bindFrame={props.bindFrame}
+    /></div>
   </div>
 }
 
 export const VideoEditWidgetEditor: Component<WidgetEditorProps> = (props) => (
-  <WidgetEditorController
-    {...props}
-    implementation={VideoEditImplementation}
-    modal={{
-      type: 'VIDEO_EDIT',
-      help: 'Edit the one-clip trim and crop node inputs. Cancel or close leaves the stored values unchanged.',
-      onRequestClose: (close) => close(),
-    }}
-  />
+  <WidgetEditorController {...props} implementation={VideoEditImplementation} modal={{ type: 'VIDEO_EDIT' }} />
 )

@@ -236,7 +236,7 @@ test('The content column is centered beside the sidebar', async ({ page }) => {
   expect(Math.abs(gaps.left - gaps.right)).toBeLessThanOrEqual(1)
 })
 
-test('The full editor frame page draws every labeled state with one Cancel and one Apply', async ({
+test('The full editor frame page draws every labeled state with one Cancel and one Apply, or one Close', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
@@ -257,8 +257,12 @@ test('The full editor frame page draws every labeled state with one Cancel and o
     narrow: 'available',
   } as const
   await expect(page.locator('.dinkster-editor-frame')).toHaveCount(
-    Object.keys(states).length,
+    Object.keys(states).length + 1,
   )
+  // An editor that can never store has one Close button and no Apply.
+  const viewOnly = page.getByTestId('editor-frame-view-only').locator('footer')
+  await expect(viewOnly.getByRole('button')).toHaveText(['Close'])
+  await expect(viewOnly).toContainText('Nothing to apply here')
   for (const [id, apply] of Object.entries(states)) {
     const stage = page.getByTestId(`editor-frame-${id}`)
     const footer = stage.locator('footer')

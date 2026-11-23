@@ -3,16 +3,17 @@ import { localCollectionSource, type Json } from '@dinkster/core'
 import type { AssetSelectionOption, DinksterConnection } from '@dinkster/client'
 import { CollectionPanel } from '../CollectionPanel.js'
 import { ProductButton } from '../ProductControls.js'
-import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
+import { ProductNotice } from '../ProductForm.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 import { SearchState } from '../SearchSurface.js'
+import type { EditorFrameBinding } from '../WidgetEditorController.js'
 
 export function AssetSelectionEditor(props: {
   readonly connection: Pick<DinksterConnection, 'listAssetSelections'>
   readonly kind: string
   readonly initial: Json | undefined
-  readonly commit: (value: Json) => void
-  readonly close: () => void
+  readonly commit: (value: Json) => Promise<boolean> | boolean
+  readonly bindFrame: (binding: EditorFrameBinding) => void
   readonly browseFiles?: (() => void) | undefined
   readonly authority?: (() => unknown) | undefined
   readonly project?: string | undefined
@@ -51,7 +52,20 @@ export function AssetSelectionEditor(props: {
   })])
   const current = () => loadedAuthority() === props.authority?.()
     ? options()?.find((option) => option.name === selected()) : undefined
-  return <div class="widget-editor asset-editor widget-modal-editor" data-testid="asset-selection-editor">
+  props.bindFrame({
+    phase: () => current() !== undefined ? (current()!.name === props.initial ? 'unchanged' : 'changed')
+      : selected() === undefined || selected() === props.initial ? 'unchanged' : 'invalid',
+    apply: () => {
+      const option = current()
+      return option === undefined ? false : props.commit(option.name)
+    },
+  })
+  return <>
+  <div class="dinkster-editor-frame-toolbar">
+    <ProductButton onClick={() => { void refresh() }}>Refresh</ProductButton>
+    <Show when={props.browseFiles}><ProductButton onClick={() => props.browseFiles?.()}>Browse files</ProductButton></Show>
+  </div>
+  <div class="widget-editor asset-editor widget-modal-editor" data-testid="asset-selection-editor">
     <div class="asset-editor-context"><strong>Source selection</strong><span>{props.kind}</span></div>
     <Show when={error()}>{(message) => <ProductNotice tone="error">{message()}</ProductNotice>}</Show>
     <div class="asset-editor-body">
@@ -78,14 +92,6 @@ export function AssetSelectionEditor(props: {
         </Show>
       </section>
     </div>
-    <ProductActionFooter>
-      <ProductButton onClick={() => { void refresh() }}>Refresh</ProductButton>
-      <Show when={props.browseFiles}><ProductButton onClick={() => props.browseFiles?.()}>Browse files</ProductButton></Show>
-      <ProductButton onClick={props.close}>Cancel</ProductButton>
-      <ProductButton variant="primary" disabled={current() === undefined} onClick={() => {
-        const option = current()
-        if (option !== undefined) props.commit(option.name)
-      }}>Use selection</ProductButton>
-    </ProductActionFooter>
   </div>
+  </>
 }

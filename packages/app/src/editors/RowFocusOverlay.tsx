@@ -11,6 +11,8 @@ export interface RowFocusState extends RowBox {
   /** The declared default, as the row shows it. */
   readonly defaultText?: string
   readonly help?: string
+  /** The side part's first line, such as why an editor just closed. */
+  readonly notice?: string
 }
 
 /**
@@ -32,12 +34,13 @@ export function RowFocusOverlay(props: {
     sideSize(),
   ))
   const side = createMemo(() => {
-    const { defaultText, help } = props.focus
-    if (defaultText === undefined && help === undefined) return undefined
+    const { defaultText, help, notice } = props.focus
+    if (defaultText === undefined && help === undefined && notice === undefined) return undefined
     return (
       <CanvasSidePart
         facts={defaultText === undefined ? [] : [{ key: 'default', value: defaultText }]}
         {...(help === undefined ? {} : { help })}
+        {...(notice === undefined ? {} : { notice })}
       />
     )
   })

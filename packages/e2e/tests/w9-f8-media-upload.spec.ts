@@ -168,7 +168,7 @@ test('source media upload adopts canonical refs and preserves list and cancel se
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
 
   const trigger = page.getByTestId('asset-upload-trigger')
-  await page.getByTestId('asset-editor').getByRole('button', { name: 'cancel' }).focus()
+  await page.getByTestId('editor-frame-cancel').focus()
   for (let press = 0; press < 30 && !(await trigger.evaluate((element) => element === document.activeElement)); press++) {
     await page.keyboard.press('Tab')
   }
@@ -197,14 +197,14 @@ test('source media upload adopts canonical refs and preserves list and cancel se
   await page.getByTestId('asset-chip').nth(1).getByRole('button').click()
   await expect(page.getByTestId('asset-chip')).toHaveCount(2)
   await page.screenshot({ path: `${PROOF}/multi-selection-1600x950.png`, fullPage: true })
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.source!.values.files)).toEqual([canonicalA, canonicalA])
 
   const committedRevision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   await openAsset(page)
   await page.getByTestId('asset-editor').getByTestId('asset-selection-remove').click()
-  await page.getByTestId('asset-editor').getByRole('button', { name: 'cancel' }).click()
+  await page.getByTestId('editor-frame-cancel').click()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(committedRevision)
   expect(await page.evaluate(() =>
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.source!.values.files)).toEqual([canonicalA, canonicalA])
@@ -234,7 +234,7 @@ test('source media upload adopts canonical refs and preserves list and cancel se
   await expect(location).toContainText('Exact asset authorization changed')
   await expect(location.getByRole('button', { name: 'Copy server path' })).toBeEnabled()
   await page.getByTestId('asset-editor').screenshot({ path: testInfo.outputPath('exact-reveal-error.png') })
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect(page.getByTestId('asset-editor')).toBeHidden()
   expect(await page.evaluate(() =>
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.scalar!.values.file)).toEqual(canonicalC)
@@ -255,12 +255,12 @@ test('source media upload adopts canonical refs and preserves list and cancel se
   })
   await expect.poll(() => uploads.some((upload) => new URL(upload.url).searchParams.get('name') === 'slow.png')).toBe(true)
   const uploadingEditor = page.getByTestId('asset-editor')
-  await expect(uploadingEditor.getByText('Uploading files...', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('widget-modal-surface').getByText('Uploading files...', { exact: true })).toBeVisible()
   await expect(uploadingEditor.getByTestId('asset-upload-trigger')).toBeDisabled()
   await expect(uploadingEditor.getByTestId('asset-selection-remove')).toBeDisabled()
-  await expect(uploadingEditor.getByRole('button', { name: 'Cancel' })).toBeEnabled()
+  await expect(page.getByTestId('editor-frame-cancel')).toBeEnabled()
   await page.screenshot({ path: `${PROOF}/uploading-1600x950.png`, fullPage: true })
-  await page.getByTestId('asset-editor').getByRole('button', { name: 'cancel' }).click()
+  await page.getByTestId('editor-frame-cancel').click()
   await expect(page.getByTestId('asset-editor')).toBeHidden()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(scalarRevision)
   expect(await page.evaluate(() =>
@@ -278,7 +278,7 @@ test('source media upload adopts canonical refs and preserves list and cancel se
   await videoInput.setInputFiles(resolve(import.meta.dirname, '../fixtures/media-overlay/visible-2s.webm'))
   // The finished upload stages the canonical ref returned by the backend, not the local file name.
   await expect(page.getByTestId('asset-selection-summary')).toContainText('canonical-video.webm')
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect(page.getByTestId('asset-editor')).toBeHidden()
   expect(uploads).toHaveLength(uploadCount + 1)
   const videoUpload = uploads.at(-1)!
@@ -309,7 +309,7 @@ test('source media upload adopts canonical refs and preserves list and cancel se
     Array.from(new Uint8Array(await (await fetch(element.href)).arrayBuffer())))).toEqual(Array.from(videoBytes))
   await page.screenshot({ path: `${PROOF}/video-fallback-1600x950.png`, fullPage: true })
 
-  await page.getByTestId('asset-editor').getByRole('button', { name: 'cancel' }).click()
+  await page.getByTestId('editor-frame-cancel').click()
   await openAsset(page, 'scalar', 'file')
   const imageFallback = page.getByTestId('asset-image-fallback')
   await expect(imageFallback).toContainText('Image preview unavailable.')

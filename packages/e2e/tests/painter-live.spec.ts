@@ -9,8 +9,8 @@ async function openPainter(page: Page, nodeId = 'paint'): Promise<void> {
     return { x: bounds.left + node.x + node.layout.width / 2, y: bounds.top + node.y + row.y + row.height / 2 }
   }, nodeId)
   await page.mouse.click(point.x, point.y)
-  await expect(page.getByTestId('painter-editor')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Apply', exact: true })).toBeEnabled()
+  await expect(page.getByTestId('painter-editor')).toBeAttached()
+  await expect(page.getByTestId('widget-modal-surface').locator('.dinkster-editor-frame')).not.toHaveAttribute('data-phase', 'loading')
 }
 
 for (const connected of [false, true]) test(`Painter ${connected ? 'connected first frame' : 'background'} uploads, reopens, executes and undoes`, async ({ page }, testInfo) => {
@@ -61,7 +61,7 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
   await selectProductOption(page, page.getByTestId('upload-destination-mount'), 'output')
   await page.getByTestId('upload-destination-folder').fill('paintings')
   const upload = page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/assets/media')
-  await page.getByRole('button', { name: 'Apply', exact: true }).click()
+  await page.getByTestId('editor-frame-apply').click()
   const uploaded = await upload
   expect(uploaded.ok(), await uploaded.text()).toBe(true)
   expect(new URL(uploaded.url()).searchParams.get('mount')).toBe('output')
@@ -80,8 +80,8 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
   ] as const) {
     await page.setViewportSize({ width, height })
     await page.locator('#painter-color').scrollIntoViewIfNeeded()
-    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport({ ratio: 1 })
-    await expect(page.getByRole('button', { name: 'Apply', exact: true })).toBeInViewport({ ratio: 1 })
+    await expect(page.getByTestId('editor-frame-cancel')).toBeInViewport({ ratio: 1 })
+    await expect(page.getByTestId('editor-frame-apply')).toBeInViewport({ ratio: 1 })
     await expect(canvas).toBeInViewport({ ratio: 1 })
     const top = testInfo.outputPath(`${name}-canvas.png`)
     await page.getByTestId('widget-modal-surface').screenshot({ path: top })
@@ -90,14 +90,14 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
     await destination.scrollIntoViewIfNeeded()
     await expect(destination).toBeInViewport({ ratio: 1 })
     const noticeBounds = (await destination.boundingBox())!
-    const footerBounds = (await page.getByTestId('painter-editor').locator('.product-action-footer').boundingBox())!
+    const footerBounds = (await page.getByTestId('widget-modal-surface').locator('.dinkster-editor-frame-footer').boundingBox())!
     expect(noticeBounds.y + noticeBounds.height).toBeLessThanOrEqual(footerBounds.y)
     const screenshot = testInfo.outputPath(`${name}.png`)
     await page.getByTestId('widget-modal-surface').screenshot({ path: screenshot })
     await testInfo.attach(name, { path: screenshot, contentType: 'image/png' })
   }
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.getByTestId('editor-frame-cancel').click()
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     await app.queueSelection(app.activeTab()!, ['paint'])
@@ -126,7 +126,7 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
     await waitForWorkspaceReady(page)
     await openPainter(page, 'n1')
     expect(await pixels()).toEqual({ painted: [225, 38, 104, 255], clear: [0, 0, 0, 0] })
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await page.getByTestId('editor-frame-cancel').click()
     await page.evaluate(async () => {
       const app = window.__dinksterTest!.app
       await app.queueSelection(app.activeTab()!, ['n1'])
@@ -138,13 +138,13 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
       app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'color', value: 0x12ab34 } })
     })
     await openPainter(page)
-    await expect(page.getByTestId('painter-editor').getByRole('alert').filter({ hasText: 'Run the connected image source' })).toBeVisible()
-    await page.getByRole('button', { name: 'Clear paint' }).click()
-    await page.getByRole('button', { name: 'Apply', exact: true }).click()
-    await expect(page.getByTestId('painter-editor').getByRole('alert').filter({ hasText: 'Run the connected image source' })).toBeVisible()
+    // A stale source leaves nothing to paint on: the frame says why and Apply stays unavailable.
+    const frame = page.getByTestId('widget-modal-surface')
+    await expect(frame.getByRole('alert').filter({ hasText: 'Run the connected image source' })).toBeVisible()
+    await expect(page.getByTestId('editor-frame-apply')).toBeDisabled()
     expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.paint!.values.mask)).toBeUndefined()
     const stale = testInfo.outputPath('stale-source.png')
-    await page.getByTestId('painter-editor').screenshot({ path: stale })
+    await frame.screenshot({ path: stale })
     await testInfo.attach('stale-source', { path: stale, contentType: 'image/png' })
   }
 })

@@ -45,7 +45,8 @@ Empty and partial edit objects are valid. Applying an edit preserves
 unknown top-level and section fields exactly so imported and newer documents
 round-trip without data loss. An absent native VIDEO_EDIT displays existing
 scalar settings without storing an override until they change. Linked scalar
-settings refuse that override. Cancel and unchanged Apply do not write values.
+settings refuse that override. Cancel does not write values, and Apply is
+unavailable until the edit or strict duration differs from the stored value.
 
 The editor resolves one linked VIDEO producer in a completed native execution,
 checking occurrence identity and current upstream provenance. It reads

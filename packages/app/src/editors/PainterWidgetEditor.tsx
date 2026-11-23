@@ -5,7 +5,7 @@ import { createSignal, onCleanup, onMount, Show, type Component } from 'solid-js
 import { viewInstancePath } from '../app-state.js'
 import { liveExactnessFor } from '../companion-display.js'
 import { ProductButton, ProductColorInput, ProductFileInput } from '../ProductControls.js'
-import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm.js'
+import { ProductField, ProductNotice } from '../ProductForm.js'
 import { ProductNumberInput } from '../ProductNumberInput.js'
 import { useAppMessage } from '../locale.js'
 import { activeProjectId } from '../projects.js'
@@ -37,6 +37,9 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
   const [size, setSize] = createSignal<number>(canvasPaintTokens.editor.painter.initialBrushSize)
   const [erase, setErase] = createSignal(false)
   const [busy, setBusy] = createSignal(true)
+  const [loading, setLoading] = createSignal(true)
+  const [paintable, setPaintable] = createSignal(false)
+  const [dirty, setDirty] = createSignal(false)
   const [error, setError] = createSignal<string>()
   let base!: HTMLCanvasElement
   let canvas!: HTMLCanvasElement
@@ -54,8 +57,6 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
     if (!current()) throw new Error(message('painterWidget.stale'))
   }
   onCleanup(() => { live = false; abort.abort() })
-  props.editor.bindClickAway?.(props.close)
-  onCleanup(() => { props.editor.bindClickAway?.(undefined) })
 
   const drawImage = async (blob: Blob): Promise<void> => {
     const image = await createImageBitmap(blob)
@@ -148,6 +149,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
         context.fillRect(0, 0, width, height)
       }
       baseReady = true
+      setPaintable(true)
       const initial = ed.initial
       if (initial !== undefined && initial !== null && initial !== '') {
         const ref = typeof initial === 'object' && !Array.isArray(initial) ? initial as Record<string, unknown> : undefined
@@ -168,7 +170,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
       }
       ready = true
     })().catch((reason: unknown) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })
-      .finally(() => { if (live) setBusy(false) })
+      .finally(() => { if (live) { setBusy(false); setLoading(false) } })
   })
   const pickFile = async (file: File): Promise<void> => {
     setBusy(true)
@@ -176,6 +178,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
     try {
       if (!baseReady) throw new Error(message('painterWidget.sourceUnavailable'))
       await drawImage(file)
+      setDirty(true)
     }
     catch (reason) { if (live) setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { if (live) setBusy(false) }
@@ -203,10 +206,10 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
     }
     context.globalCompositeOperation = 'source-over'
     point = next
+    setDirty(true)
   }
-  const apply = async (): Promise<void> => {
+  const apply = async (): Promise<boolean> => {
     setBusy(true)
-    setError(undefined)
     try {
       requireCurrent()
       if (!baseReady) throw new Error(message('painterWidget.sourceUnavailable'))
@@ -220,14 +223,18 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
           ...(choice.mount ? { mount: choice.mount } : {}), ...(choice.folder ? { folder: choice.folder } : {}) })
       requireCurrent()
       try { saveUploadDestination(String(backend.id), project, choice) } catch { /* Storage failure does not discard a successful upload. */ }
-      props.commitValue(ref)
-    } catch (reason) { if (live) setError(reason instanceof Error ? reason.message : String(reason)) }
-    finally { if (live) setBusy(false) }
+      return await props.commitValue(ref)
+    } finally { if (live) setBusy(false) }
   }
+  props.bindFrame({
+    phase: () => loading() ? 'loading' : !paintable() ? 'unavailable' : busy() ? 'invalid' : dirty() ? 'changed' : 'unchanged',
+    status: () => !loading() && busy() ? message('editorFrame.loadingStatus') : undefined,
+    unavailable: () => paintable() ? undefined : error(),
+    apply,
+  })
 
-  return <div class="widget-editor painter-widget-editor" data-testid="painter-editor">
-    <div class="painter-content">
-    <div class="painter-toolbar">
+  return <div class="widget-frame-body painter-widget-editor" data-testid="painter-editor" data-editor-surface="frame">
+    <div class="dinkster-editor-frame-toolbar painter-toolbar">
       <ProductField controlId="painter-color" label={message('painterWidget.color')} layout="compact">
         <ProductColorInput id="painter-color" value={color()} disabled={busy()} onInput={(event) => setColor(event.currentTarget.value)} />
       </ProductField>
@@ -235,7 +242,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
         <ProductNumberInput id="painter-size" value={size()} min={1} max={512} integer disabled={busy()} onCommit={(raw) => setSize(Math.max(1, Math.min(512, Number(raw) || 1)))} />
       </ProductField>
       <ProductButton disabled={busy()} aria-pressed={erase()} onClick={() => setErase(!erase())}>{message('painterWidget.erase')}</ProductButton>
-      <ProductButton disabled={busy()} onClick={() => { canvas.getContext('2d')?.clearRect(0, 0, width, height); ready = baseReady; if (baseReady) setError(undefined) }}>{message('painterWidget.clear')}</ProductButton>
+      <ProductButton disabled={busy()} onClick={() => { canvas.getContext('2d')?.clearRect(0, 0, width, height); ready = baseReady; setDirty(true); if (baseReady) setError(undefined) }}>{message('painterWidget.clear')}</ProductButton>
       <ProductButton disabled={busy()} onClick={() => fileInput.click()}>{message('painterWidget.choose')}</ProductButton>
       <ProductFileInput ref={fileInput} accept="image/*" onChange={(event) => {
         const file = event.currentTarget.files?.[0]
@@ -243,20 +250,21 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
         event.currentTarget.value = ''
       }} />
     </div>
-    <div class="painter-stage">
-    <canvas ref={base} width={width} height={height} class="painter-base" aria-hidden="true" />
-    <canvas ref={canvas} width={width} height={height} class="painter-canvas" data-editor-interactive
-      aria-label={message('painterWidget.canvas')} role="img" onPointerDown={stroke} onPointerMove={stroke}
-      onPointerUp={(event) => { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); point = undefined }}
-      onPointerCancel={() => { point = undefined }} onLostPointerCapture={() => { point = undefined }} />
+    <div class="dinkster-editor-frame-columns">
+      <div class="dinkster-editor-frame-work">
+        <div class="painter-stage">
+          <canvas ref={base} width={width} height={height} class="painter-base" aria-hidden="true" />
+          <canvas ref={canvas} width={width} height={height} class="painter-canvas" data-editor-interactive
+            aria-label={message('painterWidget.canvas')} role="img" onPointerDown={stroke} onPointerMove={stroke}
+            onPointerUp={(event) => { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); point = undefined }}
+            onPointerCancel={() => { point = undefined }} onLostPointerCapture={() => { point = undefined }} />
+        </div>
+      </div>
+      <div class="dinkster-editor-frame-panel">
+        <UploadDestination connection={backend.connection} machine={backend.label} value={destination()} disabled={busy()} onChange={setDestination} />
+        <Show when={error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
+      </div>
     </div>
-    <UploadDestination connection={backend.connection} machine={backend.label} value={destination()} disabled={busy()} onChange={setDestination} />
-    <Show when={error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
-    </div>
-    <ProductActionFooter>
-      <ProductButton onClick={props.close}>{message('common.cancel')}</ProductButton>
-      <ProductButton variant="primary" disabled={busy()} loading={busy()} onClick={() => void apply()}>{message('common.apply')}</ProductButton>
-    </ProductActionFooter>
   </div>
 }
 

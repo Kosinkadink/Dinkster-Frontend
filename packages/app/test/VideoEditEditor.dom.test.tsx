@@ -3,9 +3,12 @@ import { createSignal } from 'solid-js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RenditionResult, ValuePeekResult } from '@dinkster/client'
 import { VideoEditEditor } from '../src/VideoEditEditor.js'
+import type { EditorFrameBinding } from '../src/WidgetEditorController.js'
 
 let root: HTMLDivElement
 let dispose: (() => void) | undefined
+let frame: EditorFrameBinding | undefined
+const bind = (binding: EditorFrameBinding): void => { frame = binding }
 beforeEach(() => {
   root = document.createElement('div')
   document.body.append(root)
@@ -32,7 +35,7 @@ describe('VideoEditEditor', () => {
     const commit = vi.fn()
     dispose = render(() => <VideoEditEditor value={{ trim: { start_time: 1.25 } }}
       spec={{ widgetType: 'VIDEO_EDIT', options: { features: ['trim'] } }}
-      onCommit={commit} onCancel={() => {}} />, root)
+      onCommit={commit} bindFrame={bind} />, root)
     const field = input(root, 'video-trim-start-seconds')
     for (let length = 1; length <= raw.length; length++) {
       field.value = raw.slice(0, length)
@@ -40,7 +43,7 @@ describe('VideoEditEditor', () => {
       expect(field.value).toBe(raw.slice(0, length))
     }
     field.dispatchEvent(new Event('change', { bubbles: true }))
-    root.querySelector<HTMLButtonElement>('[data-testid="video-edit-apply"]')!.click()
+    void frame!.apply!()
     expect(commit).toHaveBeenCalledWith({ trim: { start_time: Number(raw) } }, false)
   })
 
@@ -53,25 +56,23 @@ describe('VideoEditEditor', () => {
     const commit = vi.fn()
     const value = { trim: { start_time: 1.25, duration: 3.5 }, crop: { x: 100, width: 1280 } }
     dispose = render(() => <VideoEditEditor value={value} spec={{ widgetType: 'VIDEO_EDIT', options: {} }}
-      facts={{ width: 1920, height: 1080, duration: 10, fps: 24 }} onCommit={commit} onCancel={() => {}} />, root)
+      facts={{ width: 1920, height: 1080, duration: 10, fps: 24 }} onCommit={commit} bindFrame={bind} />, root)
     const field = input(root, id)
     const original = field.value
     set(field, raw)
-    const apply = root.querySelector<HTMLButtonElement>('[data-testid="video-edit-apply"]')!
     expect(field.getAttribute('aria-invalid')).toBe('true')
     expect(root.querySelector('[data-testid="video-edit-numeric-error"]')).not.toBeNull()
-    expect(apply.disabled).toBe(true)
-    apply.click()
+    expect(frame!.phase()).toBe('invalid')
     expect(commit).not.toHaveBeenCalled()
     set(field, original)
     expect(field.hasAttribute('aria-invalid')).toBe(false)
-    expect(apply.disabled).toBe(false)
+    expect(frame!.phase()).not.toBe('invalid')
     set(field, raw)
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
     expect(field.value).toBe(original)
     expect(field.hasAttribute('aria-invalid')).toBe(false)
-    expect(apply.disabled).toBe(false)
-    apply.click()
+    expect(frame!.phase()).not.toBe('invalid')
+    void frame!.apply!()
     expect(commit).toHaveBeenCalledExactlyOnceWith(value, false)
   })
 
@@ -88,7 +89,7 @@ describe('VideoEditEditor', () => {
       strictDuration={false}
       facts={{ width: 1920, height: 1080, duration: 10, fps: 24 }}
       onCommit={commit}
-      onCancel={() => {}}
+      bindFrame={bind}
     />, root)
 
     set(input(root, 'video-trim-duration-seconds'), '0')
@@ -96,7 +97,7 @@ describe('VideoEditEditor', () => {
     expect(input(root, 'video-crop-x').value).toBe('101')
     expect(parseFloat(root.querySelector<HTMLElement>('.video-crop-selection')!.style.left)).toBeCloseTo(100 / 1920 * 100, 4)
     input(root, 'video-trim-strict').click()
-    root.querySelector<HTMLButtonElement>('[data-testid="video-edit-apply"]')!.click()
+    void frame!.apply!()
 
     expect(commit).toHaveBeenCalledWith({
       imported: { untouched: ['a', 1] },
@@ -110,8 +111,8 @@ describe('VideoEditEditor', () => {
       value={{}}
       spec={{ widgetType: 'VIDEO_EDIT', options: { features: ['crop'] } }}
       strictDuration={false}
-      onCommit={() => {}}
-      onCancel={() => {}}
+      onCommit={() => true}
+      bindFrame={bind}
     />, root)
     expect(root.querySelector('[aria-label="Trim video"]')).toBeNull()
     expect(root.querySelector('[aria-label="Crop video"]')).not.toBeNull()
@@ -129,12 +130,12 @@ describe('VideoEditEditor', () => {
       facts={{ width: 1920, height: 1080, duration: 10, fps: 30 }}
       previewUrl="/bounded-preview.webm"
       onCommit={commit}
-      onCancel={() => {}}
+      bindFrame={bind}
     />, root)
     set(input(root, 'video-trim-start-frame'), '45')
     expect(input(root, 'video-trim-end-frame').value).toBe('90')
     root.querySelector<HTMLButtonElement>('[aria-label="Crop ratio presets"] button:nth-child(3)')!.click()
-    root.querySelector<HTMLButtonElement>('[data-testid="video-edit-apply"]')!.click()
+    void frame!.apply!()
     const result = commit.mock.calls[0]![0]
     expect(result.trim).toEqual({ start_time: 1.5, duration: 1.5 })
     expect(result.crop).toEqual({ x: 420, y: 0, width: 1080, height: 1080 })
@@ -160,7 +161,7 @@ describe('VideoEditEditor', () => {
       rendition: vi.fn((_query, kind, options) => new Promise<RenditionResult>((resolve) => requests.push({ kind, resolve, signal: options!.signal! }))),
     } satisfies NonNullable<import('../src/video-edit-context.js').VideoEditSource>['values']
     dispose = render(() => <VideoEditEditor value={{ trim: { start_time: 1.25, duration: 0 } }} spec={{ widgetType: 'VIDEO_EDIT', options: {} }}
-      source={{ values, query: { jobId: 'run', nodeId: 'source', outputId: 'video' } }} onCommit={() => {}} onCancel={() => {}} />, root)
+      source={{ values, query: { jobId: 'run', nodeId: 'source', outputId: 'video' } }} onCommit={() => true} bindFrame={bind} />, root)
     await vi.advanceTimersByTimeAsync(110)
     expect(values.rendition).toHaveBeenCalledWith({ jobId: 'run', nodeId: 'source', outputId: 'video' }, 'frame', expect.objectContaining({ frame: '1.25s' }))
     expect(values.rendition).toHaveBeenCalledWith(expect.anything(), 'thumbs', {
@@ -203,7 +204,7 @@ describe('VideoEditEditor', () => {
     }
     dispose = render(() => <VideoEditEditor value={{ trim: { start_time: 1.25 } }} spec={{ widgetType: 'VIDEO_EDIT', options: { features: ['trim'] } }}
       facts={{ width: 1920, height: 1080, duration: 10, fps: 24 }}
-      source={{ values, query: { jobId: 'run', nodeId: 'source', outputId: 'video' } }} onCommit={() => {}} onCancel={() => {}} />, root)
+      source={{ values, query: { jobId: 'run', nodeId: 'source', outputId: 'video' } }} onCommit={() => true} bindFrame={bind} />, root)
     await vi.advanceTimersByTimeAsync(110)
     expect(values.rendition).toHaveBeenCalledTimes(2)
     for (const kind of ['frame', 'thumbs']) expect(values.rendition).toHaveBeenCalledWith(expect.anything(), kind, {
@@ -224,7 +225,7 @@ describe('VideoEditEditor', () => {
       rendition: vi.fn(async (): Promise<RenditionResult> => ({ available: false, status: 406, reason: 'unavailable-rendition', error: 'No bounded decoder' })),
     }
     const [source, setSource] = createSignal({ values, query: { jobId: 'old', nodeId: 'source', outputId: 'video' } })
-    dispose = render(() => <VideoEditEditor value={{}} spec={{ widgetType: 'VIDEO_EDIT', options: { features: ['crop'] } }} source={source()} onCommit={() => {}} onCancel={() => {}} />, root)
+    dispose = render(() => <VideoEditEditor value={{}} spec={{ widgetType: 'VIDEO_EDIT', options: { features: ['crop'] } }} source={source()} onCommit={() => true} bindFrame={bind} />, root)
     const old = resolveOld
     setSource({ values, query: { jobId: 'new', nodeId: 'source', outputId: 'video' } })
     old({ available: false, status: 404, reason: 'bad-element', error: 'Stale error' })
@@ -241,9 +242,9 @@ describe('VideoEditEditor', () => {
     const commit = vi.fn()
     dispose = render(() => <VideoEditEditor value={{ vendor: [1], trim: {}, crop: { x: 13, future: 'keep' } }}
       spec={{ widgetType: 'VIDEO_EDIT', options: { features: ['crop'] } }} facts={{ width: 1920, height: 1080, fps: 24, duration: 10 }}
-      onCommit={commit} onCancel={() => {}} />, root)
+      onCommit={commit} bindFrame={bind} />, root)
     set(input(root, 'video-crop-width'), '200')
-    root.querySelector<HTMLButtonElement>('[data-testid="video-edit-apply"]')!.click()
+    void frame!.apply!()
     expect(commit).toHaveBeenCalledWith({ vendor: [1], trim: {}, crop: { x: 13, future: 'keep', width: 200 } }, false)
     expect(root.querySelector('[data-testid="video-trim-strict"]')).toBeNull()
   })

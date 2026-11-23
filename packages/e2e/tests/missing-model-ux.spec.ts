@@ -118,7 +118,7 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
   await openAssetEditor(page)
   await expect(page.getByRole('option', { name: /audit-local-checkpoint\.safetensors/ })).toBeVisible()
   await page.getByRole('option', { name: /audit-local-checkpoint\.safetensors/ }).click()
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect(editor).not.toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision + 1)
   expect(await currentValue(page)).toEqual(checkpointRef)

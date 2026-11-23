@@ -9,9 +9,10 @@
  * WidgetEditorState remounts the component - opening IS the reset.
  */
 
-import { createMemo, createSignal, onCleanup, Show, type Component, type JSX } from 'solid-js'
+import { createMemo, createSignal, onCleanup, onMount, Show, type Component, type JSX } from 'solid-js'
 import {
   canonicalTypeIdOf,
+  jsonSameValue,
   semanticDesignTokens,
   type CommandInvocation,
   type EditorSizing,
@@ -24,6 +25,7 @@ import {
   type WidgetSpec,
 } from '@dinkster/core'
 import { defaultTokens, typeColor, type DynamicEditOwner } from '@dinkster/canvas'
+import { ProductEditorFrame, ProductStringsProvider, type ProductEditorFramePhase } from '@dinkster/ui'
 import type { AppState, Tab } from './app-state.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductNotice } from './ProductForm.js'
@@ -169,8 +171,11 @@ export interface WidgetEditorProps {
   ed: WidgetEditorState
   /** Main canvas viewport, sampled once to place a newly opened popover. */
   viewport: () => { x: number; y: number; scale: number }
-  /** Puts the keyboard on a row of the node with nothing open, as after Enter. */
-  focusRow?: (from: { readonly nodeId: string; readonly valueKey: string }) => void
+  /**
+   * Puts the keyboard on a row of the node with nothing open, as after Enter.
+   * A notice is the first line of the row's side part, such as why an editor closed.
+   */
+  focusRow?: (from: { readonly nodeId: string; readonly valueKey: string }, notice?: string) => void
   /** Opens the next (1) or previous (-1) row of the same node that Tab stops on. */
   moveRow?: (from: { readonly nodeId: string; readonly valueKey: string }, direction: 1 | -1) => void
   /**
@@ -178,13 +183,52 @@ export interface WidgetEditorProps {
    * handler that returns false keeps the editor open and stops the press.
    */
   bindClickAway?: (handler: (() => unknown) | undefined) => void
-  /** Lets the canvas activate an exposed ASSET row after this modal closes. */
-  onAssetBackdropPointerDown?: (event: PointerEvent) => void
   onClose: () => void
+}
+
+/**
+ * What a full editor tells its frame. The editor keeps its own draft, tools
+ * and writes; the frame owns Apply, Cancel and closing.
+ */
+export interface EditorFrameBinding {
+  /** Where the draft stands; Apply is available only for `changed`. */
+  readonly phase: () => ProductEditorFramePhase
+  /** Footer words in place of the phase's own, such as what to fix. */
+  readonly status?: () => string | undefined
+  /** What could not load, while the phase is `unavailable`. */
+  readonly unavailable?: () => string | undefined
+  readonly retry?: () => void
+  /**
+   * Stores the draft through commitValue or commitCommand, after any work of
+   * its own such as an upload. Resolves false or throws when nothing was stored.
+   * An editor that can never store leaves it out and its frame offers Close.
+   */
+  readonly apply?: () => Promise<boolean> | boolean
+}
+
+/** The editor frame's words in the app's language. */
+export function editorFrameStrings(message: ReturnType<typeof useAppMessage>) {
+  return {
+    apply: message('common.apply'),
+    cancel: message('common.cancel'),
+    closeEditor: message('editorFrame.closeEditor'),
+    tryAgain: message('editorFrame.tryAgain'),
+    loading: message('editorFrame.loadingStatus'),
+    editorLoading: message('editorFrame.loading'),
+    editorUnavailable: message('editorFrame.unavailable'),
+    editorUnavailableStatus: message('editorFrame.unavailableStatus'),
+    editorUnchanged: message('editorFrame.unchanged'),
+    editorChanged: message('editorFrame.changed'),
+    editorInvalid: message('editorFrame.invalid'),
+    editorApplying: message('editorFrame.applying'),
+    dismissError: message('editorFrame.dismissError'),
+  }
 }
 
 export interface WidgetEditorImplementationProps {
   bindPopover: (el: HTMLDivElement) => void
+  /** A full editor hands its frame its draft's state and its apply action. */
+  bindFrame: (binding: EditorFrameBinding) => void
   close: () => void
   commitValue: (value: Json) => Promise<boolean>
   commitCommand: (invocation: CommandInvocation, closeOnAccept?: boolean) => Promise<boolean>
@@ -196,8 +240,8 @@ export interface WidgetEditorImplementationProps {
 }
 
 export interface WidgetEditorModalConfiguration {
-  displayType?: string
-  help: JSX.Element
+  /** The editor's accessible description. */
+  help?: JSX.Element
   dismissBlocked?: () => boolean
   onRequestClose?: (close: () => void) => void
   type: string
@@ -276,6 +320,13 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
   })
 
   const close = (): void => { live = false; props.onClose() }
+  const framed = props.modal !== undefined
+  const targetRow = ed.target.kind === 'input' ? { nodeId: ed.target.nodeId, valueKey: ed.target.valueKey } : undefined
+  /** Closes the frame and puts the keyboard back on the row it was opened from. */
+  const finish = (notice?: string): void => {
+    if (live) close()
+    if (targetRow !== undefined) props.focusRow?.(targetRow, notice)
+  }
   const [commitPending, setCommitPending] = createSignal(false)
   const [commitError, setCommitError] = createSignal<string>()
   const commitCommand = async (invocation: CommandInvocation, closeOnAccept = true): Promise<boolean> => {
@@ -285,12 +336,17 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     setCommitError(undefined)
     try {
       const outcome = await props.app.dispatchTo(ed.tab, invocation)
-      if (!live || ed.tab.store !== store) return false
+      // The canvas disposes a frame whose own accepted write rebuilt its row;
+      // that write still counts, and the row still gets its notice.
+      if (ed.tab.store !== store || (!live && !(framed && outcome.ok))) return false
       if (!outcome.ok) {
         setCommitError(outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
         return false
       }
-      if (closeOnAccept) close()
+      if (closeOnAccept) {
+        if (framed) finish(message('editorFrame.applied'))
+        else close()
+      }
       return true
     } catch (reason) {
       if (live && ed.tab.store === store) setCommitError(reason instanceof Error ? reason.message : String(reason))
@@ -332,6 +388,71 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     )
   }
 
+  const [frame, setFrame] = createSignal<EditorFrameBinding>()
+  const [applying, setApplying] = createSignal(false)
+  const frameBusy = (): boolean => applying() || commitPending()
+  const framePhase = (): ProductEditorFramePhase => frame()?.phase() ?? 'loading'
+  const applyFrame = async (): Promise<boolean> => {
+    const binding = frame()
+    if (!live || binding?.apply === undefined || frameBusy() || binding.phase() !== 'changed') return false
+    setApplying(true)
+    setCommitError(undefined)
+    try {
+      const stored = await binding.apply()
+      if (!stored && live && commitError() === undefined) setCommitError(message('widgetEditor.commitRefused'))
+      return stored
+    } catch (reason) {
+      if (live) setCommitError(reason instanceof Error ? reason.message : String(reason))
+      return false
+    } finally {
+      if (live) setApplying(false)
+    }
+  }
+  const cancelFrame = (): void => {
+    if (!live || frameBusy()) return
+    if (props.modal?.onRequestClose !== undefined) props.modal.onRequestClose(() => finish())
+    else finish()
+  }
+  // Ctrl+Enter stores a valid change, then runs the workflow; an unchanged
+  // editor closes and runs. Nothing runs while the draft cannot be applied.
+  const onFrameKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey) || event.isComposing || event.defaultPrevented) return
+    event.preventDefault()
+    const binding = frame()
+    if (binding === undefined || frameBusy()) return
+    const queue = props.app.commands.get('workflow.queue')
+    const run = (): void => { if (queue?.enabled?.() !== false) queue?.run() }
+    const phase = binding.phase()
+    if (phase === 'unchanged') {
+      cancelFrame()
+      if (!live) run()
+    } else if (phase === 'changed') void applyFrame().then((stored) => { if (stored) run() })
+  }
+  /** The value the editor writes, as stored now; absent when its owner is gone. */
+  const storedTarget = (): { readonly exists: boolean; readonly value: unknown } => {
+    const doc = ed.tab.store.doc
+    if (ed.target.kind === 'valueSource') {
+      const source = doc.graphs[ed.graphId]?.valueSources?.[ed.target.valueSourceId]
+      return { exists: source !== undefined, value: source?.value }
+    }
+    const owner = ed.target.familyOwner
+    const node = doc.graphs[owner?.graphId ?? ed.graphId]?.nodes[owner?.nodeId ?? ed.target.nodeId]
+    return { exists: node !== undefined, value: node?.values[owner?.valueKey ?? ed.target.valueKey] }
+  }
+  if (framed) {
+    // A draft never overwrites a value someone else stored meanwhile: the
+    // editor closes without writing when its value changes or its node goes.
+    const atOpen = storedTarget()
+    const store = ed.tab.store
+    const unsubscribe = store.document.subscribe(() => {
+      if (!live || frameBusy() || ed.tab.store !== store) return
+      const now = storedTarget()
+      if (!now.exists) close()
+      else if (!jsonSameValue(now.value as never, atOpen.value as never)) finish(message('editorFrame.targetChanged'))
+    })
+    onCleanup(unsubscribe)
+  }
+
   const clickAway = (): void => {
     if (!live) return
     if (ed.hostUi !== undefined) {
@@ -363,8 +484,32 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
       </>
     )
   }
+  /** "Field - Node": the row's label and the title of the node it belongs to. */
+  const frameTitle = (): string => {
+    if (ed.target.kind !== 'input') return ed.label
+    const owner = ed.target.familyOwner
+    const node = ed.tab.store.doc.graphs[owner?.graphId ?? ed.graphId]?.nodes[owner?.nodeId ?? ed.target.nodeId]
+    const title = node === undefined ? undefined
+      : node.title ?? props.app.registryForTab?.(ed.tab)?.resolve(node.type)?.displayName ?? node.type
+    return title === undefined || title === '' ? ed.label : `${ed.label} - ${title}`
+  }
+  const frameStrings = () => editorFrameStrings(message)
+  /**
+   * The keyboard starts on the editor's first tool, not on the close button
+   * the dialog would pick; an editor that focused a field itself keeps it.
+   */
+  const focusFirstTool = (anchor: HTMLElement): void => {
+    onMount(() => queueMicrotask(() => queueMicrotask(() => {
+      const dialog = anchor.closest('dialog')
+      const body = dialog?.querySelector<HTMLElement>('.dinkster-editor-frame-body:not([hidden])')
+      const active = document.activeElement
+      if (!dialog || !body || (active !== dialog && active !== document.body && !dialog.querySelector('.dinkster-editor-frame-header')?.contains(active))) return
+      const tool = [...body.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')]
+        .find((element) => element.getClientRects().length > 0)
+      ;(tool ?? dialog).focus()
+    })))
+  }
   const modalType = props.modal?.type ?? ed.spec?.widgetType ?? 'JSON'
-  const modalDisplayType = createMemo(() => props.modal?.displayType ?? modalType)
   const modalId = `widget-${modalType.toLowerCase().replaceAll('_', '-')}`
   const popoverStyle = {
     left: `${popoverAnchor.x}px`,
@@ -399,7 +544,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
       data-editor-mode={ed.spec?.widgetType ?? 'raw'}
       data-editor-surface="popover"
       role="dialog"
-      aria-label={`Edit ${ed.label} ${modalDisplayType()}`}
+      aria-label={`Edit ${ed.label} ${modalType}`}
       tabIndex={-1}
       style={hostUiPopoverStyle()}
     >
@@ -420,7 +565,8 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
   const EditorContent = () => props.implementation !== undefined ? (
     <props.implementation
       bindPopover={bindPopover}
-      close={close}
+      bindFrame={setFrame}
+      close={framed ? () => finish() : close}
       commitValue={commitEditorValue}
       commitCommand={commitCommand}
       commitPending={commitPending}
@@ -463,29 +609,34 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
           }
         >
           <ModalSurface
-                title={`${ed.label} ${modalDisplayType()}`}
-                ariaLabel={`Edit ${ed.label} ${modalDisplayType()}`}
-                describedBy="widget-editor-description"
+                title={frameTitle()}
+                variant="editor"
+                {...(props.boundary !== undefined ? { bounds: props.boundary } : {})}
+                {...(props.modal?.help !== undefined ? { describedBy: 'widget-editor-description' } : {})}
                 modalId={modalId}
                 testId="widget-modal-surface"
-                closeLabel={`Close ${ed.label} ${modalDisplayType()} editor`}
-                dismissBlocked={props.modal?.dismissBlocked?.() === true}
-                onRequestClose={() => {
-                  if (props.modal?.onRequestClose !== undefined) {
-                    props.modal.onRequestClose(close)
-                    return
-                  }
-                  close()
-                }}
-                {...(props.onAssetBackdropPointerDown !== undefined
-                  ? { onBackdropPointerDown: props.onAssetBackdropPointerDown }
-                  : {})}
+                dismissBlocked={frameBusy() || props.modal?.dismissBlocked?.() === true}
+                onRequestClose={cancelFrame}
+                onKeyDown={onFrameKeyDown}
               >
-                <p id="widget-editor-description" class="widget-modal-help">
+                <p id="widget-editor-description" class="dinkster-visually-hidden" ref={focusFirstTool}>
                   {props.modal?.help}
                 </p>
-                <Show when={commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
-                <div class="widget-commit-content" inert={commitPending()} aria-busy={commitPending()}><EditorContent /></div>
+                <ProductStringsProvider strings={frameStrings()}>
+                  <ProductEditorFrame
+                    title={frameTitle()}
+                    phase={framePhase()}
+                    applying={frameBusy()}
+                    {...(frame()?.status?.() !== undefined ? { status: frame()!.status!()! } : {})}
+                    {...(commitError() !== undefined ? { error: commitError()!, onDismissError: () => setCommitError(undefined) } : {})}
+                    {...(frame()?.unavailable?.() !== undefined ? { unavailableLabel: frame()!.unavailable!()! } : {})}
+                    {...(frame()?.retry !== undefined ? { onRetry: () => frame()?.retry?.() } : {})}
+                    {...(frame()?.apply !== undefined ? { onApply: () => { void applyFrame() } } : {})}
+                    onCancel={cancelFrame}
+                  >
+                    <EditorContent />
+                  </ProductEditorFrame>
+                </ProductStringsProvider>
           </ModalSurface>
         </Show>
       }

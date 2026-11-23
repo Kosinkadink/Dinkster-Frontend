@@ -230,7 +230,7 @@ test('real ASSET Upload preserves a greater-than-256-KiB PNG through graph, vaul
   const editor = page.getByTestId('asset-editor')
   await expect(editor).toBeVisible()
   await expect(editor.getByTestId('asset-upload-trigger')).toBeFocused()
-  await editor.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect(editor).not.toBeVisible()
   expect(await assetRef(page)).toEqual(payload.asset)
   await assertExportReopen(page)

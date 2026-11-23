@@ -151,7 +151,7 @@ async function ensureDockClosed(page: Page): Promise<void> {
 }
 
 async function closeAsset(page: Page): Promise<void> {
-  await page.getByTestId('asset-editor').getByRole('button', { name: 'cancel' }).click()
+  await page.getByTestId('editor-frame-cancel').click()
   await expect(page.getByTestId('asset-editor')).not.toBeVisible()
 }
 
@@ -231,7 +231,7 @@ test('click and keyboard Enter stage the pick; Apply commits the complete AssetR
   // Staging alone must not commit or close.
   await expect(page.getByTestId('asset-selection-summary')).toContainText('sunset.png')
   expect(await value(page)).toBeNull()
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect(page.getByTestId('asset-editor')).not.toBeVisible()
   expect(await value(page)).toEqual({ digest: IMAGE_DIGEST, name: 'sunset.png', size: 2048, mediaType: 'image/png', virtualPath: 'photos/sunset.png' })
 
@@ -242,7 +242,7 @@ test('click and keyboard Enter stage the pick; Apply commits the complete AssetR
   await expect(page.getByRole('option', { name: /style\.safetensors/ })).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('asset-selection-summary')).toContainText('style.safetensors')
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect(page.getByTestId('asset-editor')).not.toBeVisible()
   const model = { digest: MODEL_DIGEST, name: 'style.safetensors', size: 4096, mediaType: 'application/x-safetensors', virtualPath: 'photos/style.safetensors' }
   expect(await value(page)).toEqual(model)
@@ -302,7 +302,7 @@ test('native picker references stage exact identity and never copy on errors or 
   expect(await preferences()).toEqual(before)
   expect(await page.evaluate(() => (window as unknown as { pickerUploads: number }).pickerUploads)).toBe(0)
   await page.screenshot({ path: testInfo.outputPath('native-picker-no-copy.png') })
-  await editor.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect(editor).not.toBeVisible()
   expect(await value(page)).toEqual(mounted)
   await openAsset(page)
@@ -339,8 +339,9 @@ test('native picker references stage exact identity and never copy on errors or 
     await expect(editor.getByTestId('asset-upload-trigger')).toBeEnabled()
     await expect(editor.getByTestId('asset-selection-summary')).toContainText('mounted.png')
     await expect(editor).not.toContainText('imports/selected.png')
-    await editor.getByTestId('asset-apply').click()
-    await expect(editor).not.toBeVisible()
+    // The late pick staged nothing, so there is nothing to apply.
+    await expect(page.getByTestId('editor-frame-apply')).toBeDisabled()
+    await closeAsset(page)
     expect(await value(page)).toEqual(mounted)
     await openAsset(page)
   }
@@ -466,8 +467,8 @@ test('selected image assets preview immediately inside the node and follow impor
   })).toBe(true)
   await openAsset(page, true, 'imported')
   await page.getByTestId('asset-editor').getByTestId('asset-selection-remove').click()
-  await expect(page.getByTestId('asset-apply')).toHaveText('Use 0 assets')
-  await page.getByTestId('asset-apply').click()
+  await expect(page.getByTestId('editor-frame-apply')).toBeEnabled()
+  await page.getByTestId('editor-frame-apply').click()
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.imported!.values.image)).toEqual([])
   await expect.poll(async () => (await previewState()).region).toBeUndefined()
@@ -482,14 +483,14 @@ test('selected image assets preview immediately inside the node and follow impor
   await page.setViewportSize({ width: 390, height: 844 })
   await page.getByRole('option', { name: /^photos/ }).scrollIntoViewIfNeeded()
   await page.screenshot({ path: `${PROOF_DIR}/empty-picker-390x844.png` })
-  await page.getByTestId('asset-apply').scrollIntoViewIfNeeded()
-  await expect(page.getByTestId('asset-apply')).toBeVisible()
+  await page.getByTestId('editor-frame-apply').scrollIntoViewIfNeeded()
+  await expect(page.getByTestId('editor-frame-apply')).toBeVisible()
   await page.screenshot({ path: `${PROOF_DIR}/empty-picker-footer-390x844.png` })
   await page.getByRole('option', { name: /^photos/ }).click()
   await expect(page.getByRole('button', { name: 'photos' })).toBeVisible()
   await page.setViewportSize({ width: 1366, height: 768 })
   await page.getByRole('option', { name: /sunset\.png/ }).click()
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect.poll(async () => (await previewState()).preview?.width).toBe(320)
   await expect(accessiblePreview).toHaveAccessibleName('Asset Browser, selected input sunset.png: 320 by 180 pixels')
   await captureProof(page, 'picker-selected')
@@ -500,7 +501,7 @@ test('selected image assets preview immediately inside the node and follow impor
   const moon = page.getByRole('option', { name: /moon\.png/ })
   await moon.focus()
   await moon.press('Enter')
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await secondRequest
   await expect.poll(() => value(page).then((asset) => asset?.digest)).toBe(SECOND_DIGEST)
   await expect.poll(async () => (await previewState()).preview?.width).toBe(240)
@@ -511,7 +512,7 @@ test('selected image assets preview immediately inside the node and follow impor
   await openAsset(page)
   await page.getByRole('button', { name: 'Load more' }).click()
   await page.getByRole('option', { name: /corrupt\.png/ }).click()
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect.poll(async () => (await previewState()).preview?.status).toBe('unavailable')
   await expect(accessiblePreview).toHaveAccessibleName('Asset Browser, selected input corrupt.png: unavailable')
   await captureProof(page, 'unavailable-corrupt')
@@ -519,19 +520,19 @@ test('selected image assets preview immediately inside the node and follow impor
   await openAsset(page)
   await page.getByRole('button', { name: 'Load more' }).click()
   await page.getByRole('option', { name: /broken\.png/ }).click()
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect.poll(async () => (await previewState()).preview?.status).toBe('unavailable')
   await expect(accessiblePreview).toHaveAccessibleName('Asset Browser, selected input broken.png: unavailable')
 
   await openAsset(page)
   await page.getByRole('option', { name: /sunset\.png/ }).click()
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect.poll(async () => (await previewState()).preview?.width).toBe(320)
   await expect(accessiblePreview).toHaveAccessibleName('Asset Browser, selected input sunset.png: 320 by 180 pixels')
 
   await openAsset(page)
   await page.getByTestId('asset-editor').getByTestId('asset-selection-remove').click()
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect.poll(async () => (await previewState()).region).toBeUndefined()
   await expect(accessiblePreview).toHaveCount(0)
   expect(pageErrors).toEqual([])
@@ -573,7 +574,7 @@ test('a typed query supersedes the in-flight page immediately: no stale commit, 
 test('reopening the editor shows the current asset selected with its selection panel populated', async ({ page }) => {
   await openAsset(page)
   await page.getByRole('option', { name: /sunset\.png/ }).click()
-  await page.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect(page.getByTestId('asset-editor')).not.toBeVisible()
 
   await openAsset(page)

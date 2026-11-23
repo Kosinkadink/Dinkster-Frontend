@@ -59,14 +59,17 @@ test('crop fields submit exact pixels, preview the source and preserve undo', as
   await page.getByTestId('bounding-box-editor').screenshot({ path: screenshot })
   await testInfo.attach('crop-source', { path: screenshot, contentType: 'image/png' })
   await page.locator('#bounding-box-width').fill('')
-  await expect(page.getByRole('button', { name: 'Apply crop', exact: true })).toBeDisabled()
+  await expect(page.getByTestId('editor-frame-apply')).toBeDisabled()
   const viewport = page.viewportSize()!
   for (const theme of ['dark', 'light']) {
     await page.evaluate((theme) => { document.documentElement.dataset['theme'] = theme }, theme)
-    const contrast = await page.getByRole('button', { name: 'Apply crop', exact: true }).evaluate((button) => {
+    const contrast = await page.getByTestId('editor-frame-apply').evaluate((button) => {
       const style = getComputedStyle(button)
       const rgb = (color: string) => color.match(/[\d.]+/g)!.slice(0, 3).map(Number)
-      const parent = rgb(getComputedStyle(button.closest('[role="dialog"]')!).backgroundColor)
+      // The nearest painted surface behind the button.
+      let surface = button.parentElement
+      while (surface && /^(transparent|rgba\(.*,\s*0\))$/.test(getComputedStyle(surface).backgroundColor)) surface = surface.parentElement
+      const parent = rgb(getComputedStyle(surface!).backgroundColor)
       const opacity = Number(style.opacity)
       const luminance = (color: string) => rgb(color).map((value, index) => {
         const channel = (value * opacity + parent[index]! * (1 - opacity)) / 255
@@ -79,7 +82,7 @@ test('crop fields submit exact pixels, preview the source and preserve undo', as
     expect(contrast, `${theme} disabled crop action contrast`).toBeGreaterThanOrEqual(4.5)
     for (const height of [viewport.height, viewport.height - 100]) {
       await page.setViewportSize({ ...viewport, height })
-      await expect.poll(() => page.getByTestId('bounding-box-editor').evaluate((editor) => {
+      await expect.poll(() => page.getByTestId('widget-modal-surface').evaluate((editor) => {
         const bounds = editor.getBoundingClientRect()
         return Array.from(editor.querySelectorAll('button')).every((button) => {
           const rect = button.getBoundingClientRect()
@@ -97,7 +100,7 @@ test('crop fields submit exact pixels, preview the source and preserve undo', as
   for (const [field, value] of Object.entries({ x: '61', y: '43', width: '12', height: '9' })) {
     await page.locator(`#bounding-box-${field}`).fill(value)
   }
-  await page.getByRole('button', { name: 'Apply crop', exact: true }).focus()
+  await page.getByTestId('editor-frame-apply').focus()
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('bounding-box-editor')).toHaveCount(0)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.crop!.values.crop_region))

@@ -137,14 +137,18 @@ it.each(['apply', 'local', 'failure', 'cancel', 'retarget', 'closed'] as const)(
     multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => { closed = true }} />, root)
   const button = (name: string) => Array.from(document.querySelectorAll('button')).find((item) => item.textContent === name)!
-  await vi.waitFor(() => expect(button('Apply').disabled).toBe(false))
+  const apply = root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!
+  await vi.waitFor(() => expect(button('Clear paint').disabled).toBe(false))
   expect(document.querySelector('canvas')?.width).toBe(512)
+  expect(apply.disabled).toBe(true)
+  button('Clear paint').click()
+  expect(apply.disabled).toBe(false)
   if (outcome === 'cancel') {
     button('Cancel').click()
     expect(closed).toBe(true)
     expect(requested).toBe(false)
   } else {
-    button('Apply').click()
+    apply.click()
     await vi.waitFor(() => expect(requested).toBe(true))
     expect(store.doc.graphs.g0!.nodes.n1!.values.mask).toEqual(initial)
     if (outcome === 'retarget') backend = { ...backend, connection: { ...connection } }
@@ -156,7 +160,7 @@ it.each(['apply', 'local', 'failure', 'cancel', 'retarget', 'closed'] as const)(
       expect(store.undo()).toBe(true)
       expect(store.doc.graphs.g0!.nodes.n1!.values.mask).toEqual(initial)
     } else if (outcome !== 'closed') {
-      await vi.waitFor(() => expect(document.querySelector('[role="alert"][data-tone="error"]')?.textContent).toContain(outcome === 'failure' ? 'upload refused' : 'backend changed'))
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="editor-frame-error"]')?.textContent).toContain(outcome === 'failure' ? 'upload refused' : 'backend changed'))
     } else await pending
   }
   if (outcome !== 'closed') dispose()
@@ -205,7 +209,7 @@ it.each(['live', 'closed-decode', 'edited', 'disconnected'] as const)(
       expect(context.drawImage).toHaveBeenCalledTimes(visible ? 1 : 0)
       if (visible) {
         expect(context.drawImage).toHaveBeenCalledWith(bitmap, 0, 0, 512, 512)
-        expect(Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply')?.disabled).toBe(false)
+        expect(root.querySelector('.dinkster-editor-frame')?.getAttribute('data-phase')).toBe('unchanged')
       }
     } finally { finish?.(); dispose(); app.dispose() }
   },

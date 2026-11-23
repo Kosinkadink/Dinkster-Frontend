@@ -145,7 +145,7 @@ test('proves product upload control and hidden workflow picker lifecycle', async
   await expect(editor).toContainText('POST /api/assets/media failed: 500')
   await expect(trigger).toBeEnabled()
   expect(posts).toBe(4)
-  await editor.getByRole('button', { name: 'cancel' }).click()
+  await page.getByTestId('editor-frame-cancel').click()
   await expect(editor).not.toBeVisible()
 
   mode = 'success'
@@ -155,9 +155,9 @@ test('proves product upload control and hidden workflow picker lifecycle', async
   await expect(scalarEditor.locator('input[type=file]')).not.toHaveAttribute('multiple')
   await scalarEditor.locator('input[type=file]').setInputFiles({ ...png, name: 'scalar.png' })
   await expect(scalarEditor).toBeVisible()
-  await expect(scalarEditor.getByTestId('asset-apply')).toBeEnabled()
+  await expect(page.getByTestId('editor-frame-apply')).toBeEnabled()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.asset!.values.image)).toBeNull()
-  await scalarEditor.getByTestId('asset-apply').click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect(scalarEditor).not.toBeVisible()
   expect(posts).toBe(5)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.asset!.values.image)).toMatchObject({ name: 'scalar.png' })

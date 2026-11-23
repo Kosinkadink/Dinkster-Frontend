@@ -123,8 +123,8 @@ test('an uploaded selected asset estimates its represented output before executi
     mimeType: asset.mediaType,
     buffer: sourcePng,
   })
-  await expect(page.getByTestId('asset-apply')).toBeEnabled()
-  await page.getByTestId('asset-apply').click()
+  await expect(page.getByTestId('editor-frame-apply')).toBeEnabled()
+  await page.getByTestId('editor-frame-apply').click()
   await expect(page.getByTestId('asset-editor')).not.toBeVisible()
 
   const previewOf = () => page.evaluate(() => {

@@ -211,7 +211,7 @@ for (const denied of [true, false]) test(`recording asset flow, permission denie
     expect(uploadedBytes?.subarray(0, 4)).toEqual(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))
     expect(uploadedContentType).toBe('audio/webm')
     await page.getByTestId('asset-editor').screenshot({ path: info.outputPath('audio-record-save.png') })
-    await page.getByTestId('asset-apply').click()
+    await page.getByTestId('editor-frame-apply').click()
     await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes['audio']!.values['clip'])).toEqual(asset)
   }
 })

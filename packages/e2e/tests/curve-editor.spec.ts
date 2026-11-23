@@ -244,10 +244,11 @@ test('edits, executes, reloads, previews a histogram, and refuses a linked curve
       params: { graphId: 'g0', nodeId: 'editor', inputId: 'curve', value },
     })).ok
   }, malformed)).toBe(true)
-  await page.getByRole('button', { name: 'Apply' }).click()
-  await expect(page.getByRole('alert')).toHaveText('The curve input changed or became linked while editing')
+  await page.getByLabel('Interpolation').selectOption('linear')
+  await page.getByTestId('editor-frame-apply').click()
+  await expect(page.getByTestId('editor-frame-error')).toHaveText('The curve input changed or became linked while editing')
   expect(await storedCurve(page)).toEqual(malformed)
-  await page.getByRole('button', { name: 'Cancel' }).click()
+  await page.getByTestId('editor-frame-cancel').click()
   await page.keyboard.press('Control+z')
   await expect.poll(() => storedCurve(page)).toBeUndefined()
   await page.mouse.click(curveRow.x, curveRow.y)
@@ -290,7 +291,7 @@ test('edits, executes, reloads, previews a histogram, and refuses a linked curve
     interpolation: 'linear',
     points: [{ position: 0, value: 0 }, moved, { position: 1, value: 1 }],
   }
-  await page.getByRole('button', { name: 'Apply' }).click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect(editor).toHaveCount(0)
   expect(await storedCurve(page)).toEqual(expectedCurve)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision + 1)
@@ -373,7 +374,7 @@ test('edits, executes, reloads, previews a histogram, and refuses a linked curve
     mkdirSync(evidenceGroupDir('issue-680'), { recursive: true })
     writeFileSync(evidencePath('issue-680', 'native-curve-editor-histogram.png'), screenshot)
   }
-  await page.getByRole('button', { name: 'Cancel' }).click()
+  await page.getByTestId('editor-frame-cancel').click()
   await expect(editor).toHaveCount(0)
 
   await drag(

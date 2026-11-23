@@ -40,7 +40,7 @@ it.each([false, true])('edits structured save destinations with writable grants 
   const prefix = root.querySelector<HTMLInputElement>('#save-target-prefix')!
   expect(prefix.getAttribute('aria-labelledby')).toBeTruthy()
   expect(root.textContent).toContain('numbering and .pgm')
-  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply destination')!
+  const apply = root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!
   for (const value of ['', '/absolute', 'a//b', '.', 'a/../b', 'a/./b', 'a\\b', 'a/']) {
     prefix.value = value; prefix.dispatchEvent(new Event('input', { bubbles: true }))
     expect(apply.disabled, value).toBe(true)
@@ -57,7 +57,10 @@ it.each([false, true])('edits structured save destinations with writable grants 
   if (optional) {
     store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'target', value: { mount: 'archive', prefix: 'old' } } })
     dispose = open()
+    await vi.waitFor(() => expect(root.querySelector('[role="combobox"]')!.textContent).toContain('archive'))
     Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Clear destination')!.click()
+    expect(store.doc.graphs.g0!.nodes.n1!.values.target).toEqual({ mount: 'archive', prefix: 'old' })
+    root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
     await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.target).toBeNull())
     expect(store.undo()).toBe(true)
     expect(store.doc.graphs.g0!.nodes.n1!.values.target).toEqual({ mount: 'archive', prefix: 'old' })
@@ -92,7 +95,7 @@ it('previews resolution with half-even rounding and edits descriptor-named sibli
     expect(element.getAttribute('aria-labelledby')).toBeTruthy()
     element.value = value; element.dispatchEvent(new Event('input', { bubbles: true }))
   }
-  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply resolution')!
+  const apply = root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!
   expect(root.querySelector('output')!.textContent).toBe('1,024 x 1,024 pixels')
   input('megapixels', '0.2539215087890625')
   expect(root.querySelector('output')!.textContent).toBe('512 x 512 pixels')
@@ -137,7 +140,7 @@ it('edits camera siblings atomically with schema defaults, validation and undo w
     expect(element.getAttribute('aria-labelledby')).toBeTruthy()
     element.value = value; element.dispatchEvent(new Event('input', { bubbles: true }))
   }
-  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply camera angle')!
+  const apply = root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!
   expect(root.querySelector<HTMLInputElement>('#camera-angle-zoom')!.value).toBe('5')
   for (const value of ['', '-1', '361', '90.5']) { input('horizontal_angle', value); expect(apply.disabled).toBe(true) }
   input('horizontal_angle', '90')
@@ -206,6 +209,9 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
     }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
     try {
       await vi.waitFor(() => expect(decode).toHaveBeenCalledOnce())
+      // A comparison can never store, so its frame offers Close alone.
+      const footer = [...root.querySelectorAll('footer button')].map((button) => button.textContent)
+      expect(footer).toEqual(kind === 'IMAGECOMPARE' ? ['Close'] : ['Cancel', 'Apply'])
       const canvas = root.querySelector('canvas')!
       const originalSize = [canvas.width, canvas.height]
       if (closed) dispose()
@@ -249,7 +255,7 @@ it('edits a crop region atomically, rejects invalid drafts and supports undo', a
     control.value = value
     control.dispatchEvent(new Event('input', { bubbles: true }))
   }
-  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply crop')!
+  const apply = root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!
   input('width', '')
   expect(apply.disabled).toBe(true)
   input('width', '12.5')
@@ -352,4 +358,101 @@ it('renders an editor registered at runtime for a new widget type', () => {
 
   expect(root.querySelector('[data-testid="runtime-widget-editor"]')?.textContent).toBe('Editing Timeline')
   unmount()
+})
+
+it('gives a full editor one frame: Apply only for a valid change, outside presses ignored, refusals and outside edits keep the stored value', async () => {
+  const initial = { x: 3, y: 7, width: 91, height: 23 }
+  const schema = parseDinksterSchema('CropFixture', { interface: [
+    { role: 'input', id: 'crop_region', type: { kind: 'concrete', types: ['BOUNDING_BOX'] }, default: initial, widget: { type: 'BOUNDING_BOX', component: 'ImageCrop' } },
+  ] }).schema!
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, title: 'Crop', widgets_values: [initial] }], links: [] }, () => schema)
+  const store = new DocumentStore(imported.document!, coreCommandRegistry())
+  const tab = { store } as unknown as Tab
+  const registry = createWidgetRegistry()
+  let refuse = false
+  let hold: Promise<void> | undefined
+  const dispatch = vi.fn(async (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => {
+    await hold
+    return refuse ? { ok: false, diagnostics: [{ severity: 'error', message: 'crop refused' }] } : store.dispatch(command)
+  })
+  const queue = { run: vi.fn(), enabled: () => true }
+  const app = {
+    widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    commands: { get: (id: string) => id === 'workflow.queue' ? queue : undefined },
+    dispatchTo: dispatch,
+  } as unknown as AppState
+  const focusRow = vi.fn()
+  const closed = vi.fn()
+  const root = document.createElement('div'); document.body.append(root)
+  const open = () => render(() => <WidgetEditor app={app} ed={{
+    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'crop_region' }, label: 'Crop region',
+    spec: inputsOf(schema)[0]!.widget, multiline: false,
+    rect: { x: 0, y: 0, width: 180, height: 24 }, initial: store.doc.graphs.g0!.nodes.n1!.values.crop_region ?? initial,
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} focusRow={focusRow} onClose={closed} />, root)
+  const apply = () => root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!
+  const input = (field: string, value: string) => {
+    const control = root.querySelector<HTMLInputElement>(`#bounding-box-${field}`)!
+    control.value = value
+    control.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  const stored = () => store.doc.graphs.g0!.nodes.n1!.values.crop_region
+
+  let dispose = open()
+  expect(root.querySelector('dialog')!.getAttribute('aria-label')).toBe('Crop region - Crop')
+  expect(apply().disabled).toBe(true)
+  input('width', '12.5')
+  expect(apply().disabled).toBe(true)
+  input('width', '12')
+  expect(apply().disabled).toBe(false)
+
+  const dialog = root.querySelector('dialog')!
+  vi.spyOn(dialog, 'getBoundingClientRect').mockReturnValue({ x: 100, y: 100, left: 100, top: 100, right: 500, bottom: 400, width: 400, height: 300, toJSON: () => ({}) })
+  dialog.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }))
+  expect(closed).not.toHaveBeenCalled()
+
+  refuse = true
+  apply().click()
+  await vi.waitFor(() => expect(root.querySelector('[data-testid="editor-frame-error"]')?.textContent).toContain('crop refused'))
+  expect(closed).not.toHaveBeenCalled()
+  expect(root.querySelector<HTMLInputElement>('#bounding-box-width')!.value).toBe('12')
+  expect(stored()).toEqual(initial)
+
+  refuse = false
+  let release!: () => void
+  hold = new Promise<void>((resolve) => { release = resolve })
+  dispatch.mockClear()
+  apply().click()
+  apply().click()
+  release()
+  await vi.waitFor(() => expect(stored()).toEqual({ ...initial, width: 12 }))
+  expect(dispatch).toHaveBeenCalledOnce()
+  expect(closed).toHaveBeenCalledOnce()
+  expect(focusRow).toHaveBeenLastCalledWith({ nodeId: 'n1', valueKey: 'crop_region' }, 'Applied. Undo takes it back in one step.')
+  dispose()
+
+  hold = undefined
+  closed.mockClear()
+  dispose = open()
+  input('x', '17')
+  store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'crop_region', value: { ...initial, height: 5 } } })
+  expect(closed).toHaveBeenCalledOnce()
+  expect(focusRow.mock.lastCall?.[1]).toContain('The stored value changed')
+  expect(stored()).toEqual({ ...initial, height: 5 })
+  dispose()
+
+  closed.mockClear()
+  dispose = open()
+  input('x', '18')
+  root.querySelector('dialog')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }))
+  await vi.waitFor(() => expect(stored()).toEqual({ ...initial, height: 5, x: 18 }))
+  expect(queue.run).toHaveBeenCalledOnce()
+  dispose()
+
+  closed.mockClear()
+  dispose = open()
+  input('y', '1')
+  root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-cancel"]')!.click()
+  expect(closed).toHaveBeenCalledOnce()
+  expect(stored()).toEqual({ ...initial, height: 5, x: 18 })
+  dispose()
 })

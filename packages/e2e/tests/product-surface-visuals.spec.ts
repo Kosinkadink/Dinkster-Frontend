@@ -1148,7 +1148,11 @@ test('Asset selection instructions stay readable for the rail and single or mult
         const componentPath = '/src/editors/AssetWidgetEditor.tsx'
         const { AssetWidgetEditor } = await import(componentPath)
         const singleType = { kind: 'concrete', name: 'ASSET' }
-        const tab = { store: { doc: {}, revision: 0 } }
+        const tab = { store: {
+          doc: { graphs: { g0: { nodes: { asset: { id: 'asset', type: 'AssetVisual', title: 'Reference loader', values: {} } } } } },
+          revision: 0,
+          document: { subscribe: () => () => {} },
+        } }
         const backend = { id: 'asset-visual', label: 'Visual fixture', baseUrl: '', protocol: 'dinkster', connection: {
           status: { subscribe: () => () => {} },
           listMounts: async () => [],
@@ -1186,7 +1190,7 @@ test('Asset selection instructions stay readable for the rail and single or mult
       await screenshot(page, `asset-selection-${mode}-${width}`)
     }
     if (mode !== 'rail') {
-      await page.getByTestId('asset-editor').getByRole('button', { name: 'Cancel', exact: true }).click()
+      await page.getByTestId('editor-frame-cancel').click()
       await expect(page.locator(`[data-asset-visual="${mode}"]`)).toHaveAttribute('data-closed', 'true')
       await expect(page.locator(`[data-asset-visual="${mode}"]`)).toHaveAttribute('data-committed', 'false')
     }

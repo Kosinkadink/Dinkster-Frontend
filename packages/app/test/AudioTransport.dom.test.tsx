@@ -161,7 +161,7 @@ describe('shared audio transport lifecycle', () => {
   it('applies canonical curve positions without an unrelated audio seconds mode', async () => {
     await next()
     const request = { tabId: 'tab', graphId: 'g', nodeId: 'envelope', inputId: 'curve', instancePath: [], openedValue: { points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] } }
-    const tab = { id: 'tab', store: { document: createSignal({}) } }
+    const tab = { id: 'tab', store: { doc: { graphs: {} }, document: createSignal({}) } }
     const dispatch = vi.fn(() => ({ ok: true }))
     const app = {
       curveEditorTarget: createSignal(request), tabs: createSignal([tab]), activeTabId: createSignal('tab'), store: { executions: createSignal(new Map()) },
@@ -169,11 +169,11 @@ describe('shared audio transport lifecycle', () => {
     } as unknown as AppState
     const curve = document.createElement('div'); root.append(curve)
     const closeCurve = render(() => <CurveEditor app={app} />, curve)
-    const surface = curve.querySelector('svg')!
+    const surface = curve.querySelector<SVGSVGElement>('[data-testid="curve-surface"]')!
     vi.spyOn(surface, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1000, height: 600 } as DOMRect)
     surface.dispatchEvent(new MouseEvent('dblclick', { clientX: 500, clientY: 300, bubbles: true }))
     expect(curve.querySelector('[data-testid="curve-point-value"]')?.textContent).toContain('Position0.5000')
-    Array.from(curve.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!.click()
+    curve.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
     expect(dispatch).toHaveBeenCalledWith(tab, {
       command: 'node.setValue', params: { graphId: 'g', nodeId: 'envelope', inputId: 'curve', value: {
         interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 0.5, value: 0.5 }, { position: 1, value: 1 }],
@@ -189,7 +189,7 @@ describe('shared audio transport lifecycle', () => {
   ])('waits for curve apply and isolates replacement targets: %j', async ({ accepted, replace }) => {
     const request = { tabId: 'tab', graphId: 'g', nodeId: 'envelope', inputId: 'curve', instancePath: [], openedValue: { points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] } }
     const target = createSignal<typeof request | undefined>(request)
-    const tab = { id: 'tab', store: { document: createSignal({}) } }
+    const tab = { id: 'tab', store: { doc: { graphs: {} }, document: createSignal({}) } }
     let settle!: () => void
     const dispatch = vi.fn(() => new Promise((resolve) => {
       settle = () => resolve({ ok: accepted, diagnostics: [] })
@@ -201,9 +201,12 @@ describe('shared audio transport lifecycle', () => {
     } as unknown as AppState
     const curve = document.createElement('div'); root.append(curve)
     const closeCurve = render(() => <CurveEditor app={app} />, curve)
-    const apply = Array.from(curve.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!
+    const surface = curve.querySelector<SVGSVGElement>('[data-testid="curve-surface"]')!
+    vi.spyOn(surface, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1000, height: 600 } as DOMRect)
+    surface.dispatchEvent(new MouseEvent('dblclick', { clientX: 500, clientY: 300, bubbles: true }))
+    const apply = curve.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!
     apply.click()
-    expect(apply.disabled).toBe(true)
+    expect(apply.getAttribute('aria-disabled')).toBe('true')
     expect(target.get()).toBe(request)
     apply.click()
     expect(dispatch).toHaveBeenCalledOnce()

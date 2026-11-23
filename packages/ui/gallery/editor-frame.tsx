@@ -111,6 +111,9 @@ interface FrameExample {
   readonly applying?: boolean
   readonly error?: string
   readonly retry?: boolean
+  /** An editor that can never store: its footer has one Close button. */
+  readonly viewOnly?: boolean
+  readonly status?: string
   readonly body: () => JSX.Element
 }
 
@@ -176,6 +179,31 @@ const frameExamples: readonly FrameExample[] = [
     phase: 'changed',
     body: () => <AssetBody />,
   },
+  {
+    id: 'view-only',
+    caption:
+      'Editor that can never store. A comparison only shows run results, so one Close button stands where Cancel and Apply would be.',
+    title: 'Compare - Image Compare',
+    phase: 'unchanged',
+    viewOnly: true,
+    status: 'Nothing to apply here',
+    body: () => (
+      <div class="dinkster-editor-frame-columns">
+        <div class="dinkster-editor-frame-work">
+          <div class="dinkster-frame-example-picture" role="img" aria-label="Comparison preview" />
+        </div>
+        <div class="dinkster-editor-frame-panel">
+          {(['Divider', 'Image A', 'Image B'] as const).map((label) => (
+            <ProductField label={label}>
+              {(attributes) => (
+                <ProductTextInput {...attributes} value={label === 'Divider' ? '50%' : 'Frame 1 of 1'} />
+              )}
+            </ProductField>
+          ))}
+        </div>
+      </div>
+    ),
+  },
   crop(
     'narrow',
     'Narrow workspace editor, 390 px. The header and footer stay; the settings move under the picture and the body scrolls.',
@@ -198,7 +226,8 @@ function FrameCard(props: { example: FrameExample }) {
           applying={props.example.applying === true}
           {...(props.example.error === undefined ? {} : { error: props.example.error, onDismissError: () => undefined })}
           {...(props.example.retry === true ? { onRetry: () => undefined } : {})}
-          onApply={() => undefined}
+          {...(props.example.status === undefined ? {} : { status: props.example.status })}
+          {...(props.example.viewOnly === true ? {} : { onApply: () => undefined })}
           onCancel={() => undefined}
         >
           {props.example.body()}
@@ -236,7 +265,7 @@ const rowExamples: readonly RowExample[] = [
     caption:
       'Editor target changed. Someone else stored a different crop while the editor was open; the old draft was dropped without writing and the keyboard is back on the row.',
     crop: ELSEWHERE,
-    notice: 'The stored crop changed, so the editor closed without applying. Open it again to edit the new crop.',
+    notice: 'The stored value changed, so the editor closed without applying. Open it again to edit the new value.',
   },
 ]
 

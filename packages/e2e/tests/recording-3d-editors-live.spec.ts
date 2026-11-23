@@ -95,7 +95,7 @@ test('Record Audio records a fake microphone and executes its saved asset after 
   expect(response.ok()).toBe(true)
   const { asset } = await response.json()
   await expect(editor).toContainText('Recording saved')
-  await editor.getByRole('button', { name: 'Use asset', exact: true }).click()
+  await page.getByTestId('editor-frame-apply').click()
   await expect(editor).toBeHidden()
   const saved = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
   expect(saved.graphs.g0!.nodes.target!.values.audio).toEqual(asset)
@@ -159,7 +159,7 @@ for (const type of ['load3_d', 'load3_d_advanced', 'preview3_d_advanced', 'previ
     const response = await uploaded
     expect(response.ok()).toBe(true)
     const { asset } = await response.json()
-    await picker.getByTestId('asset-apply').click()
+    await page.getByTestId('editor-frame-apply').click()
     await expect(picker).toBeHidden()
     if (!loader) await openGraph(page, `dinkster.3d.${type}`, {
       model_3d: { $typed: { type: file.name.endsWith('.ply') ? 'FILE_3D_PLY' : 'FILE_3D_GLB',
@@ -198,7 +198,7 @@ for (const type of ['load3_d', 'load3_d_advanced', 'preview3_d_advanced', 'previ
       }).toBeGreaterThan(100)
     }
     await page.screenshot({ path: info.outputPath(`${type}.png`) })
-    await editor.getByRole('button', { name: 'Apply', exact: true }).click()
+    await page.getByTestId('editor-frame-apply').click()
     await expect(editor).toBeHidden()
     const saved = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
     expect(saved.graphs.g0!.nodes.target!.values[inputId]).toMatchObject({ camera_info: { fov: 53 }, model_3d_info: [{ position: { x: 0.25 } }] })

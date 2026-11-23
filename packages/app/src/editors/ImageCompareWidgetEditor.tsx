@@ -4,8 +4,7 @@ import { occurrencesForView } from '@dinkster/core'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, type Component } from 'solid-js'
 import { viewInstancePath } from '../app-state.js'
 import { liveExactnessFor } from '../companion-display.js'
-import { ProductButton } from '../ProductControls.js'
-import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm.js'
+import { ProductField, ProductNotice } from '../ProductForm.js'
 import { ProductSelect } from '../ProductSelect.js'
 import { ProductSlider } from '../ProductSlider.js'
 import { useAppMessage } from '../locale.js'
@@ -94,28 +93,30 @@ const ImageCompareImplementation: Component<WidgetEditorImplementationProps> = (
       context.fillRect(canvas.width * divider / canvasPaintTokens.editor.imageCompare.percentScale, 0, canvasPaintTokens.editor.imageCompare.dividerWidth, canvas.height)
     }
   })
-  props.editor.bindClickAway?.(props.close)
-  onCleanup(() => { props.editor.bindClickAway?.(undefined) })
-  return <div ref={props.bindPopover} class="widget-editor floating-surface widget-editor-popover image-compare-editor" data-testid="image-compare-editor" role="dialog" aria-label={message('imageCompareWidget.title')}>
-    <props.header type="IMAGECOMPARE" />
-    <canvas ref={canvas} width={640} height={360} class="image-compare-preview" classList={{ 'is-ready': Boolean(images().image_a || images().image_b) }} role="img" aria-label={message('imageCompareWidget.preview')} />
-    <Show when={!images().image_a && !images().image_b}><ProductNotice tone="info">{message('imageCompareWidget.empty')}</ProductNotice></Show>
-    <ProductField controlId="image-compare-divider" label={message('imageCompareWidget.divider')} layout="stack">
-      <ProductSlider value={split()} min={0} max={100} ariaLabel={message('imageCompareWidget.divider')}
-        disabled={!images().image_a || !images().image_b} onInput={setSplit} />
-    </ProductField>
-    <For each={sides}>{(side) => <ProductField controlId={`image-compare-${side}`} label={message(`imageCompareWidget.${side}`)} layout="compact">
-      <ProductSelect id={`image-compare-${side}`} ariaLabel={message(`imageCompareWidget.${side}`)}
-        selectedId={frames(side).length === 0 ? message('imageCompareWidget.noFrames') : String(frames(side).some((frame) => (frame.frameIndex ?? 0) === selected()[side]) ? selected()[side] : frames(side)[0]?.frameIndex ?? 0)}
-        disabled={frames(side).length === 0} options={frames(side).map((frame) => ({
-          id: String(frame.frameIndex ?? 0), value: frame.frameIndex ?? 0,
-          label: message('imageCompareWidget.frame', { index: (frame.frameIndex ?? 0) + 1, count: frame.frameCount ?? 1 }),
-        }))} onSelect={(option) => setSelected((previous) => ({ ...previous, [side]: option.value }))} />
-    </ProductField>}</For>
-    <ProductActionFooter><ProductButton type="button" onClick={props.close}>{message('common.close')}</ProductButton></ProductActionFooter>
-  </div>
+  // The comparison only views run results, so its frame offers Close alone.
+  props.bindFrame({ phase: () => 'unchanged', status: () => message('editorFrame.nothingToApply') })
+  return <div class="widget-frame-body" data-testid="image-compare-editor" data-editor-surface="frame"><div class="dinkster-editor-frame-columns">
+    <div class="dinkster-editor-frame-work">
+      <canvas ref={canvas} width={640} height={360} class="image-compare-preview" classList={{ 'is-ready': Boolean(images().image_a || images().image_b) }} role="img" aria-label={message('imageCompareWidget.preview')} />
+      <Show when={!images().image_a && !images().image_b}><ProductNotice tone="info">{message('imageCompareWidget.empty')}</ProductNotice></Show>
+    </div>
+    <div class="dinkster-editor-frame-panel">
+      <ProductField controlId="image-compare-divider" label={message('imageCompareWidget.divider')} layout="stack">
+        <ProductSlider value={split()} min={0} max={100} ariaLabel={message('imageCompareWidget.divider')}
+          disabled={!images().image_a || !images().image_b} onInput={setSplit} />
+      </ProductField>
+      <For each={sides}>{(side) => <ProductField controlId={`image-compare-${side}`} label={message(`imageCompareWidget.${side}`)} layout="compact">
+        <ProductSelect id={`image-compare-${side}`} ariaLabel={message(`imageCompareWidget.${side}`)}
+          selectedId={frames(side).length === 0 ? message('imageCompareWidget.noFrames') : String(frames(side).some((frame) => (frame.frameIndex ?? 0) === selected()[side]) ? selected()[side] : frames(side)[0]?.frameIndex ?? 0)}
+          disabled={frames(side).length === 0} options={frames(side).map((frame) => ({
+            id: String(frame.frameIndex ?? 0), value: frame.frameIndex ?? 0,
+            label: message('imageCompareWidget.frame', { index: (frame.frameIndex ?? 0) + 1, count: frame.frameCount ?? 1 }),
+          }))} onSelect={(option) => setSelected((previous) => ({ ...previous, [side]: option.value }))} />
+      </ProductField>}</For>
+    </div>
+  </div></div>
 }
 
 export const ImageCompareWidgetEditor: Component<WidgetEditorProps> = (props) => (
-  <WidgetEditorController {...props} implementation={ImageCompareImplementation} />
+  <WidgetEditorController {...props} implementation={ImageCompareImplementation} modal={{ type: 'IMAGECOMPARE' }} />
 )

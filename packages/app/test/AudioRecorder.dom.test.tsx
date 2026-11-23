@@ -47,7 +47,7 @@ describe('explicit audio recording', () => {
     await vi.advanceTimersByTimeAsync(60_000)
     expect(stopTrack).toHaveBeenCalledOnce()
     expect(root.textContent).toContain('Recording ready')
-    expect(root.textContent).toContain('Use asset commits it')
+    expect(root.textContent).toContain('Apply stores it')
     expect(root.textContent).not.toContain('Record microphone')
     registerCatalog('de-DE', { 'audioRecorder.ready': 'Aufnahme bereit ({bytes} Bytes).' })
     setLocale('de-DE')

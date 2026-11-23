@@ -1,42 +1,5 @@
-.modal-surface[data-modal='widget-painter'] {
-  width: min(700px, calc(100vw - 24px));
-}
-
-.modal-surface[data-modal='widget-painter'] .widget-modal-help {
-  flex: none;
-  padding: 12px 12px 0;
-}
-
-.widget-editor.painter-widget-editor {
-  display: flex;
-  flex: 1;
-  gap: 0;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.painter-content {
-  display: grid;
-  grid-auto-rows: max-content;
-  flex: 1;
-  gap: 12px;
-  min-width: 0;
-  min-height: 0;
-  padding: 12px;
-  overflow: auto;
-  scroll-padding-block: 12px;
-}
-
-.painter-widget-editor > .product-action-footer {
-  margin: 0 12px 12px;
-}
-
 .painter-toolbar {
-  display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
 }
 
 .painter-toolbar .product-number {
@@ -49,8 +12,10 @@
 
 .painter-stage {
   display: grid;
+  min-width: 0;
+  min-height: 0;
   max-width: 100%;
-  margin-inline: auto;
+  max-height: 100%;
   outline: 1px solid currentColor;
 }
 
@@ -60,7 +25,7 @@
   display: block;
   width: auto;
   max-width: 100%;
-  max-height: 52vh;
+  max-height: 100%;
 }
 
 .painter-canvas {

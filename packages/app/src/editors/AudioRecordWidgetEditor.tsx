@@ -3,7 +3,7 @@ import { createSignal, onCleanup, Show, type Component } from 'solid-js'
 import { AudioRecorder } from '../AudioRecorder.js'
 import { AudioTransport } from '../AudioTransport.js'
 import { ProductButton } from '../ProductControls.js'
-import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
+import { ProductNotice } from '../ProductForm.js'
 import { useAppMessage } from '../locale.js'
 import { activeProjectId } from '../projects.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
@@ -43,10 +43,15 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
       if (live) setUploading(false)
     }
   }
-  props.editor.bindClickAway?.(props.close)
-  onCleanup(() => props.editor.bindClickAway?.(undefined))
+  const changed = (): boolean => (draft()?.digest ?? null) !== (initial?.digest ?? null)
+  props.bindFrame({
+    phase: () => backend.protocol !== 'dinkster' ? 'unavailable' : pending() || uploading() ? 'invalid' : changed() ? 'changed' : 'unchanged',
+    status: () => uploading() ? message('editorFrame.uploading') : pending() ? message('audioRecordWidget.pending') : undefined,
+    unavailable: () => backend.protocol !== 'dinkster' ? message('audioRecordWidget.native') : undefined,
+    apply: () => props.commitValue(draft()),
+  })
 
-  return <div class="widget-editor widget-modal-editor audio-record-editor" data-testid="audio-record-editor">
+  return <div class="widget-frame-body audio-record-editor" data-testid="audio-record-editor" data-editor-surface="frame"><div class="widget-frame-scroll widget-frame-form">
     <Show when={draft()} keyed>{(ref) => {
       const [src, setSrc] = createSignal<string>()
       const [failed, setFailed] = createSignal(false)
@@ -64,22 +69,19 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
         void load().catch(() => { if (current) setFailed(true) })
       }
       onCleanup(() => { current = false; previewAbort.abort(); if (ownedUrl) URL.revokeObjectURL(ownedUrl) })
-      return <>
+      // A block of its own keeps the transport at its natural height in the form.
+      return <div class="widget-frame-form">
         <p>{ref.name}</p>
         <Show when={src()}>{(url) => <AudioTransport media={{ kind: 'audio', src: url() }} />}</Show>
         <Show when={failed()}><ProductNotice tone="error">{message('audioRecordWidget.previewUnavailable')}</ProductNotice></Show>
         <ProductButton type="button" disabled={uploading()} onClick={() => setDraft(null)}>{message('audioRecordWidget.remove')}</ProductButton>
-      </>
+      </div>
     }}</Show>
-    <Show when={backend.protocol === 'dinkster'} fallback={<ProductNotice tone="error">{message('audioRecordWidget.native')}</ProductNotice>}>
+    <Show when={backend.protocol === 'dinkster'}>
       <AudioRecorder disabled={uploading()} onPendingChange={setPending} onSave={save} />
     </Show>
     <Show when={error()}>{(detail) => <ProductNotice tone="error">{detail()}</ProductNotice>}</Show>
-    <ProductActionFooter>
-      <ProductButton type="button" onClick={props.close}>{message('common.cancel')}</ProductButton>
-      <ProductButton type="button" variant="primary" disabled={pending() || uploading() || backend.protocol !== 'dinkster'} onClick={() => props.commitValue(draft())}>{message('audioRecordWidget.use')}</ProductButton>
-    </ProductActionFooter>
-  </div>
+  </div></div>
 }
 
 export const AudioRecordWidgetEditor: Component<WidgetEditorProps> = (props) => {
