@@ -108,7 +108,7 @@ function SaveTargetExampleCard(props: {
         renderer.setScene(built)
         if (current.arriving !== undefined) renderer.setCompanions(wiredTargetCompanions(node.id, current.arriving))
         if ((current.mounts ?? 'ready') === 'ready')
-          renderer.setWidgetFacts({ SAVE_TARGET: { ready: [...galleryMounts], projectMount: galleryMounts[0] } })
+          renderer.setWidgetFacts({ SAVE_TARGET: { ready: [...galleryMounts], ...(current.noDefault === true ? {} : { projectMount: galleryMounts[0] }) } })
         renderer.setOpenRow(current.open === undefined ? undefined : { nodeId: node.id, valueKey: 'target' })
         renderer.setViewport({ x: 0, y: 0, scale: 1 })
         renderer.renderNow()
@@ -136,8 +136,10 @@ function SaveTargetExampleCard(props: {
   const ready = (): readonly string[] => (mounts() === 'ready' ? galleryMounts : [])
   const open = () => example().open
   // The project's default output mount, known once the mounts are read.
-  const projectMount = (): string | undefined => (mounts() === 'ready' ? galleryMounts[0] : undefined)
-  const projectText = (): string => projectMount() ?? t('saveTargetWidget.projectDefault')
+  // The project's default output mount, known once the mounts are read; a project may have none.
+  const noDefault = (): boolean => mounts() === 'ready' && example().noDefault === true
+  const projectMount = (): string | undefined => (mounts() === 'ready' && !noDefault() ? galleryMounts[0] : undefined)
+  const projectText = (): string => projectMount() ?? t(noDefault() ? 'saveTargetWidget.noOutputMount' : 'saveTargetWidget.projectDefault')
   const options = (): readonly CanvasTargetMount[] => {
     const picked = open()?.mount ?? ''
     const entries: CanvasTargetMount[] = [
@@ -201,7 +203,10 @@ function SaveTargetExampleCard(props: {
   const side = createMemo(() => {
     const result = draft()
     const gone = result.mountGone ? open()?.mount ?? undefined : undefined
-    const problem = mounts() === 'none'
+    const stops = !noDefault() ? undefined
+      : gone !== undefined ? t('saveTargetWidget.notHereNoDefault', { id: gone })
+        : open()?.mount === null ? t('saveTargetWidget.noDefaultMount') : undefined
+    const problem = stops !== undefined ? undefined : mounts() === 'none'
       ? t('saveTargetWidget.noMounts')
       : gone !== undefined ? t('saveTargetWidget.notHereSaving', { id: gone, mount: projectText() }) : undefined
     return (
@@ -210,11 +215,11 @@ function SaveTargetExampleCard(props: {
         enter={result.store === undefined
           ? { verb: t('saveTargetWidget.enterKeeps'), target: targetText(example().stored, projectText()) }
           : { verb: t('saveTargetWidget.enterStores'), target: targetText(result.store, projectText()) }}
-        {...(gone === undefined ? {} : { action: { label: t('saveTargetWidget.useProjectDefault'), onClick: () => undefined } })}
+        {...(gone === undefined || noDefault() ? {} : { action: { label: t('saveTargetWidget.useProjectDefault'), onClick: () => undefined } })}
         defaultLabel="default"
         defaultText={targetText(galleryDefault, projectText())}
         onDefault={() => undefined}
-        {...(mounts() === 'failed' ? { error: t(NO_BACKEND) } : {})}
+        {...(mounts() === 'failed' ? { error: t(NO_BACKEND) } : stops !== undefined ? { error: stops } : {})}
         {...(tooltip() === undefined ? {} : { tooltip: tooltip()! })}
         naming={t('saveTargetWidget.naming', { suffix: '.png' })}
       />

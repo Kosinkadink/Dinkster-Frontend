@@ -250,6 +250,30 @@ test('Project default stores no mount, an empty target opens on it with the defa
   await expect.poll(() => target(page)).toEqual({ prefix: 'ComfyUI' })
 })
 
+test('in a project with no default output mount, Project default says a run cannot save but nothing is refused', async ({ page }) => {
+  await openTargets(page, (route) => route.fulfill({ json: { ...READY, activeOutputMount: null } }))
+  const stops = 'This project has no default output mount. A run cannot save until one is set in mount settings, or a mount is picked here.'
+  await openRow(page, 'gallery')
+  await mount(page).click()
+  await page.getByRole('option', { name: 'Project default (no output mount)' }).click()
+  await expect(rowValue(page)).toHaveValue('no output mount/gallery/shots')
+  await expect(side(page).locator('p').first()).toHaveText(stops)
+  await expect(side(page).locator('p').first()).toHaveClass('dinkster-canvas-target-error')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => target(page, 'gallery')).toEqual({ prefix: 'gallery/shots' })
+  // A stored mount this machine lacks names both facts and offers no Use project default.
+  await page.evaluate(() => window.__dinksterTest!.app.dispatchTo(window.__dinksterTest!.app.activeTab()!, {
+    command: 'node.setValue', params: { graphId: 'g0', nodeId: 'save', inputId: 'target', value: { mount: 'usb1', prefix: 'renders/portrait' } },
+  }))
+  await openRow(page, 'save')
+  await expect(side(page).locator('p').first()).toHaveText(`usb1 is not on this machine, and this project has no default output mount. A run cannot save until one is set in mount settings, or a mount is picked here.`)
+  await expect(side(page).getByRole('button', { name: 'Use project default' })).toHaveCount(0)
+  await pickMount(page, 'archive')
+  await expect(side(page)).not.toContainText('not on this machine')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => target(page)).toEqual({ mount: 'archive', prefix: 'renders/portrait' })
+})
+
 test('a row with a wire does not open', async ({ page }) => {
   await openTargets(page, undefined, { wired: true })
   const point = await rowPoint(page, 'save', 'target')

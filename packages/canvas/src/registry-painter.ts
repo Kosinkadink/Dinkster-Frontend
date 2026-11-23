@@ -529,8 +529,9 @@ const valueParts = (value: unknown): readonly ValuePart[] | undefined =>
 
 /**
  * Draws a value style's `parts` right-aligned at `right`, each in its look,
- * when they fit whole in `fitWidth`. Returns false, drawing nothing, when
- * there are no parts or they do not fit, so the caller draws the plain text.
+ * within `fitWidth`, cutting a plain last part with an ellipsis when needed.
+ * Returns false, drawing nothing, when there are no parts or they do not
+ * fit that way, so the caller draws the plain text.
  */
 function paintValueParts(
   ctx: CanvasRenderingContext2D,
@@ -552,14 +553,22 @@ function paintValueParts(
   })
   ctx.font = baseFont
   const total = widths.reduce((sum, width) => sum + width, 0) + parts.filter((part) => part.look === 'gone').length * gap
-  if (total > fitWidth) return false
+  const last = parts.length - 1
+  let tail = parts[last]!.text
+  if (total > fitWidth) {
+    // Only a plain last part is cut, and only while some of it stays.
+    if (parts[last]!.look !== undefined) return false
+    tail = fitText(ctx, tail, fitWidth - (total - widths[last]!))
+    if (tail.length <= 3) return false
+    widths[last] = measureWidth(ctx, tail)
+  }
   let x = right
-  for (let index = parts.length - 1; index >= 0; index--) {
+  for (let index = last; index >= 0; index--) {
     const part = parts[index]!
     if (part.look === 'gone') x -= gap
     ctx.font = fontOf(part)
     ctx.fillStyle = part.look === 'gone' ? tokens.colors.label : valueColor
-    ctx.fillText(part.text, x, y)
+    ctx.fillText(index === last ? tail : part.text, x, y)
     if (part.look === 'gone') paintStaleValueStrikethrough(ctx, part.text, x, y, 'right', tokens.colors.label)
     x -= widths[index]!
   }

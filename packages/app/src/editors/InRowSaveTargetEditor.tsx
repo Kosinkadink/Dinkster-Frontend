@@ -61,9 +61,11 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
     if (settings() === undefined) return 'loading'
     return writable().length === 0 ? 'none' : 'ready'
   }
+  /** The mounts are read and the project has no default output mount, so a run on Project default cannot save. */
+  const noDefault = (): boolean => settings() !== undefined && settings()!.activeOutputMount === undefined
   /** The mount Project default means here, or its name while that is not known. */
   const projectMount = (): string =>
-    settings()?.activeOutputMount ?? message('saveTargetWidget.projectDefault')
+    settings()?.activeOutputMount ?? message(noDefault() ? 'saveTargetWidget.noOutputMount' : 'saveTargetWidget.projectDefault')
   const textOf = (value: Json): string => saveTargetText(value, projectMount()) ?? message('saveTargetWidget.default')
   // Project default comes first. A picked mount that is not on this machine
   // stays listed, dimmed, so it is never replaced for the person.
@@ -172,16 +174,22 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
   const side = createMemo(() => {
     const value = draft().store
     const gone = draft().mountGone ? mount() : null
+    // Without a default output mount a run on Project default, or on a mount
+    // this machine lacks, cannot save: that stops a run, so it reads as an error.
+    const stops = !noDefault() ? undefined
+      : gone !== null ? message('saveTargetWidget.notHereNoDefault', { id: gone })
+        : mount() === null ? message('saveTargetWidget.noDefaultMount') : undefined
+    const firstError = error() ?? stops
     const problem = props.commitError()
       ?? (mounts() === 'none' ? message('saveTargetWidget.noMounts') : undefined)
-      ?? (gone === null ? undefined : message('saveTargetWidget.notHereSaving', { id: gone, mount: projectMount() }))
+      ?? (gone === null || stops !== undefined ? undefined : message('saveTargetWidget.notHereSaving', { id: gone, mount: projectMount() }))
     return (
       <CanvasTargetSide
         {...(problem === undefined ? {} : { problem })}
         enter={value === undefined
           ? { verb: message('saveTargetWidget.enterKeeps'), target: textOf(opened) }
           : { verb: message('saveTargetWidget.enterStores'), target: textOf(value) }}
-        {...(gone === null ? {} : {
+        {...(gone === null || noDefault() ? {} : {
           action: {
             label: message('saveTargetWidget.useProjectDefault'),
             onClick: () => { setMount(null); prefixInput?.focus() },
@@ -196,7 +204,7 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
             prefixInput?.focus()
           },
         })}
-        {...(error() === undefined ? {} : { error: error()! })}
+        {...(firstError === undefined ? {} : { error: firstError })}
         {...(inRow.help === undefined ? {} : { tooltip: inRow.help })}
         naming={message('saveTargetWidget.naming', { suffix })}
       />

@@ -137,6 +137,8 @@ export interface SaveTargetExample {
   /** The mount list is open, its candidate on this mount, '' for Project default. */
   readonly listOn?: string
   readonly optional?: boolean
+  /** The project has no default output mount. */
+  readonly noDefault?: boolean
   /** A wire brings this target. */
   readonly arriving?: Json
 }
@@ -175,6 +177,10 @@ export const saveTargetGroups: readonly {
       { id: 'failed', caption: 'The mounts could not be read: the dropdown says Could not load and the error\'s own sentence leads the side part.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'failed' },
       { id: 'not-here-closed', caption: 'Closed, with a stored mount this machine lacks: it is struck through, followed by the mount the run uses in italics. Nothing has to be changed.', stored: onUsb },
       { id: 'not-here', caption: 'The stored mount is not on this machine: the run saves to the project default and the stored mount stays. The side part says so and offers Use project default.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' } },
+      { id: 'no-default-closed', caption: 'Closed, on Project default in a project with no default output mount: the row says so in italics, unlike the row whose mounts are still being read.', stored: portrait, noDefault: true },
+      { id: 'no-default', caption: 'Open, in a project with no default output mount: the list entry reads Project default (no output mount), and the side part leads with why a run cannot save, in the error color. Nothing is refused.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, noDefault: true },
+      { id: 'not-here-no-default-closed', caption: 'Closed, with a stored mount this machine lacks and no default output mount: the mount is struck through and nothing in italics follows.', stored: onUsb, noDefault: true },
+      { id: 'not-here-no-default', caption: 'Open, with a stored mount this machine lacks and no default output mount: the side part names both facts in the error color.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, noDefault: true },
       { id: 'not-here-list', caption: 'The same mount in the list: dimmed, marked not on this machine, and it cannot be picked.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, listOn: '' },
     ],
   },
