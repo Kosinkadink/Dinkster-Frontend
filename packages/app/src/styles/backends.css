@@ -123,8 +123,6 @@
 .runtime-settings-editor .product-field-control > .product-select { width: 100%; }
 .runtime-settings-editor .product-form-add { margin-top: var(--dinkster-space-8); }
 
-.runtime-memory-control { display: grid; grid-template-columns: minmax(calc(var(--dinkster-space-32) * 3), auto) minmax(calc(var(--dinkster-space-32) * 3), 1fr); align-items: center; gap: var(--dinkster-space-12); width: 100%; }
-.runtime-memory-control .product-slider { width: 100%; }
 .runtime-override-group { margin-top: var(--dinkster-space-8); padding-top: var(--dinkster-space-4); border-top: 1px dashed var(--dinkster-border-subtle); }
 
 .agent-permissions { display: grid; gap: var(--dinkster-space-8); min-width: 0; padding-top: var(--dinkster-space-12); border-top: 1px solid var(--dinkster-border-subtle); }
@@ -139,8 +137,7 @@
 
 @container (max-width: 440px) {
   .backend-facts,
-  .runtime-setting-metadata,
-  .runtime-memory-control { grid-template-columns: minmax(0, 1fr); }
+  .runtime-setting-metadata { grid-template-columns: minmax(0, 1fr); }
   .backend-card-header,
   .runtime-settings-toolbar { align-items: stretch; flex-direction: column; }
   .backend-status { align-self: flex-start; }

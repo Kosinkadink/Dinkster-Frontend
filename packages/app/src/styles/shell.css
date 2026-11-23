@@ -793,7 +793,6 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
   .product-field[data-layout='row'] .product-field-actions button { height: 100%; }
   .product-action-footer { align-items: stretch; flex-direction: column; }
   .product-action-buttons { width: 100%; }
-  .runtime-memory-control { grid-template-columns: minmax(0, 1fr); }
   .left-sidebar { width: calc(var(--dinkster-space-32) + var(--dinkster-space-16)); flex-basis: calc(var(--dinkster-space-32) + var(--dinkster-space-16)); }
   .sidebar-button { min-height: 44px; }
   .sidebar-button-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
