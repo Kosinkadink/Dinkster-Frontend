@@ -279,6 +279,15 @@ export function widgetTapGallery(
       [0, 60],
     ),
     card(
+      'The same wire held over the steps row: the row is outlined and takes it on release.',
+      [
+        { id: 'held', schema: sampler, x: 0 },
+        { id: 'held scheduler', schema: scheduler, x: right, ...small },
+      ],
+      [],
+      [0, 60],
+    ),
+    card(
       'Wired: the wire leaves from the steps pin.',
       [
         { id: 'wired', schema: sampler, x: 0 },
@@ -450,6 +459,8 @@ export function widgetTapGallery(
   const nodeOf = (id: string) => scene.nodes[indexOf(id)]!
   const pin = pinPosition(nodeOf('dragged'), 'steps', 'out', true)!
   const anchor = pinPosition(nodeOf('dragged scheduler'), 'steps', 'in')!
+  const heldPin = pinPosition(nodeOf('held'), 'steps', 'out', true)!
+  const heldAnchor = pinPosition(nodeOf('held scheduler'), 'steps', 'in')!
   const overlays: Record<number, OverlayState> = {
     1: {
       hoveredNode: 'pointed',
@@ -473,8 +484,21 @@ export function widgetTapGallery(
       },
       dropTargets: new Set([dropTargetKey('dragged', 'steps', 'out', true)]),
     },
-    4: { hoveredNode: 'kinds' },
-    8: { hoveredNode: 'grouped' },
+    // Over the row, the wire ends on the field's pin and only the row is
+    // outlined.
+    3: {
+      ghostLink: {
+        x1: heldPin.x,
+        y1: heldPin.y,
+        x2: heldAnchor.x,
+        y2: heldAnchor.y,
+        typeName: 'INT',
+      },
+      dropTargets: new Set([dropTargetKey('held', 'steps', 'out', true)]),
+      dropRow: { nodeId: 'held', valueKey: 'steps' },
+    },
+    5: { hoveredNode: 'kinds' },
+    9: { hoveredNode: 'grouped' },
   }
   return {
     scene,
