@@ -549,6 +549,17 @@ export interface InputSpec extends PortSpecBase {
   /** Steps the host applies together with the user's own change of this field; kept as declared. */
   readonly onEdit?: readonly StepSpec[]
   /**
+   * Shown at full contrast, but the user cannot type into it. With
+   * `disabled` (dimmed, cannot be typed into) and `disabledReason`, it limits
+   * the user's own edits only: the value is still sent, a wire still works,
+   * and a step or an after-run write may still change it. A formula is
+   * worked out by the editor; while it is unknown or fails the field is
+   * neither read-only nor disabled. Layout only, never identity.
+   */
+  readonly readOnly?: Formulated<boolean>
+  readonly disabled?: Formulated<boolean>
+  readonly disabledReason?: Formulated<string>
+  /**
    * Set by elaboration, never declared: the flattened id of the field drawn
    * before this one on a line of several fields.
    */

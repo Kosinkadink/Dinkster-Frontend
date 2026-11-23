@@ -27,6 +27,25 @@ describe('Dinkster schema wire', () => {
     expect(out).toMatchObject({ labelFormula: { formula: 'mode' }, visible: false })
   })
 
+  it('keeps read-only, disabled and the reason on an input as declared, literal or formula', () => {
+    const { schema, diagnostics } = parseDinksterSchema('Blocked', { body: [
+      { kind: 'input', id: 'x', type: concrete('INT'), readOnly: { formula: 'locked' } },
+      { kind: 'input', id: 'y', type: concrete('INT'), disabled: true, disabledReason: 'Set by the preset' },
+      { kind: 'input', id: 'z', type: concrete('INT'), disabled: { formula: 'x > 0' }, disabledReason: { formula: 'reason' } },
+      { kind: 'input', id: 'plain', type: concrete('INT') },
+    ] } as never)
+    expect(diagnostics).toEqual([])
+    const [x, y, z, plain] = schema!.body as unknown as Record<string, unknown>[]
+    expect(x).toMatchObject({ readOnly: { formula: 'locked' } })
+    expect(x).not.toHaveProperty('disabled')
+    expect(y).toMatchObject({ disabled: true, disabledReason: 'Set by the preset' })
+    expect(y).not.toHaveProperty('readOnly')
+    expect(z).toMatchObject({ disabled: { formula: 'x > 0' }, disabledReason: { formula: 'reason' } })
+    for (const key of ['readOnly', 'disabled', 'disabledReason']) expect(plain).not.toHaveProperty(key)
+    const wrong = parseDinksterSchema('Wrong', { body: [{ kind: 'input', id: 'x', type: concrete('INT'), readOnly: 'yes' }] } as never)
+    expect(wrong.schema).toBeUndefined()
+  })
+
   it('keeps an editor row and the rows a widget writes and reads, apart from its params', () => {
     const { schema, diagnostics } = parseDinksterSchema('Viewport', { body: [
       { kind: 'input', id: 'model_file', type: concrete('STRING'),
