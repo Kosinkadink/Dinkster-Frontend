@@ -104,6 +104,7 @@
   justify-content: center;
 }
 
+.node-model3d-actions > [role="alert"],
 .node-model3d-viewport > [role="alert"] {
   position: absolute;
   top: calc(var(--dinkster-control-compact-height) + var(--dinkster-space-12));
@@ -112,6 +113,7 @@
   max-height: calc(100% - var(--dinkster-control-compact-height) - var(--dinkster-space-24));
   overflow: auto;
   overflow-wrap: anywhere;
+  pointer-events: auto;
   z-index: 1;
   color: var(--dinkster-danger-foreground);
   background: var(--dinkster-surface-panel);

@@ -245,26 +245,31 @@ test('a saved GLB artifact paints a poster and mounts a disposable orbit viewpor
     mediaType: 'model/gltf-binary',
   })
   await provePosterAndOrbitViewport(page, (name) => testInfo.outputPath(`model3d-${name}`))
-  await page.evaluate(() => {
-    Object.assign(window, { dinksterDesktop: { saveFile: async () => { throw new Error('Save permission denied') } } })
-  })
-  await page.getByRole('button', { name: 'Open 3D orbit view' }).click()
-  const viewport = page.locator('.node-model3d-viewport')
-  const download = viewport.getByRole('link', { name: 'Download' })
-  const close = viewport.getByRole('button', { name: 'Close 3D orbit view' })
-  await download.click()
-  const alert = viewport.getByRole('alert')
-  await expect(alert).toHaveText('Download failed: Save permission denied')
-  const alertBox = (await alert.boundingBox())!
-  const downloadBox = (await download.boundingBox())!
-  const closeBox = (await close.boundingBox())!
-  const viewportBox = (await viewport.boundingBox())!
-  expect(alertBox.y).toBeGreaterThanOrEqual(Math.max(downloadBox.y + downloadBox.height, closeBox.y + closeBox.height))
-  expect(alertBox.x).toBeGreaterThanOrEqual(viewportBox.x)
-  expect(alertBox.x + alertBox.width).toBeLessThanOrEqual(viewportBox.x + viewportBox.width)
-  expect(alertBox.y + alertBox.height).toBeLessThanOrEqual(viewportBox.y + viewportBox.height)
-  await page.screenshot({ path: testInfo.outputPath('model3d-save-error.png'), animations: 'disabled' })
-  await close.click()
+  const failure = `Save permission denied: ${'UnbrokenDestinationSegment'.repeat(24)}`
+  await page.evaluate((message) => {
+    Object.assign(window, { dinksterDesktop: { saveFile: async () => { throw new Error(message) } } })
+  }, failure)
+  for (const state of ['idle', 'orbit']) {
+    if (state === 'orbit') await page.getByRole('button', { name: 'Open 3D orbit view' }).click()
+    const overlay = page.locator('.node-media-overlay[data-media-kind="model3d"]')
+    const download = overlay.getByRole('link', { name: 'Download' })
+    const action = overlay.getByRole('button', { name: state === 'orbit' ? 'Close 3D orbit view' : 'Open 3D orbit view' })
+    await download.click()
+    const alert = overlay.getByRole('alert')
+    await expect(alert).toHaveText(`Download failed: ${failure}`)
+    const alertBox = (await alert.boundingBox())!
+    const downloadBox = (await download.boundingBox())!
+    const actionBox = (await action.boundingBox())!
+    const overlayBox = (await overlay.boundingBox())!
+    expect(alertBox.y).toBeGreaterThanOrEqual(Math.max(downloadBox.y + downloadBox.height, actionBox.y + actionBox.height))
+    for (const box of [alertBox, downloadBox, actionBox]) {
+      expect(box.x).toBeGreaterThanOrEqual(overlayBox.x)
+      expect(box.x + box.width).toBeLessThanOrEqual(overlayBox.x + overlayBox.width)
+      expect(box.y + box.height).toBeLessThanOrEqual(overlayBox.y + overlayBox.height)
+    }
+    await page.screenshot({ path: testInfo.outputPath(`model3d-${state}-save-error.png`), animations: 'disabled' })
+    if (state === 'orbit') await action.click()
+  }
 })
 
 test('a saved splat PLY artifact paints a poster and mounts a disposable orbit viewport', async ({ page }, testInfo) => {
