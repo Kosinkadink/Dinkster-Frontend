@@ -26,7 +26,25 @@ interface LibraryPage {
   readonly cursor: string | null
 }
 
+interface LibraryHistory {
+  readonly installation: LibraryEntry
+  readonly environment: { readonly id: string; readonly snapshot: string }
+  readonly entries: readonly {
+    readonly id: number
+    readonly timestamp: string
+    readonly reason: string
+    readonly generation: number
+    readonly exact: boolean
+    readonly snapshot: {
+      readonly engine: { readonly version: string; readonly release: string }
+      readonly base: { readonly id: string; readonly variant: string }
+    }
+  }[]
+  readonly notices: readonly string[]
+}
+
 interface DesktopLibraryBridge {
+  history?(installation: string, project: string): Promise<LibraryHistory>
   open?(installation: string, project: string): Promise<void>
   installations(): Promise<readonly LibraryEntry[]>
   projects(installation: string, cursor: string | null): Promise<LibraryPage>
@@ -219,6 +237,21 @@ function Library() {
               >
                 {(selectedProject) => (
                   <>
+                    <Show when={typeof bridge?.history === 'function'}>
+                      <SoftwareHistory
+                        load={() =>
+                          bridge!.history!(
+                            selectedInstallation.id,
+                            selectedProject.id,
+                          )
+                        }
+                        onError={() =>
+                          setError(
+                            'Software history could not be read. Select the project again to retry.',
+                          )
+                        }
+                      />
+                    </Show>
                     <Entries
                       title="Saved workflows"
                       empty="No saved workflows in this project."
@@ -251,6 +284,66 @@ function Library() {
         </Show>
       </ProductPage>
     </ProductShell>
+  )
+}
+
+function SoftwareHistory(props: {
+  load: () => Promise<LibraryHistory>
+  onError: () => void
+}) {
+  let active = true
+  onCleanup(() => {
+    active = false
+  })
+  const [history] = createResource(async () => {
+    try {
+      const result = await props.load()
+      return active ? result : undefined
+    } catch {
+      if (active) props.onError()
+      return undefined
+    }
+  })
+  return (
+    <ProductSection
+      title="Environment software history"
+      description="Recorded software snapshots, not finished workflow runs. Reading history does not start an engine or restore software."
+    >
+      <Show when={history.loading}>
+        <ProductLoading label="Loading software history" />
+      </Show>
+      <Show when={history()}>
+        {(value) => (
+          <>
+            <ProductNotice>
+              {value().installation.name}: active snapshot{' '}
+              {value().environment.snapshot}. A recorded snapshot is not a
+              promise that it can open the current library.
+            </ProductNotice>
+            <For each={value().notices}>
+              {(notice) => <ProductNotice>{notice}</ProductNotice>}
+            </For>
+            <Show
+              when={value().entries.length}
+              fallback={
+                <ProductEmptyState message="No recorded software snapshots." />
+              }
+            >
+              <ProductList label="Environment software history">
+                <For each={value().entries}>
+                  {(entry) => (
+                    <ProductListRow
+                      title={`Snapshot ${entry.generation} - ${new Date(entry.timestamp).toLocaleString()}`}
+                      description={`History entry ${entry.id} - ${entry.reason}. Engine ${entry.snapshot.engine.version} (${entry.snapshot.engine.release}). Base ${entry.snapshot.base.id}, variant ${entry.snapshot.base.variant}. ${entry.exact ? 'Recorded exact software.' : 'Exact recovery inputs are incomplete.'}`}
+                    />
+                  )}
+                </For>
+              </ProductList>
+            </Show>
+          </>
+        )}
+      </Show>
+    </ProductSection>
   )
 }
 
