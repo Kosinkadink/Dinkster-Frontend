@@ -78,6 +78,7 @@ import {
   elabInputsOf,
   elabOutputsOf,
   elaborateInterface,
+  ruleProblemRefs,
   selectorMembersOf,
   valueKeyOf,
   EMPTY_CONNECTIVITY,
@@ -285,6 +286,8 @@ export interface CompileInput {
   readonly placement?: Readonly<Record<string, string>>
 }
 
+const KNOWN_VALUE_TYPES: ReadonlySet<string> = new Set(['INT', 'FLOAT', 'STRING', 'BOOLEAN', 'COMBO'])
+
 interface FlatNode {
   readonly runtimeId: string
   readonly occ: Occurrence
@@ -302,6 +305,8 @@ interface FlatNode {
   readonly linkedInputs: Set<string>
   /** Staging record, keyed by ELABORATED input id (remapped to apiName at assembly). */
   readonly inputs: Record<string, Json | readonly [string, number]>
+  /** An editable choice's authored options, keyed by the input its optionsInput names. */
+  readonly authoredOptions?: ReadonlyMap<string, readonly string[]>
 }
 
 /**
@@ -836,9 +841,13 @@ function compileImpl(
       // field is shown and drops it the moment a value is fixed; a compiled
       // copy would outlive that fix and list the warning twice.
       if (d.code === 'automatic.default') continue
+      // A failed node rule keeps its data and names its node (and its one
+      // field), so the editor's copy and this one read as one cause.
+      const rule = d.code === 'node.rule.failed'
       const diagnostic = diag(d.severity, 'compile', d.code, `[${where}] ${d.message}`, {
         ...(d.anchor !== undefined ? { anchor: d.anchor } : {}),
-        ...(d.refs !== undefined ? { refs: d.refs } : {}),
+        ...(rule ? { refs: ruleProblemRefs(d, owner.graphId, owner.nodeId), ...(d.data !== undefined ? { data: d.data } : {}) }
+          : d.refs !== undefined ? { refs: d.refs } : {}),
       })
       diags.push(diagnostic)
       elaborationDiagnosticOwners.set(diagnostic, owner)
@@ -1165,7 +1174,13 @@ function compileImpl(
     const inRegion = [...regions.values()].some((region) => path.length >= region.childPath.length &&
       region.childPath.every((segment, index) => path[index] === segment))
     const known = !inRegion && output.spec.knownValue && elab.inputsByValueKey.get(output.spec.knownValue.input)
-    if (known) return { knownValue: { path, defId, node: node.id, input: known } }
+    // A known value applies only to a value of a primitive or choice type. An
+    // input typed by a variable has none until the variable is bound, so the
+    // node runs.
+    const knownType = known ? canonicalTypeIdOf(known.spec.type) : undefined
+    if (known && knownType !== undefined && KNOWN_VALUE_TYPES.has(knownType)) {
+      return { knownValue: { path, defId, node: node.id, input: known } }
+    }
     return { runtimeId: occurrenceKey({ instancePath: path, node: node.id }), outputIndex }
   }
 
@@ -1776,6 +1791,13 @@ function compileImpl(
       const occ: Occurrence = { instancePath: path, node: node.id }
       const runtimeId = occurrenceKey(occ)
       const elab = elabAt(ctx, node, schema)
+      const authoredOptions = new Map<string, readonly string[]>()
+      for (const input of elab.inputs) {
+        const widget = input.spec.widget
+        const target = widget?.optionsInput ??
+          widget?.representations?.representations.find((item) => item.widget.optionsInput !== undefined)?.widget.optionsInput
+        if (target !== undefined) authoredOptions.set(target, (node.dynamic?.[valueKeyOf(input)]?.options ?? []).map(String))
+      }
       const selectorInputKey = schema.selector === undefined
         ? undefined
         : elab.inputsByValueKey.get(schema.selector.input)?.spec.id
@@ -1793,6 +1815,7 @@ function compileImpl(
         ...(selectorMembers !== undefined ? { selectorMembers } : {}),
         linkedInputs: new Set(),
         inputs: {},
+        ...(authoredOptions.size > 0 ? { authoredOptions } : {}),
       })
     }
   }
@@ -2765,6 +2788,12 @@ function compileImpl(
       sourceInputs[submissionName] = {
         node: fn.occ.node,
         port: input.address.port as PortRef['port'],
+      }
+      // The compiler fills an editable choice's options input on every submission.
+      const authored = fn.authoredOptions?.get(valueKeyOf(input))
+      if (authored !== undefined) {
+        inputs[submissionName] = [...authored]
+        continue
       }
       const v = fn.inputs[input.spec.id]
       if (v !== undefined && fn.node.additionalInputs?.includes(input.address.port) &&
