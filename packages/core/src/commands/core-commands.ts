@@ -31,7 +31,7 @@ import { asNodeId, asPortId, asSelectorId, isPortEndpoint, isRerouteRef, isSelec
 import { subgraphDefIdOf } from '../invariants.js'
 import { allocateOne, graphAllocator } from './alloc.js'
 import { buildRerouteIndex, rerouteDriverOf, wouldCreateRerouteCycle, wouldCreateSelectorCycle, wouldCreateTapCycle } from '../reroute.js'
-import { createTransactionBuilder, executeCommand, type CommandDefinition, type TransactionBuilder } from './contract.js'
+import { createTransactionBuilder, executeCommand, type CommandDefinition, type CommandExecutionContext, type TransactionBuilder } from './contract.js'
 import { BOUNDARY_COMMANDS } from './boundary-commands.js'
 import { SUBGRAPH_COMMANDS } from './subgraph-commands.js'
 import { DYNAMIC_COMMANDS } from './dynamic-commands.js'
@@ -772,10 +772,51 @@ const selectionMove: CommandDefinition = {
 // node.setValue {graphId, nodeId, inputId, value}
 // ---------------------------------------------------------------------------
 
-function nodeSetValueOf(): CommandDefinition {
+/** Whether a body holds a group whose member count is a formula, at any depth. */
+const growsByCount = (value: unknown): boolean => {
+  if (Array.isArray(value)) return value.some(growsByCount)
+  if (typeof value !== 'object' || value === null) return false
+  const row = value as { kind?: unknown; grows?: unknown }
+  if (row.kind === 'group' && typeof row.grows === 'object' && row.grows !== null && 'count' in row.grows) return true
+  return Object.values(value).some(growsByCount)
+}
+
+/**
+ * A count that shrank takes its later members off the node, and the wires on
+ * their outputs and fields' outputs go in the same step.
+ */
+function removeWiresOfGoneMembers(
+  doc: WorkflowDocument,
+  graphId: string,
+  nodeId: string,
+  tx: TransactionBuilder,
+  context: CommandExecutionContext,
+  resolve: SchemaResolver | undefined,
+): void {
+  const before = doc.graphs[graphId]
+  const after = tx.current.graphs[graphId]
+  const node = before?.nodes[nodeId]
+  if (before === undefined || after === undefined || node === undefined || after.nodes[nodeId] === undefined) return
+  const sourceOf = (from: LinkEndpoint): string | undefined =>
+    !('node' in from) || from.node !== nodeId ? undefined : 'tap' in from ? from.tap : 'port' in from ? from.port : undefined
+  const wired = Object.values(after.links).some((link) => sourceOf(link.from) !== undefined) ||
+    Object.values(after.nets).some((net) => net.source.node === nodeId)
+  if (!wired) return
+  const schema = commandSchemaOf(doc, node.type, context, resolve)
+  if (schema === undefined || !growsByCount(schema.body)) return
+  const addresses = (def: GraphDef): ReadonlySet<string> => new Set(elaborateInterface(schema, def.nodes[nodeId]!,
+    buildGraphConnectivity(def)(asNodeId(nodeId))).items.flatMap((item) => item.kind === 'input' || item.kind === 'output' ? [item.address.port] : []))
+  const was = addresses(before)
+  const is = addresses(after)
+  const gone = (port: string | undefined): boolean => port !== undefined && was.has(port) && !is.has(port)
+  for (const [linkId, link] of Object.entries(after.links)) if (gone(sourceOf(link.from))) removeDefinitionLink(graphId, linkId, tx)
+  for (const [netId, net] of Object.entries(after.nets)) if (net.source.node === nodeId && gone(net.source.port)) removeNet(graphId, netId, tx)
+}
+
+function nodeSetValueOf(resolve?: SchemaResolver): CommandDefinition {
   return {
     id: 'node.setValue',
-    run(doc, params, tx) {
+    run(doc, params, tx, context) {
       if (!isObj(params) || typeof params.nodeId !== 'string' || typeof params.inputId !== 'string')
         return [err('params.invalid', 'node.setValue: params must be {graphId, nodeId, inputId, value}')]
       const def = graphOf(doc, params.graphId)
@@ -788,6 +829,7 @@ function nodeSetValueOf(): CommandDefinition {
         ['graphs', params.graphId as string, 'nodes', params.nodeId, 'values', params.inputId],
         params.value,
       )
+      removeWiresOfGoneMembers(doc, params.graphId as string, params.nodeId, tx, context, resolve)
       return []
     },
   }
@@ -965,10 +1007,10 @@ function nodeSetControllerOf(resolve?: (type: string) => NodeSchema | undefined)
  * the new value (canonical JSON) are skipped, so a fully-matching dispatch is
  * a no-op success with no undo entry.
  */
-function nodeSetValuesOf(): CommandDefinition {
+function nodeSetValuesOf(resolve?: SchemaResolver): CommandDefinition {
   return {
     id: 'node.setValues',
-    run(doc, params, tx) {
+    run(doc, params, tx, context) {
       if (!isObj(params) || typeof params.nodeId !== 'string' || !isObj(params.values))
         return [err('params.invalid', 'node.setValues: params must be {graphId, nodeId, values}')]
       const def = graphOf(doc, params.graphId)
@@ -985,6 +1027,7 @@ function nodeSetValuesOf(): CommandDefinition {
         if (current !== undefined && canonicalJson(current) === canonicalJson(value)) continue
         tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'values', key], value)
       }
+      removeWiresOfGoneMembers(doc, params.graphId as string, params.nodeId, tx, context, resolve)
       return []
     },
   }
@@ -1479,6 +1522,13 @@ const netRename: CommandDefinition = {
 // net.remove {graphId, netId}  (the whole net: source binding + every sink)
 // ---------------------------------------------------------------------------
 
+function removeNet(graphId: string, netId: string, tx: TransactionBuilder): void {
+  removeNetDeliverySuppressions(graphId, netId, undefined, tx)
+  tx.remove(['graphs', graphId, 'nets', netId])
+  removeAuthoredNetViews(tx, (position) => position.graphId === graphId && position.netId === netId)
+  pruneNetDisplayState(graphId, netId, tx)
+}
+
 const netRemove: CommandDefinition = {
   id: 'net.remove',
   run(doc, params, tx) {
@@ -1488,13 +1538,7 @@ const netRemove: CommandDefinition = {
     if (!def) return [err('graph.missing', `net.remove: unknown graph '${String(params.graphId)}'`)]
     if (!def.nets[params.netId])
       return [err('net.missing', `net.remove: unknown net '${params.netId}'`)]
-    const graphId = params.graphId as string
-    removeNetDeliverySuppressions(graphId, params.netId, undefined, tx)
-    tx.remove(['graphs', graphId, 'nets', params.netId])
-    removeAuthoredNetViews(tx, (position) =>
-      position.graphId === graphId && position.netId === params.netId,
-    )
-    pruneNetDisplayState(graphId, params.netId, tx)
+    removeNet(params.graphId as string, params.netId, tx)
     return []
   },
 }
@@ -3280,8 +3324,8 @@ export function coreCommandRegistry(
       candidate.id !== 'image.applyAsset' &&
       candidate.id !== 'image.compositorApply'),
     nodeSetControllerOf(resolve),
-    nodeSetValueOf(),
-    nodeSetValuesOf(),
+    nodeSetValueOf(resolve),
+    nodeSetValuesOf(resolve),
     imageApplyAssetOf(resolve),
     ...registeredExtensionCommands(resolve),
     ...extra,

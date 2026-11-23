@@ -97,6 +97,8 @@ import {
   type ControllerInputProvenance,
   type ControllerInputSource,
   type ControllerNodeInputSource,
+  isWidgetTapRef,
+  resolveDynamicAddress,
   type ControllerMode,
   type Diagnostic,
   type DiagnosticAnchor,
@@ -5170,6 +5172,28 @@ export class AppState {
     }
     const invocations: CommandInvocation[] = []
     const entries: Diagnostic[] = []
+    const anchorOf = (graphId: string, nodeId: NodeId) => {
+      const instancePath = paths.get(graphId)
+      return instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: nodeId } } }
+    }
+    // A wire from a field of a member its group does not store goes: the member is not on the node.
+    for (const graph of Object.values(document.graphs)) {
+      const gone = new Map<NodeId, string[]>()
+      for (const link of Object.values(graph.links)) {
+        if (!isWidgetTapRef(link.from)) continue
+        const node = graph.nodes[link.from.node]
+        if (node === undefined || resolveDynamicAddress({ port: link.from.tap }, node.dynamic).kind !== 'missing') continue
+        invocations.push({ command: 'link.disconnect', params: { graphId: graph.id, linkId: link.id } })
+        gone.set(node.id, [...gone.get(node.id) ?? [], link.from.tap])
+      }
+      for (const [nodeId, taps] of gone) {
+        const node = graph.nodes[nodeId]!
+        entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
+          `${node.title ?? resolve(graph.id, node)?.displayName ?? node.type}: ${[...new Set(taps)].map((tap) =>
+            `the wire from '${tap}' is removed, because its member is no longer part of the node.`).join(' ')}`,
+          { refs: [{ graphId: graph.id, nodeId }], ...anchorOf(graph.id, nodeId) }))
+      }
+    }
     for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
       const schema = resolve(graph.id, node)
       if (schema === undefined || node.dynamic === undefined) continue
@@ -5191,11 +5215,10 @@ export class AppState {
           ...(selected === null ? { variant: null } : { option: selected }),
         } as Json })
       }
-      const instancePath = paths.get(graph.id)
       entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
         `${node.title ?? schema.displayName}: ${[...new Set(changes.map((entry) => entry.message))].join(' ')}`, {
           refs: [{ graphId: graph.id, nodeId: node.id }],
-          ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: node.id } } }),
+          ...anchorOf(graph.id, node.id),
         }))
     }
     if (invocations.length > 0) return Promise.resolve(this.dispatchTo(tab,

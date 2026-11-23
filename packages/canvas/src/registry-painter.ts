@@ -179,8 +179,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       return
     }
     const resolved: Json = value !== undefined ? value : (kind.defaultValue(row.spec) as Json)
-    // A kept row shows "kept" before its value, unless the header of its kept box shows it.
-    const keptWord = row.kept !== undefined && row.inKeptBox !== true
+    // A kept row shows "kept" before its value.
+    const keptWord = row.kept !== undefined
     const keptReserve = keptWord ? measureWidth(ctx, KEPT_WORD) + paint.valueWordGap : 0
     // Draw the shared row chrome (label) then let the view draw its content.
     const chrome = widgetChromeRect(x, y, width, row.height, tokens.rowGeometry.fieldInsetY)

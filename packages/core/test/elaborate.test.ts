@@ -1249,6 +1249,9 @@ describe('rows kept for a wire on their output', () => {
     expect(shown(schema, { ...node, dynamic: { mode: { selected: 'fine' } } }, taps('mode.passes')).map(([id, kept]) => [id, kept]))
       .toEqual([['mode', undefined], ['mode.detail', undefined], ['mode.passes', undefined]])
     expect(shown(schema, node, taps()).map(([id]) => id)).toEqual(['mode', 'mode.steps'])
+    // The run's view has no kept rows.
+    expect(elabInputsOf(elaborateInterface(schema, node as never, taps('mode.passes'), { promoteGhosts: false }))
+      .some((input) => input.kept !== undefined)).toBe(false)
   })
 
   it('keeps a wired row of another type under its type-led pin', () => {
@@ -1266,45 +1269,17 @@ describe('rows kept for a wire on their output', () => {
     ])
   })
 
-  it('keeps a whole member the group does not store at the end of its stored members', () => {
+  it('draws no member the group does not store, even with a wire on its field', () => {
     const schema = schemaOf([{
       kind: 'group', id: 'items', displayName: 'Items', member: [intInput('amount'), intInput('weight')],
       keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 }, grows: 'button', minMembers: 0, maxMembers: 8,
     }])
     const node = { values: {}, dynamic: { items: { members: ['item0', 'item2'], seq: 3 } } }
-    const reason = 'No longer part of Items. Its wire gives nothing.'
     expect(shown(schema, node, taps('items.item1.weight'))).toEqual([
       ['items.item0.amount', undefined, true],
       ['items.item0.weight', undefined, true],
       ['items.item2.amount', undefined, true],
       ['items.item2.weight', undefined, true],
-      ['items.item1.amount', reason, false],
-      ['items.item1.weight', reason, false],
     ])
-    // Members are named in the order drawn, and the spare never takes a kept member's key.
-    const valued = schemaOf([{
-      kind: 'group', id: 'weights', value: intInput('weight', { optional: true }),
-      keys: { kind: 'numbered', prefix: 'weight', start: 0, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 8,
-    }])
-    const drawn = elabInputsOf(elaborateInterface(valued, { values: { 'weights.weight0': 2 }, dynamic: { weights: { members: ['weight0'] } } } as never, taps('weights.weight1')))
-    expect(drawn.map((input) => [input.spec.id, input.spec.displayName, input.kept !== undefined])).toEqual([
-      ['weights.weight0', 'weight 1', false],
-      ['weights.weight1', 'weight 2', true],
-      ['weights.weight2', 'weight 3', false],
-    ])
-
-    // A member drawn as a box keeps its box, which says why it is kept.
-    const boxed = schemaOf([{
-      kind: 'group', id: 'items', displayName: 'Items',
-      member: [{ kind: 'section', id: 'box', displayName: 'Item', rows: [intInput('amount'), intInput('weight')] }],
-      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 }, grows: 'button', minMembers: 0, maxMembers: 8,
-    }])
-    const boxes = elaborateInterface(boxed, node as never, taps('items.item1.weight')).items
-      .flatMap((item) => item.kind === 'section' ? [[item.spec.id, item.kept]] : [])
-    expect(boxes).toEqual([['items.item0.box', undefined], ['items.item2.box', undefined], ['items.item1.box', reason]])
-
-    // The run's view has no kept rows.
-    expect(elabInputsOf(elaborateInterface(schema, node as never, taps('items.item1.weight'), { promoteGhosts: false }))
-      .some((input) => input.kept !== undefined)).toBe(false)
   })
 })

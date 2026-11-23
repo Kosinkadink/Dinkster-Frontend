@@ -1,7 +1,7 @@
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { asNodeId, resolveImportedNodePacks } from '@dinkster/core'
-import type { CommandOutcome, DinksterNodesPayload } from '@dinkster/core'
+import type { CommandOutcome, DinksterNodesPayload, NodeSchema, WorkflowDocument } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { historicalRegistry } from './historical-schemas.js'
 import { AppState } from '../src/app-state.js'
@@ -438,5 +438,37 @@ describe('unresolved-type reporting', () => {
     expect(app.problems.get().filter((entry) => entry.code === 'schema.unresolvedType')).toEqual(before)
     expect((await app.openDocument(docJson('comfy.EmptyImage'), 'Different identity'))).toEqual([])
     expect(app.problems.get()).toContainEqual(expect.objectContaining({ code: 'schema.unresolvedType', message: expect.stringContaining('comfy.EmptyImage') }))
+  })
+})
+
+describe('opening a wire from a member that is gone', () => {
+  it('removes the wire in one undoable step and lists it with the adjustments', async () => {
+    const weights: NodeSchema = { type: 'Weights', displayName: 'Weights', category: 'test', source: 'v3', isOutputNode: true,
+      body: [{ kind: 'group', id: 'weights', keys: { kind: 'numbered', prefix: 'weight', start: 0, pad: 0 }, grows: 'link',
+        minMembers: 0, maxMembers: 4, value: { kind: 'input', id: 'weight', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
+          widget: { widgetType: 'FLOAT', options: {}, default: 0.5 } } }] }
+    const sink: NodeSchema = { type: 'Sink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: true,
+      body: [{ kind: 'input', id: 'factor', type: { kind: 'concrete', name: 'FLOAT' }, optional: true }] }
+    const own = createWorkflowApp([weights, sink])
+    const before = own.activeTab()!.store.doc
+    const graph = before.graphs[before.root]!
+    const tap = (id: string, member: string, to: string) => ({ id, from: { node: asNodeId('1'), tap: `weights.${member}` },
+      to: { node: asNodeId(to), port: 'factor' } })
+    const incoming = { ...before, graphs: { [before.root]: { ...graph, nextOrdinal: 10,
+      nodes: {
+        1: { id: asNodeId('1'), type: 'Weights', values: {}, dynamic: { weights: { members: ['weight0'], seq: 2 } } },
+        2: { id: asNodeId('2'), type: 'Sink', values: {} },
+        3: { id: asNodeId('3'), type: 'Sink', values: {} },
+      },
+      links: { 4: tap('4', 'weight0', '2'), 5: tap('5', 'weight1', '3') },
+    } } } as unknown as WorkflowDocument
+    expect(await own.openDocument(incoming, 'Gone member')).toEqual([])
+    const tab = own.activeTab()!
+    await vi.waitFor(() => expect(own.problems.get()).toContainEqual(expect.objectContaining({
+      code: 'upgrade.removedDynamicParts', message: expect.stringContaining("the wire from 'weights.weight1' is removed") })))
+    expect(Object.keys(tab.store.doc.graphs[before.root]!.links)).toEqual(['4'])
+    expect(tab.store.undo()).toBe(true)
+    expect(Object.keys(tab.store.doc.graphs[before.root]!.links)).toEqual(['4', '5'])
+    own.dispose()
   })
 })
