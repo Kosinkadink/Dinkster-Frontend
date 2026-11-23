@@ -9,7 +9,7 @@ import { ProductActionFooter, ProductField } from './ProductForm.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductListRow } from './ProductSurfaces.js'
 import { useAppMessage } from './locale.js'
-import { desktopFileBridge } from './desktop-bridge.js'
+import { isNativeProjectBackend } from './desktop-bridge.js'
 
 export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly review: ProjectNeedsReview }) {
   const message = useAppMessage()
@@ -21,9 +21,7 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
   const [preparing, setPreparing] = createSignal(false)
   const [applying, setApplying] = createSignal(false)
   const [scope, setScope] = createSignal<'every-project' | 'only-project'>()
-  const projectScope = desktopFileBridge() !== undefined &&
-    new URL(window.location.href).searchParams.get('dinksterProject') === props.review.project.id &&
-    new URL(props.review.backend.baseUrl || '/', window.location.href).origin === window.location.origin
+  const projectScope = isNativeProjectBackend(props.review.backend.baseUrl, props.review.project.id)
   const canConfirm = (): boolean => projectScope && plan()?.scope !== undefined && plan()?.installation.confirmation !== undefined
   let controller: AbortController | undefined
   let expiry: ReturnType<typeof setTimeout> | undefined

@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, test as seededTest } from './fixtures.js'
+import { expect, nativeTest as test, test as seededTest, waitForWorkspaceReady } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => { await page.goto('/') })
 
@@ -13,7 +13,7 @@ test('opening Library dismisses its focused activity-bar tooltip', async ({ page
   await expect(library).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('app-tooltip')).toBeHidden()
   await library.hover()
-  await expect(page.getByTestId('app-tooltip')).toBeHidden()
+  await expect(page.getByTestId('app-tooltip')).toHaveText('Library\nBrowse packs, templates, and saved workflows', { timeout: 250 })
   await page.keyboard.press('Enter')
   await expect(library).toHaveAttribute('aria-pressed', 'false')
   await page.mouse.move(600, 400)
@@ -22,10 +22,70 @@ test('opening Library dismisses its focused activity-bar tooltip', async ({ page
   await expect(page.getByTestId('app-tooltip')).toBeVisible()
 })
 
-test('DOM chrome tooltip observes delay, Alt detail, and hover-out', async ({ page }) => {
+test('icon-only activity items show immediate name-first help on hover and focus, selected or not', async ({ page }, testInfo) => {
+  await waitForWorkspaceReady(page)
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('tooltips.delayMs', 3000))
+  await page.evaluate(() => window.__dinksterTest!.app.panels.register({
+    id: 'long-pack-panel',
+    title: 'Image review workspace',
+    description: 'Inspect the images produced by this pack.',
+    placement: 'dock',
+    allowedPlacements: ['dock'],
+    order: 1,
+    toggleTestId: 'long-pack-panel-toggle',
+    component: () => document.createElement('div'),
+  }))
+  await page.evaluate(() => document.fonts.ready)
+  const long = page.getByTestId('long-pack-panel-toggle')
+  const library = page.getByTestId('library-toggle')
+  if (await library.getAttribute('aria-pressed') === 'true') await library.click()
+  const tooltip = page.getByTestId('app-tooltip')
+  const fullHelp = 'Image review workspace\nInspect the images produced by this pack.'
+  const libraryHelp = 'Library\nBrowse packs, templates, and saved workflows'
+  await expect(long).toHaveAccessibleName('Image review workspace')
+  await expect(long).toHaveText('')
+  await expect(long.locator('svg')).toBeVisible()
+  await expect(library).toHaveText('')
+
+  await page.mouse.move(600, 400)
+  await long.hover()
+  await expect(tooltip).toHaveText(fullHelp, { timeout: 250 })
+  await page.screenshot({ path: testInfo.outputPath('plain-item-help.png') })
+  await page.mouse.move(600, 400)
+  await long.focus()
+  await expect(tooltip).toHaveText(fullHelp, { timeout: 250 })
+  await page.keyboard.press('Enter')
+  await expect(long).toBeFocused()
+  await expect(long).toHaveAttribute('aria-pressed', 'true')
+  await expect(tooltip).toBeHidden()
+  await page.screenshot({ path: testInfo.outputPath('selected-item.png') })
+  await long.hover()
+  await expect(tooltip).toHaveText(fullHelp, { timeout: 250 })
+  await page.screenshot({ path: testInfo.outputPath('selected-item-help.png') })
+  await page.mouse.move(600, 400)
+  await long.blur()
+  await long.focus()
+  await expect(tooltip).toHaveText(fullHelp, { timeout: 250 })
+  await page.keyboard.press('Enter')
+  await expect(long).toHaveAttribute('aria-pressed', 'false')
+  await page.mouse.move(600, 400)
+  await long.blur()
+  await long.focus()
+  await expect(tooltip).toHaveText(fullHelp, { timeout: 250 })
+
+  await page.getByTestId('graph-canvas').focus()
+  await library.hover()
+  await expect(tooltip).toHaveText(libraryHelp)
+  await page.mouse.move(600, 400)
+  await library.focus()
+  await expect(tooltip).toHaveText(libraryHelp)
+})
+
+test('Settings keeps immediate help, Alt detail, and hover-out', async ({ page }) => {
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('tooltips.delayMs', 3000))
   const settings = page.getByTestId('settings-button')
   await settings.hover()
-  await expect(page.getByTestId('app-tooltip')).toHaveText('Settings', { timeout: 1_500 })
+  await expect(page.getByTestId('app-tooltip')).toHaveText('Settings', { timeout: 250 })
   await page.mouse.move(600, 400)
   await expect(page.getByTestId('app-tooltip')).toBeHidden()
 
@@ -34,6 +94,78 @@ test('DOM chrome tooltip observes delay, Alt detail, and hover-out', async ({ pa
   await expect(page.getByTestId('app-tooltip')).toContainText('Ctrl+,', { timeout: 250 })
   await page.keyboard.up('Alt')
   await expect(page.getByTestId('app-tooltip')).not.toContainText('Ctrl+,')
+})
+
+test('top-right tooltip uses its real width and follows content changes', async ({ page }, testInfo) => {
+  const target = page.getByTestId('customize-layout-button')
+  const tooltip = page.getByTestId('app-tooltip')
+  await target.focus()
+  await expect(tooltip).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('top-right-tooltip.png') })
+  const assertPlacement = async () => {
+    await expect.poll(async () => {
+      const anchor = (await target.boundingBox())!
+      const box = (await tooltip.boundingBox())!
+      const expectedX = Math.max(8, Math.min(anchor.x + (anchor.width - box.width) / 2, page.viewportSize()!.width - box.width - 8))
+      return Math.abs(box.x - expectedX) + Math.abs(box.y - anchor.y - anchor.height - 8)
+    }).toBeLessThan(0.1)
+  }
+  await assertPlacement()
+  await target.evaluate((element) => { (element as HTMLElement).dataset['tooltipDetail'] = 'Additional layout information that changes the measured tooltip width.|Second detail line.' })
+  await page.keyboard.down('Alt')
+  await expect(tooltip).toContainText('Second detail line.')
+  await assertPlacement()
+  await page.keyboard.up('Alt')
+  await expect(tooltip).not.toContainText('Second detail line.')
+  await assertPlacement()
+  await target.evaluate((element) => {
+    Object.assign((element as HTMLElement).style, { position: 'fixed', left: '50%', top: '40%' })
+  })
+  await page.setViewportSize({ width: 1100, height: 700 })
+  await assertPlacement()
+  await target.evaluate((element) => {
+    (element as HTMLElement).dataset['tooltipDetail'] = Array.from({ length: 30 }, (_, index) => `Layout detail line ${index + 1}`).join('|')
+  })
+  await page.setViewportSize({ width: 1100, height: 300 })
+  await page.keyboard.down('Alt')
+  await expect(tooltip).toContainText('Layout detail line 1')
+  await assertPlacement()
+  const box = (await tooltip.boundingBox())!
+  expect(box.y + box.height).toBeLessThanOrEqual(292)
+  await page.screenshot({ path: testInfo.outputPath('short-window-tooltip.png') })
+  await page.keyboard.up('Alt')
+})
+
+test('bottom-edge tooltip flips above its element without overlapping it', async ({ page }, testInfo) => {
+  const target = page.getByTestId('canvas-fit-view')
+  const tooltip = page.getByTestId('app-tooltip')
+  await target.focus()
+  await expect(tooltip).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('bottom-edge-tooltip.png') })
+  await expect.poll(async () => {
+    const anchor = (await target.boundingBox())!
+    const box = (await tooltip.boundingBox())!
+    return Math.abs(box.y + box.height + 8 - anchor.y)
+  }).toBeLessThan(0.1)
+  const box = (await tooltip.boundingBox())!
+  expect(box.x).toBeGreaterThanOrEqual(8)
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width - 8)
+})
+
+test('activity rail tooltip stays beside its item at desktop and compact widths', async ({ page }, testInfo) => {
+  const target = page.getByTestId('settings-button')
+  const tooltip = page.getByTestId('app-tooltip')
+  for (const width of [1440, 480]) {
+    await page.setViewportSize({ width, height: 900 })
+    await target.focus()
+    await expect(tooltip).toBeVisible()
+    await expect.poll(async () => {
+      const anchor = (await target.boundingBox())!
+      const box = (await tooltip.boundingBox())!
+      return Math.abs(box.x - anchor.x - anchor.width - 8) + Math.abs(box.y - anchor.y - (anchor.height - box.height) / 2)
+    }).toBeLessThan(0.1)
+    await page.screenshot({ path: testInfo.outputPath(`activity-help-${width}.png`) })
+  }
 })
 
 test('node palette port product tooltip preserves hover and keyboard wording', async ({ page }) => {

@@ -283,7 +283,7 @@ export function autoConnectTarget(
   if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
   let genericFallback: AutoConnectTarget | undefined
   for (const item of items) {
-    if (item.kind === 'section' || item.kind === 'growth') continue
+    if (item.kind !== 'input' && item.kind !== 'output') continue
     if ((item.kind === 'input') !== (seeking === 'in')) continue
     if (item.kind === 'input' && item.spec.hidden === true) continue
     if (item.origin.kind === 'selector') continue

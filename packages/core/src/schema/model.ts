@@ -175,8 +175,8 @@ export const typeExprFromTypeId = (typeId: string): TypeExpr => {
 /**
  * True when a canonical type id is an ASSET-SOURCE form the backend's
  * coercion planner accepts on a concrete destination: `asset<T>` (decode
- * arm) or `list<asset<T>>` (lift/merge arms). The 2026-07-26 joint
- * emission-rule amendment keys on exactly these forms: a literal whose
+ * arm) or `list<asset<T>>` (lift/merge arms). The emission rule keys on
+ * exactly these forms: a literal whose
  * runtime type is an asset source DIFFERING from the concrete declared
  * type must be $typed-stamped (the plain literal would be wrapped as the
  * declared type raw and never reach the planner). Bare `ASSET` and
@@ -695,6 +695,21 @@ export type GroupGrowsSpec =
   | { readonly count: string }
   | { readonly followList: string }
 
+/**
+ * On a construct a subgraph node shows whole: what each name its formulas
+ * read outside the construct means on that node. The formulas keep the inner
+ * node's scope; a name the subgraph also shows reads that row of the subgraph
+ * node, and any other name reads the definition's fixed value.
+ */
+export interface OuterScope {
+  /** The inner node's scopes around the construct, outermost first, each with what its names mean. */
+  readonly frames: readonly { readonly rows: readonly OptionRow[]; readonly names: Readonly<Record<string, OuterName>> }[]
+}
+
+export type OuterName =
+  | { readonly row: string }
+  | { readonly value: unknown; readonly linked?: true }
+
 /** A box that repeats its member rows. */
 export interface GroupSpec {
   readonly kind: 'group'
@@ -718,6 +733,9 @@ export interface GroupSpec {
   readonly addLabel?: string
   readonly memberLabel?: Formulated<string>
   readonly openName?: false
+  /** On a subgraph node: how many members the definition holds before this node's own. */
+  readonly interiorMembers?: number
+  readonly outer?: OuterScope
 }
 
 /** One option of a choice: its key and the rows it holds. */
@@ -763,6 +781,7 @@ export interface ChoiceSpec {
   readonly required: boolean
   readonly hidden?: true
   readonly onEdit?: readonly StepSpec[]
+  readonly outer?: OuterScope
 }
 
 /** One variant of a type choice: the type plugged in and the rows it reveals. */
@@ -788,6 +807,9 @@ export interface TypeChoiceSpec {
   readonly required: boolean
   /** Node-level type variable bound by the chosen variant. */
   readonly typeVariable?: string
+  /** On a subgraph node that shows it whole: the variant the definition picks, used while the node stores none. */
+  readonly default?: string
+  readonly outer?: OuterScope
 }
 
 /** Rows listed by a stored description, stored under the row's own id. */
@@ -803,6 +825,9 @@ export interface DescribedSpec {
   readonly maxEntries: number
   readonly fixedIds: boolean
   readonly probe?: { readonly input: string; readonly kind: 'model'; readonly revision: string }
+  /** The description a node starts with while it stores none of its own. */
+  readonly default?: unknown
+  readonly outer?: OuterScope
 }
 
 export type BodyRow =
@@ -960,14 +985,36 @@ export interface PackBlueprintDescriptor {
 }
 
 /**
- * A backend-lowered document-time selector (schema wire 15). The document
- * stores one boolean under `input`; its value chooses exactly one of the two
- * branch inputs. This is schema/display fact only: submission still carries
+ * A Switch the server routes itself: the `input` row picks one member of the
+ * group of inputs `group`, and the node's one output passes it on. A stored
+ * pick is a member key; a key that is no longer a member, or no pick, picks
+ * the first member. A whole number is a position counting from 0, and a
+ * boolean picks between exactly two members, false first. Submission carries
  * the full graph for server-owned lowering.
  */
 export interface NodeSelectorSpec {
   readonly input: string
-  readonly branches: Readonly<{ false: string; true: string }>
+  readonly group: string
+}
+
+/**
+ * The member input id a pick names among `members` (flattened ids, in stored
+ * order), or undefined when the pick is not one the server accepts.
+ */
+export const selectedMember = (
+  selector: NodeSelectorSpec,
+  members: readonly string[],
+  pick: unknown,
+): string | undefined => {
+  if (members.length === 0) return undefined
+  if (pick === undefined || pick === null) return members[0]
+  if (typeof pick === 'string') {
+    const member = `${selector.group}.${pick}`
+    return members.includes(member) ? member : members[0]
+  }
+  if (typeof pick === 'boolean') return members.length === 2 ? members[Number(pick)] : undefined
+  if (typeof pick === 'number' && Number.isInteger(pick)) return members[pick]
+  return undefined
 }
 
 export type SelectorBranchDisplay = 'active' | 'inactive' | 'neutral'
@@ -1114,26 +1161,23 @@ export function schemaForEditorRole(schemas: Iterable<NodeSchema>, role: string)
 }
 
 /**
- * Derive display treatment from the STORED selector boolean. Missing or
- * malformed stored state is neutral: the server remains authoritative for
- * value validation, and the canvas must not guess which branch will run.
+ * Derive display treatment from the STORED pick: the picked member is active
+ * and the others inactive. `members` are the node's member input ids in
+ * stored order. A pick the server would refuse is neutral: the server remains
+ * authoritative for value validation, and the canvas must not guess which
+ * branch will run.
  */
 export const selectorBranchDisplay = (
   schema: NodeSchema,
   values: Readonly<Record<string, unknown>>,
+  members: readonly string[],
 ): Readonly<Record<string, SelectorBranchDisplay>> | undefined => {
   const selector = schema.selector
   if (selector === undefined) return undefined
-  const selected = values[selector.input]
-  if (typeof selected !== 'boolean') {
-    return {
-      [selector.branches.false]: 'neutral',
-      [selector.branches.true]: 'neutral',
-    }
-  }
-  const active = selector.branches[String(selected) as 'false' | 'true']
-  const inactive = selector.branches[String(!selected) as 'false' | 'true']
-  return { [active]: 'active', [inactive]: 'inactive' }
+  const picked = selectedMember(selector, members, values[selector.input])
+  return Object.fromEntries(
+    members.map((member) => [member, picked === undefined ? 'neutral' : member === picked ? 'active' : 'inactive']),
+  )
 }
 
 /**

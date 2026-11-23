@@ -98,6 +98,16 @@ const boundaryBinding = {
     },
     {
       type: 'object',
+      required: ['kind', 'node', 'port'],
+      properties: {
+        kind: { const: 'construct' },
+        node: { type: 'string', minLength: 1 },
+        port: { type: 'string', minLength: 1 },
+      },
+      not: { anyOf: [{ required: ['tap'] }, { required: ['viaReroute'] }] },
+    },
+    {
+      type: 'object',
       required: ['kind', 'node', 'tap'],
       properties: {
         kind: { const: 'widgetTap' },
@@ -121,6 +131,8 @@ const boundaryItem = {
     // also rejects duplicates.
     alsoBinds: { type: 'array', minItems: 1, items: { $ref: '#/$defs/boundaryBinding' } },
     promoted: { type: 'boolean' },
+    // Presentation only; invariants allow it on inputs shown as fields.
+    wireHidden: { const: true },
     ext: { $ref: '#/$defs/extData' },
   },
   allOf: [
@@ -154,6 +166,24 @@ const boundaryItem = {
             items: {
               $ref: '#/$defs/boundaryBinding',
               properties: { kind: { const: 'port' } },
+              required: ['kind'],
+            },
+          },
+        },
+      },
+    },
+    {
+      if: {
+        properties: { binds: { type: 'object', properties: { kind: { const: 'construct' } }, required: ['kind'] } },
+        required: ['binds'],
+      },
+      then: {
+        not: { required: ['promoted'] },
+        properties: {
+          alsoBinds: {
+            items: {
+              $ref: '#/$defs/boundaryBinding',
+              properties: { kind: { const: 'construct' } },
               required: ['kind'],
             },
           },
@@ -637,8 +667,9 @@ export const WORKFLOW_SCHEMA = {
                 allOf: [
                   { $ref: '#/$defs/boundaryItem' },
                   { not: { required: ['alsoBinds'] } },
+                  { not: { required: ['wireHidden'] } },
                   { properties: { binds: { not: { required: ['viaReroute'] } } } },
-                  { properties: { binds: { properties: { kind: { enum: ['port', 'widgetTap', 'unbound'] } } } } },
+                  { properties: { binds: { properties: { kind: { enum: ['port', 'construct', 'widgetTap', 'unbound'] } } } } },
                 ],
               },
             },
@@ -683,6 +714,9 @@ export const WORKFLOW_SCHEMA = {
         },
         collapsed: { type: 'boolean' },
         views: { type: 'object', additionalProperties: { type: 'string' } },
+        textLines: { type: 'object', additionalProperties: { type: 'number' } },
+        previewFolded: { type: 'boolean' },
+        minimizedPreviewOpen: { type: 'boolean' },
         sections: {
           type: 'object',
           additionalProperties: {

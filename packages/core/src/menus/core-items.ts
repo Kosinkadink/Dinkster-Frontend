@@ -14,6 +14,8 @@ import { isPreviewExposed } from '../format/exposed-previews.js'
 import { netViewPositions } from '../format/net-views.js'
 import { asNodeId, asPortId, samePortRef, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
+import { constructsAround } from '../schema/derive-boundary.js'
+import { boundaryFieldState } from '../commands/boundary-commands.js'
 import { t } from '../i18n/index.js'
 import type { MenuContribution, MenuContext, MenuItem } from './contract.js'
 
@@ -1165,6 +1167,54 @@ const widgetExpose: MenuContribution = {
   },
 }
 
+/**
+ * Inside a subgraph, put a field on the subgraph node without a wire, or take
+ * it off again. A boundary wire has no menu of its own (boundary noodles are
+ * not hit-tested), so "Hide wire" lives here too.
+ */
+const widgetSubgraphNode: MenuContribution = {
+  id: 'core.widget.subgraphNode',
+  targets: ['widget'],
+  group: '85-expose',
+  resolve(ctx) {
+    if (ctx.target.kind !== 'widget') return []
+    const t = ctx.target
+    // Synthetic and forwarded rows have no field of this node to bind, and a
+    // choice's or type choice's own row is refused by the command.
+    if (t.synthetic === true || t.construct === true || t.owner !== undefined || t.address === undefined || ctx.graphId === ctx.doc.root) return []
+    const def = ctx.doc.graphs[ctx.graphId]
+    if (def?.nodes[t.nodeId] === undefined) return []
+    const target = portParams({ node: t.nodeId, port: t.address.port })
+    // A row of a construct shown whole is that construct's.
+    const wholly = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
+      .flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
+      .some((binding) => binding.kind === 'construct' && binding.node === target.node && target.port.startsWith(`${binding.port}.`))
+    if (wholly) return []
+    const state = boundaryFieldState(def, { node: asNodeId(target.node), port: asPortId(target.port) })
+    if (state.item === undefined) {
+      return state.driven ? [] : [{
+        id: 'core.widget.subgraphNode.show',
+        label: 'Show on subgraph node',
+        action: { kind: 'command', invocation: { command: 'boundary.showOnSubgraphNode', params: { graphId: ctx.graphId, ...target } } },
+      }]
+    }
+    if (state.field !== true) return []
+    const item = state.item
+    return [
+      {
+        id: 'core.widget.subgraphNode.remove',
+        label: 'Remove from subgraph node',
+        action: { kind: 'command', invocation: { command: 'boundary.unbind', params: { graphId: ctx.graphId, side: 'inputs', itemId: item.id, ...target } } },
+      },
+      ...(item.wireHidden === true ? [] : [{
+        id: 'core.widget.subgraphNode.hideWire',
+        label: 'Hide wire',
+        action: { kind: 'command' as const, invocation: { command: 'boundary.setWireHidden', params: { graphId: ctx.graphId, itemId: item.id, hidden: true } } },
+      }]),
+    ]
+  },
+}
+
 const nodePreviewExpose: MenuContribution = {
   id: 'core.node.preview.expose',
   targets: ['node'],
@@ -1188,8 +1238,50 @@ const nodePreviewExpose: MenuContribution = {
   },
 }
 
+/**
+ * Inside a subgraph: show a whole group, choice, type choice or described row
+ * on the subgraph node, from any row in it. Each enclosing construct is
+ * offered once, outermost first, unless it or a row in it is already shown.
+ */
+const showConstructOnSubgraphNode: MenuContribution = {
+  id: 'core.boundary.showWhole',
+  targets: ['widget', 'pin'],
+  group: '85-expose',
+  resolve(ctx) {
+    const target = ctx.target
+    if (target.kind !== 'widget' && target.kind !== 'pin') return []
+    if (target.kind === 'widget' && target.synthetic === true) return []
+    const def = ctx.doc.graphs[ctx.graphId]
+    const node = def?.nodes[target.nodeId]
+    if (!def || !node || ctx.graphId === ctx.doc.root) return []
+    const schema = ctx.resolve?.(node.type)
+    if (schema === undefined) return []
+    const port = target.kind === 'widget' ? target.inputId : target.portId
+    const shown = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
+      .flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
+      .filter((binding) => (binding.kind === 'port' || binding.kind === 'construct') && binding.node === node.id)
+      .map((binding) => ({ port: (binding as { port: string }).port, whole: binding.kind === 'construct' }))
+    return constructsAround(schema, port)
+      .filter((construct) => !shown.some((other) =>
+        other.port === construct.path || other.port.startsWith(`${construct.path}.`) ||
+        (other.whole && construct.path.startsWith(`${other.port}.`))))
+      .map((construct) => ({
+        id: `core.boundary.showWhole.${construct.path}`,
+        label: `Show ${construct.label} on subgraph node`,
+        action: {
+          kind: 'command',
+          invocation: {
+            command: 'boundary.showOnSubgraphNode',
+            params: { graphId: ctx.graphId, node: node.id, port: construct.path },
+          },
+        },
+      }))
+  },
+}
+
 export function coreMenuContributions(): readonly MenuContribution[] {
   return [
+    showConstructOnSubgraphNode,
     nodeMode,
     nodePreviews,
     nodeMirrorPreviews,
@@ -1232,6 +1324,7 @@ export function coreMenuContributions(): readonly MenuContribution[] {
     groupDelete,
     sectionToggle,
     widgetExpose,
+    widgetSubgraphNode,
     nodePreviewExpose,
     canvasCreateSubgraph,
   ]
