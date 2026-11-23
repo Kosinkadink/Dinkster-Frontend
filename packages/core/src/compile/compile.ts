@@ -50,6 +50,7 @@ import {
 } from '../format/document.js'
 import {
   asGraphDefId,
+  asPortId,
   isPortEndpoint,
   isRerouteRef,
   isSelectorRef,
@@ -86,7 +87,7 @@ import {
   type PortAddress,
 } from '../schema/elaborate.js'
 import { solveGraphTypes } from '../schema/solve.js'
-import { boundaryOutputFanOutProblems, matchBoundaryItem, projectEditableOptions } from './crossing.js'
+import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
 import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
@@ -283,6 +284,8 @@ export interface CompileInput {
   /** Submission-only worker hints, keyed by root runtime node id. */
   readonly placement?: Readonly<Record<string, string>>
 }
+
+const KNOWN_VALUE_TYPES: ReadonlySet<string> = new Set(['INT', 'FLOAT', 'STRING', 'BOOLEAN', 'COMBO'])
 
 interface FlatNode {
   readonly runtimeId: string
@@ -606,8 +609,10 @@ function compileImpl(
   interface OccCtx {
     readonly defId: GraphDefId
     readonly path: readonly NodeId[]
-    /** nodeId -> occurrence-local dynamic state (promoted editable menus). */
+    /** nodeId -> occurrence-local dynamic state (promoted editable menus, constructs shown whole). */
     readonly overlays: Map<NodeId, Readonly<Record<string, DynamicPortState>>>
+    /** nodeId -> occurrence-local values (fields and constructs a subgraph node shows). */
+    readonly values: Map<NodeId, Readonly<Record<string, Json>>>
     readonly sourceValues: Map<string, Json>
     /** nodeId -> input addresses projected through boundaries from outer graphs. */
     readonly extraIn: Map<NodeId, ProjectedAddress[]>
@@ -619,7 +624,7 @@ function compileImpl(
   const topologyKey = (path: readonly NodeId[], defId: string): string => JSON.stringify([defId, path])
   const occCtxByPath = new Map<string, OccCtx>()
   const newOccCtx = (defId: GraphDefId, path: readonly NodeId[]): OccCtx => {
-    const ctx: OccCtx = { defId, path, overlays: new Map(), sourceValues: new Map(), extraIn: new Map() }
+    const ctx: OccCtx = { defId, path, overlays: new Map(), values: new Map(), sourceValues: new Map(), extraIn: new Map() }
     occCtxByPath.set(pathKey(path), ctx)
     return ctx
   }
@@ -763,17 +768,18 @@ function compileImpl(
   const occElabCache = new Map<string, NodeElab>()
   const elabAt = (ctx: OccCtx, node: NodeData, schema: NodeSchema): NodeElab => {
     const overlay = ctx.overlays.get(node.id)
+    const valuesOverlay = ctx.values.get(node.id)
     const extraIn = ctx.extraIn.get(node.id)
     const runtimeId = occurrenceKey({ instancePath: ctx.path, node: node.id })
-    if (doc.occurrenceTopologies === undefined && overlay === undefined && extraIn === undefined) {
+    if (doc.occurrenceTopologies === undefined && overlay === undefined && valuesOverlay === undefined && extraIn === undefined) {
       return elabOf(ctx.defId, node, schema)
     }
     const hit = occElabCache.get(runtimeId)
     if (hit) return hit
-    const state = overlay === undefined
+    const state = overlay === undefined && valuesOverlay === undefined
       ? node
       : {
-          values: node.values,
+          values: valuesOverlay ?? node.values,
           ...(node.additionalInputs !== undefined ? { additionalInputs: node.additionalInputs } : {}),
           ...(overlay !== undefined ? { dynamic: overlay } : node.dynamic !== undefined ? { dynamic: node.dynamic } : {}),
         }
@@ -976,7 +982,16 @@ function compileImpl(
         }
         const route = [...boundaryRoute, { graph: child.id, boundaryId: item.id, binding: b }]
         if (routeIsSuppressed([...path, node.id], delivery, route)) continue
-        const r = resolveInputPort([...path, node.id], childId, b, sink, delivery, route, openRegion)
+        let inner: PortRef = b
+        if (b.kind === 'construct') {
+          const port = innerConstructAddress(child, b, item.id, ref.port, (innerNode) => resolveNode(child.id, innerNode))
+          if (port === undefined) {
+            sink.push(diag('error', 'compile', 'compile.boundary.missingInput', `subgraph '${childId}' has no row '${ref.port}' in '${item.id}'`, { anchor: anchorOf(path, node.id) }))
+            continue
+          }
+          inner = { node: b.node, port: asPortId(port) }
+        }
+        const r = resolveInputPort([...path, node.id], childId, inner, sink, delivery, route, openRegion)
         if (r === 'muted') sawMuted = true
         else if (r === 'bypassed') sawBypassed = true
         else if (r !== undefined) targets.push(...r)
@@ -1112,6 +1127,14 @@ function compileImpl(
       }
       const route = [...boundaryRoute, { graph: child.id, boundaryId: item.id, binding: item.binds }]
       if (routeIsSuppressed([...path, node.id], delivery, route)) return undefined
+      if (item.binds.kind === 'construct') {
+        const port = innerConstructAddress(child, item.binds, item.id, ref.port, (innerNode) => resolveNode(child.id, innerNode))
+        if (port === undefined) {
+          sink.push(diag('error', 'compile', 'compile.boundary.missingOutput', `subgraph '${childId}' has no row '${ref.port}' in '${item.id}'`, { anchor: anchorOf(path, node.id) }))
+          return undefined
+        }
+        return resolveOutputPort([...path, node.id], childId, { node: item.binds.node, port: asPortId(port) }, sink, delivery, route, openRegion)
+      }
       return resolveOutputPort([...path, node.id], childId, item.binds, sink, delivery, route, openRegion)
     }
     const schema = resolveNode(defId, node)
@@ -1142,7 +1165,13 @@ function compileImpl(
     const inRegion = [...regions.values()].some((region) => path.length >= region.childPath.length &&
       region.childPath.every((segment, index) => path[index] === segment))
     const known = !inRegion && output.spec.knownValue && elab.inputsByValueKey.get(output.spec.knownValue.input)
-    if (known) return { knownValue: { path, defId, node: node.id, input: known } }
+    // A known value applies only to a value of a primitive or choice type. An
+    // input typed by a variable has none until the variable is bound, so the
+    // node runs.
+    const knownType = known ? canonicalTypeIdOf(known.spec.type) : undefined
+    if (known && knownType !== undefined && KNOWN_VALUE_TYPES.has(knownType)) {
+      return { knownValue: { path, defId, node: node.id, input: known } }
+    }
     return { runtimeId: occurrenceKey({ instancePath: path, node: node.id }), outputIndex }
   }
 
@@ -1324,20 +1353,24 @@ function compileImpl(
     let curPath = path
     let curDefId = defId
     let curNode = node
-    let curAddrKey = portAddressKey(address.port)
+    let curPort: string = address.port
     for (;;) {
-      const drv = inputDriverIndexFor(curPath, curDefId as GraphDefId).get(curNode)?.get(curAddrKey)
+      const drv = inputDriverIndexFor(curPath, curDefId as GraphDefId).get(curNode)?.get(portAddressKey(curPort))
       if (drv) return { endpoint: drv, path: curPath, defId: curDefId }
       if (curPath.length === 0) return undefined
       const def = graphOf(curDefId)
-      const item = def?.boundary?.inputs.find(
-        (i) => [i.binds, ...(i.alsoBinds ?? [])].some(
-          (b) => b.kind === 'port'
-            && b.node === curNode
-            && portAddressKey(b.port) === curAddrKey,
-        ),
-      )
-      if (!item) return undefined
+      // The outer address that reaches this inner port: a field's item id, or
+      // the row under a construct the subgraph node shows whole.
+      let outerPort: string | undefined
+      for (const i of def?.boundary?.inputs ?? []) {
+        for (const b of [i.binds, ...(i.alsoBinds ?? [])]) {
+          if (outerPort !== undefined || (b.kind !== 'port' && b.kind !== 'construct') || b.node !== curNode) continue
+          outerPort = b.kind === 'port'
+            ? (b.port === curPort ? i.id : undefined)
+            : outerConstructAddress(def!, b, i.id, curPort, (inner) => resolveNode(curDefId, inner))
+        }
+      }
+      if (outerPort === undefined) return undefined
       const instanceNode = curPath[curPath.length - 1]!
       const parentPath = curPath.slice(0, -1)
       const parentCtx = occCtxByPath.get(pathKey(parentPath))
@@ -1345,7 +1378,7 @@ function compileImpl(
       curPath = parentPath
       curDefId = parentCtx.defId
       curNode = instanceNode
-      curAddrKey = portAddressKey(item.id)
+      curPort = outerPort
     }
   }
 
@@ -1634,7 +1667,10 @@ function compileImpl(
     graphOccurrences.push({ defId, path })
     for (const authored of Object.values(def.nodes)) {
       const overlay = ctx.overlays.get(authored.id)
-      const node = overlay === undefined ? authored : { ...authored, dynamic: overlay }
+      const valuesOverlay = ctx.values.get(authored.id)
+      const node = overlay === undefined && valuesOverlay === undefined
+        ? authored
+        : { ...authored, ...(overlay !== undefined ? { dynamic: overlay } : {}), ...(valuesOverlay !== undefined ? { values: valuesOverlay } : {}) }
       if (isVirtualNode(defId, node)) continue
       const mode = node.mode ?? 'active'
       // Muted and bypassed nodes never enter the prompt. A bypassed subgraph
@@ -1692,19 +1728,35 @@ function compileImpl(
         for (const [target, dynamic] of projectEditableOptions(child, instanceDynamic, resolveChildNode)) {
           childCtx.overlays.set(target, dynamic)
         }
+        const constructs = projectConstructs(child, { values: node.values, ...(instanceDynamic !== undefined ? { dynamic: instanceDynamic } : {}) }, resolveChildNode, childCtx.overlays)
+        for (const [target, dynamic] of constructs.dynamic) childCtx.overlays.set(target, dynamic)
+        for (const [target, values] of constructs.values) childCtx.values.set(target, values)
         // Concrete input connectivity also crosses the boundary. DynamicSlot
         // reads link existence during elaboration, before ordinary endpoint
         // lowering, so project every primary and fan-out target now.
         const connected = [...(addrIndexFor(path, defId).get(node.id) ?? []), ...(ctx.extraIn.get(node.id) ?? [])]
         for (const projected of connected) {
           const match = matchBoundaryItem(child.boundary.inputs, projected.address)
-          if (!match.ok || match.item.binds.kind !== 'port') continue
+          if (!match.ok) continue
+          if (match.item.binds.kind === 'construct') {
+            for (const source of [match.item.binds, ...(match.item.alsoBinds ?? [])]) {
+              if (source.kind !== 'construct') continue
+              const port = innerConstructAddress(child, source, match.item.id, projected.address.port, resolveChildNode)
+              const route = [...projected.route, { graph: child.id, boundaryId: match.item.id, binding: source }]
+              if (port === undefined || routeIsSuppressed(childPath, projected.delivery, route)) continue
+              let list = childCtx.extraIn.get(source.node)
+              if (!list) childCtx.extraIn.set(source.node, (list = []))
+              list.push({ address: { port: asPortId(port) }, ...(projected.delivery ? { delivery: projected.delivery } : {}), route })
+            }
+            continue
+          }
+          if (match.item.binds.kind !== 'port') continue
           for (const source of [match.item.binds, ...(match.item.alsoBinds ?? [])]) {
+            if (source.kind !== 'port') continue
             const bindings = source.viaReroute === undefined
               ? [source]
               : (rerouteInputTargets(child, source.viaReroute) ?? []).map((target) => ({ kind: 'port' as const, ...target }))
             for (const binding of bindings) {
-              if (binding.kind === 'widgetTap' || binding.kind === 'unbound' || binding.kind === 'valueSource') continue
               const route = [...projected.route, { graph: child.id, boundaryId: match.item.id, binding: source }]
               if (routeIsSuppressed(childPath, projected.delivery, route)) continue
               let list = childCtx.extraIn.get(binding.node)

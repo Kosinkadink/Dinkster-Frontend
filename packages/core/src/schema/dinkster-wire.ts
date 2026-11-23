@@ -594,6 +594,11 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         throw new Error(`${where} requires a presentation field`)
       return
     case 'COLOR':
+      checkWidgetFields(descriptor, ['type', 'alpha'], where, diags)
+      if (descriptor['alpha'] !== undefined && typeof descriptor['alpha'] !== 'boolean') {
+        throw new Error(`${where}.alpha must be a boolean`)
+      }
+      return
     case 'MOUNT':
       checkWidgetFields(descriptor, ['type'], where, diags)
       return
@@ -781,6 +786,7 @@ function widgetFor(
       dynamicPrompts?: unknown
       completions?: unknown
       chip?: unknown
+      alpha?: unknown
     }
     if (descriptor.type === 'REPRESENTATIONS') {
       if (!representationsAllowed) throw new Error(`${nodeType}.${id}: nested widget representations are forbidden`)
@@ -1113,7 +1119,8 @@ function widgetFor(
     if (descriptor.type === 'COLOR' || descriptor.type === 'MOUNT') {
       return {
         widgetType: descriptor.type,
-        options: {},
+        // A color field that uses opacity says so; the editor offers opacity only there.
+        options: descriptor.type === 'COLOR' && descriptor.alpha === true ? { alpha: true } : {},
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
@@ -2051,9 +2058,16 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       const knownValue = output.knownValue
       if (knownValue === undefined) continue
       const input = decodedInputs.get(knownValue.input)
-      const primitive = output.type.kind === 'concrete' && PRIMITIVE_WIDGETS[output.type.name] !== undefined
-      if (input === undefined || !primitive || input.type.kind !== 'concrete' || input.type.name !== output.type.name) {
-        throw new Error(`output '${output.id}' knownValue must name an input of the node with the same concrete primitive type`)
+      const inputType = input?.type.kind === 'concrete' ? input.type.name : undefined
+      const outputType = output.type.kind === 'concrete' ? output.type.name : undefined
+      const samePrimitive = outputType !== undefined && PRIMITIVE_WIDGETS[outputType] !== undefined && inputType === outputType
+      // A chosen option is its text, so a choice may also be known as a STRING.
+      const fromChoice = inputType === 'COMBO' && (outputType === 'COMBO' || outputType === 'STRING')
+      // A variable's known value applies once the variable is bound to a primitive or COMBO.
+      const sameVariable = input?.type.kind === 'variable' && output.type.kind === 'variable' &&
+        JSON.stringify(input.type) === JSON.stringify(output.type)
+      if (!samePrimitive && !fromChoice && !sameVariable) {
+        throw new Error(`output '${output.id}' knownValue must name an input of the node with the same concrete primitive type or type variable, or a COMBO input for a COMBO or STRING output`)
       }
     }
     for (const row of allRowsOf(baseSchema.body)) {
