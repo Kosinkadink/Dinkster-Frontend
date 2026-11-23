@@ -1,7 +1,8 @@
 /**
  * The node's problem box, drawn as a part of the node: one row-high line per
  * problem with the kind's icon, its row's name, the message and its action at
- * the right end, the action drawn as a node row button. It hangs below the
+ * the right end, the action drawn as a list status line's action. Only the
+ * icon and the message take the problem's color. It hangs below the
  * node at one screen size; the caller places it.
  */
 import { createEffect, For, Show } from 'solid-js'
