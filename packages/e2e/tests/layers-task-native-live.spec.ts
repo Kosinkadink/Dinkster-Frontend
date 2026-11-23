@@ -335,3 +335,53 @@ test('a wire from a field under a type-led pin whose type is gone gives nothing,
   expect(second.job.skipped).toContain('req')
   await shot(page, '23-ran-skipped')
 })
+
+// Moving a layer has no gesture yet (its grip comes with the box look), so
+// this drives the command the grip sends.
+test('moving a layer changes the order the node runs them in, and a wire stays on its layer', async ({ page, request }) => {
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'layers-move-native-live', root: 'g0',
+      graphs: { g0: {
+        id: 'g0', name: 'root',
+        nodes: {
+          layers: {
+            id: 'layers', type: 'dev.features.layers',
+            values: {
+              'layers.1.name': 'base', 'layers.1.strength': 1,
+              'layers.2.name': 'mid', 'layers.2.strength': 0.75,
+              'layers.3.name': 'top', 'layers.3.strength': 0.5,
+            },
+            dynamic: { layers: { members: ['1', '2', '3'] } },
+          },
+          req: { id: 'req', type: 'dev.features.required_value', values: {} },
+        },
+        links: { top: { id: 'top', from: { node: 'layers', tap: 'layers.3.strength' }, to: { node: 'req', port: 'value' } } },
+        nets: {}, reroutes: {}, nextOrdinal: 3,
+      } },
+      view: { graphs: { g0: { nodes: { layers: { position: { x: 120, y: 80 } }, req: { position: { x: 480, y: 80 } } } } } },
+    } as never, 'Move a layer')
+  })
+  await identityViewport(page)
+
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.activeTab()!.store.dispatch({
+      command: 'dynamic.moveMember',
+      params: { graphId: 'g0', nodeId: 'layers', construct: 'layers', member: '3', index: 0 },
+    })
+  })
+  await expect.poll(async () => (await activeDoc(page)).graphs['g0']!.nodes['layers']!.dynamic?.['layers']?.members).toEqual(['3', '1', '2'])
+  expect((await rowsOf(page, 'layers')).filter((row) => row.kind === 'widget' && String(row.key).endsWith('.name')).map((row) => [row.key, row.value]))
+    .toEqual([['layers.3.name', 'top'], ['layers.1.name', 'base'], ['layers.2.name', 'mid']])
+  expect((await activeDoc(page)).graphs['g0']!.links['top']!.from).toEqual({ node: 'layers', tap: 'layers.3.strength' })
+  await shot(page, '31-top-moved-first')
+
+  const layers = await runNode(page, request, 'layers')
+  expect(layers.job.outputs['layers']!['text']!.value).toBe('Layers: top 0.50, base 1.00, mid 0.75')
+  const req = await runNode(page, request, 'req')
+  expect(req.job.outputs['req']!['text']!.value).toBe('value=0.50')
+
+  await page.getByTestId('graph-canvas').focus()
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await activeDoc(page)).graphs['g0']!.nodes['layers']!.dynamic?.['layers']?.members).toEqual(['1', '2', '3'])
+})
