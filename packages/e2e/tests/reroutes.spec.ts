@@ -145,7 +145,6 @@ async function openRerouteWorkflow(page: Page): Promise<void> {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   await identityViewport(page)
 })

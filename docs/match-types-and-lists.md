@@ -27,7 +27,7 @@ Dinkster distinguishes fixed types, match types, and `Any` directly on canvas:
 | --- | --- |
 | Circle | Definite scalar value |
 | Diamond | Definite list value |
-| Diamond behind a smaller circle | Unresolved match input that accepts either a scalar or a whole list |
+| Diamond behind a smaller circle | Input that accepts either a scalar or a whole list: an unresolved match input, or any input declared with `accepts_list` whatever its matched type, including a subgraph input whose inner inputs all accept a list (on the subgraph node and in its Inputs panel) |
 | Multi-color wedges | Every accepted member of a finite union or constrained match type |
 | Solid dark ring | Standard border for fixed and match-type ports |
 | Dashed dark ring | `Any`; the port accepts independently and never determines another port |

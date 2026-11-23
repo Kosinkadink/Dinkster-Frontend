@@ -1,0 +1,25 @@
+.statusbar-state { flex-wrap: nowrap; overflow: hidden; overflow-wrap: normal; }
+.status-items { display: flex; align-items: center; gap: var(--dinkster-space-8); width: 100%; min-width: 0; white-space: nowrap; }
+.status-item.product-button { flex: none; min-height: 0; padding: 0 var(--dinkster-space-4); gap: var(--dinkster-space-4); color: var(--dinkster-text-secondary); font-size: inherit; line-height: inherit; }
+.status-item .dinkster-icon { width: var(--dinkster-space-12); height: var(--dinkster-space-12); }
+.status-connection-dot { width: var(--dinkster-space-8); height: var(--dinkster-space-8); border-radius: 50%; background: var(--dinkster-success-foreground); }
+.status-connection:not([data-state='connected']) { color: var(--dinkster-warning-foreground); }
+.status-connection:not([data-state='connected']) .status-connection-dot { background: var(--dinkster-warning-foreground); }
+.status-problems[data-severity='error'] { color: var(--dinkster-danger-foreground); }
+.status-problems[data-severity='warning'] { color: var(--dinkster-warning-foreground); }
+.status-problems[data-severity='info'] { color: var(--dinkster-info-foreground); }
+.status-background-count { display: none; }
+.status-extensions { display: inline-flex; align-items: center; gap: var(--dinkster-space-8); }
+.status-context { display: inline-flex; align-items: center; gap: var(--dinkster-space-8); margin-left: auto; color: var(--dinkster-text-muted); }
+.status-memory-track { display: inline-flex; width: var(--dinkster-space-32); height: var(--dinkster-space-4); background: var(--dinkster-surface-raised); border-radius: var(--dinkster-radius-control); overflow: hidden; }
+.status-memory-track > rect { fill: var(--dinkster-info-foreground); }
+.status-memory[data-stale] { color: var(--dinkster-text-muted); }
+.status-memory[data-stale] .status-memory-track > rect { fill: var(--dinkster-text-muted); }
+.statusbar-state:not([data-compact='0']) .status-context { display: none; }
+.statusbar-state:not([data-compact='0']) .status-memory { margin-left: auto; }
+.statusbar-state:is([data-compact='2'], [data-compact='3'], [data-compact='4'], [data-compact='5'], [data-compact='6']) .status-run-title { display: none; }
+.statusbar-state:is([data-compact='3'], [data-compact='4'], [data-compact='5'], [data-compact='6']) .status-connection-name { display: none; }
+.statusbar-state:is([data-compact='4'], [data-compact='5'], [data-compact='6']) .status-background-description { display: none; }
+.statusbar-state:is([data-compact='4'], [data-compact='5'], [data-compact='6']) .status-background-count { display: inline; }
+.statusbar-state:is([data-compact='5'], [data-compact='6']) .status-extensions { display: none; }
+.statusbar-state[data-compact='6'] .status-memory { display: none; }

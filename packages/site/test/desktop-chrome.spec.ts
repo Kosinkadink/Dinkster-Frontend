@@ -39,7 +39,11 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
   const bar = page.locator('header')
   for (const platform of ['win32', 'linux', 'darwin'] as const) {
     for (const theme of ['dark', 'light'] as const) {
-      for (const width of [1100, 390]) {
+      for (const width of [1200, 1100, 390]) {
+        const compact =
+          width -
+            (platform === 'win32' ? 160 : platform === 'darwin' ? 104 : 24) <
+          940
         await page.setViewportSize({ width, height: 300 })
         await page.evaluate(
           ({ platform, theme }) =>
@@ -56,14 +60,20 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
         await expect(page.locator('.dinkster-window-fallback')).toHaveCount(0)
         await expect(bar.locator('.dinkster-window-identity')).toHaveCount(1)
         await expect(
-          bar.locator('.dinkster-window-toolbar .dinkster-window-identity'),
+          bar.locator(
+            '.dinkster-window-toolbar .dinkster-window-identity-wide',
+          ),
         ).toHaveText('[QA]Development')
         const bounds = (await bar.boundingBox())!
-        expect(bounds.height).toBe(56)
+        expect(bounds.height).toBe(44)
         const identity = (await bar
           .locator('.dinkster-window-identity')
           .boundingBox())!
-        const service = (await bar.getByText('QA services').boundingBox())!
+        const service = (await (
+          compact
+            ? bar.locator('.dinkster-window-identity-compact')
+            : bar.getByText('QA services', { exact: true })
+        ).boundingBox())!
         const action = (await bar
           .getByRole('button', { name: 'Action', exact: true })
           .boundingBox())!
@@ -74,13 +84,23 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
             width - (platform === 'win32' ? 148 : 12),
           )
           expect(rect.y).toBeGreaterThanOrEqual(bounds.y)
-          expect(rect.y + rect.height).toBeLessThanOrEqual(bounds.y + 56)
+          expect(rect.y + rect.height).toBeLessThanOrEqual(bounds.y + 44)
         }
-        expect(service.x + service.width).toBeLessThanOrEqual(identity.x)
-        if (width === 390) {
-          expect(identity.y + identity.height).toBeLessThanOrEqual(action.y)
-          expect(service.y + service.height).toBeLessThanOrEqual(action.y)
-        } else expect(identity.y + identity.height).toBeGreaterThan(action.y)
+        if (compact) {
+          await expect(
+            bar.getByText('QA services', { exact: true }),
+          ).toBeHidden()
+          await expect(bar.getByRole('note')).toHaveAccessibleName(
+            'QA services, Development project - unpublished sources',
+          )
+          expect(identity.y).toBeGreaterThanOrEqual(action.y)
+          expect(identity.y + identity.height).toBeLessThanOrEqual(
+            action.y + action.height,
+          )
+        } else {
+          expect(service.x + service.width).toBeLessThanOrEqual(identity.x)
+          expect(identity.y + identity.height).toBeGreaterThan(action.y)
+        }
         await page.screenshot({
           path: `test-results/captures/chrome-toolbar-${platform}-${theme}-${width}.png`,
         })
@@ -92,7 +112,9 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
             grid.outerHTML = content
           }, content)
         await expect(
-          bar.locator('.dinkster-window-toolbar .dinkster-window-identity'),
+          bar.locator(
+            '.dinkster-window-toolbar .dinkster-window-identity-wide',
+          ),
         ).toHaveText('[QA]Development')
       }
     }
@@ -107,10 +129,86 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
   }, content)
   await expect(page.locator('.dinkster-window-fallback')).toHaveCount(0)
   await expect(
-    page.locator('.dinkster-window-toolbar .dinkster-window-identity'),
+    page.locator('.dinkster-window-toolbar .dinkster-window-identity-wide'),
   ).toHaveText('[QA]Development')
   await expect(page.locator('main')).toHaveText('Original content')
   expect(requests).toEqual([])
+})
+
+test('portable Desktop chrome shows reactive host service metadata without option flags', async ({
+  page,
+}) => {
+  const artifact = JSON.parse(
+    await readFile(new URL('desktop-chrome.json', distribution), 'utf8'),
+  )
+  await page.route('**/*', (route) => route.abort())
+  await page.setContent(
+    '<header class="dinkster-desktop-bar dinkster-window-toolbar-host"><div class="dinkster-window-toolbar"><div class="dinkster-window-toolbar-brand">Dinkster</div><div class="dinkster-window-toolbar-search"></div><div class="dinkster-window-toolbar-actions"></div></div></header>',
+  )
+  await page.addStyleTag({ content: artifact.css })
+  await page.addScriptTag({
+    content: await readFile(new URL(artifact.installer, distribution), 'utf8'),
+  })
+  const bar = page.locator('header')
+  for (const theme of ['dark', 'light'] as const) {
+    await page.evaluate((theme) => {
+      window.DinksterDesktopChrome.install({
+        title: 'Host toolbar',
+        platform: 'linux',
+        theme,
+      })
+    }, theme)
+    for (const width of [1200, 390]) {
+      await page.setViewportSize({ width, height: 160 })
+      for (const kind of ['qa', 'custom'] as const) {
+        await bar.evaluate((node, kind) => {
+          node.dataset.serviceKind = kind
+        }, kind)
+        const marking = bar.locator(
+          width === 1200
+            ? '.dinkster-window-identity-wide'
+            : '.dinkster-window-identity-compact',
+        )
+        await expect(marking).toHaveText(
+          kind === 'qa' ? (width === 1200 ? '[QA]' : 'QA') : 'Custom',
+        )
+        await expect(marking).toBeVisible()
+        const bounds = (await marking.boundingBox())!
+        expect(bounds.width).toBeGreaterThan(0)
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 12)
+        await page.screenshot({
+          path: `test-results/captures/chrome-metadata-${kind}-${theme}-${width}.png`,
+        })
+      }
+      if (width === 1200) {
+        await bar.locator('.dinkster-window-toolbar').evaluate((grid) => {
+          const label = document.createElement('span')
+          label.className = 'dinkster-window-toolbar-service'
+          label.textContent = 'Custom services'
+          grid.append(label)
+        })
+        await expect(
+          bar.getByText('Custom services', { exact: true }),
+        ).toBeVisible()
+        await expect(
+          bar
+            .locator('.dinkster-window-identity-wide')
+            .getByText('Custom', { exact: true }),
+        ).toBeHidden()
+        await bar
+          .locator('.dinkster-window-toolbar-service')
+          .evaluate((node) => node.remove())
+        await expect(bar.locator('.dinkster-window-identity-wide')).toHaveText(
+          'Custom',
+        )
+        await expect(
+          bar.locator('.dinkster-window-identity-wide'),
+        ).toBeVisible()
+      }
+      await bar.evaluate((node) => delete node.dataset.serviceKind)
+      await expect(bar.locator('.dinkster-window-identity')).toHaveCount(0)
+    }
+  }
 })
 
 for (const existing of [false, true]) {
@@ -126,11 +224,12 @@ for (const existing of [false, true]) {
     )
     expect(artifact.format).toBe('dinkster.desktop-chrome/1')
     expect(artifact.native).toEqual({
+      minimumWidth: { linux: 384, darwin: 464, win32: 520 },
       overlay: {
-        dark: { color: '#141C1D', symbolColor: '#F0F5F5', height: 56 },
-        light: { color: '#FFFFFF', symbolColor: '#20252A', height: 56 },
+        dark: { color: '#090D0D', symbolColor: '#F0F5F5', height: 44 },
+        light: { color: '#EDEFF2', symbolColor: '#20252A', height: 44 },
       },
-      trafficLightPosition: { x: 14, y: 16 },
+      trafficLightPosition: { x: 14, y: 10 },
     })
     const requests: string[] = []
     page.on('request', (request) => requests.push(request.url()))
@@ -157,10 +256,10 @@ for (const existing of [false, true]) {
           )
           const bar = page.locator('[data-desktop-chrome]')
           await expect(bar).toHaveCount(1)
-          await expect(bar).toHaveCSS('min-height', '56px')
+          await expect(bar).toHaveCSS('min-height', '44px')
           await expect(bar).toHaveCSS(
             'background-color',
-            theme === 'dark' ? 'rgb(20, 28, 29)' : 'rgb(255, 255, 255)',
+            theme === 'dark' ? 'rgb(9, 13, 13)' : 'rgb(237, 239, 242)',
           )
           await expect(bar).toHaveCSS('font-family', '"Noto Sans", sans-serif')
           await expect(bar).toHaveCSS('-webkit-app-region', 'drag')
@@ -168,9 +267,12 @@ for (const existing of [false, true]) {
             'padding-left',
             platform === 'darwin' ? '92px' : '12px',
           )
-          await expect(bar.locator('.dinkster-window-identity')).toHaveText(
-            '[QA]Development',
-          )
+          await expect(
+            bar.locator('.dinkster-window-identity-wide'),
+          ).toHaveText('[QA]Development')
+          await expect(
+            bar.locator('.dinkster-window-identity-compact'),
+          ).toBeHidden()
           const bounds = (await bar.boundingBox())!
           const identity = (await bar
             .locator('.dinkster-window-identity')
@@ -226,9 +328,12 @@ for (const existing of [false, true]) {
     await page.locator('.topbar').evaluate((bar) => {
       bar.textContent = 'Updated application bar'
     })
-    await expect(page.locator('.topbar .dinkster-window-identity')).toHaveText(
-      '[QA]Development',
-    )
+    await expect(
+      page.locator('.topbar .dinkster-window-identity-wide'),
+    ).toHaveText('[QA]Development')
+    await expect(
+      page.locator('.topbar .dinkster-window-identity-compact'),
+    ).toBeHidden()
     await page.screenshot({
       path: `test-results/captures/chrome-late-${existing ? 'existing' : 'fallback'}.png`,
     })

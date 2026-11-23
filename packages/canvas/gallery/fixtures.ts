@@ -1,5 +1,6 @@
 import {
   defaultValuesOf,
+  documentResolver,
   loadDocument,
   type InputSpec,
   type Json,
@@ -51,6 +52,7 @@ import {
   boundaryNamesGalleryScene,
   structuralGalleryScene,
 } from './structure.js'
+import { switchPrimitiveGallery } from './switch-primitive.js'
 import { widgetTapGallery } from './widget-taps.js'
 import { rowSummariesGallery } from './row-summaries.js'
 
@@ -68,6 +70,8 @@ export const canvasGalleryPages = [
   ['widgets', 'Widget kinds'],
   ['core-rows', 'Core widget rows'],
   ['row-editing', 'Editing in the row proposal'],
+  ['row-lists', 'Lists in the row proposal'],
+  ['color-editing', 'Color in the row'],
   ['node-look', 'Original and new node look'],
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],
@@ -87,6 +91,7 @@ export const canvasGalleryPages = [
   ['zoom-content', 'Content zoom'],
   ['zoom-overview', 'Overview zoom'],
   ['minimap', 'Minimap'],
+  ['switch-primitive', 'Switch and Primitive'],
 ] as const
 export type CanvasGalleryPage = (typeof canvasGalleryPages)[number][0]
 
@@ -228,7 +233,223 @@ export interface CanvasGalleryFixture {
     caption: string
     nodes?: readonly number[]
     overlay?: OverlayState
+    /** A card drawn from a scene of its own instead of the page's scene, with its own run states, values, marks and dimmed nodes. */
+    scene?: Scene
+    states?: Readonly<Record<string, NodeProgress>>
+    companions?: CompanionMap
+    rowMarks?: RowMarkMap
+    inactive?: ReadonlySet<string>
   }[]
+}
+
+/**
+ * One node with an input that accepts a list beside an ordinary input of the
+ * same type variable, shown open, matched by one image and matched by a list
+ * of images; a node whose input that accepts a list has the fixed type INT;
+ * an input that accepts a list with the union type IMAGE or MASK, open, fed
+ * one image and fed a list of images; and a growing group of inputs that
+ * accept a list and share one type variable, fed a list of images and one
+ * image, then limited to IMAGE or MASK and left open. Built and solved the
+ * way the app builds a graph.
+ */
+function acceptsListScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+): Scene {
+  const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
+  const image = concrete('IMAGE')
+  const group = (type: TypeExpr): NodeSchema['items'] => [
+    {
+      kind: 'input',
+      id: 'items',
+      type,
+      optional: false,
+      dynamic: {
+        kind: 'autogrow',
+        template: [{ kind: 'input', id: 'item', type, optional: true, acceptsList: true }],
+        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 8 },
+      },
+    },
+    { kind: 'output', id: 'list', type: { kind: 'list', element: type } },
+  ]
+  const schemas = new Map<string, NodeSchema>([
+    ['Join', schema('Join', [
+      { kind: 'input', id: 'items', type: variable, optional: false, acceptsList: true },
+      { kind: 'input', id: 'value', type: variable, optional: false },
+      { kind: 'output', id: 'list', type: { kind: 'list', element: variable } },
+    ])],
+    ['Count', schema('Count', [
+      { kind: 'input', id: 'items', type: concrete('INT'), optional: false, acceptsList: true },
+      { kind: 'input', id: 'value', type: concrete('INT'), optional: false },
+    ])],
+    ['Either', schema('Either', [
+      { kind: 'input', id: 'items', type: { kind: 'union', names: ['IMAGE', 'MASK'] }, optional: false, acceptsList: true },
+    ])],
+    ['Group', schema('Group', group(variable))],
+    ['Limited', schema('Limited', group({ kind: 'variable', templateId: 'T', allowedTypes: [image, concrete('MASK')] }))],
+    ['Image', schema('Image', [{ kind: 'output', id: 'IMAGE', type: image }])],
+    ['Images', schema('Images', [{ kind: 'output', id: 'IMAGE', displayName: 'list of IMAGE', type: { kind: 'list', element: image } }])],
+  ])
+  const nodes: Record<string, { type: string; title?: string; x: number; y: number; members?: number }> = {
+    open: { type: 'Join', title: 'Open', x: 240, y: 0 },
+    image: { type: 'Image', x: 0, y: 130 },
+    one: { type: 'Join', title: 'One image', x: 240, y: 130 },
+    images: { type: 'Images', x: 0, y: 260 },
+    list: { type: 'Join', title: 'A list of images', x: 240, y: 260 },
+    fixed: { type: 'Count', title: 'Fixed type', x: 240, y: 390 },
+    unionOpen: { type: 'Either', title: 'Union, open', x: 240, y: 500 },
+    unionImage: { type: 'Image', x: 0, y: 590 },
+    unionOne: { type: 'Either', title: 'Union, one image', x: 240, y: 590 },
+    unionImages: { type: 'Images', x: 0, y: 680 },
+    unionList: { type: 'Either', title: 'Union, a list of images', x: 240, y: 680 },
+    groupImages: { type: 'Images', x: 0, y: 790 },
+    groupImage: { type: 'Image', x: 0, y: 880 },
+    group: { type: 'Group', title: 'Group, a list and one image', x: 240, y: 790, members: 2 },
+    limited: { type: 'Limited', title: 'Group, IMAGE or MASK, open', x: 240, y: 960, members: 1 },
+  }
+  const member = (node: string, index: number) => ({ node, port: 'items.item', members: [`m${index}`] })
+  const loaded = loadDocument({
+    format: 'dinkster-workflow',
+    formatVersion: 1,
+    lineage: 'canvas-gallery-accepts-list',
+    root: 'root',
+    graphs: {
+      root: {
+        id: 'root',
+        name: 'Root',
+        nextOrdinal: 20,
+        nets: {},
+        reroutes: {},
+        nodes: Object.fromEntries(Object.entries(nodes).map(([id, node]) => [
+          id,
+          {
+            id,
+            type: node.type,
+            values: {},
+            ...(node.title ? { title: node.title } : {}),
+            ...(node.members
+              ? { dynamic: { items: { members: Array.from({ length: node.members }, (_, i) => `m${i}`), seq: node.members } } }
+              : {}),
+          },
+        ])),
+        links: {
+          'one image': { id: 'one image', from: { node: 'image', port: 'IMAGE' }, to: { node: 'one', port: 'items' } },
+          'list of images': { id: 'list of images', from: { node: 'images', port: 'IMAGE' }, to: { node: 'list', port: 'items' } },
+          'union one': { id: 'union one', from: { node: 'unionImage', port: 'IMAGE' }, to: { node: 'unionOne', port: 'items' } },
+          'union list': { id: 'union list', from: { node: 'unionImages', port: 'IMAGE' }, to: { node: 'unionList', port: 'items' } },
+          'group list': { id: 'group list', from: { node: 'groupImages', port: 'IMAGE' }, to: member('group', 0) },
+          'group one': { id: 'group one', from: { node: 'groupImage', port: 'IMAGE' }, to: member('group', 1) },
+        },
+      },
+    },
+    view: {
+      graphs: {
+        root: {
+          nodes: Object.fromEntries(Object.entries(nodes).map(([id, node]) => [
+            id,
+            { position: { x: node.x, y: node.y } },
+          ])),
+        },
+      },
+    },
+  })
+  const document = loaded.document
+  if (!document) throw new Error(`Invalid accepts-list gallery document: ${JSON.stringify(loaded)}`)
+  return buildScene({
+    document,
+    graphId: 'root',
+    resolve: documentResolver(document, (type) => schemas.get(type)),
+    tokens,
+    measure,
+    widgetMeasure,
+  })
+}
+
+/**
+ * A subgraph with two inputs: `lists` feeds only an input that accepts a
+ * list, and `mixed` also feeds an input that takes one image. Drawn from
+ * outside, with a list of images wired to `lists`, and from inside, where
+ * the Inputs panel shows the same two pins.
+ */
+function subgraphAcceptsListScenes(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+): { readonly outside: Scene; readonly inside: Scene } {
+  const image = concrete('IMAGE')
+  const schemas = new Map<string, NodeSchema>([
+    ['Join', schema('Join', [
+      { kind: 'input', id: 'items', type: image, optional: false, acceptsList: true },
+      { kind: 'output', id: 'list', type: { kind: 'list', element: image } },
+    ])],
+    ['Single', schema('Single', [{ kind: 'input', id: 'image', type: image, optional: false }])],
+    ['Image', schema('Image', [{ kind: 'output', id: 'IMAGE', type: image }])],
+    ['Images', schema('Images', [{ kind: 'output', id: 'IMAGE', displayName: 'list of IMAGE', type: { kind: 'list', element: image } }])],
+  ])
+  const nodes = (entries: Record<string, { type: string; title?: string }>) =>
+    Object.fromEntries(Object.entries(entries).map(([id, node]) => [
+      id,
+      { id, type: node.type, values: {}, ...(node.title ? { title: node.title } : {}) },
+    ]))
+  const positions = (entries: Record<string, readonly [number, number]>) =>
+    Object.fromEntries(Object.entries(entries).map(([id, [x, y]]) => [id, { position: { x, y } }]))
+  const loaded = loadDocument({
+    format: 'dinkster-workflow',
+    formatVersion: 1,
+    lineage: 'canvas-gallery-subgraph-accepts-list',
+    root: 'root',
+    graphs: {
+      root: {
+        id: 'root',
+        name: 'Root',
+        nextOrdinal: 10,
+        nets: {},
+        reroutes: {},
+        nodes: nodes({ images: { type: 'Images' }, image: { type: 'Image' }, sub: { type: '#body', title: 'Subgraph' } }),
+        links: {
+          'list in': { id: 'list in', from: { node: 'images', port: 'IMAGE' }, to: { node: 'sub', port: 'lists' } },
+          'image in': { id: 'image in', from: { node: 'image', port: 'IMAGE' }, to: { node: 'sub', port: 'mixed' } },
+        },
+      },
+      body: {
+        id: 'body',
+        name: 'Subgraph',
+        nextOrdinal: 10,
+        nets: {},
+        reroutes: {},
+        links: {},
+        nodes: nodes({
+          lists: { type: 'Join', title: 'Join lists' },
+          mixed: { type: 'Join', title: 'Join mixed' },
+          single: { type: 'Single', title: 'One image' },
+        }),
+        boundary: {
+          inputs: [
+            { id: 'lists', displayName: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
+            { id: 'mixed', displayName: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
+          ],
+          outputs: [],
+        },
+      },
+    },
+    view: {
+      graphs: {
+        root: { nodes: positions({ images: [0, 0], image: [0, 130], sub: [260, 40] }) },
+        body: {
+          nodes: positions({ lists: [260, 0], mixed: [260, 110], single: [260, 220] }),
+          boundary: { inputs: { position: { x: 0, y: 40 } }, outputs: { position: { x: 520, y: 40 } } },
+        },
+      },
+    },
+  })
+  const document = loaded.document
+  if (!document) throw new Error(`Invalid subgraph accepts-list gallery document: ${JSON.stringify(loaded)}`)
+  const base = { document, resolve: documentResolver(document, (type) => schemas.get(type)), tokens, measure, widgetMeasure }
+  return {
+    outside: buildScene({ ...base, graphId: 'root' }),
+    inside: buildScene({ ...base, graphId: 'body' }),
+  }
 }
 
 /** Fixed public renderer inputs, also reusable for frame-equivalence checks. */
@@ -690,6 +911,15 @@ export function createCanvasGalleryFixture(
         }
       })
     }
+  } else if (page === 'switch-primitive') {
+    const cards = switchPrimitiveGallery(tokens, measure, widgetMeasure)
+    // Each card draws its own scene; the page's scene is the first card's,
+    // for checks that read one scene per page.
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
+    fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
   } else if (page === 'widget-taps') {
     const gallery = widgetTapGallery(tokens, measure, widgetMeasure)
     fixture.scene.nodes = [...gallery.scene.nodes]
@@ -990,6 +1220,23 @@ export function createCanvasGalleryFixture(
             : {}),
         })
       })
+    examples.push({
+      caption:
+        'An input that accepts a list keeps the one-value-or-list pin while its type is open, after one image matches it, after a list of images matches it, when its type is the fixed type INT, and when its type is the union IMAGE or MASK, open, with one image and with a list of images. In a growing group whose members share one type, a list of images and one image are both accepted, and a group limited to IMAGE or MASK shows both colors while open. Value, an ordinary input of the same type, is a plain circle once its type is known.',
+      scene: acceptsListScene(tokens, measure, widgetMeasure),
+    })
+    const subgraph = subgraphAcceptsListScenes(tokens, measure, widgetMeasure)
+    examples.push(
+      {
+        caption:
+          'A subgraph input keeps the one-value-or-list pin when every input it feeds inside accepts a list, so a list of images wires to lists. Mixed also feeds an input that takes one image, so it keeps the plain pin.',
+        scene: subgraph.outside,
+      },
+      {
+        caption: 'Inside the same subgraph, the Inputs panel draws the same two pins.',
+        scene: subgraph.inside,
+      },
+    )
     fixture.height = 850
   } else if (page === 'badges') {
     const badges: NodeBadge[] = [

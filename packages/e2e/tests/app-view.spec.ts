@@ -74,7 +74,6 @@ test.beforeEach(async ({ page }, testInfo) => {
   if (mockRename) {
     await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
   } else {
-    await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
     await expect.poll(() => page.evaluate(() => {
       const backend = window.__dinksterTest!.app.backends.get()[0]!
       return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'

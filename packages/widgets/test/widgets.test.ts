@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createHostUiProviderContextV1, decodeHostUiContributionV1, effectiveWidgetDefault, formatWidgetValue, type PreviewRenderer, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
-import { createWidgetRegistry, formatCompactFloat, hexToHsv, hsvToHex, hsvToRgb, registerCoreWidgets, rgbToHsv, numberFieldFacts, widgetRegistrationDoors } from '../src/index.js'
+import { colorFieldDraft, createWidgetRegistry, formatCompactFloat, hexToHsv, hsvToHex, hsvToRgb, pickedColor, pickedRgba, registerCoreWidgets, resolveColorText, rgbToHsv, numberFieldFacts, widgetRegistrationDoors, workflowSwatches } from '../src/index.js'
 
 const spec = (widgetType: string, options: Record<string, unknown> = {}, dflt?: unknown): WidgetSpec => ({
   widgetType,
@@ -100,6 +100,72 @@ describe('color conversion', () => {
     expect(hsv.s).toBeGreaterThanOrEqual(0)
     expect(hsv.s).toBeLessThanOrEqual(1)
     expect(hsv.v).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('typed color text', () => {
+  const code = (text: string, withOpacity = false) => {
+    const result = resolveColorText(text, withOpacity)
+    return result.kind === 'color' ? result.code : undefined
+  }
+
+  it('reads hex with or without #, names, rgb() and bare RGB as one lower-case code', () => {
+    for (const text of ['36c', '#36c', '3366cc', '#3366CC', 'rgb(51, 102, 204)', 'RGB(51 102 204)', '51, 102, 204', '51 102 204', '  #3366cc  '])
+      expect(code(text), text).toBe('#3366cc')
+    expect(code('teal')).toBe('#008080')
+    expect(code('RebeccaPurple')).toBe('#663399')
+    expect(code('rgb(12, 200, 91)')).toBe('#0cc85b')
+  })
+
+  it('rejects text that is not a color here instead of coercing it', () => {
+    for (const text of ['', '   ', 'cc6x', '#3366', '#3366c', '#3366cc8', 'currentColor', 'transparent', 'hsl(0 100% 50%)', 'var(--accent)', 'color(srgb 1 0 0)',
+      'rgb(256, 0, 0)', 'rgb(-1, 0, 0)', 'rgb(1.5, 0, 0)', 'rgb(51, 102)', 'rgb(51, 102, 204, 0.5)', '51, 102', 'rgba(51, 102, 204, 1.5)', 'rgba(51, 102, 204, 50%)'])
+      expect(resolveColorText(text, true), text).toEqual({ kind: 'invalid' })
+  })
+
+  it('keeps opacity as #rrggbbaa only on a field that declares it, six digits when fully opaque', () => {
+    expect(code('rgba(51, 102, 204, 0.5)', true)).toBe('#3366cc80')
+    expect(code('#3366cc80', true)).toBe('#3366cc80')
+    expect(code('rgba(51,102,204,0)', true)).toBe('#3366cc00')
+    expect(code('rgba(51,102,204,1)', true)).toBe('#3366cc')
+    expect(code('#3366CCFF', true)).toBe('#3366cc')
+    expect(code('rgba(12, 200, 91, .3)', true)).toBe('#0cc85b4d')
+  })
+
+  it('takes the color and drops the opacity on a field without it, saying so', () => {
+    expect(resolveColorText('#3366cc80', false)).toMatchObject({ kind: 'color', code: '#3366cc', droppedOpacity: true })
+    expect(resolveColorText('rgba(51, 102, 204, 0.5)', false)).toMatchObject({ kind: 'color', code: '#3366cc', droppedOpacity: true })
+    expect(resolveColorText('#3366ccff', false)).toMatchObject({ kind: 'color', code: '#3366cc', droppedOpacity: false })
+    expect(resolveColorText('#3366cc', false)).toMatchObject({ kind: 'color', code: '#3366cc', droppedOpacity: false })
+  })
+
+  it('holds the last valid color while the text is not a color, and keeps the stored one for Enter', () => {
+    expect(colorFieldDraft('cc6x', '#3366cc', '#cc6633', false)).toEqual({ invalid: true, enter: '#3366cc', droppedOpacity: false, live: '#cc6633' })
+    expect(colorFieldDraft('teal', '#3366cc', '#cc6633', false)).toEqual({ invalid: false, enter: '#008080', droppedOpacity: false, live: '#008080' })
+  })
+
+  it('keeps a grey, white or black at the hue the edit was at, and the RGB of a fully clear color', () => {
+    expect(pickedColor({ r: 128, g: 128, b: 128, a: 255 }, 220).h).toBe(220)
+    expect(pickedColor({ r: 0, g: 0, b: 0, a: 255 }, 35).h).toBe(35)
+    expect(pickedColor({ r: 51, g: 102, b: 204, a: 0 }, 35).h).toBeCloseTo(220, 5)
+    for (const color of [{ r: 12, g: 200, b: 91, a: 77 }, { r: 51, g: 102, b: 204, a: 0 }, { r: 255, g: 254, b: 1, a: 255 }])
+      expect(pickedRgba(pickedColor(color, 0))).toEqual(color)
+  })
+})
+
+describe('workflow swatches', () => {
+  it('puts the default first once, then used colors by count with ties in code order, eight in all', () => {
+    const used = ['#cc6633', '#CC6633', 'c63', '#008080', 'teal', '#ffffff', '#000000', '#3366cc', '#3366CC', 'not a color', '#ff7468', '#32e6c5', '#141c1d', '#abcdef']
+    expect(workflowSwatches('#3366cc', used, false)).toEqual([
+      '#3366cc', '#cc6633', '#008080', '#000000', '#141c1d', '#32e6c5', '#abcdef', '#ff7468',
+    ])
+  })
+
+  it('compares colors after normalizing for the field, and offers none for an unusable default', () => {
+    expect(workflowSwatches('#3366cc', ['#3366cc80', '#3366cc40', '#112233'], false)).toEqual(['#3366cc', '#112233'])
+    expect(workflowSwatches('#3366cc', ['#3366cc80', '#3366cc80', '#112233'], true)).toEqual(['#3366cc', '#3366cc80', '#112233'])
+    expect(workflowSwatches(undefined, ['#112233'], false)).toEqual(['#112233'])
+    expect(workflowSwatches('not a color', [], false)).toEqual([])
   })
 })
 

@@ -231,6 +231,10 @@ document, project or backend never replace the stored reference.
 
 LOAD_3D edits the selected model file through an orbit viewport. Projection,
 field of view, position, rotation quaternion and scale remain drafts until Apply.
+Apply stays unavailable, with the status "Nothing changed yet", until the first
+pointer action or key in the viewport or the first use of a control after the
+editor opened, so opening and applying does not store new captures and an undo
+step for nothing.
 Quaternion components are normalized to a unit rotation. Apply uploads
 scene, mask and normal PNG captures at the node's width and height and writes
 their granted file references with camera and model-transform metadata in one
@@ -493,6 +497,105 @@ each widget row with its value, and it and the wired-row buttons stay
 available while a row is edited in place. The `widgetEditing` design token
 selects this (`in-row`, the default) or the earlier card (`card`).
 
+## Choice rows: a list in the row
+
+A single static COMBO and a DynamicCombo selector open one filtered list in
+their row; a list filled by a declared lookup uses the same list. The row's
+value area becomes the filter, which starts empty; the list hangs under the row
+at its width, or above it when there is no room below, inside the
+same outline, with the side part beside them. It never moves or resizes the node
+and scrolls inside after eight entries. Opening, typing, moving the highlight,
+refreshing and leaving with Tab never store; only Enter or a click on an entry
+stores it, once, as one undo step, and the keyboard stays on the row. The check
+marks the stored entry, the grey highlight the candidate; the highlight starts on
+the stored entry, else the first.
+
+- Enter on a folder opens it; Backspace in an empty filter or the Back entry
+  returns. A query searches every entry across folders, in source order.
+- Tab and Shift+Tab keep the stored value and move to the next or previous row.
+  Escape closes and keeps the keyboard on the row. Ctrl+Enter closes and runs
+  with the stored value. Composition keys pick nothing.
+- Alt+Down walks each action the list shows in screen order, then the side
+  part's `default` link, then the filter; Alt+Up walks back. Enter runs the one
+  reached. The `default` link stores the declared default through the normal
+  checks, even when the current options lack it.
+- A stored value missing from the options is kept and named in the side part
+  ("Not in the current list. Kept until you choose another."), never added as an
+  entry. Entries with one label and nothing else to tell them apart show their
+  values; a highlighted name the list cuts short is written out in the side part.
+- Lists over 300 entries render a window around the highlight with "N earlier
+  options" and "N more options" rows; filtering and the keyboard reach every
+  entry.
+- While a pick is stored the list is frozen and says so; a refusal keeps the list
+  open with the refusal as the side part's first line.
+- Choices whose options can be edited keep their editor behind an `Edit options`
+  action. Remote choices and MULTI_COMBO keep their popover, and ASSET and model
+  rows keep the ASSET editor.
+
+A list fed by a declared lookup takes its state from the host and calls nothing
+itself: waiting for an input, loading, ready (also while an old answer is
+refreshed), unavailable with Try again, paused, or off in a preview. Refresh and
+Try again ask the host once; a result never changes the stored value. After a
+failure, Try again stands in Refresh's place.
+While the list has options, a status line (refreshing, could not refresh,
+paused, storing) sits on the footer line under them, so the options never
+move; with no options it stands in their place. A status is a few words that
+fit one line of the list at the node's smallest width; longer explanations go
+in the side part.
+
+## Color rows edited in their row
+
+COLOR rows and integer color rows (INT with `display: color`) are edited in
+the row the same way, as a draft. The closed row draws a square of the stored
+color directly before its code. Open, the field holds the code, selected, with
+a live square of the draft before it; while the draft differs from the stored
+color, the side part lists it as a `saved` link that puts it back in the field. A picker hangs under the field
+inside the same outline: a saturation and value square, a hue strip, an
+opacity strip on a field that has opacity, and up to eight swatches. The
+square marks the chosen point with a 10 px ring; each strip marks its value
+with an upright bar the strip's full height. Rings and bars are light with a
+dark rim and stay wholly inside their control. Every color square, in the
+row, the field, the side part and the swatches, has a one-pixel edge inside
+it, so white, black and colors near the background still show. When there is not room
+below, the picker goes above the field; when neither side holds it, it takes
+the larger room and scrolls with the field in view.
+
+- Typed text may be hex with or without `#` in three, six or eight digits, a
+  CSS named color, `rgb(r, g, b)`, `rgba(r, g, b, a)` or a bare `r, g, b`.
+  Leaving stores the lower-case `#rrggbb` code, or `#rrggbbaa` on a field with
+  opacity that is not fully opaque. An integer color stores the whole number.
+  Another spelling of the stored color stores nothing.
+- Text that is not a color shows "Not a color." first in the side part. The
+  live square, the ring and the bars hold the last valid color of the edit, and
+  leaving keeps the stored color.
+- A field without opacity that is given a color with opacity takes the color,
+  drops the opacity and says so in the side part.
+- The picker, the swatches and the side part's `saved` and `default` links change only the
+  draft. Enter, Tab, Ctrl+Enter and a click elsewhere store it as one undo
+  step, as for a number; Escape keeps the stored color.
+- The swatches are the field's default, then the colors stored in the
+  workflow's color fields, most used first and ties in code order. They are
+  read when the field opens and do not move during the edit.
+- Alt+Down moves the keyboard from the text to the square, then the hue, the
+  opacity, the swatches, the `saved` and `default` links, and back to the text; Alt+Up
+  goes the other way. Arrows change the focused control by one step and Shift
+  by ten; in the swatches Left and Right choose one. Enter on a picker control
+  returns to the text without storing; on a swatch or a link it
+  first puts that color in the field. Tab always moves between the node's rows.
+
+A color row a wire drives opens no field. When the wire brings a color with
+opacity to a field without it, the row paints the color the field uses, and a
+click on the row shows a neutral side part, with no cyan outline, saying what the
+wire brings and what is used. The next press anywhere, a second click on the
+row, or Escape closes it; Enter does not open the row, and Tab moves on as
+from the row. A wired color row with nothing to explain opens nothing. Any row
+that cannot be edited can show such a side part through the canvas host's
+`showRowNote`, which takes the row and the lines to show.
+
+A field has opacity only when its declaration says so (`alpha: true` in the
+widget's options); no engine declaration provides it yet. The fixed states
+are on the gallery's "Color in the row" page.
+
 ## Product number, slider, and color controls
 
 ProductNumberInput renders a text-entry spinbutton with product-owned minus
@@ -578,7 +681,8 @@ their space; the label may disappear if even its ellipsis cannot fit. Long asset
 names retain the ordinary proportional split and ellipsize within the row. Activating the
 row body opens optional expanded controls only when
 more deliberate editing is useful. INT, FLOAT and single-line STRING are
-edited in the row itself (see above); COLOR, COMBO, and MOUNT use a small
+edited in the row itself (see above), and single choices open a list in the
+row; COLOR, remote COMBO, MULTI_COMBO, and MOUNT use a small
 non-modal popover anchored to that row. A
 node-input multiline STRING in the `core.text` representation is edited
 directly in its painted rectangle instead. The popovers are non-draggable,
@@ -862,9 +966,8 @@ and 200 percent, for a default box, a box made taller and a box that scrolls.
 
 ### Text box height
 
-A text box's text starts 2 units left of the label over it (the label at 6,
-the text at 4), so the box's text reads apart from the labels, which stay in
-one column down the node; the open editor uses the same inset.
+A text box's text starts at the same x as the label over it (both at 6); the
+open editor uses the same inset.
 
 Each multiline text box has its own height, in whole lines, from 2 to 16. A
 new node starts at the height the widget declares. A short bar in the middle
@@ -891,8 +994,12 @@ height.
 Ctrl+Enter commits through the existing widget command path.
 Escape cancels. An outside pointer explicitly blurs the field before the same
 pointer continues to its target, so click-away commits changed text even though
-the canvas is not a normal focus target. Opening and clicking away unchanged
-does not create a revision, undo step, or ghost materialization.
+the canvas is not a normal focus target. A text left unchanged, in this box or
+in a popover and however it is left (click away, Enter, Tab, Ctrl+Enter or
+Commit), does not create a revision, undo step, or ghost materialization.
+Unchanged means the field still shows what it showed when it opened, so text a
+field cannot show exactly (a one-line field drops line breaks; a text box
+shows "\r\n" as "\n") is stored as it was.
 
 Controller-enabled INT/FLOAT and remote COMBO rows expose their controller only
 through the compact canvas chip and its detailed menu. Expanded editors do not
@@ -923,12 +1030,15 @@ layout height, so the highlight follows live node resizing without changing the
 larger row hit target. Numeric minus/plus glyphs and controller chips remain
 painted above these states with their existing geometry.
 
-The COLOR editor contains an inline saturation/value square, a hue strip, and
-the authoritative hex text field. Pointer drags update valid RGB hex text live.
-When the field holds `#rrggbbaa`, visual picker changes preserve the final alpha
-pair verbatim. Alpha remains text-only. The field accepts `#rgb`, `#rrggbb`, and
-`#rrggbbaa`; invalid text remains visible with an error and is never committed.
-The footer supplies the only Cancel and Commit actions.
+On the canvas, COLOR and integer color rows are edited in their row (see
+"Color rows edited in their row"). The earlier COLOR card remains where a
+field is not edited in its row, such as with the `card` value of the
+`widgetEditing` design token. It contains an inline saturation/value square, a
+hue strip and the hex text field. Pointer drags update valid RGB hex text live.
+When the field holds `#rrggbbaa`, picker changes keep the final alpha pair
+verbatim. The card accepts `#rgb`, `#rrggbb` and `#rrggbbaa`; invalid text stays
+visible with an error and is never committed. Its footer has the only Cancel and
+Commit actions.
 
 ## Schema-selected widget representations
 
@@ -1011,7 +1121,7 @@ intentional and the UI must not infer backend behavior or synthetic limits.
 | `FLOAT`         | `core.number` or bounded `core.slider`: precision-formatted text, slider range fill, and independent immediate edge steppers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Anchored full-precision text popover; slider view adds ProductSlider draft editing, with shared validation and Commit/Cancel                                                                                                                                                                                                                                             | `default`, `min`, `max`, positive `step`, `display`, `round`, optional WidgetSpec `precision`, display name, after-generate controller and initial mode                                                                                                                                                                                | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/interaction.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `app/test/combo-search.dom.test.tsx`, `e2e/widget-editors.spec.ts`                                                                                                                                                                                                                                                                                    |
 | `STRING`        | Fixed-height `core.line` or vertically flexible multiline `core.text`; ordinary strings synthesize both views and use `multiline` only as the default hint. `core.text` floats its label in an 18px band above a 14px/20px/6px-padded content strip with a permanent 8px scrollbar gutter, paints the display name as a muted italic placeholder only when the canonical value is empty, and supports measured wrapping plus live preview-height growth. Overflow hover paints a non-interactive scrollbar indicator inside the chrome. Explicit representation sets can restrict or lock the choices; switchable rows use only the context-menu submenu | `core.line` uses the standard anchored single-line popover. Node-input `core.text` uses a live camera-tracked textarea with matching floating-label, gutter, and content metrics, bounded vertical overflow, no native resize/outline chrome, and a zoom-scaled 6px product scrollbar. Both use the same completion path. Value-source text and raw JSON remain popovers | `default`, `multiline`, display name; optional stable representation ids/default/userSwitchable; optional completion items and dynamic input-family sources; no schema max-length constraint exists                                                                                                                                    | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `widgets/test/text-editor-extension.test.ts`, `canvas/test/layout.test.ts`, `canvas/test/interaction.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/renderer-paint.test.ts`, `core/test/dinkster-wire17.golden.test.ts`, `core/test/dinkster-wire36.golden.test.ts`, `app/test/menu-target.test.ts`, `app/test/text-completion.dom.test.tsx`, `e2e/widget-editors.spec.ts`, `e2e/widget-representations-wire17.spec.ts`, `e2e/text-completion.spec.ts` |
 | `BOOLEAN`       | `core.toggle` with a state-bearing track/thumb and optional true/false labels                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Undoable inline toggle; explicit **no-modal** disposition because there is no additional complete control to present                                                                                                                                                                                                                                                     | `default`, `labelOn`, `labelOff`, display name                                                                                                                                                                                                                                                                                         | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `canvas/test/registry-painter-label.test.ts`, `e2e/widget-editors.spec.ts`                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `COLOR`         | `core.color`: filled square swatch and exact hex value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Anchored HSV/hex popover for visual picking and validated exact entry                                                                                                                                                                                                                                                                                                    | `default`, display name; accepted value grammar is `#rgb`, `#rrggbb`, or `#rrggbbaa`; no backend color-space or alpha-slider semantics exist                                                                                                                                                                                           | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `canvas/test/registry-painter-label.test.ts`, `e2e/widget-editors.spec.ts`                                                                                                                                                                                                                                                                                                                                                                                             |
+| `COLOR`         | `core.color`: filled square swatch and exact hex value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Edited in its row: typed code, saturation/value square, hue strip, opacity strip on a field declaring `alpha: true`, workflow swatches; the anchored card remains outside in-row editing                                                                                                                                                                                 | `default`, display name; typed hex, CSS names and `rgb()`/`rgba()` are stored as lower-case `#rrggbb`, or `#rrggbbaa` on a field declaring `alpha: true`; no backend color-space semantics exist                                                                                                                                       | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `canvas/test/registry-painter-label.test.ts`, `e2e/widget-editors.spec.ts`                                                                                                                                                                                                                                                                                                                                                                                             |
 | `COMPOSITOR`    | `core.compositor`: saved command count, or a run-first prompt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | No expanded editor                                                                                                                                                                                                                                                                                                                                                       | Exact fieldless descriptor on concrete `COMPOSITOR`; version 2 commands bound to the runtime document digest and at most 50 layers                                                                                                                                                                                                     | `core/test/compositor.test.ts`, `core/test/dinkster-wire41.golden.test.ts`, `widgets/test/widgets.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `COMBO`         | `core.select`: selected static or remote label, shared-edge-centered down chevron with a separate 12px text reserve, and optional refresh-controller chip/menu                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Anchored searchable option popover for filtering, keyboard and folder navigation, per-option info, refresh, and errors; no duplicate controller control                                                                                                                                                                                                                  | typed static `options` with exact value plus optional label/info/folder presentation; optional remote route, refresh button, refresh controller metadata, retry/timeout/refresh hints; display name                                                                                                                                    | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `core/test/dinkster-wire23.golden.test.ts`, `canvas/test/registry-painter-label.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `app/test/combo-search.dom.test.tsx`, `e2e/widget-editors.spec.ts`, `e2e/dynamic-combo.spec.ts`, `e2e/seed-controller.spec.ts`, `e2e/widget-trailing-actions.spec.ts`                                                                                                                                                                        |
 | `ASSET`         | `core.asset`: selected names, `N assets`, or `no asset`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Native product dialog with shared `CollectionPanel`, upload for non-model kinds, image/video preview, details, a right-side selection panel with a staged-selection Remove action, Cancel, and a primary Use-asset commit; modal warranted: yes, for a focus-contained browser                                                                                           | declared type determines single/list/merge selection; top-level semantic `kind`; MIME `accept`; `default`; display name; AssetRef digest/name/size/media type/virtual path; classified image uploads are limited to 256 MiB, audio/video and latent uploads to 1 GiB, and generic uploads to 16 MiB per file; model upload is disabled | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `app/test/asset-browser.test.ts`, `app/test/LogicalModelCollection.dom.test.tsx`, `e2e/asset-widget.spec.ts`, `e2e/asset-browser.spec.ts`, `e2e/logical-model-picker.spec.ts`, `e2e/w9-f8-media-upload.spec.ts`                                                                                                                                                                                                                                                        |
@@ -1217,14 +1327,10 @@ File. Component and client tests pin object identity, bytes, metadata, and the
 absence of a document write before upload success. The separate native browser
 arm in `packages/e2e/tests/image-upload-byte-proof.spec.ts` uses a deterministic
 valid PNG larger than 256 KiB and proves POST, vault GET, graph, export/reopen,
-and Load Image -> Preview Image execution. Historical job
-`019fd935047563a88365345d68d1cd8a` recorded a 300047-byte source AssetRef
-for digest `blake3:b584866aabc7b7bb0c4c1016b809254d71261e15db24b392a3cb15bb62398b07`
-while the vault held 78840 bytes because a single request-stream read did not
-guarantee EOF. Backend commit `6a5a1c23a25d7b24b8c01c49eec021d513eb4910`
-fixed the read by draining chunks to EOF, and `0313abfefc96ac037591d25879bd11d2eb831a01`
-made reads and execution verify content against the digest. No frontend
-truncation workaround is part of this contract.
+and Load Image -> Preview Image execution. The backend drains request chunks
+to EOF and verifies stored content against its digest on reads and execution.
+A single request-stream read does not guarantee EOF. No frontend truncation
+workaround is part of this contract.
 
 A typed ASSET whose semantic or MIME-derived browse kind is exactly
 `media/image`, `media/audio`, or `media/video` uses the bounded media-ingest

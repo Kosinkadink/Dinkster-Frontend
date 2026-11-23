@@ -9,7 +9,7 @@
  * Design language matches the main canvas: node boxes tint with the same
  * stateColors the node borders use (error red is the "where did it fail"
  * affordance), groups render as translucent color washes underneath, and
- * the viewport rectangle strokes in the selection color.
+ * the viewport rectangle uses a quiet secondary-text outline.
  *
  * All coordinates are CSS pixels; callers own devicePixelRatio scaling.
  */
@@ -221,7 +221,7 @@ export function drawMinimapGraph(ctx: CanvasRenderingContext2D | OffscreenCanvas
   const t = input.tokens
   const { width, height } = input
   ctx.clearRect(0, 0, width, height)
-  ctx.fillStyle = t.colors.canvasBackground
+  ctx.fillStyle = t.colors.nodeHeader
   ctx.fillRect(0, 0, width, height)
 
   const boxes: MinimapBox[] = [...input.nodes, ...(input.groups ?? [])]
@@ -318,13 +318,15 @@ export function drawMinimapOverlay(
   if (vp) {
     const rect = minimapViewportRect(tf, vp, width, height)
     if (rect.width > 0 && rect.height > 0) {
-      ctx.fillStyle = t.colors.nodeSelectedBorder
+      ctx.beginPath()
+      ctx.roundRect(rect.x, rect.y, rect.width, rect.height, paint.viewportRadius)
+      ctx.fillStyle = t.colors.label
       ctx.globalAlpha = paint.viewportFillOpacity
-      ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
-      ctx.strokeStyle = t.colors.nodeSelectedBorder
+      ctx.fill()
+      ctx.strokeStyle = t.colors.label
       ctx.globalAlpha = paint.viewportStrokeOpacity
       ctx.lineWidth = paint.viewportStroke
-      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height)
+      ctx.stroke()
       ctx.globalAlpha = 1
     }
   }

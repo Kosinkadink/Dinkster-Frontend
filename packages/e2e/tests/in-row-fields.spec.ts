@@ -20,7 +20,6 @@ async function openSampler(page: Page): Promise<void> {
   } }))
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
   await waitForWorkspaceReady(page)
   const close = page.locator('.template-gallery-close')
   if ((await close.count()) > 0 && (await close.first().isVisible())) await close.first().click()
@@ -367,7 +366,7 @@ async function openMixed(page: Page): Promise<void> {
   } }))
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
+  await waitForWorkspaceReady(page)
   const close = page.locator('.template-gallery-close')
   if ((await close.count()) > 0 && (await close.first().isVisible())) await close.first().click()
   await page.evaluate(async () => {
@@ -401,12 +400,13 @@ test('the keyboard on a row: toggle and choice stops, Enter and Escape keep the 
   const focus = page.getByTestId('row-focus')
   const steps = await rowPoint(page, 'n1', 'steps')
   await page.mouse.click(steps.x, steps.y)
-  // Criterion 4 over every kind of row: Tab all the way round, nothing to undo.
+  // Criterion 4 over every kind of row: Tab all the way round, nothing to
+  // undo. The toggle takes the focus; the choice opens its list.
   await page.keyboard.press('Tab')
   await expect(focus).toBeVisible()
   await expect(page.locator('.widget-in-row-field input')).toHaveCount(0)
   await page.keyboard.press('Tab')
-  await expect(focus).toBeVisible()
+  await expect.poll(() => openLabel(page)).toBe('sampler')
   await page.keyboard.press('Tab')
   await expect.poll(() => openLabel(page)).toBe('prefix')
   await page.keyboard.press('Tab')
@@ -427,12 +427,13 @@ test('the keyboard on a row: toggle and choice stops, Enter and Escape keep the 
   await page.keyboard.press(' ')
   await expect.poll(() => value(page, 'enabled')).toBe(false)
   await expect(focus).toBeVisible()
-  // Tab to the choice; Enter opens its editor.
+  // Tab to the choice opens its list; Escape closes it and keeps the row.
   await page.keyboard.press('Tab')
-  await page.keyboard.press('Enter')
+  await expect.poll(() => openLabel(page)).toBe('sampler')
   await expect(focus).toHaveCount(0)
-  await expect(page.locator('.combo-dropdown, [data-testid=widget-editor]').first()).toBeVisible()
   await page.keyboard.press('Escape')
+  await expect(focus).toBeVisible()
+  expect(await value(page, 'sampler')).toBe('euler')
   // A second Escape gives the keyboard back to the canvas.
   await page.mouse.click(steps.x, steps.y)
   await page.keyboard.press('Escape')

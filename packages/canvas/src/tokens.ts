@@ -52,9 +52,10 @@ export const canvasPaintTokens = {
     radius: 3,
     baselineOffset: 0.5,
     /** The subgraph mark at the right end of the title bar. */
-    mark: { size: 16, hitSize: 20, iconSize: 10, padding: 3, gap: 3 },
+    /** `iconSize` is the drawn size of the mark's icon. */
+    mark: { size: 20, hitSize: 20, iconSize: 14, padding: 3, gap: 3 },
     tab: {
-      height: 16,
+      height: 20,
       fontSize: 11,
       /** Distance from the node's left and right outer edges to the first tab. */
       inset: 0,
@@ -62,7 +63,8 @@ export const canvasPaintTokens = {
       offset: 3,
       gap: 2,
       padding: 6,
-      iconSize: 10,
+      /** Drawn size of a tab's icon. */
+      iconSize: 14,
       iconGap: 4,
       maxLabelWidth: 120,
       stroke: 1,
@@ -82,6 +84,8 @@ export const canvasPaintTokens = {
     },
   },
   controller: {
+    /** Drawn size of the mode icon as a share of its square chip, centered in it. */
+    chipIconRatio: 0.6,
     edgeWidth: 12,
     glyphHalf: 3,
     verticalInset: canvasSemanticTokens.space[4],
@@ -224,6 +228,8 @@ export const canvasPaintTokens = {
   },
   toolbox: {
     buttonSize: 28,
+    /** Drawn size of a button's icon, centered in the button. */
+    iconSize: 16.8,
     gap: 5,
     padding: 6,
     selectionGap: canvasSemanticTokens.space[16],
@@ -361,7 +367,8 @@ export const canvasPaintTokens = {
     outputPinGap: canvasSemanticTokens.space[4],
     outputOffsetY: 10,
   },
-  icon: { circleRadiusRatio: 0.22, paddingRatio: 0.2, viewBoxSize: 24, stroke: 2 },
+  /** The filled circle icon's radius is a share of the icon's drawn size. */
+  icon: { circleRadiusRatio: 11 / 30, viewBoxSize: 24, stroke: 2 },
   virtualNote: {
     verticalPadding: canvasSemanticTokens.space[8],
     bodyTint: 0.28,
@@ -452,12 +459,17 @@ export const canvasPaintTokens = {
     nameOffset: 3,
   },
   widget: {
-    opener: { iconSize: 20, iconInset: 2, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
-    /** The subgraph icon before the name of a field shown on the subgraph node without a wire. */
-    subgraphMark: { size: 12, gap: canvasSemanticTokens.space[4] },
+    /**
+     * A row that opens an editor: `iconSize` is the drawn size of its kind icon
+     * and chevron, `iconInset` the kind icon's distance from the row's left
+     * edge and `trailingInset` the chevron's from its right edge.
+     */
+    opener: { iconSize: 12, iconInset: 6, trailingInset: 8, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
+    /** The subgraph icon before the name of a field shown on the subgraph node without a wire; `size` is drawn. */
+    subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
     curve: { sourceRows: 2, inset: 4, insetX: 6, minSampleHeight: 1 },
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
-    valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3 },
+    valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3, edge: 1 },
     minLabelWidth: 44,
     minValueWidth: 56,
     labelValueGap: 5,
@@ -517,8 +529,10 @@ export const canvasPaintTokens = {
     pixelCenter: 0.5,
     rangeFillAccentOpacity: 0.2,
     dragLineStroke: 2,
-    modeIconSize: canvasSemanticTokens.space[16] + canvasSemanticTokens.space[4],
-    modeIconGap: canvasSemanticTokens.space[4],
+    /** A seed's mode icon before its value: drawn size, room kept before it, gap to the value. */
+    modeIconSize: canvasSemanticTokens.space[12],
+    modeIconLead: canvasSemanticTokens.space[4],
+    modeIconGap: canvasSemanticTokens.space[8],
     staleValueStroke: 1.5,
     companion: { stroke: 1, underlineOffset: canvasSemanticTokens.space[4] },
     fallbackValueWidthPadding: canvasSemanticTokens.space[8],
@@ -526,8 +540,8 @@ export const canvasPaintTokens = {
     growth: { stroke: 1, verticalInset: 3, textPadding: canvasSemanticTokens.space[8] },
   },
   minimap: {
-    fallbackWidth: 250,
-    fallbackHeight: 200,
+    fallbackWidth: 160,
+    fallbackHeight: 96,
     margin: canvasSemanticTokens.space[8],
     maxScale: 0.25,
     viewportInset: 2,
@@ -538,9 +552,10 @@ export const canvasPaintTokens = {
     bypassFill: 'rgba(75, 24, 75, 0.9)',
     remoteStroke: 1.5,
     remoteOpacity: 0.8,
-    viewportFillOpacity: 0.2,
-    viewportStrokeOpacity: 0.9,
-    viewportStroke: canvasSemanticTokens.interaction.focusRingWidth,
+    viewportFillOpacity: 0.06,
+    viewportStrokeOpacity: 0.5,
+    viewportStroke: 1,
+    viewportRadius: 3,
     markerRadius: 7,
     markerInset: 1,
     markerFontWeight: 700,
@@ -650,10 +665,7 @@ export interface DesignTokens {
     readonly fontSize: number
     readonly lineHeight: number
     readonly padding: number
-    /**
-     * Left inset of the text: 2 less than the label over it, so the text
-     * starts just left of its label and labels stay in one column.
-     */
+    /** Left inset of the text: the label's inset, so text and label start at one x. */
     readonly textInset: number
     /** Compact floating-label band, independent of the shared row height. */
     readonly labelHeight: number
@@ -685,6 +697,8 @@ export interface DesignTokens {
     /** The two squares of the pattern under a color square with opacity. */
     readonly swatchChecker: string
     readonly swatchCheckerAlt: string
+    /** The one-pixel edge inside a color square, so white, black and colors near the node still show. */
+    readonly swatchEdge: string
     readonly value: string
     readonly widgetBackground: string
     /** Muted compact-control tracks and glyphs. */
@@ -829,7 +843,7 @@ export const defaultTokens: DesignTokens = {
     fontSize: 14,
     lineHeight: 20,
     padding: 6,
-    textInset: 4,
+    textInset: 6,
     labelHeight: 18,
     scrollbarWidth: 6,
     scrollbarInset: 2,
@@ -898,6 +912,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     valueMark: tokens.text.muted,
     swatchChecker: tokens.checker.dark,
     swatchCheckerAlt: tokens.checker.light,
+    swatchEdge: tokens.border.strong,
     value: tokens.text.primary,
     widgetBackground: tokens.surface.field,
     widgetAffordance: tokens.text.disabled,

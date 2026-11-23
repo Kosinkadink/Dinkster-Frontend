@@ -1,5 +1,24 @@
 # Design System
 
+## Resource usage
+
+`ProductResourceUsage` draws a card's memory segments and the last two minutes of usage in the shared gallery's Resource usage page. Callers supply measured values, labels, units and timestamps. Missing segments and limits stay absent. History is positioned by elapsed time, not by sample index, and samples outside the current two-minute window are omitted. A compact variant reduces graph height when several cards share a panel. The legend and accessible SVG description expose the same numbers without relying on color.
+
+## Logo artwork
+
+The logo and wordmark use outlined vector contours from
+`branding/sources/dinkster-d.svg` and `letter-contours.svg`, assembled into
+`Dinkster_Master.svg`. Both accent bands are coral; cyan and the theme-specific
+lettering colors are unchanged. D outward corners use radius 24, the inward
+stem junction uses 38.4, and outward letter corners use 2.47. The k has a flat
+stem foot with its descending leg below the baseline. All sizes use the same
+artwork, without small-icon cuts or pixel edits. Interface yellow stays in
+the palette; it is not used by the logo.
+
+Build and export commands are in `branding/README.md`. Header, boot, About,
+gallery, website and account-page wordmarks consume those shared exports;
+Desktop takes the published frontend bundle's platform icons.
+
 ## Browser icons
 
 Browser tabs use the approved colored D in `branding/favicon/`. Its square
@@ -45,7 +64,7 @@ as `@dinkster/ui/styles.css`. Its classes live only in `packages/ui/styles.css`;
 the build adds the same semantic variables the app uses and expands the shared
 768px breakpoint. Consumers copy the entire distribution, not the CSS alone.
 Use `dinkster-root` on the page root and `data-density="site"` for 14px site
-text; the default density is the app's 13px. The full-width shell has a 56px
+text; the default density is the app's 13px. The full-width shell has a 44px
 top bar, 240px sidebar, 720px content column (960px for tables) and 32px page
 padding. Below the standard breakpoint, the sidebar is hidden unless opened.
 Components own the corresponding menu, form, dialog and notification behavior;
@@ -142,9 +161,14 @@ every core tab once.
   to clamp and to flip above when needed. Scroll outside or resize dismisses
   the menu rather than leaving a stale anchor. Its document listeners exist
   only while it is open. Item text follows its intent. Removal callbacks open a
-  confirmation. `ProductAccountMenu` shows the person's initial and name on a
+  confirmation. Use `iconOnly` with an icon for compact folder actions; the
+  label remains the trigger and menu's accessible name. `ProductAccountMenu` shows the person's initial and name on a
   borderless trigger (the initial alone below the breakpoint), reads out name
-  and email with the menu, and invokes Sign out immediately.
+  and email with the menu, and invokes Sign out immediately. With no name it
+  uses the email and its initial as a single identity line. With neither name
+  nor email it draws the shared person icon and one Signed in line. Empty or
+  repeated secondary identity lines are omitted; the trigger's accessible name
+  follows the same primary line.
 - `ProductNotice` is standing information without a dismiss button, including
   its warning tone for QA environments.
   `ProductErrorBanner` is dismissed explicitly or by the caller after success.
@@ -159,13 +183,20 @@ every core tab once.
   Escape dismissal, keyboard focus wrapping and opener restoration for apps;
   while `pending` it cannot be dismissed, however often Escape is pressed.
 - `ProductList`/`ProductListRow` and `ProductTable` provide bordered data surfaces.
-  `ProductEmptyState` centers the approved D mark with a sentence and optional
-  action in its column. `ProductLoading` is one status region with its label;
+  `ProductEmptyState` shows a sentence and optional hint and action, without a
+  picture by default. App empty states retain explicitly supplied semantic icons,
+  such as loading or error indicators. `ProductLoading` is one status region with its label;
   `ProductRunIcon` keeps a supplied Lucide kind icon visible while running,
   breathing in cyan over a 2.4-second cycle. Reduced motion leaves it still
   and cyan. Queued work stays cyan without motion. Its optional
   `finished`/`failed` result adds a lower-right cyan or
   coral dot, hidden while running. Tabs and the status bar use this same export.
+  `ProductRunActivity` shows separate numeric running and waiting activity:
+  a turning cyan ring always carries the running count, including one, and a
+  still secondary-text clock always carries the waiting count. Zero counts
+  hide their mark. Callers provide an accessible `label` and counts from
+  their execution scope; reduced motion stops the ring. It is shared by
+  canvas, top bar, status bar and Runs surfaces without owning their state.
   `ProductSpinner` alone announces its label; `ProductIcon` provides lucide
   icon anatomy.
 - `ProductFacts` renders labeled account facts as a definition list; values may
@@ -343,8 +374,8 @@ Template gallery uses ProductEmptyState for loading, failed reads, empty catalog
 and searches without matches. Failed reads retain Retry, and the empty folder
 explanation preserves the permission-gated server-path form below it.
 
-The Focused panel uses ProductEmptyState for an absent document and a context
-without problems. Context selection, problem filtering and canvas navigation
+The Problems panel uses ProductEmptyState when Selection only has no selected
+entity or no matching problems. Selection filtering and canvas navigation
 remain independent of the empty presentation.
 
 Badge popovers use ProductEmptyState when error, log or problem details are
@@ -804,6 +835,25 @@ field under a choice's option is lost on copy and paste and on replacing the
 node, and a subgraph's face cannot offer it. A card may carry its own pointer
 state, the same overlay the interaction controller sets for that gesture.
 
+Switch and Primitive, under Flow nodes, draws the proposed Switch and Primitive
+nodes that replace the value source pill and the selector box, one card per
+state, each painted from its own document at the top level or inside a subgraph
+entered through one subgraph node. The Switch cards show a pick known before the
+run with the branch not picked dimmed, a pick arriving on a wire, a picked
+branch with nothing plugged in, a stored branch that was removed, a position
+outside the branch list, a wired text picking a branch by name, a Choice
+primitive on Pick, a text that names no branch, renaming and random picks, and
+one subgraph row driving two Switches with and without matching branches. The
+Primitive cards show a range worked out from the fields it feeds, fields that
+share no value, typed and pinned limits, the typed Int, Float, Text, Boolean and
+Choice primitives beside the general one, the Inputs panel with and without a
+subgraph node, a value arriving on a wire, refused edits and plugging in that
+narrows the range. The first card shows today's pill and selector box for
+comparison. A card may carry its own scene, run states, companions, row marks
+and dimmed nodes. Captions name what the canvas does not draw yet: "Not run" and
+"Nothing plugged in" text, and "Not known yet" in place of a wired field's
+struck-through stored value.
+
 The Idle outline page compares the previous outline (Before) with the quieter
 current outline (After) on idle, hovered and selected nodes. The app and
 gallery default to the shared subtle idle border; Before overrides only that
@@ -896,11 +946,8 @@ arbitrary callback.
 
 ### Performance methodology and budget
 
-The historical measurements in [Performance baselines](perf.md) are not
-active browser test gates. A wall-clock test requires elapsed time to be the
-property under test and a bound derived from the slowest hosted runner with
-at least a threefold margin. The removed browser timing cases did not meet
-that requirement.
+A wall-clock test requires elapsed time to be the property under test and a
+bound derived from the slowest hosted runner with at least a threefold margin.
 
 Performance comparisons use the same machine, Chromium build, display mode,
 viewport, device scale, fixture, ports, worker count and environment on both
@@ -964,7 +1011,7 @@ narrow widths and browser CSS zoom.
 ## Extension asset editors
 
 The specialized asset editor shell is parked in
-[the rework queue](rework-queue.md#extension-asset-editor-shell). Generic
+[Extension asset editor shell](https://github.com/Kosinkadink/comfy-vibe-station/issues/1216). Generic
 `WidgetView.editorUi` contributions still use bounded group, text, status
 and action nodes through the Host UI renderer. The ordinary builtin asset
 picker is independent and remains available.
@@ -981,7 +1028,7 @@ screenshot baselines do not use fallback text.
 ## Desktop information
 
 `ProductWindowChrome` reserves the native title-bar overlay area and the
-macOS traffic-light inset, uses the shared 56px bar and palette, and marks
+macOS traffic-light inset, uses the shared 44px bar and palette, and marks
 its empty background draggable while its contents remain non-draggable.
 The host supplies the exact title and platform. Optional `qa` and `development`
 flags add `ProductWindowIdentity` inside the bar. The visible Development label
@@ -996,13 +1043,23 @@ The site wheel carries `desktop-chrome.js`, a DOM-only IIFE exposing
 `DinksterDesktopChrome.install({title, platform, theme, qa?, development?})`,
 and `desktop-chrome.json` (`dinkster.desktop-chrome/1`). The JSON supplies
 scoped shared CSS with embedded Noto fonts plus token-derived native overlay
-colors/height and macOS traffic-light position. The installer reuses the first
+colors/height and macOS traffic-light position. The DOM bar and native overlay
+both use `surface.frame`. `native.minimumWidth` supplies Linux, macOS (`darwin`)
+and Windows (`win32`) widths from the three `toolbarMinimumWidth` layout tokens:
+384, 464 and 520px. These include the shared narrow row's 360px with running activity and native
+reservations; hosts with additional controls must measure that fuller row and
+apply a greater minimum. The host applies the minimum to window construction
+and resizing; CSS does not enforce a native window size. The installer reuses the first
 `.dinkster-window-toolbar-host`, `.topbar`, `.dinkster-topbar` or direct body
 header, preserving its children. On a shared toolbar it mounts identity inside
 the toolbar grid; a host-managed toolbar leaves its component `qa` and
 `development` flags unset so the installer alone owns those markings. The
 artifact includes the canonical toolbar container rules, including the compact
-metadata row. Without an application bar it prepends `ProductWindowChrome`.
+metadata row. A host's reactive `data-service-kind="qa"` or `"custom"`
+also supplies the identity at wide and compact widths without installer option
+flags. Wide Custom text is omitted when the toolbar already has a full service
+label; compact identity still carries the service kind. Without an application
+bar it prepends `ProductWindowChrome`.
 If the app later creates or replaces its bar, the installer moves its markings there and removes its own
 fallback; removing the app bar restores the fallback. Reinstallation disconnects
 the prior observer and replaces only its own markings/fallback. The host inserts
@@ -1013,23 +1070,73 @@ no preload bridge. Content styles and the page's CSP remain host-owned. Both
 files are hashed by the site manifest and required by the wheel packager.
 
 `ProductWindowToolbar` composes the same native geometry with brand, search and
-actions slots, an optional service label and QA/development identity. It has a
-fixed 56px height. At the standard 768px available-content boundary, a container
-query compacts `ProductWindowAction` labels to icons and moves service/identity
-labels into a metadata row inside the bar. Native reservations therefore reduce
+actions slots, an optional service label and QA/development identity, and an
+optional rightmost account slot separate from actions. It has a fixed 44px
+height and 32px controls. Wordmarks and avatars retain their drawn dimensions;
+the site account trigger is a borderless, unpadded 32px circle. The 2px focus
+outline and 2px offset fit inside the bar's 6px vertical clearance.
+Below the fixed 940px available-content `toolbarExpandedRowWidth`, a container
+query compacts `ProductWindowAction` labels to icons. This boundary holds across
+execution, account and project-name changes. In the expanded row Search takes
+spare grid width and gives it back first. Search keeps an unfilled outline, is
+capped at the 480px `toolbarSearchMaxWidth`, and centers on the window when the
+surrounding controls leave room; otherwise it stays within its available grid
+slot. The app-menu button uses the D symbol and chevron at every width, not a
+wordmark or a three-line menu icon. Its accessible name is unchanged. Project labels compose
+`.dinkster-window-project-label` through `labelContent`, with a folder icon and
+`.dinkster-window-project-name` limiting visible text to 160px with an end ellipsis; the required full `label` retains the accessible
+name and tooltip. Service and development become a single
+bold warning-colored marking after actions, before the account slot: QA, Custom,
+Dev, QA Dev or Custom Dev. `serviceKind` supplies the stable QA/custom meaning
+independently of the localized full `service` label. Full words remain in the
+marking's title and accessible name. The marking does not wrap, clip or hide. Native reservations therefore reduce
 available space before the breakpoint is evaluated. Actions retain their full
 accessible name and title. An optional `shortcut` shows a keyboard hint beside
 the expanded action label; compact mode hides the hint but retains it in the
 button's title and accessible description without changing its action name.
 Changing or removing the shortcut updates both presentations. The hint is
 informational: the caller still owns shortcut registration and activation.
-An optional `labelContent` replaces only the expanded visible label, for example
-`ProductWordmark` with the host's `theme`. The required string `label` still owns
-the accessible name and title; rich content must be non-interactive. Compact
-mode clips that content and shows the action's icon without changing activation
-or menu ownership. Toolbar wordmarks reserve their shared token width and height
-before the image loads. `ProductWordmark` defaults to dark artwork when no theme
-is supplied. Pending actions reuse the shared disabled/focus and spinner behavior.
+An optional `labelContent` replaces the expanded visible label. The required
+string `label` still owns the accessible name and title; rich content must be
+non-interactive. Compact mode clips action content and shows the action's icon
+without changing activation or menu ownership, except for the app-menu brand
+slot, which retains its D symbol and chevron at every width. Pending toolbar
+actions retain their exact non-pending width and shared disabled/focus behavior.
+The spinner replaces the compact icon, the leading icon in an expanded rich
+label, or the app-menu D symbol while keeping its chevron.
+For a text-only expanded label, it replaces the drawn text at the center while
+the label continues to supply the accessible name. No other control moves when
+an action becomes pending. Ordinary ProductButton presentation is unchanged.
+The actions slot also accepts a render function receiving a reactive `narrow`
+accessor. It switches below the fixed 460px available-content token
+`toolbarFullRowWidth`, after native reservations, independently of account or
+execution state. The layout menu then holds the left, bottom and right panel
+switches together, followed by left bar, status bar and Reset layout. In the full
+row the three panel switches stay in the bar and are not repeated in the menu.
+`ProductMenuItem.checked` draws the shared checkmark and exposes
+`menuitemcheckbox` with `aria-checked`; checkbox and ordinary items share keyboard
+navigation and dismissal. The host owns visibility and commands in either place.
+Compact and narrow brand triggers show the bundled 22px color D symbol inside
+32px controls, with the accessible name Dinkster menu. Toolbar icon buttons are
+unboxed at rest; hover and pressed use shared interaction fills. Cancel run
+retains its coral outline. Collaboration uses the two-person Users icon.
+`ProductMenu.triggerName` separates the accessible trigger name from its drawn
+label and menu name when needed.
+
+`ProductSignInControl` starts sign-in through its host callback. Every row uses
+a 28px outlined circle with a person icon inside the same 32px trigger, with
+Sign in as its tooltip and accessible name and no drawn text. Pending retains
+the trigger and focus, replaces the person icon with the shared spinner, and
+exposes Signing in as its
+accessible name and tooltip. It remains operable: its menu offers Open the
+sign-in page only when the host holds a local authorization URL callback, then
+Cancel sign-in. Changing pending state closes the menu. A host-provided
+`unavailableReason` instead opens an informational menu without starting sign-in.
+The host supplies authoritative account availability and owns all network,
+start/cancel/popup and error handling. ProductButton pending activation remains
+unchanged. Signed-in account triggers use the shared 28px filled avatar in this
+toolbar, with existing name/email/person fallbacks.
+
 The gallery's Window toolbar page demonstrates plain menu and rich brand
 presentations across production and QA/custom services, all three platforms,
 both app themes and idle/running/pending states. Supply an icon-bearing brand

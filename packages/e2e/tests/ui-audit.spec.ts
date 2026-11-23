@@ -8,12 +8,11 @@
  * inspect them with any image viewer. A failing audit prints exactly which
  * element violates which invariant.
  *
- * This suite exists because behavioral e2e coverage proved blind to total
- * visual wreckage (2026-07-25 asset editor field failure): Playwright
- * happily clicks sliver-width and overlapping controls. Every new editor or
- * overlay surface should gain an audited, screenshotted state here.
+ * Behavioral e2e coverage alone can miss sliver-width and overlapping
+ * controls that Playwright can still click. Every new editor or overlay
+ * surface needs an audited, screenshotted state here.
  */
-import { expect, selectProductOption, nativeTest as test, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { auditLayout } from './ui-audit.js'
 
 const MOCK = 'http://ui-audit.test'
@@ -57,7 +56,7 @@ test.describe('universal search surfaces', () => {
 test.describe('plain widget editors', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+    await waitForWorkspaceReady(page)
     await page.evaluate(async () => {
       const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
         kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
@@ -109,8 +108,8 @@ test.describe('plain widget editors', () => {
 
   test('COLOR editor passes the layout audit', async ({ page }) => {
     await openEditor(page, 'color')
-    await expect(page.getByTestId('color-editor')).toBeVisible()
-    await auditSurface(page, 'editor-color', '[data-testid=color-editor]')
+    await expect(page.getByTestId('color-picker-square')).toBeVisible()
+    await auditSurface(page, 'editor-color', '[data-testid=widget-editor]')
   })
 
   test('COMBO dropdown passes the layout audit', async ({ page }) => {
@@ -148,8 +147,9 @@ test.describe('asset and mount editors (mock dinkster backend)', () => {
     })
     await page.route('**/api/assets/**', (route) => void route.fulfill({ contentType: 'image/png', body: Buffer.from('89504e470d0a1a0a', 'hex') }))
     await page.goto('/')
-    await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-    await page.getByTestId('backends-toggle').click()
+    await waitForWorkspaceReady(page)
+    await page.getByTestId('status-connection').click()
+    await page.getByRole('button', { name: 'Add backend', exact: true }).click()
     await page.getByTestId('backend-url-input').fill(MOCK)
     await page.getByTestId('backend-add').click()
     await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
@@ -233,10 +233,4 @@ test.describe('asset and mount editors (mock dinkster backend)', () => {
     await expect(page.getByTestId('mount-widget-editor')).toBeVisible()
     await auditSurface(page, 'editor-mount', '[data-testid=mount-widget-editor]')
   })
-
-  // Sensitivity pin: the audit must DETECT the 2026-07-25 wreckage, not just
-  // bless the fixed layout. Reinstate the broken rules (280px body, fixed
-  // two-column grid squeezing the list) and require the audit to report
-  // findings. If someone weakens the invariants until this passes silently,
-  // this test fails first.
 })

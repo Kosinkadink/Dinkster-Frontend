@@ -149,8 +149,7 @@ test.beforeEach(async ({ page }) => {
 
   await page.setViewportSize({ width: 1440, height: 1100 })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await expect(page.getByTestId('status-bar')).toContainText('connected')
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected')
   await waitForWorkspaceReady(page)
 })
 
@@ -234,12 +233,12 @@ test('a native run decodes real pixels into the outputs panel and the node previ
   await expect(row).toBeVisible({ timeout: 30_000 })
   await expect(row.locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
 
-  // Outputs panel: the produced IMAGE rendition decoded - real pixels,
+  // Runs thumbnails: the produced IMAGE rendition decoded - real pixels,
   // not just an <img> with a src.
-  await page.getByRole('tab', { name: 'Outputs' }).click()
-  const outputImg = page.getByTestId('outputs-panel').locator('.output-thumbnail img').first()
+  await page.getByRole('tab', { name: 'Runs', exact: true }).click()
+  const outputImg = page.getByTestId('runs-panel').locator('.output-thumbnail img').first()
   await expect(outputImg).toBeVisible({ timeout: 15_000 })
-  expect(await outputImg.getAttribute('src')).toMatch(/^blob:/)
+  await expect(outputImg).toHaveAttribute('src', /^blob:/)
   await expect
     .poll(() => outputImg.evaluate((el) => (el as HTMLImageElement).naturalWidth), { timeout: 15_000 })
     .toBe(64)

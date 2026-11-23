@@ -115,6 +115,8 @@ export interface DynamicAnnotations {
   }
   /** Inactive branch of a document-time selector; display-only. */
   readonly inactive?: true
+  /** Input that takes one value or a whole list (InputSpec.acceptsList), whatever its matched type. */
+  readonly acceptsList?: true
   /** Derived source for the immediate enclosing region's iteration index. */
   readonly regionIndex?: true
 }
@@ -771,6 +773,7 @@ const annotationsOf = (a: DynamicAnnotations): DynamicAnnotations => ({
   ...(a.familyOwner !== undefined ? { familyOwner: a.familyOwner } : {}),
   ...(a.dynamicSlot !== undefined ? { dynamicSlot: a.dynamicSlot } : {}),
   ...(a.inactive ? { inactive: true } : {}),
+  ...(a.acceptsList ? { acceptsList: true } : {}),
 })
 
 /**
@@ -870,6 +873,7 @@ export function layoutNode(
       ...(frames !== undefined ? { materialize: frames } : {}),
       ...(dynamicSlot !== undefined ? { dynamicSlot } : {}),
       ...(selectorDisplay?.[item.address.port] === 'inactive' ? { inactive: true } : {}),
+      ...(item.kind === 'input' && item.spec.acceptsList ? { acceptsList: true } : {}),
     }
   }
 
@@ -1399,6 +1403,8 @@ export interface BoundarySlotInfo {
   readonly fields?: readonly Omit<Extract<LayoutRow, { kind: 'widget' }>, 'kind' | 'y' | 'height' | 'inset' | 'width'>[]
   /** Fields drawn without their wire, or a value source's field: no pin. */
   readonly pinless?: true
+  /** Inputs panel only: the input takes one value or a whole list. */
+  readonly acceptsList?: true
 }
 
 /**
@@ -1436,7 +1442,7 @@ export function layoutBoundaryNode(
   for (const slot of slots) {
     const type: TypeExpr = slot.type ?? { kind: 'wildcard' }
     if (slot.fields !== undefined && slot.fields.length > 0 && direction === 'out') {
-      if (slot.pinless !== true) pins.push({ address: { port: slot.id }, portId: slot.id, label: slot.label, direction, y: y + tokens.rowHeight / 2, type })
+      if (slot.pinless !== true) pins.push({ address: { port: slot.id }, portId: slot.id, label: slot.label, direction, y: y + tokens.rowHeight / 2, type, ...(slot.acceptsList ? { acceptsList: true } : {}) })
       for (const [index, field] of slot.fields.entries()) {
         const height = field.viewId === 'core.text' ? multilineWidgetHeight(field.rows, tokens) : field.rows * tokens.rowHeight
         rows.push({ ...field, ...(index === 0 ? { label: slot.label } : {}), kind: 'widget', y, height, inset: tokens.rowGeometry.fieldInsetX })
@@ -1453,7 +1459,7 @@ export function layoutBoundaryNode(
       height,
       ...(direction === 'in' ? { input: portSlot } : { output: { ...portSlot, index: pins.length } }),
     })
-    if (slot.pinless !== true) pins.push({ address: { port: slot.id }, portId: slot.id, direction, y: y + height / 2, type, ...(slot.regionIndex ? { regionIndex: true } : {}) })
+    if (slot.pinless !== true) pins.push({ address: { port: slot.id }, portId: slot.id, direction, y: y + height / 2, type, ...(slot.regionIndex ? { regionIndex: true } : {}), ...(slot.acceptsList ? { acceptsList: true } : {}) })
     y += height
   }
   {

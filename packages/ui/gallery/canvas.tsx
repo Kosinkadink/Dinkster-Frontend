@@ -53,6 +53,7 @@ import {
   type ProductNavigationGroup,
 } from '../src/index.js'
 import { NodeLookGallery } from './node-look.js'
+import { ColorEditingGallery } from './color-editing.js'
 import {
   MARGIN,
   NODE_WIDTH,
@@ -60,6 +61,7 @@ import {
   RowEditingGallery,
   SIDE_ROOM,
 } from './row-editing.js'
+import { RowListsGallery } from './row-lists.js'
 
 type Theme = 'dark' | 'light'
 
@@ -87,6 +89,8 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'widgets',
         'core-rows',
         'row-editing',
+        'row-lists',
+        'color-editing',
         'collection-rows',
         'editor-rows',
         'row-summaries',
@@ -100,6 +104,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
     ],
     ['Wires', ['types', 'structure']],
     ['Subgraphs', ['boundary', 'boundary-names']],
+    ['Flow nodes', ['switch-primitive']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
 
@@ -174,6 +179,10 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
+  'row-lists':
+    'A choice, and a list a pack fills from a lookup, open one filtered list in their own row: the value becomes the filter, a check marks the stored option and the grey highlight the candidate. Opening, filtering, refreshing or Tab never changes the stored value; only Enter or a click picks. Model and media fields are asset fields and keep their own editor; a list of plain names is what a pack\'s own dropdown shows.',
+  'color-editing':
+    'A color row becomes its own field when clicked, with a picker under it and what Enter stores beside it. Nothing is stored until the field is left. The saved color is a line in the side part beside the field, read here as the tooltip asked for, while the draft differs from it; nothing marks it by the name.',
   'collection-rows':
     'Multi-choice, list, colors and curve rows; After raises the rows that open an editor and draws the curve in its row.',
   'editor-rows':
@@ -192,7 +201,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'One widget kind in its default, hovered, offered, invalid and empty states; choose the kind above.',
   'text-boxes':
     'Each text box keeps its own height, set by dragging the short bar on its bottom edge; text that does not fit shows the quiet scrollbar. The middle node shows the bar under the pointer; the right one was made taller by its own edge, which sizes only its last box.',
-  types: 'The color of each data type on its pins and wires.',
+  types:
+    'The color of each data type on its pins and wires, and the pin of an input that accepts a list before and after its type is matched.',
   structure:
     'What is drawn between nodes: groups, reroutes, notes, value sources, selectors and net tags.',
   boundary:
@@ -206,6 +216,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'The same nodes just below 50 percent, where the canvas draws its overview.',
   minimap:
     'The minimap: nodes colored by state, a bypassed node, groups, and the frame of the visible area.',
+  'switch-primitive':
+    'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields. They replace the value source pill and the selector box shown in the second card.',
 }
 
 /** A look an example is drawn in; a page with two or more shows them side by side. */
@@ -326,8 +338,9 @@ function ExampleCard(props: {
     const { tokens, fixture, variant } = props.prepared
     const nodes = example.nodes?.map((index) => fixture.scene.nodes[index]!)
     const names = nodes && new Set(nodes.map((node) => node.id))
-    const scene =
-      nodes && names
+    const scene = example.scene
+      ? example.scene
+      : nodes && names
         ? {
             ...fixture.scene,
             nodes,
@@ -349,11 +362,12 @@ function ExampleCard(props: {
     renderer.setReducedMotion(true)
     renderer.setGridVisible(false)
     renderer.setScene(scene)
-    renderer.setNodeStates(fixture.states)
+    renderer.setNodeStates(example.states ?? fixture.states)
     renderer.setBadges(fixture.badges)
     renderer.setOverlay(example.overlay ?? fixture.overlay)
-    renderer.setRowMarks(fixture.rowMarks)
-    renderer.setCompanions(fixture.companions)
+    renderer.setRowMarks(example.rowMarks ?? fixture.rowMarks)
+    renderer.setCompanions(example.companions ?? fixture.companions)
+    renderer.setInactiveNodes(example.inactive)
     renderer.setToolbox(fixture.toolbox)
     const image = document.createElement('canvas')
     image.width = 320
@@ -602,7 +616,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'node-look') return
+    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'node-look') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -700,6 +714,12 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'row-editing'}>
           <RowEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'row-lists'}>
+          <RowListsGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'color-editing'}>
+          <ColorEditingGallery theme={theme()} />
         </Show>
         <Show when={prepared()[0]}>
           {(first) => (

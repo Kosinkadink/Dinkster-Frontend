@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, nativeTest as test } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_COUNT_BOUNDARY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -12,7 +12,7 @@ test('count-bound outputs project independently onto subgraph instances', async 
   } }))
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
-  await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', { timeout: 15_000 })
+  await waitForWorkspaceReady(page, 0)
   await page.evaluate(async () => {
     const image = { kind: 'concrete' as const, name: 'IMAGE' }
     window.__dinksterTest!.app.registerSchemas([{

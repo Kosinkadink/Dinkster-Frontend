@@ -14,11 +14,12 @@ export interface TooltipProvider {
   resolve(target: unknown, opts: TooltipResolveOptions): TooltipContent | undefined
 }
 /**
- * Where a tooltip opens: its top-left corner below the target, and `above`,
- * the y its bottom edge takes instead when it does not fit below.
+ * Where a tooltip opens. `element` is the target it sits beside; a painted
+ * target has none, and gives `above`, the y the tooltip's bottom edge takes
+ * when it does not fit below `y`.
  */
-export interface TooltipAnchor { readonly x: number; readonly y: number; readonly above?: number }
-export interface VisibleTooltip extends TooltipContent { readonly x: number; readonly y: number; readonly above?: number; readonly detailed: boolean }
+export interface TooltipAnchor { readonly x: number; readonly y: number; readonly above?: number; readonly element?: HTMLElement }
+export interface VisibleTooltip extends TooltipContent, TooltipAnchor { readonly detailed: boolean }
 
 /** One tooltip policy boundary shared by DOM chrome and the painted canvas. */
 export class TooltipController {
@@ -448,7 +449,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     const detail = element.dataset['tooltipDetail']?.split('|').filter(Boolean)
     return {
       target: { kind: 'dom', label: element.dataset['tooltipLabel']!, ...(detail ? { detail } : {}) },
-      anchor: { x: rect.left + rect.width / 2, y: rect.bottom + 8, above: rect.top - 8 },
+      anchor: { x: rect.left + rect.width / 2, y: rect.bottom + 8, element },
     }
   }
   const showForElement = (element: HTMLElement, detailed?: boolean, immediate = false): void => {
@@ -472,11 +473,12 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     const related = event.relatedTarget instanceof Element ? event.relatedTarget : undefined
     const session = sessionOf(element)
     const sharedSession = session !== undefined && session === sessionOf(related)
-    if (sharedSession) {
+    const immediate = element.dataset['tooltipImmediate'] === 'true'
+    if (sharedSession && !immediate) {
       const { target, anchor } = domTargetOf(element)
       observeShown(element)
       controller.showInSession(target, anchor, event.altKey)
-    } else showForElement(element, event.altKey)
+    } else showForElement(element, event.altKey, immediate)
   }
   const leave = (event: PointerEvent) => {
     const element = elementAt(event)
