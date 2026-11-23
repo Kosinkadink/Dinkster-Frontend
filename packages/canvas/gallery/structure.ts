@@ -208,6 +208,7 @@ export function structuralGalleryScene(
             },
             {
               id: 'feather',
+              displayName: 'feather',
               binds: { kind: 'port', node: 'edge', port: 'edge.feather' },
               promoted: true,
               wireHidden: true,

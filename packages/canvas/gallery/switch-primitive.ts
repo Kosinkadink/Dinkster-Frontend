@@ -112,7 +112,7 @@ const switchSchema = (
       kind: 'group',
       id: 'branch',
       value: { kind: 'input', id: 'branch', type: concrete(valueType), optional: true },
-      keys: { kind: 'numbered', prefix: 'm', start: 0, pad: 0 },
+      keys: { kind: 'numbered', prefix: 'branch', start: 0, pad: 0 },
       grows: 'link',
       minMembers: 1,
       maxMembers: 8,
@@ -121,12 +121,12 @@ const switchSchema = (
   ])
 const branches = (names: readonly string[]) => ({
   branch: {
-    members: names.map((_, i) => `m${i}`),
-    memberLabels: Object.fromEntries(names.map((name, i) => [`m${i}`, name])),
+    members: names.map((_, i) => `branch${i}`),
+    memberLabels: Object.fromEntries(names.map((name, i) => [`branch${i}`, name])),
     seq: names.length,
   },
 })
-const branchPort = (index: number) => `branch.m${index}`
+const branchPort = (index: number) => `branch.branch${index}`
 /** A member's pin is addressed by its flattened id. */
 const endpoint = (node: string, port: string) => ({ node, port })
 
@@ -1131,7 +1131,7 @@ export function switchPrimitiveGallery(
     })
     const nodeOf = (id: string) => refused.nodes.find((node) => node.id === id)!
     const from = pinPosition(nodeOf('p'), 'INT', 'out')!
-    const to = pinPosition(nodeOf('sw'), 'branch.m1', 'in')!
+    const to = pinPosition(nodeOf('sw'), 'branch.branch1', 'in')!
     cards.push({
       caption:
         'Refused edits leave the last valid state. A whole number dragged to an IMAGE branch finds no pin to land on, because all branches share one type; only Pick takes it. Renaming Quick to "Detailed" is refused with "Detailed already exists" on the name, and the name stays Quick; Escape cancels the rename.',

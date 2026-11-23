@@ -1083,7 +1083,8 @@ export function createCanvasGalleryFixture(
                 kind: 'group',
                 id: 'values',
                 value,
-                keys: { kind: 'numbered', prefix: 'value', start: 1, pad: 0 },
+                // The offered row reads the kind's name and position: "text 1".
+                keys: { kind: 'numbered', prefix: value.id, start: 1, pad: 0 },
                 grows: 'link',
                 minMembers: 0,
                 maxMembers: 8,

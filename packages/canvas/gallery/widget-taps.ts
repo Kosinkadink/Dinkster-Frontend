@@ -202,6 +202,7 @@ interface Placed {
   readonly y: number
   readonly width?: number
   readonly values?: Record<string, Json>
+  readonly dynamic?: Record<string, Json>
 }
 interface Wire {
   readonly from: LinkEndpoint
@@ -357,8 +358,15 @@ export function widgetTapGallery(
       [0, 60],
     ),
     card(
-      "Does not work today: a field in a group's member has no pin, even with the node pointed at, so it cannot be wired.",
-      [{ id: 'grouped', schema: grouped, x: 0 }],
+      "A field in a group's member has its own pin, like every other field.",
+      [
+        {
+          id: 'grouped',
+          schema: grouped,
+          x: 0,
+          dynamic: { weights: { members: ['weight0'] } },
+        },
+      ],
     ),
     card(
       "Does not work today: the wire from a field under a choice's option is lost on copy and paste and on replacing the node, and a subgraph's face cannot offer it.",
@@ -394,6 +402,7 @@ export function widgetTapGallery(
               id: node.id,
               type: node.schema.type,
               values: { ...defaultValuesOf(node.schema), ...node.values },
+              ...(node.dynamic ? { dynamic: node.dynamic } : {}),
             },
           ]),
         ),
