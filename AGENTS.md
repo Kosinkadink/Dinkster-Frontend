@@ -158,4 +158,3 @@ Every slice or big change gets a code review (oracle or equivalent reviewer)
 after it ships, before the next slice starts. Review findings are fixed or
 explicitly deferred to a GitHub issue - never silently dropped. When a group
 of slices completes, review the affected area as a whole.
-
