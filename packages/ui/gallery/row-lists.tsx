@@ -341,7 +341,7 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
         caption: 'Paused, under the list beside Refresh: the list keeps what it shows and the filter. Refresh can be tried by hand; nothing retries on a timer.',
         node: 'preset',
         open: 'preset',
-        list: { options: presets(), highlight: 0, status: { tone: 'notice', text: 'Too many refreshes. Wait a moment, then press Refresh.' }, actions: refresh },
+        list: { options: presets(), highlight: 0, status: { tone: 'notice', text: 'Rate limited' }, actions: refresh },
         side: presetSide,
       },
       {
@@ -350,7 +350,7 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
         caption: 'In node search and the registry, lookups are off and say so: no calls and no timers.',
         node: 'preset',
         open: 'preset',
-        list: { options: [], status: { tone: 'notice', text: 'Options are not loaded in a preview.' } },
+        list: { options: [], status: { tone: 'notice', text: 'Not loaded in preview' } },
         side: presetSide,
       },
     ],
