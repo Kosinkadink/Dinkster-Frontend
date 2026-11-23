@@ -59,38 +59,6 @@ export function provideRowListLookups(provider: LookupProvider | undefined): voi
 
 const ComboAuthoring = createComboImplementation(false)
 
-/** An entry of a list whose stored value is not the option's own value. */
-export type RowListOption = ComboOption & {
-  /** What a pick stores; the option's value is then only searchable text. */
-  readonly stores?: Json
-  /** Shown so it can be identified, but it cannot be chosen. */
-  readonly unavailable?: boolean
-}
-
-/**
- * The entries of a list that is not a declared choice, such as an asset or
- * model field: read by the field's own editor, which owns their checks.
- */
-export interface RowListSource {
-  readonly state: () =>
-    | { readonly kind: 'loading' }
-    | { readonly kind: 'ready'; readonly options: readonly RowListOption[] }
-    | { readonly kind: 'failed'; readonly message: string }
-  readonly retry: () => void
-  /** Whether a stored value is this pick. */
-  readonly same: (stored: Json | undefined, pick: Json) => boolean
-  /** The stored value as people read it, for the side part. */
-  readonly describe: (stored: Json) => string
-  readonly loadingText: string
-  readonly emptyText: string
-  /**
-   * A footer action that opens the field's full editor without storing;
-   * `busy` holds while it is open, and the list takes the keyboard back
-   * when it closes.
-   */
-  readonly more?: { readonly label: string; readonly open: () => void; readonly busy: () => boolean }
-}
-
 /** Where the keyboard is besides the filter: Alt+Down and Alt+Up walk these. */
 type Zone = { readonly kind: 'list' } | { readonly kind: 'action'; readonly id: string } | { readonly kind: 'default' } | { readonly kind: 'filter' }
 
@@ -102,9 +70,7 @@ type Zone = { readonly kind: 'list' } | { readonly kind: 'action'; readonly id: 
  * on the row. A stored value missing from the options is kept and marked in
  * the side part, never added as an option.
  */
-export const createInRowList = (
-  sourceOf?: (props: WidgetEditorImplementationProps) => RowListSource,
-): Component<WidgetEditorImplementationProps> => (props) => {
+export const InRowListImplementation: Component<WidgetEditorImplementationProps> = (props) => {
   const host = props.editor
   const ed = host.ed
   const spec = ed.spec!
@@ -113,15 +79,10 @@ export const createInRowList = (
   let live = true
   onCleanup(() => { live = false })
 
-  const source = sourceOf?.(props)
-  const lookup = source === undefined ? lookupProvider?.(props) : undefined
+  const lookup = lookupProvider?.(props)
   const lookupState = (): RowListLookupState | undefined => lookup?.state()
-  const declared = source === undefined ? comboOptions(spec) : []
-  const options = createMemo<readonly RowListOption[]>(() => {
-    if (source !== undefined) {
-      const state = source.state()
-      return state.kind === 'ready' ? state.options : []
-    }
+  const declared = comboOptions(spec)
+  const options = createMemo<readonly ComboOption[]>(() => {
     const state = lookupState()
     if (state === undefined) return declared
     if (state.kind === 'ready' || state.kind === 'stale') return state.options
@@ -129,13 +90,10 @@ export const createInRowList = (
     return []
   })
   const stored = ed.initial
-  const stores = (option: RowListOption): Json => option.stores ?? option.value
-  const isStored = (option: RowListOption): boolean =>
-    source === undefined ? option.value === stored : option.unavailable !== true && source.same(stored, stores(option))
-  const storedOption = (): RowListOption | undefined => options().find(isStored)
+  const isStored = (option: ComboOption): boolean => option.value === stored
+  const storedOption = (): ComboOption | undefined => options().find(isStored)
   const missing = (): boolean => stored !== undefined && stored !== null && storedOption() === undefined &&
-    (source !== undefined ? source.state().kind === 'ready'
-      : lookupState() === undefined || ['ready', 'stale', 'paused'].includes(lookupState()!.kind))
+    (lookupState() === undefined || ['ready', 'stale', 'paused'].includes(lookupState()!.kind))
 
   const [query, setQuery] = createSignal('')
   const [folder, setFolder] = createSignal<readonly string[]>([])
@@ -183,7 +141,6 @@ export const createInRowList = (
         label: label(option),
         ...(parts.length > 0 ? { detail: parts.join(' / ') } : {}),
         ...(isStored(option) ? { saved: true } : {}),
-        ...((option as RowListOption).unavailable === true ? { unavailable: true } : {}),
       })
     })
     return all.slice(window().start, window().end)
@@ -200,7 +157,7 @@ export const createInRowList = (
   const [picked, setPicked] = createSignal<string>()
   const store = (value: Json, text: string): void => {
     if (props.commitPending()) return
-    if (source === undefined ? value === stored : source.same(stored, value)) { props.close(); focusRow(); return }
+    if (value === stored) { props.close(); focusRow(); return }
     setPicked(text)
     void props.commitValue(value).then((closed) => {
       if (closed || !live) focusRow()
@@ -215,11 +172,11 @@ export const createInRowList = (
     if (entry === undefined) return
     if (entry.kind === 'back') openFolder(folder().slice(0, -1))
     else if (entry.kind === 'folder') openFolder(entry.path)
-    else if ((entry.option as RowListOption).unavailable !== true) store(stores(entry.option), entry.option.label)
+    else store(entry.option.value, entry.option.label)
   }
 
   const [authoring, setAuthoring] = createSignal(false)
-  const editable = source === undefined && spec.remote === undefined && ed.target.kind === 'input' &&
+  const editable = spec.remote === undefined && ed.target.kind === 'input' &&
     ((spec.editableOptions === true && ed.target.optionsTarget !== undefined) || spec.optionSource !== undefined)
   const refreshing = (): boolean => {
     const state = lookupState()
@@ -234,39 +191,25 @@ export const createInRowList = (
     const tryAgain = state?.kind === 'stale' && !state.refreshing
     if (lookup !== undefined && state?.kind !== 'waiting' && state?.kind !== 'off' && !tryAgain)
       list.push({ id: 'refresh', label: 'Refresh', disabled: refreshing(), onClick: () => lookup.refresh() })
-    if (source?.more !== undefined) {
-      const more = source.more
-      list.push({ id: 'more', label: more.label, disabled: props.commitPending() || more.busy(), onClick: () => more.open() })
-    }
     if (editable) list.push({ id: 'edit', label: 'Edit options', onClick: () => setAuthoring(true) })
     return list
   })
   const status = createMemo<CanvasListStatus | undefined>(() => {
     if (props.commitPending() && picked() !== undefined) return { tone: 'busy', text: `Storing ${picked()}` }
-    if (source !== undefined) {
-      const state = source.state()
-      if (state.kind === 'loading') return { tone: 'busy', text: source.loadingText }
-      if (state.kind === 'failed') return { tone: 'error', text: state.message, action: { id: 'retry', label: 'Try again', onClick: () => source.retry() } }
-      return undefined
-    }
     const state = lookupState()
     if (state === undefined || lookup === undefined) return undefined
     const tryAgain = { id: 'retry', label: 'Try again', disabled: refreshing(), onClick: () => lookup.refresh() }
     switch (state.kind) {
       case 'waiting': return { tone: 'notice', text: state.check === true ? `Waiting for ${state.input} to be checked` : `Waiting for ${state.input}` }
       case 'loading': return { tone: 'busy', text: 'Loading options' }
-      case 'off': return { tone: 'notice', text: 'Lookups are off in this preview' }
-      case 'paused': return { tone: 'notice', text: 'Paused: asked too often' }
+      case 'off': return { tone: 'notice', text: 'Options are not loaded in a preview.' }
+      case 'paused': return { tone: 'notice', text: 'Too many refreshes. Wait a moment, then press Refresh.' }
       case 'unavailable': return state.refreshing ? { tone: 'busy', text: 'Loading options' } : { tone: 'error', text: FAILURE_TEXT[state.reason], action: tryAgain }
       case 'stale': return state.refreshing ? { tone: 'busy', text: 'Refreshing options' } : { tone: 'warning', text: 'Could not refresh', action: tryAgain }
       case 'ready': return state.refreshing ? { tone: 'busy', text: 'Refreshing options' } : undefined
     }
   })
   const empty = (): string | undefined => {
-    if (source !== undefined) {
-      if (source.state().kind !== 'ready') return undefined
-      return options().length === 0 ? source.emptyText : 'No matching options'
-    }
     const state = lookupState()
     if (state !== undefined && state.kind !== 'ready' && state.kind !== 'stale' && state.kind !== 'paused') return undefined
     return options().length === 0 ? 'No options available' : 'No matching options'
@@ -307,8 +250,6 @@ export const createInRowList = (
   }
 
   host.bindClickAway?.(() => {
-    // The full editor opened from the list owns presses until it closes.
-    if (source?.more?.busy() === true) return true
     if (props.commitPending()) return false
     props.close()
     return true
@@ -385,7 +326,7 @@ export const createInRowList = (
     const facts = [
       ...(cut() === undefined ? [] : [{ key: 'highlighted', value: cut()!.label }]),
       ...(cut()?.detail === undefined ? [] : [{ key: 'detail', value: cut()!.detail! }]),
-      ...(missing() ? [{ key: 'saved', value: source === undefined ? String(stored) : source.describe(stored as Json) }] : []),
+      ...(missing() ? [{ key: 'saved', value: String(stored) }] : []),
       ...(defaultValue === undefined ? [] : [{
         key: 'default',
         value: (
@@ -396,7 +337,7 @@ export const createInRowList = (
       }]),
     ]
     const problem = props.commitError() ?? (missing() ? 'Not in the current list. Kept until you choose another.' : undefined)
-    // A field with nothing to say beside it, such as an asset without a default or help, has no side part.
+    // A field with nothing to say beside it has no side part.
     if (facts.length === 0 && problem === undefined && inRow.help === undefined) return undefined
     return (
       <CanvasSidePart
@@ -430,7 +371,7 @@ export const createInRowList = (
   // The field cannot be used while a pick is stored; a refusal gives it back.
   let input: HTMLInputElement | undefined
   createEffect((wasPending: boolean) => {
-    const pending = props.commitPending() || source?.more?.busy() === true
+    const pending = props.commitPending()
     if (wasPending && !pending && live) queueMicrotask(() => input?.focus())
     return pending
   }, false)
@@ -445,8 +386,6 @@ export const createInRowList = (
         data-editor-mode={spec.widgetType}
         data-editor-surface="in-row-list"
         data-lookup={lookupState()?.kind ?? 'static'}
-        // The full editor opened from the list covers it until it closes.
-        hidden={source?.more?.busy() === true}
       >
         <CanvasRowList
           look={inRow.look}
@@ -487,5 +426,3 @@ export const createInRowList = (
     </Show>
   )
 }
-
-export const InRowListImplementation = createInRowList()

@@ -1,4 +1,4 @@
-import { browseFromRow, expect, selectProductOption, nativeTest as test, type Page, type Request } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page, type Request } from './fixtures.js'
 import { mkdir } from 'node:fs/promises'
 
 interface AssetValue {
@@ -133,7 +133,6 @@ async function openAsset(page: Page, enterFolder = true, nodeId = 'asset'): Prom
     }
   }, nodeId)
   await page.mouse.click(point.x, point.y)
-  await browseFromRow(page)
   await expect(page.getByTestId('collection-panel')).toBeVisible()
   await selectProductOption(page, page.getByTestId('collection-source-select'), 'mount:input')
   if (enterFolder) {
@@ -162,7 +161,8 @@ test.beforeEach(async ({ page }) => {
   await installMockBackend(page, requests)
   await page.goto('/')
   await page.evaluate(() => localStorage.setItem('dinkster.assetBrowser.view.v1', 'list'))
-  await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('status-connection').click()
+  await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(MOCK)
   await page.getByTestId('backend-add').click()
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
@@ -434,7 +434,7 @@ test('selected image assets preview immediately inside the node and follow impor
   await tab('Imported Asset Browser').click()
   await expect(accessiblePreview).toHaveAccessibleName('Asset Browser, selected input sunset.png, 2 selected images: 320 by 180 pixels')
 
-  await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('status-connection').click()
   await captureProof(page, 'imported-selected')
   for (const scale of [0.5, 1, 1.6]) {
     await expectGeometry(scale, 320, 180, 2)
@@ -442,7 +442,7 @@ test('selected image assets preview immediately inside the node and follow impor
   }
 
   await page.reload()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const store = window.__dinksterTest!.app.activeTab()!.store
     return 'status' in store && (store.status as { get(): string }).get() === 'live'
@@ -692,75 +692,4 @@ test('view switch preserves selection and the preference survives editor reopen'
   await closeAsset(page)
   await openAsset(page)
   await expect(page.getByRole('button', { name: 'List view' })).toBeVisible()
-})
-
-async function openAssetRow(page: Page, nodeId = 'asset'): Promise<void> {
-  const point = await page.evaluate((id) => {
-    const renderer = window.__dinksterTest!.renderer!
-    const node = renderer.getScene().nodes.find((item) => item.id === id)!
-    const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'image')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    const viewport = renderer.getViewport()
-    return {
-      x: rect.left + viewport.x + (node.x + node.layout.width / 2) * viewport.scale,
-      y: rect.top + viewport.y + (node.y + row.y + row.height / 2) * viewport.scale,
-    }
-  }, nodeId)
-  await page.mouse.click(point.x, point.y)
-}
-const rowList = (page: Page) => page.locator('[data-editor-surface="in-row-list"]')
-const rowFilter = (page: Page) => rowList(page).locator('input')
-const rowOptions = (page: Page) => rowList(page).locator('[role=option]')
-
-test('an asset row lists every entry it may take; a pick stores the canonical reference, and Browse returns to the list or stores', async ({ page }) => {
-  const writes: string[] = []
-  page.on('request', (request) => {
-    if (request.method() !== 'GET' && new URL(request.url()).pathname.startsWith('/api/assets')) writes.push(request.url())
-  })
-  await openAssetRow(page)
-  await expect(rowFilter(page)).toBeFocused()
-  // Entries from every folder and page, the incompatible text file left out.
-  await expect(rowOptions(page).filter({ hasText: 'coast.png' }).first()).toBeVisible()
-  await expect(rowOptions(page).filter({ hasText: 'moon.png' }).first()).toBeVisible()
-  await expect(rowOptions(page).filter({ hasText: 'readme.txt' })).toHaveCount(0)
-  await rowFilter(page).fill('sunset')
-  await page.keyboard.press('Enter')
-  await expect(rowList(page)).toHaveCount(0)
-  expect(await value(page)).toEqual(assetRef(entries[0]!))
-
-  await openAssetRow(page)
-  await expect(rowOptions(page).and(page.locator('[data-saved=true]')).first()).toContainText('sunset.png')
-  await rowFilter(page).fill('moon')
-  await browseFromRow(page)
-  await expect(page.getByTestId('asset-editor')).toBeVisible()
-  await closeAsset(page)
-  // Cancel in the browser leaves the list as it was, with the keyboard in its filter.
-  await expect(rowFilter(page)).toHaveValue('moon')
-  await expect(rowFilter(page)).toBeFocused()
-  expect(await value(page)).toEqual(assetRef(entries[0]!))
-
-  await browseFromRow(page)
-  await selectProductOption(page, page.getByTestId('collection-source-select'), 'mount:input')
-  await page.getByRole('option', { name: /^photos/ }).click()
-  await page.getByRole('option', { name: /style\.safetensors/ }).click()
-  await page.getByTestId('asset-apply').click()
-  await expect(page.getByTestId('asset-editor')).toHaveCount(0)
-  await expect(rowList(page)).toHaveCount(0)
-  expect(await value(page)).toEqual(assetRef(entries[1]!))
-  expect(writes).toEqual([])
-})
-
-test('a model row lists local models by canonical reference and offers Browse models', async ({ page }) => {
-  await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
-    type: 'AssetBrowserTest', displayName: 'Asset Browser', category: 'test', source: 'v3', isOutputNode: false,
-    items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
-      widget: { widgetType: 'ASSET', kind: 'model/lora', options: { accept: ['application/x-safetensors'] }, default: null } }],
-  }]))
-  await openAssetRow(page)
-  await expect(rowList(page).locator('.dinkster-canvas-list-action[data-action="more"]')).toHaveText('Browse models')
-  await expect(rowOptions(page).first()).toBeVisible()
-  await expect(rowOptions(page).filter({ hasText: /\.png/ })).toHaveCount(0)
-  await page.keyboard.press('Enter')
-  await expect(rowList(page)).toHaveCount(0)
-  expect(await value(page)).toMatchObject({ digest: MODEL_DIGEST, mediaType: 'application/x-safetensors' })
 })

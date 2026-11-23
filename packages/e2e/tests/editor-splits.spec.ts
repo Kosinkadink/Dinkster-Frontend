@@ -208,7 +208,7 @@ test('per-group activation moves focus and F6 cycles between groups', async ({ p
   await expect(second.locator('.workflow-queue-control')).toBeVisible()
   await expect(first.getByTestId('minimap')).toHaveCSS('opacity', '0.5')
   await expect(first.locator('.canvas-corner-bar')).toHaveCSS('opacity', '0.5')
-  await first.getByTestId('canvas-zoom-in').hover()
+  await first.getByTestId('canvas-zoom-level').hover()
   await expect(first.locator('.canvas-corner-bar')).toHaveCSS('opacity', '1')
   await expect(first.getByTestId('minimap')).toHaveCSS('opacity', '0.5')
   await expect(first).toHaveAttribute('data-focused', 'false')

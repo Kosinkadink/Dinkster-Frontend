@@ -190,6 +190,8 @@ export interface BadgePlacement extends BadgeRect {
   readonly compact: boolean
   /** Original badges behind an overflow tab, in priority order. */
   readonly overflow?: readonly NodeBadge[]
+  /** Where a tab grown by hover rests; pointer targets use it before the grown rect. */
+  readonly rest?: BadgeRect
 }
 
 export interface BadgeLayoutOptions {
@@ -290,6 +292,7 @@ export function layoutNodeBadges(
       const width = fullWidth(hovered.badge)
       result.push(...entries.filter((entry) => entry !== hovered), {
         ...hovered, width, compact: false,
+        rest: { x: hovered.x, y: hovered.y, width: hovered.width, height: hovered.height },
         x: placement === 'above'
           ? Math.max(left, hovered.x + hovered.width - width)
           : Math.min(hovered.x, right - width),
@@ -327,15 +330,19 @@ export function hitTestBadge(scene: Scene, badges: BadgeMap, wx: number, wy: num
     const list = badges[node.id]
     if (list) {
       const entries = layout(node, list)
-      for (let index = entries.length - 1; index >= 0; index--) {
+      // Tabs answer at their resting rects first, so the pointer passes from
+      // tab to tab under a tab grown by hover; the grown rect only catches
+      // points no resting tab covers.
+      for (const grown of [false, true]) for (let index = entries.length - 1; index >= 0; index--) {
         const entry = entries[index]!
-        if (entry.badge.interactive === false) continue
-        const rect = { x: entry.x, y: entry.y, width: entry.width, height: entry.height }
+        if (entry.badge.interactive === false || (grown && !entry.rest)) continue
+        const target = grown ? entry : entry.rest ?? entry
         // The title mark is drawn small; its target grows to the mark's hit size.
         const grow = entry.badge.placement === 'title'
-          ? Math.max(0, (canvasPaintTokens.badge.mark.hitSize - Math.min(rect.width, rect.height)) / 2)
+          ? Math.max(0, (canvasPaintTokens.badge.mark.hitSize - Math.min(target.width, target.height)) / 2)
           : 0
-        if (wx >= rect.x - grow && wx <= rect.x + rect.width + grow && wy >= rect.y - grow && wy <= rect.y + rect.height + grow) {
+        if (wx >= target.x - grow && wx <= target.x + target.width + grow && wy >= target.y - grow && wy <= target.y + target.height + grow) {
+          const rect = { x: entry.x, y: entry.y, width: entry.width, height: entry.height }
           return { node, badge: entry.badge, rect, ...(entry.overflow ? { overflow: entry.overflow } : {}) }
         }
       }

@@ -1,4 +1,4 @@
-import { expect, nativeTest as test } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 
 declare global {
   interface Window {
@@ -17,7 +17,7 @@ test('select, context menu and drag release do not compile availability before t
   await page.route('/supervisor/**', (route) => route.fulfill({ status: 404 }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+  await waitForWorkspaceReady(page, 1)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{ type: 'demo.node', displayName: 'Demo node', category: 'test', source: 'v3', isOutputNode: true, items: [] }])
@@ -124,7 +124,7 @@ test('numeric increments paint without synchronous whole-workflow comparison', a
   await page.route('/supervisor/**', (route) => route.fulfill({ status: 404 }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+  await waitForWorkspaceReady(page, 1)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     const counts = window.canvasWorkCounts = { calls: 0 } as Window['canvasWorkCounts']

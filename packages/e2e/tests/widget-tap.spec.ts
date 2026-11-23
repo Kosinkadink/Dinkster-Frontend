@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
   await page.mouse.move(from.x, from.y)
@@ -10,7 +10,7 @@ async function drag(page: Page, from: { x: number; y: number }, to: { x: number;
 
 test('widget tap drag creates a tap-sourced link and undo removes it', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
 
   const points = await page.evaluate(async () => {
     const bridge = window.__dinksterTest!

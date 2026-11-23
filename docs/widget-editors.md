@@ -492,12 +492,12 @@ each widget row with its value, and it and the wired-row buttons stay
 available while a row is edited in place. The `widgetEditing` design token
 selects this (`in-row`, the default) or the earlier card (`card`).
 
-## Choice, asset and model rows: a list in the row
+## Choice rows: a list in the row
 
-A single static COMBO, a DynamicCombo selector, and a single ASSET or model
-field (not source options, not several assets) open one filtered list in their
-row. The row's value area becomes the filter, which starts empty; the list hangs
-under the row at its width, or above it when there is no room below, inside the
+A single static COMBO and a DynamicCombo selector open one filtered list in
+their row; a list filled by a declared lookup uses the same list. The row's
+value area becomes the filter, which starts empty; the list hangs under the row
+at its width, or above it when there is no room below, inside the
 same outline, with the side part beside them. It never moves or resizes the node
 and scrolls inside after eight entries. Opening, typing, moving the highlight,
 refreshing and leaving with Tab never store; only Enter or a click on an entry
@@ -524,15 +524,8 @@ the stored entry, else the first.
 - While a pick is stored the list is frozen and says so; a refusal keeps the list
   open with the refusal as the side part's first line.
 - Choices whose options can be edited keep their editor behind an `Edit options`
-  action. Remote choices and MULTI_COMBO keep their popover.
-
-An asset or model list holds every entry the field may take now, read once from
-the same sources and selection checks as the asset browser, and stores the
-canonical reference, never the visible name. A model without a local file is
-listed but cannot be chosen. An empty list says so by kind ("No images
-available", "No models available"). `Browse all assets` or `Browse models` opens
-the ASSET editor without storing: Cancel returns to the list as it was, and
-Apply stores and closes the list with the keyboard on the row.
+  action. Remote choices and MULTI_COMBO keep their popover, and ASSET and model
+  rows keep the ASSET editor.
 
 A list fed by a declared lookup takes its state from the host and calls nothing
 itself: waiting for an input, loading, ready (also while an old answer is
@@ -627,8 +620,8 @@ their space; the label may disappear if even its ellipsis cannot fit. Long asset
 names retain the ordinary proportional split and ellipsize within the row. Activating the
 row body opens optional expanded controls only when
 more deliberate editing is useful. INT, FLOAT and single-line STRING are
-edited in the row itself (see above), and single choices, assets and models
-open a list in the row; COLOR, remote COMBO, MULTI_COMBO, and MOUNT use a small
+edited in the row itself (see above), and single choices open a list in the
+row; COLOR, remote COMBO, MULTI_COMBO, and MOUNT use a small
 non-modal popover anchored to that row. A
 node-input multiline STRING in the `core.text` representation is edited
 directly in its painted rectangle instead. The popovers are non-draggable,
@@ -911,9 +904,8 @@ and 200 percent, for a default box, a box made taller and a box that scrolls.
 
 ### Text box height
 
-A text box's text starts 2 units left of the label over it (the label at 6,
-the text at 4), so the box's text reads apart from the labels, which stay in
-one column down the node; the open editor uses the same inset.
+A text box's text starts at the same x as the label over it (both at 6); the
+open editor uses the same inset.
 
 Each multiline text box has its own height, in whole lines, from 2 to 16. A
 new node starts at the height the widget declares. A short bar in the middle
@@ -1266,14 +1258,10 @@ File. Component and client tests pin object identity, bytes, metadata, and the
 absence of a document write before upload success. The separate native browser
 arm in `packages/e2e/tests/image-upload-byte-proof.spec.ts` uses a deterministic
 valid PNG larger than 256 KiB and proves POST, vault GET, graph, export/reopen,
-and Load Image -> Preview Image execution. Historical job
-`019fd935047563a88365345d68d1cd8a` recorded a 300047-byte source AssetRef
-for digest `blake3:b584866aabc7b7bb0c4c1016b809254d71261e15db24b392a3cb15bb62398b07`
-while the vault held 78840 bytes because a single request-stream read did not
-guarantee EOF. Backend commit `6a5a1c23a25d7b24b8c01c49eec021d513eb4910`
-fixed the read by draining chunks to EOF, and `0313abfefc96ac037591d25879bd11d2eb831a01`
-made reads and execution verify content against the digest. No frontend
-truncation workaround is part of this contract.
+and Load Image -> Preview Image execution. The backend drains request chunks
+to EOF and verifies stored content against its digest on reads and execution.
+A single request-stream read does not guarantee EOF. No frontend truncation
+workaround is part of this contract.
 
 A typed ASSET whose semantic or MIME-derived browse kind is exactly
 `media/image`, `media/audio`, or `media/video` uses the bounded media-ingest

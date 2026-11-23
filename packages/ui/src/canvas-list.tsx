@@ -28,8 +28,6 @@ export interface CanvasListOption {
   readonly kind?: 'option' | 'folder' | 'back'
   /** The stored value: drawn with a check. */
   readonly saved?: boolean
-  /** Shown so it can be identified, but it cannot be chosen. */
-  readonly unavailable?: boolean
 }
 
 /** A text action at the foot of a list or on its status line. */
@@ -115,7 +113,7 @@ export function canvasListLayout(
 }
 
 /**
- * A choice, asset or model row opened on the canvas: the row's value area
+ * A choice row opened on the canvas: the row's value area
  * becomes a filter and one list opens with it, at the row's width. A check
  * marks the stored entry and the grey highlight marks the candidate;
  * nothing here stores, the caller does on a pick. The list shows at most
@@ -297,12 +295,10 @@ export function CanvasRowList(
               class="dinkster-canvas-list-option"
               role="option"
               aria-selected={props.highlight === index()}
-              aria-disabled={option.unavailable === true ? 'true' : undefined}
               data-kind={option.kind ?? 'option'}
               data-active={props.highlight === index()}
               data-saved={option.saved === true}
               data-detail={option.detail !== undefined}
-              data-unavailable={option.unavailable === true}
               onPointerDown={(event) => event.preventDefault()}
               onPointerMove={() => { if (props.highlight !== index()) props.onHighlight?.(index()) }}
               onClick={() => { if (props.frozen !== true) props.onPick?.(index()) }}

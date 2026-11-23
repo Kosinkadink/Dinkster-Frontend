@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { browseFromRow, expect, nativeTest as test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const PROOF = '/tmp/assets-picker-facets-logical-model-proof'
 const LOCAL = `blake3:${'a'.repeat(64)}`
@@ -55,7 +55,6 @@ async function openWidget(page: Page, nodeId: string, inputId: string): Promise<
     return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + row.y + row.height / 2 }
   }, { nodeId, inputId })
   await page.mouse.click(point.x, point.y)
-  await browseFromRow(page)
   await expect(page.getByTestId('asset-editor')).toBeVisible()
 }
 
@@ -68,7 +67,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1366, height: 76
     await page.setViewportSize(viewport)
     await installRoutes(page, () => { candidateRequests += 1 })
     await page.goto('/')
-    await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+    await waitForWorkspaceReady(page)
     await page.evaluate(async () => {
       window.__dinksterTest!.app.registerSchemas([
         { type: 'PickerModel', displayName: 'Picker model', category: 'proof', source: 'v3', isOutputNode: false, items: [{ kind: 'input', id: 'model', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] }, default: null } }] },
@@ -95,7 +94,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1366, height: 76
     await modelEditor.getByTestId('logical-model-variant-details').locator('summary').click()
     await page.screenshot({ path: `${PROOF}/logical-${viewport.width}x${viewport.height}.png`, fullPage: true })
     await page.reload()
-    await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+    await waitForWorkspaceReady(page)
     await page.evaluate(async () => {
       window.__dinksterTest!.app.registerSchemas([
         { type: 'PickerModel', displayName: 'Picker model', category: 'proof', source: 'v3', isOutputNode: false, items: [{ kind: 'input', id: 'model', type: { kind: 'concrete', name: 'ASSET' }, optional: false, widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] }, default: null } }] },

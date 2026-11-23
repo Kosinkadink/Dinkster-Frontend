@@ -27,21 +27,14 @@ export async function mockProjectPacks(page: Page, packs: readonly string[] = []
   } }))
 }
 
-export async function waitForWorkspaceReady(page: Page): Promise<void> {
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined &&
-    window.__dinksterTest.app.backends.get()[0]?.registry.get() !== undefined &&
-    window.__dinksterTest.app.tabs.get().every((tab) => tab.execution !== undefined || 'status' in tab.store))).toBe(true)
-}
-
-/**
- * After a click on an asset or model row, reaches the full asset browser:
- * through the row's list when the field has one (a single asset or model),
- * directly otherwise.
- */
-export async function browseFromRow(page: Page): Promise<void> {
-  const more = page.locator('[data-editor-surface="in-row-list"] .dinkster-canvas-list-action[data-action="more"]')
-  await expect(more.or(page.getByTestId('asset-editor'))).toBeVisible()
-  if (await more.isVisible()) await more.click()
+export async function waitForWorkspaceReady(page: Page, expectedSchemaCount?: number): Promise<void> {
+  await expect.poll(() => page.evaluate((expectedCount) => {
+    const app = window.__dinksterTest?.app
+    const registry = app?.backends.get()[0]?.registry.get()
+    return app !== undefined && registry !== undefined &&
+      (expectedCount === undefined || registry.schemas.size === expectedCount) &&
+      app.tabs.get().every((tab) => tab.execution !== undefined || 'status' in tab.store)
+  }, expectedSchemaCount), { timeout: 30_000 }).toBe(true)
 }
 
 export async function skipWithoutNativeCatalog(request: APIRequestContext, testInfo: TestInfo): Promise<void> {
@@ -83,6 +76,14 @@ export async function subgraphMarkPoint(page: Page, nodeId: string): Promise<{ x
     }
   }, nodeId)
   return await point.jsonValue() as { x: number; y: number }
+}
+
+export async function executionDetails(row: Locator): Promise<Locator> {
+  const details = row.locator('details.runs-details')
+  if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) {
+    await details.locator('summary').click()
+  }
+  return details.getByTestId('run-details')
 }
 
 export async function openRailPanel(page: Page, title: string): Promise<void> {

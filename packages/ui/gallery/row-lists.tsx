@@ -85,33 +85,6 @@ const presetNode = schema('Presets by category', [
   widget('category', 'COMBO', 'drawing', { options: ['photo', 'drawing'] }, 'Which presets to list.'),
   widget('enabled', 'BOOLEAN', true, {}, 'Turn the preset on or off.'),
 ])
-const checkpointNode = schema('Load checkpoint', [
-  {
-    kind: 'input',
-    id: 'ckpt',
-    type: { kind: 'concrete', name: 'ASSET' },
-    optional: false,
-    widget: { widgetType: 'ASSET', kind: 'model/checkpoints', options: {}, default: null },
-    tooltip: 'The checkpoint to load.',
-  },
-  widget('clip_skip', 'INT', 1, { min: 1, max: 24 }, 'CLIP layers to skip.'),
-])
-const imageNode = schema('Load image', [
-  widget(
-    'image',
-    'ASSET',
-    {
-      digest: 'blake3:' + 'a'.repeat(64),
-      name: 'portrait.png',
-      size: 1234567,
-      mediaType: 'image/png',
-      virtualPath: 'input/portrait.png',
-    },
-    { accept: ['image/png', 'image/jpeg', 'image/webp'] },
-    'The image to start from.',
-  ),
-  widget('upscale', 'BOOLEAN', false, {}, 'Upscale the image before use.'),
-])
 const SAMPLERS = [
   { value: 'euler', label: 'Euler' },
   { value: 'euler_ancestral', label: 'Euler ancestral' },
@@ -125,7 +98,7 @@ const samplerNode = schema('Sampler settings', [
 const sourceNode = schema('Preset source', [
   { kind: 'output', id: 'preset', type: { kind: 'concrete', name: 'COMBO' } },
 ])
-const nodes = { preset: presetNode, checkpoint: checkpointNode, image: imageNode, sampler: samplerNode }
+const nodes = { preset: presetNode, sampler: samplerNode }
 type NodeKind = keyof typeof nodes
 
 function listScene(
@@ -359,8 +332,8 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
         caption: 'Category changed from photo to drawing while photo was loading. The late photo answer is kept for photo and not shown here.',
         node: 'preset',
         open: 'preset',
-        list: { options: [], status: { tone: 'busy', text: 'Loading options for drawing' }, actions: refreshing },
-        side: { facts: [{ key: 'category', value: 'drawing' }, defaultLink], help: 'Options for photo are not shown for drawing.' },
+        list: { options: [], status: { tone: 'busy', text: 'Loading options' }, actions: refreshing },
+        side: presetSide,
       },
       {
         id: 'paused',
@@ -368,7 +341,7 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
         caption: 'Paused, under the list beside Refresh: the list keeps what it shows and the filter. Refresh can be tried by hand; nothing retries on a timer.',
         node: 'preset',
         open: 'preset',
-        list: { options: presets(), highlight: 0, status: { tone: 'notice', text: 'Paused: asked too often' }, actions: refresh },
+        list: { options: presets(), highlight: 0, status: { tone: 'notice', text: 'Too many refreshes. Wait a moment, then press Refresh.' }, actions: refresh },
         side: presetSide,
       },
       {
@@ -377,13 +350,13 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
         caption: 'In node search and the registry, lookups are off and say so: no calls and no timers.',
         node: 'preset',
         open: 'preset',
-        list: { options: [], status: { tone: 'notice', text: 'Lookups are off in this preview' } },
+        list: { options: [], status: { tone: 'notice', text: 'Options are not loaded in a preview.' } },
         side: presetSide,
       },
     ],
   },
   {
-    title: 'Folders, long names, assets and models',
+    title: 'Folders and long names',
     examples: [
       {
         id: 'folder',
@@ -401,71 +374,33 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
           highlight: 1,
           actions: refresh,
         },
-        side: { facts: [{ key: 'folder', value: 'drawing' }, defaultLink], help: PRESET_HELP },
+        side: presetSide,
       },
       {
-        id: 'model',
-        title: 'Long model names',
-        caption: 'Names stay on one line with an ellipsis; the highlighted name is written out in full beside the list. Two models share a label and keep their own identities, told apart by their detail lines.',
-        node: 'checkpoint',
-        values: {
-          ckpt: { digest: 'blake3:' + 'c'.repeat(64), name: 'portrait-with-a-long-descriptive-name-v2.safetensors', size: 6_700_000_000, mediaType: 'application/octet-stream', virtualPath: 'models/checkpoints/portrait-with-a-long-descriptive-name-v2.safetensors' },
-        },
-        open: 'ckpt',
+        id: 'long',
+        title: 'Long names',
+        caption: 'Names stay on one line with an ellipsis; the highlighted name is written out in full beside the list. Two presets share a label and keep their own values, told apart by their detail lines.',
+        node: 'preset',
+        values: { preset: 'watercolor-wash-with-soft-edges-and-paper-grain' },
+        open: 'preset',
         list: {
           options: [
-            option('portrait-with-a-long-descriptive-name-v2.safetensors', { saved: true, detail: 'Local / sdxl / 6.7 GB' }),
-            option('portrait.safetensors', { key: 'portrait-sd15', detail: 'Local / sd15 / 2.1 GB' }),
-            option('portrait.safetensors', { key: 'portrait-sdxl', detail: 'Local / sdxl / 6.9 GB' }),
-            option('landscape-xl.safetensors', { detail: 'Local / sdxl / 6.9 GB' }),
-            option('anime-flat-color.safetensors', { detail: 'Local / sd15 / 2.0 GB' }),
+            option('watercolor-wash-with-soft-edges-and-paper-grain', { saved: true, detail: 'drawing / painterly' }),
+            option('portrait', { key: 'portrait-soft', detail: 'drawing / soft light' }),
+            option('portrait', { key: 'portrait-hard', detail: 'drawing / hard light' }),
+            option('line-art'),
+            option('flat-color'),
           ],
           highlight: 0,
-          actions: ['Browse models'],
+          actions: refresh,
         },
         side: {
           facts: [
-            { key: 'highlighted', value: 'portrait-with-a-long-descriptive-name-v2.safetensors' },
-            { key: 'detail', value: 'Local / sdxl / 6.7 GB' },
+            { key: 'highlighted', value: 'watercolor-wash-with-soft-edges-and-paper-grain' },
+            defaultLink,
           ],
-          help: 'The checkpoint to load.',
+          help: PRESET_HELP,
         },
-      },
-      {
-        id: 'asset',
-        title: 'Asset list',
-        caption: 'Every image this field may take now, filtered in place. Browse all assets opens the asset browser without storing; Cancel there returns to this filter.',
-        node: 'image',
-        open: 'image',
-        list: {
-          options: [
-            option('portrait.png', { saved: true, detail: 'Image / 1024 x 1024' }),
-            option('landscape.png', { detail: 'Image / 1536 x 1024' }),
-            option('sketch.webp', { detail: 'Image / 768 x 768' }),
-          ],
-          highlight: 0,
-          actions: ['Browse all assets'],
-        },
-        side: { facts: [{ key: 'default', value: 'none' }], help: 'The image to start from. Browse does not store.' },
-      },
-      {
-        id: 'unready',
-        title: 'Model not ready',
-        caption: 'A model with no local variant to choose is named but cannot be stored. Browse models opens the existing preparation flow; nothing downloads from the list.',
-        node: 'checkpoint',
-        values: {
-          ckpt: { digest: 'blake3:' + 'd'.repeat(64), name: 'sd_xl_base_1.0.safetensors', size: 6_900_000_000, mediaType: 'application/octet-stream', virtualPath: 'models/checkpoints/sd_xl_base_1.0.safetensors' },
-        },
-        open: 'ckpt',
-        list: {
-          options: [
-            option('sd_xl_base_1.0.safetensors', { saved: true, detail: 'Local / sdxl / 6.9 GB' }),
-            option('flux1-dev.safetensors', { unavailable: true, detail: 'Not on this machine - cannot be chosen' }),
-          ],
-          highlight: 1,
-          actions: ['Browse models'],
-        },
-        side: { facts: [{ key: 'highlighted', value: 'flux1-dev.safetensors' }], help: 'Not on this machine. Browse models to prepare it; choosing here never downloads.' },
       },
     ],
   },
@@ -524,7 +459,7 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
           highlight: 0,
           actions: refresh,
         },
-        side: { facts: [defaultLink] },
+        side: presetSide,
       },
     ],
   },
@@ -544,7 +479,7 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
           actions: refresh,
           frozen: true,
         },
-        side: { facts: [defaultLink], help: 'Waiting for the stored change. Other rows wait.' },
+        side: presetSide,
       },
       {
         id: 'refused',
@@ -571,14 +506,14 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
       {
         id: 'choice',
         title: 'Static choice',
-        caption: 'A declared static choice uses the same filter and list, without a lookup status or Refresh. Labels and stored values stay distinct.',
+        caption: 'A declared static choice uses the same filter and list, without a lookup status or Refresh. An option can show one name and store another: the list shows Euler, the workflow stores euler.',
         node: 'sampler',
         open: 'sampler_name',
         list: {
           options: SAMPLERS.map((item, index) => option(item.label, { key: item.value, ...(index === 0 ? { saved: true } : {}) })),
           highlight: 0,
         },
-        side: { facts: [{ key: 'default', value: 'Euler', link: true }, { key: 'stored', value: 'euler' }], help: 'The sampling method.' },
+        side: { facts: [{ key: 'default', value: 'Euler', link: true }], help: 'The sampling method.' },
       },
       {
         id: 'author',
@@ -592,7 +527,7 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
           actions: ['Edit options'],
           focusedAction: 'Edit options',
         },
-        side: { facts: [{ key: 'default', value: 'Euler', link: true }, { key: 'stored', value: 'euler' }], help: 'Alt+Down reached Edit options; Enter opens it.' },
+        side: { facts: [{ key: 'default', value: 'Euler', link: true }], help: 'The sampling method.' },
       },
     ],
   },
@@ -762,7 +697,7 @@ export function RowListExample(props: { example: ListExample; theme: 'dark' | 'l
               onSideSize={setSideSize}
               side={sidePart(
                 example().id === 'locked'
-                  ? { facts: [{ key: 'default', value: '1.00' }], help: 'Tab skipped preset: a wire drives it.' }
+                  ? { facts: [{ key: 'default', value: '1.00' }], help: 'How strongly the preset applies.' }
                   : { facts: [{ key: 'default', value: 'portrait' }], help: PRESET_HELP },
               )}
             />
@@ -815,7 +750,7 @@ export function RowListExample(props: { example: ListExample; theme: 'dark' | 'l
   )
 }
 
-/** Choice, asset and model rows opened as one filtered list in their own row, painted by the production renderer. */
+/** Choice rows opened as one filtered list in their own row, painted by the production renderer. */
 export function RowListsGallery(props: { theme: 'dark' | 'light' }) {
   const registry = createWidgetRegistry()
   registerCoreWidgets(widgetRegistrationDoors(registry))

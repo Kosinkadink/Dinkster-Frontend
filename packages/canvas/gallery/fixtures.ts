@@ -31,7 +31,9 @@ import {
   mediaDiagnosticBadge,
   regionIterationBadge,
   subgraphBadge,
+  partialExecutionButtons,
   toolboxButton,
+  toolboxSeparator,
   type BadgeMap,
   type NodeBadge,
   type CompanionMap,
@@ -49,6 +51,7 @@ import {
   boundaryNamesGalleryScene,
   structuralGalleryScene,
 } from './structure.js'
+import { switchPrimitiveGallery } from './switch-primitive.js'
 import { widgetTapGallery } from './widget-taps.js'
 
 export const canvasGalleryPages = [
@@ -84,6 +87,7 @@ export const canvasGalleryPages = [
   ['zoom-content', 'Content zoom'],
   ['zoom-overview', 'Overview zoom'],
   ['minimap', 'Minimap'],
+  ['switch-primitive', 'Switch and Primitive'],
 ] as const
 export type CanvasGalleryPage = (typeof canvasGalleryPages)[number][0]
 
@@ -225,6 +229,12 @@ export interface CanvasGalleryFixture {
     caption: string
     nodes?: readonly number[]
     overlay?: OverlayState
+    /** A card drawn from a scene of its own instead of the page's scene, with its own run states, values, marks and dimmed nodes. */
+    scene?: Scene
+    states?: Readonly<Record<string, NodeProgress>>
+    companions?: CompanionMap
+    rowMarks?: RowMarkMap
+    inactive?: ReadonlySet<string>
   }[]
 }
 
@@ -687,6 +697,15 @@ export function createCanvasGalleryFixture(
         }
       })
     }
+  } else if (page === 'switch-primitive') {
+    const cards = switchPrimitiveGallery(tokens, measure, widgetMeasure)
+    // Each card draws its own scene; the page's scene is the first card's,
+    // for checks that read one scene per page.
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
+    fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
   } else if (page === 'widget-taps') {
     const gallery = widgetTapGallery(tokens, measure, widgetMeasure)
     fixture.scene.nodes = [...gallery.scene.nodes]
@@ -1010,23 +1029,43 @@ export function createCanvasGalleryFixture(
     })
     fixture.badges = map
     fixture.overlay = { selection: new Set([`${badges[0]!.id}: ${badges[0]!.glyph}`]) }
+    // The rows CanvasHost builds for one ordinary node in the root graph.
     fixture.toolbox = [
+      partialExecutionButtons({
+        between: 'requires a contiguous multi-node selection',
+      }).map(toolboxButton),
       [
-        ...(
-          [
-            'play',
-            'play-to',
-            'play-between',
-            'play-from',
-            'volume-x',
-            'ban',
-            'circle',
-            'group',
-            'boxes',
-            'trash-2',
-            'ellipsis-vertical',
-          ] as const
-        ).map((icon) => toolboxButton({ id: icon, icon, label: icon })),
+        toolboxButton({ id: 'core.delete', icon: 'trash-2', label: 'Delete' }),
+        toolboxSeparator(),
+        toolboxButton({
+          id: 'core.mode',
+          icon: 'sliders-horizontal',
+          label: 'Choose mode',
+        }),
+        toolboxButton({
+          id: 'core.extractSubgraph',
+          icon: 'group',
+          label: 'Extract as subgraph',
+        }),
+        toolboxButton({
+          id: 'core.flattenSubgraph',
+          icon: 'ungroup',
+          label: 'Flatten subgraph one level',
+          disabled: true,
+          reason: 'Select exactly one subgraph occurrence.',
+        }),
+        toolboxSeparator(),
+        toolboxButton({
+          id: 'core.color',
+          icon: 'circle',
+          label: 'Choose color',
+        }),
+        toolboxSeparator(),
+        toolboxButton({
+          id: 'core.more',
+          icon: 'ellipsis-vertical',
+          label: 'More actions',
+        }),
       ],
     ]
     fixture.height = 1300

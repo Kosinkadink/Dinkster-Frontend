@@ -866,6 +866,7 @@ const decodeWorkers = (value: unknown): readonly WorkerInfo[] | undefined => {
 
 /** One job's wire record plus the identity it is keyed by. */
 export interface DinksterJobRecord extends DinksterJobWire {
+  readonly clientId?: unknown
   readonly jobId?: unknown
   readonly attemptId?: unknown
   readonly outputs?: unknown
@@ -1011,6 +1012,7 @@ export interface MountDescriptor {
    */
   readonly mode: 'read' | 'readwrite'
   readonly state: string
+  readonly source?: string
   readonly path?: string
   /** Optional semantic scope for homogeneous mounts (for example model/checkpoint). */
   readonly kind?: string
@@ -1026,7 +1028,7 @@ export interface MountGrantOptions {
 }
 
 export interface MountLocations {
-  readonly mounts: readonly { readonly id: string; readonly path: string }[]
+  readonly mounts: readonly ({ readonly id: string; readonly path: string } & Partial<MountDescriptor>)[]
   readonly activeMounts?: readonly (MountDescriptor & { readonly path: string })[]
   readonly importMount?: string | null
 }
@@ -1799,6 +1801,7 @@ export interface HistoryRunRecord {
   readonly principalId?: string
   readonly principalKind?: 'human' | 'agent'
   readonly nodeReceipts?: readonly NodeExecutionReceipt[]
+  readonly thumbnail?: MediaAssetRef
   readonly error?: { readonly kind?: string; readonly message?: string } & Record<string, unknown>
 }
 
@@ -1855,10 +1858,22 @@ const decodeHistoryRun = (v: unknown): HistoryRunRecord | undefined => {
   const {
     principalId: _wirePrincipalId,
     principalKind: _wirePrincipalKind,
+    thumbnail: wireThumbnail,
     ...record
   } = r
+  let thumbnail: MediaAssetRef | undefined
+  if (typeof wireThumbnail === 'object' && wireThumbnail !== null && !Array.isArray(wireThumbnail)) {
+    const asset = wireThumbnail as Record<string, unknown>
+    if (typeof asset['digest'] === 'string' && /^blake3:[0-9a-f]{64}$/.test(asset['digest']) &&
+        typeof asset['name'] === 'string' && typeof asset['virtualPath'] === 'string' &&
+        typeof asset['size'] === 'number' && Number.isSafeInteger(asset['size']) && asset['size'] >= 0 &&
+        typeof asset['mediaType'] === 'string' && /^(image|video)\//.test(asset['mediaType'])) {
+      thumbnail = asset as MediaAssetRef
+    }
+  }
   return {
     ...record,
+    ...(thumbnail === undefined ? {} : { thumbnail }),
     ...(typeof r['principalId'] === 'string' ? { principalId: r['principalId'] } : {}),
     ...(r['principalKind'] === 'human' || r['principalKind'] === 'agent'
       ? { principalKind: r['principalKind'] }
@@ -2583,7 +2598,22 @@ export class DinksterConnection {
     return this.decodeJobRecord(await res.json(), jobId)
   }
 
-  private decodeJobRecord(payload: unknown, jobId: string): DinksterJobRecord {
+  /** Inspect a stored run without changing this connection's submission identity. */
+  async fetchHistoryJob(run: HistoryRunRecord): Promise<DinksterJobRecord | undefined> {
+    const jobRef = run.jobRef ?? run.runId
+    const res = await this.fetchFn(`${this.baseUrl}/api/jobs/by-ref/${encodeURIComponent(jobRef)}`)
+    if (res.status === 404 || res.status === 410) return undefined
+    if (!res.ok) throw await this.failExecutionRequest(res, 'inspect')
+    const job = this.decodeJobRecord(await res.json(), run.jobId, run.clientId)
+    if (job.clientId !== run.clientId || job.jobId !== run.jobId ||
+      job.jobRef !== jobRef || job.sourceDocument !== run.sourceDocument ||
+      (run.state !== 'interrupted' && job.state !== run.state)) {
+      throw new Error('GET stored job: response run identity mismatch')
+    }
+    return job
+  }
+
+  private decodeJobRecord(payload: unknown, jobId: string, clientId = this.clientId): DinksterJobRecord {
     const state = (payload as { state?: unknown } | null)?.state
     if (typeof payload !== 'object' || payload === null || Array.isArray(payload) ||
       typeof state !== 'string' ||
@@ -2601,7 +2631,7 @@ export class DinksterConnection {
     if (record.jobId !== undefined && record.jobId !== jobId) {
       throw new Error(`GET job: response identity mismatch (expected ${jobId})`)
     }
-    if (record.clientId !== undefined && record.clientId !== this.clientId) {
+    if (record.clientId !== undefined && record.clientId !== clientId) {
       throw new Error('GET job: response clientId mismatch')
     }
     const artifacts = decodeJobArtifacts(record.artifacts)
@@ -3588,6 +3618,7 @@ export class DinksterConnection {
       return typeof row['id'] === 'string' && (row['mode'] === 'read' || row['mode'] === 'readwrite') &&
         typeof row['state'] === 'string' && (row['path'] === undefined || typeof row['path'] === 'string') &&
         (row['kind'] === undefined || typeof row['kind'] === 'string') &&
+        (row['source'] === undefined || typeof row['source'] === 'string') &&
         (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
     })
     if (payload.outputMount != null && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
@@ -3625,17 +3656,27 @@ export class DinksterConnection {
     if (!Array.isArray(payload.mounts)) throw new Error('GET /api/mounts/locations: malformed response')
     if (payload.importMount !== undefined && payload.importMount !== null &&
         (typeof payload.importMount !== 'string' || payload.importMount === '')) throw new Error('GET /api/mounts/locations: malformed import mount')
-    const location = (value: unknown) => {
+    const location = (value: unknown): MountLocations['mounts'][number] => {
       const row = value as Record<string, unknown> | null
       if (row === null || typeof row !== 'object' || typeof row['id'] !== 'string' || typeof row['path'] !== 'string') throw new Error('GET /api/mounts/locations: malformed location')
-      return { id: row['id'], path: row['path'] }
+      if ((row['mode'] !== undefined && row['mode'] !== 'read' && row['mode'] !== 'readwrite') ||
+        ['state', 'source', 'kind'].some((key) => row[key] !== undefined && typeof row[key] !== 'string') ||
+        (row['entryCount'] !== undefined && (typeof row['entryCount'] !== 'number' || !Number.isSafeInteger(row['entryCount']) || row['entryCount'] < 0))) {
+        throw new Error('GET /api/mounts/locations: malformed location facts')
+      }
+      return { id: row['id'], path: row['path'],
+        ...(row['mode'] === 'read' || row['mode'] === 'readwrite' ? { mode: row['mode'] } : {}),
+        ...(typeof row['state'] === 'string' ? { state: row['state'] } : {}),
+        ...(typeof row['source'] === 'string' ? { source: row['source'] } : {}),
+        ...(typeof row['kind'] === 'string' ? { kind: row['kind'] } : {}),
+        ...(typeof row['entryCount'] === 'number' ? { entryCount: row['entryCount'] } : {}),
+      }
     }
     if (payload.activeMounts !== undefined && !Array.isArray(payload.activeMounts)) throw new Error('GET /api/mounts/locations: malformed active mounts')
     const activeMounts = (payload.activeMounts as unknown[] | undefined)?.map((value): MountDescriptor & { readonly path: string } => {
-      const path = location(value)
-      const row = value as Record<string, unknown>
-      if ((row['mode'] !== 'read' && row['mode'] !== 'readwrite') || typeof row['state'] !== 'string') throw new Error('GET /api/mounts/locations: malformed active mount')
-      return { ...path, mode: row['mode'], state: row['state'] }
+      const row = value as Record<string, unknown> | null
+      if (row === null || typeof row !== 'object' || (row['mode'] !== 'read' && row['mode'] !== 'readwrite') || typeof row['state'] !== 'string') throw new Error('GET /api/mounts/locations: malformed active mount')
+      return { ...location(value), mode: row['mode'], state: row['state'] }
     })
     return { mounts: payload.mounts.map(location), ...(activeMounts !== undefined ? { activeMounts } : {}),
       ...(payload.importMount !== undefined ? { importMount: payload.importMount as string | null } : {}) }
@@ -4232,6 +4273,11 @@ export class DinksterConnection {
       fetchFn: this.fetchFn,
     })
     return this.valuesClient
+  }
+
+  /** Values keep the selected history record's original client identity. */
+  historyValues(run: HistoryRunRecord): DinksterValuesClient {
+    return new DinksterValuesClient({ baseUrl: this.baseUrl, clientId: run.clientId, fetchFn: this.fetchFn })
   }
 
   // -- WebSocket -----------------------------------------------------------------

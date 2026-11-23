@@ -42,7 +42,6 @@ test('Ctrl+K opens from the canvas but remains suppressed while typing', async (
 test('node search ghost appears at the selection cursor with zero movement and Escape clears placement affordances', async ({ page }) => {
   await page.goto('/')
   // Placement needs the app bridge and node schemas; wait for readiness.
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
     type: 'KSampler', displayName: 'KSampler', category: 'sampling', source: 'e2e', isOutputNode: false, items: [],
@@ -361,7 +360,6 @@ test('manifest-gated extension providers use host groups, previews, actions, and
 
 test('Search Dinkster keeps the node title center under the placement click at every canvas zoom', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{

@@ -1,5 +1,5 @@
 import type { TestInfo } from '@playwright/test'
-import { expect, nativeTest as test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 interface PointerProbeEntry {
   readonly type: string
@@ -81,7 +81,7 @@ async function openBlankCanvas(page: Page): Promise<void> {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'canvas-handoff', schemaWire: 1 }, nodes: {},
   } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', { timeout: 15_000 })
+  await waitForWorkspaceReady(page, 0)
   expect(await page.evaluate(async (workflow) => (await window.__dinksterTest!.app.openDocument(workflow, 'Canvas handoff')), blankWorkflow)).toEqual([])
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer?.getScene().graphId)).toBe('g0')
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))

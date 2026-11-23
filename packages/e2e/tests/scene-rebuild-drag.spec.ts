@@ -5,7 +5,7 @@
  * keeps the installed scene, so scene-replacement listeners never fire and
  * the drag commits normally on release. Issue #213.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function identityViewport(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -37,7 +37,7 @@ async function pinPoint(
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   const failures = await page.evaluate(async () => {
     const IMAGE = { kind: 'concrete', name: 'IMAGE' }
     const schemaOf = (type: string, items: unknown[]) =>

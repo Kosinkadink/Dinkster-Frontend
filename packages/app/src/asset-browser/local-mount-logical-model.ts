@@ -18,15 +18,14 @@ const compareObserved = (left: ObservedAsset, right: ObservedAsset): number => {
   return left.item.source.id < right.item.source.id ? -1 : left.item.source.id > right.item.source.id ? 1 : 0
 }
 
-/** Every entry of one source for one kind, read to its last page. */
-export async function scanSource(source: AssetSourceAdapter, kind: string | undefined, signal?: AbortSignal): Promise<readonly AssetBrowserItem[]> {
+async function scanSource(source: AssetSourceAdapter, kind: string, signal?: AbortSignal): Promise<readonly AssetBrowserItem[]> {
   const items: AssetBrowserItem[] = []
   let cursor: string | undefined
   do {
     signal?.throwIfAborted()
     const page = await source.page({
       query: '',
-      ...(kind !== undefined ? { kind } : {}),
+      kind,
       recursive: true,
       limit: 200,
       ...(cursor !== undefined ? { cursor } : {}),

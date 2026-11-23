@@ -4,7 +4,7 @@
  * Real pointer/keyboard input against the live app; document assertions go
  * through the __dinksterTest bridge (commands -> DocumentStore -> doc).
  */
-import { expect, test, subgraphMarkPoint, type Page } from './fixtures.js'
+import { expect, test, subgraphMarkPoint, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 /** Reset the viewport to identity so world coords == canvas CSS pixels. */
 async function identityViewport(page: Page): Promise<void> {
@@ -117,7 +117,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   await page.goto('/')
   // The initial event connection refreshes schemas and invalidates open menus.
   // Wait for its catalog before touching the canvas.
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.connection.status.get() === 'connected' &&

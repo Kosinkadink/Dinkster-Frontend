@@ -123,7 +123,7 @@
     {
       "kind": "rawControl",
       "path": "packages/app/src/ExecutionActivityCard.tsx",
-      "count": 2,
+      "count": 1,
       "issue": 382
     },
     {
@@ -142,18 +142,6 @@
       "kind": "rawControl",
       "path": "packages/app/src/LibraryPanel.tsx",
       "count": 2,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
-      "path": "packages/app/src/MemoryPanel.tsx",
-      "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "inlineStyle",
-      "path": "packages/app/src/MemoryPanel.tsx",
-      "count": 1,
       "issue": 382
     },
     {

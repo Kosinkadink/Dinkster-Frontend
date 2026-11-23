@@ -1,4 +1,4 @@
-import { browseFromRow, expect, selectProductOption, nativeTest as test, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, type Page } from './fixtures.js'
 
 test.use({ trace: 'retain-on-failure' })
 
@@ -56,7 +56,6 @@ async function openWidget(page: Page, nodeId: string, inputId: string): Promise<
     return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + row.y + row.height / 2 }
   }, { nodeId, inputId })
   await page.mouse.click(point.x, point.y)
-  await browseFromRow(page)
   await expect(page.getByTestId('asset-editor')).toBeVisible()
 }
 
@@ -64,7 +63,8 @@ test('uses one collection shell for grouped models and media', async ({ page }) 
   await installRoutes(page)
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
-  await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('status-connection').click()
+  await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(MOCK)
   await page.getByTestId('backend-add').click()
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)

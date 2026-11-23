@@ -174,7 +174,7 @@ The region is appended after the node's final row with the normal body inset.
 It starts with a 22 world-unit caption row: the word "Preview" in the label
 color, and at its right end, in the quieter color, what the region holds.
 Before content exists the row says `no picture yet`; while the first picture
-loads it says `loading`, and after a failure `failed` (or the loader's own
+loads it says `loading...`, and after a failure `failed` (or the loader's own
 reason). Such a row has no arrow, nothing under it, and is ordinary node body.
 Right-click the caption row (or anywhere on the region) and choose **Promote to
 App View** to expose the preview, before running the workflow too.
