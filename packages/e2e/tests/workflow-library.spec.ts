@@ -171,7 +171,7 @@ test.describe('shared native library', () => {
     expect(upload.status()).toBe(201)
     const { digest } = await upload.json() as { digest: string }
     const published = await page.request.post(`${peer!}/api/library`, {
-      data: { scope: 'local', name: title, digest, mediaType: 'application/x-dinkster-workflow+json' },
+      data: { scope: 'local', name: title, digest, mediaType: 'application/x-dinkster-workflow+json', labels: ['workflow'] },
     })
     expect(published.status()).toBe(201)
     const record = await published.json() as { id: string; revision: number }
