@@ -44,6 +44,7 @@ for (const theme of ['dark', 'light'] as const) {
     await boot(page)
     await closeGallery(page)
     await page.getByTestId('bottom-panel-toggle').click()
+    await page.evaluate(() => window.__dinksterTest!.app.dock.dock('node-help', 'bottom'))
     for (const zone of ['right', 'bottom'] as const) {
       const panel = page.getByTestId(`dock-zone-${zone}`)
       const selected = panel.getByRole('tab', { selected: true })
@@ -248,6 +249,104 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
   }
 }
 
+test('stored run outputs load only after selection and retain their original identity', async ({ page }, testInfo) => {
+  const records = ['stored-good', 'stored-failed', 'stored-wrong'].map((runId, index) => ({
+    runId, jobRef: runId, scope: 'local', clientId: `other-browser-${index}`, jobId: `shared-job-${index}`,
+    state: 'completed', priority: 0, submittedAt: 1767225600 - index * 10, finishedAt: 1767225605 - index * 10,
+    executed: 1, cached: 0, skipped: 0,
+  }))
+  const jobs: string[] = []
+  let release!: () => void
+  const released = new Promise<void>((resolve) => { release = resolve })
+  let historyPages = 0
+  await page.route('**/api/history?*', (route) => {
+    historyPages += 1
+    return route.fulfill({ json: { records } })
+  })
+  await page.route('**/api/history/*', (route) => {
+    const id = new URL(route.request().url()).pathname.split('/').at(-1)
+    return route.fulfill({ json: records.find((record) => record.runId === id) })
+  })
+  await page.route('**/api/jobs/by-ref/*', async (route) => {
+    const id = new URL(route.request().url()).pathname.split('/').at(-1)!
+    jobs.push(id)
+    if (id === 'stored-failed') return route.fulfill({ status: 503 })
+    const record = records.find((record) => record.runId === id)!
+    if (id === 'stored-good') await released
+    return route.fulfill({ json: { ...record, jobRef: id === 'stored-wrong' ? 'another-run' : id,
+      outputs: { image: { result: { typeId: 'IMAGE', fingerprint: 'stored-image', meta: { shape: [1, 32, 64, 3] } } } },
+    } })
+  })
+  const values: URL[] = []
+  await page.route('**/api/values?*', async (route) => {
+    const url = new URL(route.request().url())
+    values.push(url)
+    if (!url.searchParams.has('rendition')) return route.fulfill({ json: { available: true,
+      descriptor: { typeId: 'IMAGE', fingerprint: 'stored-image', meta: { shape: [1, 32, 64, 3] } },
+      renditions: [{ kind: 'png', mime: 'image/png' }],
+    } })
+    const png = await page.evaluate(() => {
+      const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 32
+      const context = canvas.getContext('2d')!; context.fillStyle = '#32e6c5'; context.fillRect(0, 0, 64, 32)
+      return canvas.toDataURL('image/png').split(',')[1]!
+    })
+    return route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64'),
+      headers: { 'X-Dinkster-Fingerprint': 'stored-image', 'X-Dinkster-Rendition': 'png' } })
+  })
+  await boot(page)
+  await closeGallery(page)
+  await openRail(page, 'Runs')
+  await page.getByTestId('runs-scope').click()
+  await page.getByRole('option', { name: 'All workflows', exact: true }).click()
+  const rows = page.getByTestId('collection-entry')
+  await expect(rows).toHaveCount(3)
+  expect(jobs).toEqual([])
+  await expect(page.locator('.runs-output-thumbnails')).toHaveCount(0)
+  const good = rows.filter({ hasText: 'shared-j' }).nth(0)
+  await good.click()
+  await expect(good).toContainText('Loading retained outputs...')
+  await page.mouse.move(600, 400)
+  await page.keyboard.press('Escape')
+  await page.screenshot({ path: testInfo.outputPath('stored-run-loading.png'), animations: 'disabled' })
+  const previousPages = historyPages
+  await page.evaluate(() => window.__dinksterTest!.app.backendsTick.update((value) => value + 1))
+  await expect.poll(() => historyPages).toBeGreaterThan(previousPages)
+  release()
+  await expect(good.locator('.output-thumbnail img')).toHaveJSProperty('naturalWidth', 64)
+  expect(jobs).toEqual(['stored-good'])
+  expect(values.length).toBeGreaterThan(0)
+  expect(values.every((url) => url.searchParams.get('clientId') === 'other-browser-0' && url.searchParams.get('jobId') === 'shared-job-0')).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
+  await page.screenshot({ path: testInfo.outputPath('stored-run-selected.png'), animations: 'disabled' })
+  await rows.nth(1).click()
+  await expect(rows.nth(1)).toContainText('Could not load outputs:')
+  await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true')
+  await rows.nth(2).click()
+  await expect(rows.nth(2)).toContainText('response run identity mismatch')
+  await expect(rows.nth(2).locator('.output-thumbnail')).toHaveCount(0)
+  await rows.nth(2).scrollIntoViewIfNeeded()
+  await page.mouse.move(600, 400)
+  await page.keyboard.press('Escape')
+  await page.screenshot({ path: testInfo.outputPath('stored-run-error.png'), animations: 'disabled' })
+  await page.route('**/api/history?*', (route) => route.fulfill({ json: { records: [] } }))
+  await page.getByTestId('runs-scope').click()
+  await page.getByRole('option', { name: 'This workflow', exact: true }).click()
+  await page.getByTestId('runs-scope').click()
+  await page.getByRole('option', { name: 'All workflows', exact: true }).click()
+  const empty = page.getByTestId('runs-panel').getByTestId('collection-empty')
+  await expect(empty).toHaveText('No finished runs are stored')
+  await page.screenshot({ path: testInfo.outputPath('stored-runs-empty.png'), animations: 'disabled' })
+  await page.getByTestId('runs-panel').getByTestId('collection-search').fill('absent run')
+  await expect(empty).toHaveText('No matches.')
+  await page.getByTestId('runs-panel').getByTestId('collection-source-action').click()
+  const confirmation = page.getByTestId('runs-clear-confirmation')
+  await expect(confirmation).toHaveText('Removes every finished run on this backend, for all workflows. Saved files stay.')
+  await page.screenshot({ path: testInfo.outputPath('clear-finished-confirmation-1440.png'), animations: 'disabled' })
+  await page.setViewportSize({ width: 900, height: 900 })
+  await expect(confirmation).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('clear-finished-confirmation-900.png'), animations: 'disabled' })
+})
+
 test('App view validation and remote failures keep editable controls', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
@@ -421,18 +520,16 @@ test('runtime panel headers and backend add error at desktop and compact widths'
   }
 })
 
-test('Boundary prompt and definition empty states at desktop and compact widths', async ({ page }) => {
+test('Boundary is hidden at root and shows definition empty states at desktop and compact widths', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
-  await openRail(page, 'Boundary')
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
     await page.evaluate(() => (window.__dinksterTest!.app as unknown as {
       createWorkflow(): void
     }).createWorkflow())
-    await expect(page.getByTestId('boundary-prompt')).toContainText('Open a subgraph definition')
-    await expect(page.getByTestId('boundary-prompt').getByRole('button')).toHaveCount(0)
-    await screenshot(page, `boundary-prompt-${width}`)
+    await expect(page.getByTestId('boundary-panel')).toHaveCount(0)
+    await expect(page.getByTestId('dock-tab-boundary')).toHaveCount(0)
     expect(await page.evaluate(async () => {
       const app = window.__dinksterTest!.app
       // Blank workflow creation starts promotion without waiting for it.
@@ -456,10 +553,17 @@ test('Boundary prompt and definition empty states at desktop and compact widths'
       } },
       }, 'Boundary visual')
     })).toEqual([])
-    const open = page.getByTestId('boundary-prompt').getByRole('button', { name: 'Open Nested workflow', exact: true })
-    await expect(open).toBeEnabled()
-    await screenshot(page, `boundary-open-definition-${width}`)
-    await open.click()
+    await expect(page.getByTestId('boundary-panel')).toHaveCount(0)
+    const header = await page.evaluate(() => {
+      const renderer = window.__dinksterTest!.renderer!
+      renderer.setViewport({ x: 0, y: 0, scale: 1 })
+      const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'occurrence')!
+      const point = { x: node.x + node.layout.width / 2, y: node.y + node.layout.headerHeight / 2 }
+      const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+      return { x: rect.left + point.x, y: rect.top + point.y }
+    })
+    await page.mouse.dblclick(header.x, header.y)
+    await openRail(page, 'Boundary')
     await expect(page.getByTestId('boundary-prompt')).toHaveCount(0)
     await expect(page.getByTestId('boundary-empty')).toHaveCount(2)
     await expect(page.getByTestId('boundary-empty').first()).toContainText('No workflow inputs are exposed.')
@@ -512,20 +616,16 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('app-tooltip')).toBeHidden()
     await screenshot(page, `metadata-error-backends-${width}`)
-    await openRail(page, 'Outputs')
-    const outputs = page.getByTestId('outputs-panel')
-    await expect(outputs.getByRole('alert')).toContainText('GET /api/nodes failed: 503')
-    await expect(outputs.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
-    await screenshot(page, `metadata-error-outputs-${width}`)
   }
   recover = true
-  await page.getByTestId('outputs-panel').getByRole('button', { name: 'Retry', exact: true }).click()
-  await expect(page.getByTestId('outputs-panel').getByRole('alert')).toHaveCount(0)
+  await openDock(page, 'library-toggle')
+  await page.getByTestId('dock-zone-left').getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByTestId('dock-zone-left').getByRole('alert')).toHaveCount(0)
   await expect(page.getByTestId('status-bar')).not.toContainText('disconnected')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
 })
 
-test('Library Assets and Outputs use shared empty and loading states', async ({ page }) => {
+test('Library Assets and Runs use shared empty and loading states', async ({ page }) => {
   let mode: 'empty' | 'loading' | 'error' = 'empty'
   let release: (() => void) | undefined
   await page.route('**/collection-visual/api/**', async (route) => {
@@ -557,7 +657,7 @@ test('Library Assets and Outputs use shared empty and loading states', async ({ 
   for (const state of ['empty', 'loading', 'error'] as const) {
     await page.setViewportSize({ width: 1440, height: 900 })
     await library.getByTestId('library-source-select').click()
-    await page.getByRole('option', { name: 'History', exact: true }).click()
+    await page.getByRole('option', { name: 'Packs', exact: true }).click()
     mode = state
     await library.getByTestId('library-source-select').click()
     await page.getByRole('option', { name: 'Workflows', exact: true }).click()
@@ -584,8 +684,8 @@ test('Library Assets and Outputs use shared empty and loading states', async ({ 
   await expect(library.getByTestId('collection-retry')).toHaveCount(0)
   await openDock(page, 'assets-toggle')
   await expect(page.getByTestId('assets-overlay')).toContainText('No assets')
-  await openRail(page, 'Outputs')
-  await expect(page.getByTestId('outputs-panel')).toContainText('No execution selected')
+  await openRail(page, 'Runs')
+  await expect(page.getByTestId('runs-panel')).toContainText('No runs for this workflow')
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
     await page.mouse.move(width / 2, height / 2)
@@ -842,31 +942,32 @@ test('Template gallery presents loading error retry and empty search states', as
   await capture('folder-form')
 })
 
-test('Focused panel explains an empty context and absent document', async ({ page }) => {
+test('Problems Selection only explains an empty selection and absent document', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'focused-empty', root: 'g0',
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'selection-empty', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
       view: { graphs: {} },
     }, 'Empty workflow')
   })
-  await openRail(page, 'Focused')
-  const panel = page.getByTestId('context-panel')
-  await expect(panel.getByTestId('context-no-problems')).toHaveText('None in this context.')
+  await openRail(page, 'Problems')
+  const panel = page.getByTestId('problems-panel')
+  await panel.getByRole('checkbox', { name: 'Selection only' }).check()
+  await expect(panel.getByTestId('problems-selection')).toHaveText('Nothing selected')
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
-    await screenshot(page, `focused-empty-${width}`)
+    await screenshot(page, `problems-selection-empty-${width}`)
   }
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as { tabs: { set(value: readonly unknown[]): void } }
     app.tabs.set([])
   })
-  await expect(panel.getByText('No document is open.', { exact: true })).toBeVisible()
+  await expect(panel.getByTestId('problems-selection')).toHaveText('Nothing selected')
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
-    await screenshot(page, `focused-no-document-${width}`)
+    await screenshot(page, `problems-selection-no-document-${width}`)
   }
 })
 

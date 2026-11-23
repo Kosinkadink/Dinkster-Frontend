@@ -182,9 +182,10 @@ test("Save Image publishes its mounted path and follows the persisted output mou
     "output-mount-proof_00001_.png",
     { timeout: 15_000 },
   );
-  await page.getByRole("tab", { name: "Outputs" }).click();
+  await page.getByRole("tab", { name: "Runs", exact: true }).click();
+  await page.getByTestId("execution-row").first().locator(".runs-details > summary").click();
   await page.getByTestId("rail-resize").press("End");
-  await expect(page.getByTestId("outputs-panel")).toContainText(
+  await expect(page.getByTestId("runs-panel")).toContainText(
     "mounts/output/output-mount-proof_00001_.png",
   );
   expect(await readdir(defaultOutput)).toContain("output-mount-proof_00001_.png");
@@ -212,8 +213,9 @@ test("Save Image publishes its mounted path and follows the persisted output mou
 
   await page.getByTestId("backends-sidebar-toggle").click();
   await queueAndWait(page, 1);
-  await page.getByRole("tab", { name: "Outputs" }).click();
-  await expect(page.getByTestId("outputs-panel")).toContainText(
+  await page.getByRole("tab", { name: "Runs", exact: true }).click();
+  await page.getByTestId("execution-row").first().locator(".runs-details > summary").click();
+  await expect(page.getByTestId("runs-panel")).toContainText(
     "mounts/renders/output-mount-proof_00001_.png",
   );
   expect(await readdir(alternateOutput)).toContain("output-mount-proof_00001_.png");
