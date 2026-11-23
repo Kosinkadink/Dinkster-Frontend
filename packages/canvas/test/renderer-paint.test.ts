@@ -2030,31 +2030,25 @@ describe('node chrome paint on the live renderer', () => {
     expect(single.some((c) => c.method === 'setLineDash' && JSON.stringify(c.args[0]) === '[5,4]')).toBe(false)
   })
 
-  it('dims connected widget rows and strikes only stored values without companions', () => {
+  it('shows a wired row with no known value as Known after a run, never its stored value', () => {
     const scene = constructsScene((json) => {
       json.graphs.g0.nodes.fs.values = { f: 3.5 }
     })
     const fs = nodeOf(scene, 'fs')
     const row = fs.layout.rows.find((candidate) => candidate.kind === 'widget')!
     const calls = paint(scene)
-    const connectedText = calls.find((c) => c.method === 'fillText' && c.args[0] === row.label && c.args[1] === fs.x + row.inset + 6)
+    // The words take the companion layout, whose label starts after the stepper.
+    const connectedText = calls.find((c) => c.method === 'fillText' && c.args[0] === row.label &&
+      c.args[2] === fs.y + row.y + row.height / 2)
     expect(connectedText?.globalAlpha).toBeCloseTo(0.45)
-    const valueText = calls.find((c) => c.method === 'fillText' && c.args[0] === '3.5')!
-    const strike = calls.slice(calls.indexOf(valueText) + 1).find((c) => c.method === 'stroke')!
-    const strikeIndex = calls.indexOf(strike)
-    expect(strike).toMatchObject({
-      strokeStyle: defaultTokens.colors.value,
-      lineWidth: 1.5,
-      globalAlpha: 0.45,
+    expect(calls.some((c) => c.method === 'fillText' && c.args[0] === '3.5')).toBe(false)
+    // The narrow fixture fits the words to the row's value zone.
+    expect(calls.find((c) => c.method === 'fillText' && String(c.args[0]).startsWith('Known a'))).toMatchObject({
+      fillStyle: defaultTokens.colors.label,
     })
-    expect(calls[strikeIndex - 2]).toMatchObject({
-      method: 'moveTo',
-      args: [(valueText.args[1] as number) - 18, valueText.args[2]],
-    })
-    expect(calls[strikeIndex - 1]).toMatchObject({
-      method: 'lineTo',
-      args: [valueText.args[1], valueText.args[2]],
-    })
+    expect(calls.some((c) =>
+      c.method === 'stroke' && c.strokeStyle === defaultTokens.colors.value && c.lineWidth === 1.5,
+    )).toBe(false)
 
     const companionCalls = paintWith(scene, (renderer) => {
       renderer.setCompanions({ fs: { f: { value: 2.5 } } })
