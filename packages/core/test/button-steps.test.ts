@@ -257,6 +257,16 @@ describe('each step', () => {
     const outcome = await runPress(session, at('clear'), hostOf())
     expect(session.doc.graphs['g0']!.nodes['n1']!.dynamic!['loras']!.members).toEqual(['lora_2'])
     expect(outcome.skipped).toEqual([{ id: 'loras.lora_2', why: 'wired' }])
+
+    // A wire leaving a member field's output is a widget tap on the field, and keeps its member too.
+    const tapped = documentOf({
+      n1: { type: 'dev.buttons.member_steps', values: start.values, ...start.extra },
+      n2: { type: 'dev.buttons.member_steps', values: start.values, ...start.extra },
+    }, { t1: { id: asLinkId('t1'), from: { node: asNodeId('n1'), tap: asPortId('loras.lora_3.strength') }, to: { node: asNodeId('n2'), port: asPortId('loras.lora_1.strength') } } })
+    const tapSession = sessionOf(tapped)
+    const tapOutcome = await runPress(tapSession, at('clear'), hostOf())
+    expect(tapSession.doc.graphs['g0']!.nodes['n1']!.dynamic!['loras']!.members).toEqual(['lora_3'])
+    expect(tapOutcome.skipped).toEqual([{ id: 'loras.lora_3', why: 'wired' }])
   })
 
   it('SetEach works out every member before it writes any', async () => {
