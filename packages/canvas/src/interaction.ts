@@ -3433,11 +3433,19 @@ export class InteractionController {
           })
           return
         }
-        const hit = hitTest(scene, w.x, w.y, this.hitOptions({ pinRevealed: this.pinRevealed(scene, g.dropTargets) }))
+        // The same hit test as the drop, so a field's output pin under the
+        // pointer takes the wire's end at its center like any output pin.
+        const hit = hitTest(scene, w.x, w.y, this.hitOptions({
+          widgetTaps: this.widgetTapHits(scene, g.dropTargets),
+          pinRevealed: this.pinRevealed(scene, g.dropTargets),
+        }))
         const explicitPin = hit.kind === 'pin' && hit.direction === g.seeking &&
           g.dropTargets.has(dropTargetKey(hit.node.id, hit.portId, hit.direction))
           ? hit
-          : undefined
+          : hit.kind === 'widgetTap' && g.seeking === 'out' &&
+            g.dropTargets.has(dropTargetKey(hit.node.id, hit.pin.portId, 'out', true))
+            ? hit
+            : undefined
         const rawBodyNode = explicitPin ? undefined : this.nodeOfBodyHit(hit)
         const bodyNode = rawBodyNode && this.bodyDropEligible(g, scene, rawBodyNode, w) ? rawBodyNode : undefined
         const boundaryBody = explicitPin ? undefined : this.boundaryOfBodyHit(hit)
