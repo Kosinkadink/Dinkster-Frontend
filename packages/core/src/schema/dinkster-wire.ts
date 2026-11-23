@@ -1484,7 +1484,7 @@ const COMMON_FIELDS = ['label', 'tooltip', 'visible'] as const
 const INPUT_FIELDS = [
   'kind', 'id', 'type', 'required', 'default', 'onAbsent', 'widget', 'tooltip', 'label', 'pinFirst', 'pin',
   'afterRun', 'onEdit', 'hidden', 'lazy', 'acceptsStorage', 'acceptsStream', 'acceptsList', 'sourceFilename',
-  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible',
+  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible', 'automatic',
 ]
 
 /** A port's label, literal or worked out by formula, and whether it shows. */
@@ -1515,6 +1515,11 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
     throw new Error(`${where}.afterRun must be one of ${[...AFTER_RUN_MODES].join(', ')}`)
   }
   const onEdit = entry['onEdit'] === undefined ? [] : wireSteps(entry['onEdit'], `${where}.onEdit`)
+  const automatic = entry['automatic'] === undefined ? undefined : wireLooked(entry['automatic'], `${where}.automatic`)
+  if (typeof automatic === 'string') throw new Error(`${where}.automatic must be a formula or a lookup`)
+  if (automatic !== undefined && (entry['default'] === undefined || entry['default'] === null)) {
+    throw new Error(`${where}.automatic needs a default`)
+  }
   const tooltip = wireOptionalString(entry['tooltip'], `${where}.tooltip`)
   const decoded = decodeInput(
     nodeType,
@@ -1555,6 +1560,7 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
     ...(hidden ? { hidden: true } : {}),
     ...(lazy ? { lazy: true } : {}),
     ...(onEdit.length > 0 ? { onEdit } : {}),
+    ...(automatic !== undefined ? { automatic } : {}),
     ...acceptsStorageOf({ role: 'input', acceptsStorage: entry['acceptsStorage'] }, where),
     ...acceptsStreamOf({ role: 'input', ...(Object.hasOwn(entry, 'acceptsStream') ? { acceptsStream: entry['acceptsStream'] } : {}) }, where),
     ...acceptsListOf({ role: 'input', ...(Object.hasOwn(entry, 'acceptsList') ? { acceptsList: entry['acceptsList'] } : {}) }, where),

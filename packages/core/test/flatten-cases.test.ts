@@ -12,7 +12,7 @@ import { canonicalTypeIdOf } from '../src/schema/model.js'
 import type { DynamicPortState, Json } from '../src/format/document.js'
 
 const FIXTURE = new URL('./fixtures/flatten_v2.json', import.meta.url)
-const FIXTURE_SHA256 = '3c95c96f05190c97c909783ee4126b9b334f496d3876014f5c74d6d2d6f26402'
+const FIXTURE_SHA256 = 'b864f2d8adfb2cddf9a050f097945319cb4414d0f399b781fd3e7d241b7d7d23'
 
 interface FlattenCase {
   readonly id: string
@@ -25,6 +25,8 @@ interface FlattenCase {
   readonly inputs?: readonly (readonly [string, string, boolean, Json])[]
   readonly outputs?: readonly string[]
   readonly chose?: Readonly<Record<string, string>>
+  /** Each automatic field with nothing stored and no wire: its value in use and where it came from. */
+  readonly automatic?: Readonly<Record<string, readonly [Json, 'worked-out' | 'default']>>
 }
 
 const bytes = readFileSync(FIXTURE)
@@ -105,6 +107,11 @@ describe('flattening cases shared with the engine', () => {
       const outputs = elabOutputsOf(elaborated).filter((output) => output.wireable !== false).map((output) => output.spec.id)
       expect([...outputs].sort()).toEqual([...testCase.outputs!].sort())
       expect(elaborated.choices ?? {}).toEqual(testCase.chose)
+      if (testCase.automatic !== undefined) {
+        const automatic = Object.fromEntries(elabInputsOf(elaborated).flatMap((input) =>
+          input.automatic === undefined ? [] : [[input.address.port, [input.automatic.value, input.automatic.state === 'worked-out' ? 'worked-out' : 'default']]]))
+        expect(automatic).toEqual(testCase.automatic)
+      }
     })
   }
 })

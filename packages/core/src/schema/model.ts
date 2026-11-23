@@ -549,6 +549,12 @@ export interface InputSpec extends PortSpecBase {
   /** Steps the host applies together with the user's own change of this field; kept as declared. */
   readonly onEdit?: readonly StepSpec[]
   /**
+   * The value used while nothing is stored for this field: a formula the
+   * editor works out, or a lookup. A field that declares it always has a
+   * default, used when the value cannot be worked out.
+   */
+  readonly automatic?: FormulaSpec | LookupSpec
+  /**
    * Set by elaboration, never declared: the flattened id of the field drawn
    * before this one on a line of several fields.
    */
