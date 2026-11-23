@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '../visual.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
-import { waitForStartupOwnership } from './fixtures.js'
+import { waitForWorkspaceReady } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
@@ -129,7 +129,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
     return schemas?.has('dinkster.utilities.curve_editor') === true && schemas.has('dinkster.curve.evaluate')
   }), { timeout: 15_000 }).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 
   await page.evaluate(async ({ histogram }) => {
     await window.__dinksterTest!.app.openDocument({

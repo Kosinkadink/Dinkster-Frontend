@@ -1690,6 +1690,9 @@ const viewSetNodeCollapsed: CommandDefinition = {
     const graphId = params.graphId
     for (const nodeId of nodeIds) {
       const viewNode = doc.view.graphs[graphId]?.nodes[nodeId]
+      if (viewNode?.minimizedPreviewOpen === true && (viewNode.collapsed === true) !== params.collapsed) {
+        tx.remove(['view', 'graphs', graphId, 'nodes', nodeId, 'minimizedPreviewOpen'])
+      }
       if (params.collapsed) {
         if (viewNode?.collapsed === true) continue
         ensureViewGraph(tx, graphId)
@@ -1870,6 +1873,98 @@ const viewSetWidgetRepresentation: CommandDefinition = {
         ['view', 'graphs', graphId, 'nodes', params.nodeId, 'views', params.inputId],
         params.representation,
       )
+    }
+    return []
+  },
+}
+
+// ---------------------------------------------------------------------------
+// view.setTextBoxLines {graphId, nodeId, inputId, lines: number | null}
+//
+// The height of one multiline text box, in whole lines. Pure view state:
+// it changes no value, wire, run, or cache key. Null returns the box to the
+// height its widget declares. Layout clamps the stored number to the text
+// box limits, so commands only require a positive whole number.
+// ---------------------------------------------------------------------------
+
+const viewSetTextBoxLines: CommandDefinition = {
+  id: 'view.setTextBoxLines',
+  run(doc, params, tx) {
+    if (
+      !isObj(params) ||
+      typeof params.nodeId !== 'string' ||
+      typeof params.inputId !== 'string' ||
+      params.inputId.length === 0 ||
+      (params.lines !== null && (typeof params.lines !== 'number' || !Number.isInteger(params.lines) || params.lines < 1))
+    ) {
+      return [err(
+        'params.invalid',
+        'view.setTextBoxLines: params must be {graphId, nodeId, inputId, lines: positive integer|null}',
+      )]
+    }
+    const def = graphOf(doc, params.graphId)
+    if (!def) return [err('graph.missing', `view.setTextBoxLines: unknown graph '${String(params.graphId)}'`)]
+    if (!def.nodes[params.nodeId]) {
+      return [err('node.missing', `view.setTextBoxLines: unknown node '${params.nodeId}'`)]
+    }
+    const graphId = params.graphId as string
+    const viewNode = doc.view.graphs[graphId]?.nodes[params.nodeId]
+    if (params.lines === null) {
+      const textLines = viewNode?.textLines
+      if (!textLines || !(params.inputId in textLines)) return []
+      if (Object.keys(textLines).length === 1) {
+        tx.remove(['view', 'graphs', graphId, 'nodes', params.nodeId, 'textLines'])
+      } else {
+        tx.remove(['view', 'graphs', graphId, 'nodes', params.nodeId, 'textLines', params.inputId])
+      }
+      return []
+    }
+    ensureViewGraph(tx, graphId)
+    if (!viewNode) {
+      tx.set(['view', 'graphs', graphId, 'nodes', params.nodeId], {
+        textLines: { [params.inputId]: params.lines },
+      })
+    } else {
+      if (!viewNode.textLines) tx.set(['view', 'graphs', graphId, 'nodes', params.nodeId, 'textLines'], {})
+      tx.set(['view', 'graphs', graphId, 'nodes', params.nodeId, 'textLines', params.inputId], params.lines)
+    }
+    return []
+  },
+}
+
+// ---------------------------------------------------------------------------
+// view.setPreviewFolded {graphId, nodeId, folded: boolean}
+//
+// Folds or opens a node's preview under its caption row. Pure view state.
+// An open node keeps its own choice; a minimized node starts folded and
+// keeps an opened preview only until it is minimized or restored again.
+// ---------------------------------------------------------------------------
+
+const viewSetPreviewFolded: CommandDefinition = {
+  id: 'view.setPreviewFolded',
+  run(doc, params, tx) {
+    if (!isObj(params) || typeof params.nodeId !== 'string' || typeof params.folded !== 'boolean') {
+      return [err('params.invalid', 'view.setPreviewFolded: params must be {graphId, nodeId, folded: boolean}')]
+    }
+    const def = graphOf(doc, params.graphId)
+    if (!def) return [err('graph.missing', `view.setPreviewFolded: unknown graph '${String(params.graphId)}'`)]
+    if (!def.nodes[params.nodeId]) {
+      return [err('node.missing', `view.setPreviewFolded: unknown node '${params.nodeId}'`)]
+    }
+    const graphId = params.graphId as string
+    const viewNode = doc.view.graphs[graphId]?.nodes[params.nodeId]
+    const key = viewNode?.collapsed === true ? 'minimizedPreviewOpen' : 'previewFolded'
+    const stored = key === 'minimizedPreviewOpen' ? !params.folded : params.folded
+    if ((viewNode?.[key] === true) === stored) return []
+    if (!stored) {
+      tx.remove(['view', 'graphs', graphId, 'nodes', params.nodeId, key])
+      return []
+    }
+    ensureViewGraph(tx, graphId)
+    if (!viewNode) {
+      tx.set(['view', 'graphs', graphId, 'nodes', params.nodeId], { [key]: true })
+    } else {
+      tx.set(['view', 'graphs', graphId, 'nodes', params.nodeId, key], true)
     }
     return []
   },
@@ -3068,6 +3163,8 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   viewSetNodeColor,
   viewSetNodeVideo,
   viewSetWidgetRepresentation,
+  viewSetTextBoxLines,
+  viewSetPreviewFolded,
   viewSetSectionCollapsed,
   viewCreateGroup,
   viewMoveGroup,

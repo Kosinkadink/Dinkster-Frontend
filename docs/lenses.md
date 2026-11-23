@@ -85,5 +85,4 @@ again to return to Standard. There are no other lens shortcuts.
 3. If the lens has a shortcut, call `AppState.setLens()` or `toggleLens()` so
    the registry-backed per-tab signal remains the only activation state.
 4. Add focused registry/rendering tests and browser coverage for the switcher
-   or shortcut, then update this active document in the same change. Archived
-   coverage audits are historical and are not update targets.
+   or shortcut, then update this active document in the same change.

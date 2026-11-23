@@ -205,10 +205,14 @@ Positional widget values of reconstructed members are decoded member by
 member. A member that holds a group, choice, type choice or described row,
 or a group whose members could not be reconstructed, emits
 `import.dynamic.autogrowUnsupported`, stops decoding that node, and preserves
-the remaining positional values in the same excess-value extension. Rows
-under a type choice (ComfyUI DynamicSlot) take no positions; if ComfyUI
-serializes connected slot dependents positionally, later values may be
-misaligned.
+the remaining positional values in the same excess-value extension. Link
+cardinality alone does not establish an unambiguous foreign widget walk, so
+the importer does not guess-assign that tail. Rows under a type choice
+(ComfyUI DynamicSlot) take no positions; if ComfyUI serializes connected slot
+dependents positionally, later values may still be misaligned. Its foreign
+positional/connectivity semantics and LiteGraph subgraph definitions are
+tracked in
+[ComfyUI dynamic construct import](https://github.com/Kosinkadink/comfy-vibe-station/issues/1203).
 
 ## Backend compat-boundary porting (server-side, informational)
 

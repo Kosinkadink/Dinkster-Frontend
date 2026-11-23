@@ -1,5 +1,7 @@
 import { expect, selectProductOption, nativeTest as test, type Page } from './fixtures.js'
 
+test.use({ trace: 'retain-on-failure' })
+
 const MOCK = 'http://logical-model-picker.test'
 const A = `blake3:${'a'.repeat(64)}`
 const B = `blake3:${'b'.repeat(64)}`
@@ -61,7 +63,8 @@ test('uses one collection shell for grouped models and media', async ({ page }) 
   await installRoutes(page)
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
-  await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('status-connection').click()
+  await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(MOCK)
   await page.getByTestId('backend-add').click()
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)

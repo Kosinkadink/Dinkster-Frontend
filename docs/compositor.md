@@ -18,5 +18,6 @@ concrete `COMPOSITOR`. Its empty default is
 canvas, layer, transform, mask-transform and reorder commands to the runtime
 document digest. Pixel content remains in digest-owned ImageDocument resources
 and never enters the workflow value. See [Image documents](image-documents.md)
-for the retained format and [the rework queue](rework-queue.md#compositor-editor)
+for the retained format and
+[Compositor editor](https://github.com/Kosinkadink/comfy-vibe-station/issues/1192)
 for the parked editing surface.

@@ -200,7 +200,8 @@ describe('ExecutionActivityCard', () => {
     expect(root.textContent).toContain('Snapshot unavailable - submitted by another client')
     const open = root.querySelector<HTMLButtonElement>('.execution-open')!
     expect(open.disabled).toBe(true)
-    expect(open.textContent).toBe('Snapshot unavailable')
+    expect(open.getAttribute('aria-label')).toBe('Snapshot unavailable - submitted by another client')
+    expect(open.getAttribute('data-tooltip-label')).toBe('Snapshot unavailable - submitted by another client')
   })
 
   it('shows agent attribution while leaving local human runs unchanged', () => {
@@ -247,6 +248,10 @@ describe('ExecutionActivityCard', () => {
     expect(open).toHaveBeenCalledOnce()
     expect(pin).toHaveBeenCalledOnce()
     expect(root.querySelector('.execution-open')?.getAttribute('aria-label')).toBe('Open Workflow, execution prompt-long-identity, completed')
+    expect(root.querySelectorAll('.execution-open')).toHaveLength(1)
+    expect(root.querySelector('.execution-open')?.getAttribute('data-variant')).toBe('ghost')
+    expect(root.querySelector('.execution-open')?.getAttribute('data-tooltip-label')).toBe('Open frozen view')
+    expect(root.querySelector('.execution-open svg')).not.toBeNull()
     expect(root.querySelector('.execution-pin')?.getAttribute('aria-label')).toBe('Pin this execution to the canvas')
     expect(root.querySelector('.execution-pin')?.getAttribute('aria-pressed')).toBe('false')
     expect(root.textContent).toContain('Following latest')
