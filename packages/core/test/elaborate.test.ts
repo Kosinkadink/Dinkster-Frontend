@@ -196,11 +196,11 @@ describe('static schemas', () => {
     // option and goes to its own start key.
     const removed = (format: string, codec: string) => census(format, codec).diagnostics
       .map((diagnostic) => [diagnostic.code, diagnostic.severity, diagnostic.data])
-    expect(removed('webm', 'h264')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'auto' }]])
+    expect(removed('webm', 'h264')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'auto', removed: 'h264', row: 'codec' }]])
     // A key no option declares is reported once, not once per place, with
     // the chosen place's start key whichever place is read first.
-    expect(removed('mp4', 'vp9')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'h264' }]])
-    expect(removed('webm', 'vp9')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'auto' }]])
+    expect(removed('mp4', 'vp9')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'h264', removed: 'vp9', row: 'codec' }]])
+    expect(removed('webm', 'vp9')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'auto', removed: 'vp9', row: 'codec' }]])
   })
 })
 
@@ -540,13 +540,13 @@ describe('choices', () => {
   it('a stored option the pack no longer has is no pick: a required choice shows its start option', () => {
     const e = elaborateInterface(schemaOf([modes]), { values: { 'mode.mask': 4 }, dynamic: { mode: { selected: 'gone' } } })
     expect(e.diagnostics.map((d) => [d.code, d.severity, d.data])).toEqual([
-      ['elab.combo.removedOption', 'warning', { construct: 'mode', selected: 'simple' }],
+      ['elab.combo.removedOption', 'warning', { construct: 'mode', selected: 'simple', removed: 'gone', row: 'mode' }],
     ])
     expect(elabInputsOf(e).map((input) => input.address.port)).toEqual(['mode', 'mode.strength'])
     expect(e.choices).toEqual({ mode: 'simple' })
     const optional = choiceOf('mode', [{ key: 'on', rows: [intInput('value')] }], { required: false })
     const none = elaborateInterface(schemaOf([optional]), { values: {}, dynamic: { mode: { selected: 'gone' } } })
-    expect(none.diagnostics.map((d) => [d.code, d.data])).toEqual([['elab.combo.removedOption', { construct: 'mode', selected: null }]])
+    expect(none.diagnostics.map((d) => [d.code, d.data])).toEqual([['elab.combo.removedOption', { construct: 'mode', selected: null, removed: 'gone', row: 'mode' }]])
     expect(none.diagnostics[0]!.message).toContain("option 'gone' of 'mode' is no longer in the pack. It is now none.")
     expect(elabInputsOf(none).map((input) => input.address.port)).toEqual(['mode'])
   })
@@ -728,7 +728,7 @@ describe('type choices', () => {
   it('a stored variant the pack no longer has is no pick', () => {
     const e = elaborateInterface(schemaOf([specialized()]), { values: {}, dynamic: { model: { selected: 'gone' } } }, connectedInputs('model'))
     expect(e.diagnostics.map((d) => [d.code, d.severity, d.data])).toEqual([
-      ['elab.slot.removedVariant', 'warning', { construct: 'model', selected: null }],
+      ['elab.slot.removedVariant', 'warning', { construct: 'model', selected: null, removed: 'gone', row: 'model' }],
     ])
     expect(e.choices?.model).toBeUndefined()
     expect(elabInputsOf(e).map((input) => input.address.port)).not.toContain('model.weight')

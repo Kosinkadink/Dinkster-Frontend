@@ -35,7 +35,7 @@ test('removed pack parts open with a notice for the replaced option, anchored ro
   const notice = page.getByTestId('fixes-notice')
   await expect(notice.locator('.dinkster-fixes-title')).toHaveText('1 thing was adjusted')
   await notice.getByRole('button', { name: 'Review', exact: true }).click()
-  await expect(notice).toContainText("option 'removed' of 'Mode' is no longer in the pack. It is now 'current'.")
+  await expect(notice).toContainText('Mode: removed was removed; current is used')
   await openRailPanel(page, 'Problems')
   const panel = page.getByTestId('problems-panel')
   await expect(panel.locator('.problems-group-title')).not.toContainText(['Upgraded on open'])

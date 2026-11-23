@@ -1145,7 +1145,7 @@ function elaboratePass(
         if (earlier === undefined || (earlier.dormant && !scope.dormant)) {
           report('elab.combo.removedOption',
             `option '${storedKey}' of '${literalText(row.displayName) ?? row.id}' is no longer in the pack. It is now ${key === undefined ? 'none' : `'${key}'`}. The old values are kept.`,
-            path, 'warning', { construct: path, selected: key ?? null })
+            path, 'warning', { construct: path, selected: key ?? null, removed: storedKey, row: literalText(row.displayName) ?? row.id })
           if (earlier !== undefined) diagnostics.splice(earlier.index, 1, diagnostics.pop()!)
           unknownChoices.set(path, { index: earlier?.index ?? diagnostics.length - 1, dormant: scope.dormant === true })
         }
@@ -1272,7 +1272,7 @@ function elaboratePass(
       // A stored variant the pack no longer has is no pick; opening clears it.
       report('elab.slot.removedVariant',
         `variant '${key}' of '${literalText(row.displayName) ?? row.id}' is no longer in the pack. ${row.required ? 'Pick a variant before running.' : 'Nothing is selected now.'} The old values are kept.`,
-        path, 'warning', { construct: path, selected: null })
+        path, 'warning', { construct: path, selected: null, removed: key, row: literalText(row.displayName) ?? row.id })
     }
     if (variant === undefined && row.required && !view && !scope.ghost && !scope.dormant) {
       report('prompt.missing_dynamic_choice', `required type choice '${path}' has no stored variant`, path)

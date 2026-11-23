@@ -5377,7 +5377,12 @@ export class AppState {
       }
       if (fixed.length > 0) adjustments.push({
         kind: 'removedChoice', graphId: graph.id, nodeId: node.id, node: name, count: fixed.length,
-        details: [...new Set(fixed.map((entry) => entry.message))],
+        details: [...new Set(fixed.map((entry) => {
+          const { row, removed, selected } = entry.data as { row: string; removed: string; selected: string | null }
+          return selected === null
+            ? t('fixesNotice.change.removedChoiceNone', { row, removed })
+            : t('fixesNotice.change.removedChoice', { row, removed, selected })
+        }))],
         ...(anchor === undefined ? {} : { anchor }),
       })
     }
