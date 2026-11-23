@@ -1093,6 +1093,39 @@ describe('sections', () => {
     expect(shown.boxes?.map((b) => b.id)).toEqual(['group:prompts'])
   })
 
+  it('leaves as much room under the last thing in a box as at its sides', () => {
+    const box = canvasPaintTokens.node.box
+    const sides = { field: box.fieldGap, outline: box.step }
+    const stroke = box.stroke
+    const lay = (body: NodeSchema['body'], dynamic = {}) =>
+      layoutNode(schemaOf(body), { ...nodeData, dynamic }, defaultTokens, measure, widgetMeasure)
+    const outline = (l: ReturnType<typeof lay>, id: string) => l.boxes!.find((b) => b.id === id)!
+    const prompts = (maxMembers: number) => ({
+      kind: 'group' as const, id: 'p', displayName: 'P', keys: { kind: 'numbered' as const, prefix: 'p', start: 0, pad: 0 },
+      member: [widget('text'), widget('weight')], grows: 'button' as const, minMembers: 1, maxMembers, addLabel: 'Add',
+    })
+    // A group ending in its add row: the add row's outline stands a step above the group's.
+    const adding = lay([prompts(4), widget('after')], { p: { members: ['p0'] } })
+    const add = adding.rows.find((row) => row.kind === 'growth')!
+    const addOutlineBottom = add.y + add.height - defaultTokens.rowGeometry.fieldInsetY
+    const group = outline(adding, 'group:p')
+    expect(group.y + group.height - stroke - addOutlineBottom).toBe(sides.outline)
+    // A group at its most members ends in a member box: a step again.
+    const full = lay([prompts(1), widget('after')], { p: { members: ['p0'] } })
+    const member = outline(full, 'member:p.p0')
+    const fullGroup = outline(full, 'group:p')
+    expect(fullGroup.y + fullGroup.height - stroke - (member.y + member.height)).toBe(sides.outline)
+    // A section ending in a field: the field's own inset.
+    const fielded = lay([{ kind: 'section', id: 's', displayName: 'S', rows: [widget('a')] }, widget('after')])
+    const field = fielded.rows.find((row) => row.kind === 'widget' && row.inputId === 'a')!
+    const section = outline(fielded, 's')
+    expect(section.y + section.height - stroke - (field.y + field.height - defaultTokens.rowGeometry.fieldInsetY)).toBe(sides.field)
+    // A box that ends the node is as far from its bottom edge as from its side.
+    const ending = lay([widget('before'), { kind: 'section', id: 's', displayName: 'S', rows: [widget('a')] }])
+    const last = outline(ending, 's')
+    expect(ending.height - (last.y + last.height)).toBe(last.x)
+  })
+
   it('keeps declared Advanced members continuous without enclosing primary rows or outputs', () => {
     const l = layoutNode(
       schemaOf([

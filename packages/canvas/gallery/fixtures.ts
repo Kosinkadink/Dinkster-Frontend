@@ -1777,6 +1777,61 @@ export function createCanvasGalleryFixture(
       caption: 'Grip at the left end, cross at the right',
       nodes: examples.slice(-3).flatMap((example) => example.nodes ?? []),
     })
+    // The room under the last thing in a box matches the room at its sides:
+    // a step under an add row or a member box, a field's inset under a
+    // field, and a box that ends a node is as far from its bottom edge as
+    // from its sides.
+    nextRow()
+    const seed = widget('seed', 'INT', 42, { min: 0, max: 1000 })
+    add(
+      'Ends in an add row',
+      schema('LoRA stack', [loras('loras', 'LoRAs'), seed]),
+      named,
+      26,
+      false,
+      { at: column(0), dynamic: { loras: { members: ['lora0'] } } },
+    )
+    add(
+      'Ends in a member box',
+      schema('LoRA stack', [{ ...loras('loras', 'LoRAs'), maxMembers: 1 }, seed]),
+      named,
+      27,
+      false,
+      { at: column(1), dynamic: { loras: { members: ['lora0'] } } },
+    )
+    add(
+      'Section ends in a field',
+      schema('Sampler', [
+        section('sampling', 'Sampling', [
+          widget('steps', 'INT', 20, { min: 1, max: 100 }),
+          widget('cfg', 'FLOAT', 7.5, { min: 0, max: 30, step: 0.1 }),
+        ]),
+        seed,
+      ]),
+      {},
+      28,
+      false,
+      { at: column(2) },
+    )
+    nextRow()
+    add(
+      'A box ends the node',
+      schema('Sampler', [
+        seed,
+        section('sampling', 'Sampling', [
+          widget('steps', 'INT', 20, { min: 1, max: 100 }),
+          widget('cfg', 'FLOAT', 7.5, { min: 0, max: 30, step: 0.1 }),
+        ]),
+      ]),
+      {},
+      29,
+      false,
+      { at: column(0) },
+    )
+    examples.splice(-4, 4, {
+      caption: 'Room under the last thing in a box',
+      nodes: examples.slice(-4).flatMap((example) => example.nodes ?? []),
+    })
     const dragging = fixture.scene.nodes.find((node) => node.id === 'Dragging lora 1 below lora 2')!
     const draggedGrip = dragging.layout.rows.flatMap((row) =>
       row.kind === 'member' && row.reorder?.member === 'lora0' ? [row.reorder] : [])[0]!
