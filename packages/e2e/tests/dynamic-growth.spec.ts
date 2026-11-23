@@ -140,7 +140,7 @@ test('clicking the growth row materializes the member through production hit + d
   expect(await growthRows(page)).toEqual([
     {
       construct: 'items.sub',
-      label: 'item0.sub',
+      label: 'item 1.sub',
       frames: [
         { construct: 'items', members: ['m0'] },
         { construct: 'items.sub', members: ['m0'] },
