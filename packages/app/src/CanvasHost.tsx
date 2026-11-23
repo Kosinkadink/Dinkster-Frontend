@@ -31,6 +31,7 @@ import {
   toolboxSeparator,
   updateSceneNodePositions,
   updateSceneNodeValues,
+  memberAt,
   type Hit,
   type GhostLink,
   type LinkDoubleClickContext,
@@ -3358,6 +3359,24 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 disabled: slot.selected === undefined,
                 action: { kind: 'command' as const, invocation: specialize(null) },
               },
+            ],
+          })
+        }
+        // A member of a group that can be reordered moves one place up or
+        // down, through the same command as dragging its grip.
+        const memberNode = 'node' in hit && !('bnode' in hit && hit.bnode !== undefined) ? hit.node as SceneNode : undefined
+        const member = memberNode === undefined ? undefined : memberAt(memberNode.layout, worldY - memberNode.y)
+        if (memberNode !== undefined && member !== undefined) {
+          const move = (index: number): CommandInvocation => ({
+            command: 'dynamic.moveMember',
+            params: { graphId: currentGraphId(tab), nodeId: memberNode.id, construct: member.construct, member: member.member, index },
+          })
+          const frozen = tab.execution !== undefined
+          additionalGroups.push({
+            group: '45-member-order',
+            items: [
+              { id: 'core.member.moveUp', label: 'Move up', disabled: frozen || member.index === 0, action: { kind: 'command' as const, invocation: move(member.index - 1) } },
+              { id: 'core.member.moveDown', label: 'Move down', disabled: frozen || member.index === member.count - 1, action: { kind: 'command' as const, invocation: move(member.index + 1) } },
             ],
           })
         }

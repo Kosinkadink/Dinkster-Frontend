@@ -108,6 +108,18 @@ export interface PortSlot extends DynamicAnnotations {
   readonly maybeAbsent?: true
 }
 
+/** The grip of a whole member of a group whose members can be put in another order. */
+export interface MemberGrip {
+  /** Group flattened id. */
+  readonly construct: string
+  /** The member's stored key. */
+  readonly member: string
+  /** Node-local x of the grip's center. */
+  readonly gripX: number
+  /** The group's only member: the grip is dimmed and does nothing. */
+  readonly alone?: true
+}
+
 export type LayoutRow =
   | {
       readonly kind: 'ports'
@@ -122,6 +134,8 @@ export type LayoutRow =
        * cross ends it, its right edge this far from the node's right edge.
        */
       readonly crossInset?: number
+      /** The row is a whole member that can be moved: its grip. */
+      readonly reorder?: MemberGrip
     }
   | ({
       readonly kind: 'widget'
@@ -136,6 +150,8 @@ export type LayoutRow =
        * cross ends it, its right edge this far from the node's right edge.
        */
       readonly crossInset?: number
+      /** The row is a whole member that can be moved: its grip. */
+      readonly reorder?: MemberGrip
       readonly inputId: string
       /**
        * The node.values key this widget's value lives under (valueKeyOf):
@@ -303,6 +319,8 @@ export type LayoutRow =
       readonly ghost?: true
       readonly inset: number
       readonly top: number
+      /** The member can be moved: its grip in the header. */
+      readonly reorder?: MemberGrip
     }
 
 /** A port inside a closed box: a pin once a wire reaches it. */
@@ -420,6 +438,54 @@ export interface NodeLayout {
 
 /** Offset from a node's left edge to its title, past the minimize arrow's target. */
 export const TITLE_START: number = canvasPaintTokens.node.minimizeArrow.left + canvasPaintTokens.node.minimizeArrow.target
+
+/** Where one stored member of a group that can be reordered lies, node-local. */
+export interface MemberSpan {
+  readonly member: string
+  readonly top: number
+  readonly bottom: number
+  /** The span's left edge and width: its member box, or its row's field. */
+  readonly x: number
+  readonly width: number
+}
+
+/** The stored members of a group that can be reordered, top to bottom, as the node shows them. */
+export function memberSpans(layout: NodeLayout, construct: string): MemberSpan[] {
+  const box = canvasPaintTokens.node.box
+  const group = layout.boxes?.find((candidate) => candidate.id === groupBoxKey(construct))
+  const spans: MemberSpan[] = []
+  for (const row of layout.rows) {
+    if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports') || row.reorder?.construct !== construct) continue
+    const own = row.kind === 'member' ? layout.boxes?.find((candidate) => candidate.id === row.memberId) : undefined
+    const x = own?.x ?? (row.kind === 'widget' ? row.inset : (group?.x ?? 0) + box.stroke + box.fieldGap)
+    spans.push({
+      member: row.reorder.member,
+      top: own?.y ?? row.y,
+      bottom: own === undefined ? row.y + row.height : own.y + own.height,
+      x,
+      width: own?.width ?? layout.width - x * 2,
+    })
+  }
+  return spans
+}
+
+/** The innermost member that can be moved under node-local `y`, with its place in its group. */
+export function memberAt(layout: NodeLayout, y: number): { construct: string; member: string; index: number; count: number } | undefined {
+  let best: { construct: string; member: string; index: number; count: number; height: number } | undefined
+  const constructs = new Set(layout.rows.flatMap((row) =>
+    (row.kind === 'member' || row.kind === 'widget' || row.kind === 'ports') && row.reorder !== undefined ? [row.reorder.construct] : []))
+  for (const construct of constructs) {
+    const spans = memberSpans(layout, construct)
+    for (const [index, span] of spans.entries()) {
+      const height = span.bottom - span.top
+      if (y >= span.top && y < span.bottom && (best === undefined || height < best.height))
+        best = { construct, member: span.member, index, count: spans.length, height }
+    }
+  }
+  if (best === undefined) return undefined
+  const { height: _height, ...found } = best
+  return found
+}
 
 /** Shared visible bounds for registry widget chrome and its overlay states. */
 export function widgetChromeRect(x: number, rowY: number, width: number, rowHeight: number, insetY: number): {
@@ -885,7 +951,11 @@ export function layoutNode(
     readonly ordinal?: number
     readonly ghost?: true
     readonly byHand?: true
+    readonly reorderable?: true
+    readonly member?: string
   }
+  /** A whole member's grip before its place is known. */
+  type PendingGrip = Omit<MemberGrip, 'gripX'>
   interface PendingRow {
     kind: 'ports' | 'widget' | 'section' | 'member' | 'growth' | 'note' | 'button'
     /** Keys of the declared boxes around the row, outermost first. */
@@ -893,6 +963,7 @@ export function layoutNode(
     input?: PortSlot
     output?: PortSlot & { index: number }
     removable?: true
+    reorder?: PendingGrip
     widget?: Extract<LayoutRow, { kind: 'widget' }> extends infer R
       ? Omit<R, 'kind' | 'y' | 'height' | 'inset'>
       : never
@@ -963,6 +1034,8 @@ export function layoutNode(
         ...(item.ordinal !== undefined ? { ordinal: item.ordinal } : {}),
         ...(item.ghost ? { ghost: true as const } : {}),
         ...(item.byHand ? { byHand: true as const } : {}),
+        ...(item.reorderable ? { reorderable: true as const } : {}),
+        ...(item.member !== undefined ? { member: item.member } : {}),
       })
     }
   }
@@ -984,6 +1057,18 @@ export function layoutNode(
   const removable = (item: ElaboratedInput, chain: readonly string[]): boolean =>
     item.origin.kind === 'member' && chain.at(-1) === groupBoxKey(item.origin.construct) &&
     decls.get(chain.at(-1)!)!.byHand === true
+  /** A stored member of a group that can be reordered, from its group's declaration. */
+  const gripOf = (construct: string, member: string): PendingGrip | undefined => {
+    const group = decls.get(groupBoxKey(construct))
+    if (group?.reorderable !== true) return undefined
+    return { construct, member, ...(group.members === 1 ? { alone: true as const } : {}) }
+  }
+  /** A row that is a whole stored member, with no member box of its own. */
+  const rowGrip = (item: ElaboratedInput, chain: readonly string[]): PendingGrip | undefined =>
+    item.origin.kind === 'member' && item.origin.ghost !== true && chain.at(-1) === groupBoxKey(item.origin.construct)
+      ? gripOf(item.origin.construct, item.origin.key)
+      : undefined
+  const withGrip = (grip: PendingGrip | undefined): { reorder?: PendingGrip } => grip === undefined ? {} : { reorder: grip }
   const chainKey = (chain: readonly string[]): string => chain.join('\n')
 
   // Modified widget values hidden by each closed box (derived, never
@@ -1160,6 +1245,7 @@ export function layoutNode(
           ...annotate(item),
         },
         ...(removable(item, chain) ? { removable: true as const } : {}),
+        ...withGrip(rowGrip(item, chain)),
       })
       continue
     }
@@ -1185,6 +1271,7 @@ export function layoutNode(
       kind: 'widget',
       boxes: chain,
       ...(removable(item, chain) ? { removable: true as const } : {}),
+      ...withGrip(rowGrip(item, chain)),
       widget: {
         inputId: spec.id,
         valueKey,
@@ -1368,9 +1455,11 @@ export function layoutNode(
         if (decl.kind === 'member') {
           const top = y + verticalInset - slack
           const height = top + box.stroke + headerHeight - y
+          const grip = decl.member !== undefined && !decl.ghost ? gripOf(decl.construct!, decl.member) : undefined
           push({
             kind: 'member', y, height, construct: decl.construct!, memberId: decl.id, label: decl.label,
             ordinal: decl.ordinal ?? 0, ...(decl.ghost ? { ghost: true as const } : {}), inset: outlineX(depth), top,
+            ...(grip ? { reorder: { ...grip, gripX: outlineX(depth) + box.textInset + box.gripWidth / 2 } } : {}),
           }, depth)
           open.push({ decl, top, first: index })
           y += height
@@ -1440,6 +1529,8 @@ export function layoutNode(
           ...(row.input ? { input: row.input } : {}),
           ...(row.output ? { output: row.output } : {}),
           ...(row.removable && !row.output ? { crossInset: fieldInset(depth) } : {}),
+          // The grip's place on the row is set once the node's width is known.
+          ...(row.reorder && !row.output ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
         }, depth)
         if (row.input && !row.input.socketless) pins.push({ ...annotationsOf(row.input), portId: row.input.portId, label: row.input.label, direction: 'in', y: y + height / 2, type: row.input.type, ...(row.input.optional ? { optional: true as const } : {}) })
         if (row.output) pins.push({ ...annotationsOf(row.output), portId: row.output.portId, label: row.output.label, direction: 'out', y: y + height / 2, type: row.output.type, ...(row.output.maybeAbsent ? { maybeAbsent: true as const } : {}) })
@@ -1457,7 +1548,10 @@ export function layoutNode(
         // A choice's dropdown reaches the outline of its option box instead.
         const inset = w.lead ? outlineX(depth + 1) : fieldInset(depth)
         rowIndex.set(row, rows.length)
-        push({ kind: 'widget', y, height, inset, ...w, ...(row.removable ? { crossInset: inset } : {}) }, depth)
+        push({
+          kind: 'widget', y, height, inset, ...w, ...(row.removable ? { crossInset: inset } : {}),
+          ...(row.reorder ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
+        }, depth)
         // Socketless controls keep their editor and outgoing value tap.
         if (!w.socketless) pins.push({
           ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2, type: w.type,
@@ -1599,10 +1693,19 @@ export function layoutNode(
     }
   }
   // A field that is a whole member ends before its remove cross, whose right
-  // edge sits where the field's would.
+  // edge sits where the field's would. A member that can be moved has its
+  // grip there instead, or just before the cross, and the field ends before
+  // the grip.
   for (const [index, row] of rows.entries()) {
-    if (row.kind === 'widget' && row.crossInset !== undefined && row.width === undefined)
-      rows[index] = { ...row, width: width - row.inset * 2 - box.cross.size - box.cross.fieldGap }
+    if (row.kind !== 'widget' && row.kind !== 'ports') continue
+    const crossRoom = row.crossInset === undefined ? 0 : box.cross.size + box.cross.fieldGap
+    const gripRoom = row.reorder === undefined ? 0 : box.gripWidth + box.cross.fieldGap
+    const right = width - (row.crossInset ?? fieldInset(rowDepth[index]!)) - crossRoom
+    const reorder = row.reorder === undefined ? {} : { reorder: { ...row.reorder, gripX: right - box.gripWidth / 2 } }
+    if (row.kind === 'widget' && row.width === undefined && crossRoom + gripRoom > 0)
+      rows[index] = { ...row, width: width - row.inset * 2 - crossRoom - gripRoom, ...reorder }
+    else if (row.reorder !== undefined)
+      rows[index] = { ...row, ...reorder }
   }
 
   if (options.minimized) {

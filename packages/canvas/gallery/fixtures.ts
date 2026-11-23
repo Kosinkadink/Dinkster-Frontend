@@ -24,6 +24,7 @@ import {
   UNAVAILABLE_BADGE,
   defaultTokens,
   buildScene,
+  memberDropAt,
   dropTargetKey,
   pinPosition,
   executionBlockedBadge,
@@ -1464,6 +1465,7 @@ export function createCanvasGalleryFixture(
       grows: 'button',
       minMembers: 1,
       maxMembers: 4,
+      reorderable: true,
       addLabel: 'Add LoRA',
     })
     let rowY = 54
@@ -1504,6 +1506,7 @@ export function createCanvasGalleryFixture(
           grows: 'link',
           minMembers: 1,
           maxMembers: 4,
+          reorderable: true,
         },
         widget('spacing', 'INT', 8, { min: 0, max: 64 }),
       ]),
@@ -1592,6 +1595,7 @@ export function createCanvasGalleryFixture(
           grows: 'button',
           minMembers: 1,
           maxMembers: 4,
+          reorderable: true,
           addLabel: 'Add prompt',
         },
       ]),
@@ -1679,6 +1683,36 @@ export function createCanvasGalleryFixture(
         },
       },
     )
+    // Moving a member by its grip: pointed at, dragged with its drop line,
+    // after the drop, and a group's only member, whose grip does nothing.
+    const stack = schema('LoRA stack', [loras('loras', 'LoRAs')])
+    const named = {
+      'loras.lora0.name': 'detail.safetensors',
+      'loras.lora1.name': 'style.safetensors',
+    }
+    nextRow()
+    add('Grip pointed at', stack, named, 19, false, {
+      at: column(0),
+      dynamic: { loras: { members: ['lora0', 'lora1'] } },
+    })
+    add('Dragging lora 1 below lora 2', stack, named, 20, false, {
+      at: column(1),
+      dynamic: { loras: { members: ['lora0', 'lora1'] } },
+    })
+    add('After the drop', stack, named, 21, false, {
+      at: column(2),
+      dynamic: { loras: { members: ['lora1', 'lora0'] } },
+    })
+    nextRow()
+    add('Only one member', stack, named, 22, false, {
+      at: column(0),
+      dynamic: { loras: { members: ['lora0'] } },
+    })
+    const dragging = fixture.scene.nodes.find((node) => node.id === 'Dragging lora 1 below lora 2')!
+    const draggedGrip = dragging.layout.rows.flatMap((row) =>
+      row.kind === 'member' && row.reorder?.member === 'lora0' ? [row.reorder] : [])[0]!
+    const lastMember = dragging.layout.boxes!.find((box) => box.id === 'member:loras.lora1')!
+    const drop = memberDropAt(dragging, draggedGrip, dragging.x + lastMember.x + 20, dragging.y + lastMember.y + lastMember.height + 1)
     // A wire held over the closed row names the field it would reach.
     const source = fixture.scene.nodes.find((node) => node.id === 'Wire source')!
     const held = fixture.scene.nodes.find(
@@ -1692,6 +1726,13 @@ export function createCanvasGalleryFixture(
         nodeId: held.id,
         boxId: 'sampling',
         target: 'steps',
+      },
+      hoveredGrip: { nodeId: 'Grip pointed at', construct: 'loras', member: 'lora1' },
+      memberDrag: {
+        nodeId: dragging.id,
+        construct: 'loras',
+        member: 'lora0',
+        ...(drop !== undefined ? { line: drop.line } : {}),
       },
       ghostLink: {
         x1: source.x + source.layout.width,

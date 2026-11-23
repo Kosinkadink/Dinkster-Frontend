@@ -5,7 +5,7 @@
  */
 
 import type { TypeExpr } from '@dinkster/core'
-import type { LayoutRow, PinLayout } from './layout.js'
+import type { LayoutRow, MemberGrip, PinLayout } from './layout.js'
 import { canvasPaintTokens, defaultTokens, type CanvasDetailLevel } from './tokens.js'
 import {
   boundaryFieldNode,
@@ -101,6 +101,12 @@ export type Hit =
       readonly kind: 'growth'
       readonly node: SceneNode
       readonly row: Extract<LayoutRow, { kind: 'growth' }>
+    }
+  /** A member's grip: dragging it moves the member within its group. */
+  | {
+      readonly kind: 'grip'
+      readonly node: SceneNode
+      readonly grip: MemberGrip
     }
   /** The bottom edge of a multiline text box: dragging it sets the box's height in lines. */
   | {
@@ -283,6 +289,18 @@ export function textBoxEdgeAt(
   return undefined
 }
 
+/** The member grip whose box, across its row's full height, holds the point. */
+export function gripAt(node: SceneNode, wx: number, wy: number): MemberGrip | undefined {
+  const half = canvasPaintTokens.node.box.grip.hit / 2
+  for (const row of node.layout.rows) {
+    if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports') || row.reorder === undefined) continue
+    const ry = node.y + row.y
+    if (wy < ry || wy > ry + row.height) continue
+    if (Math.abs(wx - node.x - row.reorder.gripX) <= half) return row.reorder
+  }
+  return undefined
+}
+
 /** The minimize arrow's square target at the left end of a node's title bar. */
 export function minimizeArrowRect(node: SceneNode): { x: number; y: number; width: number; height: number } {
   const { left, target } = canvasPaintTokens.node.minimizeArrow
@@ -450,6 +468,8 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
       if (previewCaptionAt(node, wx, wy) && nodeResizeHandle(node, wx, wy, opts?.scale) === undefined) {
         return { kind: 'preview-caption', node }
       }
+      const grip = gripAt(node, wx, wy)
+      if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const row of l.rows) {
         if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button' || row.kind === 'member') continue
         const ry = node.y + row.y
@@ -476,6 +496,8 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     if (!inside && !minimizedProxy) continue
     if (wy <= node.y + l.headerHeight) return { kind: 'header', node }
     if (contentDetail) {
+      const grip = gripAt(node, wx, wy)
+      if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const row of l.rows) {
         if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button' || row.kind === 'member') continue
         const ry = node.y + row.y

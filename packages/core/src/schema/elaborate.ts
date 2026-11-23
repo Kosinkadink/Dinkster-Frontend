@@ -275,6 +275,10 @@ export interface ElaboratedBox {
   readonly ghost?: true
   /** A group that grows by hand: each member can be removed on the node. */
   readonly byHand?: true
+  /** A group whose stored members can be put in another order (`dynamic.moveMember`). */
+  readonly reorderable?: true
+  /** A member: its key in the group. */
+  readonly member?: string
   readonly openName?: false
   readonly boxes?: readonly string[]
 }
@@ -1028,6 +1032,7 @@ function elaboratePass(
         construct: path,
         label: literalText(row.displayName) ?? row.id,
         ...(row.grows === 'button' ? { byHand: true as const } : {}),
+        ...(row.reorderable === true && typeof row.grows === 'string' ? { reorderable: true as const } : {}),
         ...(row.openName === false ? { openName: false as const } : {}),
         ...boxed(scope),
       }, (boxes) => {
@@ -1163,6 +1168,7 @@ function elaboratePass(
             box: 'member',
             construct: path,
             label,
+            member: key,
             ordinal: position,
             ...(ghost ? { ghost: true as const } : {}),
             ...boxed(scope),

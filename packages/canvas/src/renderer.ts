@@ -23,7 +23,7 @@ import {
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, previewHasPanel, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { projectNodeLayoutHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type NodeLayout } from './layout.js'
+import { memberSpans, projectNodeLayoutHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type MemberGrip, type NodeLayout } from './layout.js'
 import {
   boundaryFieldNode,
   boundarySceneId,
@@ -637,6 +637,18 @@ export interface OverlayState {
   /** A box's header, closed row or tab under the idle pointer, by box key. */
   /** A box under the pointer; `target` names the field a held wire would reach in a closed box. */
   readonly hoveredBox?: { readonly nodeId: string; readonly boxId: string; readonly target?: string }
+  /** The member grip under the pointer: drawn brighter. */
+  readonly hoveredGrip?: { readonly nodeId: string; readonly construct: string; readonly member: string }
+  /**
+   * A member being dragged by its grip: it is dimmed where it stands, and
+   * `line` (node-local) marks where a release would put it.
+   */
+  readonly memberDrag?: {
+    readonly nodeId: string
+    readonly construct: string
+    readonly member: string
+    readonly line?: { readonly x: number; readonly y: number; readonly width: number }
+  }
   readonly hoveredBadge?: { readonly nodeId: string; readonly badgeId: string }
   /** The node whose title-bar minimize arrow is under the idle pointer. */
   readonly hoveredMinimize?: string
@@ -1070,7 +1082,7 @@ export class CanvasRenderer {
     const nodes = new Set<string>()
     const local = new Set<keyof OverlayState>([
       'selection', 'dragOffsets', 'resizePreview', 'bodyDropNode', 'dropRow', 'hoveredNode',
-      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBox', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'textBoxEdge', 'hoveredPreviewCaption',
+      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBox', 'hoveredGrip', 'memberDrag', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'textBoxEdge', 'hoveredPreviewCaption',
       'previewEdge',
     ])
     const keys = new Set([...Object.keys(previous), ...Object.keys(overlay)] as (keyof OverlayState)[])
@@ -3640,10 +3652,42 @@ export class CanvasRenderer {
         ctx.lineTo(cx - cross.size / 2, cy + cross.size / 2)
         ctx.stroke()
       }
+      /** Six dots in two columns: a member's grip, centered on (`cx`, `cy`). */
+      const paintGrip = (grip: MemberGrip, cx: number, cy: number): void => {
+        const paint = boxPaint.grip
+        const gripAlpha = ctx.globalAlpha
+        const hovered = this.overlay.hoveredGrip?.nodeId === sceneNode.id &&
+          this.overlay.hoveredGrip.construct === grip.construct && this.overlay.hoveredGrip.member === grip.member
+        if (grip.alone === true) ctx.globalAlpha = gripAlpha * canvasPaintTokens.widget.inactiveOpacity
+        ctx.fillStyle = hovered ? t.colors.title : t.colors.label
+        const dx = boxPaint.gripWidth / 2 - paint.dot
+        const dy = paint.height / 2 - paint.dot
+        ctx.beginPath()
+        for (const x of [cx - dx, cx + dx]) {
+          for (const y of [cy - dy, cy, cy + dy]) {
+            ctx.moveTo(x + paint.dot, y)
+            ctx.arc(x, y, paint.dot, 0, Math.PI * 2)
+          }
+        }
+        ctx.fill()
+        ctx.globalAlpha = gripAlpha
+      }
+      // A member being dragged stays where it is, dimmed like an inactive row.
+      const drag = this.overlay.memberDrag?.nodeId === sceneNode.id ? this.overlay.memberDrag : undefined
+      const dragged = drag === undefined
+        ? undefined
+        : memberSpans(l, drag.construct).find((span) => span.member === drag.member)
+      const rowsAlpha = ctx.globalAlpha
       for (const row of l.rows) {
         const rowY = node.y + row.y
+        ctx.globalAlpha = dragged !== undefined && row.y >= dragged.top && row.y < dragged.bottom
+          ? rowsAlpha * canvasPaintTokens.widget.inactiveOpacity
+          : rowsAlpha
         if ((row.kind === 'widget' || row.kind === 'ports') && row.crossInset !== undefined) {
           paintCross(node.x + l.width - row.crossInset, rowY + t.rowHeight / 2)
+        }
+        if ((row.kind === 'widget' || row.kind === 'ports') && row.reorder !== undefined) {
+          paintGrip(row.reorder, node.x + row.reorder.gripX, rowY + t.rowHeight / 2)
         }
         if (row.kind === 'section') {
           // A box's header, closed row or tab: the whole row opens or closes it.
@@ -3715,6 +3759,7 @@ export class CanvasRenderer {
           const right = node.x + l.width - row.inset
           const cy = node.y + row.top + closedHeight / 2
           const textX = left + boxPaint.textInset + boxPaint.gripWidth + boxPaint.labelGap
+          if (row.reorder !== undefined) paintGrip(row.reorder, node.x + row.reorder.gripX, cy)
           // The cross's right edge lines up with the fields inside the box.
           paintCross(right - boxPaint.stroke - boxPaint.fieldGap, cy)
           ctx.fillStyle = t.colors.label
@@ -3804,6 +3849,12 @@ export class CanvasRenderer {
         } else {
           this.drawFieldRow(ctx, sceneNode, node, row)
         }
+      }
+      ctx.globalAlpha = rowsAlpha
+      if (drag?.line !== undefined) {
+        // Where releasing the dragged member puts it.
+        ctx.fillStyle = t.colors.selection
+        ctx.fillRect(node.x + drag.line.x, node.y + drag.line.y - boxPaint.dropLine / 2, drag.line.width, boxPaint.dropLine)
       }
     }
 
