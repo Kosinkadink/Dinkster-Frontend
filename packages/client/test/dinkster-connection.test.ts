@@ -3182,17 +3182,22 @@ describe('websocket', () => {
     expect(events[0]).toMatchObject({ kind: 'schemaChanged', connection: C0, epoch: 4 })
   })
 
-  it('invalidates folder snapshots on mount pings without emitting asset or execution data', () => {
+  it.each(['mounts_changed', 'library_changed'])('invalidates snapshots on %s without emitting asset or execution data', (type) => {
     const { conn, ws, events } = connected()
-    let changes = 0
-    const unsubscribe = conn.onMountsChanged(() => { changes++ })
+    let mounts = 0
+    let library = 0
+    const unsubscribeMounts = conn.onMountsChanged(() => { mounts++ })
+    const unsubscribeLibrary = conn.onLibraryChanged(() => { library++ })
     ws.onopen?.({})
-    ws.onmessage?.({ data: JSON.stringify({ type: 'mounts_changed' }) })
-    expect(changes).toBe(1)
+    ws.onmessage?.({ data: JSON.stringify({ type }) })
+    expect(mounts).toBe(1)
+    expect(library).toBe(type === 'library_changed' ? 1 : 0)
     expect(events).toEqual([])
-    unsubscribe()
-    ws.onmessage?.({ data: JSON.stringify({ type: 'mounts_changed' }) })
-    expect(changes).toBe(1)
+    unsubscribeMounts()
+    unsubscribeLibrary()
+    ws.onmessage?.({ data: JSON.stringify({ type }) })
+    expect(mounts).toBe(1)
+    expect(library).toBe(type === 'library_changed' ? 1 : 0)
     conn.disconnect()
   })
 
