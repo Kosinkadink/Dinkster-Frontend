@@ -284,3 +284,54 @@ test('a wire from a field whose option is no longer chosen gives nothing, and it
   expect(second.job.skipped).toContain('req')
   await shot(page, '13-ran-skipped')
 })
+
+test('a wire from a field under a type-led pin whose type is gone gives nothing, and its receiving node is skipped', async ({ page, request }) => {
+  await page.evaluate(async () => {
+    await window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'gives-nothing-type-led-native-live', root: 'g0',
+      graphs: { g0: {
+        id: 'g0', name: 'root',
+        nodes: {
+          lead: { id: 'lead', type: 'dev.features.option_fields', values: { 'mode.amount': 0.25 }, dynamic: { mode: { selected: 'fixed' } } },
+          // Plugging a number into source stores the number variant, as here.
+          opt: { id: 'opt', type: 'dev.features.option_fields', values: { 'source.scale': 2.5 }, dynamic: { mode: { selected: 'none' }, source: { selected: 'number' } } },
+          req: { id: 'req', type: 'dev.features.required_value', values: {} },
+        },
+        links: {
+          number: { id: 'number', from: { node: 'lead', tap: 'mode.amount' }, to: { node: 'opt', port: 'source' } },
+          scale: { id: 'scale', from: { node: 'opt', tap: 'source.scale' }, to: { node: 'req', port: 'value' } },
+        },
+        nets: {}, reroutes: {}, nextOrdinal: 4,
+      } },
+      view: { graphs: { g0: { nodes: {
+        lead: { position: { x: 0, y: 80 } }, opt: { position: { x: 340, y: 80 } }, req: { position: { x: 700, y: 80 } },
+      } } } },
+    } as never, 'Gives nothing, type-led')
+  })
+  await identityViewport(page)
+  await shot(page, '21-scale-wired')
+
+  // A number on the source pin holds the scale field, and its wire carries the field's value.
+  const first = await runNode(page, request, 'req')
+  expect(first.submitted.graph.nodes['req']!.inputs['value']).toBe(2.5)
+  expect(first.job.outputs['req']!['text']!.value).toBe('value=2.50')
+
+  // Make the source pin text from its menu: the scale row stays only for its wire and the wire gives nothing.
+  const pin = await page.evaluate(() => {
+    const r = window.__dinksterTest!.renderer!
+    const node = r.getScene().nodes.find((n) => n.id === 'opt')!
+    const source = node.layout.pins.find((p) => p.portId === 'source' && p.direction === 'in')!
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const viewport = r.getViewport()
+    return { x: rect.left + node.x * viewport.scale + viewport.x, y: rect.top + (node.y + source.y) * viewport.scale + viewport.y }
+  })
+  await page.mouse.click(pin.x, pin.y, { button: 'right' })
+  await page.locator('[data-item-id="core.slot.specialize.text"]').click()
+  await expect.poll(async () => (await activeDoc(page)).graphs['g0']!.nodes['opt']!.dynamic?.['source']?.selected).toBe('text')
+  await shot(page, '22-pin-text-wired')
+
+  const second = await runNode(page, request, 'req')
+  expect(second.submitted.graph.nodes['req']!.inputs['value']).toEqual({ $absent: { reason: expect.any(String) } })
+  expect(second.job.skipped).toContain('req')
+  await shot(page, '23-ran-skipped')
+})
