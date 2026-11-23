@@ -552,3 +552,32 @@
 .dinkster-canvas-comparison > h3 { margin: 0; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-body-size); font-weight: var(--dinkster-weight-bold); }
 .dinkster-canvas-example-stage { position: relative; overflow: hidden; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); }
 .dinkster-canvas-example-stage canvas { display: block; }
+/* An editor shown in the node: its controls over the space the canvas leaves under its row, at the canvas's normal size. */
+.dinkster-canvas-editor { position: absolute; z-index: 1; display: flex; flex-direction: column; box-sizing: border-box; padding: calc(var(--dinkster-space-4) * 1.5); gap: 0; color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
+.dinkster-canvas-editor-picture { position: relative; flex: none; margin-bottom: calc(var(--dinkster-space-4) * 1.5); overflow: hidden; border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-canvas); }
+.dinkster-canvas-editor-picture > img, .dinkster-canvas-editor-picture > video, .dinkster-canvas-editor-picture > canvas, .dinkster-canvas-editor-picture > svg { display: block; width: 100%; height: 100%; object-fit: contain; }
+.dinkster-canvas-editor-picture-message { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: var(--dinkster-space-8); color: var(--dinkster-text-muted); text-align: center; }
+.dinkster-canvas-editor-picture-actions { position: absolute; top: var(--dinkster-space-4); right: var(--dinkster-space-4); display: flex; gap: var(--dinkster-space-4); }
+.dinkster-canvas-editor-resize { position: absolute; right: 0; bottom: 0; left: 0; height: calc(var(--dinkster-space-4) * 1.5); cursor: ns-resize; touch-action: none; }
+.dinkster-canvas-editor-resize:hover { background: var(--dinkster-border-hover); }
+.dinkster-canvas-editor-line, .dinkster-canvas-editor-note, .dinkster-canvas-editor-buttons, .dinkster-canvas-recorder, .dinkster-canvas-editor-section > summary { display: flex; flex: none; align-items: center; gap: var(--dinkster-space-8); box-sizing: border-box; min-width: 0; height: calc(var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)); }
+.dinkster-canvas-editor-line > *, .dinkster-canvas-editor-buttons > * { min-width: 0; }
+.dinkster-canvas-editor-line[data-dimmed='true'], .dinkster-canvas-editor[data-state='dimmed'] .dinkster-canvas-editor-line { opacity: 0.45; pointer-events: none; }
+.dinkster-canvas-editor-note { padding: 0 calc(var(--dinkster-space-4) * 1.5); overflow: hidden; color: var(--dinkster-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
+.dinkster-canvas-editor-note[data-tone='problem'] { color: var(--dinkster-danger-foreground); }
+.dinkster-canvas-editor-note[data-tone='muted'] { color: var(--dinkster-text-muted); }
+.dinkster-canvas-editor-buttons { padding: 0 var(--dinkster-space-4); }
+.dinkster-canvas-editor-section > summary { padding: 0 calc(var(--dinkster-space-4) * 1.5); border: var(--dinkster-border-width) solid var(--dinkster-border-group); border-radius: var(--dinkster-radius-small); color: var(--dinkster-text-secondary); list-style: none; cursor: pointer; user-select: none; }
+.dinkster-canvas-editor-section > summary::-webkit-details-marker { display: none; }
+.dinkster-canvas-editor-section[open] > summary > .dinkster-icon { transform: rotate(90deg); }
+.dinkster-canvas-editor-section-rows { display: flex; flex-direction: column; }
+.dinkster-canvas-editor-fact { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); box-sizing: border-box; height: var(--dinkster-input-canvas-height); padding: 0 calc(var(--dinkster-space-4) * 1.5); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-inset); }
+.dinkster-canvas-editor-fact-label { overflow: hidden; color: var(--dinkster-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
+.dinkster-canvas-editor-fact-value { flex: none; color: var(--dinkster-text-primary); }
+/* The recorder's strip: the round button, the status over the time, the waveform, the icons. Two rows tall. */
+.dinkster-canvas-recorder { height: calc((var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)) * 2); padding: 0 var(--dinkster-space-4); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-inset); }
+.dinkster-canvas-recorder-status { display: flex; flex: none; flex-direction: column; min-width: calc(var(--dinkster-space-32) * 3); }
+.dinkster-canvas-recorder-detail { color: var(--dinkster-text-secondary); }
+.dinkster-canvas-recorder-wave { flex: 1; min-width: 0; height: 70%; }
+.dinkster-canvas-recorder-wave > polyline { fill: none; stroke: var(--dinkster-text-secondary); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.dinkster-canvas-recorder[data-recording='true'] .dinkster-canvas-recorder-wave > polyline { stroke: var(--dinkster-accent-foreground); }
