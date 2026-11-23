@@ -160,10 +160,12 @@ for (const state of ['shared', 'isolated', 'host-refused'] as const) {
       const point = await page.evaluate(() => {
         const renderer = window.__dinksterTest!.renderer!
         const node = renderer.getScene().nodes.find((node) => node.id === 'target')!
+        const tab = renderer.getNodeBadgeLayout(node).find((entry) => 'glyph' in entry.badge && entry.badge.glyph === 'Unavailable')
+        if (!tab) throw new Error("no Unavailable tab on 'target'")
         const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
         const viewport = renderer.getViewport()
-        return { x: rect.left + (node.x + node.layout.width - 12) * viewport.scale + viewport.x,
-          y: rect.top + (node.y + node.layout.headerHeight / 2) * viewport.scale + viewport.y }
+        return { x: rect.left + (tab.x + tab.width / 2) * viewport.scale + viewport.x,
+          y: rect.top + (tab.y + tab.height / 2) * viewport.scale + viewport.y }
       })
       await page.mouse.click(point.x, point.y)
       await expect(page.getByTestId('badge-problem-detail')).toContainText(reason)
