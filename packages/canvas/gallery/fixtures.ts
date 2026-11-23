@@ -1203,6 +1203,29 @@ export function createCanvasGalleryFixture(
         dynamic: { prompts: { members: ['prompt0', 'prompt1'] } },
       },
     )
+    // Several named sections in one node, each opening on its own.
+    const twoSections = schema('Sampler and saver', [
+      socket('model', 'MODEL'),
+      image,
+      section('sampling', 'Sampling', [
+        widget('steps', 'INT', 20, { min: 1, max: 100 }),
+        widget('cfg', 'FLOAT', 7.5, { min: 0, max: 30, step: 0.1 }),
+      ]),
+      section('output', 'Output', [
+        widget('prefix', 'STRING', 'render'),
+        widget('format', 'COMBO', 'png', { options: ['png', 'webp'] }),
+      ]),
+    ])
+    nextRow()
+    add('Two sections, both open', twoSections, {}, 13, false, { at: column(0) })
+    add('Two sections, Output closed', twoSections, {}, 14, false, {
+      at: column(1),
+      closed: { output: true },
+    })
+    add('Two sections, Sampling closed', twoSections, {}, 15, false, {
+      at: column(2),
+      closed: { sampling: true },
+    })
     // A wire held over the closed row names the field it would reach.
     const source = fixture.scene.nodes.find((node) => node.id === 'Wire source')!
     const held = fixture.scene.nodes.find(
