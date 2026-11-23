@@ -33,6 +33,17 @@ export async function waitForWorkspaceReady(page: Page): Promise<void> {
     window.__dinksterTest.app.tabs.get().every((tab) => tab.execution !== undefined || 'status' in tab.store))).toBe(true)
 }
 
+/**
+ * After a click on an asset or model row, reaches the full asset browser:
+ * through the row's list when the field has one (a single asset or model),
+ * directly otherwise.
+ */
+export async function browseFromRow(page: Page): Promise<void> {
+  const more = page.locator('[data-editor-surface="in-row-list"] .dinkster-canvas-list-action[data-action="more"]')
+  await expect(more.or(page.getByTestId('asset-editor'))).toBeVisible()
+  if (await more.isVisible()) await more.click()
+}
+
 export async function skipWithoutNativeCatalog(request: APIRequestContext, testInfo: TestInfo): Promise<void> {
   nativeCatalogAvailable ??= request.get(`${nativeCatalogBackend}/api/nodes`, { timeout: 3000 })
     .then(async (response) => {

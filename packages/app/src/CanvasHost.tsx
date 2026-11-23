@@ -97,6 +97,7 @@ import {
   samePortRef,
   serializeSelection,
   type AssetRef,
+  assetMultiSelect,
   type CommandInvocation,
   type CommandOutcome,
   type ControllerMode,
@@ -5080,7 +5081,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     function editsInRow(tab: Tab, node: SceneNode, row: Extract<Hit, { kind: 'widget' }>['row']): boolean {
       if (renderer.getDesignTokens().widgetEditing !== 'in-row') return false
       const choice = row.viewId === 'core.select' && row.spec.widgetType === 'COMBO' && row.spec.remote === undefined
-      if (row.viewId !== 'core.number' && row.viewId !== 'core.slider' && row.viewId !== 'core.line' && !choice) return false
+      // One asset or model; source options and multiple picks keep their editors.
+      const asset = row.viewId === 'core.asset' && row.spec.widgetType === 'ASSET' && row.spec.selection !== true &&
+        !(row.type !== undefined && assetMultiSelect(row.type, registry()?.mergeableTypes))
+      if (row.viewId !== 'core.number' && row.viewId !== 'core.slider' && row.viewId !== 'core.line' && !choice && !asset) return false
       if (widgetRegistry().kind(row.spec.widgetType) === undefined) return false
       if (widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi !== undefined) return false
       // Single-line text that holds a line break opens in the multiline editor,

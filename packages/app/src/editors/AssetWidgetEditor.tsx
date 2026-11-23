@@ -26,6 +26,7 @@ import { assetGuessCandidateToRef } from '../dialog-requests.js'
 import { SearchState } from '../SearchSurface.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import { AssetSelectionEditor } from './AssetSelectionEditor.js'
+import { InRowAssetList } from './InRowAssetList.js'
 import { UploadDestination } from '../UploadDestination.js'
 import { activeProjectId } from '../projects.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
@@ -1033,6 +1034,9 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
 }
 
 export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
+  // A field edited in its row gets the compact list, which opens this
+  // editor itself for Browse.
+  if (props.ed.inRow !== undefined) return <WidgetEditorController {...props} implementation={InRowAssetList} />
   const accept = (): readonly string[] => {
     const value = props.ed.spec?.options['accept']
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []

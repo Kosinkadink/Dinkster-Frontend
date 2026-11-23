@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, nativeTest as test, type Page } from './fixtures.js'
+import { browseFromRow, expect, nativeTest as test, type Page } from './fixtures.js'
 
 const PROOF = '/tmp/assets-picker-facets-logical-model-proof'
 const LOCAL = `blake3:${'a'.repeat(64)}`
@@ -55,6 +55,7 @@ async function openWidget(page: Page, nodeId: string, inputId: string): Promise<
     return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + row.y + row.height / 2 }
   }, { nodeId, inputId })
   await page.mouse.click(point.x, point.y)
+  await browseFromRow(page)
   await expect(page.getByTestId('asset-editor')).toBeVisible()
 }
 

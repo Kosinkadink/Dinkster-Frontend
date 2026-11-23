@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { browseFromRow, expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { mkdir } from 'node:fs/promises'
 
 const PROOF = 'test-results/latent-assets'
@@ -741,6 +741,7 @@ test('latent without a valid workflow uploads canonically and inserts Load Laten
     return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + row.y + row.height / 2 }
   })
   await page.mouse.click(point.x, point.y)
+  await browseFromRow(page)
   const editor = page.getByTestId('asset-editor')
   await expect(editor).toBeVisible()
   await expect(page.getByRole('dialog', { name: 'Edit latent asset' })).toBeVisible()
