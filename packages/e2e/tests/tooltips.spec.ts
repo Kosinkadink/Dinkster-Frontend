@@ -41,17 +41,11 @@ test('icon-only activity items show immediate name-first help on hover and focus
   if (await library.getAttribute('aria-pressed') === 'true') await library.click()
   const tooltip = page.getByTestId('app-tooltip')
   const fullHelp = 'Image review workspace\nInspect the images produced by this pack.'
-<<<<<<< HEAD
   const libraryHelp = 'Library\nBrowse packs, templates, and saved workflows'
   await expect(long).toHaveAccessibleName('Image review workspace')
   await expect(long).toHaveText('')
   await expect(long.locator('svg')).toBeVisible()
   await expect(library).toHaveText('')
-=======
-  const libraryHelp = 'Browse packs, templates, and saved workflows'
-  expect(await long.locator('.sidebar-button-label').evaluate((label) => label.scrollWidth > label.clientWidth)).toBe(true)
-  expect(await library.locator('.sidebar-button-label').evaluate((label) => label.scrollWidth > label.clientWidth)).toBe(false)
->>>>>>> origin/main
 
   await page.mouse.move(600, 400)
   await long.hover()
