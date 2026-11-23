@@ -87,7 +87,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
     ],
     ['Wires', ['types', 'structure']],
     ['Subgraphs', ['boundary', 'boundary-names']],
-    ['Flow nodes', ['switch-primitive']],
+    ['Flow nodes', ['switch-primitive', 'type-conflict']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
 
@@ -199,6 +199,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'The minimap: nodes colored by state, a bypassed node, groups, and the frame of the visible area.',
   'switch-primitive':
     'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields. They replace the value source pill and the selector box shown in the second card.',
+  'type-conflict':
+    'Inputs that must share one type but are fed two different types: an error on the node, its wires and in Problems, and a refusal before the run. By hand such a wire is not accepted.',
 }
 
 /** A look an example is drawn in; a page with two or more shows them side by side. */
@@ -336,7 +338,8 @@ function ExampleCard(props: {
     renderer.setGridVisible(false)
     renderer.setScene(scene)
     renderer.setNodeStates(example.states ?? fixture.states)
-    renderer.setBadges(fixture.badges)
+    renderer.setBadges(example.badges ?? fixture.badges)
+    renderer.setPortProblems(example.portProblems ?? {})
     renderer.setOverlay(example.overlay ?? fixture.overlay)
     renderer.setRowMarks(example.rowMarks ?? fixture.rowMarks)
     renderer.setCompanions(example.companions ?? fixture.companions)
