@@ -469,6 +469,7 @@ name, and an optional access token where desktop credential storage is available
 succeeds but discovery fails, its disconnected line stays reachable for retry,
 token editing, or removal.
 
+Opening or closing a server line is preserved through background health updates.
 An opened line offers **Disconnect**, which stops the connection without
 forgetting the server or workflow targets, and **Connect** to reconnect it.
 **Remove backend** asks for confirmation, retires every matching profile's

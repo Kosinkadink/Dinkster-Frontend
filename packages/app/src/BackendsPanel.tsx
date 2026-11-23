@@ -29,6 +29,7 @@ function BackendRow(props: {
   const [removing, setRemoving] = createSignal(false)
   const [error, setError] = createSignal('')
   const [connectFailed, setConnectFailed] = createSignal(false)
+  const active = createMemo(() => props.backend?.id === (props.activeBackendId ?? props.defaultBackend.id))
   const status = () => { props.tick(); return props.backend ? backendConnectionStatus(props.backend) : 'disconnected' }
   const registry = () => { props.tick(); return props.backend?.registry.get() }
   const schemaState = () => { props.tick(); return props.backend?.schemaState.get() }
@@ -57,7 +58,7 @@ function BackendRow(props: {
     <Show when={error() || connectFailed()}><ProductErrorBanner onDismiss={() => { setError(''); setConnectFailed(false) }}>{connectFailed() ? message('connectionProfiles.error.connect', { name: props.name }) : error()}</ProductErrorBanner></Show>
     <Show when={removing()} fallback={<>
       <div class="storage-folder-heading">
-        <ProductDisclosure title={title()} open={props.backend?.id === (props.activeBackendId ?? props.defaultBackend.id)}>
+        <ProductDisclosure title={title()} open={active()}>
           <p class="dinkster-metadata" role="status">{message(`backendsPanel.connection.${status()}`)}</p>
           <code class="backend-address">{props.url || message('backendsPanel.sameOrigin')}</code>
           <Show when={schemaState()?.status === 'error'}><ProductNotice tone="warning">{message('backendsPanel.notice.schemaFailed', { message: (schemaState() as { message: string }).message })}</ProductNotice></Show>
