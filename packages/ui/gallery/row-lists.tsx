@@ -559,7 +559,7 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
       {
         id: 'locked',
         title: 'Wired, read-only, disabled',
-        caption: 'lora takes its value from a wire: it is dimmed, does not open, and Tab skips it, so the keyboard lands on strength. A read-only or disabled row is skipped the same way.',
+        caption: 'lora takes its value from a wire, so it does not open and Tab skips it: the keyboard lands on strength. How wired, read-only and disabled rows look is set by the row looks change (comfy-vibe-station issue 1235), not by the list.',
         node: 'lora',
         wired: true,
         focus: 'strength',
