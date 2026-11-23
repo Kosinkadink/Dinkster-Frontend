@@ -1,6 +1,6 @@
 import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
 import { defaultTokens, type LayoutRow } from '@dinkster/canvas'
-import { audioRecordKind, curveInterpolator, type CurvePoint, type CurveValue } from '@dinkster/widgets'
+import { audioRecordKind, curveInterpolator, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
   CanvasCurvePlot,
   CanvasEditorButtons,
@@ -14,9 +14,10 @@ import {
   canvasEditorIcons,
   type CanvasCurveStrip,
 } from '@dinkster/ui'
-import { createEffect, createSignal, onCleanup, Show, type JSX } from 'solid-js'
+import { createEffect, createSignal, on, onCleanup, Show, type JSX } from 'solid-js'
 import type { ExecutionState } from '@dinkster/client'
 import { useAppMessage } from './locale.js'
+import { frameFromVideo, webcamError, type WebcamDimensions } from './webcam.js'
 import { overlayClipStyle, type EditorWorldRect } from './widget-editor-position.js'
 
 type SpaceRow = Extract<LayoutRow, { kind: 'editorSpace' }>
@@ -33,6 +34,16 @@ export interface EditorSpaceItem {
   /** The space within the node. */
   readonly space: EditorWorldRect
   readonly value: Json | undefined
+  /** The editor's input has a wire, so the wire decides its value. */
+  readonly wired: boolean
+  /** What the wire brought in the last run, when it is known. */
+  readonly carried: Json | undefined
+}
+
+/** How the scene's wires reach an editor's input. */
+export interface EditorWires {
+  readonly wired: (nodeId: string, inputId: string) => boolean
+  readonly carried: (nodeId: string, valueKey: string) => Json | undefined
 }
 
 /** The spaces of the scene's unfolded editors, each with its editor button row. */
@@ -42,7 +53,7 @@ export function editorSpaceItems(nodes: readonly {
   readonly y: number
   readonly layout: { readonly width: number; readonly height: number; readonly minimized?: boolean; readonly rows: readonly LayoutRow[] }
   readonly node: { readonly values?: Readonly<Record<string, Json>> }
-}[]): EditorSpaceItem[] {
+}[], wires: EditorWires): EditorSpaceItem[] {
   return nodes.flatMap((node) => {
     if (node.layout.minimized === true) return []
     return node.layout.rows.flatMap((row) => {
@@ -58,6 +69,8 @@ export function editorSpaceItems(nodes: readonly {
         // The controls stop at the editor's outline, above the row's bottom band.
         space: { x: row.inset, y: row.y, width: row.width ?? node.layout.width - row.inset * 2, height: row.height - defaultTokens.rowGeometry.fieldInsetY },
         value: node.node.values?.[row.valueKey],
+        wired: wires.wired(node.id, row.inputId),
+        carried: wires.carried(node.id, row.valueKey),
       }]
     })
   })
@@ -645,6 +658,170 @@ export function CurveSpace(props: {
       </Show>
       {/* One note that wraps, never cut off; at the narrowest node it takes the two lines it is given. */}
       <CanvasEditorNote tone="muted" wrap>{message('inNodeCurve.help')}</CanvasEditorNote>
+    </>
+  )
+}
+
+export type StoredFrame = AssetRef & JsonObject
+
+const isFrame = (value: Json | undefined): value is StoredFrame =>
+  value !== undefined && value !== null && webcamKind.valueSchema.validate(value)
+
+/** A stored picture's object URL while it is shown; nothing while it loads or when it cannot be read. */
+function useAssetUrl(asset: () => StoredFrame | undefined, fetchBytes: (() => ((asset: StoredFrame, signal: AbortSignal) => Promise<ArrayBuffer | undefined>) | undefined)) {
+  const [url, setUrl] = createSignal<string>()
+  createEffect(on(() => asset()?.digest, () => {
+    const shown = asset()
+    const fetch = fetchBytes()
+    setUrl(undefined)
+    if (shown === undefined || fetch === undefined) return
+    const abort = new AbortController()
+    let owned: string | undefined
+    void fetch(shown, abort.signal).then((bytes) => {
+      if (abort.signal.aborted || bytes === undefined) return
+      owned = URL.createObjectURL(new Blob([bytes], { type: shown.mediaType }))
+      setUrl(owned)
+    }).catch(() => undefined)
+    onCleanup(() => {
+      abort.abort()
+      if (owned !== undefined) URL.revokeObjectURL(owned)
+    })
+  }))
+  return url
+}
+
+/** What the webcam editor needs from its host. */
+export interface WebcamPorts {
+  /** Undefined when the backend cannot take uploads. */
+  readonly upload: ((file: File, signal: AbortSignal) => Promise<StoredFrame>) | undefined
+  readonly fetchBytes: ((frame: StoredFrame, signal: AbortSignal) => Promise<ArrayBuffer | undefined>) | undefined
+  /** The node's width and height for the frame, when its rows give them. */
+  readonly size: () => WebcamDimensions
+  /** Writes the node's value as one Undo step. */
+  readonly commit: (value: StoredFrame) => void
+}
+
+type CameraState = 'off' | 'starting' | 'live' | 'capturing' | 'error'
+
+/**
+ * The webcam's controls in the node: the picture, Start camera (or Capture
+ * frame and Stop while the camera is live) and what is stored. The camera
+ * runs only while these controls are shown, so folding the editor, leaving
+ * the screen or zooming out turns it off. A wired image is the wire's: the
+ * camera does not start, and the picture shows the last run's image.
+ */
+export function WebcamSpace(props: {
+  readonly value: Json | undefined
+  readonly pictureHeight: number
+  readonly ports: WebcamPorts
+  readonly wired: boolean
+  /** What the wire brought in the last run, when it is known. */
+  readonly carried: Json | undefined
+}) {
+  const message = useAppMessage()
+  const [camera, setCamera] = createSignal<CameraState>('off')
+  const [error, setError] = createSignal<string>()
+  let stream: MediaStream | undefined
+  let video: HTMLVideoElement | undefined
+  let abort: AbortController | undefined
+  const stored = () => isFrame(props.value) ? props.value : undefined
+  const carried = () => isFrame(props.carried) ? props.carried : undefined
+  const shown = useAssetUrl(() => props.wired ? carried() : stored(), () => props.ports.fetchBytes)
+  const live = () => camera() === 'live' || camera() === 'capturing'
+  const release = () => {
+    abort?.abort()
+    abort = undefined
+    for (const track of stream?.getTracks() ?? []) track.stop()
+    stream = undefined
+    if (video !== undefined) video.srcObject = null
+  }
+  onCleanup(release)
+  const start = async () => {
+    if (props.wired || camera() !== 'off' && camera() !== 'error') return
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError(webcamError(new DOMException('Camera capture requires a secure browser context.', 'NotSupportedError')))
+      setCamera('error')
+      return
+    }
+    setError(undefined)
+    setCamera('starting')
+    try {
+      const opened = await navigator.mediaDevices.getUserMedia({ audio: false, video: true })
+      if (camera() !== 'starting') {
+        for (const track of opened.getTracks()) track.stop()
+        return
+      }
+      stream = opened
+      setCamera('live')
+    } catch (reason) {
+      setError(webcamError(reason))
+      setCamera('error')
+    }
+  }
+  const stop = () => {
+    release()
+    setCamera('off')
+  }
+  const capture = async () => {
+    const upload = props.ports.upload
+    if (camera() !== 'live' || video === undefined || upload === undefined) return
+    setCamera('capturing')
+    setError(undefined)
+    abort = new AbortController()
+    const signal = abort.signal
+    try {
+      const file = await frameFromVideo(video, props.ports.size())
+      const frame = await upload(file, signal)
+      if (signal.aborted) return
+      props.ports.commit(frame)
+      setCamera('live')
+    } catch (reason) {
+      if (signal.aborted) return
+      setError(webcamError(reason))
+      setCamera('live')
+    }
+  }
+  const pictureMessage = () => {
+    if (props.wired) return carried() === undefined ? message('inNodeWebcam.notKnown') : undefined
+    if (camera() === 'error') return error()
+    if (live() || camera() === 'starting') return undefined
+    return stored() === undefined ? message('inNodeWebcam.noFrame') : undefined
+  }
+  const note = () => {
+    if (props.wired) return carried() === undefined ? message('inNodeWebcam.byWire') : message('inNodeWebcam.lastRun')
+    if (props.ports.upload === undefined) return message('inNodeWebcam.native')
+    if (camera() !== 'error' && error() !== undefined) return error()
+    return stored() === undefined ? message('inNodeWebcam.nothingStored') : message('inNodeWebcam.stored', { name: stored()!.name ?? stored()!.digest })
+  }
+  const noteTone = () => props.wired ? (carried() === undefined ? 'muted' : undefined)
+    : props.ports.upload === undefined || (stored() === undefined && error() === undefined) ? 'muted'
+      : camera() !== 'error' && error() !== undefined ? 'problem' : undefined
+  return (
+    <>
+      <CanvasEditorPicture ref={(element) => { element.style.height = `${props.pictureHeight}px` }}
+        loading={camera() === 'starting'}
+        {...(pictureMessage() === undefined ? {} : { message: pictureMessage()! })}>
+        <Show when={live()} fallback={
+          <Show when={pictureMessage() === undefined && camera() !== 'starting' ? shown() : undefined}>
+            {(url) => <img src={url()} alt={message('webcam.preview')} />}
+          </Show>
+        }>
+          <video ref={(element) => {
+            video = element
+            element.srcObject = stream ?? null
+            void element.play().catch(() => undefined)
+          }} muted playsinline autoplay />
+        </Show>
+      </CanvasEditorPicture>
+      <CanvasEditorButtons buttons={live()
+        ? [
+            { label: message(camera() === 'capturing' ? 'webcam.capturing' : 'webcam.capture'), icon: canvasEditorIcons.capture,
+              pending: camera() === 'capturing', disabled: props.ports.upload === undefined, onClick: () => void capture() },
+            { label: message('inNodeWebcam.stop'), icon: canvasEditorIcons.stop, intent: 'remove', onClick: stop },
+          ]
+        : [{ label: message('inNodeWebcam.start'), icon: canvasEditorIcons.capture,
+            disabled: props.wired || camera() === 'starting' || props.ports.upload === undefined, onClick: () => void start() }]} />
+      <CanvasEditorNote tone={noteTone()}>{note()}</CanvasEditorNote>
     </>
   )
 }

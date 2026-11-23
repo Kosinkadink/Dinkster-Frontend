@@ -181,7 +181,7 @@ import {
   type CanvasSemanticSource,
   type CanvasSemanticTarget,
 } from './CanvasSemanticNavigator.js'
-import { AudioRecordSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, type EditorSpaceItem } from './InNodeEditorSpaces.js'
+import { AudioRecordSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, type EditorSpaceItem } from './InNodeEditorSpaces.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
 
@@ -1600,7 +1600,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const canvas = canvasClientRect()
     return boundedVisibleOverlayKeys(
       // The editors whose controls the app lays over their space.
-      editorSpaces().filter((item) => item.row.viewId === 'core.audioRecord' || item.row.viewId === 'core.curve'),
+      editorSpaces().filter((item) => ['core.audioRecord', 'core.curve', 'core.webcam'].includes(item.row.viewId)),
       (item) => item.key,
       (item) => mediaScreenRect(item.node, item.space, viewport, canvas) !== undefined,
       (item) => selectedNodeIds().has(item.nodeId),
@@ -4763,7 +4763,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         },
       })
       setPreviewA11yTargets(selectedInputPreviewA11yTargets(scene, model.selectedInputPreviews))
-      setEditorSpaces(editorSpaceItems(renderer.getScene().nodes))
+      setEditorSpaces(editorSpaceItems(renderer.getScene().nodes, {
+        wired: (nodeId, inputId) => companionInputs.get(nodeId)?.has(inputId) === true || scene.links.some((link) =>
+          link.to.kind === 'port' && link.to.node === nodeId && link.to.port === inputId),
+        carried: (nodeId, valueKey) => companionDisplays[nodeId]?.[valueKey]?.value,
+      }))
       setMediaPreviews(renderer.getScene().nodes.flatMap((node) => {
         if (node.layout.minimized) return []
         const media = model.previews[node.id]
@@ -6667,11 +6671,34 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId),
           }
         }
+        const webcam = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.webcam') return undefined
+          const backend = props.app.backendForTab(at.tab)
+          const native = backend.protocol === 'dinkster' ? backend.connection : undefined
+          const parts = at.current.field.parts
+          const dimension = (part: 'width' | 'height'): number => {
+            const row = parts === undefined ? undefined : Object.hasOwn(parts.writes, part) ? parts.writes[part] : parts.reads[part]
+            const value = row === undefined ? undefined : at.tab.store.doc.graphs[at.target.graphId]?.nodes[at.target.nodeId]?.values[row]
+            return typeof value === 'number' ? value : 0
+          }
+          return {
+            upload: native === undefined ? undefined
+              : (file: File, signal: AbortSignal) => native.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal }),
+            fetchBytes: native === undefined ? undefined : (frame: AssetRef, signal: AbortSignal) => native.fetchAssetBytes(frame.digest, signal),
+            size: () => ({ width: dimension('width'), height: dimension('height') }),
+            commit: (value: Json) => at.commit(value),
+          }
+        }
         return (
           <Show when={item() !== undefined && projected() !== undefined}>
             <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl}>
               <Show when={recorder()}>
                 {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} />}
+              </Show>
+              <Show when={webcam()}>
+                {(ports) => <WebcamSpace value={item()?.value} pictureHeight={item()?.row.picture?.height ?? 0} ports={ports()}
+                  wired={item()?.wired === true} carried={item()?.carried} />}
               </Show>
               <Show when={curve()}>
                 {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wiredLine={item()?.row.wiredLine === true}
