@@ -38,6 +38,7 @@ import {
   type CompanionDisplay,
   type CompanionMap,
   type PresenceActor,
+  type StoredValueRow,
   type LayoutRow,
   type Scene,
   type SceneNetStub,
@@ -69,6 +70,7 @@ import { CanvasColorArriving } from '@dinkster/ui'
 import {
   defaultValuesOf,
   initialDynamicStateOf,
+  ruleProblemRefs,
   documentResolver,
   elabOutputsOf,
   effectiveOccurrenceTopology,
@@ -137,7 +139,7 @@ import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive } from '.
 import { RowFocusOverlay, type RowFocusState } from './editors/RowFocusOverlay.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
 import { applyNodeDecorations, deriveSceneOverlays, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
-import { composeCanvasProblemDiagnostics, deriveProblemProjection, NO_PROBLEM_ROWS, problemDisplay, problemInputRows, type NodeProblemKind, type NodeProblemMap, type ProblemRowsShown } from './problem-display.js'
+import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
 import { problemBoxLines, problemBoxRows, type ProblemBoxLine } from './problem-box.js'
 import { NodeProblemBox } from './NodeProblemBox.js'
 import { BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
@@ -385,6 +387,45 @@ export function armedPlacementGhost(
 
 export function palettePickCommitsImmediately(type: string, placement: PaletteAnchor): boolean {
   return type === '__dinkster.reroute' || placement.linkDrop !== undefined || placement.splice !== undefined
+}
+
+/**
+ * The problems of one field's stored value, checked through the same widget
+ * kind the editors use, so a document that arrives with an out-of-range INT,
+ * an unknown COMBO option or an invalid save target is reported without
+ * anyone opening an editor. Only a stored value is checked: a schema default
+ * is the schema author's contract, not the document's.
+ */
+export function storedValueProblems(
+  registry: ReturnType<AppState['widgetRegistryForTab']>,
+  graphId: string,
+  row: StoredValueRow,
+  value: Json | undefined,
+): Diagnostic[] {
+  const refs = [{ graphId, nodeId: row.nodeId, portId: row.inputId, valueKey: row.valueKey, direction: 'input' as const }]
+  const kind = registry.kind(row.spec.widgetType)
+  if (!kind) {
+    return [diag('warning', 'schema', 'widget.kindUnavailable', `${row.nodeId}.${row.valueKey}: widget kind '${row.spec.widgetType}' is not available; using the raw-value editor`, { refs })]
+  }
+  // JSON cannot store undefined, so undefined means "not stored". An
+  // explicit null IS stored (ASSET and MOUNT use it as "no value") and must
+  // reach the validator.
+  if (value === undefined) return []
+  const where = `${row.nodeId}.${row.valueKey}`
+  if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
+    return [unresolvedAssetImportDiagnostic({
+      graphId,
+      nodeId: row.nodeId,
+      inputId: row.inputId,
+      valueKey: row.valueKey,
+      requested: value,
+      ...(row.spec.kind !== undefined ? { expectedKind: row.spec.kind } : {}),
+    })]
+  }
+  if (!kind.valueSchema.validate(value, row.spec)) {
+    return [diag('warning', 'schema', `widget.${row.spec.widgetType}.badValue`, `${where}: stored value does not fit this widget's value shape`, { refs })]
+  }
+  return kind.validate(value, row.spec).map((d) => ({ ...d, message: `${where}: ${d.message}`, refs }))
 }
 
 export function unresolvedAssetImportDiagnostic(args: {
@@ -1909,7 +1950,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // -- node problem box -------------------------------------------------------
   // Opened by a node's Error or Warning tab, or by Show on canvas. It hangs
   // below the node; only one node's box is open at a time.
-  const [problemRowsShown, setProblemRowsShown] = createSolidSignal<ProblemRowsShown>(NO_PROBLEM_ROWS)
   const [problemBox, setProblemBox] = createSolidSignal<{
     readonly owner: string
     readonly nodeId: string
@@ -2611,6 +2651,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       repaintMinimap?.()
     }
     updateTheme()
+    createEffect(() => renderer.setRenamingNode(nodePrompt()?.nodeId))
     const themeObserver = new MutationObserver(updateTheme)
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     onCleanup(() => themeObserver.disconnect())
@@ -4192,7 +4233,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly extensionRevision: number
       readonly seedControllerEnabled: boolean
       readonly plannerAvailable: boolean
-      readonly problemRows: ProblemRowsShown
     } | undefined
     let sceneViewportOwner: { readonly tabId: string; readonly graphId: string } | undefined
     let pendingViewport: { readonly tabId: string; readonly graphId: string; readonly viewport: ReturnType<CanvasRenderer['getViewport']> } | undefined
@@ -4237,7 +4277,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const pathKey = path.join('/')
       const extensionsGeneration = props.app.extensions.changed.get()
       const seedControllerEnabled = props.app.settings.get<boolean>('features.seedController.enabled')
-      const shownProblemRows = problemRowsShown()
       const occurrenceOwner = path.length === 0 ? undefined : {
         instancePath: path.slice(0, -1).map(asNodeId),
         node: asNodeId(path[path.length - 1]!),
@@ -4253,8 +4292,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         previousBuild.extensionsGeneration === extensionsGeneration &&
         previousBuild.extensionRevision === currentExtensionRevision &&
         previousBuild.seedControllerEnabled === seedControllerEnabled &&
-        previousBuild.plannerAvailable === plannerAvailable &&
-        previousBuild.problemRows === shownProblemRows
+        previousBuild.plannerAvailable === plannerAvailable
       const valuesUpdated = canReuseScene && path.length === 0
         ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => reg?.resolve(type))
         : undefined
@@ -4268,11 +4306,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         props.app.extensionRevision.get()
         const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? reg?.resolve(type))
         const occurrenceView = occurrenceDynamicView(doc, resolve, path, path.length === 0 ? graphId : doc.root)
+        const valueRegistry = widgetRegistry()
         return buildScene({
           document: doc,
           seedControllerEnabled,
           graphId,
           resolve,
+          // A hidden row shows while its stored value has a problem, as Problems lists it.
+          storedValueProblem: (row, value) =>
+            storedValueProblems(valueRegistry, graphId, row, value).some((d) => d.severity !== 'info'),
           renderVirtualNode: (node) => props.app.virtualNodeKinds.get(node.type)?.render(node),
           tokens: defaultTokens,
           measure,
@@ -4281,7 +4323,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ...(occurrenceOwner !== undefined ? {
             occurrence: { owner: occurrenceOwner, plannerAvailable },
           } : {}),
-          ...(shownProblemRows.key === '' ? {} : { problemRows: shownProblemRows.rows }),
         })
       })()
       const graphView = doc.view.graphs[graphId]
@@ -4310,7 +4351,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         extensionRevision: currentExtensionRevision,
         seedControllerEnabled,
         plannerAvailable,
-        problemRows: shownProblemRows,
       }
       // A rebuild can produce a scene identical to the installed one: a
       // workspace-session swap re-reads an equal document, and an edit in
@@ -4521,45 +4561,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         for (const row of node.fieldRows ?? node.layout.rows) {
           if (row.kind !== 'widget' || row.selector !== undefined) continue
           if (companionInputs.get(node.id)?.has(row.valueKey)) continue
-          const kind = widgetRegistry().kind(row.spec.widgetType)
-          if (!kind) {
-            out.push(diag('warning', 'schema', 'widget.kindUnavailable', `${node.id}.${row.valueKey}: widget kind '${row.spec.widgetType}' is not available; using the raw-value editor`, {
-              refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
-            }))
-            continue
-          }
-          // JSON cannot store undefined, so undefined means "not stored":
-          // the schema default applies and is the schema author's problem,
-          // not the document's. An explicit null IS stored (ASSET and
-          // MOUNT use it as "no value") and must reach the validator.
-          const value = node.node.values[row.valueKey]
-          if (value === undefined) continue
-          const where = `${node.id}.${row.valueKey}`
-          if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
-            out.push(unresolvedAssetImportDiagnostic({
-              graphId: scene.graphId,
-              nodeId: node.id,
-              inputId: row.inputId,
-              valueKey: row.valueKey,
-              requested: value,
-              ...(row.spec.kind !== undefined ? { expectedKind: row.spec.kind } : {}),
-            }))
-            continue
-          }
-          if (!kind.valueSchema.validate(value, row.spec)) {
-            out.push(diag('warning', 'schema', `widget.${row.spec.widgetType}.badValue`, `${where}: stored value does not fit this widget's value shape`, {
-              refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
-            }))
-            continue
-          }
-          const found = kind.validate(value as Json, row.spec)
-          for (const d of found) {
-            out.push({
-              ...d,
-              message: `${where}: ${d.message}`,
-              refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
-            })
-          }
+          out.push(...storedValueProblems(widgetRegistry(), scene.graphId,
+            { nodeId: node.id, inputId: row.inputId, valueKey: row.valueKey, spec: row.spec }, node.node.values[row.valueKey]))
         }
       }
       return out
@@ -4574,7 +4577,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const availabilityDiags = tab.execution || !hasResidentMetadata
         ? [] : props.app.previewAvailabilityDiagnostics(tab) ?? []
       const widgetDiags = widgetValueDiagnostics()
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...availabilityDiags]
+      // A node's declared rules are checked as the user edits, so a failed
+      // one is listed before the run is queued, under the same workflow
+      // origin compile gives it. A rule whose check reads exactly one field
+      // is that field's problem: its ref names the field, so the problem
+      // projection outlines that row.
+      const ruleDiags = scene.nodes.flatMap(({ node, elaborated }) =>
+        (elaborated?.diagnostics ?? [])
+          .filter((d) => d.code === 'node.rule.failed')
+          .map((d): Diagnostic => ({ ...d, origin: 'compile', refs: ruleProblemRefs(d, scene.graphId, node.id) })))
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
     }
@@ -4670,11 +4682,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         },
       })
       nodeProblems = projectedProblems.nodes
-      // A row set to be hidden is drawn while it has a problem, so the scene is
-      // rebuilt when the input rows with a problem change; drawing the row
-      // changes no problem, so this settles after one rebuild.
-      const inputRows = problemInputRows(projectedProblems.rows)
-      if (inputRows.key !== problemRowsShown().key) setProblemRowsShown(inputRows)
 
       const model = deriveSceneOverlays({
         scene,
@@ -5179,11 +5186,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setEditor({
         tab,
         graphId,
-        label: hit.row.label,
+        // An editor row has no label of its own; its editor is titled by its node.
+        label: hit.row.editor === true ? hit.node.layout.title : hit.row.label,
         target: {
           kind: 'input',
           nodeId,
-          valueKey: hit.row.valueKey,
+          // An editor row's value is the one row it writes, when it writes exactly one.
+          valueKey: hit.row.editor === true && hit.row.parts !== undefined && Object.keys(hit.row.parts.writes).length === 1
+            ? Object.values(hit.row.parts.writes)[0]!
+            : hit.row.valueKey,
+          ...(hit.row.parts !== undefined ? { parts: hit.row.parts } : {}),
           ...(hit.row.familyOwner !== undefined ? { familyOwner: hit.row.familyOwner } : {}),
           ...(hit.row.optionsTarget !== undefined ? { optionsTarget: hit.row.optionsTarget } : {}),
           ...(hit.row.materialize !== undefined ? { materialize: hit.row.materialize } : {}),

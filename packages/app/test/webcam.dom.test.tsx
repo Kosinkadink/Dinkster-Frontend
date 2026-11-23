@@ -62,7 +62,7 @@ it('stages capture, preserves the saved frame on cancel or device failure, and a
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:camera')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const schema = parseDinksterSchema('dinkster.image.webcam_capture', { body: [
-    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM' } },
+    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM', reads: { width: 'width', height: 'height' } } },
     { kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, default: 640 },
     { kind: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 180 },
   ] }).schema!
@@ -81,7 +81,7 @@ it('stages capture, preserves the saved frame on cancel or device failure, and a
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   const open = () => render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'image' }, label: 'Camera frame',
+    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'image', parts: { writes: {}, reads: { width: 'width', height: 'height' } } }, label: 'Camera frame',
     spec: inputsOf(schema)[0]!.widget, declaredType: inputsOf(schema)[0]!.type,
     multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial: store.doc.graphs.g0!.nodes.n1!.values.image,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
@@ -112,7 +112,7 @@ async function queueSetup(captureOnQueue = true) {
   const backend = app.backends.get()[0]!
   const type = 'dinkster.image.webcam_capture'
   backend.registry.set(buildDinksterRegistry(backend.id, { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: { [type]: { body: [
-    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM' } },
+    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM', reads: { width: 'width', height: 'height', capture_on_queue: 'capture_on_queue' } } },
     { kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, default: 640 },
     { kind: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 180 },
     { kind: 'input', id: 'capture_on_queue', type: { kind: 'concrete', types: ['BOOLEAN'] }, default: true },
