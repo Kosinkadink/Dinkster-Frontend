@@ -6238,9 +6238,11 @@ export class AppState {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
         boundaryPositionsFor: this.boundaryPositionResolver(sessionResolver),
         onConflict: (conflict: SessionConflict) =>
-          report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
-            `${conflict.invocation.command}: a concurrent edit makes this change inapplicable`,
-            { data: { diagnostics: conflict.diagnostics } })),
+          report(conflict.during === 'refused'
+            ? conflict.diagnostics[0]!
+            : diag('warning', 'collab', `collab.conflict.${conflict.during}`,
+              `${conflict.invocation.command}: a concurrent edit makes this change inapplicable`,
+              { data: { diagnostics: conflict.diagnostics } })),
         onError: (message: string) => report(diag('error', 'collab', 'collab.session', message)),
       })
       owner = session.doc.lineage

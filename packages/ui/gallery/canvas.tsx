@@ -58,6 +58,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'idle-outline',
         'titles',
         'titles-content',
+        'title-suffix',
         'node-look',
         'previews',
         'badges',
@@ -87,7 +88,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
     ],
     ['Wires', ['types', 'structure']],
     ['Subgraphs', ['boundary', 'boundary-names']],
-    ['Flow nodes', ['switch-primitive']],
+    ['Flow nodes', ['switch-primitive', 'small-flow-nodes']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
 
@@ -143,6 +144,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   titles:
     'A title that does not fit ends in an ellipsis instead of squeezing its letters, drawn at 75 percent zoom.',
   'titles-content': 'The same titles at 50 percent zoom.',
+  'title-suffix':
+    'A node\'s declared title suffix, worked out from its values ("20 steps, euler"), one space after the title in the row names\' dim regular type: beside a pack title, beside a renamed title, cut first on a narrow node ("20 steps with the euler sampler"), and on a minimized node.',
   'node-look':
     'The same nodes in the original look and in the flat-title look the owner chose.',
   previews:
@@ -199,6 +202,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'The minimap: nodes colored by state, a bypassed node, groups, and the frame of the visible area.',
   'switch-primitive':
     'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields. They replace the value source pill and the selector box shown in the second card.',
+  'small-flow-nodes':
+    'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
 }
 
 /** A look an example is drawn in; a page with two or more shows them side by side. */

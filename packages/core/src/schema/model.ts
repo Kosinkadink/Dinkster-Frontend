@@ -306,6 +306,8 @@ export interface WidgetDescriptorSpec {
   readonly remote?: RemoteSourceSpec
   /** Ordered choices authored on an occurrence, independently of its selected value. */
   readonly editableOptions?: true
+  /** With editableOptions: the hidden list<STRING> input the compiler fills with the authored options. */
+  readonly optionsInput?: string
   /** Schema-declared text completion vocabulary (wire 36). */
   readonly textCompletions?: TextCompletionsSpec
   /** A custom or compositor widget's own part names -> the row ids it writes. */
@@ -488,7 +490,7 @@ interface PortSpecBase {
   /** A label the declaration works out by formula; `displayName` is then unset. */
   readonly labelFormula?: FormulaSpec
   readonly tooltip?: string
-  /** Whether the row shows, as declared; the editor does not evaluate it yet. */
+  /** Whether the row shows. A hidden row is still stored and sent to the run. */
   readonly visible?: Formulated<boolean>
   /** Alpha handling at this port; undefined is the default 'preserve'. */
   readonly alphaPolicy?: AlphaPolicy
@@ -590,6 +592,8 @@ export interface OutputKnownValue {
 export interface OutputSpec extends PortSpecBase {
   readonly kind: 'output'
   readonly type: TypeExpr
+  /** Set by elaboration, never declared: its `visible` is false. Still part of the run. */
+  readonly hidden?: true
   readonly isList?: boolean
   /**
    * Presentation/discovery-only marker: this final output is offered as a
@@ -695,6 +699,21 @@ export type GroupGrowsSpec =
   | { readonly count: string }
   | { readonly followList: string }
 
+/**
+ * On a construct a subgraph node shows whole: what each name its formulas
+ * read outside the construct means on that node. The formulas keep the inner
+ * node's scope; a name the subgraph also shows reads that row of the subgraph
+ * node, and any other name reads the definition's fixed value.
+ */
+export interface OuterScope {
+  /** The inner node's scopes around the construct, outermost first, each with what its names mean. */
+  readonly frames: readonly { readonly rows: readonly OptionRow[]; readonly names: Readonly<Record<string, OuterName>> }[]
+}
+
+export type OuterName =
+  | { readonly row: string }
+  | { readonly value: unknown; readonly linked?: true }
+
 /** A box that repeats its member rows. */
 export interface GroupSpec {
   readonly kind: 'group'
@@ -718,6 +737,9 @@ export interface GroupSpec {
   readonly addLabel?: string
   readonly memberLabel?: Formulated<string>
   readonly openName?: false
+  /** On a subgraph node: how many members the definition holds before this node's own. */
+  readonly interiorMembers?: number
+  readonly outer?: OuterScope
 }
 
 /** One option of a choice: its key and the rows it holds. */
@@ -763,6 +785,7 @@ export interface ChoiceSpec {
   readonly required: boolean
   readonly hidden?: true
   readonly onEdit?: readonly StepSpec[]
+  readonly outer?: OuterScope
 }
 
 /** One variant of a type choice: the type plugged in and the rows it reveals. */
@@ -788,6 +811,9 @@ export interface TypeChoiceSpec {
   readonly required: boolean
   /** Node-level type variable bound by the chosen variant. */
   readonly typeVariable?: string
+  /** On a subgraph node that shows it whole: the variant the definition picks, used while the node stores none. */
+  readonly default?: string
+  readonly outer?: OuterScope
 }
 
 /** Rows listed by a stored description, stored under the row's own id. */
@@ -803,6 +829,9 @@ export interface DescribedSpec {
   readonly maxEntries: number
   readonly fixedIds: boolean
   readonly probe?: { readonly input: string; readonly kind: 'model'; readonly revision: string }
+  /** The description a node starts with while it stores none of its own. */
+  readonly default?: unknown
+  readonly outer?: OuterScope
 }
 
 export type BodyRow =

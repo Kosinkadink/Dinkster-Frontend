@@ -477,9 +477,15 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       }
       return
     case 'COMBO': {
-      checkWidgetFields(descriptor, ['type', 'options', 'remote', 'editableOptions'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'options', 'remote', 'editableOptions', 'optionsInput'], where, diags)
       if (descriptor['editableOptions'] !== undefined && typeof descriptor['editableOptions'] !== 'boolean') {
         throw new Error(`${where}.editableOptions must be a boolean`)
+      }
+      if (descriptor['optionsInput'] !== undefined && (typeof descriptor['optionsInput'] !== 'string' || descriptor['optionsInput'] === '')) {
+        throw new Error(`${where}.optionsInput must be a non-empty string`)
+      }
+      if (descriptor['optionsInput'] !== undefined && descriptor['editableOptions'] !== true) {
+        throw new Error(`${where}.optionsInput requires editableOptions`)
       }
       if (descriptor['editableOptions'] === true && descriptor['remote'] !== undefined) {
         throw new Error(`${where}.editableOptions cannot have another option source`)
@@ -601,6 +607,11 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         throw new Error(`${where} requires a presentation field`)
       return
     case 'COLOR':
+      checkWidgetFields(descriptor, ['type', 'alpha'], where, diags)
+      if (descriptor['alpha'] !== undefined && typeof descriptor['alpha'] !== 'boolean') {
+        throw new Error(`${where}.alpha must be a boolean`)
+      }
+      return
     case 'MOUNT':
       checkWidgetFields(descriptor, ['type'], where, diags)
       return
@@ -777,6 +788,7 @@ function widgetFor(
       labelOn?: unknown
       labelOff?: unknown
       editableOptions?: unknown
+      optionsInput?: unknown
       min?: unknown
       max?: unknown
       step?: unknown
@@ -787,6 +799,7 @@ function widgetFor(
       dynamicPrompts?: unknown
       completions?: unknown
       chip?: unknown
+      alpha?: unknown
     }
     if (descriptor.type === 'REPRESENTATIONS') {
       if (!representationsAllowed) throw new Error(`${nodeType}.${id}: nested widget representations are forbidden`)
@@ -943,6 +956,7 @@ function widgetFor(
           widgetType: 'COMBO',
           options: options !== undefined ? { options } : {},
           ...(descriptor.editableOptions === true ? { editableOptions: true as const } : {}),
+          ...(typeof descriptor.optionsInput === 'string' ? { optionsInput: descriptor.optionsInput } : {}),
           ...(remote !== undefined ? { remote } : {}),
           ...(dflt !== undefined ? { default: dflt } : {}),
         }
@@ -1118,7 +1132,8 @@ function widgetFor(
     if (descriptor.type === 'COLOR' || descriptor.type === 'MOUNT') {
       return {
         widgetType: descriptor.type,
-        options: {},
+        // A color field that uses opacity says so; the editor offers opacity only there.
+        options: descriptor.type === 'COLOR' && descriptor.alpha === true ? { alpha: true } : {},
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
@@ -2056,9 +2071,28 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       const knownValue = output.knownValue
       if (knownValue === undefined) continue
       const input = decodedInputs.get(knownValue.input)
-      const primitive = output.type.kind === 'concrete' && PRIMITIVE_WIDGETS[output.type.name] !== undefined
-      if (input === undefined || !primitive || input.type.kind !== 'concrete' || input.type.name !== output.type.name) {
-        throw new Error(`output '${output.id}' knownValue must name an input of the node with the same concrete primitive type`)
+      const inputType = input?.type.kind === 'concrete' ? input.type.name : undefined
+      const outputType = output.type.kind === 'concrete' ? output.type.name : undefined
+      const samePrimitive = outputType !== undefined && PRIMITIVE_WIDGETS[outputType] !== undefined && inputType === outputType
+      // A chosen option is its text, so a choice may also be known as a STRING.
+      const fromChoice = inputType === 'COMBO' && (outputType === 'COMBO' || outputType === 'STRING')
+      // A variable's known value applies once the variable is bound to a primitive or COMBO.
+      const sameVariable = input?.type.kind === 'variable' && output.type.kind === 'variable' &&
+        JSON.stringify(input.type) === JSON.stringify(output.type)
+      if (!samePrimitive && !fromChoice && !sameVariable) {
+        throw new Error(`output '${output.id}' knownValue must name an input of the node with the same concrete primitive type or type variable, or a COMBO input for a COMBO or STRING output`)
+      }
+    }
+    for (const row of allRowsOf(baseSchema.body)) {
+      if (row.kind !== 'input' || row.widget === undefined) continue
+      const widgets = [row.widget, ...(row.widget.representations?.representations.map((item) => item.widget) ?? [])]
+      for (const widget of widgets) {
+        if (widget.optionsInput === undefined) continue
+        const target = decodedInputs.get(widget.optionsInput)
+        const stringList = target?.type.kind === 'list' && target.type.element.kind === 'concrete' && target.type.element.name === 'STRING'
+        if (target === undefined || target.hidden !== true || !target.optional || target.widget !== undefined || !stringList) {
+          throw new Error(`input '${row.id}' optionsInput '${widget.optionsInput}' must name a top-level hidden, optional list<STRING> input with no widget`)
+        }
       }
     }
     const selector = decodeWireSelector(wire.selector, decodedInputs, baseSchema.body, decodedOutputs)

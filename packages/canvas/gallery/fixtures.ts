@@ -52,6 +52,7 @@ import {
   boundaryNamesGalleryScene,
   structuralGalleryScene,
 } from './structure.js'
+import { smallFlowNodesGallery } from './small-flow-nodes.js'
 import { switchPrimitiveGallery } from './switch-primitive.js'
 import { widgetTapGallery } from './widget-taps.js'
 
@@ -60,6 +61,7 @@ export const canvasGalleryPages = [
   ['idle-outline', 'Idle outline'],
   ['titles', 'Node titles'],
   ['titles-content', 'Node titles at content zoom'],
+  ['title-suffix', 'Title suffix'],
   ['tabs', 'Tabs'],
   ['tabs-content', 'Tabs at content zoom'],
   ['states', 'Node states'],
@@ -90,6 +92,7 @@ export const canvasGalleryPages = [
   ['zoom-overview', 'Overview zoom'],
   ['minimap', 'Minimap'],
   ['switch-primitive', 'Switch and Primitive'],
+  ['small-flow-nodes', 'Or else, Has value and Only if'],
 ] as const
 export type CanvasGalleryPage = (typeof canvasGalleryPages)[number][0]
 
@@ -534,7 +537,7 @@ export function createCanvasGalleryFixture(
               id,
               type: id === 'Missing type' ? 'Uninstalled' : definition.type,
               values: { ...defaultValuesOf(definition), ...values },
-              ...(id === 'Renamed' ? { title: 'Refine pass' } : {}),
+              ...(id === 'Renamed' || id === 'Suffix renamed' ? { title: 'Refine pass' } : {}),
               ...(id === 'Long renamed'
                 ? { title: 'A deliberately long custom refinement pass title' }
                 : {}),
@@ -581,7 +584,7 @@ export function createCanvasGalleryFixture(
                 : {}),
               [id]: {
                 position: { x, y },
-                size: { width: id === 'Narrow' ? 112 : 280, height: view.height ?? 0 },
+                size: { width: id === 'Narrow' ? 112 : id === 'Suffix narrow' ? 200 : 280, height: view.height ?? 0 },
                 ...(view.textLines !== undefined ? { textLines: view.textLines } : {}),
                 ...(id.startsWith('Minimized') || id === 'Long minimized'
                   ? { collapsed: true }
@@ -914,12 +917,26 @@ export function createCanvasGalleryFixture(
     fixture.scene.links = [...first.links]
     fixture.scene.boundaryNodes = [...first.boundaryNodes]
     examples.push(...cards)
+  } else if (page === 'small-flow-nodes') {
+    const cards = smallFlowNodesGallery(tokens, measure, widgetMeasure)
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
+    fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
   } else if (page === 'widget-taps') {
     const gallery = widgetTapGallery(tokens, measure, widgetMeasure)
     fixture.scene.nodes = [...gallery.scene.nodes]
     fixture.scene.links = [...gallery.scene.links]
     fixture.companions = gallery.companions
     examples.push(...gallery.examples)
+  } else if (page === 'title-suffix') {
+    const suffixed: NodeSchema = { ...sample, titleSuffix: { formula: 'str(steps) + " steps, " + sampler_name' } }
+    add('Suffix', suffixed)
+    add('Suffix renamed', suffixed)
+    add('Suffix narrow', { ...sample, titleSuffix: { formula: 'str(steps) + " steps with the " + sampler_name + " sampler"' } })
+    add('Minimized suffix', suffixed)
+    fixture.height = 560
   } else if (page === 'titles' || page === 'titles-content') {
     const long = {
       ...sample,

@@ -68,6 +68,7 @@ import { CanvasColorArriving } from '@dinkster/ui'
 import {
   defaultValuesOf,
   initialDynamicStateOf,
+  ruleProblemRefs,
   documentResolver,
   elabOutputsOf,
   effectiveOccurrenceTopology,
@@ -85,6 +86,7 @@ import {
   subgraphDefIdOf,
   diag,
   occurrenceDynamicView,
+  definitionPick,
   occurrencesForView,
   autoConnectTarget,
   canonicalJson,
@@ -2544,6 +2546,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       repaintMinimap?.()
     }
     updateTheme()
+    createEffect(() => renderer.setRenamingNode(nodePrompt()?.nodeId))
     const themeObserver = new MutationObserver(updateTheme)
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     onCleanup(() => themeObserver.disconnect())
@@ -2855,6 +2858,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ...(targetSchema?.hasDocs === true ? { nodeHasDocs: true } : {}),
         ...(previewCapable !== undefined ? { previewCapable } : {}),
         ...(mirrorCapable !== undefined ? { mirrorCapable } : {}),
+        ...(menuResolve !== undefined ? { resolve: menuResolve } : {}),
         shortcuts: Object.fromEntries([
           'edit.delete',
           'node.mute',
@@ -3334,6 +3338,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const additionalGroups: ResolvedMenuGroup[] = []
         if (hit.kind === 'pin' && hit.direction === 'in' && hit.pin.dynamicSlot !== undefined) {
           const slot = hit.pin.dynamicSlot
+          // A subgraph node that clears its variant runs the one its
+          // definition picks inside; until a stored "none" exists, clearing
+          // is not offered there, so nobody clears and gets that variant.
+          const shellType = tab.store.doc.graphs[currentGraphId(tab)]?.nodes[hit.node.id]?.type
+          const defId = shellType === undefined ? undefined : subgraphDefIdOf(shellType)
+          const reg = props.app.registryForTab(tab)
+          const definitionPicks = defId !== undefined && reg !== undefined &&
+            definitionPick(tab.store.doc, defId, slot.construct, reg.resolve) !== undefined
           const specialize = (variant: string | null): CommandInvocation => ({
             command: 'dynamic.specializeSlot',
             params: {
@@ -3355,7 +3367,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               {
                 id: 'core.slot.specialize.clear',
                 label: 'Clear specialization',
-                disabled: slot.selected === undefined,
+                disabled: slot.selected === undefined || definitionPicks,
                 action: { kind: 'command' as const, invocation: specialize(null) },
               },
             ],
@@ -4428,10 +4440,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const availabilityDiags = tab.execution || !hasResidentMetadata
         ? [] : props.app.previewAvailabilityDiagnostics(tab) ?? []
       const widgetDiags = widgetValueDiagnostics()
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...availabilityDiags]
+      // A node's declared rules are checked as the user edits, so a failed
+      // one is listed before the run is queued, under the same workflow
+      // origin compile gives it. A rule whose check reads exactly one field
+      // is that field's problem and outlines its row.
+      const marks: Record<string, Set<string>> = Object.fromEntries(
+        Object.entries(widgetDiags.marks).map(([nodeId, keys]) => [nodeId, new Set(keys)]))
+      const ruleDiags = scene.nodes.flatMap(({ node, elaborated }) =>
+        (elaborated?.diagnostics ?? [])
+          .filter((d) => d.code === 'node.rule.failed')
+          .map((d): Diagnostic => {
+            const refs = ruleProblemRefs(d, scene.graphId, node.id)
+            const field = refs[0]?.valueKey
+            if (field !== undefined) (marks[node.id] ??= new Set()).add(field)
+            return { ...d, origin: 'compile', refs }
+          }))
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...ruleDiags, ...availabilityDiags]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
-      renderer.setRowMarks(widgetDiags.marks)
+      renderer.setRowMarks(marks)
     }
 
     createEffect(on(comparisonCompilesChanged, () => {
