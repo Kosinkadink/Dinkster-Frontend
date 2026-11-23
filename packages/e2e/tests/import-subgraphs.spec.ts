@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { boundaryItems, type Boundary } from '@dinkster/core'
 import { expect, nativeTest, openRailPanel, test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const readJson = (path: string): any => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
@@ -142,7 +143,7 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
       graphId: 'junction-body', side: 'inputs', itemId: 'in', node, port: 'value', viaReroute: 'r3',
     } })
     const outcome = await rebind('n2')
-    const binding = tab.store.doc.graphs['junction-body']!.boundary!.inputs[0]!.binds
+    const binding = tab.store.doc.graphs['junction-body']!.boundary!.body.flatMap((entry) => entry.kind === 'input' ? [entry] : [])[0]!.binds
     const restore = await rebind('n1')
     const revision = tab.store.revision
     const unchanged = await rebind('n1')
@@ -170,8 +171,8 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
   })
   expect(extracted.reroutes).toHaveLength(2)
   expect(extracted.links).toHaveLength(3)
-  expect(extracted.boundary!.inputs[0]!.binds).toMatchObject({ viaReroute: extracted.reroutes[0] })
-  expect(extracted.boundary!.inputs[0]).toMatchObject({ alsoBinds: [{ kind: 'port' }] })
+  expect(boundaryItems(extracted.boundary as Boundary | undefined, 'inputs')[0]!.binds).toMatchObject({ viaReroute: extracted.reroutes[0] })
+  expect(boundaryItems(extracted.boundary as Boundary | undefined, 'inputs')[0]).toMatchObject({ alsoBinds: [{ kind: 'port' }] })
   await enterInstance(page, extracted.occurrence)
   await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(3)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().reroutes.length)).toBe(2)
@@ -199,7 +200,7 @@ nativeTest('draws, rebinds, and extracts an imported input boundary with mixed d
   expect(flattened.nodes).toEqual(Array.from({ length: 3 }, () => ({ type: 'Relay', value: 7 })))
   expect(flattened.reroutes).toHaveLength(2)
   expect(flattened.links).toHaveLength(3)
-  expect(flattened.boundary!.inputs[0]!.binds).toMatchObject({ viaReroute: flattened.reroutes[0] })
+  expect(boundaryItems(flattened.boundary as Boundary | undefined, 'inputs')[0]!.binds).toMatchObject({ viaReroute: flattened.reroutes[0] })
   await page.evaluate(() => window.__dinksterTest!.renderer!.fitToScene(140))
   await page.getByTestId('graph-canvas').screenshot({ path: testInfo.outputPath('junction-flattened.png') })
   const exported = await page.evaluate(() => window.__dinksterTest!.app.exportDocument(window.__dinksterTest!.app.activeTab()!.id))

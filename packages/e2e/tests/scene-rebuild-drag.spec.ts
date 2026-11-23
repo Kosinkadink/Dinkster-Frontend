@@ -62,10 +62,7 @@ test.beforeEach(async ({ page }) => {
           id: 'sub', name: 'sub',
           nodes: { inner: { id: 'inner', type: 'RebuildSrcTest', values: {} } },
           links: {}, nets: {}, reroutes: {},
-          boundary: {
-            inputs: [],
-            outputs: [{ id: 'r', binds: { kind: 'port', node: 'inner', port: 'out' } }],
-          },
+          boundary: { body: [{ kind: 'output', id: 'r', binds: { kind: 'port', node: 'inner', port: 'out' } }] },
           nextOrdinal: 10,
         },
       },

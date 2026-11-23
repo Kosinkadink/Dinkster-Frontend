@@ -396,18 +396,18 @@ test('extracts an Int widget-output fan-out and flattens it back to exact taps',
     const occurrence = Object.values(root.nodes).find((node) => node.type.startsWith('#'))!
     const body = tab.store.doc.graphs[occurrence.type.slice(1)]! as unknown as {
       nodes: Record<string, unknown>
-      boundary?: { outputs: readonly unknown[] }
+      boundary?: { body: readonly { kind: string }[] }
     }
     return {
       occurrence: occurrence.id,
       bodyNodes: Object.keys(body.nodes),
-      outputs: body.boundary?.outputs,
+      outputs: body.boundary?.body.filter((entry) => entry.kind === 'output'),
       links: root.links,
     }
   })
   expect(extracted.bodyNodes).toHaveLength(1)
   expect(extracted.outputs).toEqual([{
-    id: 'value', binds: { kind: 'widgetTap', node: extracted.bodyNodes[0], tap: 'value' },
+    kind: 'output', id: 'value', binds: { kind: 'widgetTap', node: extracted.bodyNodes[0], tap: 'value' },
   }])
   expect(extracted.links).toEqual({
     firstTap: { id: 'firstTap', from: { node: extracted.occurrence, port: 'value' }, to: { node: 'first', port: 'a' } },
@@ -612,8 +612,10 @@ test('region occurrence flatten refusal is displayed with its code and anchor', 
             nodes: { n0: { id: 'n0', type: template.type, values: {} } },
             links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {},
             boundary: {
-              inputs: [{ id: 'item', binds: { kind: 'port', node: 'n0', port: 'item' } }],
-              outputs: [{ id: 'result', binds: { kind: 'port', node: 'n0', port: 'result' } }],
+              body: [
+                { kind: 'input', id: 'item', binds: { kind: 'port', node: 'n0', port: 'item' } },
+                { kind: 'output', id: 'result', binds: { kind: 'port', node: 'n0', port: 'result' } },
+              ],
             },
             nextOrdinal: 1,
           },

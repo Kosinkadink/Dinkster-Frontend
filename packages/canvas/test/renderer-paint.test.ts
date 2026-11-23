@@ -2645,10 +2645,12 @@ describe('node chrome paint on the live renderer', () => {
           lists: { id: 'lists', type: 'Join', values: {} },
           mixed: { id: 'mixed', type: 'Join', values: {} },
           single: { id: 'single', type: 'Single', values: {} },
-        }, boundary: { inputs: [
-          { id: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
-          { id: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
-        ], outputs: [] } },
+        }, boundary: {
+          body: [
+            { kind: 'input', id: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
+            { kind: 'input', id: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
+          ],
+        } },
       },
       view: { graphs: {
         root: { nodes: { sub: { position: { x: 400, y: 40 } } } },
@@ -3454,8 +3456,10 @@ function boundaryScene(): Scene {
         nets: {},
         reroutes: {},
         boundary: {
-          inputs: [{ id: 'image-in', binds: { kind: 'port', node: 'snk', port: 'in' } }],
-          outputs: [{ id: 'image-out', binds: { kind: 'port', node: 'lat', port: 'out' } }],
+          body: [
+            { kind: 'input', id: 'image-in', binds: { kind: 'port', node: 'snk', port: 'in' } },
+            { kind: 'output', id: 'image-out', binds: { kind: 'port', node: 'lat', port: 'out' } },
+          ],
         },
         nextOrdinal: 10,
       },

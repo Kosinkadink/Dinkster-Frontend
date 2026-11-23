@@ -7,13 +7,14 @@
 import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
-import type { BoundaryItem, GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
+import type { Boundary, BoundaryItem, GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asNodeId, asPortId, asRerouteId } from '../src/ids.js'
 import { documentResolver } from '../src/compile/compile.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import type { NodeSchema } from '../src/schema/model.js'
 import { createMenuRegistry, type MenuActionItem } from '../src/menus/contract.js'
 import { coreMenuContributions } from '../src/menus/core-items.js'
+import { boundaryOf, boundaryItems } from '../src/format/document.js'
 
 // ---------------------------------------------------------------------------
 // Builders
@@ -58,7 +59,7 @@ function subDoc(inputs: BoundaryItem[], outputs: BoundaryItem[] = []): WorkflowD
       id: 'sub',
       name: 'sub',
       nodes: { n1: node('n1', { dynamic: { items: { members: ['m0'], seq: 1 } } }) },
-      boundary: { inputs, outputs },
+      boundary: boundaryOf(inputs, outputs),
     }),
   })
 }
@@ -97,7 +98,7 @@ describe('boundary commands in a batch', () => {
       },
     })
     expect(out.ok).toBe(false)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBeUndefined()
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!.displayName).toBeUndefined()
     expect(store.canUndo).toBe(false)
   })
 
@@ -122,18 +123,18 @@ describe('boundary item lifecycle commands', () => {
     const authoredLinks = store.doc.graphs.sub!.links
     const params = { graphId: 'sub', side: 'inputs', itemId: 'junction', node: 'n1', port: 'left', viaReroute: 'first' }
     expect(store.dispatch({ command: 'boundary.addItem', params }).ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'left', viaReroute: 'first' })
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'left', viaReroute: 'first' })
     const revision = store.revision
     expect(store.dispatch({ command: 'boundary.setBinding', params }).ok).toBe(true)
     expect(store.revision).toBe(revision)
     const replacement = { ...params, port: 'right', viaReroute: 'second' }
     expect(store.dispatch({ command: 'boundary.setBinding', params: replacement }).ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'right', viaReroute: 'second' })
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'right', viaReroute: 'second' })
     expect(store.doc.graphs.sub!.links).toEqual(authoredLinks)
     expect(store.undo()).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.binds.viaReroute).toBe('first')
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!.binds.viaReroute).toBe('first')
     expect(store.redo()).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.binds.viaReroute).toBe('second')
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!.binds.viaReroute).toBe('second')
     const additional = { graphId: 'sub', itemId: 'junction', node: 'n1', port: 'left', viaReroute: 'first' }
     for (const viaReroute of ['', 7]) {
       const before = JSON.stringify(store.doc)
@@ -141,12 +142,12 @@ describe('boundary item lifecycle commands', () => {
       expect(JSON.stringify(store.doc)).toBe(before)
     }
     expect(store.dispatch({ command: 'boundary.addBinding', params: additional }).ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.alsoBinds).toEqual([{ kind: 'port', node: 'n1', port: 'left', viaReroute: 'first' }])
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!.alsoBinds).toEqual([{ kind: 'port', node: 'n1', port: 'left', viaReroute: 'first' }])
     expect(store.doc.graphs.sub!.links).toEqual(authoredLinks)
     expect(store.undo()).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.alsoBinds).toBeUndefined()
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!.alsoBinds).toBeUndefined()
     expect(store.redo()).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.alsoBinds?.[0]?.viaReroute).toBe('first')
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!.alsoBinds?.[0]?.viaReroute).toBe('first')
     const before = JSON.stringify(store.doc)
     for (const invalid of [
       { ...replacement, viaReroute: '' },
@@ -168,7 +169,8 @@ describe('boundary item lifecycle commands', () => {
       params: { graphId: 'sub', side: 'outputs', node: 'n1', tap: 'value', itemId: 'widget' },
     })
     expect(add.ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.outputs[1]).toEqual({
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs')[1]).toEqual({
+      kind: 'output',
       id: 'widget',
       binds: { kind: 'widgetTap', node: 'n1', tap: 'value' },
     })
@@ -178,18 +180,18 @@ describe('boundary item lifecycle commands', () => {
       params: { graphId: 'sub', side: 'outputs', itemId: 'out', node: 'n1', tap: 'other' },
     })
     expect(set.ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.outputs[0]!.binds).toEqual({ kind: 'widgetTap', node: 'n1', tap: 'other' })
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs')[0]!.binds).toEqual({ kind: 'widgetTap', node: 'n1', tap: 'other' })
 
     const unbind = store.dispatch({
       command: 'boundary.unbind',
       params: { graphId: 'sub', side: 'outputs', itemId: 'out', node: 'n1', tap: 'other' },
     })
     expect(unbind.ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.outputs.map((item) => item.id)).toEqual(['widget'])
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs').map((item) => item.id)).toEqual(['widget'])
     expect(store.undo()).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.outputs[0]!.binds).toEqual({ kind: 'widgetTap', node: 'n1', tap: 'other' })
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs')[0]!.binds).toEqual({ kind: 'widgetTap', node: 'n1', tap: 'other' })
     expect(store.redo()).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.outputs.map((item) => item.id)).toEqual(['widget'])
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs').map((item) => item.id)).toEqual(['widget'])
   })
 
   it('removes and restores a widget-tap boundary item with its node', () => {
@@ -205,12 +207,12 @@ describe('boundary item lifecycle commands', () => {
     })
     expect(outcome.ok).toBe(true)
     expect(store.doc.graphs.sub!.nodes.n1).toBeUndefined()
-    expect(store.doc.graphs.sub!.boundary!.outputs).toEqual([])
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs')).toEqual([])
     expect(store.undo()).toBe(true)
     expect(store.doc.graphs.sub!.nodes.n1).toBeDefined()
-    expect(store.doc.graphs.sub!.boundary!.outputs).toEqual([tapItem])
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs')).toEqual([{ kind: 'output', ...tapItem }])
     expect(store.redo()).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.outputs).toEqual([])
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs')).toEqual([])
   })
 
   it('rejects widget taps on inputs and mixed tap/port parameter shapes without mutation', () => {
@@ -245,7 +247,7 @@ describe('boundary item lifecycle commands', () => {
     const store = makeStore(subDoc([], [portItem('new')]))
     const out = store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'new' } })
     expect(out.ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')).toEqual([
       expect.objectContaining({ id: 'new_2' }),
     ])
   })
@@ -282,7 +284,7 @@ describe('boundary item lifecycle commands', () => {
     // The choice is shown whole: it owns every row inside it.
     const store = makeStore(subDoc([]))
     expect(store.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'n1', port: 'mode' } }).ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'mode', binds: { kind: 'construct', node: 'n1', port: 'mode' } }])
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')).toEqual([{ kind: 'input', id: 'mode', binds: { kind: 'construct', node: 'n1', port: 'mode' } }])
     const shown = structuredClone(store.doc)
     const child = store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'mode.strength' } })
     expect(!child.ok && child.diagnostics[0]!.code).toBe('boundary.constructOwned')
@@ -300,7 +302,7 @@ describe('boundary item lifecycle commands', () => {
     // An existing id under the construct's would read as a row inside it, so the new id moves aside.
     const beside = makeStore(subDoc([portItem('mode.strength')]))
     expect(beside.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'n1', port: 'mode' } }).ok).toBe(true)
-    expect(beside.doc.graphs.sub!.boundary!.inputs.map((item) => item.id)).toEqual(['mode.strength', 'mode_2'])
+    expect(boundaryItems(beside.doc.graphs.sub!.boundary, 'inputs').map((item) => item.id)).toEqual(['mode.strength', 'mode_2'])
   })
 
   it('adds items with deterministic IDs and creates an absent boundary', () => {
@@ -311,9 +313,9 @@ describe('boundary item lifecycle commands', () => {
     const store = makeStore(withoutBoundary)
     const add = (itemId?: string) => store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'outputs', node: 'n1', port: 'value', ...(itemId ? { itemId } : {}) } })
     expect(add().ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary).toEqual({ inputs: [], outputs: [expect.objectContaining({ id: 'value' })] })
+    expect(store.doc.graphs.sub!.boundary).toEqual({ body: [expect.objectContaining({ kind: 'output', id: 'value' })] })
     expect(add().ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.outputs[1]!.id).toBe('value_2')
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs')[1]!.id).toBe('value_2')
     const duplicate = add('value')
     expect(duplicate.ok).toBe(false)
     expect(!duplicate.ok && duplicate.diagnostics[0]!.code).toBe('boundary.duplicateId')
@@ -327,7 +329,7 @@ describe('boundary item lifecycle commands', () => {
     expect(rename('Label').ok).toBe(true)
     expect(store.revision).toBe(revision)
     expect(rename('').ok).toBe(true)
-    expect('displayName' in store.doc.graphs.sub!.boundary!.inputs[0]!).toBe(false)
+    expect('displayName' in boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!).toBe(false)
   })
 
   it('re-points a primary, preserves fan-out, rejects duplicates, and no-ops', () => {
@@ -335,8 +337,8 @@ describe('boundary item lifecycle commands', () => {
     const store = makeStore(subDoc([item]))
     const set = (port: string) => store.dispatch({ command: 'boundary.setBinding', params: { graphId: 'sub', side: 'inputs', itemId: 'p', node: 'n1', port } })
     expect(set('new').ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.alsoBinds).toEqual(item.alsoBinds)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'new' })
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!.alsoBinds).toEqual(item.alsoBinds)
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!.binds).toEqual({ kind: 'port', node: 'n1', port: 'new' })
     const revision = store.revision
     expect(set('new').ok).toBe(true)
     expect(store.revision).toBe(revision)
@@ -353,15 +355,15 @@ describe('boundary item lifecycle commands', () => {
     ], [{ id: 'out', binds: binding('d') }]))
     const unbind = (side: string, itemId: string, port: string) => store.dispatch({ command: 'boundary.unbind', params: { graphId: 'sub', side, itemId, node: 'n1', port } })
     expect(unbind('inputs', 'fan', 'b').ok).toBe(true)
-    expect('alsoBinds' in store.doc.graphs.sub!.boundary!.inputs[0]!).toBe(false)
+    expect('alsoBinds' in boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!).toBe(false)
     expect(store.undo()).toBe(true)
     expect(unbind('inputs', 'fan', 'a').ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.binds.port).toBe('b')
-    expect('alsoBinds' in store.doc.graphs.sub!.boundary!.inputs[0]!).toBe(false)
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!.binds.port).toBe('b')
+    expect('alsoBinds' in boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!).toBe(false)
     expect(unbind('inputs', 'remove', 'c').ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs.some((item) => item.id === 'remove')).toBe(false)
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs').some((item) => item.id === 'remove')).toBe(false)
     expect(unbind('outputs', 'out', 'd').ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.outputs).toEqual([])
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'outputs')).toEqual([])
     const missing = unbind('inputs', 'fan', 'missing')
     expect(missing.ok).toBe(false)
     expect(!missing.ok && missing.diagnostics[0]!.code).toBe('boundary.bindMissing')
@@ -398,7 +400,7 @@ describe('showing a field on the subgraph node', () => {
     },
   }
   const resolve = (type: string): NodeSchema | undefined => schemas[type]
-  const fieldDoc = (boundary: { inputs: BoundaryItem[]; outputs: BoundaryItem[] } = { inputs: [], outputs: [] }, links: GraphDef['links'] = {}): WorkflowDocument => doc({
+  const fieldDoc = (boundary: Boundary = boundaryOf([], []), links: GraphDef['links'] = {}): WorkflowDocument => doc({
     g0: graph({ id: 'g0', name: 'root', nodes: {
       s: { id: asNodeId('s'), type: '#sub', values: { radius: 9 } },
       top: { id: asNodeId('top'), type: 'Blur', values: { radius: 1 } },
@@ -424,8 +426,8 @@ describe('showing a field on the subgraph node', () => {
     const store = schemaStore(fieldDoc())
     const before = store.doc
     expect(show(store, { node: 'blur', port: 'radius' }).ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([
-      { id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true, wireHidden: true },
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')).toEqual([
+      { kind: 'input', id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true, wireHidden: true },
     ])
     expect(derivedInput(store, 'radius')).toMatchObject({ widget: { default: 6 } })
     expect(store.doc.graphs.g0!.nodes.s!.values).toEqual({ radius: 9 })
@@ -439,7 +441,7 @@ describe('showing a field on the subgraph node', () => {
       fieldDoc(undefined, { l: { id: 'l', from: { node: asNodeId('source'), port: asPortId('out') }, to: { node: asNodeId('blur'), port: asPortId('radius') } } } as unknown as GraphDef['links']),
       { node: 'blur', port: 'radius' }],
     ['a field already on the subgraph node', 'boundary.duplicateBind',
-      fieldDoc({ inputs: [{ id: 'r', binds: { kind: 'port', node: asNodeId('blur'), port: asPortId('radius') }, promoted: true }], outputs: [] }),
+      fieldDoc(boundaryOf([{ id: 'r', binds: { kind: 'port', node: asNodeId('blur'), port: asPortId('radius') }, promoted: true }], [])),
       { node: 'blur', port: 'radius' }],
     ['a row with no stored value', 'boundary.notField', fieldDoc(), { node: 'weigh', port: 'weights.w3' }],
     ['a socket without a field', 'boundary.notField', fieldDoc(), { node: 'blur', port: 'image' }],
@@ -456,9 +458,9 @@ describe('showing a field on the subgraph node', () => {
     const store = schemaStore(fieldDoc())
     expect(show(store, { node: 'weigh', port: 'weights' }).ok).toBe(true)
     expect(show(store, { node: 'modal', port: 'mode' }).ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([
-      { id: 'weights', binds: { kind: 'construct', node: 'weigh', port: 'weights' } },
-      { id: 'mode', binds: { kind: 'construct', node: 'modal', port: 'mode' } },
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')).toEqual([
+      { kind: 'input', id: 'weights', binds: { kind: 'construct', node: 'weigh', port: 'weights' } },
+      { kind: 'input', id: 'mode', binds: { kind: 'construct', node: 'modal', port: 'mode' } },
     ])
     const shown = store.doc
     const hide = store.dispatch({ command: 'boundary.setWireHidden', params: { graphId: 'sub', itemId: 'mode', hidden: true } })
@@ -474,26 +476,26 @@ describe('showing a field on the subgraph node', () => {
     const addItem = (port: string) => store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'blur', port } })
     expect(addItem('image').ok).toBe(true)
     expect(addItem('radius').ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs.map((item) => [item.id, item.promoted])).toEqual([['image', undefined], ['radius', true]])
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs').map((item) => [item.id, item.promoted])).toEqual([['image', undefined], ['radius', true]])
     expect(derivedInput(store, 'radius')).toMatchObject({ widget: { default: 6 } })
 
     const hidden = schemaStore(fieldDoc())
     expect(show(hidden, { node: 'blur', port: 'radius' }).ok).toBe(true)
     expect(hidden.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'blur', port: 'radius' } }).ok).toBe(true)
-    expect(hidden.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true }])
+    expect(boundaryItems(hidden.doc.graphs.sub!.boundary, 'inputs')).toEqual([{ kind: 'input', id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true }])
     expect(hidden.doc.graphs.g0!.nodes.s!.values).toEqual({ radius: 9 })
   })
 
   it('hides and draws the wire of a field row, keeping its id', () => {
-    const store = makeStore(fieldDoc({ inputs: [
+    const store = makeStore(fieldDoc(boundaryOf([
       { id: 'r', binds: { kind: 'port', node: asNodeId('blur'), port: asPortId('radius') }, promoted: true },
       { id: 'img', binds: { kind: 'port', node: asNodeId('blur'), port: asPortId('image') } },
-    ], outputs: [] }))
+    ], [])))
     const setHidden = (itemId: string, hidden: boolean) => store.dispatch({ command: 'boundary.setWireHidden', params: { graphId: 'sub', itemId, hidden } })
     expect(setHidden('r', true).ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]).toMatchObject({ id: 'r', wireHidden: true })
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]).toMatchObject({ id: 'r', wireHidden: true })
     expect(setHidden('r', false).ok).toBe(true)
-    expect('wireHidden' in store.doc.graphs.sub!.boundary!.inputs[0]!).toBe(false)
+    expect('wireHidden' in boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!).toBe(false)
     const pin = setHidden('img', true)
     expect(!pin.ok && pin.diagnostics[0]!.code).toBe('boundary.notField')
   })
@@ -519,13 +521,13 @@ describe('showing a field on the subgraph node', () => {
     const shown = entries(store, 'sub', 'blur', 'radius')
     expect(shown.map((item) => item.label)).toEqual(['Remove from subgraph node'])
     expect(run(store, shown[0]!).ok).toBe(true)
-    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([])
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')).toEqual([])
 
-    const wired = schemaStore(fieldDoc({ inputs: [{ id: 'r', binds: { kind: 'port', node: asNodeId('blur'), port: asPortId('radius') }, promoted: true }], outputs: [] }))
+    const wired = schemaStore(fieldDoc(boundaryOf([{ id: 'r', binds: { kind: 'port', node: asNodeId('blur'), port: asPortId('radius') }, promoted: true }], [])))
     const wiredEntries = entries(wired, 'sub', 'blur', 'radius')
     expect(wiredEntries.map((item) => item.label)).toEqual(['Remove from subgraph node', 'Hide wire'])
     expect(run(wired, wiredEntries[1]!).ok).toBe(true)
-    expect(wired.doc.graphs.sub!.boundary!.inputs[0]).toMatchObject({ id: 'r', wireHidden: true })
+    expect(boundaryItems(wired.doc.graphs.sub!.boundary, 'inputs')[0]).toMatchObject({ id: 'r', wireHidden: true })
 
     const linked = schemaStore(fieldDoc(undefined, { l: { id: 'l', from: { node: asNodeId('source'), port: asPortId('out') }, to: { node: asNodeId('blur'), port: asPortId('radius') } } } as unknown as GraphDef['links']))
     expect(entries(linked, 'sub', 'blur', 'radius')).toEqual([])
@@ -538,8 +540,8 @@ describe('showing a field on the subgraph node', () => {
     expect(prepared.ok).toBe(true)
     const replay = new DocumentStore(original, coreCommandRegistry(), 200, undefined, () => ({ kind: 'shared-replay' }))
     expect(replay.dispatch({ command: 'boundary.showOnSubgraphNode', params: prepared.ok ? prepared.params : null }).ok).toBe(true)
-    expect(replay.doc.graphs.sub!.boundary!.inputs).toEqual([
-      { id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true, wireHidden: true },
+    expect(boundaryItems(replay.doc.graphs.sub!.boundary, 'inputs')).toEqual([
+      { kind: 'input', id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true, wireHidden: true },
     ])
   })
 })

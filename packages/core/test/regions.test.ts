@@ -12,6 +12,7 @@ import { checkDocument } from '../src/invariants.js'
 import { asConnectionId } from '../src/ids.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import { inputsOf, outputsOf, type BodyRow, type NodeSchema } from '../src/schema/model.js'
+import { boundaryOf, boundaryItems, mapBoundaryItems } from '../src/format/document.js'
 
 const TYPE = { kind: 'concrete', name: 'FLOAT' } as const
 const BOOLEAN = { kind: 'concrete', name: 'BOOLEAN' } as const
@@ -76,19 +77,19 @@ const body = (): GraphDef => ({
   links: {},
   nets: {},
   reroutes: {},
-  boundary: {
-    inputs: [
+  boundary: boundaryOf(
+    [
       { id: 'item' as never, binds: { kind: 'port', node: 'n0' as never, port: 'in_item' as never } },
       { id: 'state' as never, binds: { kind: 'port', node: 'n0' as never, port: 'in_state' as never } },
       { id: 'other' as never, binds: { kind: 'port', node: 'n0' as never, port: 'in_other' as never } },
     ],
-    outputs: [
+    [
       { id: 'items' as never, binds: { kind: 'port', node: 'n0' as never, port: 'out_item' as never } },
       { id: 'result' as never, binds: { kind: 'port', node: 'n0' as never, port: 'out_state' as never } },
       { id: 'others' as never, binds: { kind: 'port', node: 'n0' as never, port: 'out_other' as never } },
       { id: 'continue' as never, binds: { kind: 'port', node: 'n0' as never, port: 'out_continue' as never } },
     ],
-  },
+  ),
   nextOrdinal: 1,
 })
 
@@ -245,7 +246,7 @@ describe('region document format and invariants', () => {
 
   it('requires an exported output or declared sink and diagnoses role-required ports', () => {
     const empty = structuredClone(documentWith({ kind: 'map', elementPorts: ['item'] })) as WorkflowDocument
-    ;(empty.graphs.body as { boundary?: unknown }).boundary = { inputs: [], outputs: [] }
+    ;(empty.graphs.body as { boundary?: unknown }).boundary = { body: [] }
     expect(codes(empty)).toContain('doc.region.elementPortUndeclared')
     expect(deriveBoundarySchema(empty.graphs.body!, resolve, empty.graphs.root!.nodes.n0!.region).diagnostics.map((d) => d.code)).toContain('doc.region.outputRequired')
 
@@ -262,7 +263,8 @@ describe('region document format and invariants', () => {
       kind: 'while', statePorts: ['state'], outputRoles: { result: { kind: 'state', statePort: 'state' } }, continueOutput: 'continue', maxIterations: 2,
     })) as WorkflowDocument
     const boundary = continuationOnly.graphs.body!.boundary!
-    ;(boundary as { outputs: typeof boundary.outputs }).outputs = boundary.outputs.filter((item) => item.id === 'continue')
+    ;(continuationOnly.graphs.body as { boundary: typeof boundary }).boundary = mapBoundaryItems(boundary, (item, side) =>
+      side === 'inputs' || item.id === 'continue' ? item : undefined)
     expect(deriveBoundarySchema(continuationOnly.graphs.body!, resolve, continuationOnly.graphs.root!.nodes.n0!.region).diagnostics.map((d) => d.code)).toContain('doc.region.outputRequired')
   })
 
@@ -270,7 +272,7 @@ describe('region document format and invariants', () => {
     const doc = documentWith({ kind: 'map', elementPorts: ['item'] })
     const changed = structuredClone(doc) as WorkflowDocument
     const def = changed.graphs.body!
-    ;(def.boundary!.inputs[0] as { promoted?: boolean }).promoted = true
+    ;(boundaryItems(def.boundary, 'inputs')[0] as { promoted?: boolean }).promoted = true
     expect(codes(changed)).toContain('doc.region.elementPromoted')
   })
 })
@@ -278,7 +280,7 @@ describe('region document format and invariants', () => {
 describe('region occurrence boundary projection', () => {
   it('derives an omitted constructor output role as a gather list', () => {
     const constructorBody = body()
-    ;(constructorBody.boundary!.outputs[0] as { id: string }).id = 'constructor'
+    ;(boundaryItems(constructorBody.boundary, 'outputs')[0] as { id: string }).id = 'constructor'
     const result = deriveBoundarySchema(constructorBody, resolve, { kind: 'map', elementPorts: ['item'] })
     expect(result.diagnostics).toEqual([])
     expect(outputsOf(result.schema!).find((item) => item.id === 'constructor')?.type).toEqual({
@@ -357,7 +359,7 @@ describe('region occurrence boundary projection', () => {
 
   it('rejects same-id input and output boundaries for every occurrence kind', () => {
     const sameId = body()
-    ;(sameId.boundary!.outputs[1] as { id: string }).id = 'state'
+    ;(boundaryItems(sameId.boundary, 'outputs')[1] as { id: string }).id = 'state'
     expect(deriveBoundarySchema(sameId, resolve).diagnostics.map((d) => d.code)).toContain('boundary.duplicateId')
     expect(deriveBoundarySchema(sameId, resolve, {
       kind: 'fold', elementPorts: ['item'], statePorts: ['state'],
@@ -524,15 +526,12 @@ describe('region compile lowering', () => {
       const sinkBody: GraphDef = {
         ...body(),
         nodes: { save: { id: 'save' as never, type: 'Sink', mode: placement === 'disabled-ancestor' ? 'active' : mode, values: {} } },
-        boundary: {
-          inputs: [{ id: 'item' as never, binds: { kind: 'port', node: 'save' as never, port: 'in' as never } }],
-          outputs: [],
-        },
+        boundary: boundaryOf([{ id: 'item' as never, binds: { kind: 'port', node: 'save' as never, port: 'in' as never } }], []),
       }
       ;(document.graphs as Record<string, GraphDef>).body = nested ? {
         ...sinkBody,
         nodes: { inner: { id: 'inner' as never, type: '#inner', mode: placement === 'disabled-ancestor' ? mode : 'active', values: {} } },
-        boundary: { inputs: [{ id: 'item' as never, binds: { kind: 'port', node: 'inner' as never, port: 'item' as never } }], outputs: [] },
+        boundary: boundaryOf([{ id: 'item' as never, binds: { kind: 'port', node: 'inner' as never, port: 'item' as never } }], []),
       } : sinkBody
       if (nested) (document.graphs as Record<string, GraphDef>).inner = { ...sinkBody, id: 'inner' as never }
       ;(document.graphs.root!.nodes.n0 as { values: Record<string, Json> }).values = { item: [3, 11] }
@@ -563,7 +562,7 @@ describe('region compile lowering', () => {
         save: { id: 'save' as never, type: 'Sink', values: {} },
       },
       links: { l0: { id: 'l0' as never, from: { node: 'p' as never, port: 'FLOAT' as never }, to: { node: 'save' as never, port: 'in' as never } } },
-      boundary: { inputs: [{ id: 'item' as never, binds: { kind: 'port', node: 'p' as never, port: 'value' as never } }], outputs: [] },
+      boundary: boundaryOf([{ id: 'item' as never, binds: { kind: 'port', node: 'p' as never, port: 'value' as never } }], []),
     }
     ;(document.graphs.root!.nodes.n0 as { values: Record<string, Json> }).values = { item: [3, 11] }
     const schema = (type: string) => type === 'Sink' ? sinkSchema : type === 'Primitive' ? primitiveSchema : resolve(type)
@@ -592,7 +591,7 @@ describe('region compile lowering', () => {
     const session = createLocalSession(document, coreCommandRegistry(), { schemaResolverFor: () => schema })
     const outcome = session.dispatch(planned.invocation)
     expect(outcome.ok, JSON.stringify(outcome.diagnostics)).toBe(true)
-    expect(session.doc.graphs.body!.boundary!.inputs.map((item) => item.id)).toEqual(['item', 'state', 'other'])
+    expect(boundaryItems(session.doc.graphs.body!.boundary, 'inputs').map((item) => item.id)).toEqual(['item', 'state', 'other'])
     expect(session.doc.occurrenceTopologies?.n0?.links.l0).toEqual(expect.objectContaining({
       from: { kind: 'body', endpoint: { node: '$region', port: 'index' } },
       to: { kind: 'body', endpoint: { node: 'indexSink', port: 'index' } },
@@ -662,10 +661,10 @@ describe('region compile lowering', () => {
             values: { 'mode.amount': 2 },
             dynamic: { mode: { selected: 'scale' } },
           } },
-          boundary: {
-            inputs: [{ id: 'item' as never, binds: { kind: 'port', node: 'n0' as never, port: 'item' as never } }],
-            outputs: [{ id: 'items' as never, binds: { kind: 'port', node: 'n0' as never, port: 'out' as never } }],
-          },
+          boundary: boundaryOf(
+            [{ id: 'item' as never, binds: { kind: 'port', node: 'n0' as never, port: 'item' as never } }],
+            [{ id: 'items' as never, binds: { kind: 'port', node: 'n0' as never, port: 'out' as never } }],
+          ),
         },
         root: {
           ...base.graphs.root!,
@@ -997,7 +996,7 @@ describe('region compile lowering', () => {
   it('fans a region port out to every alsoBinds target through $region', () => {
     const doc = documentWith({ kind: 'map', elementPorts: ['item'] })
     ;(doc.graphs.body!.nodes as Record<string, unknown>).n1 = { id: 'n1', type: 'Body', values: {} }
-    const other = doc.graphs.body!.boundary!.inputs.find((item) => item.id === 'other')!
+    const other = boundaryItems(doc.graphs.body!.boundary, 'inputs').find((item) => item.id === 'other')!
     ;(other as { alsoBinds?: unknown }).alsoBinds = [{ kind: 'port', node: 'n1', port: 'in_other' }]
     const result = compile({
       document: doc, revision: 1, resolve, scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'test', graphFeatures: ['regions'],
@@ -1028,11 +1027,11 @@ describe('region compile lowering', () => {
       values: { item: [], state: 0, other: 0 },
       region: { kind: 'map', elementPorts: ['item'], outputRoles: { items: { kind: 'compact' } } },
     }
-    for (const item of doc.graphs.body!.boundary!.inputs) {
+    for (const item of boundaryItems(doc.graphs.body!.boundary, 'inputs')) {
       ;(item.binds as { port: string }).port = item.id
     }
     const outputPorts: Record<string, string> = { items: 'items', result: 'result', others: 'others', continue: 'continue' }
-    for (const item of doc.graphs.body!.boundary!.outputs) {
+    for (const item of boundaryItems(doc.graphs.body!.boundary, 'outputs')) {
       ;(item.binds as { port: string }).port = outputPorts[item.id]!
     }
     ;(doc as { occurrenceTopologies?: unknown }).occurrenceTopologies = {

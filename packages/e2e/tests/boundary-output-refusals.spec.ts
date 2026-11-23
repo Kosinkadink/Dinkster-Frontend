@@ -51,7 +51,7 @@ async function openStructuralWorkflow(page: Page): Promise<void> {
               policy: { kind: 'fixed', candidate: 'a' },
             },
           },
-          boundary: { inputs: [], outputs: [] },
+          boundary: { body: [] },
           nextOrdinal: 20,
         },
       },

@@ -17,6 +17,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   asConnectionId,
+  boundaryOf,
   compile,
   DocumentStore,
   coreCommandRegistry,
@@ -25,6 +26,7 @@ import {
   occurrenceDynamicView,
   parseDinksterSchema,
   type BodyRow,
+  type BoundaryItem,
   type CommandInvocation,
   type InputSpec,
   type MaterializeFrame,
@@ -207,7 +209,7 @@ const docOf = (
         : {}),
       nextOrdinal: 100,
       ...(g.boundary
-        ? { boundary: { inputs: g.boundary.inputs ?? [], outputs: g.boundary.outputs ?? [] } }
+        ? { boundary: boundaryOf((g.boundary.inputs ?? []) as BoundaryItem[], (g.boundary.outputs ?? []) as BoundaryItem[]) }
         : {}),
     }
   }

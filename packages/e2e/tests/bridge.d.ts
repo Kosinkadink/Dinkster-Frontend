@@ -208,8 +208,11 @@ interface DinksterBridgeTab {
           >
           nextOrdinal: number
           boundary?: {
-            inputs: ReadonlyArray<{ id: string; binds: { kind: string; node: string; port?: string; tap?: string } }>
-            outputs: ReadonlyArray<{ id: string; binds: { kind: string; node: string; port?: string; tap?: string } }>
+            body: ReadonlyArray<
+              | { kind: 'input' | 'output'; id: string; binds: { kind: string; node: string; port?: string; tap?: string } }
+              | { kind: 'section'; id: string; rows: readonly unknown[] }
+              | { kind: 'line'; rows: readonly unknown[] }
+            >
           }
         }
       >

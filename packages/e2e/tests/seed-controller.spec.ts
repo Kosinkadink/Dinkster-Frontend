@@ -206,8 +206,10 @@ documentTest('completed runs advance promoted controller values on each subgraph
           },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
           boundary: {
-            inputs: [{ id: 'seed', binds: { kind: 'port', node: 'leaf', port: 'seed' }, promoted: true }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'leaf', port: 'out' } }],
+            body: [
+              { kind: 'input', id: 'seed', binds: { kind: 'port', node: 'leaf', port: 'seed' }, promoted: true },
+              { kind: 'output', id: 'out', binds: { kind: 'port', node: 'leaf', port: 'out' } },
+            ],
           },
         },
       },

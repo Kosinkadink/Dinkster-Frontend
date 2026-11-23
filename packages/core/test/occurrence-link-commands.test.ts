@@ -7,10 +7,11 @@ import { occurrenceLinkPlanDigest, planOccurrenceLinkCommand } from '../src/comm
 import { planOccurrenceLinkMutation, type OccurrenceLinkIntention } from '../src/commands/occurrence-planner.js'
 import { DocumentStore } from '../src/commands/store.js'
 import { loadDocument } from '../src/format/migrate.js'
-import type { BoundaryItem, Json, NodeData, OccurrenceLinkEndpoint, WorkflowDocument } from '../src/format/document.js'
+import type { Json, NodeData, OccurrenceLinkEndpoint, WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asGraphDefId, asLineageId, asNodeId, asPortId, asValueSourceId, occurrenceKey, type OccurrenceRef } from '../src/ids.js'
 import type { NodeSchema } from '../src/schema/model.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
+import { boundaryItems, boundaryOf } from '../src/format/document.js'
 
 const schema = (type: string, inputs: string[], outputs: string[]): NodeSchema => ({
   type, displayName: type, category: 'test', source: 'v3', isOutputNode: type === 'Sink',
@@ -58,13 +59,13 @@ function document(nested = false): WorkflowDocument {
       },
     },
     reroutes: {}, nextOrdinal: 2,
-    boundary: {
-      inputs: [],
-      outputs: [
+    boundary: boundaryOf(
+      [],
+      [
         { id: 'feed' as never, binds: binding() },
         { id: 'feed1' as never, binds: binding('producerOne') },
       ],
-    },
+    ),
   }
   const graphs: WorkflowDocument['graphs'] = nested
     ? {
@@ -77,10 +78,7 @@ function document(nested = false): WorkflowDocument {
           id: asGraphDefId('mid'), name: 'mid',
           nodes: { inner: { id: asNodeId('inner'), type: '#body', values: {} } },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
-          boundary: {
-            inputs: [],
-            outputs: [{ id: 'outerFeed' as never, binds: binding('inner', 'feed') }],
-          },
+          boundary: boundaryOf([], [{ id: 'outerFeed' as never, binds: binding('inner', 'feed') }]),
         },
         body: bodyGraph,
       }
@@ -152,7 +150,7 @@ describe('occurrence-local link commands', () => {
           nodes: { sink: { id: asNodeId('sink'), type: 'NumberSink', values: { in: 3 } } },
           links: {}, nets: {},
           valueSources: { v0: { id: asValueSourceId('v0'), value: 23 } },
-          boundary: { inputs: [], outputs: [{ id: 'feed', binds: sourceBinding }] },
+          boundary: boundaryOf([], [{ id: 'feed', binds: sourceBinding }]),
         },
       },
     }
@@ -174,7 +172,7 @@ describe('occurrence-local link commands', () => {
       }).ok).toBe(false)
     }
     const inputOnly: WorkflowDocument = {
-      ...initial, graphs: { ...initial.graphs, body: { ...initial.graphs.body!, boundary: { inputs: [{ id: 'feed', binds: sourceBinding }], outputs: [] } } },
+      ...initial, graphs: { ...initial.graphs, body: { ...initial.graphs.body!, boundary: boundaryOf([{ id: 'feed', binds: sourceBinding }], []) } },
     }
     const inputRoute: OccurrenceLinkEndpoint = {
       kind: 'boundary', occurrence: target, address: { port: asPortId('feed') },
@@ -309,12 +307,12 @@ describe('occurrence-local link commands', () => {
           links: {},
           nets: {},
           boundary: {
-            ...base.graphs.body!.boundary!,
-            inputs: [{
+            body: [{
+              kind: 'input',
               id: 'incoming' as never,
               binds: binding('sink', 'in'),
               alsoBinds: [binding('sink', 'other')],
-            }],
+            }, ...base.graphs.body!.boundary!.body.filter((entry) => entry.kind !== 'input')],
           },
         },
       },
@@ -371,10 +369,10 @@ describe('occurrence-local link commands', () => {
 
   it('protects boundary-backed occurrence targets from shared driver edits', () => {
     const initial = document()
-    ;(initial.graphs.body!.boundary as unknown as { inputs: BoundaryItem[] }).inputs = [{
+    ;(initial.graphs.body as { boundary?: unknown }).boundary = boundaryOf([{
       id: 'incoming' as never,
       binds: { kind: 'port', node: asNodeId('sink'), port: asPortId('in') },
-    }]
+    }], boundaryItems(initial.graphs.body!.boundary, 'outputs'))
     const target: OccurrenceLinkEndpoint = {
       kind: 'boundary', occurrence: owner('a'), address: { port: asPortId('incoming') },
       route: [{
@@ -567,12 +565,12 @@ describe('occurrence-local link commands', () => {
         id: 'keptNet', name: 'keptNet', source: { node: 'keptNetSource', port: 'out' },
         sinks: [{ node: 'a', port: 'keptNetInput' }],
       }
-      ;(initial.graphs.body!.boundary as any).inputs = [
+      ;(initial.graphs.body as any).boundary = boundaryOf([
         { id: 'linkInput' as never, binds: binding('sink', 'linkInput') },
         { id: 'keptLinkInput' as never, binds: binding('sink', 'keptLinkInput') },
         { id: 'netInput' as never, binds: binding('sink', 'netInput') },
         { id: 'keptNetInput' as never, binds: binding('sink', 'keptNetInput') },
-      ]
+      ], boundaryItems(initial.graphs.body!.boundary, 'outputs'))
       const projected = (delivery: object, boundaryId: string) => ({
         kind: 'projectedLeg', delivery,
         route: [{ graph: 'body', boundaryId, binding: binding('sink', boundaryId) }],

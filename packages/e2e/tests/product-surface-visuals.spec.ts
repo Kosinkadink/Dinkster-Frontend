@@ -448,7 +448,7 @@ test('Boundary is hidden at root and shows definition empty states at desktop an
         },
         sub: {
           id: 'sub', name: 'Nested workflow', nodes: {}, links: {}, nets: {}, reroutes: {},
-          boundary: { inputs: [], outputs: [] }, nextOrdinal: 1,
+          boundary: { body: [] }, nextOrdinal: 1,
         },
       },
       view: { graphs: {

@@ -34,6 +34,7 @@ import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js
 import { asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 import { lifecycleFlattenFingerprint, lifecycleSelectionFingerprint, planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
 import type { NodeSchema } from '../src/schema/model.js'
+import { boundaryOf, boundaryItems } from '../src/format/document.js'
 
 // ---------------------------------------------------------------------------
 // Document helpers (same shapes as session.test.ts)
@@ -720,20 +721,20 @@ describe('shared DocumentSession', () => {
           },
           unrelated: node('unrelated'),
         },
-        boundary: {
-          inputs: [
+        boundary: boundaryOf(
+          [
             { id: 'unrelatedBoundary', binds: { kind: 'port', node: asNodeId('unrelated'), port: 'in' as never } },
             { id: 'incidentBoundary', binds: { kind: 'port', node: asNodeId('occurrence'), port: 'wired' as never } },
           ],
-          outputs: [],
-        },
+          [],
+        ),
         actorCursors: { peer: 1000 },
       }),
       body: graph({
         id: 'body',
         nodes: { innerPrimary: node('innerPrimary'), innerAdditional: node('innerAdditional') },
-        boundary: {
-          inputs: [
+        boundary: boundaryOf(
+          [
             {
               id: 'input', promoted: true,
               binds: { kind: 'port', node: asNodeId('innerPrimary'), port: 'value' as never },
@@ -745,8 +746,8 @@ describe('shared DocumentSession', () => {
               alsoBinds: [{ kind: 'port', node: asNodeId('innerAdditional'), port: 'in' as never }],
             },
           ],
-          outputs: [],
-        },
+          [],
+        ),
         nextOrdinal: 1,
       }),
     })
@@ -802,7 +803,7 @@ describe('shared DocumentSession', () => {
     }
     resolverMayRun = !checkResolver
     unrelated.conn.appendForeign('peer', [
-      { op: 'add', path: ['graphs', 'g0', 'boundary', 'inputs', 0, 'displayName'], value: 'peer edit' },
+      { op: 'add', path: ['graphs', 'g0', 'boundary', 'body', 0, 'displayName'], value: 'peer edit' },
     ])
     unrelatedGate.resolve()
     await unrelated.session.settle()
@@ -813,10 +814,10 @@ describe('shared DocumentSession', () => {
       expect(unrelated.session.doc.graphs.g0!.nodes[id]!.values).toEqual({ value: 7 })
       expect(unrelated.session.doc.graphs.g0!.nodes[id]!.controllers).toEqual({ value: 'fixed' })
     }
-    expect(unrelated.session.doc.graphs.g0!.boundary!.inputs[1]!.binds).toEqual({
+    expect(boundaryItems(unrelated.session.doc.graphs.g0!.boundary, 'inputs')[1]!.binds).toEqual({
       kind: 'port', node: 'n1-actorA', port: 'in',
     })
-    expect(unrelated.session.doc.graphs.g0!.boundary!.inputs[1]!.alsoBinds).toEqual([{
+    expect(boundaryItems(unrelated.session.doc.graphs.g0!.boundary, 'inputs')[1]!.alsoBinds).toEqual([{
       kind: 'port', node: 'n0-actorA', port: 'in',
     }])
     expect(unrelated.session.doc.graphs.body).toBeDefined()

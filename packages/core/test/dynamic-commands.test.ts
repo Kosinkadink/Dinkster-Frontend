@@ -23,6 +23,7 @@ import {
 } from '../src/schema/elaborate.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import type { BodyRow, GroupSpec, InputSpec, NodeSchema } from '../src/schema/model.js'
+import { boundaryOf } from '../src/format/document.js'
 
 // ---------------------------------------------------------------------------
 // Builders
@@ -660,7 +661,7 @@ describe('dynamic.compact', () => {
     const g = graph({
       id: 'g0',
       nodes: { n1: node('n1', { dynamic: state }) },
-      boundary: { inputs: [{ id: 'in', binds: { kind: 'port', ...port('n1', 'images.m1') } }], outputs: [] },
+      boundary: boundaryOf([{ id: 'in', binds: { kind: 'port', ...port('n1', 'images.m1') } }], []),
     })
     const store = makeStore(doc({ g0: g }))
     store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } })

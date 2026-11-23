@@ -45,7 +45,7 @@ describe('golden workflow fixtures', () => {
     const raw = structuredClone(loadFixture('subgraph')) as Record<string, unknown>
     const graph = (raw['graphs'] as Record<string, Record<string, unknown>>)['g1']!
     const boundary = graph['boundary'] as Record<string, Record<string, unknown>[]>
-    boundary['outputs']![0]!['binds'] = { kind: 'widgetTap', node: 'n0', tap: 'seed' }
+    boundary['body']![2]!['binds'] = { kind: 'widgetTap', node: 'n0', tap: 'seed' }
     const result = loadDocument(JSON.parse(JSON.stringify(raw)))
     expect(errorsOf(result.diagnostics)).toEqual([])
     expect(JSON.parse(JSON.stringify(result.document))).toEqual(raw)
@@ -168,13 +168,13 @@ describe('document shape rejection', () => {
     const raw = structuredClone(loadFixture('subgraph')) as JsonObject
     const graph = (raw['graphs'] as JsonObject)['g1'] as JsonObject
     const boundary = graph['boundary'] as JsonObject
-    const binding = ((boundary['inputs'] as JsonObject[])[0]!['binds']) as Record<string, unknown>
+    const binding = ((boundary['body'] as JsonObject[])[0]!['binds']) as Record<string, unknown>
     delete binding['kind']
     const result = loadDocument(raw)
     expect(result.document).toBeUndefined()
     expect(errorsOf(result.diagnostics)).toMatchObject([{
       code: 'doc.shape.invalid',
-      message: expect.stringContaining('$.graphs.g1.boundary.inputs[0].binds.kind:'),
+      message: expect.stringContaining('$.graphs.g1.boundary.body[0].binds.kind:'),
     }])
   })
 

@@ -593,7 +593,7 @@ function checkGraphDef(c: ShapeChecker, v: unknown, path: string): void {
     if (boundary['body'] === undefined && (boundary['inputs'] !== undefined || boundary['outputs'] !== undefined)) {
       c.fail(`${path}.boundary`, `subgraph '${String(v['name'] ?? v['id'])}' stores its inputs and outputs as two separate lists, which this version does not read; its boundary must be one ordered body`)
     } else if (c.arr(boundary['body'], `${path}.boundary.body`)) {
-      checkBoundaryEntries(c, v['boundary']['body'], `${path}.boundary.body`, new Set())
+      checkBoundaryEntries(c, boundary['body'], `${path}.boundary.body`, new Set())
     }
   }
   c.int(v['nextOrdinal'], `${path}.nextOrdinal`, 0)

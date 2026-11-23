@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import { compile, type CompileInput } from '../src/compile/compile.js'
+import { boundaryItems, boundaryOf } from '../src/format/document.js'
 import type { BoundaryItem, GraphDef, WorkflowDocument } from '../src/format/document.js'
 import { validateDocumentShape } from '../src/format/validate.js'
 import { asConnectionId } from '../src/ids.js'
@@ -125,7 +126,7 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
           }
         : {}),
       nextOrdinal: 100,
-      ...(g.boundary ? { boundary: { inputs: g.boundary.inputs ?? [], outputs: g.boundary.outputs ?? [] } } : {}),
+      ...(g.boundary ? { boundary: boundaryOf((g.boundary.inputs ?? []) as BoundaryItem[], (g.boundary.outputs ?? []) as BoundaryItem[]) } : {}),
     }
   }
   return {
@@ -171,7 +172,7 @@ const defOf = (nodes: Record<string, NodeSpec>, boundary: { inputs?: unknown[]; 
     nets: {},
     reroutes: {},
     nextOrdinal: 100,
-    boundary: { inputs: boundary.inputs ?? [], outputs: boundary.outputs ?? [] },
+    boundary: boundaryOf((boundary.inputs ?? []) as BoundaryItem[], (boundary.outputs ?? []) as BoundaryItem[]),
   })
 
 const bind = (node: string, port: string) => ({ kind: 'port', node, port }) as const
@@ -420,7 +421,7 @@ describe('boundary.addBinding / boundary.removeBinding', () => {
     })
   const makeStore = (item: unknown) => new DocumentStore(baseDoc(item), coreCommandRegistry())
   const itemOf = (store: DocumentStore): BoundaryItem =>
-    (store.doc.graphs['sub'] as GraphDef).boundary!.inputs[0]!
+    boundaryItems((store.doc.graphs['sub'] as GraphDef).boundary, 'inputs')[0]!
 
   const params = (node: string, port = 'in') => ({ graphId: 'sub', itemId: 'in', node, port })
 
@@ -487,12 +488,12 @@ describe('node.remove prunes fan-out bindings', () => {
       }),
       coreCommandRegistry(),
     )
-  const inputsOfSub = (store: DocumentStore) => (store.doc.graphs['sub'] as GraphDef).boundary!.inputs
+  const inputsOfSub = (store: DocumentStore) => boundaryItems((store.doc.graphs['sub'] as GraphDef).boundary, 'inputs')
 
   it('removing a fan-out target prunes only that route; the item survives', () => {
     const store = makeStore({ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s2', 'in'), bind('s3', 'in')] })
     expect(store.dispatch({ command: 'node.remove', params: { graphId: 'sub', nodeIds: ['s2'] } }).ok).toBe(true)
-    expect(inputsOfSub(store)).toEqual([{ id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s3', 'in')] }])
+    expect(inputsOfSub(store)).toEqual([{ kind: 'input', id: 'in', binds: bind('s1', 'in'), alsoBinds: [bind('s3', 'in')] }])
   })
 
   it('removing the PRIMARY target drops the whole boundary item', () => {

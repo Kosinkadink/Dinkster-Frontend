@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, resolveImportedNodePacks, setLocale, type ComfyTranslation, type DinksterNodesPayload, type ExecutionRef, type NodeSchema } from '@dinkster/core'
+import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, resolveImportedNodePacks, setLocale, type ComfyTranslation, type DinksterNodesPayload, type ExecutionRef, type NodeSchema, boundaryOf } from '@dinkster/core'
 import { buildDinksterRegistry, EngineNotReadyError, type DinksterJobRecord, type SchemaRegistry, type WorkerInfo } from '@dinkster/client'
 import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
@@ -329,7 +329,7 @@ describe('addBackend / removeBackend', () => {
             nestedChoice: { id: 'nestedChoice', type: 'Choice', values: { choice: 'retained-nested' } },
           },
           links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {},
-          boundary: { inputs: [], outputs: [] },
+          boundary: boundaryOf([], []),
           nextOrdinal: 1,
         },
       },

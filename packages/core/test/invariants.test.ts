@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { DynamicPortState, WorkflowDocument, GraphDef } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, type PortRef } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
+import { boundaryOf } from '../src/format/document.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
 
@@ -107,12 +108,12 @@ describe('checkDocument', () => {
       gA: graph({
         id: 'gA',
         nodes: { n1: node('n1', '#gB') },
-        boundary: { inputs: [], outputs: [] },
+        boundary: boundaryOf([], []),
       }),
       gB: graph({
         id: 'gB',
         nodes: { n1: node('n1', '#gA') },
-        boundary: { inputs: [], outputs: [] },
+        boundary: boundaryOf([], []),
       }),
     })
     expect(checkDocument(d).map((x) => x.code)).toContain('doc.subgraph.recursive')

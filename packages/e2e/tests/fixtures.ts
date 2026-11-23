@@ -129,7 +129,7 @@ export const nativeTest = base.extend<{ appView: boolean; seedWorkflows: boolean
       const basic = structuredClone(seedBasic)
       basic.graphs.g0.links.l2.from.port = 'IMAGE'
       const subgraph = structuredClone(seedSubgraph)
-      subgraph.graphs.g1.boundary.outputs[0]!.binds.port = 'IMAGE'
+      subgraph.graphs.g1.boundary.body[1]!.binds.port = 'IMAGE'
       await page.addInitScript(({ basic, subgraph }) => {
         if (localStorage.getItem('dinkster.openTabs') !== null) return
         localStorage.setItem('dinkster.openTabs', JSON.stringify({

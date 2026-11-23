@@ -10,6 +10,7 @@ import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, asSel
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { initialDynamicStateOf } from '../src/schema/body.js'
+import { boundaryOf, boundaryItems } from '../src/format/document.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
 
@@ -1676,7 +1677,7 @@ describe('named net commands', () => {
           nodes: { n1: node('n1') },
           nets: { t9: { id: asNetId('t9'), name: 'ctx', source: port('n1', 'out0'), sinks: [] } },
         }),
-        g1: graph({ id: 'g1', name: 'sub', boundary: { inputs: [], outputs: [] }, nodes: { m1: node('m1') } }),
+        g1: graph({ id: 'g1', name: 'sub', boundary: boundaryOf([], []), nodes: { m1: node('m1') } }),
       }),
       coreCommandRegistry(),
     )
@@ -2029,7 +2030,7 @@ describe('group commands (view-only)', () => {
     const store = new DocumentStore(
       doc({
         g0: graph({ id: 'g0', nodes: { n1: node('n1') } }),
-        g1: graph({ id: 'g1', name: 'sub', boundary: { inputs: [], outputs: [] }, nodes: { m1: node('m1') } }),
+        g1: graph({ id: 'g1', name: 'sub', boundary: boundaryOf([], []), nodes: { m1: node('m1') } }),
       }),
       coreCommandRegistry(),
     )
@@ -2060,10 +2061,10 @@ describe('view.moveBoundaryNode', () => {
           id: 'sub',
           name: 'sub',
           nodes: { m1: node('m1') },
-          boundary: {
-            inputs: [{ id: 'weird.id', binds: { kind: 'port', ...port('m1', 'model') } }],
-            outputs: [{ id: 'image', binds: { kind: 'port', ...port('m1', 'out0') } }],
-          },
+          boundary: boundaryOf(
+            [{ id: 'weird.id', binds: { kind: 'port', ...port('m1', 'model') } }],
+            [{ id: 'image', binds: { kind: 'port', ...port('m1', 'out0') } }],
+          ),
         }),
       }),
       coreCommandRegistry(),
@@ -2110,7 +2111,7 @@ describe('view.moveBoundaryNode', () => {
     expect(store.dispatch(move('inputs', { x: 1, y: 2 })).ok).toBe(true)
     expect(store.dispatch(move('outputs', { x: 3, y: 4 })).ok).toBe(true)
     expect(semanticHashOf(store.doc)).toBe(before)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.id).toBe('weird.id')
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!.id).toBe('weird.id')
   })
 
   it('rejects a graph without a boundary (not a subgraph definition)', () => {
@@ -2147,7 +2148,7 @@ describe('view bookmarks (numbered camera shortcuts, view-only)', () => {
           id: 'sub',
           name: 'sub',
           nodes: { m1: node('m1') },
-          boundary: { inputs: [], outputs: [] },
+          boundary: boundaryOf([], []),
         }),
       }),
       coreCommandRegistry(),

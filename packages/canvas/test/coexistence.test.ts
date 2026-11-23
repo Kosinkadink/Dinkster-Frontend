@@ -131,15 +131,15 @@ const coexistenceJson = () => ({
       nets: {},
       reroutes: {},
       boundary: {
-        inputs: [
+        body: [
           // promoted: the instance renders these as real widget rows (an
           // unpromoted widget-backed target derives socket-only).
-          { id: 'amount', promoted: true, binds: { kind: 'port', node: 'cmb2', port: 'mode.amount' } },
-          { id: 'img0', binds: { kind: 'port', node: 'fam', port: 'images.image0' } },
-          { id: 'img1', binds: { kind: 'port', node: 'fam', port: 'images.image1' } },
-          { id: 'gain', promoted: true, binds: { kind: 'port', node: 'slot', port: 'slot.gain' } },
+          { kind: 'input', id: 'amount', promoted: true, binds: { kind: 'port', node: 'cmb2', port: 'mode.amount' } },
+          { kind: 'input', id: 'img0', binds: { kind: 'port', node: 'fam', port: 'images.image0' } },
+          { kind: 'input', id: 'img1', binds: { kind: 'port', node: 'fam', port: 'images.image1' } },
+          { kind: 'input', id: 'gain', promoted: true, binds: { kind: 'port', node: 'slot', port: 'slot.gain' } },
+          { kind: 'output', id: 'result', binds: { kind: 'port', node: 'slot', port: 'out' } },
         ],
-        outputs: [{ id: 'result', binds: { kind: 'port', node: 'slot', port: 'out' } }],
       },
       nextOrdinal: 100,
     },

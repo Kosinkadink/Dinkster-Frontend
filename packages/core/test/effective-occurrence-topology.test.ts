@@ -5,6 +5,7 @@ import { semanticHashOf } from '../src/compile/hash.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, occurrenceKey } from '../src/ids.js'
 import type { NodeSchema } from '../src/schema/model.js'
+import { boundaryOf } from '../src/format/document.js'
 
 const schema = (type: string, inputs: string[], outputs: string[]): NodeSchema => ({
   type,
@@ -76,7 +77,7 @@ function document(): WorkflowDocument {
           },
         },
         reroutes: {},
-        boundary: { inputs: [], outputs: [] },
+        boundary: boundaryOf([], []),
         nextOrdinal: 2,
       },
     },
@@ -160,7 +161,7 @@ describe('effectiveOccurrenceTopology', () => {
             sibling: { id: asLinkId('sibling'), from: { node: asNodeId('p'), port: asPortId('out') }, to: { node: asNodeId('b'), port: asPortId('in') } },
           },
         },
-        body: { ...body, links: {}, nets: {}, boundary: { inputs: [{ id: 'in', binds: first, alsoBinds: [second] }], outputs: [] } },
+        body: { ...body, links: {}, nets: {}, boundary: boundaryOf([{ id: 'in', binds: first, alsoBinds: [second] }], []) },
       },
       occurrenceTopologies: {
         [occurrenceKey(a)]: {
@@ -201,7 +202,7 @@ describe('effectiveOccurrenceTopology', () => {
         },
         body: {
           ...base.graphs.body!,
-          boundary: { inputs: [], outputs: [{ id: 'out', binds: binding }] },
+          boundary: boundaryOf([], [{ id: 'out', binds: binding }]),
         },
       },
       occurrenceTopologies: {
@@ -245,7 +246,7 @@ describe('effectiveOccurrenceTopology', () => {
           },
           links: { parent: { id: asLinkId('parent'), from: { node: asNodeId('p'), port: asPortId('out') }, to: { node: asNodeId('i'), port: asPortId('in') } } },
           nets: {}, reroutes: {}, nextOrdinal: 1,
-          boundary: { inputs: [], outputs: [] },
+          boundary: boundaryOf([], []),
         },
         body: {
           ...base.graphs.body!,
@@ -254,7 +255,7 @@ describe('effectiveOccurrenceTopology', () => {
             sink: base.graphs.body!.nodes.sink!,
           },
           links: {}, nets: {},
-          boundary: { inputs: [{ id: 'in', binds: slotBinding, alsoBinds: [otherBinding] }], outputs: [] },
+          boundary: boundaryOf([{ id: 'in', binds: slotBinding, alsoBinds: [otherBinding] }], []),
         },
       },
       occurrenceTopologies: {
@@ -302,11 +303,11 @@ describe('effectiveOccurrenceTopology', () => {
           id: asGraphDefId('outer'), name: 'outer',
           nodes: { i: { id: asNodeId('i'), type: '#body', values: {} } },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
-          boundary: { inputs: [{ id: 'in', binds: outerBinding }], outputs: [] },
+          boundary: boundaryOf([{ id: 'in', binds: outerBinding }], []),
         },
         body: {
           ...base.graphs.body!, links: {}, nets: {},
-          boundary: { inputs: [{ id: 'in', binds: bodyBinding }], outputs: [] },
+          boundary: boundaryOf([{ id: 'in', binds: bodyBinding }], []),
         },
       },
       occurrenceTopologies: {
@@ -414,7 +415,7 @@ describe('effectiveOccurrenceTopology', () => {
         ...doc.graphs,
         body: {
           ...doc.graphs.body!,
-          boundary: { inputs: [], outputs: [{ id: 'out', binds: { kind: 'port', node: asNodeId('p2'), port: asPortId('out') } }] },
+          boundary: boundaryOf([], [{ id: 'out', binds: { kind: 'port', node: asNodeId('p2'), port: asPortId('out') } }]),
         },
       },
       occurrenceTopologies: {
@@ -462,7 +463,7 @@ describe('effectiveOccurrenceTopology', () => {
     const doc = document()
     const binding = { kind: 'port' as const, node: asNodeId('sink'), port: asPortId('in') }
     const body = doc.graphs.body!
-    const changedBody = { ...body, boundary: { inputs: [{ id: 'in', binds: binding, alsoBinds: [binding] }], outputs: [] } }
+    const changedBody = { ...body, boundary: boundaryOf([{ id: 'in', binds: binding, alsoBinds: [binding] }], []) }
     const a = owner('a')
     const changed: WorkflowDocument = {
       ...doc,

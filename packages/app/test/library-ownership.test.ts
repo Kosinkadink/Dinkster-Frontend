@@ -335,8 +335,10 @@ describe('mid-flight owner loss', () => {
       nodes: { work: { id: 'work', type: 'std.math.add_ints', values: { b: 1 } } },
       links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
       boundary: {
-        inputs: [{ id: 'value', binds: { kind: 'port', node: 'work', port: 'a' } }],
-        outputs: [{ id: 'result', binds: { kind: 'port', node: 'work', port: 'sum' } }],
+        body: [
+          { kind: 'input', id: 'value', binds: { kind: 'port', node: 'work', port: 'a' } },
+          { kind: 'output', id: 'result', binds: { kind: 'port', node: 'work', port: 'sum' } },
+        ],
       },
     }
     template.view.graphs = {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { planClipboardPaste, serializeSelection, type DinksterClipboardEnvelope } from '../src/clipboard.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
-import { loadDocument, type WorkflowDocument } from '../src/index.js'
+import { boundaryItems, boundaryOf, loadDocument, mapBoundaryItems, type WorkflowDocument } from '../src/index.js'
 
 const document = (): WorkflowDocument => ({
   format: 'dinkster-workflow', formatVersion: 1, lineage: 'lineage' as never, root: 'g0' as never,
@@ -64,19 +64,19 @@ const nestedSubgraphDocument = (): WorkflowDocument => ({
       id: 'outer' as never, name: 'Outer', nextOrdinal: 1,
       nodes: { nested: { id: 'nested' as never, type: '#inner', values: {} } },
       links: {}, nets: {}, reroutes: {},
-      boundary: {
-        inputs: [{ id: 'value', displayName: 'Source Value', binds: { kind: 'port', node: 'nested' as never, port: 'value' as never } }],
-        outputs: [{ id: 'result', displayName: 'Result Value', binds: { kind: 'port', node: 'nested' as never, port: 'result' as never } }],
-      },
+      boundary: boundaryOf(
+        [{ id: 'value', displayName: 'Source Value', binds: { kind: 'port', node: 'nested' as never, port: 'value' as never } }],
+        [{ id: 'result', displayName: 'Result Value', binds: { kind: 'port', node: 'nested' as never, port: 'result' as never } }],
+      ),
     },
     inner: {
       id: 'inner' as never, name: 'Inner', nextOrdinal: 1,
       nodes: { pass: { id: 'pass' as never, type: 'Pass', values: {} } },
       links: {}, nets: {}, reroutes: {},
-      boundary: {
-        inputs: [{ id: 'value', binds: { kind: 'port', node: 'pass' as never, port: 'value' as never } }],
-        outputs: [{ id: 'result', binds: { kind: 'port', node: 'pass' as never, port: 'result' as never } }],
-      },
+      boundary: boundaryOf(
+        [{ id: 'value', binds: { kind: 'port', node: 'pass' as never, port: 'value' as never } }],
+        [{ id: 'result', binds: { kind: 'port', node: 'pass' as never, port: 'result' as never } }],
+      ),
     },
   },
   view: { graphs: {
@@ -139,12 +139,13 @@ describe('Dinkster clipboard', () => {
 
   it('preserves an exact widget-output binding when copying a subgraph occurrence', () => {
     const source = nestedSubgraphDocument()
-    ;(source.graphs.inner!.boundary as any).outputs = [{
+    ;(source.graphs.inner as any).boundary = boundaryOf(boundaryItems(source.graphs.inner!.boundary, 'inputs'), [{
       id: 'result',
       binds: { kind: 'widgetTap', node: 'pass' as never, tap: 'value' as never },
-    }]
+    }])
     const envelope = serializeSelection(source, 'g0', { nodes: ['instance'], reroutes: [] })!
-    expect((envelope.definitions!.graphs.inner as any).boundary.outputs).toEqual([{
+    expect(boundaryItems((envelope.definitions!.graphs.inner as any).boundary, 'outputs')).toEqual([{
+      kind: 'output',
       id: 'result',
       binds: { kind: 'widgetTap', node: 'pass', tap: 'value' },
     }])
@@ -153,14 +154,15 @@ describe('Dinkster clipboard', () => {
     const plan = planClipboardPaste(target, 'g0', envelope, { x: 20, y: 30 })!
     const store = new DocumentStore(target, coreCommandRegistry())
     expect(store.dispatch(plan.invocation).ok).toBe(true)
-    expect(store.doc.graphs.inner!.boundary!.outputs).toEqual([{
+    expect(boundaryItems(store.doc.graphs.inner!.boundary, 'outputs')).toEqual([{
+      kind: 'output',
       id: 'result',
       binds: { kind: 'widgetTap', node: 'pass', tap: 'value' },
     }])
     expect(store.undo()).toBe(true)
     expect(store.doc.graphs.inner).toBeUndefined()
     expect(store.redo()).toBe(true)
-    expect(store.doc.graphs.inner!.boundary!.outputs[0]!.binds).toEqual({
+    expect(boundaryItems(store.doc.graphs.inner!.boundary, 'outputs')[0]!.binds).toEqual({
       kind: 'widgetTap', node: 'pass', tap: 'value',
     })
   })
@@ -240,7 +242,7 @@ describe('Dinkster clipboard', () => {
     expect(envelope.occurrenceTopologies).toHaveLength(2)
     expect(planClipboardPaste(source, 'g0', envelope)).toBeDefined()
     delete (source as any).occurrenceTopologies
-    ;(source.graphs.outer!.boundary as any).outputs = []
+    ;(source.graphs.outer as any).boundary = mapBoundaryItems(source.graphs.outer!.boundary!, (item, side) => side === 'inputs' ? item : undefined)
 
     const plan = planClipboardPaste(source, 'g0', envelope)!
     const store = new DocumentStore(source, coreCommandRegistry())
@@ -267,10 +269,10 @@ describe('Dinkster clipboard', () => {
     ])
     const target = document()
     ;(target.graphs as Record<string, any>).inner = {
-      id: 'inner', name: 'Conflicting Inner', nextOrdinal: 0, nodes: {}, links: {}, nets: {}, reroutes: {}, boundary: { inputs: [], outputs: [] },
+      id: 'inner', name: 'Conflicting Inner', nextOrdinal: 0, nodes: {}, links: {}, nets: {}, reroutes: {}, boundary: boundaryOf([], []),
     }
     ;(target.graphs as Record<string, any>).outer = {
-      id: 'outer', name: 'Conflicting Outer', nextOrdinal: 0, nodes: {}, links: {}, nets: {}, reroutes: {}, boundary: { inputs: [], outputs: [] },
+      id: 'outer', name: 'Conflicting Outer', nextOrdinal: 0, nodes: {}, links: {}, nets: {}, reroutes: {}, boundary: boundaryOf([], []),
     }
     ;(target.view.graphs as Record<string, any>).inner = { nodes: {} }
     ;(target.view.graphs as Record<string, any>).outer = { nodes: {} }
@@ -289,7 +291,7 @@ describe('Dinkster clipboard', () => {
   it('remaps definition-owned projected net suppressions with the copied closure', () => {
     const source = nestedSubgraphDocument()
     ;(source.graphs.inner!.nodes as Record<string, any>).secondary = { id: 'secondary', type: 'Pass', values: {} }
-    ;(source.graphs.inner!.boundary!.inputs[0] as any).alsoBinds = [
+    ;(boundaryItems(source.graphs.inner!.boundary, 'inputs')[0] as any).alsoBinds = [
       { kind: 'port', node: 'secondary', port: 'value' },
     ]
     ;(source.graphs.outer!.nodes as Record<string, any>).producer = { id: 'producer', type: 'Pass', values: {} }
@@ -319,10 +321,10 @@ describe('Dinkster clipboard', () => {
     const envelope = serializeSelection(source, 'g0', { nodes: ['instance'], reroutes: [] })!
     const target = document()
     ;(target.graphs as Record<string, any>).inner = {
-      id: 'inner', name: 'Conflicting Inner', nextOrdinal: 0, nodes: {}, links: {}, nets: {}, reroutes: {}, boundary: { inputs: [], outputs: [] },
+      id: 'inner', name: 'Conflicting Inner', nextOrdinal: 0, nodes: {}, links: {}, nets: {}, reroutes: {}, boundary: boundaryOf([], []),
     }
     ;(target.graphs as Record<string, any>).outer = {
-      id: 'outer', name: 'Conflicting Outer', nextOrdinal: 0, nodes: {}, links: {}, nets: {}, reroutes: {}, boundary: { inputs: [], outputs: [] },
+      id: 'outer', name: 'Conflicting Outer', nextOrdinal: 0, nodes: {}, links: {}, nets: {}, reroutes: {}, boundary: boundaryOf([], []),
     }
     ;(target.view.graphs as Record<string, any>).inner = { nodes: {} }
     ;(target.view.graphs as Record<string, any>).outer = { nodes: {} }
@@ -393,7 +395,7 @@ describe('Dinkster clipboard', () => {
       links: {
         shared: { id: 'shared', from: { node: 'producer', port: 'out' }, to: { node: 'sink', port: 'in' } },
       },
-      nets: {}, reroutes: {}, boundary: { inputs: [], outputs: [] },
+      nets: {}, reroutes: {}, boundary: boundaryOf([], []),
     }
     ;(source.view.graphs as Record<string, any>).body = { nodes: {} }
     ;(source.graphs.g0!.nodes as Record<string, any>).a.type = '#body'
@@ -658,8 +660,10 @@ describe('Dinkster clipboard', () => {
       id: 'body', name: 'body', nextOrdinal: 0, reroutes: {}, nets: {}, links: {},
       nodes: { inner: { id: 'inner', type: 'Inner', values: {} } },
       boundary: {
-        inputs: [{ id: 'in', binds: { kind: 'port', node: 'inner', port: 'in' } }],
-        outputs: [{ id: 'result', binds: { kind: 'port', node: 'inner', port: 'result' } }],
+        body: [
+          { kind: 'input', id: 'in', binds: { kind: 'port', node: 'inner', port: 'in' } },
+          { kind: 'output', id: 'result', binds: { kind: 'port', node: 'inner', port: 'result' } },
+        ],
       },
     }
     ;(source.view.graphs as Record<string, unknown>).body = { nodes: { inner: { position: { x: 0, y: 0 } } } }

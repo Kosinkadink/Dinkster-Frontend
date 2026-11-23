@@ -11,7 +11,7 @@ import {
 } from '../src/ids.js'
 import type { ReplacementRule } from '../src/replace/model.js'
 import { planReplacement } from '../src/replace/plan.js'
-import { parseDinksterNodes, type DinksterWireSchema, type InputSpec, type NodeSchema } from '../src/index.js'
+import { parseDinksterNodes, type DinksterWireSchema, type InputSpec, type NodeSchema, boundaryOf } from '../src/index.js'
 
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
 const samples = {
@@ -557,14 +557,14 @@ describe('wire-28 dynamic replacement targets', () => {
         g1: {
           ...base.graphs.g0!,
           id: asGraphDefId('g1'),
-          boundary: {
-            inputs: [{
+          boundary: boundaryOf(
+            [{
               id: 'color',
               promoted: true,
               binds: { kind: 'port', ...port('old', 'color_value') },
             }],
-            outputs: [],
-          },
+            [],
+          ),
         },
       },
     }

@@ -50,8 +50,9 @@
       "nets": {},
       "reroutes": {},
       "boundary": {
-        "inputs": [
+        "body": [
           {
+            "kind": "input",
             "id": "in",
             "binds": {
               "kind": "port",
@@ -59,8 +60,7 @@
               "port": "inner"
             }
           }
-        ],
-        "outputs": []
+        ]
       },
       "nextOrdinal": 0
     },
@@ -83,18 +83,18 @@
       "nets": {},
       "reroutes": {},
       "boundary": {
-        "inputs": [
+        "body": [
           {
+            "kind": "input",
             "id": "inner",
             "binds": {
               "kind": "port",
               "node": "sink",
               "port": "in"
             }
-          }
-        ],
-        "outputs": [
+          },
           {
+            "kind": "output",
             "id": "outer",
             "binds": {
               "kind": "port",

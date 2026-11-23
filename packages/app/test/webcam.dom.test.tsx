@@ -251,8 +251,10 @@ it('saves a nested camera on its promoted owner and preserves a connected bounda
         camera: { id: 'camera', name: 'Camera', nodes: { inner: { ...root.nodes.n1!, id: 'inner' } },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
           boundary: {
-            inputs: [{ id: 'frame', promoted: true, binds: { kind: 'port', node: 'inner', port: 'image' } }],
-            outputs: [{ id: 'result', binds: { kind: 'port', node: 'inner', port: 'image' } }],
+            body: [
+              { kind: 'input', id: 'frame', promoted: true, binds: { kind: 'port', node: 'inner', port: 'image' } },
+              { kind: 'output', id: 'result', binds: { kind: 'port', node: 'inner', port: 'image' } },
+            ],
           },
         },
       } }, 'Nested camera'))).toEqual([])
@@ -297,8 +299,10 @@ it.each([false, true])('validates shared-frame dimensions with native sizing %s'
       camera: { id: 'camera', name: 'Camera', nodes: { inner: { ...root.nodes.n1!, id: 'inner' } },
         links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
         boundary: {
-          inputs: ['width', 'height'].map((id) => ({ id, promoted: true, binds: { kind: 'port', node: 'inner', port: id } })),
-          outputs: [{ id: 'result', binds: { kind: 'port', node: 'inner', port: 'image' } }],
+          body: [
+            ...['width', 'height'].map((id) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: 'inner', port: id } })),
+            { kind: 'output', id: 'result', binds: { kind: 'port', node: 'inner', port: 'image' } },
+          ],
         },
       },
     } }, 'Shared camera'))).toEqual([])

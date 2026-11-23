@@ -111,13 +111,13 @@ async function openCoexistenceWorkflow(page: Page): Promise<void> {
           },
           nets: {}, reroutes: {},
           boundary: {
-            inputs: [
-              { id: 'amount', promoted: true, binds: { kind: 'port', node: 'cmb2', port: 'mode.amount' } },
-              { id: 'first', binds: { kind: 'port', node: 'fam', port: 'images.image0.img' } },
-              { id: 'second', binds: { kind: 'port', node: 'fam', port: 'images.image1.img' } },
-              { id: 'gain', promoted: true, binds: { kind: 'port', node: 'slot', port: 'slot.gain' } },
+            body: [
+              { kind: 'input', id: 'amount', promoted: true, binds: { kind: 'port', node: 'cmb2', port: 'mode.amount' } },
+              { kind: 'input', id: 'first', binds: { kind: 'port', node: 'fam', port: 'images.image0.img' } },
+              { kind: 'input', id: 'second', binds: { kind: 'port', node: 'fam', port: 'images.image1.img' } },
+              { kind: 'input', id: 'gain', promoted: true, binds: { kind: 'port', node: 'slot', port: 'slot.gain' } },
+              { kind: 'output', id: 'result', binds: { kind: 'port', node: 'slot', port: 'out' } },
             ],
-            outputs: [{ id: 'result', binds: { kind: 'port', node: 'slot', port: 'out' } }],
           },
           nextOrdinal: 100,
         },

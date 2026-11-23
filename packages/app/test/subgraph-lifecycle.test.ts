@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { asConnectionId, checkDocument, compile, diag, DocumentStore, loadDocument, planClipboardPaste, serializeSelection, documentResolver, coreCommandRegistry, createLocalSession, type CommandOutcome, type Diagnostic, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
+import { asConnectionId, checkDocument, compile, diag, DocumentStore, loadDocument, planClipboardPaste, serializeSelection, documentResolver, coreCommandRegistry, createLocalSession, type CommandOutcome, type Diagnostic, type NodeSchema, type WorkflowDocument, boundaryOf, boundaryItems } from '@dinkster/core'
 import { extractSubgraphInvocationThroughBridge, flattenSubgraphThroughBridge } from '../src/CanvasHost.js'
 import { activateProblem } from '../src/ProblemsPanel.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection } from '../src/subgraph-lifecycle.js'
@@ -75,7 +75,7 @@ describe('subgraph lifecycle app plans', () => {
     expect(hasExtractSelection({ geometry: [] })).toBe(false)
     expect(hasExtractSelection({ groupIds: ['empty'], geometry: [{ id: 'empty', kind: 'group', x: 0, y: 0, width: 10, height: 10 }] })).toBe(false)
     expect(isFlattenSelection(doc, 'root', ['inside'], 0)).toBe(false)
-    ;(doc as any).graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, boundary: { inputs: [], outputs: [] }, nextOrdinal: 0 }
+    ;(doc as any).graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, boundary: boundaryOf([], []), nextOrdinal: 0 }
     ;(doc as any).view.graphs.body = { nodes: {} }
     ;(doc as any).graphs.root.nodes.inside.type = '#body'
     expect(isFlattenSelection(doc, 'root', ['inside'], 0)).toBe(true)
@@ -104,8 +104,10 @@ describe('subgraph lifecycle app plans', () => {
             nodes: { n0: { id: 'n0', type: 'Plain', values: {} } },
             links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {},
             boundary: {
-              inputs: [{ id: 'item', binds: { kind: 'port', node: 'n0', port: 'item' } }],
-              outputs: [{ id: 'result', binds: { kind: 'port', node: 'n0', port: 'result' } }],
+              body: [
+                { kind: 'input', id: 'item', binds: { kind: 'port', node: 'n0', port: 'item' } },
+                { kind: 'output', id: 'result', binds: { kind: 'port', node: 'n0', port: 'result' } },
+              ],
             },
             nextOrdinal: 1,
           },
@@ -158,7 +160,7 @@ describe('subgraph lifecycle app plans', () => {
 
   it('reports actionable bridge planning failures instead of swallowing them', async () => {
     const doc = document() as any
-    doc.graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, boundary: { inputs: [], outputs: [] }, nextOrdinal: 0 }
+    doc.graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, boundary: boundaryOf([], []), nextOrdinal: 0 }
     doc.view.graphs.body = { nodes: {} }
     doc.graphs.root.nodes.inside.type = '#body'
     const reports: Diagnostic[] = []
@@ -223,7 +225,7 @@ describe('subgraph lifecycle app plans', () => {
 
   it('reports every flatten dispatch and post-commit failure arm', async () => {
     const doc = document() as any
-    doc.graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, boundary: { inputs: [], outputs: [] }, nextOrdinal: 0 }
+    doc.graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, boundary: boundaryOf([], []), nextOrdinal: 0 }
     doc.view.graphs.body = { nodes: {} }
     doc.graphs.root.nodes.inside.type = '#body'
     const reports: Diagnostic[] = []
@@ -424,8 +426,12 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
           },
         },
         boundary: {
-          inputs: [construct('mix', 'd', 'weights'), construct('pics', 'd', 'imgs'), construct('look', 'd', 'mode')],
-          outputs: [{ id: 'out', binds: { kind: 'port', node: 'd', port: 'out' } }],
+          body: [
+            { kind: 'input', ...construct('mix', 'd', 'weights') },
+            { kind: 'input', ...construct('pics', 'd', 'imgs') },
+            { kind: 'input', ...construct('look', 'd', 'mode') },
+            { kind: 'output', id: 'out', binds: { kind: 'port', node: 'd', port: 'out' } },
+          ],
         } as never,
       },
       detail: {
@@ -436,8 +442,12 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
           m: { id: 'm' as never, type: 'Mode', dynamic: { mode: { selected: 'image' } }, values: { 'mode.strength': 0.4, 'mode.words': 'kept' } },
         },
         boundary: {
-          inputs: [construct('weights', 'n', 'weights'), construct('imgs', 'b', 'images'), construct('mode', 'm', 'mode')],
-          outputs: [{ id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } }],
+          body: [
+            { kind: 'input', ...construct('weights', 'n', 'weights') },
+            { kind: 'input', ...construct('imgs', 'b', 'images') },
+            { kind: 'input', ...construct('mode', 'm', 'mode') },
+            { kind: 'output', id: 'out', binds: { kind: 'port', node: 'n', port: 'out' } },
+          ],
         } as never,
       },
     },
@@ -506,7 +516,7 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     expect(checkDocument(session.doc)).toEqual([])
     const portrait = session.doc.graphs.portrait!
     const weigh = Object.values(portrait.nodes).find((entry) => entry.type === 'Weigh')!
-    expect(portrait.boundary!.inputs[0]!.binds).toEqual({ kind: 'construct', node: weigh.id, port: 'weights' })
+    expect(boundaryItems(portrait.boundary, 'inputs')[0]!.binds).toEqual({ kind: 'construct', node: weigh.id, port: 'weights' })
     expect(weigh.dynamic?.['weights']?.members).toEqual(['w0', 'w1', 'w2'])
     expect(weigh.values).toEqual({ 'weights.w0': 0.1, 'weights.w1': 0.15, 'weights.w2': 0.6 })
     expect(runOf(session.doc)).toEqual(before)
@@ -539,7 +549,7 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       portrait: {
         ...portrait,
         valueSources: { v: { id: 'v' as never, value: 3 } },
-        boundary: { ...portrait.boundary!, outputs: [{ id: 'fixed', binds: { kind: 'valueSource', valueSource: 'v', type: IMAGE } }] } as never,
+        boundary: { body: [...portrait.boundary!.body.filter((entry) => entry.kind !== 'output'), { kind: 'output', id: 'fixed', binds: { kind: 'valueSource', valueSource: 'v', type: IMAGE } }] } as never,
       },
     } }
     // Muted, the sink gets nothing; flattened, the value source would reach it.
@@ -564,12 +574,12 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     const detail = session.doc.graphs.detail!
     const occurrence = Object.values(detail.nodes).find((entry) => entry.type.startsWith('#'))!
     const inner = session.doc.graphs[occurrence.type.slice(1)]!
-    expect(detail.boundary!.inputs.map((item) => item.binds)).toEqual([
+    expect(boundaryItems(detail.boundary, 'inputs').map((item) => item.binds)).toEqual([
       { kind: 'construct', node: occurrence.id, port: expect.any(String) },
       { kind: 'construct', node: 'b', port: 'images' },
       { kind: 'construct', node: occurrence.id, port: expect.any(String) },
     ])
-    expect(inner.boundary!.inputs.map((item) => item.binds.kind)).toEqual(['construct', 'construct'])
+    expect(boundaryItems(inner.boundary, 'inputs').map((item) => item.binds.kind)).toEqual(['construct', 'construct'])
     expect(runOf(session.doc)).toEqual(before)
   })
 

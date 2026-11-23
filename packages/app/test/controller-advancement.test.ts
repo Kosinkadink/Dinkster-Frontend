@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   asConnectionId,
   asPromptId,
+  boundaryItems,
+  boundaryOf,
   compile,
   type CommandInvocation,
   type CompileArtifact,
@@ -113,9 +115,13 @@ describe('controllerAdvancement', () => {
     document.graphs.body = {
       id: 'body', name: 'literal', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
       valueSources: { v0: { id: 'v0', value: 10, controller: 'increment' } },
-      boundary: { inputs: [], outputs: [{ id: 'out', binds: {
-        kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' },
-      } }] },
+      boundary: {
+        body: [
+          { kind: 'output', id: 'out', binds: {
+            kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' },
+          } },
+        ],
+      },
     }
     const consumers = Object.fromEntries<NodeSchema>(([
       ['Left', { min: 3, max: 17, step: 2 }], ['Right', { min: 10, max: 20, step: 7 }],
@@ -126,9 +132,9 @@ describe('controllerAdvancement', () => {
       document.graphs.g0.nodes.i0.values = { value: 10 }
       document.graphs.g0.nodes.i0.controllers = { value: 'increment' }
       document.graphs.g0.links.l1.from.node = arrangement === 'fanout' ? 'i0' : 'i1'
-      document.graphs.body.boundary.inputs = arrangement === 'promoted' ? [{
-        id: 'value', promoted: true, binds: document.graphs.body.boundary.outputs[0].binds,
-      }] : []
+      document.graphs.body.boundary = boundaryOf(arrangement === 'promoted' ? [{
+        id: 'value', promoted: true, binds: boundaryItems(document.graphs.body.boundary, 'outputs')[0]!.binds,
+      }] : [], boundaryItems(document.graphs.body.boundary, 'outputs'))
       for (const partial of [false, true]) {
         for (const declared of [false, true]) {
           document.graphs.body.valueSources.v0.spec = declared
@@ -168,7 +174,7 @@ describe('controllerAdvancement', () => {
     document.graphs.body = {
       id: 'body', name: 'literal', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
       valueSources: { v0: { id: 'v0', value: 13, controller: 'fixed' } },
-      boundary: { inputs: [{ id: 'value', promoted: true, binds }], outputs: [{ id: 'out', binds }] },
+      boundary: { body: [{ kind: 'input', id: 'value', promoted: true, binds }, { kind: 'output', id: 'out', binds }] },
     }
     const artifact = compileDoc(document)
     expect([artifact.prompt.seed!.inputs.up, artifact.prompt.second!.inputs.up]).toEqual([11, 17])
@@ -400,8 +406,10 @@ describe('compiled occurrence controller ownership', () => {
     view: { graphs: {} },
   })
   const promotedBoundary = (node: string) => ({
-    inputs: [{ id: 'seed', binds: { kind: 'port', node, port: 'seed' }, promoted: true }],
-    outputs: [{ id: 'out', binds: { kind: 'port', node, port: 'out' } }],
+    body: [
+      { kind: 'input', id: 'seed', binds: { kind: 'port', node, port: 'seed' }, promoted: true },
+      { kind: 'output', id: 'out', binds: { kind: 'port', node, port: 'out' } },
+    ],
   })
 
   it('advances controllers inside choice options, type choice rows, and group members', () => {
@@ -489,13 +497,16 @@ describe('compiled occurrence controller ownership', () => {
         instance: { id: 'instance', type: '#sub', values: {} },
       }),
       sub: graph('sub', Object.fromEntries(order.map((node) => [node, innerNodes[node]])), {}, {
-        inputs: [{
-          id: 'seed',
-          binds: { kind: 'port', node: 'primary', port: 'seed' },
-          alsoBinds: [{ kind: 'port', node: 'secondary', port: 'seed' }],
-          promoted: true,
-        }],
-        outputs: [{ id: 'out', binds: { kind: 'port', node: 'primary', port: 'out' } }],
+        body: [
+          {
+            kind: 'input',
+            id: 'seed',
+            binds: { kind: 'port', node: 'primary', port: 'seed' },
+            alsoBinds: [{ kind: 'port', node: 'secondary', port: 'seed' }],
+            promoted: true,
+          },
+          { kind: 'output', id: 'out', binds: { kind: 'port', node: 'primary', port: 'out' } },
+        ],
       }),
     }) as any
 
@@ -554,8 +565,10 @@ describe('compiled occurrence controller ownership', () => {
       sub: graph('sub', {
         leaf: { id: 'leaf', type: promotedSchema.type, values: { seed: 5 }, controllers: { seed: 'increment' } },
       }, {}, {
-        inputs: [{ id: 'seed', binds: { kind: 'port', node: 'leaf', port: 'seed' } }],
-        outputs: [{ id: 'out', binds: { kind: 'port', node: 'leaf', port: 'out' } }],
+        body: [
+          { kind: 'input', id: 'seed', binds: { kind: 'port', node: 'leaf', port: 'seed' } },
+          { kind: 'output', id: 'out', binds: { kind: 'port', node: 'leaf', port: 'out' } },
+        ],
       }),
     }) as any
     expect(controllerAdvancement(doc, compileControllers(doc), () => 0)).toEqual({

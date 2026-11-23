@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { registerCatalog, setLocale, type NodeSchema } from '@dinkster/core'
+import { registerCatalog, setLocale, type NodeSchema, boundaryItems } from '@dinkster/core'
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppState, pushGraph, truncateGraphStack } from '../src/app-state.js'
@@ -74,12 +74,14 @@ const mountPanel = async (withWidgetTap = false, withValueSource = false) => {
         reroutes: {},
         ...(withValueSource ? { valueSources: { v0: { id: 'v0', title: 'Literal amount', value: 23 } } } : {}),
         boundary: {
-          inputs: [{ id: 'items', displayName: 'Items', binds: { kind: 'port', node: 'n1', port: 'items.item1.image' } }],
-          outputs: withValueSource
-            ? [{ id: 'amount', displayName: 'Amount', binds: { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } } }]
-            : withWidgetTap
-            ? [{ id: 'amount', displayName: 'Amount', binds: { kind: 'widgetTap', node: 'n1', tap: 'amount' } }]
-            : [],
+          body: [
+            { kind: 'input', id: 'items', displayName: 'Items', binds: { kind: 'port', node: 'n1', port: 'items.item1.image' } },
+            ...(withValueSource
+              ? [{ kind: 'output', id: 'amount', displayName: 'Amount', binds: { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } } }]
+              : withWidgetTap
+              ? [{ kind: 'output', id: 'amount', displayName: 'Amount', binds: { kind: 'widgetTap', node: 'n1', tap: 'amount' } }]
+              : []),
+          ],
         },
         nextOrdinal: 2,
       },
@@ -132,7 +134,7 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     input().dispatchEvent(new Event('blur'))
     expect(input().disabled).toBe(true)
     expect(input().value).toBe('  Batch Masks  ')
-    expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBe('Items')
+    expect(boundaryItems(tab.store.doc.graphs.sub!.boundary, 'inputs')[0]!.displayName).toBe('Items')
     releases[0]!(false)
     await vi.waitFor(() => expect(input().disabled).toBe(false))
     expect(input().value).toBe('  Batch Masks  ')
@@ -142,9 +144,9 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     releases[1]!(true)
     await vi.waitFor(() => expect(input().value).toBe('Batch Masks'))
     expect(root.querySelector('[data-testid="boundary-notice"]')).toBeNull()
-    expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBe('Batch Masks')
+    expect(boundaryItems(tab.store.doc.graphs.sub!.boundary, 'inputs')[0]!.displayName).toBe('Batch Masks')
     expect(tab.store.undo()).toBe(true)
-    expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBe('Items')
+    expect(boundaryItems(tab.store.doc.graphs.sub!.boundary, 'inputs')[0]!.displayName).toBe('Items')
     unmount()
   })
 
@@ -168,7 +170,7 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     releases[1]!(true)
     await vi.waitFor(() => expect(input().disabled).toBe(false))
     expect(input().value).toBe('New draft')
-    expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBe('New draft')
+    expect(boundaryItems(tab.store.doc.graphs.sub!.boundary, 'inputs')[0]!.displayName).toBe('New draft')
     unmount()
   })
 
@@ -245,19 +247,19 @@ describe('BoundaryPanel keyboard and accessibility', () => {
     input.value = 'Batch Masks'
     input.dispatchEvent(new Event('change', { bubbles: true }))
     await vi.waitFor(() => expect(root.querySelector('[aria-busy="true"]')).toBeNull())
-    expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBe('Batch Masks')
+    expect(boundaryItems(tab.store.doc.graphs.sub!.boundary, 'inputs')[0]!.displayName).toBe('Batch Masks')
 
     let updated = root.querySelector<HTMLInputElement>('[data-testid="boundary-name-input"]')!
     updated.focus()
     updated.value = 'Discarded draft'
     updated.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
     expect(updated.value).toBe('Batch Masks')
-    expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBe('Batch Masks')
+    expect(boundaryItems(tab.store.doc.graphs.sub!.boundary, 'inputs')[0]!.displayName).toBe('Batch Masks')
 
     updated = root.querySelector<HTMLInputElement>('[data-testid="boundary-name-input"]')!
     updated.value = '   '
     updated.dispatchEvent(new Event('change', { bubbles: true }))
-    await vi.waitFor(() => expect(tab.store.doc.graphs.sub!.boundary!.inputs[0]!.displayName).toBeUndefined())
+    await vi.waitFor(() => expect(boundaryItems(tab.store.doc.graphs.sub!.boundary, 'inputs')[0]!.displayName).toBeUndefined())
     unmount()
   })
 
@@ -341,16 +343,14 @@ const mountRegionPanel = async (occurrence = 'fold') => {
         id: 'body', name: 'Region body', links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
         nodes: { n1: { id: 'n1', type: 'RegionBody', values: {} } },
         boundary: {
-          inputs: [
-            { id: 'item', displayName: 'Item', binds: { kind: 'port', node: 'n1', port: 'item_in' } },
-            { id: 'state', displayName: 'State', binds: { kind: 'port', node: 'n1', port: 'state_in' } },
-            { id: 'capture', displayName: 'Capture', binds: { kind: 'port', node: 'n1', port: 'capture_in' } },
-          ],
-          outputs: [
-            { id: 'gathered', displayName: 'Gathered', binds: { kind: 'port', node: 'n1', port: 'gather_out' } },
-            { id: 'stateResult', displayName: 'State Result', binds: { kind: 'port', node: 'n1', port: 'state_out' } },
-            { id: 'flattened', displayName: 'Flattened', binds: { kind: 'port', node: 'n1', port: 'flat_out' } },
-            { id: 'continue', displayName: 'Continue', binds: { kind: 'port', node: 'n1', port: 'continue_out' } },
+          body: [
+            { kind: 'input', id: 'item', displayName: 'Item', binds: { kind: 'port', node: 'n1', port: 'item_in' } },
+            { kind: 'input', id: 'state', displayName: 'State', binds: { kind: 'port', node: 'n1', port: 'state_in' } },
+            { kind: 'input', id: 'capture', displayName: 'Capture', binds: { kind: 'port', node: 'n1', port: 'capture_in' } },
+            { kind: 'output', id: 'gathered', displayName: 'Gathered', binds: { kind: 'port', node: 'n1', port: 'gather_out' } },
+            { kind: 'output', id: 'stateResult', displayName: 'State Result', binds: { kind: 'port', node: 'n1', port: 'state_out' } },
+            { kind: 'output', id: 'flattened', displayName: 'Flattened', binds: { kind: 'port', node: 'n1', port: 'flat_out' } },
+            { kind: 'output', id: 'continue', displayName: 'Continue', binds: { kind: 'port', node: 'n1', port: 'continue_out' } },
           ],
         },
       },

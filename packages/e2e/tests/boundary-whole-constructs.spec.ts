@@ -10,6 +10,7 @@
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { boundaryItems, type Boundary } from '@dinkster/core'
 import { expect, openRailPanel, subgraphMarkPoint, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_SUBGRAPH_PROOF_DIR']
@@ -136,11 +137,10 @@ test.beforeEach(async ({ page }) => {
             },
             links: {}, nets: {}, reroutes: {},
             boundary: {
-              inputs: [
-                { id: 'mix', binds: { kind: 'construct', node: 'n', port: 'weights' } },
-                { id: 'look', binds: { kind: 'construct', node: 'm', port: 'mode' } },
+              body: [
+                { kind: 'input', id: 'mix', binds: { kind: 'construct', node: 'n', port: 'weights' } },
+                { kind: 'input', id: 'look', binds: { kind: 'construct', node: 'm', port: 'mode' } },
               ],
-              outputs: [],
             },
             nextOrdinal: 100,
           },
@@ -232,7 +232,7 @@ test('the subgraph node shows the whole group and choice; entering shows definit
   await expect(page.locator('[data-item-id="core.widget.subgraphNode.show"]')).toHaveCount(0)
   if (proofDir) await page.screenshot({ path: join(proofDir, 'menu.png') })
   await item.click()
-  await expect.poll(async () => (await activeDoc(page)).graphs['sub']!.boundary!.inputs.map((i) => i.binds)).toEqual([
+  await expect.poll(async () => boundaryItems((await activeDoc(page)).graphs['sub']!.boundary as Boundary | undefined, 'inputs').map((i) => i.binds)).toEqual([
     { kind: 'construct', node: 'n', port: 'weights' },
     { kind: 'construct', node: 'm', port: 'mode' },
     { kind: 'construct', node: 'spare', port: 'mode' },
@@ -254,7 +254,7 @@ test('a subgraph node does not offer to clear a variant its definition picks ins
       id: selected === undefined ? 'bare' : 'picked', name: 'Feather pass',
       nodes: { f: { id: 'f', type: 'Feather', values: {}, ...(selected !== undefined ? { dynamic: { src: { selected } } } : {}) } },
       links: {}, nets: {}, reroutes: {}, nextOrdinal: 100,
-      boundary: { inputs: [{ id: 'feather', binds: { kind: 'construct', node: 'f', port: 'src' } }], outputs: [] },
+      boundary: { body: [{ kind: 'input', id: 'feather', binds: { kind: 'construct', node: 'f', port: 'src' } }] },
     })
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'lineage-definition-pick', root: 'g0',

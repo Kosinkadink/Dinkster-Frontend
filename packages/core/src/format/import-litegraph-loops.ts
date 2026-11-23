@@ -138,8 +138,9 @@ export function convertLitegraphListConsumers(
             reroutes: {},
             nextOrdinal: 1,
             boundary: {
-              inputs: [
+              body: [
                 {
+                  kind: 'input',
                   id: 'item',
                   binds: {
                     kind: 'port',
@@ -147,9 +148,8 @@ export function convertLitegraphListConsumers(
                     port: `lists.${firstList}`,
                   },
                 },
-              ],
-              outputs: [
                 {
+                  kind: 'output',
                   id: 'list',
                   binds: { kind: 'port', node: 'body', port: 'list' },
                 },
@@ -271,8 +271,9 @@ export function convertLitegraphListConsumers(
         nets: {},
         reroutes: {},
         nextOrdinal: 1,
-        boundary: {
-          inputs: inputs.map((input) => ({
+        boundary: { body: [
+          ...inputs.map((input) => ({
+            kind: 'input',
             id: input.address.port,
             binds: { kind: 'port', node: 'body', ...input.address },
             ...(input.spec.widget &&
@@ -280,11 +281,12 @@ export function convertLitegraphListConsumers(
               ? { promoted: true }
               : {}),
           })),
-          outputs: outputs.map((output) => ({
+          ...outputs.map((output) => ({
+            kind: 'output',
             id: outputKeys.get(output.address.port)!,
             binds: { kind: 'port', node: 'body', ...output.address },
           })),
-        },
+        ] },
       } as unknown as GraphDef
       const region: RegionContract = {
         kind: 'map',

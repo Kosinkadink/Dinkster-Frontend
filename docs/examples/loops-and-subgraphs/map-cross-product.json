@@ -63,8 +63,9 @@
       "nets": {},
       "reroutes": {},
       "boundary": {
-        "inputs": [
+        "body": [
           {
+            "kind": "input",
             "id": "left",
             "binds": {
               "kind": "port",
@@ -73,16 +74,16 @@
             }
           },
           {
+            "kind": "input",
             "id": "right",
             "binds": {
               "kind": "port",
               "node": "right",
               "port": "value"
             }
-          }
-        ],
-        "outputs": [
+          },
           {
+            "kind": "output",
             "id": "sum",
             "binds": {
               "kind": "port",

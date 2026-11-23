@@ -31,6 +31,7 @@ import {
 import { traceEndpoint, type SelectorResolution } from '../src/reroute.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { valueSourceConsumersOf } from '../src/value-source.js'
+import { boundaryOf } from '../src/format/document.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -546,7 +547,7 @@ describe('selector compile', () => {
       g1: graph({
         id: 'g1',
         name: 'branchy',
-        boundary: { inputs: [], outputs: [] },
+        boundary: boundaryOf([], []),
         nodes: { a: emptyImage('a', 1), b: emptyImage('b', 2), p: node('p', 'PreviewImage') },
         selectors: { s1: selector('s1', ['ca', 'cb'], random) },
         links: {

@@ -7,6 +7,7 @@
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { boundaryItems, type Boundary } from '@dinkster/core'
 import { expect, openRailPanel, nativeTest as test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_BOUNDARY_PROOF_DIR']
@@ -116,19 +117,19 @@ async function openBoundaryWorkflow(page: Page): Promise<void> {
             nets: {},
             reroutes: {},
             boundary: {
-              inputs: [
-                { id: 'workflow.input.masks_m4', binds: { kind: 'port', node: 'n1', port: 'masks_m4' } },
-                { id: 'workflow.input.masks_m7', binds: { kind: 'port', node: 'n1', port: 'masks_m7' } },
-                { id: 'image_3', binds: { kind: 'port', node: 'n1', port: 'image_3' } },
+              body: [
+                { kind: 'input', id: 'workflow.input.masks_m4', binds: { kind: 'port', node: 'n1', port: 'masks_m4' } },
+                { kind: 'input', id: 'workflow.input.masks_m7', binds: { kind: 'port', node: 'n1', port: 'masks_m7' } },
+                { kind: 'input', id: 'image_3', binds: { kind: 'port', node: 'n1', port: 'image_3' } },
                 ...Array.from({ length: 6 }, (_, index) => ({
+                  kind: 'input' as const,
                   id: `workflow.input.${'long-path-segment.'.repeat(index === 5 ? 3 : 0)}${index}`,
                   binds: { kind: 'port' as const, node: 'n1', port: `dense_input_${index}` },
                 })),
-              ],
-              outputs: [
-                { id: 'image', binds: { kind: 'port', node: 'n1', port: 'out0' } },
-                { id: 'MASK', binds: { kind: 'port', node: 'n1', port: 'MASK' } },
+                { kind: 'output', id: 'image', binds: { kind: 'port', node: 'n1', port: 'out0' } },
+                { kind: 'output', id: 'MASK', binds: { kind: 'port', node: 'n1', port: 'MASK' } },
                 ...Array.from({ length: 6 }, (_, index) => ({
+                  kind: 'output' as const,
                   id: `workflow.output.${'long-path-segment.'.repeat(index === 5 ? 3 : 0)}${index}`,
                   binds: { kind: 'port' as const, node: 'n1', port: `dense_output_${index}` },
                 })),
@@ -206,7 +207,7 @@ test('boundary edits await acceptance and preserve refused drafts for retry', {
   await expect(panel).toHaveAttribute('aria-busy', 'true')
   await expect(input).toBeDisabled()
   await expect(input).toHaveValue('  Batch Masks  ')
-  expect((await activeDoc(page)).graphs.sub!.boundary!.inputs[0]).not.toHaveProperty('displayName')
+  expect(boundaryItems((await activeDoc(page)).graphs.sub!.boundary as Boundary | undefined, 'inputs')[0]).not.toHaveProperty('displayName')
   await input.dispatchEvent('change')
   expect(await page.evaluate(() => (window as any).__boundaryPending.length)).toBe(1)
   await page.screenshot({ path: testInfo.outputPath('boundary-pending.png') })
@@ -221,7 +222,7 @@ test('boundary edits await acceptance and preserve refused drafts for retry', {
   await expect(input).toBeEnabled()
   await expect(input).toHaveValue('Batch Masks')
   await expect(item.getByTestId('boundary-notice')).toHaveCount(0)
-  expect((await activeDoc(page)).graphs.sub!.boundary!.inputs[0]).toMatchObject({ displayName: 'Batch Masks' })
+  expect(boundaryItems((await activeDoc(page)).graphs.sub!.boundary as Boundary | undefined, 'inputs')[0]).toMatchObject({ displayName: 'Batch Masks' })
   await page.screenshot({ path: testInfo.outputPath('boundary-accepted.png') })
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
   await expect(input).toHaveValue('')
@@ -364,18 +365,19 @@ test('empty and frozen states preserve inspection semantics', async ({ page }) =
   await openBoundaryWorkflow(page)
   await page.evaluate(() => {
     type BoundItem = {
+      kind: string
       id: string
       binds: { node: string; port: string }
     }
     const tab = window.__dinksterTest!.app.activeTab()! as unknown as {
       store: {
-        doc: { graphs: Record<string, { boundary?: { inputs: readonly BoundItem[]; outputs: readonly BoundItem[] } }> }
+        doc: { graphs: Record<string, { boundary?: { body: readonly BoundItem[] } }> }
         dispatch(command: unknown): { ok: boolean; diagnostics?: readonly { message: string }[] }
       }
     }
     const boundary = tab.store.doc.graphs.sub!.boundary!
     for (const side of ['inputs', 'outputs'] as const) {
-      for (const item of [...boundary[side]]) {
+      for (const item of boundary.body.filter((entry) => entry.kind === (side === 'inputs' ? 'input' : 'output'))) {
         const outcome = tab.store.dispatch({
           command: 'boundary.unbind',
           params: {

@@ -46,11 +46,13 @@ describe('occurrenceDynamicView', () => {
       graphs: {
         g0: graph('g0', { s: { id: 's', type: '#outer', values: {}, dynamic: { outerMenu: { options } } } }),
         outer: graph('outer', { i: { id: 'i', type: '#inner', values: {}, dynamic: { innerMenu: { options: ['middle'] } } } }, {
-          inputs: [{ id: 'outerMenu', binds: { kind: 'port', node: 'i', port: 'innerMenu' }, promoted: true }], outputs: [],
+          body: [{ kind: 'input', id: 'outerMenu', binds: { kind: 'port', node: 'i', port: 'innerMenu' }, promoted: true }],
         }),
         inner: graph('inner', { a: bodyNode('a'), b: bodyNode('b') }, {
-          inputs: [{ id: 'innerMenu', binds: { kind: 'port', node: 'a', port: 'choice' },
-            alsoBinds: [{ kind: 'port', node: 'b', port: 'choice' }], promoted: true }], outputs: [],
+          body: [
+            { kind: 'input', id: 'innerMenu', binds: { kind: 'port', node: 'a', port: 'choice' },
+              alsoBinds: [{ kind: 'port', node: 'b', port: 'choice' }], promoted: true },
+          ],
         }),
       }, view: { graphs: {} },
     } as unknown as WorkflowDocument
@@ -84,7 +86,7 @@ describe('occurrenceDynamicView', () => {
         items: { members: ['item0', 'item1'] },
         'items.item0': { options: ['first'] },
         'items.item1': { options: ['second'] },
-      } } }, { inputs: [{ id: 'menu', binds: { kind: 'port', node: 'n', port: 'items.item1' }, promoted: true }], outputs: [] }),
+      } } }, { body: [{ kind: 'input', id: 'menu', binds: { kind: 'port', node: 'n', port: 'items.item1' }, promoted: true }] }),
     })
     const view = occurrenceDynamicView(doc, documentResolver(doc, (type) => type === nested.type ? nested : undefined), ['s'])
     const node = doc.graphs.sub!.nodes.n!
@@ -105,8 +107,10 @@ describe('occurrenceDynamicView', () => {
       sub: graph('sub', {
         n: { id: 'n', type: 'CountOutput', values: { count: 2 } },
       }, {
-        inputs: [{ id: 'amount', binds: { kind: 'port', node: 'n', port: 'count' }, promoted: true }],
-        outputs: [{ id: 'forwarded', binds: { kind: 'port', node: 'n', port: 'items.item0' } }],
+        body: [
+          { kind: 'input', id: 'amount', binds: { kind: 'port', node: 'n', port: 'count' }, promoted: true },
+          { kind: 'output', id: 'forwarded', binds: { kind: 'port', node: 'n', port: 'items.item0' } },
+        ],
       }),
     })
 

@@ -87,20 +87,21 @@
       },
       "reroutes": {},
       "boundary": {
-        "inputs": [
+        "body": [
           {
+            "kind": "input",
             "id": "latent",
             "displayName": "Latent",
             "binds": { "kind": "port", "node": "n0", "port": "latent_image" }
           },
           {
+            "kind": "input",
             "id": "seed",
             "binds": { "kind": "port", "node": "n0", "port": "seed" },
             "promoted": true
-          }
-        ],
-        "outputs": [
+          },
           {
+            "kind": "output",
             "id": "image",
             "displayName": "Image",
             "binds": { "kind": "port", "node": "n1", "port": "out0" }

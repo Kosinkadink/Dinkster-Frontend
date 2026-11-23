@@ -60,7 +60,7 @@ test('authors multiple partial queue buttons, persists them, and reports executi
         base: {
           id: 'base', name: 'Base definition', links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
           nodes: { result: { id: 'result', type: 'test.PartialOutput', title: 'Base result', values: {} } },
-          boundary: { inputs: [], outputs: [] },
+          boundary: { body: [] },
         },
       },
       view: { graphs: { root: { nodes: {} }, base: { nodes: {} } } },

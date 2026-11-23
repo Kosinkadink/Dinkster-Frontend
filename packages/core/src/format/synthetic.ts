@@ -281,10 +281,10 @@ function syntheticSubgraphWorkflow(options: SyntheticWorkflowOptions): unknown {
     links: bodyLinks,
     nets: {},
     reroutes: {},
-    boundary: {
-      inputs: [{ id: 'color', binds: { kind: 'port', node: 'n0', port: 'color' }, promoted: true }],
-      outputs: [{ id: 'image', binds: { kind: 'port', node: last, port: 'IMAGE' } }],
-    },
+    boundary: { body: [
+      { kind: 'input', id: 'color', binds: { kind: 'port', node: 'n0', port: 'color' }, promoted: true },
+      { kind: 'output', id: 'image', binds: { kind: 'port', node: last, port: 'IMAGE' } },
+    ] },
     nextOrdinal: ord,
   }
   viewGraphs['g1'] = { nodes: bodyView }
@@ -300,10 +300,10 @@ function syntheticSubgraphWorkflow(options: SyntheticWorkflowOptions): unknown {
       links: {},
       nets: {},
       reroutes: {},
-      boundary: {
-        inputs: [{ id: 'color', binds: { kind: 'port', node: 'n0', port: 'color' }, promoted: true }],
-        outputs: [{ id: 'image', binds: { kind: 'port', node: 'n0', port: 'image' } }],
-      },
+      boundary: { body: [
+        { kind: 'input', id: 'color', binds: { kind: 'port', node: 'n0', port: 'color' }, promoted: true },
+        { kind: 'output', id: 'image', binds: { kind: 'port', node: 'n0', port: 'image' } },
+      ] },
       nextOrdinal: 1,
     }
     viewGraphs[gid] = { nodes: { n0: { position: { x: 100, y: 100 } } } }

@@ -35,6 +35,7 @@ import {
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import { effectiveValueSourceSpec } from '../src/value-source.js'
+import { boundaryOf, boundaryItems } from '../src/format/document.js'
 
 const resolve = (type: string) => schemas.get(type)
 
@@ -121,9 +122,12 @@ describe('value source consumers', () => {
         l1: { id: asLinkId('l1'), from: port('i1', 'out'), to: port('right', 'value') },
       } }),
       body: graph({ id: 'body', valueSources: { v1: source('v1', 11) },
-        boundary: { inputs: [], outputs: [{ id: asPortId('out'), binds: {
+        boundary: boundaryOf(
+        [],
+        [{ id: asPortId('out'), binds: {
           kind: 'valueSource', valueSource: asValueSourceId('v1'), type: { kind: 'concrete', name: 'INT' },
-        } }] },
+        } }],
+        ),
       }),
     })
     if (reverse) document.graphs.g0!.nodes = Object.fromEntries(Object.entries(document.graphs.g0!.nodes).reverse())
@@ -139,8 +143,8 @@ describe('value source consumers', () => {
     expect(resolveSource('body', 'v1', [asNodeId('i0')])?.spec?.options).toEqual({ min: 10, max: 17, step: 7 })
     expect(resolveSource('body', 'v1', [asNodeId('i1')])?.spec?.options).toEqual({ min: 10, max: 17, step: 7 })
     expect(document).toEqual(before)
-    document.graphs.body!.boundary!.inputs = [{ id: asPortId('value'), promoted: true,
-      binds: document.graphs.body!.boundary!.outputs[0]!.binds }]
+    document.graphs.body!.boundary = boundaryOf([{ id: asPortId('value'), promoted: true,
+      binds: boundaryItems(document.graphs.body!.boundary, 'outputs')[0]!.binds }], boundaryItems(document.graphs.body!.boundary, 'outputs'))
     const promoted = documentValueSourceResolver(document, resolver)
     expect(promoted('body', 'v1', [asNodeId('i0')])?.spec?.options).toEqual({ min: 3, max: 17, step: 2 })
     expect(promoted('body', 'v1', [asNodeId('i1')])?.spec?.options).toEqual({ min: 10, max: 20, step: 7 })
@@ -176,7 +180,7 @@ describe('effective spec derivation (P1/P2/P5)', () => {
     const def = graph({ id: 'g0', nodes: { n1: node('n1', 'InitialMode') },
       valueSources: { v1: source('v1', 11) },
       links: { l0: { id: asLinkId('l0'), from: vsrc('v1'), to: port('n1', 'seed') } },
-      boundary: { inputs: [{ id: 'value', promoted: true, binds: { kind: 'valueSource', valueSource: asValueSourceId('v1'), type: { kind: 'concrete', name: 'INT' } } }], outputs: [] },
+      boundary: boundaryOf([{ id: 'value', promoted: true, binds: { kind: 'valueSource', valueSource: asValueSourceId('v1'), type: { kind: 'concrete', name: 'INT' } } }], []),
     })
     const before = JSON.stringify(def)
     const resolveInitial = (type: string) => type === schema.type ? schema : undefined
@@ -610,7 +614,7 @@ describe('compile lowering', () => {
           nodes: { inner: node('inner') },
           valueSources: { v1: source('v1', 12) },
           links: { l4: { id: asLinkId('l4'), from: vsrc('v1'), to: port('inner', 'steps') } },
-          boundary: { inputs: [], outputs: [] },
+          boundary: boundaryOf([], []),
         }),
       },
       'g0',
@@ -641,12 +645,16 @@ describe('compile lowering', () => {
         l6: { id: asLinkId('l6'), from: vsrc('v2'), to: port('i5', 'seed') },
       } }),
       outer: graph({ id: 'outer', nodes: { inner: { ...node('inner', '#leaf'), values: { local: 17 } } },
-        boundary: { inputs: [{ id: 'seed', promoted: true, binds: { kind: 'port', ...port('inner', 'local') } }],
-          outputs: [{ id: 'out', binds: { kind: 'port', ...port('inner', 'out') } }] },
+        boundary: boundaryOf(
+        [{ id: 'seed', promoted: true, binds: { kind: 'port', ...port('inner', 'local') } }],
+        [{ id: 'out', binds: { kind: 'port', ...port('inner', 'out') } }],
+        ),
       }),
       leaf: graph({ id: 'leaf', nodes: {}, valueSources: { v1: source('v1', 7) },
-        boundary: { inputs: [{ id: 'local', promoted: true, binds: { kind: 'valueSource', valueSource: asValueSourceId('v1'), type } }],
-          outputs: [{ id: 'out', binds: { kind: 'valueSource', valueSource: asValueSourceId('v1'), type } }] },
+        boundary: boundaryOf(
+        [{ id: 'local', promoted: true, binds: { kind: 'valueSource', valueSource: asValueSourceId('v1'), type } }],
+        [{ id: 'out', binds: { kind: 'valueSource', valueSource: asValueSourceId('v1'), type } }],
+        ),
       }),
     })
     expect(checkDocument(d)).toEqual([])
@@ -672,7 +680,7 @@ describe('compile lowering', () => {
     const sub = graph({ id: 'sub', nodes: { inner: node('inner') },
       valueSources: { v1: source('v1', 7) },
       links: { l1: { id: asLinkId('l1'), from: vsrc('v1'), to: port('inner', 'steps') } },
-      boundary: { inputs: reversed ? [...inputs].reverse() : inputs, outputs: [] },
+      boundary: boundaryOf(reversed ? [...inputs].reverse() : inputs, []),
     })
     const d = doc({
       g0: graph({ id: 'g0', nodes: {
@@ -687,7 +695,7 @@ describe('compile lowering', () => {
     const loaded = loadDocument(d)
     expect(loaded.document).toBeUndefined()
     expect(codesOf(loaded.diagnostics)).toContain('doc.boundary.valueSourceConflict')
-    const valid = { ...sub, boundary: { inputs: [inputs[0]!], outputs: inputs.map((item) => ({ id: `out-${item.id}`, binds: item.binds })) } }
+    const valid = { ...sub, boundary: boundaryOf([inputs[0]!], inputs.map((item) => ({ id: `out-${item.id}`, binds: item.binds }))) }
     expect(deriveBoundarySchema(valid, resolve).schema).toBeDefined()
     expect(checkDocument(doc({ sub: valid }, 'sub'))).toEqual([])
   })
