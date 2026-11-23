@@ -589,7 +589,10 @@ function checkGraphDef(c: ShapeChecker, v: unknown, path: string): void {
     for (const [k, s] of Object.entries(v['selectors'])) checkSelector(c, s, `${path}.selectors.${k}`)
   }
   if (v['boundary'] !== undefined && c.obj(v['boundary'], `${path}.boundary`)) {
-    if (c.arr(v['boundary']['body'], `${path}.boundary.body`)) {
+    const boundary = v['boundary']
+    if (boundary['body'] === undefined && (boundary['inputs'] !== undefined || boundary['outputs'] !== undefined)) {
+      c.fail(`${path}.boundary`, `subgraph '${String(v['name'] ?? v['id'])}' stores its inputs and outputs as two separate lists, which this version does not read; its boundary must be one ordered body`)
+    } else if (c.arr(boundary['body'], `${path}.boundary.body`)) {
       checkBoundaryEntries(c, v['boundary']['body'], `${path}.boundary.body`, new Set())
     }
   }

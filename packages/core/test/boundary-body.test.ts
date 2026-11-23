@@ -10,6 +10,7 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import { documentResolver } from '../src/compile/compile.js'
 import { semanticHashOf } from '../src/compile/hash.js'
+import { loadDocument } from '../src/format/migrate.js'
 import type { Boundary, BoundaryEntry, GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asNodeId, asPortId } from '../src/ids.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
@@ -172,5 +173,22 @@ describe('the subgraph node schema follows the body', () => {
       { section: 'look', rows: [{ line: ['radius', 'strength', 'feather'] }] }, 'preview'])
     const section = derived.schema!.body[3] as { displayName?: string; collapsedByDefault?: boolean }
     expect(section).toMatchObject({ displayName: 'Look', collapsedByDefault: true })
+  })
+})
+
+describe('a file saved with the old two-list boundary', () => {
+  it('is refused on load with an error naming the subgraph, never read as an empty boundary', () => {
+    const saved = structuredClone(docOf(flat)) as unknown as { graphs: Record<string, { name: string; boundary: unknown }> }
+    saved.graphs.sub!.name = 'Detail pass'
+    saved.graphs.sub!.boundary = {
+      inputs: [{ id: 'image', binds: { kind: 'port', node: 'n1', port: 'image' } }],
+      outputs: [{ id: 'result', binds: { kind: 'port', node: 'n1', port: 'IMAGE' } }],
+    }
+    const loaded = loadDocument(saved)
+    expect(loaded.document).toBeUndefined()
+    expect(loaded.diagnostics.some((d) => d.severity === 'error' && d.message.includes("subgraph 'Detail pass'") && d.message.includes('two separate lists'))).toBe(true)
+    // The same file with the body loads.
+    saved.graphs.sub!.boundary = flat
+    expect(loadDocument(saved).document).toBeDefined()
   })
 })
