@@ -54,7 +54,8 @@ import {
   type ResolvedGeometryItem,
 } from '../lifecycle/planner.js'
 import { planFlattenOccurrenceTopology, type FlattenOccurrenceTopologyPlan } from '../compile/effective-topology.js'
-import { matchBoundaryItem } from '../compile/crossing.js'
+import { innerConstructAddress, matchBoundaryItem } from '../compile/crossing.js'
+import type { NodeSchema } from '../schema/model.js'
 import { canonicalJson } from '../compile/hash.js'
 import { resolveStaticWidgetTap } from '../schema/derive-boundary.js'
 import { graphAllocator } from './alloc.js'
@@ -303,7 +304,8 @@ function rewriteEnclosingInput(
   for (const binding of bindings) {
     if (moved.has(binding)) {
       if (!inserted) {
-        rewritten.push({ kind: 'port', node: asNodeId(occurrenceId), port: boundaryId as PortRef['port'] })
+        // A construct shown whole stays whole through the new subgraph node.
+        rewritten.push({ kind: binding.kind === 'construct' ? 'construct' : 'port', node: asNodeId(occurrenceId), port: boundaryId as PortRef['port'] })
         inserted = true
       }
     } else {
@@ -748,6 +750,8 @@ const subgraphExtract: CommandDefinition = {
       innerBoundaryInputs.push(remapNestedItem(cut, idMaps, itemId))
     }
     const innerBoundaryOutputs: BoundaryItem[] = []
+    const wholeOutput = (cut: (typeof audit.outputs)[number]): boolean =>
+      cut.boundaryItems.some(({ itemIndex }) => parent.boundary!.outputs[itemIndex]!.binds.kind === 'construct')
     for (const [index, cut] of audit.outputs.entries()) {
       if (isValueSourceRef(cut.source)) {
         const authored = cut.boundaryItems.map(({ itemIndex }) => parent.boundary!.outputs[itemIndex]!.binds)
@@ -763,7 +767,7 @@ const subgraphExtract: CommandDefinition = {
         id: outputNames[index]!.id,
         binds: isWidgetTapRef(cut.source)
           ? { kind: 'widgetTap', node: asNodeId(nodeIds.get(cut.source.node)!), tap: cut.source.tap }
-          : { kind: 'port', ...remapPort(cut.source, nodeIds) },
+          : { kind: wholeOutput(cut) ? 'construct' : 'port', ...remapPort(cut.source, nodeIds) },
       })
     }
 
@@ -857,7 +861,7 @@ const subgraphExtract: CommandDefinition = {
           const id = outputIdBySource.get(endpointKey(bindingAsEndpoint(source)))!
           outputs[cut.itemIndex] = {
             ...original,
-            binds: { kind: 'port', node: asNodeId(occurrenceId), port: id as PortRef['port'] },
+            binds: { kind: source.kind === 'construct' ? 'construct' : 'port', node: asNodeId(occurrenceId), port: id as PortRef['port'] },
           }
         }
       }
@@ -1163,6 +1167,9 @@ function flattenStatePlanFromJson(
       : entry.kind === 'widgetTap'
       ? exactKeys(entry, ['kind', 'node', 'tap']) && typeof entry.node === 'string' &&
         typeof entry.tap === 'string' && entry.tap.length > 0
+      : entry.kind === 'construct'
+      ? exactKeys(entry, ['kind', 'node', 'port']) && typeof entry.node === 'string' &&
+        typeof entry.port === 'string' && entry.port.length > 0
       : exactKeys(entry, ['kind', 'node', 'port'], ['viaReroute']) &&
         entry.kind === 'port' && typeof entry.node === 'string' &&
         typeof entry.port === 'string' && entry.port.length > 0 &&
@@ -1685,6 +1692,21 @@ const subgraphFlatten: CommandDefinition = {
     const ids: ExtractIdMaps = { nodes: nodeIds, reroutes: rerouteIds, valueSources: valueSourceIds, selectors: selectorIds, candidates: candidateIds }
     const targetsFor = (item: BoundaryItem): readonly BoundaryBinding[] =>
       flattenBoundaryTargets(item, nodeIds, rerouteIds, valueSourceIds)
+    // Where one of the subgraph node's ports lands: under a construct it
+    // shows whole, the matching row of each inner construct.
+    const plannedSchemas = params.schemaSnapshot as unknown as Readonly<Record<string, NodeSchema>>
+    const targetsAt = (item: BoundaryItem, outerPort: string): readonly BoundaryBinding[] | undefined => {
+      const targets = targetsFor(item)
+      if (item.binds.kind !== 'construct') return targets
+      const authored = [item.binds, ...(item.alsoBinds ?? [])]
+      const mapped = targets.map((target, index): BoundaryBinding | undefined => {
+        const binding = authored[index]!
+        if (binding.kind !== 'construct' || target.kind !== 'construct') return target
+        const port = innerConstructAddress(body, binding, item.id, outerPort, (node) => plannedSchemas[node.type])
+        return port === undefined ? undefined : { kind: 'port', node: target.node, port: asPortId(port) }
+      })
+      return mapped.every((target) => target !== undefined) ? mapped as BoundaryBinding[] : undefined
+    }
 
     const literalDrivers = new Map<string, LinkEndpoint>()
     for (const item of body.boundary.inputs) {
@@ -1704,7 +1726,7 @@ const subgraphFlatten: CommandDefinition = {
       }
       if (isPortEndpoint(endpoint) && endpoint.node === nodeId) {
         const match = matchBoundaryItem(body.boundary!.outputs, endpoint)
-        const targets = match.ok ? targetsFor(match.item) : undefined
+        const targets = match.ok ? targetsAt(match.item, endpoint.port) : undefined
         return targets?.length === 1 ? redirectFrom(endpointFromBinding(targets[0]!), seen) : undefined
       }
       return endpoint
@@ -1735,6 +1757,7 @@ const subgraphFlatten: CommandDefinition = {
         values: planned.values,
         ...(planned.controllers !== undefined ? { controllers: planned.controllers } : {}),
         ...(planned.dynamic !== undefined ? { dynamic: planned.dynamic } : {}),
+        ...(occurrence.mode === 'muted' ? { mode: 'muted' as const } : {}),
       }
     }
     const reroutes = { ...parent.reroutes }
@@ -1786,7 +1809,7 @@ const subgraphFlatten: CommandDefinition = {
       let from = link.from
       if (isPortEndpoint(from) && from.node === nodeId) {
         const match = matchBoundaryItem(body.boundary.outputs, from)
-        const targets = match.ok ? targetsFor(match.item) : undefined
+        const targets = match.ok ? targetsAt(match.item, from.port) : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: output '${from.port}' has an unmapped materialized route`, graphId, instancePath, nodeId, from)]
         }
@@ -1803,7 +1826,7 @@ const subgraphFlatten: CommandDefinition = {
       }
       if (isPortEndpoint(link.to) && link.to.node === nodeId) {
         const match = matchBoundaryItem(body.boundary.inputs, link.to)
-        const targets = match.ok ? targetsFor(match.item)?.filter((target) => target.kind !== 'valueSource') : undefined
+        const targets = match.ok ? targetsAt(match.item, link.to.port)?.filter((target) => target.kind !== 'valueSource') : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: input '${link.to.port}' has no materialized target`, graphId, instancePath, nodeId, link.to)]
         }
@@ -1864,7 +1887,7 @@ const subgraphFlatten: CommandDefinition = {
       let source = net.source
       if (source.node === nodeId) {
         const match = matchBoundaryItem(body.boundary.outputs, source)
-        const targets = match.ok ? targetsFor(match.item) : undefined
+        const targets = match.ok ? targetsAt(match.item, source.port) : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: net source '${source.port}' has no materialized target`, graphId, instancePath, nodeId, source)]
         }
@@ -1884,7 +1907,7 @@ const subgraphFlatten: CommandDefinition = {
         else if (occurrencePlan !== undefined) continue
         else {
           const match = matchBoundaryItem(body.boundary.inputs, sink)
-          const targets = match.ok ? targetsFor(match.item) : undefined
+          const targets = match.ok ? targetsAt(match.item, sink.port) : undefined
           if (targets === undefined) {
             return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: net sink '${sink.port}' has no materialized target`, graphId, instancePath, nodeId, sink)]
           }

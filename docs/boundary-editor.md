@@ -60,12 +60,16 @@ undo step. Undo restores the edited items and the panels' original places.
 ## Groups and choices
 
 A boundary item forwards one inner input or output by its flattened id, such
-as `loras.lora0.strength` (see [Node body](node-body.md)). Forwarding a whole
-group, choice or type choice is refused: the item shows the
-`boundary.familyBind` diagnostic inline, and compilation reports the bound id
-as an unknown port (`compile.port.unknownInput` or
-`compile.port.unknownOutput`). Other boundary diagnostics, such as a
-row of an option that is not chosen, also appear inline on their item.
+as `loras.lora0.strength` (see [Node body](node-body.md)), or shows a whole
+group, choice, type choice or described row. Right-click any row of one inside
+the subgraph and choose **Show <name> on subgraph node**; the item binds the
+construct and the subgraph node shows its members, pick and fields, stored on
+that node. Inside, the definition's own members come first and the entered
+node's follow with its values; editing one, or picking an option, writes the
+entered node. A row inside a construct that is already shown, or a construct
+around a row that is already shown, is not offered and is refused
+(`boundary.constructOwned`). Boundary diagnostics, such as a row of an option
+that is not chosen, appear inline on their item.
 
 ## Regions and frozen views
 

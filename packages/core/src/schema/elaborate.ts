@@ -1144,13 +1144,13 @@ function elaboratePass(
         return
       }
       key = storedKey
-    } else if (row.required && !view && !scope.ghost && !scope.dormant) {
+    } else if (row.required && row.default === undefined && !view && !scope.ghost && !scope.dormant) {
       // The editor stores a required choice's start key on every command
       // (storeStartState); a run never makes one up.
       report('prompt.missing_dynamic_choice', `required choice '${path}' has no stored option`, path)
       return
     } else {
-      // An optional choice has a default only on a subgraph node, where it is the definition's pick.
+      // A choice has a default only on a subgraph node, where it is the definition's pick.
       key = row.required ? row.default ?? keys[0] : row.default
     }
     chosen.set(path, key ?? null)
