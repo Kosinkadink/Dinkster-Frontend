@@ -1127,7 +1127,7 @@ test('Workflow queue empty popover preserves disclosure and Escape focus', async
     const { WorkflowQueueControl } = await import(componentPath)
     const { render } = await import(rendererPath)
     const host = document.createElement('div')
-    host.style.cssText = 'position:absolute;top:64px;right:16px;width:440px;z-index:20'
+    host.style.cssText = 'position:absolute;top:128px;right:16px;width:440px;z-index:20'
     document.querySelector('.canvas-pane')!.append(host)
     const dispose = render(() => WorkflowQueueControl({
       owner: { id: 'queue-visual', title: 'Empty workflow', lineage: 'queue-visual' },
@@ -1141,6 +1141,9 @@ test('Workflow queue empty popover preserves disclosure and Escape focus', async
   await toggle.click()
   const popover = control.getByRole('region', { name: 'Queue for Empty workflow' })
   await expect(popover.getByText('No jobs for this workflow.', { exact: true })).toBeVisible()
+  await toggle.evaluate((element) => element.blur())
+  await page.mouse.move(0, 0)
+  await expect(page.getByTestId('app-tooltip')).toBeHidden()
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
     await page.mouse.move(0, 0)

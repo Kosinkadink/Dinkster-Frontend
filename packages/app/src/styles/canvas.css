@@ -425,9 +425,10 @@
 .workflow-queue-toggle {
   display: inline-flex;
   align-items: center;
-  gap: var(--dinkster-space-8);
-  max-width: min(220px, 38vw);
-  padding: var(--dinkster-space-8) var(--dinkster-space-12);
+  justify-content: center;
+  gap: var(--dinkster-space-4);
+  min-width: var(--dinkster-control-compact-height);
+  padding: var(--dinkster-space-4) var(--dinkster-space-8);
   border-left: 0;
   border-radius: 0 var(--dinkster-radius-control) var(--dinkster-radius-control) 0;
   color: var(--dinkster-text-secondary);
@@ -438,13 +439,8 @@
 .workflow-queue-submit:focus-visible,
 .workflow-queue-toggle:focus-visible { z-index: 1; outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .workflow-queue-submit:disabled { color: var(--dinkster-text-disabled); border-color: var(--dinkster-border-subtle); background: var(--dinkster-surface-raised); cursor: default; }
-.workflow-queue-caret {
-  width: 0;
-  height: 0;
-  border-right: 4px solid transparent;
-  border-left: 4px solid transparent;
-  border-top: 5px solid currentColor;
-}
+.workflow-queue-toggle svg { width: 15px; height: 15px; }
+.workflow-queue-toggle[data-running='true'] { color: var(--dinkster-accent-foreground); }
 .workflow-queue-progress {
   display: grid;
   grid-template-columns: auto minmax(72px, 1fr) auto;
