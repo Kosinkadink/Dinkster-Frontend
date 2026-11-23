@@ -505,8 +505,9 @@
 .dinkster-canvas-target-choice, .dinkster-canvas-target-input { box-sizing: border-box; width: 100%; height: var(--dinkster-input-canvas-height); border: 0; border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-inset); color: var(--dinkster-text-primary); font: inherit; }
 .dinkster-canvas-target-choice { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); text-align: left; cursor: pointer; user-select: none; }
 .dinkster-canvas-target-choice[aria-disabled='true'] { cursor: default; }
-.dinkster-canvas-target-label { flex: none; color: var(--dinkster-text-secondary); white-space: nowrap; }
-.dinkster-canvas-target-value { display: flex; align-items: center; gap: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); min-width: 0; }
+/* In a narrow node the label gives way before the mount does. */
+.dinkster-canvas-target-label { flex: 0 10 auto; min-width: 0; overflow: hidden; color: var(--dinkster-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
+.dinkster-canvas-target-value { display: flex; flex: 0 1 auto; align-items: center; gap: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); min-width: 0; }
 .dinkster-canvas-target-value-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .dinkster-canvas-target-choice:not([data-state='ready']) .dinkster-canvas-target-value-text { color: var(--dinkster-text-muted); font-style: italic; }
 .dinkster-canvas-target-choice[data-unavailable='true'] .dinkster-canvas-target-value { color: var(--dinkster-warning-foreground); }

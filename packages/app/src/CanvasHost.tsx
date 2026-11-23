@@ -2480,6 +2480,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // An expanded product listbox owns the first Escape. Its trigger keeps
       // DOM focus, so the capture-phase host must defer to the target handler.
       if (editorOpen && isInside(event, '.product-select[aria-expanded="true"]')) return
+      // So does the open mount list in a save target's box: it closes before the box.
+      if (editorOpen && isInside(event, '.dinkster-canvas-target-choice[aria-expanded="true"]')) return
       // An expanded palette type filter owns the first Escape and restores its trigger focus.
       if (paletteOpen && isInside(event, '.palette-type-filter[data-expanded="true"]')) return
       // A suggestion surface is part of the live text editor, not a

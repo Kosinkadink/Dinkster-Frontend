@@ -5,12 +5,16 @@ and open the color picker. The picker accepts six-digit `#rrggbb` colors and
 commits the corresponding integer, retaining the INT socket and numeric saved
 value. Numeric bounds still apply. App View retains its numeric input.
 
-SAVE_TARGET opens a ready writable mount selector and relative filename prefix.
-The writer adds the descriptor's suffix and numbering; no host path is stored
-in the graph. Empty, absolute, dot-segment and backslash prefixes cannot apply.
-Unavailable current mounts stay visible but cannot apply. The optional gallery
-destination also offers Clear destination; required save targets do not.
-Mount grants are checked again by the backend when it writes.
+SAVE_TARGET opens a box under its row with a ready writable mount dropdown and
+a relative filename prefix; the row shows them together as they would be
+stored. Enter, Tab or a click outside store mount and prefix as one value;
+Escape stores nothing. The writer adds the descriptor's suffix and numbering;
+no host path is stored in the graph. Empty, absolute, dot-segment and
+backslash prefixes cannot be stored, nor can anything while the mounts load,
+when none is ready or when they cannot be read. An unavailable current mount
+stays visible and stored until another is picked. A target that may be empty
+also offers Clear destination; required save targets do not. Mount grants are
+checked again by the backend when it writes.
 
 RESOLUTION_PREVIEW opens a proportional rectangle and exact pixel dimensions
 from the node's aspect ratio, megapixels and rounding multiple. The named

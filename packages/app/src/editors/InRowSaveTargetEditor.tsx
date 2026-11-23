@@ -160,7 +160,7 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
       event.preventDefault()
       const queue = host.app.commands.get('workflow.queue')
       void commit().then((closed) => { if (closed && queue?.enabled?.() !== false) queue?.run() })
-    } else if (event.key === 'Enter' && at === 'clear') {
+    } else if (event.key === 'Enter' && at === 'clear' && !cleared()) {
       // Enter on Clear destination clears; the next Enter stores.
       event.preventDefault()
       if (!props.commitPending()) clear()
