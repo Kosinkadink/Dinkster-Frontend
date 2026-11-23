@@ -2156,13 +2156,12 @@ function compileImpl(
       if (isWidgetTapRef(link.from)) {
         const tapped = tappedInputs(path, defId, link.from.node, link.from.tap, [])
         if (!tapped && tapsAbsentRow(defId, link.from.node, link.from.tap)) {
-          // The wire gives nothing, and a run cannot send nothing yet: it is
-          // refused rather than run with the receiving field's own value.
+          // The wire gives nothing. Until a run can send nothing, the input is
+          // left out of the prompt, as for a muted producer.
           const into = isPortEndpoint(link.to) ? ` into '${link.to.node}.${link.to.port}'` : ''
-          diags.push(diag('error', 'compile', 'compile.tap.givesNothing',
-            `The wire from '${link.from.node}.${link.from.tap}'${into} gives nothing: that field is no longer part of its node. A run cannot send nothing yet; unplug the wire.`,
+          diags.push(diag('warning', 'compile', 'compile.link.dropped',
+            `The wire from '${link.from.node}.${link.from.tap}'${into} gives nothing: that field is no longer part of its node. Until a run can send nothing, the input is left out: a field sends its own value, and a required input without one refuses the run.`,
             { anchor: anchorOf(path, link.from.node) }))
-          continue
         } else if (!tapped) {
           diags.push(diag('error', 'compile', 'compile.tap.missingInput', `${link.from.node}.${link.from.tap}: tapped input is missing in graph ${defId}`))
           continue

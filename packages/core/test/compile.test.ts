@@ -1270,7 +1270,7 @@ describe('dynamic interfaces', () => {
     expect(result.artifact.prompt['target']!.outputMembers).toEqual({ items: ['item0'] })
   })
 
-  it("sends a field's output from a member, an option and a type-led pin, and refuses the run once the field is gone", () => {
+  it("sends a field's output from a member, an option and a type-led pin, and leaves the input out once the field is gone", () => {
     const tapInto = (source: DynNode, tap: string, extra: Record<string, DynNode> = {}) => dynCompile(dynDoc({
       nodes: { source, sink: { type: 'IntSink' }, ...extra },
       links: [[{ node: 'source', tap }, ['sink', 'steps']], ...(extra['image'] ? [[['image', 'out'], ['source', 'model']] as [DynEnd, DynEnd]] : [])],
@@ -1285,19 +1285,17 @@ describe('dynamic interfaces', () => {
     expect(sent(tapInto({ type: 'TapSlot', values: { 'model.weight': 6 } }, 'model.weight', { image: { type: 'ImageSrc' } }))).toEqual({ steps: 6 })
 
     // The member removed, the other option chosen, the pin unplugged: the
-    // wire gives nothing, which a run cannot send yet, so the run is refused
-    // with one message naming the wire, never run with the receiver's own value.
-    const refused = (result: ReturnType<typeof dynCompile>) => {
-      expect(result.ok).toBe(false)
-      return result.ok ? [] : result.diagnostics.map((d) => [d.code, d.message])
+    // wire gives nothing. A run cannot send nothing yet, so the input is left
+    // out with a warning and the receiving field sends its own value. The
+    // receiving node is not skipped.
+    const leftOut = (result: ReturnType<typeof dynCompile>, tap: string) => {
+      expect(sent(result)).toEqual({ steps: 20 })
+      if (result.ok) expect(result.artifact.diagnostics.map((d) => [d.code, d.message])).toContainEqual(['compile.link.dropped',
+        `The wire from 'source.${tap}' into 'sink.steps' gives nothing: that field is no longer part of its node. Until a run can send nothing, the input is left out: a field sends its own value, and a required input without one refuses the run.`])
     }
-    const givesNothing = (tap: string) => [['compile.tap.givesNothing',
-      `The wire from 'source.${tap}' into 'sink.steps' gives nothing: that field is no longer part of its node. A run cannot send nothing yet; unplug the wire.`]]
-    expect(refused(tapInto({ type: 'TapGroup', values: { 'items.item0': 4 }, dynamic: { items: { members: ['item0'], seq: 2 } } }, 'items.item1')))
-      .toEqual(givesNothing('items.item1'))
-    expect(refused(tapInto({ type: 'TapChoice', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'b' } } }, 'mode.amount')))
-      .toEqual(givesNothing('mode.amount'))
-    expect(refused(tapInto({ type: 'TapSlot', values: { 'model.weight': 6 } }, 'model.weight'))).toEqual(givesNothing('model.weight'))
+    leftOut(tapInto({ type: 'TapGroup', values: { 'items.item0': 4 }, dynamic: { items: { members: ['item0'], seq: 2 } } }, 'items.item1'), 'items.item1')
+    leftOut(tapInto({ type: 'TapChoice', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'b' } } }, 'mode.amount'), 'mode.amount')
+    leftOut(tapInto({ type: 'TapSlot', values: { 'model.weight': 6 } }, 'model.weight'), 'model.weight')
 
     // A field the node never declares is still an error.
     const unknown = tapInto(member, 'itemz.item0')
