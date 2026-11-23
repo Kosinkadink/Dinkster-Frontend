@@ -37,7 +37,7 @@ alias-generated rules are registered. Native documents apply applicable
 migrations on open as one undo step, including lossy plans. A dismissable
 Problems notice lists upgraded nodes and warnings, with node navigation;
 it clears on save or tab close and is never persisted. Upgraded nodes look
-ordinary. The status bar's Review upgrades toggle opts out for subsequent
+ordinary. The Settings > Execution > Review upgrades switch opts out for subsequent
 opens and enables migration badges, plan diagnostics and manual apply.
 Schema-arrival diagnostics and legacy boolean normalization remain;
 deprecation pointers alone do not authorize graph edits.
@@ -98,8 +98,8 @@ ambiguity; the importer never silently shifts a following boolean input.
 The importer owns `COMFY_NODE_UPGRADES`, keyed first by the authored ComfyUI
 class name and then by the exact version saved in the node's `properties.ver`.
 SaveVideo version `0.3.68` three-value arrays retain their prefix, container
-and codec while adding explicit automatic encoding and fallback codec choices
-required by the current schema. Keyed values and already-expanded arrays stay
+and codec while adding the explicit automatic encoding and fallback codec
+choices of ComfyUI's current layout. Keyed values and already-expanded arrays stay
 unchanged. A rule upgrades only saved widget values before positional decoding;
 it cannot insert nodes, change class identities, or rewrite links. Root nodes
 and subgraph definitions use the same table. These source versions are not the
@@ -121,16 +121,21 @@ lookup. A slow or unavailable index does not block native workflow startup.
 Later metadata applies to subsequent imports only, and responses from an older
 backend generation, catalog prefix, or superseded lookup are discarded.
 
+SaveVideo's widget values fill the served node's rows by id. The served node
+must take positions with exactly a string `filename_prefix`, a `format` choice
+and, optionally, a `mount`; any other layout decodes in plain order. ComfyUI's
+stream holds the prefix, the container with its codec rows, and then a hidden
+fallback codec with its rows, which the served node does not have. Those
+fallback values are read past and stored nowhere, so an appended mount still
+takes the last position. Keyed `codec` values are likewise stored nowhere.
+
 For SaveVideo versions not listed in the table, including absent versions, the
 layout is authoritative without numeric or lexical version comparison. A node
 can carry the recognized three-widget layout: string filename prefix,
 supported container, supported codec.
-The served positional consumers must have that order, with only the canonical
-optional appended mount allowed after them. Reordered or extra consumers do not
-qualify.
-When the served schema accepts those choices, import stores the codec explicitly
-in both the container branch and fallback codec input, including automatic
-encoding choices. It records `importer.inferredWidgetLayout` with the layout and
+When the served node accepts those choices, import stores the codec in the
+container branch with an automatic encoding choice, since that layout predates
+the encoding mode. It records `importer.inferredWidgetLayout` with the layout and
 stored source version (null when absent), and emits `import.widgets.layoutInferred`
 with that version as given. The original source stays unchanged and no version
 is invented. Listed versions use their exact table entry, never layout inference.
@@ -350,7 +355,9 @@ EndLoop list-result flattening when the required list schema is registered.
 Authored positional tuples remain ordinary scalar values.
 
 The obsolete loop-to-region converter and its structural corpus are preserved
-on the branch recorded in `docs/rework-queue.md`; they are not current importer
+on the branch recorded in
+[Obsolete loop-to-region lowering](https://github.com/Kosinkadink/comfy-vibe-station/issues/1197);
+they are not current importer
 behavior.
 
 ### Coverage report

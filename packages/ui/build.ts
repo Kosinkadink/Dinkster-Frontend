@@ -36,12 +36,15 @@ const siteType = Object.fromEntries(
   ]),
 )
 const fonts = await readFile(new URL('../app/src/fonts.css', root), 'utf8')
-const classes = (
-  await readFile(new URL('styles.css', root), 'utf8')
-).replaceAll(
-  'DINKSTER_SIDEBAR_BREAKPOINT',
-  `${components.layout.sidebarBreakpoint}px`,
-)
+const classes = (await readFile(new URL('styles.css', root), 'utf8'))
+  .replaceAll(
+    'DINKSTER_SIDEBAR_BREAKPOINT',
+    `${components.layout.sidebarBreakpoint}px`,
+  )
+  .replaceAll(
+    'DINKSTER_TOOLBAR_EXPANDED_WIDTH',
+    `${components.layout.toolbarExpandedRowWidth}px`,
+  )
 const css = `${fonts.replaceAll("url('/fonts/", "url('./fonts/")}\n${semanticCssRoot}\n:root {\n${declarations(geometry)}\n}\n[data-density="site"] {\n${declarations(siteType)}\n${declarations(siteGeometry)}\n${declarations(siteInteraction)}\n}\n${classes}`
 await writeFile(new URL('dinkster.css', dist), css)
 await cp(new URL('../app/public/fonts/', root), new URL('fonts/', dist), {

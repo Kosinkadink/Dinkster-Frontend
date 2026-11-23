@@ -12,6 +12,7 @@ import {
   buildGraphConnectivity,
   buildRerouteIndex,
   canonicalTypeIdOf,
+  companionSourcesOf,
   DINKSTER_REGION_PSEUDO_NODE,
   defaultBoundaryLabels,
   documentNodeResolver,
@@ -68,10 +69,11 @@ import {
 } from '@dinkster/core'
 import {
   connectedPortKey,
+  insetRowStack,
   layoutBoundaryNode,
   REGION_INDEX_SLOT,
+  TITLE_START,
   layoutNode,
-  MINIMIZED_NODE_MIN_WIDTH,
   type BoundarySlotInfo,
   type LayoutRow,
   type NodeLayout,
@@ -139,7 +141,8 @@ const onlyNodePositionsChanged = (
     const after = next.nodes[id]!
     return before === after || (
       before.size === after.size && before.collapsed === after.collapsed && before.views === after.views &&
-      before.sections === after.sections && before.color === after.color && before.ext === after.ext
+      before.textLines === after.textLines && before.previewFolded === after.previewFolded &&
+      before.minimizedPreviewOpen === after.minimizedPreviewOpen && before.sections === after.sections && before.color === after.color && before.ext === after.ext
     )
   })
 }
@@ -231,6 +234,11 @@ const sameTypeExpr = (left: TypeExpr, right: TypeExpr): boolean => {
   }
 }
 
+/** Whether a node's preview shows only its caption row. */
+export function previewFoldedOf(node: SceneNode): boolean {
+  return node.layout.minimized === true ? node.minimizedPreviewOpen !== true : node.previewFolded === true
+}
+
 export interface SceneNode {
   readonly id: string
   readonly x: number
@@ -242,6 +250,10 @@ export interface SceneNode {
   readonly elaborated?: ElaboratedInterface
   /** Schema declares live previews or an output intended for preview. */
   readonly previewCapable?: true
+  /** The open node's preview is folded to its caption row. */
+  readonly previewFolded?: true
+  /** A minimized node's preview was opened by its caption; minimized previews start folded. */
+  readonly minimizedPreviewOpen?: true
   /** Optional user-selected identity color projected from node view state. */
   readonly color?: string
   /** '#<defId>' instance nodes get the subgraph badge. */
@@ -265,6 +277,27 @@ export interface SceneBoundaryNode {
   readonly x: number
   readonly y: number
   readonly layout: NodeLayout
+  /**
+   * Inputs panel with field rows: the values they show, keyed by boundary
+   * item id as on the subgraph node outside. They are the values of the
+   * subgraph node the editor came in through, or the defaults a new
+   * subgraph node starts with when it came in through none. Each row's
+   * `familyOwner` names the node and value key an edit writes, or its
+   * `valueSourceOwner` the value source.
+   */
+  readonly fields?: {
+    readonly node: NodeData
+    /** Rows wired outside the subgraph: dimmed and not editable, with the arriving value when the document fixes it. */
+    readonly wired: Readonly<Record<string, { readonly value?: Json }>>
+    /** Boundary item id -> value key of its first row, the one its pin and wire belong to. */
+    readonly heads: Readonly<Record<string, string>>
+  }
+}
+
+/** The Inputs panel as a node face, so its field rows hit, paint and edit as a node's do. */
+export function boundaryFieldNode(bnode: SceneBoundaryNode): SceneNode | undefined {
+  if (bnode.fields === undefined) return undefined
+  return { id: boundarySceneId(bnode.side), x: bnode.x, y: bnode.y, layout: bnode.layout, node: bnode.fields.node, isSubgraph: true }
 }
 
 /**
@@ -437,6 +470,18 @@ export interface SceneValueSource {
   readonly specState: 'declared' | 'derived' | 'raw'
   /** Derivation reported conflicts (badge renders as a warning). */
   readonly conflict: boolean
+  /**
+   * While a subgraph node is entered, the value it sends through this
+   * source, which the Inputs panel edits. The pill shows it dimmed and is
+   * not edited there.
+   */
+  readonly arriving?: { readonly value: Json }
+  /**
+   * While a subgraph node is entered, the boundary input that shows this
+   * source as a field on that node, and the input's name there; painted as
+   * the cyan subgraph icon before the title (valueSourceMarkRect).
+   */
+  readonly subgraphMark?: { readonly item: string; readonly label: string }
 }
 
 export const VS_HEIGHT_PAD = canvasPaintTokens.valueSource.heightPadding
@@ -464,6 +509,16 @@ export function valueSourceBadgeRect(vs: SceneValueSource): {
     width: VS_BADGE_SIZE,
     height: VS_BADGE_SIZE,
   }
+}
+
+/**
+ * World-space square of the subgraph mark before a value source's title
+ * (SceneValueSource.subgraphMark). Shared by painting and pointer hit
+ * testing; `padX` is the design tokens' padX.
+ */
+export function valueSourceMarkRect(vs: SceneValueSource, padX: number): { readonly x: number; readonly y: number; readonly size: number } {
+  const size = canvasPaintTokens.widget.subgraphMark.size
+  return { x: vs.x + padX, y: vs.y + (vs.height - size) / 2, size }
 }
 
 /** Compact one-line value text ('' for null; first line of strings). */
@@ -850,6 +905,7 @@ export interface BuildSceneInput {
       readonly nodeId: string
       readonly valueKey: string
     }>>
+    readonly valueSources?: import('@dinkster/core').OccurrenceDynamicView['valueSources']
   }
 }
 
@@ -1268,6 +1324,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(view?.size ? { size: view.size } : {}),
           ...(sectionOverrides ? { sectionOverrides } : {}),
           ...(view?.views ? { widgetRepresentations: view.views } : {}),
+          ...(view?.textLines ? { textBoxLines: view.textLines } : {}),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
           ...(elaborated !== undefined ? { elaborated } : {}),
         })
@@ -1375,6 +1432,8 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(schema !== undefined && hasPreviewSurface(schema)
         ? { previewCapable: true as const }
         : {}),
+      ...(view?.previewFolded === true ? { previewFolded: true as const } : {}),
+      ...(view?.collapsed === true && view.minimizedPreviewOpen === true ? { minimizedPreviewOpen: true as const } : {}),
       ...(view?.color !== undefined ? { color: view.color } : {}),
       isSubgraph: subgraphDefIdOf(node.type) !== undefined,
       ...(node.region !== undefined ? { regionKind: node.region.kind } : {}),
@@ -1382,6 +1441,31 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
     nodes.push(sceneNode)
     byId.set(node.id, sceneNode)
+  }
+
+  // The subgraph node the editor came in through, and the graph it sits in.
+  let ownerNode: NodeData | undefined
+  let ownerGraph: GraphDef | undefined
+  if (input.occurrence !== undefined) {
+    ownerGraph = input.document.graphs[input.document.root]
+    for (const hop of input.occurrence.owner.instancePath) {
+      const hopNode = ownerGraph?.nodes[hop]
+      ownerGraph = hopNode?.type.startsWith('#') ? input.document.graphs[hopNode.type.slice(1)] : undefined
+    }
+    ownerNode = ownerGraph?.nodes[input.occurrence.owner.node]
+  }
+  // While a node is entered, a value source that node shows as a field sends
+  // the node's value (or the outer owner's), else its own.
+  const sentSourceValues = new Map<string, Json>()
+  if (ownerNode !== undefined) {
+    for (const item of def.boundary?.inputs ?? []) {
+      const source = item.binds.kind === 'valueSource' && item.promoted === true ? def.valueSources?.[item.binds.valueSource] : undefined
+      if (source === undefined) continue
+      const occurrence = input.occurrenceView?.valueSources?.get(source.id)
+      const value = occurrence !== undefined ? occurrence.value
+        : Object.hasOwn(ownerNode.values, item.id) ? ownerNode.values[item.id] : undefined
+      sentSourceValues.set(source.id, value !== undefined ? value : source.value)
+    }
   }
 
   // Value sources: compact literal pills. Semantics from GraphDef, geometry
@@ -1397,12 +1481,16 @@ export function buildScene(input: BuildSceneInput): Scene {
     resolveSource ??= documentValueSourceResolver(input.document, input.resolve)
     const effective = resolveSource(def.id, vs.id, sourcePath)!
     const title = vs.title ?? effective.spec?.widgetType ?? 'value'
-    const valueText = valueSourceValueText(vs.value)
+    const sent = sentSourceValues.has(vs.id) ? { value: sentSourceValues.get(vs.id)! } : undefined
+    const valueText = valueSourceValueText(sent !== undefined ? sent.value : vs.value)
+    // A sent value comes from a field on the entered node: room for its mark.
+    const markReserve = sent === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
     const width = Math.min(
       input.tokens.nodeMaxAutoWidth,
       Math.max(
         VS_MIN_WIDTH,
         input.tokens.padX +
+          markReserve +
           measure(title, 'label') +
           canvasPaintTokens.valueSource.valueGap +
           measure(valueText, 'value') +
@@ -1425,6 +1513,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(typeName !== undefined ? { typeName } : {}),
       specState: vs.spec ? 'declared' : effective.spec ? 'derived' : 'raw',
       conflict: effective.diagnostics.length > 0,
+      ...(sent !== undefined ? { arriving: sent } : {}),
     }
     valueSources.push(sceneSource)
     valueSourceById.set(vs.id, sceneSource)
@@ -1784,15 +1873,92 @@ export function buildScene(input: BuildSceneInput): Scene {
     const derivedInputs = derived ? inputsOf(derived) : []
     const derivedOutputs = derived ? outputsOf(derived) : []
 
-    let ownerNode: NodeData | undefined
-    if (input.occurrence !== undefined) {
-      let ownerGraph = input.document.graphs[input.document.root]
-      for (const hop of input.occurrence.owner.instancePath) {
-        const hopNode = ownerGraph?.nodes[hop]
-        ownerGraph = hopNode?.type.startsWith('#') ? input.document.graphs[hopNode.type.slice(1)] : undefined
+    // Field rows: each input the subgraph node outside shows as a field
+    // shows as the same field here. Its value is the one the inner node
+    // receives in this occurrence (the entered node's value, else the
+    // default), and an edit writes where that value is owned: the entered
+    // node (or the outer node that owns its value), or with no node entered
+    // the inner node's stored value, which is the default. A value source
+    // the input binds is edited the same way, its own value being the
+    // default.
+    const fieldValues: Record<string, Json> = {}
+    const fieldControllers: Record<string, NonNullable<NodeData['controllers']>[string]> = {}
+    const fieldOwners = new Map<string,
+      { readonly graphId: string; readonly nodeId: string; readonly valueKey: string } | { readonly graphId: string; readonly valueSourceId: string }>()
+    for (const item of def.boundary.inputs) {
+      const binds = item.binds
+      if (binds.kind === 'valueSource' && item.promoted === true) {
+        const source = def.valueSources?.[binds.valueSource]
+        if (source === undefined) continue
+        const occurrence = input.occurrenceView?.valueSources?.get(source.id)
+        const controller = occurrence !== undefined ? occurrence.controller : ownerNode?.controllers?.[item.id]
+        fieldValues[item.id] = sentSourceValues.has(source.id) ? sentSourceValues.get(source.id)! : source.value
+        if (controller !== undefined) fieldControllers[item.id] = controller
+        fieldOwners.set(item.id, occurrence?.owner ?? (ownerNode !== undefined && ownerGraph !== undefined
+          ? { graphId: ownerGraph.id, nodeId: ownerNode.id, valueKey: item.id }
+          : { graphId: def.id, valueSourceId: source.id }))
+        continue
       }
-      ownerNode = ownerGraph?.nodes[input.occurrence.owner.node]
+      if (binds.kind !== 'port' || item.promoted !== true) continue
+      const inner = def.nodes[binds.node]
+      if (inner === undefined) continue
+      const port = binds.port as string
+      const values = input.occurrenceView?.values?.get(inner.id) ?? inner.values
+      const controllers = input.occurrenceView?.controllers?.get(inner.id) ?? inner.controllers
+      const owner = input.occurrenceView?.valueOwners?.get(inner.id)?.get(port)
+      // Without the occurrence's owner the entered node's own value is shown,
+      // because that node is where an edit is written.
+      const entered = owner === undefined && ownerNode !== undefined && Object.hasOwn(ownerNode.values, item.id)
+      if (entered) fieldValues[item.id] = ownerNode!.values[item.id]!
+      else if (Object.hasOwn(values, port)) fieldValues[item.id] = values[port]!
+      if (controllers !== undefined && Object.hasOwn(controllers, port)) fieldControllers[item.id] = controllers[port]!
+      fieldOwners.set(item.id, owner ?? (ownerNode !== undefined && ownerGraph !== undefined
+        ? { graphId: ownerGraph.id, nodeId: ownerNode.id, valueKey: item.id }
+        : { graphId: def.id, nodeId: inner.id, valueKey: port }))
     }
+    const fieldNode: NodeData = {
+      id: asNodeId(boundarySceneId('inputs')),
+      type: `#${def.id}`,
+      values: fieldValues,
+      controllers: fieldControllers,
+    }
+    const outsideRows = new Map<string, Extract<LayoutRow, { kind: 'widget' }>[]>()
+    if (derived !== undefined && fieldOwners.size > 0) {
+      // The entered node's chosen views, so a field drawn as a slider there
+      // is a slider here too.
+      const ownerView = ownerNode !== undefined && ownerGraph !== undefined
+        ? input.document.view.graphs[ownerGraph.id]?.nodes[ownerNode.id]
+        : undefined
+      const outside = layoutNode(derived, fieldNode, input.tokens, measure, input.widgetMeasure, {
+        ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
+        ...(ownerView?.views !== undefined ? { widgetRepresentations: ownerView.views } : {}),
+        ...(ownerView?.textLines !== undefined ? { textBoxLines: ownerView.textLines } : {}),
+      })
+      for (const row of outside.rows) {
+        const owner = row.kind === 'widget' ? fieldOwners.get(row.inputId) : undefined
+        // Rows whose options are edited on the node (editable choices)
+        // stay pins: those edits target the node itself.
+        if (row.kind !== 'widget' || owner === undefined || row.selector !== undefined || row.optionsTarget !== undefined) continue
+        outsideRows.set(row.inputId, [{ ...row, ...('valueSourceId' in owner
+          ? { valueSourceOwner: owner }
+          : { familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey } }) }])
+      }
+    }
+    // A value the owner receives by a wire outside the subgraph is not
+    // edited here; a document literal on that wire is shown instead.
+    const wiredFields: Record<string, { value?: Json }> = {}
+    const drivenByGraph = new Map<string, ReturnType<typeof companionSourcesOf>>()
+    for (const row of [...outsideRows.values()].flat()) {
+      const owner = row.familyOwner
+      const graph = owner === undefined ? undefined : input.document.graphs[owner.graphId]
+      if (owner === undefined || owner.graphId === def.id || graph === undefined || owner.valueKey === undefined) continue
+      if (!drivenByGraph.has(graph.id)) drivenByGraph.set(graph.id, companionSourcesOf(graph, undefined, undefined, input.resolve))
+      const driven = drivenByGraph.get(graph.id)!.get(owner.nodeId)?.get(owner.valueKey)
+      if (driven !== undefined) wiredFields[row.valueKey] = driven.kind === 'literal' ? { value: driven.value } : {}
+    }
+    const fieldsSubtitle = outsideRows.size === 0
+      ? undefined
+      : ownerNode === undefined ? 'defaults' : `of ${ownerNode.title ?? (input.resolve(ownerNode.type)?.displayName ?? def.name)}`
 
     const boundaryLabel = (
       item: BoundaryItem,
@@ -1806,6 +1972,9 @@ export function buildScene(input: BuildSceneInput): Scene {
       return defaults.get(item.id) ?? 'Boundary'
     }
 
+    // Inputs drawn without their wire, by boundary item id: the name each
+    // has on the subgraph node, for the mark on its fields.
+    const markLabels = new Map<string, string>()
     const slotsOf = (items: readonly BoundaryItem[], side: 'inputs' | 'outputs'): BoundarySlotInfo[] => {
       const defaults = defaultBoundaryLabels(items)
       const roles = ownerNode?.region === undefined ? undefined : regionBoundaryLabels(items, ownerNode.region, side)
@@ -1814,10 +1983,20 @@ export function buildScene(input: BuildSceneInput): Scene {
           side === 'inputs'
             ? derivedInputs.find((s) => s.id === item.id)
             : derivedOutputs.find((s) => s.id === item.id)
+        const label = boundaryLabel(item, spec?.displayName, defaults, roles)
+        const fields = side === 'inputs' ? outsideRows.get(item.id) : undefined
+        // A value source's field has no wire either: the pill has only an
+        // output, and the row's pin cannot start one (boundary.addBinding
+        // fans out port bindings only).
+        const pinless = side === 'inputs' && (item.wireHidden === true || item.binds.kind === 'valueSource' && fields !== undefined)
+        if (pinless) markLabels.set(item.id, label)
         return {
           id: item.id,
-          label: boundaryLabel(item, spec?.displayName, defaults, roles),
+          label,
           ...(spec !== undefined ? { type: spec.type } : {}),
+          ...(spec?.kind === 'input' && spec.acceptsList ? { acceptsList: true as const } : {}),
+          ...(fields !== undefined ? { fields: pinless ? fields.map((field, index) => index === 0 ? { ...field, subgraphMark: { item: item.id, label } } : field) : fields } : {}),
+          ...(pinless ? { pinless: true as const } : {}),
         }
       })
     }
@@ -1828,7 +2007,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       type: { kind: 'concrete', name: 'INT' },
       regionIndex: true,
     }]
-    const inputsLayout = layoutBoundaryNode('inputs', [...slotsOf(def.boundary.inputs, 'inputs'), ...regionIndexSlots], input.tokens, measure)
+    const inputsLayout = layoutBoundaryNode('inputs', [...slotsOf(def.boundary.inputs, 'inputs'), ...regionIndexSlots], input.tokens, measure, fieldsSubtitle)
     const outputsLayout = layoutBoundaryNode('outputs', slotsOf(def.boundary.outputs, 'outputs'), input.tokens, measure)
 
     // Default positions hug the content bounds; a persisted position wins.
@@ -1864,7 +2043,11 @@ export function buildScene(input: BuildSceneInput): Scene {
     const viewBoundary = graphView?.boundary
     const inputsPos = viewBoundary?.inputs?.position ?? { x: minX - BOUNDARY_GAP - inputsLayout.width, y: minY }
     const outputsPos = viewBoundary?.outputs?.position ?? { x: maxX + BOUNDARY_GAP, y: minY }
-    const inputsNode: SceneBoundaryNode = { side: 'inputs', x: inputsPos.x, y: inputsPos.y, layout: inputsLayout }
+    const inputsNode: SceneBoundaryNode = {
+      side: 'inputs', x: inputsPos.x, y: inputsPos.y, layout: inputsLayout,
+      ...(outsideRows.size > 0 ? { fields: { node: fieldNode, wired: wiredFields,
+        heads: Object.fromEntries([...outsideRows].map(([itemId, rows]) => [itemId, rows[0]!.valueKey])) } } : {}),
+    }
     const outputsNode: SceneBoundaryNode = { side: 'outputs', x: outputsPos.x, y: outputsPos.y, layout: outputsLayout }
     boundaryNodes.push(inputsNode, outputsNode)
 
@@ -1965,8 +2148,17 @@ export function buildScene(input: BuildSceneInput): Scene {
       })
     }
 
+    // A row drawn without its wire keeps its bindings as hidden links, so
+    // each inner field still reads as driven by the boundary; they start
+    // at the panel row, which has no pin.
+    const pinlessRowAnchor = (itemId: string): { x: number; y: number } | undefined => {
+      const head = inputsNode.fields?.heads[itemId]
+      const row = inputsNode.layout.rows.find((candidate) =>
+        candidate.kind === 'widget' ? head !== undefined && candidate.valueKey === head : candidate.kind === 'ports' && candidate.output?.portId === itemId)
+      return row === undefined ? undefined : { x: inputsNode.x + inputsNode.layout.width, y: inputsNode.y + row.y + input.tokens.rowHeight / 2 }
+    }
     for (const item of def.boundary.inputs) {
-      const from = boundaryPin(inputsNode, item.id)
+      const from = item.wireHidden === true ? pinlessRowAnchor(item.id) : boundaryPin(inputsNode, item.id)
       if (!from) continue
       const pinType = inputsNode.layout.pins.find((p) => p.portId === item.id)?.type
       const typeName = pinType === undefined ? undefined : canonicalTypeIdOf(pinType)
@@ -1989,11 +2181,33 @@ export function buildScene(input: BuildSceneInput): Scene {
             y2: to.y,
             ...(typeName !== undefined ? { typeName } : {}),
             boundary: true,
+            ...(item.wireHidden === true ? { hidden: true as const } : {}),
             ...(identities.length === 1 ? { effectiveIdentity: identities[0] } : {}),
             ...(identities.length > 0 ? { effectiveIdentities: identities } : {}),
           })
         })
       })
+    }
+    // The inner fields of an input drawn without its wire carry the mark.
+    for (const item of def.boundary.inputs) {
+      const label = markLabels.get(item.id)
+      if (label === undefined) continue
+      for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
+        // A value source's pill carries it while a node is entered, the
+        // pill then showing the value that node's field sends.
+        if (b.kind === 'valueSource') {
+          const index = valueSources.findIndex((vs) => vs.id === b.valueSource && vs.arriving !== undefined && vs.subgraphMark === undefined)
+          if (index >= 0) valueSources[index] = { ...valueSources[index]!, subgraphMark: { item: item.id, label } }
+          continue
+        }
+        if (b.kind !== 'port') continue
+        const index = nodes.findIndex((candidate) => candidate.id === b.node)
+        const target = nodes[index]
+        if (target === undefined) continue
+        const rows = target.layout.rows.map((row) => row.kind === 'widget' && row.address.port === b.port
+          ? { ...row, subgraphMark: { item: item.id, label } } : row)
+        nodes[index] = { ...target, layout: { ...target.layout, rows } }
+      }
     }
     for (const item of def.boundary.outputs) {
       const to = boundaryPin(outputsNode, item.id)
@@ -2124,7 +2338,7 @@ function missingLayout(
   const rows: LayoutRow[] = []
   const pins: PinLayout[] = []
   let y = tokens.headerHeight
-  let contentWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title') + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding
+  let contentWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title') + TITLE_START + tokens.padX + canvasPaintTokens.node.titleWidthPadding
 
   const pairs = Math.max(connections.inputs.length, connections.outputs.length)
   for (let i = 0; i < pairs; i++) {
@@ -2180,21 +2394,17 @@ function missingLayout(
   }
 
   // Rows never compress: manual sizes clamp to the natural row stack.
-  const minHeight = Math.max(tokens.headerHeight + tokens.rowHeight + tokens.padBottom, y + tokens.padBottom)
+  const stackInsets = insetRowStack(rows, pins, tokens)
+  const minHeight = Math.max(tokens.headerHeight + tokens.rowHeight + tokens.padBottom, y + stackInsets.top + stackInsets.bottom)
   const naturalWidth = Math.min(tokens.nodeMaxAutoWidth, Math.max(tokens.nodeMinWidth, contentWidth))
+  const width = sizeOverride ? Math.max(tokens.nodeMinWidth, sizeOverride.width) : naturalWidth
   if (minimized) {
+    // Minimizing only hides the body: the node keeps its open width.
     const height = tokens.headerHeight + tokens.padBottom
-    const width = Math.min(
-      tokens.nodeMaxAutoWidth,
-      Math.max(
-        MINIMIZED_NODE_MIN_WIDTH,
-        measure(title, titleRenamed ? 'renamedTitle' : 'title') + tokens.padX * 2 + canvasPaintTokens.node.titleWidthPadding,
-      ),
-    )
     return {
       width,
       height,
-      minWidth: MINIMIZED_NODE_MIN_WIDTH,
+      minWidth: tokens.nodeMinWidth,
       minHeight: height,
       headerHeight: tokens.headerHeight,
       title,
@@ -2205,7 +2415,7 @@ function missingLayout(
     }
   }
   return {
-    width: sizeOverride ? Math.max(tokens.nodeMinWidth, sizeOverride.width) : naturalWidth,
+    width,
     height: sizeOverride ? Math.max(minHeight, sizeOverride.height) : minHeight,
     minWidth: tokens.nodeMinWidth,
     minHeight,

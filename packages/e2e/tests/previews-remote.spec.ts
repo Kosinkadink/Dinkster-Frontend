@@ -11,7 +11,6 @@
  */
 import { expect, test, type Page } from './fixtures.js'
 
-test.use({ retentionApi: false })
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 

@@ -10,11 +10,10 @@
  */
 import { expect, test, type Page } from './fixtures.js'
 
-test.use({ retentionApi: false })
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 15_000 })
 })
 
 const executionByPrompt = (page: Page, prompt: string) =>
@@ -31,8 +30,8 @@ const executionByPrompt = (page: Page, prompt: string) =>
 test('recovers the connection after a socket drop', async ({ page }) => {
   await page.evaluate(() => window.__dinksterTest!.app.connection.simulateConnectionLoss())
   // 500ms backoff makes the intermediate state observable.
-  await expect(page.locator('.conn-status')).toHaveText('reconnecting')
-  await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'reconnecting')
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 15_000 })
 })
 
 test('marks a server-unknown in-flight execution lost after reconnect', async ({ page }) => {
@@ -46,7 +45,7 @@ test('marks a server-unknown in-flight execution lost after reconnect', async ({
     })
     t.app.connection.simulateConnectionLoss()
   })
-  await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 15_000 })
   await expect
     .poll(async () => (await executionByPrompt(page, 'ghost-e2e-reconnect'))?.status, { timeout: 10_000 })
     .toBe('interrupted')
@@ -65,6 +64,6 @@ test('a run queued right before a drop still converges to completed', async ({ p
   await page.evaluate(() => window.__dinksterTest!.app.connection.simulateConnectionLoss())
   const row = page.getByTestId('execution-row').first()
   await expect(row).toBeVisible({ timeout: 10_000 })
-  await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 15_000 })
   await expect(row.locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
 })

@@ -55,88 +55,37 @@ change the existing live-tab overlay binding.
 Cached-output reads publish only while their original backend is still live
 and its connection lifecycle has not changed. Removing or replacing that
 backend, reconnecting, or closing the application discards a late response;
-a subsequent execution update can retry against the live owner. Results
+a subsequent execution update can retry against the live backend. Results
 already displayed remain available when their backend is removed.
 
-Queueing journals and confirms ownership of a newly uploaded source-document
-stamp before caching or submitting its digest. Its inventory includes the source
-bytes and the typed roots of the exact uploaded snapshot, including disconnected
-nodes and compositor resources. Known inventories are complete; unknown schemas,
-opaque fields and unresolved resources remain incomplete. Edits during upload do
-not change that captured inventory. An unchanged document reuses the stamp only
-on the same backend connection. A refused declaration or unresolved write
-response leaves the stamp uncached and the submission unstamped; the next queue
-can retry. A lost response can be confirmed by exact readback without replaying
-the write. Closing a tab does not release these owners.
+Queueing captures the exact uploaded source-document stamp and submits it through
+the selected backend. A document edit during upload does not alter that captured
+source. Reuse is limited to the same backend connection; a changed connection,
+failed upload, or unavailable source leaves the run unstamped and lets a later
+queue attempt start fresh.
 
-Terminal-output hydration claims every sealed output and artifact source before
-installing fetched descriptors. It separately retains the typed producing
-snapshot and source-document digest under an independent shown-result owner.
-The terminal job, attempt, source document and artifact identities must agree;
-missing seals or uncovered outputs withhold publication. Overlapping completion
-notifications share one local admission for the exact terminal record. Repeated
-notifications reuse it only while its complete receipts remain held and their
-journals, backend, registries, project, storage and connection generation remain
-current; a failed admission remains retryable. A known snapshot can
-be complete without reinterpreting an opaque runtime descriptor or an incomplete
-source offer. Compositor resources use the same verified inventory as workflow
-admission. Runs without a producing snapshot and non-terminal reads remain
-conservative. A refusal or stale acknowledgment leaves cached outputs unpublished
-and allows a later execution update to retry. The journal is checked read-only
-on reconnect, without replaying writes or releasing owners.
+Terminal hydration reads the stored run and job directly from the run's backend.
+The run, client, job, attempt, terminal state, source document, outputs, and
+artifacts must agree before the result is published. Missing or mismatched data
+leaves the existing view unchanged and lets a later completion or reconnect
+retry. Repeated notifications for the same terminal record share the in-flight
+read without duplicating the result.
 
-Live output events and mirrored submit registrations keep their interim shown-result
-holds tracked in the admitting window. Completion waits for the submit identity
-and sealed result inventory, including when live events already supplied output
-descriptors. Complete terminal admissions replace only interim references whose
-known digests they cover. Their exact same-lifetime owners can then retire;
-uncovered roots and independent result readers remain protected. A missing seal,
-refused admission or changed backend lifetime does not authorize retirement.
+Startup restoration validates the saved history record, job identity, source
+document, compile proof, and output descriptors before rebuilding an execution.
+Backend, connection, registry, or application-lifecycle changes discard a late
+restore result without deleting the saved retry record. A later successful read
+of the same source and job can restore the result.
 
-Startup restoration uses the same independent sealed-source and snapshot
-acknowledgments after validating history, job, source document, compile proof
-and output descriptors. Every saved receipt is reconciled before publication.
-An exact release tombstone permits replacing a complete historical receipt only
-when fresh complete original-source and snapshot inventories cover it. A saved
-source token must match the sealed source; byte presence alone is not authority.
-Unconfirmed, incomplete or changed ownership remains unavailable for retry.
-Saved roots from still-held receipts not covered by the new inventories receive
-separate incomplete protection; restoring a result never releases the source
-window's owners.
-Pending or refused ownership does not publish a restored execution. Backend,
-connection or registry changes and application disposal discard late startup
-results without deleting their saved retry records. A later successful restore
-of the same source, job and compile proof can replace interrupted source readers
-created by this application instance, after their pending reads drain. Failed
-restoration or disconnect alone never authorizes retirement. Readers from another
-application instance or a different source remain independent.
+Live output events, mirrored registrations, reconnect records, and cross-window
+updates preserve their execution identity and use the original backend. Later
+events for one execution remain ordered, while unrelated runs continue
+independently. Backend, connection, registry, or execution changes discard a
+stale event or result. Binary previews without external reads remain immediate.
 
-Fetched completion and reconnect records also confirm independent ownership
-before publishing output descriptors, saved artifacts or replayed node states.
-A refused declaration leaves the existing view unchanged for a later retry.
-The read captures its backend, connection lifetime, registry and execution
-identity; an acknowledgment for a retired owner cannot publish fetched data.
-When schema refresh replaces a connected backend's registry, reconciliation
-reads again under the new owner so missed terminal events can still converge.
-
-Live previews and cross-window output events also confirm known digest roots
-before publication. Later events for the same execution wait behind the
-declaration so completion cannot overtake a pending preview; unrelated runs
-continue independently. Refused events remain unpublished, while later events
-can proceed. Backend, connection, registry or execution identity changes
-discard queued events from the previous owner. Binary previews with no external
-identities keep their immediate path when no earlier event is pending.
-Nested preview documents, saved stills and frame rings contribute known roots,
-but opaque payloads remain incomplete. This does not certify every read holder
-or enable collection.
-
-Cross-window run registrations retain known snapshot and source-document roots
-before publishing the reconstructed workflow. Opaque snapshots require an
-incomplete declaration even without known digests. Later events wait for that
-registration; refusal or a changed backend, connection, registry or registration
-withholds the snapshot. Certified asset-free snapshots without a source-document
-root keep their immediate path. These declarations do not release earlier owners
-or enable collection.
+Malformed typed values and output descriptors remain available for inspection and
+appear as Problems rows with their original diagnostics. They are not discarded
+or rewritten while a user repairs the workflow.
 
 ## Interrupted runs
 

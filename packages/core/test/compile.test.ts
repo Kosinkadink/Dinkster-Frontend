@@ -16,6 +16,8 @@ import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import { DINKSTER_GRAPH_FEATURE_DECIMAL_INT } from '../src/compile/dinkster-graph.js'
 import { coreVirtualNodeKind } from '../src/virtual-node.js'
+import { coreCommandRegistry } from '../src/commands/core-commands.js'
+import { DocumentStore } from '../src/commands/store.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(root, rel), 'utf8'))
@@ -513,6 +515,7 @@ describe('semantic hash', () => {
 import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
 const IMAGE: TypeExpr = { kind: 'concrete', name: 'IMAGE' }
+const INT: TypeExpr = { kind: 'concrete', name: 'INT' }
 const dynInput = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
   kind: 'input',
   id,
@@ -520,6 +523,8 @@ const dynInput = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
   optional: false,
   ...extra,
 })
+const PICK = { kind: 'union', names: ['INT', 'BOOLEAN'] } as const
+const BRANCHES = { branch: { members: ['on_false', 'on_true'] } }
 const dynOutput = (id: string): OutputSpec => ({ kind: 'output', id, type: IMAGE })
 const dynSchemaOf = (type: string, items: BodyRow[]): NodeSchema => ({
   type,
@@ -657,6 +662,7 @@ const dynSchemas: Record<string, NodeSchema> = {
     required: false,
   }]),
   ItemGroup: dynSchemaOf('ItemGroup', [group('items', 'item', { value: dynInput('value', { optional: true }) })]),
+  OrderedGroup: dynSchemaOf('OrderedGroup', [group('items', 'item', { value: dynInput('value', { optional: true }) }, { reorderable: true })]),
   NamedGroup: dynSchemaOf('NamedGroup', [{
     kind: 'group', id: 'args', value: dynInput('value'), keys: { kind: 'named', names: ['a', 'b'] }, grows: 'link', minMembers: 1,
   }]),
@@ -698,21 +704,36 @@ const dynSchemas: Record<string, NodeSchema> = {
   }]),
   LazySelector: {
     ...dynSchemaOf('LazySelector', [
-      dynInput('switch', { type: { kind: 'concrete', name: 'BOOLEAN' }, widget: { widgetType: 'BOOLEAN', options: {} } }),
-      dynInput('on_false'),
-      dynInput('on_true'),
+      dynInput('switch', { type: PICK, optional: true }),
+      { kind: 'group', id: 'branch', value: dynInput('value', { optional: true, lazy: true }), keys: { kind: 'named', names: ['on_false', 'on_true'] }, grows: 'button', minMembers: 1 },
       dynOutput('result'),
     ]),
-    selector: { input: 'switch', branches: { false: 'on_false', true: 'on_true' } },
+    selector: { input: 'switch', group: 'branch' },
   },
-  LazySelectorOdd: {
-    ...dynSchemaOf('LazySelectorOdd', [
-      dynInput('switch#id', { type: { kind: 'concrete', name: 'BOOLEAN' }, widget: { widgetType: 'BOOLEAN', options: {} } }),
-      dynInput('on_false'),
-      dynInput('on_true'),
+  Primitive: {
+    ...dynSchemaOf('Primitive', [
+      dynInput('value', { type: INT, widget: { widgetType: 'INT', options: {}, default: 0, controller: 'after_generate' } }),
+      { kind: 'output', id: 'INT', type: INT, knownValue: { input: 'value' } },
+    ]),
+    isOutputNode: false,
+  },
+  IntSrc: { ...dynSchemaOf('IntSrc', [{ kind: 'output', id: 'out', type: INT }]), isOutputNode: false },
+  IntSink: dynSchemaOf('IntSink', [dynInput('steps', { type: INT, widget: { widgetType: 'INT', options: {}, default: 20 } })]),
+  Switch: {
+    ...dynSchemaOf('Switch', [
+      dynInput('pick', { type: PICK, optional: true }),
+      { kind: 'group', id: 'branch', value: dynInput('value', { optional: true, lazy: true }), keys: { kind: 'named', names: ['a', 'b', 'c'] }, grows: 'button', minMembers: 1 },
       dynOutput('result'),
     ]),
-    selector: { input: 'switch#id', branches: { false: 'on_false', true: 'on_true' } },
+    selector: { input: 'pick', group: 'branch' },
+  },
+  ModeSwitch: {
+    ...dynSchemaOf('ModeSwitch', [
+      dynInput('pick', { type: PICK, optional: true, widget: { widgetType: 'COMBO', options: {}, controller: 'after_generate', controllerInitial: 'fixed' } }),
+      { kind: 'group', id: 'branch', value: dynInput('value', { optional: true, lazy: true }), keys: { kind: 'named', names: ['a', 'b'] }, grows: 'button', minMembers: 1 },
+      dynOutput('result'),
+    ]),
+    selector: { input: 'pick', group: 'branch' },
   },
   'comfy.ResizeImageMaskNode': parseDinksterSchema(
     'comfy.ResizeImageMaskNode',
@@ -725,6 +746,7 @@ type DynNode = {
   type: string
   values?: Record<string, unknown>
   dynamic?: Record<string, unknown>
+  controllers?: Record<string, string>
   mode?: 'active' | 'muted' | 'bypassed'
 }
 type DynEnd =
@@ -763,7 +785,7 @@ const dynDoc = (parts: {
     nodes: Object.fromEntries(
       Object.entries(nodes).map(([nid, n]) => [
         nid,
-        { id: nid, type: n.type, values: n.values ?? {}, ...(n.dynamic ? { dynamic: n.dynamic } : {}), ...(n.mode ? { mode: n.mode } : {}) },
+        { id: nid, type: n.type, values: n.values ?? {}, ...(n.dynamic ? { dynamic: n.dynamic } : {}), ...(n.controllers ? { controllers: n.controllers } : {}), ...(n.mode ? { mode: n.mode } : {}) },
       ]),
     ),
     links: Object.fromEntries(links.map((l, i) => [`l${i}`, { id: `l${i}`, from: end(l[0]), to: end(l[1]) }])),
@@ -894,12 +916,12 @@ describe('dynamic interfaces', () => {
         decisionSource: { type: 'BooleanSrc' },
         falseSource: { type: 'NonOutputImageSrc' },
         trueSource: { type: 'NonOutputImageSrc' },
-        selector: { type: 'LazySelector', values: { switch: false } },
+        selector: { type: 'LazySelector', values: { switch: false }, dynamic: BRANCHES },
       },
       links: [
         [['decisionSource', 'out'], ['selector', 'switch']],
-        [['falseSource', 'out'], ['selector', 'on_false']],
-        [['trueSource', 'out'], ['selector', 'on_true']],
+        [['falseSource', 'out'], ['selector', 'branch.on_false']],
+        [['trueSource', 'out'], ['selector', 'branch.on_true']],
       ],
     })
     const result = dynCompile(doc)
@@ -913,10 +935,11 @@ describe('dynamic interfaces', () => {
       selector: {
         class_type: 'LazySelector',
         outputIds: ['result'],
+        outputMembers: { branch: ['on_false', 'on_true'] },
         inputs: {
           switch: ['decisionSource', 0],
-          on_false: ['falseSource', 0],
-          on_true: ['trueSource', 0],
+          'branch.on_false': ['falseSource', 0],
+          'branch.on_true': ['trueSource', 0],
         },
       },
     })
@@ -930,18 +953,18 @@ describe('dynamic interfaces', () => {
       nodes: {
         falseSource: { type: 'ImageSrc' },
         trueSource: { type: 'ImageSrc' },
-        selector: { type: 'LazySelector', values: { switch: true } },
+        selector: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
       },
       links: [
-        [['falseSource', 'out'], ['selector', 'on_false']],
-        [['trueSource', 'out'], ['selector', 'on_true']],
+        [['falseSource', 'out'], ['selector', 'branch.on_false']],
+        [['trueSource', 'out'], ['selector', 'branch.on_true']],
       ],
     }))
-    expect(valued.ok).toBe(true)
+    expect(valued.ok, JSON.stringify(!valued.ok && valued.diagnostics)).toBe(true)
     if (valued.ok) {
       expect(valued.artifact.prompt.selector?.inputs.switch).toBe(true)
-      expect(valued.artifact.prompt.selector?.inputs.on_false).toEqual(['falseSource', 0])
-      expect(valued.artifact.prompt.selector?.inputs.on_true).toEqual(['trueSource', 0])
+      expect(valued.artifact.prompt.selector?.inputs['branch.on_false']).toEqual(['falseSource', 0])
+      expect(valued.artifact.prompt.selector?.inputs['branch.on_true']).toEqual(['trueSource', 0])
       expect(Object.keys(valued.artifact.prompt).sort()).toEqual(['falseSource', 'selector', 'trueSource'])
     }
   })
@@ -951,11 +974,11 @@ describe('dynamic interfaces', () => {
       nodes: {
         falseSource: { type: 'ImageSrc' },
         trueSource: { type: 'ImageSrc' },
-        selector: { type: 'LazySelector', values: { switch: true } },
+        selector: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
       },
       links: [
-        [['falseSource', 'out'], ['selector', 'on_false']],
-        [['trueSource', 'out'], ['selector', 'on_true']],
+        [['falseSource', 'out'], ['selector', 'branch.on_false']],
+        [['trueSource', 'out'], ['selector', 'branch.on_true']],
       ],
     })
     const scope: ExecutionScope = {
@@ -967,8 +990,8 @@ describe('dynamic interfaces', () => {
     if (!exact.ok) return
     expect(exact.artifact.prompt.selector?.inputs).toMatchObject({
       switch: true,
-      on_false: ['falseSource', 0],
-      on_true: ['trueSource', 0],
+      'branch.on_false': ['falseSource', 0],
+      'branch.on_true': ['trueSource', 0],
     })
     expect(Object.keys(exact.artifact.prompt).sort()).toEqual(['falseSource', 'selector', 'trueSource'])
     const exactBytes = JSON.stringify(exact.artifact.prompt)
@@ -994,15 +1017,15 @@ describe('dynamic interfaces', () => {
         inactiveSource: { type: 'ImageSrc' },
         selectedSource: { type: 'ImageSrc' },
         bypass: { type: 'Passthrough', mode: 'bypassed' },
-        selector: { type: 'LazySelector', values: { switch: choice } },
+        selector: { type: 'LazySelector', values: { switch: choice }, dynamic: BRANCHES },
         target: { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } },
       },
       reroutes: ['selected-route'],
       nets: [['inactive-feed', ['inactiveSource', 'out'], [['bypass', 'in']]]],
       links: [
-        [['bypass', 'out'], ['selector', 'on_false']],
+        [['bypass', 'out'], ['selector', 'branch.on_false']],
         [['selectedSource', 'out'], { reroute: 'selected-route' }],
-        [{ reroute: 'selected-route' }, ['selector', 'on_true']],
+        [{ reroute: 'selected-route' }, ['selector', 'branch.on_true']],
         [['selector', 'result'], ['target', 'items.item0']],
       ],
     })
@@ -1024,11 +1047,11 @@ describe('dynamic interfaces', () => {
           nodes: {
             falseSource: { type: 'ImageSrc' },
             trueSource: { type: 'ImageSrc' },
-            selector: { type: 'LazySelector', values: { switch: true } },
+            selector: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
           },
           links: [
-            [['falseSource', 'out'], ['selector', 'on_false']],
-            [['trueSource', 'out'], ['selector', 'on_true']],
+            [['falseSource', 'out'], ['selector', 'branch.on_false']],
+            [['trueSource', 'out'], ['selector', 'branch.on_true']],
           ],
           boundary: { inputs: [], outputs: [] },
         },
@@ -1044,22 +1067,22 @@ describe('dynamic interfaces', () => {
     expect([...closure.inactiveExclusive.get('left.selector') ?? []]).toEqual(['left.falseSource'])
   })
 
-  it('uses occurrence-promoted booleans and keeps promoted null neutral', () => {
+  it('uses occurrence-promoted picks and keeps a promoted pick outside the branches neutral', () => {
     const doc = dynDoc({
       nodes: {
         decided: { type: '#branch', values: { decision: false } },
-        neutral: { type: '#branch', values: { decision: null } },
+        neutral: { type: '#branch', values: { decision: 2 } },
       },
       subgraphs: {
         branch: {
           nodes: {
             falseSource: { type: 'ImageSrc' },
             trueSource: { type: 'ImageSrc' },
-            selector: { type: 'LazySelector', values: { switch: true } },
+            selector: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
           },
           links: [
-            [['falseSource', 'out'], ['selector', 'on_false']],
-            [['trueSource', 'out'], ['selector', 'on_true']],
+            [['falseSource', 'out'], ['selector', 'branch.on_false']],
+            [['trueSource', 'out'], ['selector', 'branch.on_true']],
           ],
           boundary: {
             inputs: [{ id: 'decision', binds: { kind: 'port', node: 'selector', port: 'switch' } }],
@@ -1087,14 +1110,14 @@ describe('dynamic interfaces', () => {
         outerOff: { type: 'ImageSrc' },
         innerOn: { type: 'ImageSrc' },
         innerOff: { type: 'ImageSrc' },
-        inner: { type: 'LazySelector', values: { switch: false } },
-        outer: { type: 'LazySelector', values: { switch: true } },
+        inner: { type: 'LazySelector', values: { switch: false }, dynamic: BRANCHES },
+        outer: { type: 'LazySelector', values: { switch: true }, dynamic: BRANCHES },
       },
       links: [
-        [['innerOn', 'out'], ['inner', 'on_false']],
-        [['innerOff', 'out'], ['inner', 'on_true']],
-        [['outerOff', 'out'], ['outer', 'on_false']],
-        [['inner', 'result'], ['outer', 'on_true']],
+        [['innerOn', 'out'], ['inner', 'branch.on_false']],
+        [['innerOff', 'out'], ['inner', 'branch.on_true']],
+        [['outerOff', 'out'], ['outer', 'branch.on_false']],
+        [['inner', 'result'], ['outer', 'branch.on_true']],
       ],
     })
     const scope: ExecutionScope = { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('outer') }] }
@@ -1105,18 +1128,18 @@ describe('dynamic interfaces', () => {
   })
 
   it.each([
-    ['missing', {}],
-    ['non-boolean', { switch: 'true' }],
+    ['out-of-range', { switch: 2 }],
+    ['fractional', { switch: 0.5 }],
   ])('keeps %s lazy-switch state neutral', (_name, values) => {
     const doc = dynDoc({
       nodes: {
         falseSource: { type: 'ImageSrc' },
         trueSource: { type: 'ImageSrc' },
-        selector: { type: 'LazySelector', values },
+        selector: { type: 'LazySelector', values, dynamic: BRANCHES },
       },
       links: [
-        [['falseSource', 'out'], ['selector', 'on_false']],
-        [['trueSource', 'out'], ['selector', 'on_true']],
+        [['falseSource', 'out'], ['selector', 'branch.on_false']],
+        [['trueSource', 'out'], ['selector', 'branch.on_true']],
       ],
     })
     const scope: ExecutionScope = {
@@ -1126,6 +1149,38 @@ describe('dynamic interfaces', () => {
     const closure = scopeClosure({ ...compileInput(doc, scope), resolve: dynResolve })!
     expect([...closure.included].sort()).toEqual(['falseSource', 'selector', 'trueSource'])
     expect(closure.inactiveExclusive.size).toBe(0)
+  })
+
+  it.each([
+    ['a stored key by id, not position', 'a', 'sourceA', ['sourceB', 'sourceC']],
+    ['a removed key as the first member', 'gone', 'sourceC', ['sourceA', 'sourceB']],
+    ['no pick as the first member', undefined, 'sourceC', ['sourceA', 'sourceB']],
+    ['a position in stored order', 2, 'sourceB', ['sourceA', 'sourceC']],
+  ] as const)('projects %s among three branches', (_name, pick, live, dimmed) => {
+    const doc = dynDoc({
+      nodes: {
+        sourceA: { type: 'ImageSrc' },
+        sourceB: { type: 'ImageSrc' },
+        sourceC: { type: 'ImageSrc' },
+        selector: {
+          type: 'Switch',
+          values: pick === undefined ? {} : { pick },
+          dynamic: { branch: { members: ['c', 'a', 'b'] } },
+        },
+      },
+      links: [
+        [['sourceA', 'out'], ['selector', 'branch.a']],
+        [['sourceB', 'out'], ['selector', 'branch.b']],
+        [['sourceC', 'out'], ['selector', 'branch.c']],
+      ],
+    })
+    const scope: ExecutionScope = {
+      kind: 'partial',
+      targets: [{ instancePath: [], node: asNodeId('selector') }],
+    }
+    const closure = scopeClosure({ ...compileInput(doc, scope), resolve: dynResolve })!
+    expect([...closure.included].sort()).toEqual([live, 'selector'].sort())
+    expect([...closure.inactiveExclusive.get('selector') ?? []].sort()).toEqual(dimmed)
   })
 
   it('rewires a group member destination after its producer becomes bypassed', () => {
@@ -1161,6 +1216,22 @@ describe('dynamic interfaces', () => {
     if (!result.ok) return
     expect(result.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': 7 })
     expect(result.artifact.prompt['target']!.outputMembers).toEqual({ items: ['item0'] })
+  })
+
+  it('sends the member order a move leaves, with each value and wire still on its member', () => {
+    const store = new DocumentStore(dynDoc({
+      nodes: {
+        source: { type: 'ImageSrc' },
+        target: { type: 'OrderedGroup', values: { 'items.item0': 1, 'items.item2': 3 }, dynamic: { items: { members: ['item0', 'item1', 'item2'], seq: 3 } } },
+      },
+      links: [[['source', 'out'], ['target', 'items.item1']]],
+    }), coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => dynResolve }))
+    expect(store.dispatch({ command: 'dynamic.moveMember', params: { graphId: 'g0', nodeId: 'target', construct: 'items', member: 'item2', index: 0 } }).ok).toBe(true)
+    const result = dynCompile(store.doc)
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt['target']!.outputMembers).toEqual({ items: ['item2', 'item0', 'item1'] })
+    expect(result.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': 1, 'items.item1': ['source', 0], 'items.item2': 3 })
   })
 
   it('lowers named members by their names and enforces minimum membership', () => {
@@ -1262,14 +1333,16 @@ describe('dynamic interfaces', () => {
     expect(result.artifact.prompt['target']!.slotVariants).toEqual({ mode: 'Flux.2 [pro]' })
   })
 
-  it('rejects an invalid stored choice without falling back', () => {
+  it('submits the start option when a stored choice names an option the pack no longer has', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
       type: 'NestedChoice',
       dynamic: { mode: { selected: 'gone' } },
     } } }))
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('prompt.bad_dynamic_choice')
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt.target).toEqual({
+      class_type: 'NestedChoice', inputs: {}, slotVariants: { mode: 'none' }, outputIds: [],
+    })
   })
 
   it('submits an explicitly stored first option rather than the declared default', () => {
@@ -1467,9 +1540,9 @@ describe('dynamic interfaces', () => {
     })
   })
 
-  it('rejects a connected type choice storing an unknown variant key', () => {
-    // Unknown or stale keys are refused by the engine; surface them before
-    // submitting.
+  it('rejects a connected type choice whose stored variant the pack no longer has', () => {
+    // A removed variant is no pick, so a connected type choice still needs
+    // one before a run, as with no stored key.
     const result = dynCompile(dynDoc({
       nodes: {
         source: { type: 'ImageSrc' },
@@ -1479,9 +1552,8 @@ describe('dynamic interfaces', () => {
     }))
     expect(result.ok).toBe(false)
     if (result.ok) return
-    const d = result.diagnostics.find((c) => c.code === 'prompt.bad_dynamic_choice')
-    expect(d?.severity).toBe('error')
-    expect(d?.message).toContain("type choice 'slot' has unknown variant 'gone'")
+    expect(result.diagnostics.find((c) => c.code === 'elab.slot.removedVariant')?.severity).toBe('warning')
+    expect(result.diagnostics.some((d) => d.code === 'compile.slot.missingVariant')).toBe(true)
   })
 
   it('rejects a connected type choice with variants and no stored key', () => {
@@ -1898,4 +1970,200 @@ describe('unresolved nodes outside the executed scope', () => {
     expect(unknownDiags(result.diagnostics).some((diagnostic) => diagnostic.severity === 'error')).toBe(true)
   })
 
+})
+
+describe('Primitive and Switch as ordinary nodes', () => {
+  const soften = {
+    nodes: {
+      prim: { type: 'Primitive', values: { value: 4 } },
+      sink: { type: 'IntSink', values: { steps: 3 } },
+    },
+    links: [[['prim', 'INT'], ['sink', 'steps']]] as [DynEnd, DynEnd][],
+    boundary: { inputs: [{ id: 'amount', binds: { kind: 'port', node: 'prim', port: 'value' } }] },
+  }
+
+  it('bakes a known value into every field it feeds and does not run the Primitive', () => {
+    const doc = dynDoc({
+      nodes: {
+        prim: { type: 'Primitive', values: { value: 11 } },
+        a: { type: 'IntSink', values: { steps: 3 } },
+        b: { type: 'IntSink', values: { steps: 5 } },
+      },
+      links: [[['prim', 'INT'], ['a', 'steps']], [['prim', 'INT'], ['b', 'steps']]],
+    })
+    const result = dynCompile(doc)
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(Object.keys(result.artifact.prompt).sort()).toEqual(['a', 'b'])
+    expect(result.artifact.prompt['a']!.inputs).toEqual({ steps: 11 })
+    expect(result.artifact.prompt['b']!.inputs).toEqual({ steps: 11 })
+    expect(doc.graphs.g0!.nodes['a']!.values).toEqual({ steps: 3 })
+  })
+
+  it('advances the Primitive control only for consumers that run', () => {
+    const doc = dynDoc({
+      nodes: {
+        prim: { type: 'Primitive', values: { value: 11 } },
+        a: { type: 'IntSink', values: { steps: 3 } },
+        b: { type: 'IntSink', values: { steps: 5 } },
+      },
+      links: [[['prim', 'INT'], ['a', 'steps']], [['prim', 'INT'], ['b', 'steps']]],
+    })
+    const result = dynCompile(doc, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('a') }] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    const controllers = result.artifact.provenance.controllerInputs ?? []
+    expect(controllers.map((controller) => [controller.runtimeId, controller.sources.map((source) => 'valueKey' in source && source.occurrence.node)])).toEqual([
+      ['a', ['prim']],
+    ])
+  })
+
+  it('gives each subgraph node its own promoted Primitive value', () => {
+    const result = dynCompile(dynDoc({
+      nodes: {
+        first: { type: '#soften', values: { amount: 11 } },
+        second: { type: '#soften', values: { amount: 37 } },
+      },
+      subgraphs: { soften },
+    }))
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(Object.keys(result.artifact.prompt).sort()).toEqual(['first.sink', 'second.sink'])
+    expect(result.artifact.prompt['first.sink']!.inputs).toEqual({ steps: 11 })
+    expect(result.artifact.prompt['second.sink']!.inputs).toEqual({ steps: 37 })
+  })
+
+  it('passes the producer of a wired Primitive on, inside and across a subgraph boundary', () => {
+    const result = dynCompile(dynDoc({
+      nodes: {
+        counter: { type: 'IntSrc' },
+        prim: { type: 'Primitive', values: { value: 11 } },
+        sink: { type: 'IntSink', values: { steps: 3 } },
+        outer: { type: 'IntSrc' },
+        inst: { type: '#soften', values: { amount: 37 } },
+      },
+      links: [
+        [['counter', 'out'], ['prim', 'value']],
+        [['prim', 'INT'], ['sink', 'steps']],
+        [['outer', 'out'], ['inst', 'amount']],
+      ],
+      subgraphs: { soften },
+    }))
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(Object.keys(result.artifact.prompt).sort()).toEqual(['counter', 'inst.sink', 'outer', 'sink'])
+    expect(result.artifact.prompt['sink']!.inputs).toEqual({ steps: ['counter', 0] })
+    expect(result.artifact.prompt['inst.sink']!.inputs).toEqual({ steps: ['outer', 0] })
+  })
+
+  it('prunes by a pick that a known Primitive feeds, counting positions in stored order', () => {
+    const doc = dynDoc({
+      nodes: {
+        prim: { type: 'Primitive', values: { value: 2 } },
+        sourceA: { type: 'ImageSrc' },
+        sourceB: { type: 'ImageSrc' },
+        sourceC: { type: 'ImageSrc' },
+        selector: { type: 'Switch', values: { pick: 'a' }, dynamic: { branch: { members: ['c', 'a', 'b'] } } },
+      },
+      links: [
+        [['prim', 'INT'], ['selector', 'pick']],
+        [['sourceA', 'out'], ['selector', 'branch.a']],
+        [['sourceB', 'out'], ['selector', 'branch.b']],
+        [['sourceC', 'out'], ['selector', 'branch.c']],
+      ],
+    })
+    const scope: ExecutionScope = { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('selector') }] }
+    const result = compile({ ...compileInput(doc, scope), resolve: dynResolve, graphFeatures: ['typedLiteral'] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    const closure = scopeClosure({ ...compileInput(doc, scope), resolve: dynResolve, graphFeatures: ['typedLiteral'] })!
+    expect([...closure.included].sort()).toEqual(['selector', 'sourceB'])
+    if (result.ok) expect(result.artifact.prompt['selector']!.inputs['pick']).toEqual({ $typed: { type: 'INT', value: 2 } })
+  })
+
+  const routeBody = (extra: { nodes?: Record<string, DynNode>; links?: [DynEnd, DynEnd][]; controllers?: Record<string, string>; boundary?: { inputs?: unknown[] } } = {}) => ({
+    nodes: {
+      sourceA: { type: 'ImageSrc' },
+      sourceB: { type: 'ImageSrc' },
+      ...extra.nodes,
+      selector: { type: 'ModeSwitch', values: { pick: 'a' }, controllers: extra.controllers ?? { pick: 'randomize' }, dynamic: { branch: { members: ['a', 'b'] } } },
+    },
+    links: [
+      [['sourceA', 'out'], ['selector', 'branch.a']],
+      [['sourceB', 'out'], ['selector', 'branch.b']],
+      ...(extra.links ?? []),
+    ] as [DynEnd, DynEnd][],
+    boundary: extra.boundary ?? {},
+  })
+  const randomDoc = (route = routeBody(), outer: Record<string, DynNode> = { first: { type: '#route' }, second: { type: '#route' } }) =>
+    dynDoc({ nodes: outer, subgraphs: { route } })
+  const rollCompile = (doc: WorkflowDocument, rolls: number[], scope: ExecutionScope = { kind: 'full' }) =>
+    compile({ ...compileInput(doc, scope), resolve: dynResolve, graphFeatures: ['typedLiteral'], pickCandidate: () => rolls.shift()! })
+
+  it('rolls a random pick once per occurrence, records it and replays the record', () => {
+    const rolled = rollCompile(randomDoc(), [0, 1])
+    expect(rolled.ok, JSON.stringify(!rolled.ok && rolled.diagnostics)).toBe(true)
+    if (!rolled.ok) return
+    expect(rolled.artifact.prompt['first.selector']!.inputs['pick']).toBe('a')
+    expect(rolled.artifact.prompt['second.selector']!.inputs['pick']).toBe('b')
+    const choices = rolled.artifact.choices ?? []
+    expect(choices).toEqual([
+      { graph: 'route', selector: 'first.selector', policy: 'random', candidate: 'a' },
+      { graph: 'route', selector: 'second.selector', policy: 'random', candidate: 'b' },
+    ])
+    expect((rolled.artifact.provenance.controllerInputs ?? []).filter((controller) => controller.terminal.valueKey === 'pick')).toEqual([])
+    const replayed = compile({
+      ...compileInput(randomDoc(), { kind: 'full' }),
+      resolve: dynResolve,
+      candidateOverride: ({ graph, selector }) => choices.find((choice) => choice.graph === graph && choice.selector === selector)?.candidate,
+      pickCandidate: () => 0,
+    })
+    expect(replayed.ok && replayed.artifact.prompt['second.selector']!.inputs['pick']).toBe('b')
+    const closure = scopeClosure({ ...compileInput(randomDoc(), { kind: 'partial', targets: [{ instancePath: [asNodeId('first')], node: asNodeId('selector') }] }), resolve: dynResolve })!
+    expect([...closure.included].sort()).toEqual(['first.selector', 'first.sourceA', 'first.sourceB'])
+  })
+
+  it('rolls only Switches that run, and needs no chooser when none does', () => {
+    const doc = randomDoc(routeBody(), { first: { type: '#route' }, other: { type: 'ImageSrc' } })
+    const result = compile({ ...compileInput(doc, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('other') }] }), resolve: dynResolve })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (result.ok) expect(result.artifact.choices).toBeUndefined()
+  })
+
+  it.each([
+    ['a wired pick', routeBody({ nodes: { index: { type: 'IntSrc' } }, links: [[['index', 'out'], ['selector', 'pick']]] }), ['first.index', 0]],
+    ['a pick a known Primitive feeds', routeBody({ nodes: { prim: { type: 'Primitive', values: { value: 1 } } }, links: [[['prim', 'INT'], ['selector', 'pick']]] }), { $typed: { type: 'INT', value: 1 } }],
+    ['the Fixed mode the pick declares when none is stored', routeBody({ controllers: {} }), 'a'],
+  ] as const)('does not roll %s', (_name, route, pick) => {
+    const result = rollCompile(randomDoc(route, { first: { type: '#route' } }), [1])
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt['first.selector']!.inputs['pick']).toEqual(pick)
+    expect(result.artifact.choices).toBeUndefined()
+  })
+
+  it('takes Random mode from the subgraph node that promotes the pick', () => {
+    const route = routeBody({ boundary: { inputs: [{ id: 'which', promoted: true, binds: { kind: 'port', node: 'selector', port: 'pick' } }] } })
+    const result = rollCompile(randomDoc(route, {
+      fixed: { type: '#route', values: { which: 'b' }, controllers: { which: 'fixed' } },
+      random: { type: '#route', values: { which: 'a' }, controllers: { which: 'randomize' } },
+    }), [1])
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt['fixed.selector']!.inputs['pick']).toBe('b')
+    expect(result.artifact.prompt['random.selector']!.inputs['pick']).toBe('b')
+    expect(result.artifact.choices).toEqual([{ graph: 'route', selector: 'random.selector', policy: 'random', candidate: 'b' }])
+  })
+
+  it('drops a link into the Primitive from a muted node and passes the Primitive\'s own value on', () => {
+    const result = dynCompile(dynDoc({
+      nodes: {
+        counter: { type: 'IntSrc', mode: 'muted' },
+        prim: { type: 'Primitive', values: { value: 11 } },
+        sink: { type: 'IntSink', values: { steps: 3 } },
+      },
+      links: [[['counter', 'out'], ['prim', 'value']], [['prim', 'INT'], ['sink', 'steps']]],
+    }))
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (result.ok) expect(result.artifact.prompt['sink']!.inputs).toEqual({ steps: 11 })
+  })
 })

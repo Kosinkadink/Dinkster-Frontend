@@ -7,7 +7,8 @@
  */
 import type { WidgetKind, WidgetRegistry, WidgetView } from '@dinkster/core'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { createRegistryPainter } from '../src/registry-painter.js'
+import { createRegistryPainter, subgraphMarkRect } from '../src/registry-painter.js'
+import { fitItems, paintSwatchRow } from '../src/renderer.js'
 import type { WidgetPaintArgs } from '../src/renderer.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import { widgetChromeRect, type LayoutRow } from '../src/layout.js'
@@ -24,6 +25,7 @@ function fakeCtx(charWidth = 6) {
   const fills: { x: number; y: number; width: number; height: number; fillStyle: string }[] = []
   const roundedFills: { x: number; y: number; width: number; height: number; radius: number; fillStyle: string }[] = []
   const strokes: Array<{ points: Array<{ x: number; y: number }>; strokeStyle: string }> = []
+  const transforms: Array<{ method: 'translate' | 'scale'; x: number; y: number }> = []
   let pendingRect: { x: number; y: number; width: number; height: number; radius: number } | undefined
   const arcs: Array<{ x: number; y: number; fillStyle: string }> = []
   let pendingArc: { x: number; y: number } | undefined
@@ -38,8 +40,8 @@ function fakeCtx(charWidth = 6) {
     beginPath: () => { pendingPoints = []; pendingRect = undefined; pendingArc = undefined },
     save: () => {},
     restore: () => {},
-    translate: () => {},
-    scale: () => {},
+    translate: (x: number, y: number) => { transforms.push({ method: 'translate', x, y }) },
+    scale: (x: number, y: number) => { transforms.push({ method: 'scale', x, y }) },
     arc: (x: number, y: number) => { pendingArc = { x, y } },
     moveTo: (x: number, y: number) => { pendingPoints.push({ x, y }) },
     lineTo: (x: number, y: number) => { pendingPoints.push({ x, y }) },
@@ -60,7 +62,7 @@ function fakeCtx(charWidth = 6) {
       textCalls.push({ text, x, y, align: this.textAlign as CanvasTextAlign, fill: String(this.fillStyle), font: this.font })
     },
   }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, textCalls, clips, fills, roundedFills, strokes, arcs }
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, textCalls, clips, fills, roundedFills, strokes, arcs, transforms }
 }
 
 const LABEL = 'control_after_generate'
@@ -284,8 +286,8 @@ describe('registry painter label/value split', () => {
       }, value: 75, x: 10, y: 20,
       width: 150, rowHeight: 24, connected: false, tokens: defaultTokens,
     })
-    const fill = painted.fills.find((candidate) => candidate.fillStyle === defaultTokens.colors.widgetRangeFill)!
-    const chrome = widgetChromeRect(10, 20, 150, 24)
+    const fill = painted.fills.find((candidate) => candidate.fillStyle === defaultTokens.colors.widgetRangeFillAccent)!
+    const chrome = widgetChromeRect(10, 20, 150, 24, defaultTokens.rowGeometry.fieldInsetY)
     const clip = painted.clips.find((candidate) => candidate.y === chrome.y && candidate.height === chrome.height)!
     expect(clip).toMatchObject(chrome)
     expect(fill).toMatchObject({ x: chrome.x, y: chrome.y, height: chrome.height })
@@ -311,24 +313,41 @@ describe('registry painter label/value split', () => {
     expect(painted.fills.some((candidate) => candidate.fillStyle === defaultTokens.colors.widgetRangeFill)).toBe(false)
   })
 
-  it('reserves a permanent multiline scrollbar gutter and paints a slim thumb only for hovered overflow', () => {
+  it('reserves a permanent multiline scrollbar gutter and paints a slim thumb only for overflow', () => {
+    const fits = paintMultilineDetails(74, 160, 'one\ntwo')
     const idle = paintMultilineDetails(74, 160)
-    const hovered = paintMultilineDetails(74, 160, 'one\ntwo\nthree\nfour\nfive', true)
-    const scrollbar = hovered.roundedFills.find((fill) =>
+    const scrollbar = idle.roundedFills.find((fill) =>
       fill.fillStyle === defaultTokens.colors.widgetAffordance && fill.width === defaultTokens.multilineText.scrollbarWidth,
     )
 
-    expect(idle.textCalls.find((call) => call.text === 'one')).toMatchObject({ x: 6 })
+    // The text starts at the x of the label over it.
+    const label = idle.textCalls.find((call) => call.text === 'text' && call.y < 24)!
+    expect(label.x).toBe(6)
+    expect(idle.textCalls.find((call) => call.text === 'one')).toMatchObject({ x: label.x })
     expect(idle.clips.filter((clip) => clip.x === 0).map((clip) => clip.width)).toContain(152)
-    expect(idle.roundedFills.some((fill) => fill.fillStyle === defaultTokens.colors.widgetAffordance)).toBe(false)
-    expect(scrollbar).toMatchObject({ x: 152, y: 20, width: 6, radius: 3 })
+    expect(fits.roundedFills.some((fill) => fill.fillStyle === defaultTokens.colors.widgetAffordance)).toBe(false)
+    expect(scrollbar).toMatchObject({ x: 152, y: 19, width: 6, radius: 3 })
     expect(scrollbar!.y + scrollbar!.height).toBeLessThanOrEqual(72)
+  })
+
+  it('draws the subgraph icon before a field\'s name across its whole 14 px box', () => {
+    const painted = fakeCtx()
+    const row = { ...rowWith(5), subgraphMark: { item: 'ctrl', label: LABEL } }
+    createRegistryPainter(registry)({
+      ctx: painted.ctx, row, value: 5, x: 10, y: 20, width: 200, rowHeight: 24, connected: false, tokens: defaultTokens,
+    })
+    const mark = subgraphMarkRect(row, 200, 24, defaultTokens, false, true)
+    expect(mark.size).toBe(14)
+    const at = painted.transforms.findIndex((call) =>
+      call.method === 'translate' && call.x === 10 + mark.x && call.y === 20 + mark.y)
+    // Lucide's 24-unit box drawn at 14 px, starting at the box's corner.
+    expect(painted.transforms[at + 1]).toEqual({ method: 'scale', x: 14 / 24, y: 14 / 24 })
   })
 
   it('paints an empty multiline placeholder in muted italic type', () => {
     const painted = paintMultilineDetails(76, 160, '')
     const placeholder = painted.textCalls.find((call) => call.text === 'text' && call.y > 24)!
-    expect(placeholder).toMatchObject({ x: 6, y: 36, fill: defaultTokens.colors.label })
+    expect(placeholder).toMatchObject({ x: 6, y: 35, fill: defaultTokens.colors.label })
     expect(placeholder.font).toBe('italic 14px "Noto Sans", sans-serif')
   })
 
@@ -362,9 +381,9 @@ describe('registry painter label/value split', () => {
     })
     expect(fills).toHaveLength(1)
     expect(fills[0]!.fillStyle).toBe(color)
-    expect(fills[0]!.width).toBeCloseTo(10.4)
-    expect(fills[0]!.height).toBeCloseTo(10.4)
-    expect(fills[0]!.y).toBeCloseTo(6.8)
+    expect(fills[0]!.width).toBeCloseTo(12.4)
+    expect(fills[0]!.height).toBeCloseTo(12.4)
+    expect(fills[0]!.y).toBeCloseTo(5.8)
     expect(fills[0]!.x).toBeGreaterThanOrEqual(0)
     expect(fills[0]!.x + fills[0]!.width).toBeLessThanOrEqual(160)
   })
@@ -385,8 +404,8 @@ describe('registry painter label/value split', () => {
   })
 
   it.each([
-    { look: 'inset' as const, width: 112 },
-    { look: 'inset-raised' as const, width: 121 },
+    { look: 'raised-editors' as const, width: 121 },
+    { look: 'raised-editors' as const, width: 160 },
     { look: 'inset-raised' as const, width: 160 },
   ])('keeps a short ASSET placeholder whole with $look controls and a long label', ({ look, width }) => {
     const tokens = { ...defaultTokens, widgetRowLook: look }
@@ -462,7 +481,7 @@ describe('registry painter label/value split', () => {
   })
 
   it('a value too long to fit beside the label floor falls back to proportional sharing', () => {
-    const texts = paint(1.2345678901234568e+23, 200)
+    const texts = paint(1.2345678901234568e+23, 220)
     const label = texts.find((t) => t.startsWith(LABEL.slice(0, 3)))
     expect(label).toBeDefined()
     expect(label!.replace(/\.\.\.$/, '').length).toBeGreaterThan(6)
@@ -511,11 +530,11 @@ describe('registry painter label/value split', () => {
       const painted = paintMultilineDetails(height, width)
       expect(painted.texts).toEqual(['text', ...['one', 'two', 'three', 'four', 'five'].slice(0, textRows)])
       expect(painted.fills).toHaveLength(rectRows)
-      expect(painted.textCalls[0]).toMatchObject({ text: 'text', y: 11, align: 'left' })
+      expect(painted.textCalls[0]).toMatchObject({ text: 'text', y: 10, align: 'left' })
       expect(painted.textCalls.slice(1).every((call) => call.x >= 0 && call.x <= width)).toBe(true)
       expect(painted.clips.every((clip) => clip.y >= 0 && clip.y + clip.height <= height)).toBe(true)
       if (height === 88) {
-        expect(painted.clips.some((clip) => clip.y === 66 && clip.height === 14)).toBe(true)
+        expect(painted.clips.some((clip) => clip.y === 65 && clip.height === 16)).toBe(true)
       }
     }
   })
@@ -528,9 +547,9 @@ describe('registry painter label/value split', () => {
     expect(painted.texts).toContain('epsilon')
     expect(painted.texts).toContain('second canonical')
     const values = painted.textCalls.filter((call) => call.text.includes('alpha') || call.text.includes('epsilon') || call.text === 'second canonical')
-    expect(values.map((call) => call.y)).toEqual([36, 56, 76])
+    expect(values.map((call) => call.y)).toEqual([35, 55, 75])
     const label = painted.textCalls.find((call) => call.text === 'text')!
-    const valueClip = painted.clips.find((clip) => clip.y === 26 && clip.x === 0)!
+    const valueClip = painted.clips.find((clip) => clip.y === 25 && clip.x === 0)!
     expect(valueClip).toMatchObject({ x: 0, width: 152 })
     expect(valueClip.x).toBeLessThan(label.x)
   })
@@ -539,8 +558,8 @@ describe('registry painter label/value split', () => {
     const painted = paintMultilineDetails(76, 160, `alpha${' '.repeat(30)}\nsecond canonical`)
     const values = painted.textCalls.filter((call) => call.text.trimEnd() === 'alpha' || call.text === 'second canonical')
     expect(values.map((call) => ({ text: call.text.trimEnd(), y: call.y }))).toEqual([
-      { text: 'alpha', y: 36 },
-      { text: 'second canonical', y: 56 },
+      { text: 'alpha', y: 35 },
+      { text: 'second canonical', y: 55 },
     ])
   })
 })
@@ -589,5 +608,31 @@ describe('an automatic value', () => {
     expect(value.text).toBe('25')
     expect(value.fill).toBe(defaultTokens.colors.value)
     expect(arcs).toEqual([])
+  })
+})
+
+describe('a row of items shows as many as fit and counts the rest', () => {
+  it('lists every item when all fit, else the ones that fit and +N, cutting the first only when it alone is too wide', () => {
+    const { ctx } = fakeCtx()
+    expect(fitItems(ctx, ['1', '0.5', '0.25', '12'], 200)).toBe('1, 0.5, 0.25, 12')
+    // '1, 0.5 +2' is 54 px and '1, 0.5, 0.25 +1' is 90 px.
+    expect(fitItems(ctx, ['1', '0.5', '0.25', '12'], 60)).toBe('1, 0.5 +2')
+    const cut = fitItems(ctx, ['checkpoint-name', 'x'], 60)
+    expect(cut.endsWith('... +1')).toBe(true)
+    expect(cut.length * 6).toBeLessThanOrEqual(60)
+  })
+
+  it('draws the color squares that fit in order, then +N for the rest', () => {
+    const painted = fakeCtx()
+    const colors = ['#111111', '#222222', '#333333', '#444444', '#555555']
+    // Two 10 px squares, two 4 px gaps and '+3' (12 px) fill exactly 40 px.
+    paintSwatchRow(painted.ctx, colors, 100, 12, 40, defaultTokens, '#eeeeee')
+    const squares = painted.fills.filter((fill) => colors.includes(fill.fillStyle))
+    expect(squares.map((fill) => fill.fillStyle)).toEqual(['#222222', '#111111'])
+    expect(squares[1]!.x).toBeLessThan(squares[0]!.x)
+    expect(painted.textCalls).toEqual([expect.objectContaining({ text: '+3', x: 100, align: 'right', fill: '#eeeeee' })])
+    const all = fakeCtx()
+    paintSwatchRow(all.ctx, colors.slice(0, 2), 100, 12, 40, defaultTokens, '#eeeeee')
+    expect(all.textCalls).toEqual([])
   })
 })

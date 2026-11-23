@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { asNodeId, type NodeData, type NodeSchema } from '@dinkster/core'
 import * as core from '@dinkster/core'
 import { AppState, type Tab } from '../src/app-state.js'
-import { inactiveSceneNodesFor, runOnMachineMenuGroup } from '../src/CanvasHost.js'
+import { inactiveSceneNodesFor } from '../src/CanvasHost.js'
 import { historicalRegistry } from './historical-schemas.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -97,21 +97,23 @@ describe('directed partial-execution scopes', () => {
   it('reuses a lazy-selector closure after a move but recomputes it when the branch changes', async () => {
     app.registerSchemas([{
       type: 'LazySelector', displayName: 'Lazy selector', category: 'test', source: 'v3', isOutputNode: true,
-      selector: { input: 'switch', branches: { false: 'on_false', true: 'on_true' } },
+      selector: { input: 'switch', group: 'branch' },
       body: [
-        { kind: 'input', id: 'switch', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false, widget: { widgetType: 'BOOLEAN', options: {} } },
-        { kind: 'input', id: 'on_false', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
-        { kind: 'input', id: 'on_true', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+        { kind: 'input', id: 'switch', type: { kind: 'union', names: ['INT', 'BOOLEAN'] }, optional: true },
+        {
+          kind: 'group', id: 'branch', keys: { kind: 'named', names: ['on_false', 'on_true'] }, grows: 'link', minMembers: 1,
+          value: { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'IMAGE' }, optional: true, lazy: true },
+        },
       ],
     }])
     await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'lazy-cache', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Root', nodes: {
         left: { id: 'left', type: 'EmptyImage', values: { width: 64, height: 64, batch_size: 1, color: 0 } },
         right: { id: 'right', type: 'EmptyImage', values: { width: 32, height: 32, batch_size: 1, color: 255 } },
-        choose: { id: 'choose', type: 'LazySelector', values: { switch: false } },
+        choose: { id: 'choose', type: 'LazySelector', values: { switch: false }, dynamic: { branch: { members: ['on_false', 'on_true'] } } },
       }, links: {
-        a: { id: 'a', from: { node: 'left', port: 'out0' }, to: { node: 'choose', port: 'on_false' } },
-        b: { id: 'b', from: { node: 'right', port: 'out0' }, to: { node: 'choose', port: 'on_true' } },
+        a: { id: 'a', from: { node: 'left', port: 'out0' }, to: { node: 'choose', port: 'branch.on_false' } },
+        b: { id: 'b', from: { node: 'right', port: 'out0' }, to: { node: 'choose', port: 'branch.on_true' } },
       }, nets: {}, reroutes: {}, nextOrdinal: 3 } }, view: { graphs: {} },
     }, 'Lazy cache')
     const tab = app.activeTab()!
@@ -137,69 +139,6 @@ describe('directed partial-execution scopes', () => {
       compile.mockRestore()
       app.dispose()
     }
-  })
-
-  it('offers connected workers that route every selected ordinary node', () => {
-    const selectedTypes = ['n0', 'n1'].map((nodeId) => basic.store.doc.graphs[basic.store.doc.root]!.nodes[nodeId]!.type)
-    const group = runOnMachineMenuGroup({
-      document: basic.store.doc,
-      graphId: basic.store.doc.root,
-      nodeIds: ['n0', 'n1'],
-      frozen: false,
-      catalog: {
-        status: 'ready',
-        workers: [
-          { name: 'local', status: 'connected', routedNodeTypes: selectedTypes, deviceQualifiers: [] },
-          { name: 'offline', status: 'disconnected', routedNodeTypes: selectedTypes, deviceQualifiers: [] },
-          { name: 'limited', status: 'connected', routedNodeTypes: [], deviceQualifiers: [] },
-        ],
-      },
-    })
-    const submenu = group?.items[0]
-    expect(submenu?.label).toBe('Run on machine')
-    expect(submenu?.children?.map((item) => [item.label, item.disabled])).toEqual([
-      ['local - connected', undefined],
-      ['offline - disconnected', true],
-      ['limited - connected', true],
-    ])
-  })
-
-  it('keeps regions placeable without claiming body routability and excludes plain subgraphs', () => {
-    const document = structuredClone(basic.store.doc)
-    const nodes = document.graphs[document.root]!.nodes as Record<string, typeof document.graphs[typeof document.root]['nodes'][string]>
-    const node = nodes['n0']!
-    nodes['n0'] = {
-      ...node,
-      type: '#g1',
-      region: { kind: 'map', elementPorts: [] },
-    }
-    const catalog = {
-      status: 'ready' as const,
-      workers: [{ name: 'remote', status: 'connected', routedNodeTypes: [], deviceQualifiers: [] }],
-    }
-    expect(runOnMachineMenuGroup({
-      document,
-      graphId: document.root,
-      nodeIds: ['n0'],
-      frozen: false,
-      catalog,
-    })?.items[0]?.children?.[0]?.disabled).toBeUndefined()
-
-    nodes['n0'] = { ...node, type: '#g1' }
-    expect(runOnMachineMenuGroup({
-      document,
-      graphId: document.root,
-      nodeIds: ['n0'],
-      frozen: false,
-      catalog,
-    })).toBeUndefined()
-    expect(runOnMachineMenuGroup({
-      document,
-      graphId: 'g1',
-      nodeIds: ['n0'],
-      frozen: false,
-      catalog,
-    })).toBeUndefined()
   })
 
   it('projects inactive-exclusive occurrences onto root and drilled subgraph scenes', () => {

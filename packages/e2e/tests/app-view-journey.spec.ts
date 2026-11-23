@@ -1,10 +1,9 @@
 import { mkdirSync } from 'node:fs'
-import { expect, appViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, appViewTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 
 async function registerSchema(page: Page): Promise<void> {
-  await waitForStartupOwnership(page)
   await page.evaluate(() => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
@@ -135,7 +134,7 @@ async function renamePlacement(page: Page, currentLabel: string, nextLabel: stri
 test('authors, uses, and reloads a complete App View', async ({ page }) => {
   mkdirSync(evidenceGroupDir('issue-21'), { recursive: true })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
@@ -229,7 +228,7 @@ test('authors, uses, and reloads a complete App View', async ({ page }) => {
   await page.getByTestId('context-menu').locator('[data-item-id="workflow.openWindow"]').click()
   const popup = await popupPromise
   await popup.waitForLoadState('domcontentloaded')
-  await expect(popup.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(popup)
   await registerSchema(popup)
   await injectPreview(popup, 'Pop-out result')
   await popup.setViewportSize({ width: 560, height: 1100 })
@@ -253,7 +252,7 @@ test('authors, uses, and reloads a complete App View', async ({ page }) => {
   })
   const beforeReload = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
   await page.reload()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await registerSchema(page)
   await page.waitForFunction(() => {
     const tab = window.__dinksterTest!.app.tabs.get().find((candidate) => candidate.id === 'app-view-complete-journey')
