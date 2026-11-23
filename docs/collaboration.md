@@ -289,8 +289,7 @@ These are pinned by `app/test/collab.test.ts`:
   status watcher distinguishes remote closure from the explicit leave/end
   path because `dropCollabFor` removes the membership BEFORE closing the
   session. A terminal ERROR keeps the membership so the red status stays
-  visible until the user leaves. (Found live 2026-07-27: previously only
-  the presence channel was disposed and the dead membership lingered.)
+  visible until the user leaves.
 - A join whose session ends during the join itself (a session_closed frame
   buffered by the transport replays synchronously at subscription) is
   refused - a dead session never stands up as a membership.
@@ -298,9 +297,8 @@ These are pinned by `app/test/collab.test.ts`:
   subscribes: the WS connects while the HTTP snapshot fetch is still in
   flight, so the descriptor frame (the catch-up baseline) and replayed ops
   can land pre-subscription. They replay to the first subscriber in
-  arrival order, exactly once. Without this a rejoin whose session already
-  held ops above the snapshot revision never caught up (found live
-  2026-07-27). Only authoritative frames buffer (descriptor, ops,
+  arrival order, exactly once, so a rejoin catches up on operations above
+  the snapshot revision. Only authoritative frames buffer (descriptor, ops,
   session_closed - never presence or disconnected), the buffer is bounded
   at 4096, and overflow evicts the oldest op, never the descriptor: a
   maximum-buffer replay of descriptor + 4096 ops is one event over the
