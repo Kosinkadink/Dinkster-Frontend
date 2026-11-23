@@ -519,6 +519,9 @@ export const canvasPaintTokens = {
     connectedOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     hoverOpacity: 0.12,
     diagnosticStroke: 1.5,
+    /** Outline and wash of the row whose line is pointed at in the node's problem box. */
+    problemHighlightStroke: 3,
+    problemHighlightOpacity: 0.18,
     /** Outline of the field a held wire would take. */
     dropStroke: 2,
     connectedControllerOpacity: 0.5,

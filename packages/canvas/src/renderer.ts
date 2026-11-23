@@ -1229,6 +1229,42 @@ export class CanvasRenderer {
     this.updateNodePaint(this.rowMarks, marks, () => { this.rowMarks = marks })
   }
 
+  private problemRowHighlight: { readonly nodeId: string; readonly row: string } | undefined
+
+  /** The row whose line is pointed at in the node's problem box, drawn stronger. */
+  setProblemRowHighlight(highlight: { readonly nodeId: string; readonly row: string } | undefined): void {
+    const previous = this.problemRowHighlight
+    if (previous?.nodeId === highlight?.nodeId && previous?.row === highlight?.row) return
+    const ids = new Set([previous?.nodeId, highlight?.nodeId].filter((id): id is string => id !== undefined))
+    this.invalidateNodeTiles(ids)
+    this.problemRowHighlight = highlight
+    this.requestRender()
+  }
+
+  private paintRowProblem(
+    ctx: CanvasRenderingContext2D,
+    nodeId: string,
+    key: string,
+    rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number; readonly radius: number },
+  ): void {
+    const color = this.rowProblemColor(nodeId, key)
+    if (color === undefined) return
+    const highlighted = this.problemRowHighlight?.nodeId === nodeId && this.problemRowHighlight.row === key
+    const paint = canvasPaintTokens.widget
+    ctx.strokeStyle = color
+    ctx.fillStyle = color
+    ctx.lineWidth = highlighted ? paint.problemHighlightStroke : paint.diagnosticStroke
+    ctx.beginPath()
+    ctx.roundRect(rect.x, rect.y, rect.width, rect.height, rect.radius)
+    if (highlighted) {
+      const alpha = ctx.globalAlpha
+      ctx.globalAlpha = alpha * paint.problemHighlightOpacity
+      ctx.fill()
+      ctx.globalAlpha = alpha
+    }
+    ctx.stroke()
+  }
+
   private rowProblemColor(nodeId: string, key: string): string | undefined {
     const kind: ProblemKind | undefined = this.rowMarks[nodeId]?.[key]
     return kind === undefined ? undefined
@@ -3629,14 +3665,11 @@ export class CanvasRenderer {
           ctx.fillText(row.text, node.x + l.width - t.padX - paint.fallback.textInset, rowY + row.height / 2, (l.width - t.padX * 2) * paint.fallback.valueRatio)
           ctx.textAlign = 'left'
           ctx.globalAlpha = rowAlpha
-          const fallbackProblem = this.rowProblemColor(sceneNode.id, row.label)
-          if (fallbackProblem !== undefined) {
-            // A problem on this stored value outlines its row in the color
-            // of the row's strongest problem.
-            ctx.strokeStyle = fallbackProblem
-            ctx.lineWidth = paint.diagnosticStroke
-            ctx.strokeRect(node.x + t.padX, rowY + t.rowGeometry.fieldInsetY, l.width - t.padX * 2, row.height - t.rowGeometry.fieldInsetY * 2)
-          }
+          // A problem on this stored value outlines its row.
+          this.paintRowProblem(ctx, sceneNode.id, row.label, {
+            x: node.x + t.padX, y: rowY + t.rowGeometry.fieldInsetY,
+            width: l.width - t.padX * 2, height: row.height - t.rowGeometry.fieldInsetY * 2, radius: 0,
+          })
         } else if (row.kind === 'ports') {
           // Ghost (dynamic affordance) labels render dimmed: connect/edit
           // materializes them; until then they are an offer, not a member.
@@ -3645,19 +3678,13 @@ export class CanvasRenderer {
           // when an input and an output share the line each outlines its half.
           const innerWidth = l.width - t.padX * 2
           const halves = row.input !== undefined && row.output !== undefined
-          const outlineSide = (color: string | undefined, right: boolean): void => {
-            if (color === undefined) return
+          const outlineSide = (key: string, right: boolean): void => {
             const width = halves ? innerWidth / 2 : innerWidth
-            const chrome = widgetChromeRect(node.x + t.padX + (right && halves ? width : 0), rowY, width,
-              row.height, t.rowGeometry.fieldInsetY)
-            ctx.strokeStyle = color
-            ctx.lineWidth = canvasPaintTokens.widget.diagnosticStroke
-            ctx.beginPath()
-            ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
-            ctx.stroke()
+            this.paintRowProblem(ctx, sceneNode.id, key, widgetChromeRect(node.x + t.padX + (right && halves ? width : 0), rowY, width,
+              row.height, t.rowGeometry.fieldInsetY))
           }
-          if (row.input !== undefined) outlineSide(this.rowProblemColor(sceneNode.id, row.input.portId), false)
-          if (row.output !== undefined) outlineSide(this.rowProblemColor(sceneNode.id, outputRowKey(row.output.portId)), true)
+          if (row.input !== undefined) outlineSide(row.input.portId, false)
+          if (row.output !== undefined) outlineSide(outputRowKey(row.output.portId), true)
           if (row.input) {
             if (row.input.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
             if (row.input.inactive) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
@@ -4169,18 +4196,12 @@ export class CanvasRenderer {
       ctx.fill()
       ctx.globalAlpha = edgeAlpha
     }
-    const fieldProblem = this.rowProblemColor(sceneNode.id, row.valueKey) ?? this.rowProblemColor(sceneNode.id, row.inputId)
-    if (fieldProblem !== undefined) {
-      // A problem on this field (out-of-range number, unknown choice, ...)
-      // outlines the field in the color of its strongest problem, so the
-      // row shows where the user acts without changing the node's height.
-      const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY)
-      ctx.strokeStyle = fieldProblem
-      ctx.lineWidth = canvasPaintTokens.widget.diagnosticStroke
-      ctx.beginPath()
-      ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
-      ctx.stroke()
-    }
+    // A problem on this field (out-of-range number, unknown choice, ...)
+    // outlines the field, so the row shows where the user acts without
+    // changing the node's height.
+    this.paintRowProblem(ctx, sceneNode.id,
+      this.rowMarks[sceneNode.id]?.[row.valueKey] !== undefined ? row.valueKey : row.inputId,
+      widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY))
     if (this.overlay.dropRow?.nodeId === sceneNode.id && this.overlay.dropRow.valueKey === row.valueKey) {
       // A held wire takes this field when dropped: the drop-target
       // outline sits inside the chrome, at full strength even on a

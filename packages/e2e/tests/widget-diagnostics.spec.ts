@@ -251,12 +251,13 @@ test('node problem badges expose friendly details, clear live, and distinguish b
   await page.keyboard.up('Alt')
 
   await page.mouse.click(advisory.x, advisory.y)
-  const popover = page.getByTestId('badge-popover')
-  await expect(popover).toHaveAttribute('data-badge', 'core.problem.warning')
-  const detail = popover.getByTestId('badge-problem-detail')
-  await expect(detail).toContainText('Node "Diag Widgets" (widgets)')
-  await expect(detail).toContainText('input "count"')
-  await expect(detail).toContainText('999 > max 100')
+  const box = page.getByTestId('problem-box')
+  await expect(box).toHaveAttribute('data-node', 'widgets')
+  const detail = box.getByTestId('problem-box-line').filter({ hasText: '999 > max 100' })
+  await expect(detail).toHaveAttribute('data-row', 'count')
+  await expect(detail).toContainText('count: 999 > max 100')
+  await page.keyboard.press('Escape')
+  await expect(box).toHaveCount(0)
 
   // Fixing the value replaces solveDiagnostics. The effect dependency must
   // rederive overlays and remove the warning badge without another gesture.

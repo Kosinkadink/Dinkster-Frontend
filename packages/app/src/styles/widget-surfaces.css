@@ -827,3 +827,56 @@
   .import-asset-row { padding: var(--dinkster-space-8); }
   .asset-decision .product-action-buttons button { flex: 1; }
 }
+
+/* The node's problem box hangs below the node at one screen size. Its outline
+   takes the color of its strongest line; each line keeps its own color. */
+.problem-box {
+  position: absolute;
+  z-index: 11;
+  min-width: 240px;
+  max-width: 400px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 4px 0;
+  background: var(--dinkster-surface-panel);
+  border: 1px solid var(--dinkster-warning-border);
+  border-radius: var(--dinkster-radius-card);
+  font: 12px/1.4 var(--dinkster-font-family);
+  color: var(--dinkster-text-primary);
+}
+
+.problem-box[data-kind='error'] {
+  border-color: var(--dinkster-danger-border);
+}
+
+.problem-box-line {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 6px 10px;
+}
+
+.problem-box-line + .problem-box-line {
+  border-top: 1px solid var(--dinkster-border-subtle);
+}
+
+.problem-box-line[data-highlighted='true'] {
+  background: var(--dinkster-surface-raised);
+}
+
+.problem-box-text {
+  margin: 0;
+}
+
+.problem-box-row {
+  color: var(--dinkster-text-primary);
+}
+
+.problem-box-line[data-kind='error'] .problem-box-message {
+  color: var(--dinkster-danger-foreground);
+}
+
+.problem-box-line[data-kind='warning'] .problem-box-message {
+  color: var(--dinkster-warning-foreground);
+}

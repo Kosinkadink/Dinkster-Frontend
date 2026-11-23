@@ -54,6 +54,7 @@ import {
   type OccurrenceLinkIntention,
   type OccurrenceMutationPlanner,
   type BoundaryExposureSource,
+  outputRowKey,
 } from '@dinkster/canvas'
 import { canvasMeasures } from './canvas-measures.js'
 import { VideoPreview } from './VideoPreview.js'
@@ -135,6 +136,8 @@ import { RowFocusOverlay, type RowFocusState } from './editors/RowFocusOverlay.j
 import type { ExecutedImagePreview } from './scene-overlays.js'
 import { applyNodeDecorations, deriveSceneOverlays, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
 import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
+import { problemBoxLines, problemBoxPlacement, problemBoxRows, type ProblemBoxLine } from './problem-box.js'
+import { NodeProblemBox } from './NodeProblemBox.js'
 import { BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
 import { pasteClipboardIntoTab } from './clipboard-paste.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
@@ -1901,6 +1904,66 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   /** Current graph's document problem content, keyed independently of runtime errors. */
   let nodeProblems: NodeProblemMap = {}
 
+  // -- node problem box -------------------------------------------------------
+  // Opened by a node's Error or Warning tab, or by Show on canvas. It hangs
+  // below the node; only one node's box is open at a time.
+  const [problemBox, setProblemBox] = createSolidSignal<{
+    readonly owner: string
+    readonly nodeId: string
+    readonly nodeTitle: string
+    readonly lines: readonly ProblemBoxLine[]
+    readonly highlighted?: string | undefined
+  } | undefined>(undefined)
+  // Bumped when the scene is rebuilt, so the box follows a moved node.
+  const [problemBoxTick, setProblemBoxTick] = createSolidSignal(0)
+  let problemBoxElement: HTMLDivElement | undefined
+  /** The box a pointer press outside closed, so the same press on its tab does not reopen it. */
+  let problemBoxPointerClose: { readonly nodeId: string; readonly at: number } | undefined
+  let problemBoxHost: {
+    readonly place: (nodeId: string) => { readonly x: number; readonly y: number } | undefined
+    readonly lines: (nodeId: string) => readonly ProblemBoxLine[]
+    readonly title: (nodeId: string) => string
+    readonly owner: () => string | undefined
+    readonly highlightRow: (highlight: { readonly nodeId: string; readonly row: string } | undefined) => void
+    /** Shows the row and puts the cursor in it; with a digest, opens the missing asset's replacement. */
+    readonly editField: (nodeId: string, row: string, missingAssetDigest?: string) => void
+  } | undefined
+
+  const closeProblemBox = (): void => {
+    if (problemBox() === undefined) return
+    setProblemBox(undefined)
+    problemBoxHost?.highlightRow(undefined)
+  }
+
+  const openProblemBox = (nodeId: string, highlightedRow?: string): void => {
+    const host = problemBoxHost
+    const owner = host?.owner()
+    if (!host || owner === undefined) return
+    const lines = host.lines(nodeId)
+    if (lines.length === 0) return closeProblemBox()
+    setBadgePopover(undefined)
+    const highlighted = highlightedRow === undefined ? undefined : lines.find((line) => line.row === highlightedRow)?.key
+    setProblemBox({ owner, nodeId, nodeTitle: host.title(nodeId), lines, ...(highlighted === undefined ? {} : { highlighted }) })
+    host.highlightRow(highlightedRow === undefined ? undefined : { nodeId, row: highlightedRow })
+  }
+
+  createEffect(() => {
+    if (problemBox() === undefined) return
+    const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') closeProblemBox() }
+    const onPointer = (event: PointerEvent): void => {
+      const open = problemBox()
+      if (open === undefined || (problemBoxElement?.contains(event.target as Node | null) ?? false)) return
+      problemBoxPointerClose = { nodeId: open.nodeId, at: performance.now() }
+      closeProblemBox()
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('pointerdown', onPointer, true)
+    onCleanup(() => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('pointerdown', onPointer, true)
+    })
+  })
+
   // -- value source popover ---------------------------------------------------
   // Opened by clicking a value source's spec badge. Shows the effective
   // spec's provenance (declared/derived/raw), conflicts, and pin/unpin.
@@ -3075,6 +3138,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         closePalette()
         setEditor(undefined)
         setMenu(undefined)
+        if (badge.id.startsWith('core.problem.')) {
+          // Either problem tab opens the node's one box; a second click on
+          // it, which the press outside the box already closed, leaves it closed.
+          const closedByThisPress = problemBoxPointerClose?.nodeId === node.id &&
+            performance.now() - problemBoxPointerClose.at < 1000
+          problemBoxPointerClose = undefined
+          if (problemBox()?.nodeId === node.id || closedByThisPress) closeProblemBox()
+          else openProblemBox(node.id)
+          return
+        }
+        closeProblemBox()
         const vp = renderer.getViewport()
         setBadgePopover({
           lifetime: {},
@@ -3199,6 +3273,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         refreshToolboxScopeHighlight()
       },
       onHoverTarget: (target) => {
+        const openBox = problemBox()
+        if (openBox !== undefined) {
+          // While the box is open, pointing at a row highlights its line.
+          const row = target?.kind === 'widget' && target.hit.node.id === openBox.nodeId
+            ? target.hit.row.valueKey
+            : target?.kind === 'pin' && target.hit.node.id === openBox.nodeId
+              ? target.hit.pin.direction === 'in' ? target.hit.pin.portId : outputRowKey(target.hit.pin.portId)
+              : undefined
+          const line = row === undefined ? undefined : openBox.lines.find((candidate) => candidate.row === row)
+          if (line?.key !== openBox.highlighted) setProblemBox({ ...openBox, highlighted: line?.key })
+          problemBoxHost?.highlightRow(line?.row === undefined ? undefined : { nodeId: openBox.nodeId, row: line.row })
+        }
         if (!target) { props.tooltips?.hideMatching((candidate) => (candidate as { kind?: string } | null | undefined)?.kind !== 'dom', tooltipOwner); return }
         if (target.kind !== 'badge') {
           let tooltipTarget: unknown = target
@@ -4018,6 +4104,67 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
 
     let scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
+
+    problemBoxHost = {
+      owner: () => {
+        const tab = activeTab()
+        return tab === undefined ? undefined : JSON.stringify([tab.id, tab.store.doc.lineage, currentGraphId(tab), viewInstancePath(tab)])
+      },
+      place: (nodeId) => {
+        const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
+        return node === undefined ? undefined : problemBoxPlacement(node, renderer.getNodeBadgeLayout(node), renderer.getViewport())
+      },
+      lines: (nodeId) => {
+        const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
+        const tab = activeTab()
+        if (node === undefined || tab === undefined) return []
+        // A runtime cause belongs to the run's own Error tab, not this box.
+        const problems = (nodeProblems[nodeId] ?? []).filter((line) =>
+          !(runErrorsByNode().has(nodeId) && line.diagnostic.origin === 'runtime'))
+        return problemBoxLines(problems, problemBoxRows(node), (row) => {
+          const port = row.startsWith(outputRowKey('')) ? row.slice(outputRowKey('').length) : row
+          return node.layout.pins.find((pin) => pin.portId === port)?.label ?? port
+        }, (line) => {
+          // Field checks name their place for Problems; the box names the row itself.
+          const place = line.row === undefined ? undefined : `${nodeId}.${line.row}: `
+          const text = line.diagnostic.message
+          return place !== undefined && text.startsWith(place) ? text.slice(place.length) : text
+        })
+      },
+      title: (nodeId) => renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)?.layout.title ?? nodeId,
+      highlightRow: (highlight) => renderer.setProblemRowHighlight(highlight),
+      editField: (nodeId, row, missingAssetDigest) => {
+        const tab = activeTab()
+        const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
+        if (!tab || !node) return
+        const graphId = currentGraphId(tab)
+        const store = tab.store
+        void (async () => {
+          // Edit field is the user asking for the row: a minimized node opens
+          // and the folded section holding the row unfolds; the value is not changed.
+          if (node.layout.minimized === true) {
+            await props.app.dispatchTo(tab, { command: 'view.setNodeCollapsed', params: { graphId, nodeIds: [nodeId], collapsed: false } })
+          }
+          const folded = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)?.layout.pins
+            .find((pin) => pin.portId === row && pin.collapsedSection !== undefined)?.collapsedSection
+          if (folded !== undefined) {
+            await props.app.dispatchTo(tab, { command: 'view.setSectionCollapsed', params: { graphId, nodeId, sectionId: folded, collapsed: false } })
+          }
+          queueMicrotask(() => {
+            if (activeTab() !== tab || tab.store !== store || currentGraphId(tab) !== graphId) return
+            const shown = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
+            const field = shown?.layout.rows.find((candidate) =>
+              candidate.kind === 'widget' && (candidate.valueKey === row || candidate.inputId === row))
+            if (!shown || field?.kind !== 'widget') return
+            controller.setSelection([nodeId])
+            openWidgetEditor({
+              kind: 'widget', node: shown, row: field, x: shown.x + field.inset, y: shown.y + field.y,
+              width: shown.layout.width - field.inset * 2, height: field.height, localX: 0, localY: 0,
+            }, missingAssetDigest)
+          })
+        })()
+      },
+    }
     let sceneKey = ''
     const transferredFrozenViews = new Set<string>()
     let sceneBuildContext: {
@@ -4663,6 +4810,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       renderer.setNodeOutputTexts(nodeOutputTexts)
       renderer.setNodePreviews(model.previews)
       // Background overlay updates must not dismiss a still-valid user decision.
+      const openBox = problemBox()
+      if (openBox !== undefined) {
+        const lines = openBox.owner === JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath])
+          ? problemBoxHost?.lines(openBox.nodeId) ?? []
+          : []
+        // The box and its tab go together when the node's last problem goes.
+        if (lines.length === 0) closeProblemBox()
+        else setProblemBox({ ...openBox, lines, ...(lines.some((line) => line.key === openBox.highlighted) ? {} : { highlighted: undefined }) })
+      }
+      setProblemBoxTick((tick) => tick + 1)
       setBadgePopover((anchor) => {
         if (!anchor || anchor.owner !== JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath])) return undefined
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === anchor.nodeId)
@@ -6903,6 +7060,50 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             onClose={() => { if (menu() === m) setMenu(undefined) }}
           />
         )}
+      </Show>
+
+      <Show when={problemBox()}>
+        {(box) => {
+          const placement = () => {
+            editorViewport()
+            problemBoxTick()
+            return problemBoxHost?.place(box().nodeId)
+          }
+          return (
+            <Show when={placement()}>
+              {(at) => (
+                <NodeProblemBox
+                  ref={(element) => { problemBoxElement = element }}
+                  x={at().x}
+                  y={at().y}
+                  nodeId={box().nodeId}
+                  nodeTitle={box().nodeTitle}
+                  lines={box().lines}
+                  highlighted={box().highlighted}
+                  onPointLine={(line) => {
+                    const open = problemBox()
+                    if (!open) return
+                    if (line?.key !== open.highlighted) setProblemBox({ ...open, highlighted: line?.key })
+                    problemBoxHost?.highlightRow(line?.row === undefined ? undefined : { nodeId: open.nodeId, row: line.row })
+                  }}
+                  onAction={(line, action) => {
+                    const open = problemBox()
+                    if (!open) return
+                    if (action === 'edit-field' && line.row !== undefined) {
+                      closeProblemBox()
+                      problemBoxHost?.editField(open.nodeId, line.row)
+                    } else if (action === 'locate-asset') {
+                      const data = line.problem.diagnostic.data
+                      closeProblemBox()
+                      problemBoxHost?.editField(open.nodeId, data!['input'] as string,
+                        typeof data?.['digest'] === 'string' ? data['digest'] : undefined)
+                    }
+                  }}
+                />
+              )}
+            </Show>
+          )
+        }}
       </Show>
 
       <Show when={badgePopover()}>
