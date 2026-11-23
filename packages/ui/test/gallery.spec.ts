@@ -538,10 +538,15 @@ test('toasts expire and can be dismissed; notices cannot be dismissed', async ({
     page.getByRole('button', { name: 'Dismiss notification' }),
   ).toHaveCount(0)
   await page.getByRole('button', { name: 'Show success toast' }).click()
+  await expect(region.locator('.dinkster-message')).toHaveAttribute('data-kind', 'success')
   await page.getByRole('button', { name: 'Dismiss notification' }).click()
   await expect(
     page.getByRole('button', { name: 'Dismiss notification' }),
   ).toHaveCount(0)
+  // Neutral news, such as a dropped draft, never wears the success look.
+  await page.getByRole('button', { name: 'Show info toast' }).click()
+  await expect(region).toHaveText('The draft was not stored.')
+  await expect(region.locator('.dinkster-message')).toHaveAttribute('data-kind', 'info')
 })
 
 test('dialog contains focus, Escape restores its opener and removal requires confirmation', async ({

@@ -178,12 +178,12 @@ describe('workspace promotion queueing', () => {
         expect(await app.openDocument(doc, 'Reopened selection')).toEqual([])
         ed.tab = app.activeTab()!
       }
-      root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+      root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-apply"]')!.click()
       if (action === 'promoted') {
         await vi.waitFor(() => expect(ed.tab.store.doc.graphs.g0!.nodes.output!.values.asset).toEqual(ref))
         await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
       } else {
-        expect(root.querySelector('.asset-error')?.textContent).toContain('The edit was not accepted.')
+        await vi.waitFor(() => expect(root.querySelector('[data-testid="editor-frame-error"]')?.textContent).toContain('The edit was not accepted.'))
         expect(ed.tab.store.doc.graphs.g0!.nodes.output!.values.asset).not.toEqual(ref)
         expect(close).not.toHaveBeenCalled()
       }

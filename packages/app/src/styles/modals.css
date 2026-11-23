@@ -67,7 +67,7 @@
 .canvas-import-choice { min-height: 0; padding: var(--dinkster-space-16); overflow: auto; overflow-wrap: anywhere; }
 .canvas-import-choice > p { margin: 0; color: var(--dinkster-text-secondary); }
 /* A full editor covers the canvas area it was opened over; ModalSurface sets its box. */
-.modal-surface.is-editor { position: fixed; inset: auto; min-width: 0; max-width: none; max-height: none; margin: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.modal-surface.is-editor { position: fixed; inset: auto; min-width: 0; max-width: none; max-height: none; margin: 0; border: 0; border-radius: initial; background: transparent; box-shadow: none; }
 .modal-surface.is-editor::backdrop { background: transparent; }
 .customize-layout { padding: 14px; }
 .customize-layout-intro { margin: 0 0 12px; color: var(--dinkster-text-secondary); }

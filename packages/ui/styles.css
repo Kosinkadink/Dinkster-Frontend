@@ -518,5 +518,12 @@
 .dinkster-editor-frame-stage[data-closed='true'] { contain: layout paint; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
 .dinkster-frame-example-picture { position: relative; width: 256px; height: 192px; max-width: 100%; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); background: var(--dinkster-surface-raised); }
 .dinkster-frame-example-form { display: grid; align-content: start; gap: var(--dinkster-space-12); padding: var(--dinkster-space-12); }
-.dinkster-frame-example-crop { position: absolute; inset: 0; border: var(--dinkster-border-width) solid var(--dinkster-border-focus); }
-.dinkster-frame-example-crop[data-crop='part'] { inset: 11% 11% 11% 11%; }
+.dinkster-frame-example-curve { display: grid; grid-template-columns: minmax(0, calc(var(--dinkster-space-32) * 6)) minmax(0, 1fr); gap: var(--dinkster-space-16); flex: 1; min-height: 0; padding: var(--dinkster-space-12); }
+.dinkster-frame-example-curve-settings { display: grid; align-content: start; justify-items: stretch; gap: var(--dinkster-space-12); }
+.dinkster-frame-example-curve-settings > p { margin: 0; }
+.dinkster-frame-example-curve-graph { width: 100%; height: 100%; min-height: calc(var(--dinkster-space-32) * 5); }
+.dinkster-frame-example-curve-grid { fill: var(--dinkster-surface-canvas); stroke: var(--dinkster-border-subtle); stroke-width: 2; }
+.dinkster-frame-example-curve-line { fill: none; stroke: var(--dinkster-accent-foreground); stroke-width: 6; }
+.dinkster-frame-example-curve-graph circle { fill: var(--dinkster-surface-panel); stroke: var(--dinkster-accent-foreground); stroke-width: 6; }
+.dinkster-frame-example-curve-graph circle[data-selected='true'] { fill: var(--dinkster-accent-foreground); }
+@container (max-width: 560px) { .dinkster-frame-example-curve { grid-template-columns: minmax(0, 1fr); align-content: start; } .dinkster-frame-example-curve-graph { height: auto; } }

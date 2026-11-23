@@ -454,7 +454,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
       const now = storedTarget()
       if (!now.exists) {
         close()
-        props.app.notification.set({ message: message('editorFrame.targetRemoved') })
+        props.app.notification.set({ message: message('editorFrame.targetRemoved'), tone: 'info' })
       }
       else if (!jsonSameValue(now.value as never, atOpen.value as never)) finish(message('editorFrame.targetChanged'))
     })

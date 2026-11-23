@@ -2490,7 +2490,7 @@ export class AppState {
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
   readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
   /** The app's one short-lived notice, shown as a toast. */
-  readonly notification = createSignal<{ readonly message: string } | undefined>(undefined)
+  readonly notification = createSignal<{ readonly message: string; readonly tone?: 'info' } | undefined>(undefined)
   private readonly projectNeedsChecks = new WeakMap<Backend, object>()
   private readonly projectPackReviews = new WeakMap<ProjectPackInstallationReview, {
     readonly review: ProjectNeedsReview

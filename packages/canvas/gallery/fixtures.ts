@@ -1364,28 +1364,31 @@ export function createRowFocusScene(
 }
 
 /** A node whose crop row opens the full editor, for the editor frame page. */
-export const editorFrameSchema: NodeSchema = schema('Crop image', [
-  { kind: 'input', id: 'image', type: concrete('IMAGE'), optional: false },
-  { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
+export const editorFrameSchema: NodeSchema = schema('Save Image', [
+  { kind: 'input', id: 'images', type: concrete('IMAGE'), optional: false },
   {
-    ...widget('crop', 'BOUNDING_BOX', { x: 0, y: 0, width: 1024, height: 768 }),
-    displayName: 'Crop',
-    tooltip: 'The part of the image to keep.',
+    kind: 'input',
+    id: 'destination',
+    type: concrete('SAVE_TARGET'),
+    optional: false,
+    widget: { widgetType: 'SAVE_TARGET', options: {} },
+    displayName: 'Destination',
+    tooltip: 'Where the images are saved: a writable folder and the start of the file name.',
   },
 ])
 
-/** The editor frame page's node, holding the given crop. */
+/** The editor frame page's node, holding the given save destination. */
 export function createEditorFrameScene(
   tokens: DesignTokens,
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
   position: { x: number; y: number },
-  crop: Json,
+  destination: Json,
   width = 280,
 ): Scene {
   return singleNodeScene(
     editorFrameSchema,
-    { values: { crop } },
+    { values: { destination } },
     { position, size: { width, height: 0 } },
     tokens,
     measure,

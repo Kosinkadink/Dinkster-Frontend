@@ -243,6 +243,8 @@ test('The full editor frame page draws every labeled state with one Cancel and o
   await page.setViewportSize({ width: 1440, height: 1000 })
   await openPage(page, 'editor-frame')
   await cardsReady(page, 'editor-frame', 'dark')
+  // The page says what it is before any example.
+  await expect(page.getByText('This page is the frame that every full editor opens in')).toBeVisible()
   for (const id of ['opener', 'applied', 'conflict'])
     await expect(page.getByTestId(`editor-frame-row-${id}`)).toBeVisible()
   // Apply is available only for a valid, loaded change that is not already being applied.
@@ -254,7 +256,6 @@ test('The full editor frame page draws every labeled state with one Cancel and o
     applying: 'pending',
     failed: 'available',
     unavailable: 'unavailable',
-    asset: 'available',
     form: 'available',
     'viewer-untouched': 'unavailable',
     narrow: 'available',

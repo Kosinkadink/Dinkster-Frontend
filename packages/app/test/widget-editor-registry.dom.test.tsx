@@ -472,7 +472,7 @@ it('gives a full editor one frame: Apply only for a valid change, outside presse
   expect(notification.set).not.toHaveBeenCalled()
   expect(store.dispatch({ command: 'node.remove', params: { graphId: 'g0', nodeIds: ['n1'] } }).ok).toBe(true)
   expect(closed).toHaveBeenCalledOnce()
-  expect(notification.set).toHaveBeenCalledWith({ message: 'The field this editor was editing was removed. Nothing was stored.' })
+  expect(notification.set).toHaveBeenCalledWith({ message: 'The field this editor was editing was removed. Nothing was stored.', tone: 'info' })
   expect(store.undo()).toBe(true)
   expect(stored()).toEqual({ ...initial, height: 5, x: 18 })
   dispose()

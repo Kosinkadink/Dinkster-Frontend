@@ -42,16 +42,17 @@ export function ProductErrorBanner(props: {
 /** The corner region for success feedback. Keep it mounted and pass each
  * success as a new object: the region exists before its text, which is what
  * lets assistive technology announce it, and a new object restarts the
- * lifetime even when the text repeats. */
+ * lifetime even when the text repeats. A notification with the info tone is
+ * neutral news, such as work that was dropped, and never looks like success. */
 export function ProductToast(props: {
-  notification: { readonly message: string } | undefined
+  notification: { readonly message: string; readonly tone?: 'info' } | undefined
   onDismiss: () => void
 }) {
   return (
     <div class="dinkster-toast" role="status">
       <Show when={props.notification} keyed>
         {(notification) => (
-          <ToastMessage onDismiss={props.onDismiss}>
+          <ToastMessage tone={notification.tone} onDismiss={props.onDismiss}>
             {notification.message}
           </ToastMessage>
         )}
@@ -60,7 +61,7 @@ export function ProductToast(props: {
   )
 }
 
-function ToastMessage(props: { children: JSX.Element; onDismiss: () => void }) {
+function ToastMessage(props: { children: JSX.Element; tone: 'info' | undefined; onDismiss: () => void }) {
   const strings = useProductStrings()
   let toast!: HTMLDivElement
   let timer: number | undefined
@@ -82,7 +83,7 @@ function ToastMessage(props: { children: JSX.Element; onDismiss: () => void }) {
     <div
       ref={toast}
       class="dinkster-message"
-      data-kind="success"
+      data-kind={props.tone ?? 'success'}
       onPointerEnter={() => {
         hovered = true
         schedule()
@@ -100,7 +101,7 @@ function ToastMessage(props: { children: JSX.Element; onDismiss: () => void }) {
         schedule()
       }}
     >
-      <ProductIcon icon={Check} />
+      <ProductIcon icon={props.tone === 'info' ? Info : Check} />
       <span class="dinkster-message-copy">{props.children}</span>
       <ProductIconButton
         icon={X}

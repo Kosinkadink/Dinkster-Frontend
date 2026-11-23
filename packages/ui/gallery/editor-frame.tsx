@@ -21,8 +21,6 @@ import {
   ProductButton,
   ProductEditorFrame,
   ProductField,
-  ProductList,
-  ProductListRow,
   ProductSection,
   ProductSelect,
   ProductTextInput,
@@ -34,100 +32,46 @@ import { MARGIN, NODE_WIDTH, SIDE_ROOM } from './row-editing.js'
 
 type WidgetRow = Extract<LayoutRow, { kind: 'widget' }>
 
-const STORED = { x: 0, y: 0, width: 1024, height: 768 }
-const CHANGED = { x: 112, y: 84, width: 800, height: 600 }
-const ELSEWHERE = { x: 192, y: 144, width: 640, height: 480 }
+const STORED_TARGET = { mount: 'output', prefix: 'portraits/session' }
+const APPLIED_TARGET = { mount: 'archive', prefix: 'portraits/final' }
+const ELSEWHERE_TARGET = { mount: 'output', prefix: 'renders/batch' }
 
-/** The crop editor's body as an example: tools, the picture and its settings. */
-function CropBody(props: {
-  crop: typeof STORED
-  /** Width as typed, when it differs from the crop. */
-  width?: string
-  widthError?: string
-}) {
-  const field = (label: string, value: string, error?: string) => (
-    <ProductField label={label} {...(error === undefined ? {} : { error })}>
-      {(attributes) => <ProductTextInput {...attributes} inputMode="numeric" value={value} />}
-    </ProductField>
-  )
+/** The curve editor's body as an example: its settings beside the graph, as the product lays them out. */
+function CurveBody(props: { changed: boolean }) {
+  const points = () => (props.changed ? [[0, 600], [500, 140], [1000, 42]] : [[0, 600], [1000, 0]])
   return (
-    <>
-      <div class="dinkster-editor-frame-toolbar">
-        <ProductButton>Reset view</ProductButton>
-        <ProductButton>Fit</ProductButton>
-      </div>
-      <div class="dinkster-editor-frame-columns">
-        <div class="dinkster-editor-frame-work">
-          <div class="dinkster-frame-example-picture" role="img" aria-label="Image preview">
-            <div
-              class="dinkster-frame-example-crop"
-              data-crop={props.crop === STORED ? 'whole' : 'part'}
-            />
-          </div>
-        </div>
-        <div class="dinkster-editor-frame-panel">
-          {field('X', String(props.crop.x))}
-          {field('Y', String(props.crop.y))}
-          {field('Width', props.width ?? String(props.crop.width), props.widthError)}
-          {field('Height', String(props.crop.height))}
-        </div>
-      </div>
-    </>
-  )
-}
-
-/** The save target editor's body as an example: a few controls, not a picture. */
-function SaveTargetBody() {
-  return (
-    <>
-      <div class="dinkster-editor-frame-toolbar">
-        <ProductButton>Clear destination</ProductButton>
-      </div>
-      <div class="dinkster-frame-example-form">
-        <ProductField label="Writable mount">
+    <div class="dinkster-frame-example-curve">
+      <div class="dinkster-frame-example-curve-settings">
+        <ProductField label="Interpolation">
           {(attributes) => (
             <ProductSelect {...attributes}>
-              <option>output</option>
-              <option selected>archive</option>
+              <option selected={!props.changed}>Linear</option>
+              <option selected={props.changed}>Monotone cubic</option>
             </ProductSelect>
           )}
         </ProductField>
-        <ProductField
-          label="Relative filename prefix"
-          description="Subfolders and filename stem only. The writer adds numbering and .png."
-        >
-          {(attributes) => <ProductTextInput {...attributes} value="portraits/session" />}
-        </ProductField>
+        <ProductButton disabled={!props.changed}>Delete point</ProductButton>
+        <p class="dinkster-metadata">Double-click the graph to add a point. Drag points to adjust them.</p>
+        <p class="dinkster-metadata">Position and value range from 0 to 1.</p>
       </div>
-    </>
-  )
-}
-
-/** The asset browser's body as an example: where it is, a filter, the list and the selection. */
-function AssetBody() {
-  return (
-    <>
-      <div class="dinkster-editor-frame-toolbar">
-        <span class="dinkster-metadata">Library / Images</span>
-      </div>
-      <div class="dinkster-editor-frame-columns">
-        <div class="dinkster-editor-frame-work" data-align="start">
-          <ProductField label="Filter assets">
-            {(attributes) => <ProductTextInput {...attributes} type="search" value="p" />}
-          </ProductField>
-          <ProductList label="Images">
-            <ProductListRow title="portrait.png" description="1024 x 1024, selected" />
-            <ProductListRow title="landscape.png" description="1536 x 1024" />
-            <ProductListRow title="product-shot.png" description="1024 x 1024" />
-          </ProductList>
-        </div>
-        <div class="dinkster-editor-frame-panel">
-          <span class="dinkster-metadata">Selection</span>
-          <span>portrait.png</span>
-          <span class="dinkster-metadata">1024 x 1024</span>
-        </div>
-      </div>
-    </>
+      <svg class="dinkster-frame-example-curve-graph" viewBox="-20 -20 1040 640" role="img" aria-label="Curve graph">
+        <path class="dinkster-frame-example-curve-grid" d="M0 0H1000V600H0ZM0 150H1000M0 300H1000M0 450H1000M250 0V600M500 0V600M750 0V600" />
+        <path
+          class="dinkster-frame-example-curve-line"
+          d={props.changed ? 'M0 600C180 420 330 230 500 140S820 70 1000 42' : 'M0 600L1000 0'}
+        />
+        <For each={points()}>
+          {([x, y], index) => (
+            <circle
+              cx={x}
+              cy={y}
+              r="14"
+              data-selected={props.changed && index() === 1 ? 'true' : undefined}
+            />
+          )}
+        </For>
+      </svg>
+    </div>
   )
 }
 
@@ -154,6 +98,34 @@ function ViewerBody() {
   )
 }
 
+/** The save target editor's body as an example: a few controls, not a picture. */
+function SaveTargetBody(props: { prefix: string; error?: string }) {
+  return (
+    <>
+      <div class="dinkster-editor-frame-toolbar">
+        <ProductButton>Clear destination</ProductButton>
+      </div>
+      <div class="dinkster-frame-example-form">
+        <ProductField label="Writable mount">
+          {(attributes) => (
+            <ProductSelect {...attributes}>
+              <option>output</option>
+              <option selected>archive</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <ProductField
+          label="Relative filename prefix"
+          description="Subfolders and filename stem only. The writer adds numbering and .png."
+          {...(props.error === undefined ? {} : { error: props.error })}
+        >
+          {(attributes) => <ProductTextInput {...attributes} value={props.prefix} />}
+        </ProductField>
+      </div>
+    </>
+  )
+}
+
 interface FrameExample {
   readonly id: string
   readonly caption: string
@@ -163,6 +135,7 @@ interface FrameExample {
   readonly applying?: boolean
   readonly error?: string
   readonly retry?: boolean
+  readonly unavailable?: string
   /** An editor that can never store: its footer has one Close button. */
   readonly viewOnly?: boolean
   readonly status?: string
@@ -171,7 +144,7 @@ interface FrameExample {
   readonly body: () => JSX.Element
 }
 
-const crop = (
+const curve = (
   id: string,
   caption: string,
   phase: ProductEditorFramePhase,
@@ -179,73 +152,89 @@ const crop = (
 ): FrameExample => ({
   id,
   caption,
-  title: 'Crop - Crop image',
+  title: 'Curve - Tone curve',
   phase,
-  body: () => <CropBody crop={phase === 'unchanged' ? STORED : CHANGED} />,
+  body: () => <CurveBody changed={phase !== 'unchanged' && phase !== 'loading'} />,
+  ...more,
+})
+
+const viewer = (id: string, caption: string, phase: ProductEditorFramePhase, more: Partial<FrameExample> = {}): FrameExample => ({
+  id,
+  caption,
+  title: 'Viewport - Load 3D',
+  phase,
+  body: () => <ViewerBody />,
+  ...more,
+})
+
+const saveTarget = (id: string, caption: string, phase: ProductEditorFramePhase, more: Partial<FrameExample> = {}): FrameExample => ({
+  id,
+  caption,
+  title: 'Destination - Save Image',
+  phase,
+  form: true,
+  body: () => <SaveTargetBody prefix="portraits/final" />,
   ...more,
 })
 
 const frameExamples: readonly FrameExample[] = [
-  crop(
-    'loading',
-    'Editor loading. The frame opens at once; its body shows the shared spinner and Loading preview. Apply is unavailable; Cancel and the X still close it.',
-    'loading',
-  ),
-  crop(
-    'unchanged',
-    'Editor unchanged. Nothing differs from the stored crop, so there is nothing to apply.',
-    'unchanged',
-  ),
-  crop(
+  curve(
     'changed',
-    "Editor changed. The body keeps the editor's own tools and panels; Apply is the one solid button and the only thing that stores.",
+    "Curve editor, changed. A large editor gets the whole body for its own settings and graph; Apply is the one solid button and the only thing that stores.",
     'changed',
   ),
-  crop(
-    'invalid',
-    'Editor invalid. The problem shows under its field; Apply is unavailable until the draft can be applied.',
-    'invalid',
-    { body: () => <CropBody crop={CHANGED} width="-1" widthError="Width must be positive." /> },
-  ),
-  crop(
+  curve('unchanged', 'Curve editor, unchanged. Nothing differs from the stored curve, so Apply is unavailable.', 'unchanged'),
+  curve(
     'applying',
-    'Editor applying. Apply keeps its name and shows a spinner; the body, Cancel and the X wait for the result.',
+    'Curve editor, applying. Apply keeps its name and shows a spinner; the body, Cancel and the X wait for the result.',
     'changed',
     { applying: true },
   ),
-  crop(
+  curve(
     'failed',
-    'Editor apply failed. The banner says why; the draft and the tools stay, and Apply can be tried again.',
+    'Curve editor, apply failed. The banner says why; the draft and the tools stay, and Apply can be tried again.',
     'changed',
-    { error: 'Could not apply the crop. Your changes are kept.' },
+    { error: 'Could not apply the curve. Your changes are kept.' },
   ),
-  crop(
-    'unavailable',
-    'Editor unavailable. The frame says what could not load and offers Try again. Apply stays unavailable; Cancel still works.',
-    'unavailable',
-    { retry: true },
+  viewer(
+    'loading',
+    "3D viewer, loading. The frame opens at once; its body shows the shared spinner while the model loads. Apply is unavailable; Cancel and the X still close it.",
+    'loading',
   ),
-  {
-    id: 'asset',
-    caption:
-      'Asset browser frame. The same frame hosts asset browsing: the selection is a draft until Apply, and Cancel goes back to the list it was opened from.',
-    title: 'Image - Browse assets',
-    phase: 'changed',
-    body: () => <AssetBody />,
-  },
-  {
-    id: 'form',
-    caption:
-      'Editor that is a few controls. The frame still fills the canvas area, but save target keeps its controls at their usual width in one centered column at the top, instead of stretching them.',
-    title: 'Destination - Save Image',
-    phase: 'changed',
-    form: true,
-    body: () => <SaveTargetBody />,
-  },
+  viewer(
+    'viewer-untouched',
+    '3D viewer, not touched yet. Applying stores new captures and an undo step, so Apply waits for the first pointer action or key in the viewport, or the first use of a setting, after it opened.',
+    'unchanged',
+    { status: 'Nothing changed yet' },
+  ),
+  viewer(
+    'unavailable',
+    'Editor unavailable. The frame says what could not load. Apply stays unavailable; Cancel still works. An editor that can load again also offers Try again.',
+    'unavailable',
+    { unavailable: 'The selected model file is unavailable.' },
+  ),
+  saveTarget(
+    'form',
+    'Save target, changed. A small editor that is a few controls keeps them at their usual width in one centered column at the top, while the frame still fills the canvas area.',
+    'changed',
+  ),
+  saveTarget(
+    'invalid',
+    'Save target, invalid. The problem shows under its field; Apply is unavailable until the draft can be applied.',
+    'invalid',
+    {
+      body: () => (
+        <SaveTargetBody
+          prefix="../escape"
+          error="Enter a relative prefix with no empty, dot or parent segments and no backslashes."
+        />
+      ),
+    },
+  ),
   {
     id: 'view-only',
     caption:
-      'Editor that can never store. A comparison only shows run results, so one Close button stands where Cancel and Apply would be.',
+      'Editor that can never store. Image comparison only shows run results, so one Close button stands where Cancel and Apply would be.',
     title: 'Compare - Image Compare',
     phase: 'unchanged',
     viewOnly: true,
@@ -267,18 +256,9 @@ const frameExamples: readonly FrameExample[] = [
       </div>
     ),
   },
-  {
-    id: 'viewer-untouched',
-    caption:
-      'Viewer not touched yet. Load 3D stores new captures and an undo step when applied, so Apply waits for the first pointer action or key in the viewport, or the first use of a setting, after it opened.',
-    title: 'Viewport - Load 3D',
-    phase: 'unchanged',
-    status: 'Nothing changed yet',
-    body: () => <ViewerBody />,
-  },
-  crop(
+  curve(
     'narrow',
-    'Narrow workspace editor, 390 px. The header and footer stay; the settings move under the picture and the body scrolls.',
+    'Curve editor in a narrow workspace, 390 px. The header and footer stay; the settings move above the graph and the body scrolls.',
     'changed',
     { width: 'narrow' },
   ),
@@ -298,6 +278,7 @@ function FrameCard(props: { example: FrameExample }) {
           applying={props.example.applying === true}
           {...(props.example.error === undefined ? {} : { error: props.example.error, onDismissError: () => undefined })}
           {...(props.example.retry === true ? { onRetry: () => undefined } : {})}
+          {...(props.example.unavailable === undefined ? {} : { unavailableLabel: props.example.unavailable })}
           {...(props.example.status === undefined ? {} : { status: props.example.status })}
           {...(props.example.viewOnly === true ? {} : { onApply: () => undefined })}
           form={props.example.form === true}
@@ -314,7 +295,7 @@ function FrameCard(props: { example: FrameExample }) {
 interface RowExample {
   readonly id: string
   readonly caption: string
-  readonly crop: Json
+  readonly target: Json
   /** What the side part says first, after the editor closed. */
   readonly notice?: string
 }
@@ -323,21 +304,21 @@ const rowExamples: readonly RowExample[] = [
   {
     id: 'opener',
     caption:
-      'Editor row keyboard stop. Tab reached Crop, a row that opens the full editor: the outline shows where the keyboard is and the side part holds the default and the help. Enter opens the editor.',
-    crop: STORED,
+      'Editor row keyboard stop. Tab reached Destination, a row that opens the full editor: the outline shows where the keyboard is and the side part holds the help. Enter opens the editor.',
+    target: STORED_TARGET,
   },
   {
     id: 'applied',
     caption:
-      'Editor applied. The store was acknowledged, so the frame closed: the row shows the new crop, the keyboard is back on it, and one Undo takes the whole change back.',
-    crop: CHANGED,
+      'Editor applied. The store was acknowledged, so the frame closed: the row shows the new destination, the keyboard is back on it, and one Undo takes the whole change back.',
+    target: APPLIED_TARGET,
     notice: 'Applied. Undo takes it back in one step.',
   },
   {
     id: 'conflict',
     caption:
-      'Editor target changed. Someone else stored a different crop while the editor was open; the old draft was dropped without writing and the keyboard is back on the row.',
-    crop: ELSEWHERE,
+      'Editor target changed. Someone else stored a different destination while the editor was open; the old draft was dropped without writing and the keyboard is back on the row.',
+    target: ELSEWHERE_TARGET,
     notice: 'The stored value changed, so the editor closed without applying. Open it again to edit the new value.',
   },
 ]
@@ -374,7 +355,7 @@ function RowCard(props: { example: RowExample; theme: 'dark' | 'light'; registry
         const view = props.registry.viewsFor(spec.widgetType).find((view) => view.id === kind?.defaultView(spec))
         return view ? { viewId: view.id, rows: view.measure(spec).rows } : undefined
       }
-      const built = createEditorFrameScene(tokens, measure, widgetMeasure, { x: MARGIN, y: MARGIN }, example.crop)
+      const built = createEditorFrameScene(tokens, measure, widgetMeasure, { x: MARGIN, y: MARGIN }, example.target)
       const node = built.nodes[0]!
       canvas.style.width = `${MARGIN + NODE_WIDTH + SIDE_ROOM}px`
       canvas.style.height = `${node.y + node.layout.height + MARGIN}px`
@@ -397,7 +378,7 @@ function RowCard(props: { example: RowExample; theme: 'dark' | 'light'; registry
     const current = scene()
     if (!current) return undefined
     const node = current.nodes[0]!
-    const row = node.layout.rows.find((row): row is WidgetRow => row.kind === 'widget' && row.valueKey === 'crop')
+    const row = node.layout.rows.find((row): row is WidgetRow => row.kind === 'widget' && row.valueKey === 'destination')
     if (!row) return undefined
     // The keyboard's outline is the open field's: the row's field grown one pixel on every side.
     const width = (row.width ?? node.layout.width - row.inset * 2) + 2
@@ -421,7 +402,7 @@ function RowCard(props: { example: RowExample; theme: 'dark' | 'light'; registry
     const target = focus()
     if (!target) return undefined
     const declared = effectiveWidgetDefault(target.row.spec)
-    const item = editorFrameSchema.items.find((item) => item.kind === 'input' && item.id === 'crop')
+    const item = editorFrameSchema.items.find((item) => item.kind === 'input' && item.id === 'destination')
     const help = item?.kind === 'input' ? item.tooltip : undefined
     return (
       <CanvasSidePart
@@ -474,20 +455,13 @@ export function EditorFrameGallery(props: { theme: 'dark' | 'light' }) {
   registerCoreWidgets(widgetRegistrationDoors(registry))
   return (
     <>
-      <ProductSection title="From the row">
-        <div class="dinkster-canvas-examples">
-          <For each={rowExamples}>
-            {(example) => <RowCard example={example} theme={props.theme} registry={registry} />}
-          </For>
-        </div>
-      </ProductSection>
       <ProductSection title="In the frame">
         <div class="dinkster-canvas-examples">
           <For each={frameExamples}>{(example) => <FrameCard example={example} />}</For>
           <figure class="dinkster-canvas-example">
             <div class="dinkster-editor-frame-stage" data-closed="true" data-testid="editor-frame-removed">
               <ProductToast
-                notification={{ message: 'The field this editor was editing was removed. Nothing was stored.' }}
+                notification={{ message: 'The field this editor was editing was removed. Nothing was stored.', tone: 'info' }}
                 onDismiss={() => undefined}
               />
             </div>
@@ -495,6 +469,13 @@ export function EditorFrameGallery(props: { theme: 'dark' | 'light' }) {
               Editor target removed. The node was removed while its editor was open, by Undo or by someone else, so the frame closed without writing. With no row left to hold the notice, the app's notice says so.
             </figcaption>
           </figure>
+        </div>
+      </ProductSection>
+      <ProductSection title="From the row">
+        <div class="dinkster-canvas-examples">
+          <For each={rowExamples}>
+            {(example) => <RowCard example={example} theme={props.theme} registry={registry} />}
+          </For>
         </div>
       </ProductSection>
     </>

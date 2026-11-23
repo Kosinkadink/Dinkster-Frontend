@@ -117,7 +117,7 @@ function Section(props: {
 
 function Gallery() {
   const [route, setRoute] = createSignal(window.location.hash || '#controls')
-  const [toast, setToast] = createSignal<{ readonly message: string }>()
+  const [toast, setToast] = createSignal<{ readonly message: string; readonly tone?: 'info' }>()
   const [error, setError] = createSignal(true)
   const [dialog, setDialog] = createSignal(false)
   const [pending, setPending] = createSignal(false)
@@ -859,6 +859,16 @@ function Gallery() {
                   onClick={() => setToast({ message: 'Changes saved' })}
                 >
                   Show success toast
+                </ProductButton>
+                <ProductButton
+                  onClick={() =>
+                    setToast({
+                      message: 'The draft was not stored.',
+                      tone: 'info',
+                    })
+                  }
+                >
+                  Show info toast
                 </ProductButton>
                 <ProductField
                   label="Invalid value"
