@@ -931,7 +931,7 @@ narrow widths and browser CSS zoom.
 ## Extension asset editors
 
 The specialized asset editor shell is parked in
-[the rework queue](rework-queue.md#extension-asset-editor-shell). Generic
+[Extension asset editor shell](https://github.com/Kosinkadink/comfy-vibe-station/issues/1216). Generic
 `WidgetView.editorUi` contributions still use bounded group, text, status
 and action nodes through the Host UI renderer. The ordinary builtin asset
 picker is independent and remains available.
