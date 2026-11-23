@@ -143,6 +143,26 @@ function diagnosticRow(diagnostic: Diagnostic, nodeId: string, portSideOf: PortS
   return undefined
 }
 
+/** The input rows with a problem, by node id, with a key that changes only when they do. */
+export interface ProblemRowsShown {
+  readonly key: string
+  readonly rows: Readonly<Record<string, ReadonlySet<string>>>
+}
+
+export const NO_PROBLEM_ROWS: ProblemRowsShown = { key: '', rows: {} }
+
+export function problemInputRows(rows: RowProblemMap): ProblemRowsShown {
+  const entries = Object.entries(rows)
+    .map(([nodeId, marks]) => [nodeId, Object.keys(marks).filter((row) => !row.startsWith(outputRowKey(''))).sort()] as const)
+    .filter(([, inputs]) => inputs.length > 0)
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+  if (entries.length === 0) return NO_PROBLEM_ROWS
+  return {
+    key: JSON.stringify(entries),
+    rows: Object.fromEntries(entries.map(([nodeId, inputs]) => [nodeId, new Set(inputs)])),
+  }
+}
+
 /**
  * Project current document diagnostics onto nodes in one visible graph: one
  * line per cause, so a cause reported by several sources counts once. Info is

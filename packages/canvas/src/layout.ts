@@ -746,6 +746,8 @@ export interface LayoutOptions {
    * hidden ports lose their pins entirely.
    */
   readonly connectedPorts?: ReadonlySet<string>
+  /** Inputs with a problem: a row set to be hidden is drawn while it has a problem or a wire. */
+  readonly problemRows?: ReadonlySet<string>
   /**
    * The node's elaborated interface (scene supplies it, built with graph
    * connectivity and ghost promotion). When absent, layout elaborates from
@@ -936,7 +938,7 @@ export function layoutNode(
     }
     // input
     const spec = item.spec
-    if (spec.hidden === true) continue
+    if (spec.hidden === true && !isConnected('in', spec.id) && options.problemRows?.has(spec.id) !== true) continue
     const section = inputSection(spec)
     const widget = spec.widget
     if (spec.widget && item.origin.kind === 'static') staticWidgetInputs.add(spec.id)

@@ -882,6 +882,8 @@ export interface BuildSceneInput {
   readonly document: WorkflowDocument
   /** App capability controlling seed-controller UI construction. */
   readonly seedControllerEnabled?: boolean
+  /** Input rows with a problem, by node id; a row set to be hidden is drawn while it has one. */
+  readonly problemRows?: Readonly<Record<string, ReadonlySet<string>>>
   /** Graph definition to render (the root, or a subgraph being edited). */
   readonly graphId: string
   readonly resolve: SchemaResolver
@@ -1308,6 +1310,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(view?.views ? { widgetRepresentations: view.views } : {}),
           ...(view?.textLines ? { textBoxLines: view.textLines } : {}),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
+          ...(input.problemRows?.[node.id] !== undefined ? { problemRows: input.problemRows[node.id]! } : {}),
           ...(elaborated !== undefined ? { elaborated } : {}),
         })
       : missingLayout(

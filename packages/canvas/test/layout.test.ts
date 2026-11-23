@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ButtonSpec, InputSpec, NodeData, NodeSchema, NoteSpec, OutputSpec } from '@dinkster/core'
 import { asNodeId, elaborateInterface, EMPTY_CONNECTIVITY } from '@dinkster/core'
-import { layoutNode, TITLE_START, projectNodeLayoutHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import { connectedPortKey, layoutNode, TITLE_START, projectNodeLayoutHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import { defaultTokens } from '../src/tokens.js'
 
 const measure: TextMeasurer = (text) => text.length * 6
@@ -848,6 +848,16 @@ describe('sections', () => {
     expect(l.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)).toEqual(['model'])
     expect(l.pins.some((pin) => pin.portId === 'provider')).toBe(false)
     expect(node.values).toEqual({ provider: 'vision.depth.v2' })
+  })
+
+  it('draws a hidden input while it has a problem or a wire', () => {
+    const schema = schemaOf([widget('model'), widget('provider', { hidden: true }), widget('other', { hidden: true })])
+    const rowsOf = (opts: Parameters<typeof layoutNode>[5]) =>
+      layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, opts)
+        .rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)
+    expect(rowsOf({ problemRows: new Set(['provider']) })).toEqual(['model', 'provider'])
+    expect(rowsOf({ connectedPorts: new Set([connectedPortKey('in', 'other')]) })).toEqual(['model', 'other'])
+    expect(rowsOf({ problemRows: new Set(['model']) })).toEqual(['model'])
   })
 
   it('hides a choice subtree without hiding sibling controls or losing literals', () => {

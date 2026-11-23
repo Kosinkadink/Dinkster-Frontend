@@ -136,7 +136,7 @@ import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive } from '.
 import { RowFocusOverlay, type RowFocusState } from './editors/RowFocusOverlay.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
 import { applyNodeDecorations, deriveSceneOverlays, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
-import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
+import { composeCanvasProblemDiagnostics, deriveProblemProjection, NO_PROBLEM_ROWS, problemDisplay, problemInputRows, type NodeProblemKind, type NodeProblemMap, type ProblemRowsShown } from './problem-display.js'
 import { problemBoxLines, problemBoxPlacement, problemBoxRows, type ProblemBoxLine } from './problem-box.js'
 import { NodeProblemBox } from './NodeProblemBox.js'
 import { BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
@@ -1908,6 +1908,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // -- node problem box -------------------------------------------------------
   // Opened by a node's Error or Warning tab, or by Show on canvas. It hangs
   // below the node; only one node's box is open at a time.
+  const [problemRowsShown, setProblemRowsShown] = createSolidSignal<ProblemRowsShown>(NO_PROBLEM_ROWS)
   const [problemBox, setProblemBox] = createSolidSignal<{
     readonly owner: string
     readonly nodeId: string
@@ -4190,6 +4191,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly extensionRevision: number
       readonly seedControllerEnabled: boolean
       readonly plannerAvailable: boolean
+      readonly problemRows: ProblemRowsShown
     } | undefined
     let sceneViewportOwner: { readonly tabId: string; readonly graphId: string } | undefined
     let pendingViewport: { readonly tabId: string; readonly graphId: string; readonly viewport: ReturnType<CanvasRenderer['getViewport']> } | undefined
@@ -4234,6 +4236,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const pathKey = path.join('/')
       const extensionsGeneration = props.app.extensions.changed.get()
       const seedControllerEnabled = props.app.settings.get<boolean>('features.seedController.enabled')
+      const shownProblemRows = problemRowsShown()
       const occurrenceOwner = path.length === 0 ? undefined : {
         instancePath: path.slice(0, -1).map(asNodeId),
         node: asNodeId(path[path.length - 1]!),
@@ -4249,7 +4252,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         previousBuild.extensionsGeneration === extensionsGeneration &&
         previousBuild.extensionRevision === currentExtensionRevision &&
         previousBuild.seedControllerEnabled === seedControllerEnabled &&
-        previousBuild.plannerAvailable === plannerAvailable
+        previousBuild.plannerAvailable === plannerAvailable &&
+        previousBuild.problemRows === shownProblemRows
       const valuesUpdated = canReuseScene && path.length === 0
         ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => reg?.resolve(type))
         : undefined
@@ -4276,6 +4280,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ...(occurrenceOwner !== undefined ? {
             occurrence: { owner: occurrenceOwner, plannerAvailable },
           } : {}),
+          ...(shownProblemRows.key === '' ? {} : { problemRows: shownProblemRows.rows }),
         })
       })()
       const graphView = doc.view.graphs[graphId]
@@ -4304,6 +4309,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         extensionRevision: currentExtensionRevision,
         seedControllerEnabled,
         plannerAvailable,
+        problemRows: shownProblemRows,
       }
       // A rebuild can produce a scene identical to the installed one: a
       // workspace-session swap re-reads an equal document, and an edit in
@@ -4663,6 +4669,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         },
       })
       nodeProblems = projectedProblems.nodes
+      // A row set to be hidden is drawn while it has a problem, so the scene is
+      // rebuilt when the input rows with a problem change; drawing the row
+      // changes no problem, so this settles after one rebuild.
+      const inputRows = problemInputRows(projectedProblems.rows)
+      if (inputRows.key !== problemRowsShown().key) setProblemRowsShown(inputRows)
 
       const model = deriveSceneOverlays({
         scene,
