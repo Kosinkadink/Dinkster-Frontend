@@ -453,7 +453,9 @@ describe('value handling', () => {
       const schema = backendResolve(type)
       if (type !== 'EmptyImage' || schema === undefined) return schema
       const body = schema.body.map((row) =>
-        row.kind === 'input' && (row.id === 'batch_size' || row.id === 'color') ? { ...row, automatic: { formula: 'width' } } : row)
+        row.kind !== 'input' || (row.id !== 'batch_size' && row.id !== 'color') ? row
+          // batch_size cannot be worked out: that warning is the canvas's, not the compile's.
+          : { ...row, automatic: { formula: row.id === 'color' ? 'width' : 'missing_name' } })
       return { ...schema, body }
     }
     const doc = mutableWorkflow('exec-basic')
@@ -465,7 +467,7 @@ describe('value handling', () => {
     const inputs = result.artifact.prompt['n0']!.inputs
     expect(inputs['batch_size']).toBeUndefined()
     expect(inputs['color']).toBe(5)
-    expect(result.artifact.diagnostics.some((d) => d.code === 'compile.input.missing')).toBe(false)
+    expect(result.artifact.diagnostics.some((d) => d.code === 'compile.input.missing' || d.code === 'automatic.default')).toBe(false)
   })
 })
 

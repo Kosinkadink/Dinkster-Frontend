@@ -814,6 +814,10 @@ function compileImpl(
     // Errors (budget exhaustion) fail the compile - a truncated interface
     // must never produce a prompt.
     for (const d of e.diagnostics) {
+      // The canvas reports an automatic value it cannot work out while the
+      // field is shown and drops it the moment a value is fixed; a compiled
+      // copy would outlive that fix and list the warning twice.
+      if (d.code === 'automatic.default') continue
       const diagnostic = diag(d.severity, 'compile', d.code, `[${where}] ${d.message}`, {
         ...(d.anchor !== undefined ? { anchor: d.anchor } : {}),
         ...(d.refs !== undefined ? { refs: d.refs } : {}),
