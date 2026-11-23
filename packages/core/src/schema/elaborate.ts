@@ -24,7 +24,7 @@
  * choice stores (`selected`).
  */
 
-import { diag, type Diagnostic } from '../diagnostics.js'
+import { diag, type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
 import type { DynamicPortState, GraphDef, Json, NodeData } from '../format/document.js'
 import { asPortId, isExactWidgetTapRef, isPortEndpoint, portAddressKey, type DynamicMemberId, type NodeId } from '../ids.js'
 import { Formula, FormulaRefused, UNKNOWN, type FormulaNameKind, type FormulaValue, type Unknown } from '../mirror/formula.js'
@@ -334,6 +334,19 @@ export interface ElaboratedInterface {
    */
   readonly titleSuffix?: string
   readonly diagnostics: readonly Diagnostic[]
+}
+
+/**
+ * The refs of a failed node rule (`node.rule.failed`) on a node: the field
+ * when its check reads exactly one, which makes it that field's problem,
+ * else the node as a whole.
+ */
+export function ruleProblemRefs(diagnostic: Diagnostic, graphId: string, nodeId: string): readonly DiagnosticRef[] {
+  const fields = diagnostic.data?.['fields']
+  const field = Array.isArray(fields) && fields.length === 1 && typeof fields[0] === 'string' ? fields[0] : undefined
+  return [field === undefined
+    ? { graphId, nodeId }
+    : { graphId, nodeId, portId: field, valueKey: field, direction: 'input' }]
 }
 
 export const elabInputsOf = (e: Pick<ElaboratedInterface, 'items'>): readonly ElaboratedInput[] =>

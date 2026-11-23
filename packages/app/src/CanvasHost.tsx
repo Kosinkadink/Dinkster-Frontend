@@ -68,6 +68,7 @@ import { CanvasColorArriving } from '@dinkster/ui'
 import {
   defaultValuesOf,
   initialDynamicStateOf,
+  ruleProblemRefs,
   documentResolver,
   elabOutputsOf,
   effectiveOccurrenceTopology,
@@ -4449,16 +4450,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         (elaborated?.diagnostics ?? [])
           .filter((d) => d.code === 'node.rule.failed')
           .map((d): Diagnostic => {
-            const fields = d.data?.['fields']
-            const field = Array.isArray(fields) && fields.length === 1 && typeof fields[0] === 'string' ? fields[0] : undefined
+            const refs = ruleProblemRefs(d, scene.graphId, node.id)
+            const field = refs[0]?.valueKey
             if (field !== undefined) (marks[node.id] ??= new Set()).add(field)
-            return {
-              ...d,
-              origin: 'compile',
-              refs: [field === undefined
-                ? { graphId: scene.graphId, nodeId: node.id }
-                : { graphId: scene.graphId, nodeId: node.id, portId: field, valueKey: field, direction: 'input' }],
-            }
+            return { ...d, origin: 'compile', refs }
           }))
       const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...ruleDiags, ...availabilityDiags]
       setInstanceDiagnostics(sceneDiags)
