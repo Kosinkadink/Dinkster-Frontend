@@ -51,6 +51,7 @@ fails:
 | A note's `text` | Its `unknown` text, dimmed |
 | A button's `enabled`, `disabledReason` and `tooltip` | Enabled, with no reason |
 | A rule's `check` in the node's `validate` | The rule passes |
+| The node's `titleSuffix` | No suffix |
 
 A row whose `visible` is false is not drawn and is still stored and sent to
 the run. A box whose `visible` is false hides every row in it. A row with a
@@ -59,11 +60,20 @@ holds one. A note whose text is a lookup shows its `unknown` text. A group's
 `memberLabel`, a group's `count` and a choice's `leader` are worked out as
 the rows above describe.
 
-A rule whose `check` is false is one problem on the node, with the rule's
-message: an error when the rule has no `fix`, which stops the run, and a
-warning when it has one. It is listed in Problems and marks the node as
-the user edits, and it leaves when the check passes again. The editor does
-not offer or run the fix.
+A rule whose `check` is false is one problem, with the rule's message: an
+error when the rule has no `fix`, which stops the run, and a warning when it
+has one. It names the fields its check reads. With exactly one, it is that
+field's problem and outlines its row; otherwise it is a problem of the
+whole node. It is listed in Problems and marks the node as the user edits,
+and it leaves when the check passes again. The editor does not offer or run
+the fix.
+
+The `titleSuffix` is drawn one space after the title, in the row names' dim
+regular type, also after a renamed title and on a minimized node, and not
+while the title is being renamed. It is at most 64 characters, a line break
+reads as a space, and an extension's title suffix follows it. It never widens
+the node: when the title bar is too narrow it is cut first, and dropped when
+fewer than three of its characters would show.
 
 ## Elaboration and flattened ids
 

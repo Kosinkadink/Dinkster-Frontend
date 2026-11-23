@@ -307,6 +307,8 @@ export interface NodeLayout {
   readonly subtitle?: string
   /** True only when an override differs from the schema/fallback display name. */
   readonly titleRenamed?: boolean
+  /** The declared title suffix, drawn dim after the title; never counted in the width. */
+  readonly titleSuffix?: string
   readonly rows: readonly LayoutRow[]
   readonly pins: readonly PinLayout[]
   /** Body rows are hidden while title, compact preview, and endpoint anchors remain visible. */
@@ -1309,6 +1311,7 @@ export function layoutNode(
       headerHeight: tokens.headerHeight,
       title,
       titleRenamed,
+      ...(elaborated.titleSuffix !== undefined ? { titleSuffix: elaborated.titleSuffix } : {}),
       rows: [],
       pins: pins.map((pin) => ({
         ...pin,
@@ -1328,6 +1331,7 @@ export function layoutNode(
     headerHeight: tokens.headerHeight,
     title,
     titleRenamed,
+    ...(elaborated.titleSuffix !== undefined ? { titleSuffix: elaborated.titleSuffix } : {}),
     rows,
     pins,
     ...(advancedBounds !== undefined

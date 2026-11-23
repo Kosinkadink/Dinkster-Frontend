@@ -328,6 +328,11 @@ export interface ElaboratedInterface {
   readonly unstoredMinimums?: Readonly<Record<string, MaterializeFrame>>
   /** Flattened id of every group, choice and type choice the node holds (not offered members). */
   readonly constructs: readonly string[]
+  /**
+   * The node's `titleSuffix` worked out: at most 64 characters, a line break
+   * read as a space. Absent when unknown, failed or empty.
+   */
+  readonly titleSuffix?: string
   readonly diagnostics: readonly Diagnostic[]
 }
 
@@ -1569,6 +1574,8 @@ function elaboratePass(
     }
   }
 
+  const suffix = census || halted ? undefined : Array.from(answer(schema.titleSuffix, topScope, 'string')?.replace(/\r\n|\r|\n/g, ' ').trim() ?? '').slice(0, 64).join('')
+
   if (census && !halted) {
     for (const key of Object.keys(node.dynamic ?? {})) {
       if (!readState.has(key)) report('elab.dynamic.unknownState', `'${key}' is no longer part of this node. What was stored for it is kept in the file.`, key, 'error', { construct: key })
@@ -1645,6 +1652,7 @@ function elaboratePass(
     ...(Object.keys(unstoredChoices).length > 0 ? { unstoredChoices } : {}),
     ...(Object.keys(unstoredMinimums).length > 0 ? { unstoredMinimums } : {}),
     constructs: [...constructs],
+    ...(suffix ? { titleSuffix: suffix } : {}),
     diagnostics,
   }
   return { elaborated, chosen, early }

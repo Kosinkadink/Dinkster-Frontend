@@ -1134,6 +1134,21 @@ describe('formula properties', () => {
     expect(rules('1 // 0 > 5')({ w: 3 })).toEqual([])
   })
 
+  it('works out the title suffix: at most 64 characters, a line break read as a space, and none while unknown, failed or empty', () => {
+    const suffix = (titleSuffix: unknown, values: Record<string, unknown> = { w: 4 }, dynamic: Record<string, unknown> = { pick: { selected: 'a' } }) => {
+      const { schema, diagnostics } = parseDinksterSchema('Formulas', { body: [field('w'), pick], titleSuffix } as never)
+      expect(diagnostics).toEqual([])
+      return elaborateInterface(schema!, { values, dynamic } as never, EMPTY_CONNECTIVITY, { promoteGhosts: false }).titleSuffix
+    }
+    expect(suffix('fast')).toBe('fast')
+    expect(suffix({ formula: 'str(w) + " steps"' })).toBe('4 steps')
+    expect(suffix({ formula: '"two\\nlines"' })).toBe('two lines')
+    expect(suffix('x'.repeat(70))).toBe('x'.repeat(64))
+    expect(suffix({ formula: '""' })).toBeUndefined()
+    expect(suffix({ formula: 'str(pick.under)' }, {}, { pick: { selected: 'b' } })).toBeUndefined()
+    expect(suffix({ formula: 'str(1 // 0)' })).toBeUndefined()
+  })
+
   it("works out a button's enabled, reason and tooltip, and leaves it enabled while unknown or failed", () => {
     const body = (enabled: string) => [field('w'), pick, { kind: 'button', id: 'go', label: 'Go', steps: [],
       enabled: { formula: enabled }, disabledReason: { formula: '"needs " + str(w) + " more"' }, tooltip: { formula: '"Go " + str(w)' } }]
