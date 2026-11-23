@@ -168,8 +168,13 @@ export interface ColorEditingExample {
   readonly rowFocus?: boolean
   /** A wire brings this color to the field. */
   readonly arriving?: string
-  /** The canvas ends just under the node, so the picker opens above its field. */
-  readonly edge?: boolean
+  /**
+   * Where the canvas leaves room: no room right of the node, so the side
+   * part opens on its left; the canvas ending just under the node, so the
+   * picker opens above its field; or ending so close to the field that the
+   * picker fits neither under nor over it and scrolls.
+   */
+  readonly room?: 'left' | 'above' | 'constrained'
   readonly scale?: number
 }
 
@@ -329,7 +334,23 @@ export const colorEditingGroups: readonly {
         stored: '#3366cc',
         text: '#3366cc',
         used: workflowColors,
-        edge: true,
+        room: 'above',
+      },
+      {
+        id: 'left',
+        caption: 'No room right of the node: the side part opens on its left, beside the field and its picker.',
+        stored: '#3366cc',
+        text: '#3366cc',
+        used: workflowColors,
+        room: 'left',
+      },
+      {
+        id: 'constrained',
+        caption: 'The canvas ends close under the field and there is no room over it: the picker takes the room under it and scrolls.',
+        stored: '#3366cc',
+        text: '#3366cc',
+        used: workflowColors,
+        room: 'constrained',
       },
       {
         id: 'stacked',

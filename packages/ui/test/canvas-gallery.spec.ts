@@ -236,6 +236,58 @@ test('The content column is centered beside the sidebar', async ({ page }) => {
   expect(Math.abs(gaps.left - gaps.right)).toBeLessThanOrEqual(1)
 })
 
+test('Color picker rings stay wholly inside every control', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await openPage(page, 'color-editing')
+  await cardsReady(page, 'color-editing', 'dark')
+  const ringsOf = (id: string) =>
+    page
+      .locator('figure.dinkster-canvas-example', {
+        has: page.getByTestId(`color-editing-${id}`),
+      })
+      .locator('svg:has(> .dinkster-canvas-color-ring)')
+      .evaluateAll((controls) =>
+        controls.map((svg) => {
+          const ring = svg.querySelector('.dinkster-canvas-color-ring')!
+          return {
+            x: Number(ring.getAttribute('data-x')),
+            y: Number(ring.getAttribute('data-y')),
+            width: Number(svg.getAttribute('width')),
+            height: Number(svg.getAttribute('height')),
+          }
+        }),
+      )
+  // Every open example draws a ring on the square and the hue strip, and on
+  // the opacity strip when the field has one; each keeps its 6 px radius,
+  // rim included, inside its control.
+  for (const id of ['open', 'pick', 'invalid', 'empty', 'alpha', 'clear', 'black', 'white']) {
+    const rings = await ringsOf(id)
+    expect(rings, id).toHaveLength(id === 'alpha' || id === 'clear' ? 3 : 2)
+    for (const ring of rings) {
+      expect(ring.width, id).toBeGreaterThan(12)
+      expect(ring.x - 6, id).toBeGreaterThanOrEqual(0)
+      expect(ring.y - 6, id).toBeGreaterThanOrEqual(0)
+      expect(ring.x + 6, id).toBeLessThanOrEqual(ring.width)
+      expect(ring.y + 6, id).toBeLessThanOrEqual(ring.height)
+    }
+  }
+  // Black sits in the bottom-left corner, white in the top-left with the hue
+  // at the red end, and full transparency at the clear end.
+  const [blackSquare] = await ringsOf('black')
+  expect([blackSquare!.x, blackSquare!.y]).toEqual([6, blackSquare!.height - 6])
+  const [whiteSquare, whiteHue] = await ringsOf('white')
+  expect([whiteSquare!.x, whiteSquare!.y, whiteHue!.x]).toEqual([6, 6, 6])
+  const clear = await ringsOf('clear')
+  expect(clear[2]!.x).toBe(6)
+  // Just opened, the rings already mark the stored color.
+  const [square, hue] = await ringsOf('open')
+  expect(square!.x).toBeCloseTo(0.75 * square!.width, 0)
+  expect(square!.y).toBeCloseTo(0.2 * square!.height, 0)
+  expect(hue!.x).toBeCloseTo((220 / 360) * hue!.width, 0)
+})
+
 for (const theme of ['dark', 'light'] as const) {
   test(`Canvas text input preserves shared behavior at compact density, ${theme}`, async ({
     page,

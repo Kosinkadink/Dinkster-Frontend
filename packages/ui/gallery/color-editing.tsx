@@ -75,14 +75,21 @@ function ColorEditingExampleCard(props: {
   const example = () => props.example
   const scale = () => example().scale ?? 1
   const open = () => example().text !== undefined
+  const edge = () => example().room === 'above' || example().room === 'constrained'
   const nodeAt = () =>
     scale() < 1
       ? { x: MARGIN * 2, y: MARGIN * 2 }
-      : example().edge === true
+      : example().room === 'above'
         ? { x: MARGIN, y: 220 }
-        : { x: MARGIN, y: MARGIN }
+        : example().room === 'left'
+          ? { x: SIDE_ROOM, y: MARGIN }
+          : { x: MARGIN, y: MARGIN }
   const width = () =>
-    scale() < 1 ? NODE_WIDTH + MARGIN * 2 : MARGIN + NODE_WIDTH + SIDE_ROOM
+    scale() < 1
+      ? NODE_WIDTH + MARGIN * 2
+      : example().room === 'left'
+        ? SIDE_ROOM + NODE_WIDTH + MARGIN
+        : MARGIN + NODE_WIDTH + SIDE_ROOM
 
   createEffect(() => {
     const theme = props.theme
@@ -197,7 +204,7 @@ function ColorEditingExampleCard(props: {
       x: 0,
       y: 0,
       width: canvas.clientWidth,
-      height: example().edge === true ? canvas.clientHeight : Infinity,
+      height: edge() ? canvas.clientHeight : Infinity,
     }
     if (!open())
       return {
@@ -218,9 +225,10 @@ function ColorEditingExampleCard(props: {
     if (!current || !field) return
     field.style.left = `${current.screen.x}px`
     field.style.top = `${current.screen.y}px`
-    const columnTop = current.panelPlace === 'above' ? -panelHeight() : 0
+    const shown = 'panelMaxHeight' in current && current.panelMaxHeight !== undefined ? current.panelMaxHeight : panelHeight()
+    const columnTop = current.panelPlace === 'above' ? -shown : 0
     const bottom = Math.max(
-      current.screen.height + (current.panelPlace === 'below' && open() ? panelHeight() : 0),
+      current.screen.height + (current.panelPlace === 'below' && open() ? shown : 0),
       current.sideTop + columnTop + (current.sideMaxHeight ?? sideSize().height),
     )
     stage.style.height = `${Math.max(canvas.clientHeight, current.screen.y + bottom + MARGIN)}px`
