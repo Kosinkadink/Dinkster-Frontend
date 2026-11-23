@@ -3609,8 +3609,9 @@ export class CanvasRenderer {
       // A skipped node gave nothing, so its rows are quiet; its outline,
       // selection, tab and problem marks are painted outside this dimming.
       const rowsAlpha = ctx.globalAlpha
+      const skippedRows = progress?.state === 'skipped'
       this.problemMarkAlpha = rowsAlpha
-      if (progress?.state === 'skipped') ctx.globalAlpha = rowsAlpha * canvasPaintTokens.node.skippedRowOpacity
+      if (skippedRows) ctx.globalAlpha = rowsAlpha * canvasPaintTokens.node.skippedRowOpacity
       for (const row of l.rows) {
         const rowY = node.y + row.y
         if (row.kind === 'section') {
@@ -3695,7 +3696,7 @@ export class CanvasRenderer {
           this.drawFieldRow(ctx, sceneNode, node, row)
         }
       }
-      ctx.globalAlpha = rowsAlpha
+      if (skippedRows) ctx.globalAlpha = rowsAlpha
     }
 
     const preview = this.previews[node.id]

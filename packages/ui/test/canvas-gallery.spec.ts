@@ -365,10 +365,13 @@ for (const theme of ['dark', 'light'] as const) {
             page.locator('figure.dinkster-canvas-example canvas').first(),
           ).toHaveAttribute('data-ready', `${id}-${theme}`)
         }
-        // No comparison is behind a list: only the widget kind remains.
-        await expect(page.getByRole('combobox')).toHaveCount(
-          id === 'widget-states' ? 1 : 0,
-        )
+        // No comparison is behind a list: only the widget kind remains. The
+        // Representation controls in side parts are examples, not lists.
+        await expect(
+          page
+            .getByRole('combobox')
+            .and(page.locator(':not(.dinkster-canvas-side-representation *)')),
+        ).toHaveCount(id === 'widget-states' ? 1 : 0)
         const cards = await cardsReady(page, id, theme)
         const comparisons = page.locator('.dinkster-canvas-comparison')
         if (
