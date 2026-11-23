@@ -171,6 +171,10 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   const runEntries = runs.getByTestId('collection-entry')
   await expect(panel.getByTestId('execution-row')).toHaveCount(3)
   await capture(page, 'after-activity-all-workflows-counts')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(panel.getByRole('img', { name: '2 running, 1 queued', exact: true })).toBeInViewport()
+  await capture(page, 'after-activity-narrow-counts')
+  await page.setViewportSize({ width: 1600, height: 950 })
   await page.evaluate(() => {
     const store = window.__dinksterTest!.app.store
     const external = [...store.executions.get().values()].find((entry) => entry.ref.prompt.startsWith('external-incomplete-'))!
