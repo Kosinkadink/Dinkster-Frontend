@@ -516,6 +516,9 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
     const outputs = page.getByTestId('outputs-panel')
     await expect(outputs.getByRole('alert')).toContainText('GET /api/nodes failed: 503')
     await expect(outputs.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
+    await page.mouse.move(width / 2, height / 2)
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('app-tooltip')).toBeHidden()
     await screenshot(page, `metadata-error-outputs-${width}`)
   }
   recover = true
