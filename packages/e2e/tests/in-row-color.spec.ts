@@ -215,3 +215,57 @@ test('opacity: a field that declares it keeps it, another drops it with a note; 
   await expect.poll(() => value(page, 'code')).toBe(0xab1203)
   await expect(editor(page)).toHaveCount(0)
 })
+
+test('a wired color whose opacity the field drops: the row paints the color used, and a click explains it without opening a field', async ({ page }) => {
+  await openPaint(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'ColorSource', displayName: 'Color source', category: 'test', source: 'v3', isOutputNode: false,
+      items: [
+        { kind: 'input', id: 'source', type: { kind: 'concrete', name: 'COLOR' }, optional: false, widget: { widgetType: 'COLOR', options: {}, default: '#000000' } },
+        { kind: 'output', id: 'color', type: { kind: 'concrete', name: 'COLOR' }, knownValue: { input: 'source' } },
+      ],
+    }] as never)
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'wired-color', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        src: { id: 'src', type: 'ColorSource', values: { source: '#3366cc80' } },
+        n1: { id: 'n1', type: 'Paint', values: { fill: '#000000', tint: '#000000', code: 0, size: 8 } },
+      }, links: {
+        l1: { id: 'l1', from: { node: 'src', port: 'color' }, to: { node: 'n1', port: 'fill' } },
+        l2: { id: 'l2', from: { node: 'src', port: 'color' }, to: { node: 'n1', port: 'tint' } },
+      }, nets: {}, reroutes: {}, nextOrdinal: 3 } },
+      view: { graphs: { g0: { nodes: { src: { position: { x: -200, y: 100 } }, n1: { position: { x: 100, y: 100 } } } } } },
+    } as never, 'Wired color')
+    window.__dinksterTest!.renderer!.setViewport({ x: 300, y: 50, scale: 1 })
+  })
+  const companions = () => page.evaluate(() =>
+    structuredClone((window.__dinksterTest!.renderer as unknown as { companions: Record<string, Record<string, { value: unknown }>> }).companions['n1']))
+  // The field without opacity paints #3366cc; the field with opacity paints what arrives.
+  await expect.poll(async () => [(await companions())?.['fill']?.value, (await companions())?.['tint']?.value]).toEqual(['#3366cc', '#3366cc80'])
+  const note = page.getByTestId('row-focus')
+  const fill = await rowPoint(page, 'n1', 'fill')
+  await page.mouse.click(fill.x, fill.y)
+  await expect(note).toContainText('The wire brings #3366cc80.')
+  await expect(note).toContainText('This field does not use opacity, so #3366cc is used.')
+  await expect(note.locator('[data-testid="canvas-row-focus"]')).toHaveAttribute('data-neutral', 'true')
+  await expect(field(page)).toHaveCount(0)
+  // Enter does not open the wired row; Escape closes the note.
+  await page.keyboard.press('Enter')
+  await expect(field(page)).toHaveCount(0)
+  await expect(note).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(note).toHaveCount(0)
+  // A second click on the row closes the note it opened.
+  await page.mouse.click(fill.x, fill.y)
+  await expect(note).toBeVisible()
+  await page.mouse.click(fill.x, fill.y)
+  await expect(note).toHaveCount(0)
+  // A wired color with nothing to say opens nothing.
+  const tint = await rowPoint(page, 'n1', 'tint')
+  await page.mouse.click(tint.x, tint.y)
+  await expect(note).toHaveCount(0)
+  await expect(field(page)).toHaveCount(0)
+  expect(await value(page, 'fill')).toBe('#000000')
+})

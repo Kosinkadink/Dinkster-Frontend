@@ -40,8 +40,8 @@ import {
 } from '../../canvas/gallery/color-editing.js'
 import {
   CanvasColorCode,
+  CanvasColorArriving,
   CanvasColorKeys,
-  CanvasColorLine,
   CanvasColorPicker,
   CanvasColorSide,
   CanvasColorSquare,
@@ -271,14 +271,7 @@ function ColorEditingExampleCard(props: {
       const used = colorFieldDraft(current.arriving, current.stored, current.stored, false)
       return (
         <CanvasSidePart>
-          <CanvasColorLine>
-            The wire brings <CanvasColorCode color={current.arriving} />.
-          </CanvasColorLine>
-          <Show when={used.droppedOpacity}>
-            <CanvasColorLine>
-              This field does not use opacity, so <CanvasColorCode color={used.enter} /> is used.
-            </CanvasColorLine>
-          </Show>
+          <CanvasColorArriving arriving={current.arriving} used={used.enter} />
         </CanvasSidePart>
       )
     }

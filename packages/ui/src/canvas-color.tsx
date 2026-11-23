@@ -420,6 +420,25 @@ export function CanvasColorLine(props: { children: JSX.Element }) {
   return <p class="dinkster-canvas-color-line">{props.children}</p>
 }
 
+/**
+ * The lines of a wired color row's side part: the color the wire brings and,
+ * when the field drops its opacity, the color the field uses instead.
+ */
+export function CanvasColorArriving(props: { arriving: string; used: string }) {
+  return (
+    <>
+      <CanvasColorLine>
+        The wire brings <CanvasColorCode color={props.arriving} />.
+      </CanvasColorLine>
+      <Show when={props.used !== props.arriving}>
+        <CanvasColorLine>
+          This field does not use opacity, so <CanvasColorCode color={props.used} /> is used.
+        </CanvasColorLine>
+      </Show>
+    </>
+  )
+}
+
 /** What the keyboard does on the picker control it is on, for the side part. */
 export function CanvasColorKeys(props: { control: CanvasColorControl; point: CanvasColorPoint }) {
   const percent = (value: number) => Math.round(value * 100)
