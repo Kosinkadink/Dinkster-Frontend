@@ -2095,6 +2095,10 @@ function compileImpl(
         continue
       }
       if (input.apiName === undefined) continue
+      // An empty save target from an older workflow is left out, so the
+      // input's declared default (Project default with its name) applies;
+      // the backend refuses a literal null.
+      if (value === null && input.spec.widget?.widgetType === 'SAVE_TARGET') continue
       // Stage under the ELABORATED id (identical to the persisted value key
       // except for '#'/'%'-escaped static ids).
       const lowered = lowerWidgetLiteral(fn, input, value, nodeDiags)

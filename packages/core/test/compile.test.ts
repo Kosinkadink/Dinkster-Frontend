@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { compile, scopeClosure, type CompileInput } from '../src/compile/compile.js'
 import { semanticHashOf, sha256Hex } from '../src/compile/hash.js'
 import type { ExecutionScope } from '../src/compile/artifact.js'
-import type { WorkflowDocument } from '../src/format/document.js'
+import type { Json, WorkflowDocument } from '../src/format/document.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
@@ -417,6 +417,30 @@ describe('value handling', () => {
       })
     }
     expect(loaded.document!.graphs[base.root]!.nodes.n0!.values).toEqual({ width: 37, height: 91, mode: 'nearest' })
+  })
+
+  it('leaves an empty save target out so its declared default applies, and sends Project default as stored', () => {
+    const schema: NodeSchema = {
+      type: 'Save', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
+      items: [{ kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional: true,
+        widget: { widgetType: 'SAVE_TARGET', options: {}, default: { prefix: 'ComfyUI' } } }],
+    }
+    const sent = (target: Json) => {
+      const loaded = loadDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'save-target', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'root', nodes: { n0: { id: 'n0', type: 'Save', values: { target } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+        view: { graphs: { g0: { nodes: { n0: { position: { x: 0, y: 0 } } } } } },
+      })
+      expect(loaded.document, JSON.stringify(loaded)).toBeDefined()
+      const result = compile(compileInput(loaded.document!, { kind: 'full' }, () => schema))
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) throw new Error('save target workflow must compile')
+      return result.artifact.prompt['n0']!.inputs['target']
+    }
+    expect(sent(null)).not.toBeNull()
+    expect(sent(null)).toEqual({ prefix: 'ComfyUI' })
+    expect(sent({ prefix: 'renders/portrait' })).toEqual({ prefix: 'renders/portrait' })
+    expect(sent({ mount: 'archive', prefix: 'renders/portrait' })).toEqual({ mount: 'archive', prefix: 'renders/portrait' })
   })
 
   it('unknown value keys warn and are dropped', () => {
