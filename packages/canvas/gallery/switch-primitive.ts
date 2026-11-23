@@ -60,13 +60,13 @@ const pin = (id: string, type: string, displayName = id): InputSpec => ({
   type: concrete(type),
   optional: false,
 })
-const out = (id: string, type: string, displayName = id): OutputSpec => ({
+export const out = (id: string, type: string, displayName = id): OutputSpec => ({
   kind: 'output',
   id,
   displayName,
   type: concrete(type),
 })
-const schema = (
+export const schema = (
   type: string,
   displayName: string,
   body: NodeSchema['body'],
@@ -224,7 +224,7 @@ export interface Graph {
 }
 
 const NODE_WIDTH = 200
-const COLUMN = 230
+export const COLUMN = 230
 
 /**
  * Builds a document of the given graphs and paints one of them the way the
