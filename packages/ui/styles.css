@@ -195,7 +195,8 @@
 .dinkster-window-toolbar .dinkster-avatar { width: var(--dinkster-toolbar-account-circle-size); height: var(--dinkster-toolbar-account-circle-size); background: var(--dinkster-surface-raised); }
 .dinkster-window-toolbar-brand { grid-column: 1; grid-row: 1; display: flex; align-items: center; }
 .dinkster-window-toolbar-search { grid-column: 2; grid-row: 1; display: flex; align-items: center; min-width: 0; }
-.dinkster-window-toolbar-search > .dinkster-window-action, .dinkster-window-toolbar-search > .dinkster-window-action > .dinkster-button { width: 100%; }
+.dinkster-window-toolbar-search > .dinkster-window-action { position: relative; width: 100%; max-width: var(--dinkster-toolbar-search-max-width); }
+.dinkster-window-toolbar-search > .dinkster-window-action > .dinkster-button { width: 100%; border-color: var(--dinkster-border-strong); background: transparent; }
 .dinkster-window-action .dinkster-window-project-label { display: inline-flex; align-items: center; gap: var(--dinkster-space-8); }
 .dinkster-window-action .dinkster-window-project-name { display: block; max-width: var(--dinkster-toolbar-project-name-max-width); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dinkster-window-toolbar-actions { grid-column: 3; grid-row: 1; display: flex; align-items: center; gap: var(--dinkster-space-4); }
@@ -224,6 +225,9 @@
 .dinkster-window-action-shortcut { padding-inline: var(--dinkster-space-4); border: var(--dinkster-border-width) solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-raised); color: var(--dinkster-text-secondary); font: inherit; font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 @container (width < DINKSTER_TOOLBAR_EXPANDED_WIDTH) {
   .dinkster-window-toolbar { grid-template-columns: auto minmax(var(--dinkster-control-compact-height), 1fr) auto auto auto; }
+  .dinkster-window-toolbar-search > .dinkster-window-action { width: var(--dinkster-control-compact-height); }
+  .dinkster-window-toolbar .dinkster-run-activity { flex-direction: column; align-items: flex-start; gap: 0; font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
+  .dinkster-window-toolbar .dinkster-run-activity .dinkster-icon { width: var(--dinkster-space-16); height: var(--dinkster-space-16); }
   .dinkster-window-toolbar-service, .dinkster-window-toolbar .dinkster-window-identity-wide { display: none; }
   .dinkster-window-toolbar .dinkster-window-identity { grid-column: 4; margin-left: 0; }
   .dinkster-window-toolbar .dinkster-window-identity-compact { display: inline; }
@@ -238,6 +242,16 @@
   .dinkster-window-toolbar-brand .dinkster-menu-trigger { width: var(--dinkster-control-compact-height); padding-inline: 0; }
   .dinkster-window-toolbar-brand .dinkster-menu-trigger > .dinkster-icon:last-child { display: none; }
 }
+.dinkster-window-toolbar-brand .dinkster-window-action > .dinkster-button,
+.dinkster-window-toolbar-brand .dinkster-menu-trigger { width: auto; padding-inline: 0; gap: var(--dinkster-space-4); }
+.dinkster-window-toolbar-brand .dinkster-window-action-label { position: static; clip-path: none; width: auto; height: auto; overflow: visible; gap: var(--dinkster-space-4); }
+.dinkster-window-toolbar-brand .dinkster-window-action-icon,
+.dinkster-window-toolbar-brand .dinkster-menu-label { display: none; }
+.dinkster-window-toolbar-brand .dinkster-menu-trigger > .dinkster-icon:last-child { display: inline-flex; }
+.dinkster-window-toolbar-brand .dinkster-window-action [aria-busy='true'] .dinkster-window-action-label,
+.dinkster-window-toolbar-brand .dinkster-window-action [aria-busy='true'] .dinkster-window-action-label .dinkster-icon { visibility: visible; }
+.dinkster-window-toolbar-brand [aria-busy='true'] .dinkster-brand-mark { visibility: hidden; }
+.dinkster-window-toolbar-brand .dinkster-window-action > [aria-busy='true']:has(.dinkster-window-action-label .dinkster-brand-mark) > .dinkster-spinner { left: calc(var(--dinkster-border-width) + var(--dinkster-toolbar-brand-mark-size) / 2); }
 .dinkster-sign-in { display: inline-flex; }
 .dinkster-sign-in .dinkster-menu-trigger > .dinkster-icon { display: none; }
 .dinkster-window-toolbar .dinkster-sign-in .dinkster-button { width: var(--dinkster-control-compact-height); padding: 0; }

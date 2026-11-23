@@ -80,13 +80,13 @@ for (const theme of ['dark', 'light'] as const) {
     await page.addInitScript((selected) => {
       localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
     }, theme)
-    let releaseWordmark!: () => void
-    const wordmarkReady = new Promise<void>((resolve) => { releaseWordmark = resolve })
-    let delayedWordmarks = 0
-    await page.route(/\/branding\/svg\/dinkster-wordmark-color-.*\.svg(?:\?.*)?$/, async (route) => {
+    let releaseSymbol!: () => void
+    const symbolReady = new Promise<void>((resolve) => { releaseSymbol = resolve })
+    let delayedSymbols = 0
+    await page.route(/\/branding\/svg\/dinkster-symbol-color\.svg(?:\?.*)?$/, async (route) => {
       if (route.request().resourceType() !== 'image') return route.continue()
-      delayedWordmarks += 1
-      await wordmarkReady
+      delayedSymbols += 1
+      await symbolReady
       await route.continue()
     })
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -94,18 +94,20 @@ for (const theme of ['dark', 'light'] as const) {
     await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
     const headerBefore = await page.locator('.dinkster-window-toolbar-host').boundingBox()
     const trigger = page.getByTestId('dinkster-menu-button')
-    await expect.poll(() => delayedWordmarks).toBeGreaterThan(0)
+    await expect.poll(() => delayedSymbols).toBeGreaterThan(0)
     const triggerBefore = await trigger.boundingBox()
-    const wordmarkBefore = (await trigger.locator('img').boundingBox())!
-    expect(wordmarkBefore.width).toBe(99)
-    expect(wordmarkBefore.height).toBe(30)
-    releaseWordmark()
+    const symbolBefore = (await trigger.locator('img:visible').boundingBox())!
+    expect(symbolBefore.width).toBe(22)
+    expect(symbolBefore.height).toBe(22)
+    releaseSymbol()
     await expect.poll(() => trigger.locator('img:visible')
       .evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true)
     expect(await page.locator('.dinkster-window-toolbar-host').boundingBox()).toEqual(headerBefore)
     expect(await trigger.boundingBox()).toEqual(triggerBefore)
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
-    await expect(page.getByTestId('dinkster-menu-button').getByRole('img', { name: 'Dinkster' })).toBeVisible()
+    await expect(trigger).toHaveAccessibleName('Dinkster')
+    await expect(trigger.locator('img:visible')).toHaveAttribute('src', /dinkster-symbol-color\.svg/)
+    await expect(trigger.locator('.dinkster-wordmark')).toHaveCount(0)
     const expectedCanvas = theme === 'dark' ? 'rgb(14, 20, 20)' : 'rgb(247, 248, 250)'
     await expect(page.locator('body')).toHaveCSS('background-color', expectedCanvas)
     const manifest = await (await page.request.get('/manifest.webmanifest')).json()
@@ -131,13 +133,13 @@ for (const theme of ['dark', 'light'] as const) {
       window.__dinksterTest!.app.settings.set('dinkster.theme', selected === 'dark' ? 'light' : 'dark')
     }, theme)
     await expect(page.locator('body')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(247, 248, 250)' : 'rgb(14, 20, 20)')
-    await expect(trigger.locator('img')).toHaveAttribute('src', new RegExp(`color-${theme === 'dark' ? 'light' : 'dark'}\\.svg`))
+    await expect(trigger.locator('img:visible')).toHaveAttribute('src', /dinkster-symbol-color\.svg/)
     await page.addStyleTag({ content: '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }' })
     const header = page.locator('.dinkster-window-toolbar-host')
     await header.evaluate((node) => { (node as HTMLElement).dataset['platform'] = 'win32' })
     await page.setViewportSize({ width: 390, height: 900 })
     await expect(trigger).toHaveAccessibleName('Dinkster')
-    expect((await trigger.boundingBox())!.width).toBe(32)
+    expect((await trigger.boundingBox())!.width).toBe(44)
     for (const control of await header.locator('button:visible').all()) {
       const box = (await control.boundingBox())!
       expect(box.x).toBeGreaterThanOrEqual(12)

@@ -131,3 +131,47 @@ test('narrow shell preserves canvas space and keeps search clear of layout contr
   await expect(page.getByTestId('status-bar')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(480)
 })
+
+test('toolbar activity counts all workflows and excludes terminal history', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByTestId('queue-button')).toBeEnabled()
+  const activity = page.locator('.dinkster-window-toolbar-actions .dinkster-run-activity')
+  await expect(activity).toHaveCount(0)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    for (const [index, prompt] of ['toolbar-running-current', 'toolbar-running-other', 'toolbar-waiting'].entries()) {
+      const artifact = {
+        snapshot: structuredClone(tab.store.doc), revision: 0,
+        semanticHash: 'toolbar-activity', scope: { kind: 'full' },
+        connection: app.backendForTab(tab).id, schemaHash: 'toolbar-activity', prompt: {},
+        provenance: { toSource: {}, fromSource: {} }, diagnostics: [],
+      }
+      if (index > 0) artifact.snapshot.lineage = 'toolbar-other-workflow'
+      const ref = { connection: artifact.connection, prompt }
+      app.store.register(ref, artifact, index + 1)
+      if (index < 2) app.store.apply({ kind: 'started', execution: ref, timestamp: index + 10 })
+    }
+  })
+  await expect(activity).toHaveAccessibleName('2 running, 1 queued')
+  await expect(activity.locator('.dinkster-run-activity-running')).toHaveText('2')
+  await expect(activity.locator('.dinkster-run-activity-waiting')).toHaveText('1')
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    for (const control of await page.locator('.dinkster-window-toolbar-host button:visible, .dinkster-window-toolbar-host .dinkster-run-activity').all()) {
+      const bounds = (await control.boundingBox())!
+      expect(bounds.x).toBeGreaterThanOrEqual(12)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 12)
+    }
+    await page.locator('.dinkster-window-toolbar-host').screenshot({ path: `test-results/captures/app-toolbar-activity-${width}.png` })
+  }
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    for (const execution of app.store.executions.get().values()) {
+      if (execution.ref.prompt.startsWith('toolbar-running-')) {
+        app.store.apply({ kind: 'completed', execution: execution.ref, timestamp: 20 })
+      }
+    }
+  })
+  await expect(activity).toHaveCount(0)
+})

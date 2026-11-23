@@ -163,14 +163,17 @@ test('phone toolbar uses D branding and an operable circular account control', a
       await expect(trigger).toHaveText('')
       await expect(
         bar.getByRole('button', { name: 'Search', exact: true }),
-      ).toHaveCSS('border-color', 'rgba(0, 0, 0, 0)')
+      ).not.toHaveCSS('border-color', 'rgba(0, 0, 0, 0)')
     }
     await page.mouse.move(0, 0)
     await bar.screenshot({
       path: `test-results/captures/toolbar-phone-signed-out-${width}.png`,
     })
     await trigger.click()
-    const pending = bar.getByRole('button', { name: 'Signing in', exact: true })
+    const pending = bar.getByRole('button', {
+      name: 'Signing in',
+      exact: true,
+    })
     await expect(pending).toBeFocused()
     await expect(pending).toBeEnabled()
     await expect(pending).toHaveAttribute('aria-busy', 'true')
@@ -231,6 +234,7 @@ test('circular account toolbar fits its measured platform minimums', async ({
   page,
 }) => {
   await page.goto('/#window-toolbar')
+  await page.getByLabel('All-workflow activity').selectOption('running')
   await page.addStyleTag({
     content:
       '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }',
@@ -246,9 +250,9 @@ test('circular account toolbar fits its measured platform minimums', async ({
     ]) {
       await page.getByLabel('Account state').selectOption(account)
       for (const [platform, width] of [
-        ['linux', 342],
-        ['darwin', 422],
-        ['win32', 478],
+        ['linux', 384],
+        ['darwin', 464],
+        ['win32', 520],
       ] as const) {
         const bar = page
           .getByRole('region', { name: `custom dark ${platform}`, exact: true })
@@ -391,8 +395,11 @@ test('44px toolbar keeps account and full compact metadata in one row', async ({
       })
       await expect(account).toHaveCSS('height', '32px')
       await expect(account).toHaveCSS('width', '32px')
-      const wordmark = bar.getByRole('img', { name: 'Dinkster', exact: true })
-      await expect(wordmark).toHaveCSS('height', '30px')
+      const symbol = bar
+        .locator('.dinkster-window-toolbar-brand .dinkster-brand-mark')
+        .first()
+      await expect(symbol).toHaveCSS('height', '22px')
+      await expect(bar.locator('.dinkster-wordmark')).toHaveCount(0)
       const marking = bar.locator('.dinkster-window-identity-compact')
       if (width === 390) {
         await expect(marking).toBeVisible()
@@ -435,6 +442,90 @@ test('44px toolbar keeps account and full compact metadata in one row', async ({
   )
 })
 
+test('toolbar search is outlined, capped and centered with native reservations', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 2000, height: 900 })
+  await page.goto('/#window-toolbar')
+  for (const theme of ['dark', 'light']) {
+    for (const platform of ['linux', 'darwin', 'win32']) {
+      const bar = page
+        .getByRole('region', { name: `qa ${theme} ${platform}`, exact: true })
+        .locator('header')
+      const search = bar.getByRole('button', { name: 'Search', exact: true })
+      await expect(search).not.toHaveCSS('border-color', 'rgba(0, 0, 0, 0)')
+      await expect(search).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+      await expect
+        .poll(async () => {
+          const bounds = (await search.boundingBox())!
+          return { width: bounds.width, center: bounds.x + bounds.width / 2 }
+        })
+        .toEqual({ width: 480, center: 1000 })
+    }
+  }
+})
+
+test('toolbar activity separates running and queued counts and disappears without running work', async ({
+  page,
+}) => {
+  await page.goto('/#window-toolbar')
+  await page.getByLabel('Execution state').selectOption('running')
+  await page.getByLabel('Account state').selectOption('signed-out')
+  const bar = page
+    .getByRole('region', { name: 'custom dark linux', exact: true })
+    .locator('header')
+  await expect(bar.locator('.dinkster-run-activity')).toHaveCount(0)
+  await page.getByLabel('All-workflow activity').selectOption('waiting')
+  await expect(bar.locator('.dinkster-run-activity')).toHaveCount(0)
+  for (const [state, running] of [
+    ['running', '1'],
+    ['multiple', '3'],
+  ] as const) {
+    await page.getByLabel('All-workflow activity').selectOption(state)
+    await expect(
+      bar.getByRole('img', { name: `${running} running, 2 queued` }),
+    ).toBeVisible()
+    await expect(bar.locator('.dinkster-run-activity-running')).toHaveText(
+      running,
+    )
+    await expect(bar.locator('.dinkster-run-activity-waiting')).toHaveText('2')
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect
+        .poll(async () => {
+          const bounds = (await bar.boundingBox())!
+          const activity = (await bar
+            .locator('.dinkster-run-activity')
+            .boundingBox())!
+          return (
+            activity.x >= bounds.x &&
+            activity.x + activity.width <= bounds.x + bounds.width
+          )
+        })
+        .toBe(true)
+      for (const control of await bar
+        .locator('button, .dinkster-run-activity, .dinkster-window-identity')
+        .all()) {
+        const bounds = (await control.boundingBox())!
+        expect(bounds.x).toBeGreaterThanOrEqual(12)
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 12)
+      }
+      const search = (await bar
+        .getByRole('button', { name: 'Search', exact: true })
+        .boundingBox())!
+      const activity = (await bar
+        .locator('.dinkster-run-activity')
+        .boundingBox())!
+      expect(search.x + search.width).toBeLessThanOrEqual(activity.x)
+      await bar.screenshot({
+        path: `test-results/captures/toolbar-run-${state}-${width}.png`,
+      })
+    }
+  }
+  await page.getByLabel('All-workflow activity').selectOption('idle')
+  await expect(bar.locator('.dinkster-run-activity')).toHaveCount(0)
+})
+
 test('Rich toolbar labels preserve branding, compact geometry and pending focus', async ({
   page,
 }) => {
@@ -442,11 +533,11 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
   const imagesReady = new Promise<void>((resolve) => {
     release = resolve
   })
-  await page.route('**/*wordmark*.svg', async (route) => {
+  await page.route('**/*symbol-color*.svg', async (route) => {
     await imagesReady
     await route.continue()
   })
-  await page.goto('/#window-toolbar')
+  await page.goto('/#window-toolbar', { waitUntil: 'domcontentloaded' })
   await page.addStyleTag({
     content:
       '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }',
@@ -471,41 +562,28 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
       await expect(bar.locator('button[aria-pressed]')).toHaveCount(
         right - left < 460 ? 0 : 3,
       )
-      const compact = right - left < 940
       const action = bar.getByRole('button', {
         name: 'Dinkster menu',
         exact: true,
       })
       await expect(action).toHaveAttribute('title', 'Dinkster menu')
       const image = action.locator('.dinkster-window-action-label img')
-      const light = (await section.getAttribute('aria-label'))!.includes(
-        ' light ',
-      )
-      await expect(image).toHaveAttribute(
-        'src',
-        new RegExp(`wordmark-color-${light ? 'light' : 'dark'}`),
-      )
+      await expect(image).toHaveAttribute('src', /symbol-color/)
       expect(
         await image.evaluate((node: HTMLImageElement) => node.complete),
       ).toBe(false)
-      const bounds = (await action.boundingBox())!
-      const label = action.locator('.dinkster-window-action-label')
-      if (compact) {
-        await expect(
-          action.locator('.dinkster-window-action-icon img'),
-        ).toBeVisible()
-        await expect(label).toHaveCSS('clip-path', 'inset(50%)')
-        expect(bounds.width).toBe(32)
-      } else {
-        await expect(
-          action.locator('.dinkster-window-action-icon img'),
-        ).toBeHidden()
-        await expect(label).toHaveCSS('clip-path', 'none')
-        const geometry = (await image.boundingBox())!
-        expect(geometry.width).toBe(99)
-        expect(geometry.height).toBe(30)
-        expect(bounds.width).toBeGreaterThan(99)
-      }
+      await expect(action.locator('.dinkster-wordmark')).toHaveCount(0)
+      await expect(action.locator('.dinkster-window-action-icon')).toBeHidden()
+      await expect(action.locator('.dinkster-window-action-label')).toHaveCSS(
+        'clip-path',
+        'none',
+      )
+      await expect(
+        action.locator('.dinkster-window-action-label > svg'),
+      ).toBeVisible()
+      const geometry = (await image.boundingBox())!
+      expect(geometry.width).toBe(22)
+      expect(geometry.height).toBe(22)
       expect((await bar.boundingBox())!.height).toBe(44)
       for (const button of await bar.getByRole('button').all()) {
         const rect = (await button.boundingBox())!
@@ -597,6 +675,14 @@ for (const state of ['running', 'pending'])
         await bar.evaluate((node, width) => {
           node.style.width = `${width}px`
         }, contentWidth + reservation)
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) => {
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => resolve()),
+              )
+            }),
+        )
         if (state === 'pending') {
           await page.getByLabel('Execution state').selectOption('running')
           const before = await bar.getByRole('button').evaluateAll((nodes) =>
@@ -615,7 +701,10 @@ for (const state of ['running', 'pending'])
             ),
           ).toEqual(before)
           for (const label of ['Dinkster menu', 'Cancel run']) {
-            const action = bar.getByRole('button', { name: label, exact: true })
+            const action = bar.getByRole('button', {
+              name: label,
+              exact: true,
+            })
             await expect(action).toBeDisabled()
             await expect(action).toHaveAttribute('aria-busy', 'true')
             const spinner = (await action
@@ -625,7 +714,7 @@ for (const state of ['running', 'pending'])
             expect(spinner.y + spinner.height / 2).toBe(
               actionBounds.y + actionBounds.height / 2,
             )
-            if (contentWidth < 940 || label === 'Cancel run')
+            if (label === 'Cancel run')
               expect(spinner.x + spinner.width / 2).toBe(
                 actionBounds.x + actionBounds.width / 2,
               )
@@ -645,7 +734,7 @@ for (const state of ['running', 'pending'])
           ).toBe(true)
           const searchBounds = (await search.boundingBox())!
           expect(searchBounds.width).toBeGreaterThanOrEqual(116)
-          expect(searchBounds.width).toBe(contentWidth === 940 ? 121 : 221)
+          expect(searchBounds.width).toBe(contentWidth - 738)
           const layoutBounds = (await bar
             .getByRole('button', { name: 'Customize layout', exact: true })
             .boundingBox())!
@@ -690,18 +779,18 @@ for (const state of ['running', 'pending'])
     }
   })
 
-test('Window toolbar keeps actions and identity inside native reservations', async ({
-  page,
-}) => {
-  await page.goto('/#window-toolbar')
-  await page.addStyleTag({
-    content:
-      '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }',
-  })
-  await page.getByLabel('Account state').selectOption('signed-out')
-  const sections = page.locator('section[aria-label]')
-  await expect(sections).toHaveCount(18)
-  for (const state of ['idle', 'running', 'pending']) {
+for (const state of ['idle', 'running', 'pending'])
+  test(`Window toolbar keeps actions and identity inside native reservations when ${state}`, async ({
+    page,
+  }) => {
+    await page.goto('/#window-toolbar')
+    await page.addStyleTag({
+      content:
+        '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }',
+    })
+    await page.getByLabel('Account state').selectOption('signed-out')
+    const sections = page.locator('section[aria-label]')
+    await expect(sections).toHaveCount(18)
     await page.getByLabel('Execution state').selectOption(state)
     for (const fixtureWidth of [1440, 929, 928, 873, 872, 793, 792, 390]) {
       for (const section of await sections.all()) {
@@ -844,39 +933,39 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
         }
       }
     }
-  }
-  await page.getByLabel('Execution state').selectOption('running')
-  const first = sections.first()
-  const search = first.getByRole('button', { name: 'Search', exact: true })
-  await page.getByLabel('Search shortcut').selectOption('Alt+K')
-  await expect(search).toHaveAccessibleDescription('Search (Alt+K)')
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await expect(search.locator('kbd')).toHaveText('Alt+K')
-  await expect(search.locator('kbd')).toBeVisible()
-  await page.getByLabel('Search shortcut').selectOption('')
-  await expect(search.locator('kbd')).toHaveCount(0)
-  await expect(search).toHaveAttribute('title', 'Search')
-  await search.click()
-  await expect(page.getByRole('status')).toHaveText('Search opened')
-  await first.getByRole('button', { name: 'Cancel run' }).click()
-  await expect(page.getByRole('status')).toHaveText('Run cancelled')
-  const trigger = first.getByRole('button', {
-    name: 'Dinkster menu',
-    exact: true,
+    await page.getByLabel('Execution state').selectOption('running')
+    const first = sections.first()
+    const search = first.getByRole('button', { name: 'Search', exact: true })
+    await page.getByLabel('Search shortcut').selectOption('Alt+K')
+    await expect(search).toHaveAccessibleDescription('Search (Alt+K)')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(search.locator('kbd')).toHaveText('Alt+K')
+    await expect(search.locator('kbd')).toBeVisible()
+    await page.getByLabel('Search shortcut').selectOption('')
+    await expect(search.locator('kbd')).toHaveCount(0)
+    await expect(search).toHaveAttribute('title', 'Search')
+    await search.click()
+    await expect(page.getByRole('status')).toHaveText('Search opened')
+    await first.getByRole('button', { name: 'Cancel run' }).click()
+    await expect(page.getByRole('status')).toHaveText('Run cancelled')
+    const trigger = first.getByRole('button', {
+      name: 'Dinkster menu',
+      exact: true,
+    })
+    await trigger.click()
+    await expect(first.getByRole('menu')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(first.getByRole('menu')).toBeHidden()
+    await trigger.click()
+    await first.getByRole('menuitem', { name: 'Projects' }).click()
+    await expect(first.getByRole('menu')).toBeHidden()
+    await expect(page.getByRole('status')).toHaveText('Projects opened')
+    await page.addScriptTag({ content: axe.source })
+    expect(
+      await page.evaluate(
+        async () =>
+          (await (window as unknown as { axe: typeof axe }).axe.run())
+            .violations,
+      ),
+    ).toEqual([])
   })
-  await trigger.click()
-  await expect(first.getByRole('menu')).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(first.getByRole('menu')).toBeHidden()
-  await trigger.click()
-  await first.getByRole('menuitem', { name: 'Projects' }).click()
-  await expect(first.getByRole('menu')).toBeHidden()
-  await expect(page.getByRole('status')).toHaveText('Projects opened')
-  await page.addScriptTag({ content: axe.source })
-  expect(
-    await page.evaluate(
-      async () =>
-        (await (window as unknown as { axe: typeof axe }).axe.run()).violations,
-    ),
-  ).toEqual([])
-})

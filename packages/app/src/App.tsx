@@ -41,9 +41,8 @@ import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductRunActivity, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductWordmark } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductRunActivity, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
-import Menu from 'lucide-solid/icons/menu'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
 import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
@@ -198,7 +197,6 @@ const APP_MENU_COMMAND_GROUPS = [
 ] as const
 
 export function DinksterAppMenu(props: {
-  theme?: 'dark' | 'light'
   commands: CommandRegistry
   keybindings: KeybindingRegistry
   /** Signals that invalidate ContextMenu's deliberate per-open snapshot. */
@@ -262,8 +260,8 @@ export function DinksterAppMenu(props: {
     <div class="app-menu" ref={root}>
       <ProductWindowAction
         label={message('shell.applicationTitle')}
-        labelContent={<><ProductWordmark theme={props.theme ?? 'dark'} /><ProductIcon icon={ChevronDown} /></>}
-        icon={Menu}
+        labelContent={<><ProductBrandMark /><ProductIcon icon={ChevronDown} /></>}
+        icon={() => <ProductBrandMark />}
         ref={button}
         data-testid="dinkster-menu-button"
         aria-haspopup="menu"
@@ -1486,6 +1484,10 @@ export function App(props: {
   const pendingRuns = () => {
     executions()
     return app.executionList().filter((execution) => execution.status === 'queued' || execution.status === 'running')
+  }
+  const allWorkflowActivity = () => {
+    executions()
+    return executionActivity(app.executionList())
   }
   const runsActivity = () => {
     executions()
@@ -2826,7 +2828,6 @@ export function App(props: {
         serviceKind={servicesKind()}
         brand={
           <DinksterAppMenu
-            theme={(settingsTick(), app.settings.get<'dark' | 'light'>('dinkster.theme'))}
             commands={app.commands}
             keybindings={app.keybindings}
             invalidationSignals={() => [
@@ -2842,6 +2843,9 @@ export function App(props: {
         }
         search={<UniversalSearchTrigger shortcut={searchShortcut()} onOpen={() => app.searchOpen.set(true)} />}
         actions={<>
+          <Show when={allWorkflowActivity().running > 0}>
+            <ProductRunActivity {...allWorkflowActivity()} label={message('runs.activity', allWorkflowActivity())} />
+          </Show>
           <Show when={managedContext().kind === 'workflow'}>
             <ProductWindowAction label={message('shell.window.moveToMain')} icon={PanelTop} data-testid="redock-workflow" onClick={redockCurrentWindow} />
           </Show>

@@ -969,7 +969,7 @@ scoped shared CSS with embedded Noto fonts plus token-derived native overlay
 colors/height and macOS traffic-light position. The DOM bar and native overlay
 both use `surface.frame`. `native.minimumWidth` supplies Linux, macOS (`darwin`)
 and Windows (`win32`) widths from the three `toolbarMinimumWidth` layout tokens:
-342, 422 and 478px. These include the shared narrow row's 318px and native
+384, 464 and 520px. These include the shared narrow row's 360px with running activity and native
 reservations; hosts with additional controls must measure that fuller row and
 apply a greater minimum. The host applies the minimum to window construction
 and resizing; CSS does not enforce a native window size. The installer reuses the first
@@ -1001,7 +1001,11 @@ outline and 2px offset fit inside the bar's 6px vertical clearance.
 Below the fixed 940px available-content `toolbarExpandedRowWidth`, a container
 query compacts `ProductWindowAction` labels to icons. This boundary holds across
 execution, account and project-name changes. In the expanded row Search takes
-spare grid width and gives it back first. Project labels compose
+spare grid width and gives it back first. Search keeps an unfilled outline, is
+capped at the 480px `toolbarSearchMaxWidth`, and centers on the window when the
+surrounding controls leave room; otherwise it stays within its available grid
+slot. The app-menu button uses the D symbol and chevron at every width, not a
+wordmark or a three-line menu icon. Its accessible name is unchanged. Project labels compose
 `.dinkster-window-project-label` through `labelContent`, with a folder icon and
 `.dinkster-window-project-name` limiting visible text to 160px with an end ellipsis; the required full `label` retains the accessible
 name and tooltip. Service and development become a single
@@ -1015,15 +1019,14 @@ the expanded action label; compact mode hides the hint but retains it in the
 button's title and accessible description without changing its action name.
 Changing or removing the shortcut updates both presentations. The hint is
 informational: the caller still owns shortcut registration and activation.
-An optional `labelContent` replaces only the expanded visible label, for example
-`ProductWordmark` with the host's `theme`. The required string `label` still owns
-the accessible name and title; rich content must be non-interactive. Compact
-mode clips that content and shows the action's icon without changing activation
-or menu ownership. Toolbar wordmarks reserve their shared token width and height
-before the image loads. `ProductWordmark` defaults to dark artwork when no theme
-is supplied. Pending toolbar actions retain their exact non-pending width and
-shared disabled/focus behavior. The spinner replaces the compact icon, the
-leading icon in an expanded rich label, or the leading symbol in a wordmark.
+An optional `labelContent` replaces the expanded visible label. The required
+string `label` still owns the accessible name and title; rich content must be
+non-interactive. Compact mode clips action content and shows the action's icon
+without changing activation or menu ownership, except for the app-menu brand
+slot, which retains its D symbol and chevron at every width. Pending toolbar
+actions retain their exact non-pending width and shared disabled/focus behavior.
+The spinner replaces the compact icon, the leading icon in an expanded rich
+label, or the app-menu D symbol while keeping its chevron.
 For a text-only expanded label, it replaces the drawn text at the center while
 the label continues to supply the accessible name. No other control moves when
 an action becomes pending. Ordinary ProductButton presentation is unchanged.
