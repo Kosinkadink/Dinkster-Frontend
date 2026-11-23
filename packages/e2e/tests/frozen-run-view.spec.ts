@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, type Page } from './fixtures.js'
+import { executionDetails, expect, nativeTest as test, selectProductOption, type Page } from './fixtures.js'
 
 const pointOn = (page: Page, nodeId: string, part: 'header' | 'section' | 'widget' | 'input' | 'output') =>
   page.evaluate(({ nodeId, part }) => {
@@ -31,6 +31,12 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'frozen-view', schemaWire: 1 }, nodes: {},
   } }))
+  await page.route('**/api/history?*', (route) => route.fulfill({ json: { records: [
+    { runId: 'frozen-retained-run', jobRef: 'frozen-retained-run', scope: 'local', clientId: 'frozen-client',
+      jobId: 'frozen-portrait-run', state: 'completed', priority: 0, submittedAt: 1, finishedAt: 2, executed: 2, cached: 0, skipped: 0 },
+    { runId: 'remote-retained-run', jobRef: 'remote-retained-run', scope: 'local', clientId: 'another-client',
+      jobId: 'remote-portrait-run', state: 'completed', priority: 0, submittedAt: 3, finishedAt: 4, executed: 1, cached: 0, skipped: 0 },
+  ] } }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
@@ -154,6 +160,31 @@ test('frozen layout is temporary, edits are refused, and copies keep the arrange
   await expect.poll(() => arrangement(page)).toEqual({ position: { x: 100, y: 150 } })
   expect(await graph(page)).toEqual(originalGraph)
   await expect(frozenTab(page).locator('.tab-dirty')).toHaveCount(0)
+})
+
+test('run rows expose one snowflake and retained runs keep their snapshot availability', async ({ page }, info) => {
+  const row = page.getByTestId('execution-row').first()
+  await expect(row.locator('.runs-row-heading .execution-open')).toBeEnabled()
+  const details = await executionDetails(row)
+  await expect(details.locator('.execution-open')).toHaveCount(0)
+  await expect(row.locator('.execution-open')).toHaveCount(1)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app, tab = app.activeTab()!, result = app.compileTab(tab)
+    if (!result?.ok) throw new Error('Compile failed')
+    const ref = [...app.store.executions.get().values()][0]!.ref
+    app.store.register(ref, result.artifact, 0, { jobRef: 'frozen-retained-run' })
+    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
+  })
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
+  const stored = page.locator('.runs-stored-row').filter({ hasText: 'frozen-portrait-run' })
+  const remote = page.locator('.runs-stored-row').filter({ hasText: 'remote-portrait-run' })
+  await expect(stored.locator('.execution-open')).toHaveCount(1)
+  await expect(remote).toBeVisible()
+  await expect(remote.locator('.execution-open')).toHaveCount(0)
+  await page.screenshot({ path: info.outputPath('frozen-stored-row.png') })
+  await stored.locator('.execution-open').click()
+  await expect(page.getByTestId('frozen-banner')).toBeVisible()
+  await expect(frozenTab(page)).toHaveCount(1)
 })
 
 test('queued and running jobs open frozen and follow only their submitted snapshot', async ({ page }, info) => {
