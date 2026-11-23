@@ -11,6 +11,7 @@
 @import './styles/backends.css';
 @import './styles/library.css';
 @import './styles/shell.css';
+@import './styles/status.css';
 @import './styles/execution-log.css';
 @import './styles/widget-assets.css';
 @import './styles/app-view.css';

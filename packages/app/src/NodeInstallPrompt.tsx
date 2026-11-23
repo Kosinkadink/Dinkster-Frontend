@@ -7,6 +7,8 @@ import { ProductButton } from './ProductControls.js'
 import { PackPreparationStatus } from './PackPreparationStatus.js'
 import { SchemaPreview } from './SchemaPreview.js'
 import { useAppMessage } from './locale.js'
+import { isNativeProjectBackend } from './desktop-bridge.js'
+import { activeProjectId } from './projects.js'
 
 export function NodeInstallPrompt(props: { readonly app: AppState; readonly request: CatalogNode & { readonly backendId: string } }) {
   const message = useAppMessage()
@@ -53,6 +55,15 @@ export function NodeInstallPrompt(props: { readonly app: AppState; readonly requ
     setBusy(true); setPlan(undefined); setStatus(''); setProgress(undefined); setPreparing(true)
     try {
       const target = backend()
+      if (isNativeProjectBackend(target.baseUrl, activeProjectId())) {
+        await props.app.checkProjectNeeds(target, [{ pack: props.request.pack.name, version: props.request.pack.version }],
+          () => !disposed && props.app.nodeInstallRequest.get() === props.request)
+        backend()
+        const needs = props.app.projectNeedsReview.get()
+        if (needs?.backend !== target || !needs.current()) throw new Error(message('projectNeeds.changed'))
+        if (!disposed) close()
+        return
+      }
       const result = await target.connection.planPackInstall([{ pack: props.request.pack.name, version: props.request.pack.version }], controller.signal,
         (value) => { backend(); if (!disposed) setProgress(value) })
       backend()

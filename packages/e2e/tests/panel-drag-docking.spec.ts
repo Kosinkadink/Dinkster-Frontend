@@ -22,7 +22,7 @@ interface DockingTestApp {
 }
 
 const zoneTab = (page: Page, zone: DockZone, id: string): Locator =>
-  page.getByTestId(`dock-zone-${zone}`).locator(`.product-tab[data-tab-id="${id}"]`)
+  page.getByTestId(`dock-zone-${zone}`).locator(`${zone === 'left' ? '[data-panel-title]' : '.product-tab'}[data-tab-id="${id}"]`)
 
 const rightTab = (page: Page, id: string): Locator => zoneTab(page, 'right', id)
 
@@ -87,7 +87,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('sub-threshold panel movement remains a tab click', async ({ page }) => {
-  const outputs = rightTab(page, 'outputs')
+  const outputs = rightTab(page, 'problems')
   const point = await center(outputs)
   const before = await zoneOrder(page, 'right')
 
@@ -103,8 +103,8 @@ test('sub-threshold panel movement remains a tab click', async ({ page }) => {
 })
 
 test('right-zone tab drag previews from one geometry snapshot and persists on release', async ({ page }) => {
-  const outputs = rightTab(page, 'outputs')
-  const queue = rightTab(page, 'queue')
+  const outputs = rightTab(page, 'problems')
+  const queue = rightTab(page, 'runs')
   const from = await center(outputs)
   const to = await center(queue)
   const storedBefore = await page.evaluate(() =>
@@ -154,15 +154,15 @@ test('right-zone tab drag previews from one geometry snapshot and persists on re
 
   await page.mouse.up()
   await expect(outputs).toBeFocused()
-  expect((await zoneOrder(page, 'right'))[0]).toBe('outputs')
+  expect((await zoneOrder(page, 'right'))[0]).toBe('problems')
 
   await page.reload()
   await expect(page.getByTestId('dock-zone-right')).toBeVisible()
-  expect((await zoneOrder(page, 'right'))[0]).toBe('outputs')
+  expect((await zoneOrder(page, 'right'))[0]).toBe('problems')
 })
 
 test('a dragged panel tab shows a cursor-following ghost with its title, icon, and refusal state', async ({ page }) => {
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   const logs = zoneTab(page, 'bottom', 'logs')
   await expect(logs).toBeVisible()
   const from = await center(logs)
@@ -177,7 +177,7 @@ test('a dragged panel tab shows a cursor-following ghost with its title, icon, a
   // Within its own tab strip the target is allowed.
   await page.mouse.move(from.x + 80, from.y, { steps: 3 })
   await expect(ghost).toBeVisible()
-  await expect(ghost.locator('.tab-drag-ghost-title')).toHaveText('Activity')
+  await expect(ghost.locator('.tab-drag-ghost-title')).toHaveText('Log')
   await expect(ghost.locator('.tab-drag-ghost-icon svg')).toBeVisible()
   await expect(ghost).toHaveAttribute('data-refused', 'false')
   const box = (await ghost.boundingBox())!
@@ -224,16 +224,30 @@ test('a dragged panel tab shows a cursor-following ghost with its title, icon, a
   expect(await zoneOrder(page, 'right')).not.toContain('refusal-proof')
 })
 
+async function addOverflowPanels(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as DockingTestApp
+    for (let index = 0; index < 3; index += 1) {
+      app.panels.register({
+        id: `overflow-proof-${index}`, title: `Overflow proof ${index}`,
+        placement: 'rail', allowedPlacements: ['rail'], order: 100 + index,
+        component: () => document.createElement('div'),
+      })
+    }
+  })
+}
+
 test('the all-tabs overflow button appends after hidden tabs', async ({ page }) => {
+  await addOverflowPanels(page)
   await page.getByTestId('rail-resize').focus()
   await page.keyboard.press('Home')
   const overflow = page.getByTestId('dock-zone-overflow-button')
   await expect(overflow).toBeVisible()
 
-  const queue = rightTab(page, 'queue')
+  const queue = rightTab(page, 'runs')
   const from = await center(queue)
   const to = await center(overflow)
-  expect((await zoneOrder(page, 'right')).at(-1)).not.toBe('queue')
+  expect((await zoneOrder(page, 'right')).at(-1)).not.toBe('runs')
 
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
@@ -244,10 +258,11 @@ test('the all-tabs overflow button appends after hidden tabs', async ({ page }) 
   await expect(target).toHaveAttribute('data-allowed', 'true')
   await page.mouse.up()
 
-  expect((await zoneOrder(page, 'right')).at(-1)).toBe('queue')
+  expect((await zoneOrder(page, 'right')).at(-1)).toBe('runs')
 })
 
 test('the hidden-tab tail of a strip appends without reading hidden tab boxes as slots', async ({ page }) => {
+  await addOverflowPanels(page)
   await page.getByTestId('rail-resize').focus()
   await page.keyboard.press('Home')
   const host = page.getByTestId('dock-zone-right')
@@ -256,10 +271,10 @@ test('the hidden-tab tail of a strip appends without reading hidden tab boxes as
   expect(await hiddenTabs.count()).toBeGreaterThan(0)
   for (const tab of await hiddenTabs.all()) expect(await tab.boundingBox()).toBeNull()
 
-  const queue = rightTab(page, 'queue')
+  const queue = rightTab(page, 'runs')
   const from = await center(queue)
   const strip = (await host.locator('.product-tablist').boundingBox())!
-  expect((await zoneOrder(page, 'right')).at(-1)).not.toBe('queue')
+  expect((await zoneOrder(page, 'right')).at(-1)).not.toBe('runs')
 
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
@@ -269,7 +284,7 @@ test('the hidden-tab tail of a strip appends without reading hidden tab boxes as
   await expect(target).toHaveAttribute('data-zone', 'right')
   await page.mouse.up()
 
-  expect((await zoneOrder(page, 'right')).at(-1)).toBe('queue')
+  expect((await zoneOrder(page, 'right')).at(-1)).toBe('runs')
 })
 
 test('release rolls back when the previewed zone disappears during a drag', async ({ page }) => {
@@ -383,7 +398,7 @@ test('hidden bottom target reveals, commits once, and completes a cross-zone mov
 test('left and bottom tab strips start durable cross-zone drags', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 })
   await page.getByTestId('library-toggle').click()
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   const bottomLogs = zoneTab(page, 'bottom', 'logs')
   const fromBottom = await center(bottomLogs)
   const body = (await page.getByTestId('dock-zone-left').locator('.product-tabpanel:not([hidden])').boundingBox())!
@@ -445,7 +460,7 @@ test('unrelated panel-body scrolling preserves a drag through docking', async ({
     content.textContent = 'Scrollable panel content'
     element.append(content)
   })
-  const source = rightTab(page, 'queue')
+  const source = rightTab(page, 'runs')
   const from = await center(source)
   const viewport = page.viewportSize()!
   await page.mouse.move(from.x, from.y)
@@ -462,9 +477,9 @@ test('unrelated panel-body scrolling preserves a drag through docking', async ({
   await capture(page, 'panel-body-scroll-drag')
   await page.mouse.up()
 
-  expect(await zoneOrder(page, 'bottom')).toContain('queue')
-  expect(await zoneOrder(page, 'right')).not.toContain('queue')
-  await expect(zoneTab(page, 'bottom', 'queue')).toBeVisible()
+  expect(await zoneOrder(page, 'bottom')).toContain('runs')
+  expect(await zoneOrder(page, 'right')).not.toContain('runs')
+  await expect(zoneTab(page, 'bottom', 'runs')).toBeVisible()
   await capture(page, 'panel-body-scroll-docked')
 })
 
@@ -488,8 +503,8 @@ test('illegal, Escape, capture-loss, scroll, and resize endings always roll back
     // Widen the rail so the added tab is not clipped into the all-tabs menu.
     app.settings.set('shell.layout.right.width', 420)
   })
-  const queue = rightTab(page, 'queue')
-  const outputs = rightTab(page, 'outputs')
+  const queue = rightTab(page, 'runs')
+  const outputs = rightTab(page, 'problems')
   const railOnly = rightTab(page, 'rollback-proof')
   await expect(railOnly).toBeVisible()
   const from = await center(railOnly)

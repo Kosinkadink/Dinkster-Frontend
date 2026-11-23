@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './fixtures.js'
 import { expect, test, type Locator, type Page } from '../visual.js'
 import { mkdirSync } from 'node:fs'
 
@@ -95,7 +96,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ status: 502, body: 'no v1 backend' }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   // Ownership admission cannot cross a connection lifetime change.
   await page.waitForFunction(() =>
     window.__dinksterTest!.app.backends.get()[0]!.connection.status.get() === 'connected',
@@ -189,11 +190,11 @@ test('ordinary Text uses a compact editor and switches views only from its conte
   const singlePoint = await textRow(page)
   await page.mouse.click(singlePoint.x, singlePoint.y)
   const compactEditor = page.getByTestId('widget-editor')
-  await expect(compactEditor).toHaveAttribute('data-editor-surface', 'popover')
+  await expect(compactEditor).toHaveAttribute('data-editor-surface', 'in-row')
   await expect(compactEditor.locator('input')).toBeVisible()
   await expect(compactEditor.locator('textarea')).toHaveCount(0)
   await page.screenshot({
-    path: `${TEXT_WIDGET_PROOF_DIR}/02-single-line-compact-popover.png`,
+    path: `${TEXT_WIDGET_PROOF_DIR}/02-single-line-in-row.png`,
     animations: 'disabled',
   })
   await page.keyboard.press('Escape')

@@ -1,8 +1,7 @@
 # Collaboration (multiplayer shared sessions)
 
 Multiplayer editing of one workflow by several browsers at once, over the
-backend's dinkster-collab surface (protocolVersion 1; joint contract pinned in
-docs/promises.md and mirrored in Dinkster/docs/PROMISES.md). This document
+backend's dinkster-collab surface (protocolVersion 1). This document
 covers the app-level lifecycle and UX; the underlying state machine is
 `core/src/commands/shared-session.ts` (SharedDocumentSession) and the wire
 adapter is `client/src/collab-connection.ts`.
@@ -15,133 +14,35 @@ sees and makes the same edits live. The sharer's undo/redo history follows
 the tab when the shared session adopts the same document, and the tab's
 revision remains monotonic across that session handoff.
 
-Share, Join and reload rejoin wait for asset ownership acknowledgment from the
-session's backend before replacing the local tab. While pending or refused,
-the existing workflow stays available. A refusal closes the unadopted connection,
-keeps prior undo history and reports the failure through the existing action
-status. Reload rejoin keeps its membership record for retry. An edit, backend
-change, session update or closure during acknowledgment prevents stale adoption;
-switching the editor view alone does not. Successful adoption targets the
-session's backend. Operations newer than the fetched snapshot are acknowledged
-and caught up before the shared tab is installed. The HTTP descriptor's known
-revision starts catch-up even if the socket descriptor has not arrived yet.
-During that initial catch-up, the pending destination must remain unchanged;
-after installation, incoming
-operations require that exact shared session to still own the tab.
+Share, Join, and reload rejoin keep the existing local tab available until
+the session snapshot and its ordered catch-up operations are ready. A failed,
+closed, or stale attempt closes only its unadopted transport, preserves the
+local tab and history, and reports the failure through the existing action
+status. Reload keeps its membership record after a transient failure so it can
+retry. A changed tab, backend, session, or closure during the attempt rejects
+that stale result; changing only the editor view does not.
 
-When sharing or same-origin promotion preserves the document and history, the
-editing receipt follows the replacement session. Its previous complete receipt
-retires only after the replacement is acknowledged and published. Leaving a
-session keeps its existing receipt on the local continuation without releasing
-it; a later complete acknowledged edit can replace it. A different joined
-document does not retire the displaced workflow's durable ownership.
+Successful adoption targets the session backend. Operations newer than the HTTP
+snapshot are caught up before the shared tab is installed, and the descriptor's
+known revision starts that catch-up even before a socket descriptor arrives.
+After installation, incoming operations apply only while that same session still
+owns the tab. A different joined document starts with fresh local history.
 
-After a foreign edit, native shared sessions remove undo/redo records that
-can no longer replay without overwriting the foreign value. Other valid
-history remains available; stale history cannot block later ownership checks.
+After a foreign edit, native shared sessions remove undo/redo records that can
+no longer replay without overwriting the foreign value. Other valid history
+remains available. Incoming server-ordered documents and resync snapshots keep
+the current document visible until they are confirmed; refusal preserves it and
+reports a session error. Changes to local document or history during confirmation
+start a fresh confirmation without making local dispatch asynchronous.
 
 If a workflow session stops, the editor offers **Open recovery copy**. This
-opens the last locally visible document under a new identity in the main
-window, with fresh history, and keeps the failed source open. A workflow
-window returns to the main window after recovery. Changes from other windows
-that have not reached this session are not included in the copy. Recovery
-still requires ownership admission; a refusal leaves the original untouched.
-
-Native shared sessions also confirm incoming server-ordered documents and
-resync snapshots before adopting that confirmed ground. Pending ownership
-keeps the previous document visible; refusal preserves it and reports a
-session error. Changes to local document/history during confirmation cause
-a fresh ownership check, without making local dispatch asynchronous. A schema
-refresh on the same live backend recomputes asset roots and waits for a new
-ownership acknowledgment before publication, keeping the session editable.
-The acknowledged receipt becomes the session's editing receipt only after the
-ordered operation or resync commits, before document and operation observers
-can close the session, never on a refused or superseded attempt.
-Complete receipts from retried confirmations remain protected until a successful
-remote commit can supersede them through the normal durable-root checks, or an
-acknowledged canonical Close ends their exact local document lifetime. A local
-edit alone cannot retire a remote confirmation that has not committed.
-Backend, connection, target or lifecycle changes still refuse stale
-confirmation. This includes same-origin workspace sessions. It does not certify
-every value generated by optimistic rebase or every durable holder, and does
-not enable vault collection.
-
-A confirmed close keeps its exact locally staged recovery identity while
-admission is pending. An already-removed candidate can retire that local receipt
-only after an acknowledged canonical commit incorporates its exact stage and
-document digest. When Close itself first queues recovery, it captures that
-exact stage before removing the tab immediately; admission and canonical
-incorporation still precede recovery retirement. If canonical closure publishes
-before that stage reaches storage, the closing renderer incorporates only its
-exact completed local stage and digest into a fresh canonical admission, without
-restoring tab membership. A recovery write already
-queued before Close keeps its written-stage barrier, protecting newer
-unincorporated edits.
-Each renderer queues at most one canonical reconciliation scan per project and
-storage lifetime while waiting for the commit lock. That scan reads the latest
-recovery sources and operation acknowledgments after entry; notifications after
-entry can queue the next scan. Explicit local writes still stage their recovery
-sources immediately. This keeps duplicate notifications from filling the lock
-queue ahead of admitted cleanup.
-Repeated notifications for an identical pending canonical snapshot share its
-publication barrier instead of invalidating admissions already in flight.
-Each renderer shares its own identical in-flight canonical admission only while
-the exact stored generation, tabs, destinations and schema lifetimes remain
-current. Other renderers still admit their own roots before cleanup; a changed
-snapshot starts a separate generation. If an incomplete renderer publishes first, a
-complete renderer retries the identical snapshot through admission rather than
-publishing against stale bytes.
-Recovery and canonical workspace slots reuse this renderer's complete receipt
-for an identical document in the same project, storage, backend, schema and
-connection lifetime. Workspace title or persisted revision changes alone do
-not change that snapshot's asset census or require new document-owner writes.
-Document candidates retain their own
-admission barrier. A reused receipt stays protected until its last local slot
-and in-flight admission end; overlapping publication cannot release it early.
-Publication rechecks that reused ownership has not begun retirement. Peer
-receipts remain observation-only.
-Overlapping persistence admissions keep late receipts through the same complete
-replacement gate rather than dropping them when another stage publishes.
-An acknowledged empty workspace also retires its locally admitted predecessor
-receipts after the last workflow closes. Each retirement still checks the
-original project, connection generation and exact durable receipt. A complete
-local snapshot can retire after its slot ends even if the catalog refreshed;
-an incomplete snapshot still requires a complete acknowledgment for the exact
-same document under the current schema. Independent readers and recovery
-sources keep their own protection. A release journal is removed only after the
-exact captured owner is confirmed empty and complete at its next revision and
-the journal bytes are unchanged. If storage refuses that removal, a console
-warning reports the failure and the journal remains. An unconfirmed or
-superseded release remains journaled; recovery observes it without replaying
-DELETE.
-Close also waits for pending workspace
-promotion acknowledgments, then retires their complete local receipts through
-the same captured document lifetime and canonical close checks. When promotion
-or joining replaces a local session with a different document snapshot, its
-complete local predecessor receipt follows the replacement's retirement gates;
-it is not forgotten with the displaced session. This does not carry editor
-history across different documents or release independent recovery holders.
-Complete catch-up receipts admitted before joining finishes stay attached to
-that join attempt. Successful adoption carries matching local receipts into
-the adopted session's ordinary replacement and Close checks; failed joins do
-not grant retirement authority. Close captures a complete locally owned
-recovery candidate separately from the canonical stage: a peer may have
-superseded it with the same document. The local receipt retires only after
-synchronized canonical Close, matching captured stages and document digest,
-and removal of the physical recovery candidate.
-When browser recovery writes exceed quota or storage access is refused, the
-current workflow remains editable in memory and previously stored recovery is
-not discarded to make space. A dismissible error banner above the workspace
-and the Problems log ask the user to keep the window open, export the workflow,
-and free browser storage. Dismissing the banner does not discard the edit;
-a later failed attempt shows it again. A later persistence attempt retries
-normally; successful acknowledged canonical cleanup covering all current open
-workflow documents clears the diagnostic.
-
-Repeated peer notifications reuse this app's complete canonical workspace
-receipt only while the stored snapshot and its project, storage, backend,
-schema and connection generation are unchanged. A changed destination or
-schema requires fresh admission; another window's receipt is not adopted.
+opens the last locally visible document under a new identity in the main window,
+with fresh history, and keeps the failed source open. Changes from other windows
+that have not reached this session are not included in the copy. When browser
+storage is unavailable or full, the current workflow remains editable in memory;
+a dismissible error and Problems row ask the user to keep the window open, export
+the workflow, and free browser storage. A later persistence attempt retries
+normally.
 
 The Users button in the top bar opens the Workspace state modal:
 
@@ -271,11 +172,11 @@ attribution records that id along with the user principal and credential kind.
 The command catalog advertises every command in `coreCommandRegistry`, with
 generic JSON metadata when richer parameter documentation is unavailable.
 
-### Ownership, throughput and denials
+### Actor identity, throughput and denials
 
 Before allocating shared document ids, the browser binds its actor id with
 `POST /api/sessions/{id}/actors`. A 409 `actor-principal-mismatch` causes one
-fresh-id attempt, never an infinite retry. Server ownership persists for the
+fresh-id attempt, never an infinite retry. The server persists this binding for the
 session, including across restarts. Bindings are capped at 256 per principal
 and 4096 per session; the cap is reported as 429 `actor-limit`.
 
@@ -284,7 +185,7 @@ the human op budget is 60/second with burst 240, and agents get half of each.
 Agent traffic cannot consume the human budget; rotating actor ids cannot
 multiply it. Idle buckets are removed and the bucket count is bounded.
 
-403, actor-ownership 409, and 429 become distinct `PostOpOutcome` denials with
+403, `actor-ownership` 409, and 429 become distinct `PostOpOutcome` denials with
 a structured diagnostic: `{version: 1, type: "collab.denial", code, status,
 message, sessionId, actorId, opId?, operation?, retryAfterMs?}`. Submission stops, the app
 reports a collaboration Problem, and agent `settle()` rejects an Error whose
@@ -387,8 +288,7 @@ These are pinned by `app/test/collab.test.ts`:
   status watcher distinguishes remote closure from the explicit leave/end
   path because `dropCollabFor` removes the membership BEFORE closing the
   session. A terminal ERROR keeps the membership so the red status stays
-  visible until the user leaves. (Found live 2026-07-27: previously only
-  the presence channel was disposed and the dead membership lingered.)
+  visible until the user leaves.
 - A join whose session ends during the join itself (a session_closed frame
   buffered by the transport replays synchronously at subscription) is
   refused - a dead session never stands up as a membership.
@@ -396,12 +296,11 @@ These are pinned by `app/test/collab.test.ts`:
   subscribes: the WS connects while the HTTP snapshot fetch is still in
   flight, so the descriptor frame (the catch-up baseline) and replayed ops
   can land pre-subscription. They replay to the first subscriber in
-  arrival order, exactly once. Without this a rejoin whose session already
-  held ops above the snapshot revision never caught up (found live
-  2026-07-27). Only authoritative frames buffer (descriptor, ops,
+  arrival order, exactly once, so a rejoin catches up on operations above
+  the snapshot revision. Only authoritative frames buffer (descriptor, ops,
   session_closed - never presence or disconnected), the buffer is bounded
   at 4096, and overflow evicts the oldest op, never the descriptor: a
-  maximum-retention replay of descriptor + 4096 ops is one event over the
+  maximum-buffer replay of descriptor + 4096 ops is one event over the
   cap, and a dropped op is repaired by gap detection while a dropped
   baseline is not. A frame provoked reentrantly during the flush queues
   behind the older buffered events, preserving arrival order.
@@ -563,7 +462,7 @@ id on two backends is two memberships.
   blocks startup.
 
 Pinned by `app/test/collab.test.ts` "reload rejoin" (rejoin + convergence,
-404 cleanup, transient retention, leave removal, malformed storage,
+404 removal, transient failure, leave removal, malformed storage,
 close/replace-during-rejoin races, pending-record death on explicit close,
 per-backend membership identity, repeated-rejoin idempotence).
 
@@ -571,7 +470,10 @@ per-backend membership identity, repeated-rejoin idempotence).
 
 Editor kinds follow the [editor contract](editors.md). These pins let retained
 document surfaces use collaboration and agent commands without reworking this
-layer; parked image editing surfaces are listed in the [rework queue](rework-queue.md).
+layer; parked image editing surfaces are recorded in
+[Image documents workspace](https://github.com/Kosinkadink/comfy-vibe-station/issues/1190),
+[Mask painter](https://github.com/Kosinkadink/comfy-vibe-station/issues/1191), and
+[Compositor editor](https://github.com/Kosinkadink/comfy-vibe-station/issues/1192).
 
 - **Commands are the only mutation path, namespaced per surface.** Editors
   mutate shared state only by dispatching maintained serializable commands
