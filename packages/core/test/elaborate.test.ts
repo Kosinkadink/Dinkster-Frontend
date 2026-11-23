@@ -391,9 +391,9 @@ describe('autogrow grouped templates', () => {
     // always optional.
     expect(inputs.map((i) => i.spec.optional)).toEqual([false, true, true, true])
     expect(inputs.map((i) => i.spec.displayName)).toEqual([
-      'item0.image',
-      'item0.mask',
-      // The offered member reads the name it will have: prefix and position.
+      'item 1.image',
+      'item 1.mask',
+      // Members and the offered member read prefix and position from 1.
       'item 2.image',
       'item 2.mask',
     ])
@@ -449,7 +449,7 @@ describe('autogrow grouped templates', () => {
     const persisted = inputs.find((candidate) => candidate.address.members?.[1] === 'inner')!
     expect(persisted.address).toEqual({ port: 'groups.nested.image', members: ['outer', 'inner'] })
     expect(persisted.apiName).toBe('groups.images.nested.images_m0')
-    expect(persisted.spec.displayName).toBe('images_m0')
+    expect(persisted.spec.displayName).toBe('images_m 1')
     expect(new Set(inputs.map((candidate) => candidate.spec.id)).size).toBe(inputs.length)
   })
 
@@ -514,7 +514,7 @@ describe('autogrow grouped templates', () => {
         && !candidate.origin.ghost
         && candidate.address.port.endsWith('.image'))
       .map((candidate) => candidate.spec.displayName)
-    expect(labels).toEqual(['item0.images_m0', 'item1.images_m0'])
+    expect(labels).toEqual(['item 1.images_m 1', 'item 2.images_m 1'])
   })
 
   describe('growth affordance (nested-only templates, hazard N3)', () => {
@@ -635,7 +635,7 @@ describe('autogrow grouped templates', () => {
         kind: 'growth',
         construct: 'items.sub',
         side: 'input',
-        label: 'item0.sub',
+        label: 'item 1.sub',
         frames: [
           { construct: 'items', members: ['m0'] },
           { construct: 'items.sub', members: ['m0'] },
@@ -661,8 +661,8 @@ describe('autogrow grouped templates', () => {
     const e = elaborateInterface(schemaOf([family]), { values: {}, dynamic: { results: { members: ['m0'] } } })
     const outs = elabOutputsOf(e)
     expect(outs.map((o) => [elabKeyOf(o.address), o.spec.displayName])).toEqual([
-      ['results.image#m0', 'result0.image'],
-      ['results.mask#m0', 'result0.mask'],
+      ['results.image#m0', 'result 1.image'],
+      ['results.mask#m0', 'result 1.mask'],
       ['results.image#m1', 'result 2.image'], // ghost group affordance
       ['results.mask#m1', 'result 2.mask'],
     ])
@@ -1238,15 +1238,15 @@ describe('dynamic outputs', () => {
     const e = elaborateInterface(schemaOf([family]), node)
     const outs = elabOutputsOf(e)
     expect(outs.map((o) => [o.address.members, o.spec.displayName])).toEqual([
-      [['m0'], 'result0'],
-      [['m1'], 'result1'],
+      [['m0'], 'result 1'],
+      [['m1'], 'result 2'],
       [['m2'], 'result 3'], // ghost affordance, symmetric with inputs
     ])
     expect(outs[0]!.spec.type).toEqual({ kind: 'concrete', name: 'IMAGE' })
     expect(e.outputMembers).toEqual({ results: ['m0', 'm1'] })
   })
 
-  it('labels the offered member by the position it will take, not its generated id', () => {
+  it('numbers members and the offered member by stored position from 1, keeping labels a person typed', () => {
     const familyOf = (prefix: string): OutputSpec => ({
       kind: 'output',
       id: 'results',
@@ -1257,13 +1257,47 @@ describe('dynamic outputs', () => {
         naming: { kind: 'prefix', prefix, min: 0, max: 8 },
       },
     })
-    // m1 was removed: the next member is the third, not "4" or "result3".
-    const node = { values: {}, dynamic: { results: { members: ['m0', 'm2'], seq: 3 } } }
-    const labels = (prefix: string) =>
+    // m1 was removed: m2 is the second member and the offer is the third,
+    // whatever the numbers in the ids.
+    const nodeWith = (memberLabels?: Record<string, string>) => ({
+      values: {},
+      dynamic: { results: { members: ['m0', 'm2'], seq: 3, ...(memberLabels ? { memberLabels } : {}) } },
+    })
+    const labels = (prefix: string, node = nodeWith()) =>
       elabOutputsOf(elaborateInterface(schemaOf([familyOf(prefix)]), node)).map((o) => o.spec.displayName)
-    expect(labels('image').at(-1)).toBe('image 3')
-    expect(labels('').at(-1)).toBe('3')
-    expect(labels('image').slice(0, -1)).toEqual(['image0', 'image1'])
+    expect(labels('image')).toEqual(['image 1', 'image 2', 'image 3'])
+    expect(labels('')).toEqual(['1', '2', '3'])
+    expect(labels('image', nodeWith({ m2: 'Subject' }))).toEqual(['image 1', 'Subject', 'image 3'])
+  })
+
+  it('keeps member ids, value keys and API names when it numbers members for display', () => {
+    const family = (materialization?: 'wire15'): InputSpec => ({
+      kind: 'input',
+      id: 'images',
+      type: { kind: 'wildcard' },
+      optional: true,
+      dynamic: {
+        kind: 'autogrow',
+        ...(materialization ? { materialization } : {}),
+        template: [socketInput('item', 'IMAGE', { optional: true })],
+        naming: { kind: 'prefix', prefix: 'image', min: 0, max: 4 },
+      },
+    })
+    const rows = (materialization?: 'wire15') =>
+      elabInputsOf(elaborateInterface(schemaOf([family(materialization)]), {
+        values: {},
+        dynamic: { images: { members: ['m0', 'm2'], seq: 3 } },
+      })).map((input) => [elabKeyOf(input.address), input.apiName, input.spec.displayName])
+    expect(rows()).toEqual([
+      ['images.item#m0', 'images.image0', 'image 1'],
+      ['images.item#m2', 'images.image1', 'image 2'],
+      ['images.item#m3', undefined, 'image 3'],
+    ])
+    expect(rows('wire15')).toEqual([
+      ['images.m0', 'images.image0', 'image 1'],
+      ['images.m2', 'images.image1', 'image 2'],
+      ['images.m3', undefined, 'image 3'],
+    ])
   })
 
 })

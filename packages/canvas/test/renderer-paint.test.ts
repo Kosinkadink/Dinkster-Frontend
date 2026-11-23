@@ -2667,6 +2667,76 @@ describe('node chrome paint on the live renderer', () => {
     expect(paintedAfter(calls, circle, 'fill')?.fillStyle).toBe(typeColor(defaultTokens, 'IMAGE'))
   })
 
+  it('a subgraph input that feeds only inputs accepting a list draws the one-value-or-list pin on the subgraph node and in its Inputs panel', () => {
+    const image = typed('IMAGE')
+    const join: NodeSchema = {
+      type: 'Join', displayName: 'Join', category: 'test', source: 'v3', isOutputNode: false,
+      items: [
+        { kind: 'input', id: 'items', type: image, optional: false, acceptsList: true },
+        { kind: 'output', id: 'list', type: { kind: 'list', element: image } },
+      ],
+    }
+    const single: NodeSchema = {
+      type: 'Single', displayName: 'Single', category: 'test', source: 'v3', isOutputNode: false,
+      items: [{ kind: 'input', id: 'image', type: image, optional: false }],
+    }
+    const doc = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'accepts-list-boundary', root: 'root',
+      graphs: {
+        root: { id: 'root', name: 'Root', nextOrdinal: 10, links: {}, nets: {}, reroutes: {}, nodes: {
+          sub: { id: 'sub', type: '#body', values: {} },
+        } },
+        body: { id: 'body', name: 'Body', nextOrdinal: 10, links: {}, nets: {}, reroutes: {}, nodes: {
+          lists: { id: 'lists', type: 'Join', values: {} },
+          mixed: { id: 'mixed', type: 'Join', values: {} },
+          single: { id: 'single', type: 'Single', values: {} },
+        }, boundary: { inputs: [
+          { id: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
+          { id: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
+        ], outputs: [] } },
+      },
+      view: { graphs: {
+        root: { nodes: { sub: { position: { x: 400, y: 40 } } } },
+        body: { nodes: {
+          lists: { position: { x: 400, y: 40 } },
+          mixed: { position: { x: 400, y: 200 } },
+          single: { position: { x: 400, y: 360 } },
+        } },
+      } },
+    }).document!
+    const resolve = documentResolver(doc, (type) => type === 'Join' ? join : type === 'Single' ? single : undefined)
+    const diamond = defaultTokens.pinRadius * 1.65
+    const shapesAt = (scene: Scene, centers: Record<string, { px: number; py: number }>) => {
+      const calls = paint(scene)
+      return Object.fromEntries(Object.entries(centers).map(([id, { px, py }]) => [id, {
+        diamond: calls.some((c) => c.method === 'moveTo' && c.args[0] === px && c.args[1] === py - diamond),
+        circle: calls.some((c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === defaultTokens.pinRadius),
+      }]))
+    }
+
+    const outside = buildScene({ document: doc, graphId: 'root', resolve, tokens: defaultTokens, measure, widgetMeasure })
+    const node = nodeOf(outside, 'sub')
+    const nodeCenter = (portId: string) => {
+      const pin = node.layout.pins.find((p) => p.direction === 'in' && p.portId === portId)!
+      return { px: node.x + PIN_INSET, py: node.y + pin.y + PIN_DROP }
+    }
+    expect(shapesAt(outside, { lists: nodeCenter('lists'), mixed: nodeCenter('mixed') })).toEqual({
+      lists: { diamond: true, circle: false },
+      mixed: { diamond: false, circle: true },
+    })
+
+    const inside = buildScene({ document: doc, graphId: 'body', resolve, tokens: defaultTokens, measure, widgetMeasure })
+    const panel = inside.boundaryNodes.find((b) => b.side === 'inputs')!
+    const panelCenter = (portId: string) => {
+      const pin = panel.layout.pins.find((p) => p.portId === portId)!
+      return { px: panel.x + panel.layout.width - PIN_INSET, py: panel.y + pin.y + PIN_DROP }
+    }
+    expect(shapesAt(inside, { lists: panelCenter('lists'), mixed: panelCenter('mixed') })).toEqual({
+      lists: { diamond: true, circle: false },
+      mixed: { diamond: false, circle: true },
+    })
+  })
+
   it('Any input and output pins use a neutral fill and dashed outer ring', () => {
     const base = constructsScene()
     const scene: Scene = {
