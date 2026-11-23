@@ -267,6 +267,7 @@ test('unseen stored image/video rows show thumbnails without loading jobs, absen
   await expect(row('Image output').locator('img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
   await expect(row('Video output').locator('video.run-thumbnail')).toHaveAttribute('src', /\/thumbnail-owner\/api\/assets\//)
   await expect(row('Video output').locator('video.run-thumbnail')).toHaveAttribute('data-ready', 'true')
+  if (proof) await page.screenshot({ path: join(proof, 'owning-backend-thumbnails-1440.png'), animations: 'disabled' })
 })
 
 test('Resubmit reopens the producing document and queues a FRESH submission', async ({ page }) => {

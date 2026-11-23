@@ -1,12 +1,15 @@
-import { createEffect, createSignal, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, Show } from 'solid-js'
 
 /** A paused video frame or image; unavailable media leaves no placeholder. */
 export function RunThumbnail(props: { readonly url: string; readonly mediaType: string }) {
   const [failed, setFailed] = createSignal(false)
   const [ready, setReady] = createSignal(false)
+  // Backend refreshes can invalidate props without changing the loaded media.
+  const url = createMemo(() => props.url)
+  const mediaType = createMemo(() => props.mediaType)
   createEffect(() => {
-    props.url
-    props.mediaType
+    url()
+    mediaType()
     setFailed(false)
     setReady(false)
   })
