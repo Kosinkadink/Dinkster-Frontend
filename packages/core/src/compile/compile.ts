@@ -71,7 +71,7 @@ import {
 import { subgraphDefIdOf } from '../invariants.js'
 import { buildRerouteIndex, rerouteDriverOf, rerouteInputTargets, selectorDriverOf, type RerouteIndex, type SelectorResolution, type TraceVia } from '../reroute.js'
 import { effectiveValueSourceSpec, resolvedValueSourceSpec, valueSourceWidgetSpec, type EffectiveValueSourceSpec } from '../value-source.js'
-import { effectivePrimitiveSpec, explicitPrimitiveDefault, explicitPrimitiveLimits, primitiveOf, withPrimitiveValue, type EffectivePrimitiveSpec } from '../primitive.js'
+import { effectivePrimitiveSpec, explicitPrimitiveDefault, explicitPrimitiveLimits, primitiveOf, withPrimitiveValue, type EffectivePrimitiveSpec, type FedField } from '../primitive.js'
 import { matchBypassInput, type BypassCandidate } from './bypass.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../schema/derive-boundary.js'
 import {
@@ -224,18 +224,19 @@ export function documentPrimitiveResolver(doc: WorkflowDocument, base: SchemaRes
     consumers ??= compileImpl({ query: 'valueSources', document: doc, resolve: base }, true).consumers
     const samePath = (path: readonly NodeId[]): boolean =>
       instancePath === undefined || JSON.stringify(path) === JSON.stringify(instancePath)
-    const fed = new Map<string, InputSpec>()
+    const fed = new Map<string, FedField>()
     for (const consumer of consumers) {
       const reaches = consumer.sources.some((source) => 'occurrence' in source && source.graph === graphId &&
         source.occurrence.node === node.id && source.valueKey === shape.value.id && samePath(source.occurrence.instancePath))
       if (!reaches) continue
-      fed.set(JSON.stringify([consumer.terminal.graph, occurrenceKey(consumer.terminal.occurrence), consumer.terminal.valueKey]), consumer.input)
+      fed.set(JSON.stringify([consumer.terminal.graph, occurrenceKey(consumer.terminal.occurrence), consumer.terminal.valueKey]),
+        { name: `${consumer.ref.node}.${consumer.input.displayName ?? consumer.input.id}`, input: consumer.input })
     }
     const def = doc.graphs[graphId]
     const wired = (inputId: string): boolean => def !== undefined && Object.values(def.links).some((link) =>
       isPortEndpoint(link.to) && link.to.node === node.id && link.to.port === inputId)
     const effective = effectivePrimitiveSpec(node.id, shape,
-      [...fed.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, input]) => input),
+      [...fed.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, field]) => field),
       explicitPrimitiveLimits(shape, node, wired), explicitPrimitiveDefault(shape, node, wired))
     cache.set(key, effective)
     return effective

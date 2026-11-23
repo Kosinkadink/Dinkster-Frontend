@@ -114,6 +114,12 @@ export function explicitPrimitiveDefault(
   return value === null || value === '' ? undefined : value
 }
 
+/** A field a primitive feeds, and how a problem names it. */
+export interface FedField {
+  readonly name: string
+  readonly input: InputSpec
+}
+
 export interface EffectivePrimitiveSpec {
   /** The value field's widget: declared, narrowed by the fed fields, then by the primitive's own limits. */
   readonly spec?: WidgetSpec
@@ -133,18 +139,18 @@ export interface EffectivePrimitiveSpec {
 export function effectivePrimitiveSpec(
   nodeId: string,
   shape: PrimitiveShape,
-  fed: readonly InputSpec[],
+  fed: readonly FedField[],
   explicit: Readonly<Record<string, number>>,
   explicitDefault?: Json,
 ): EffectivePrimitiveSpec {
   const diagnostics: Diagnostic[] = []
   const data = { node: nodeId }
   const declared = shape.value.widget
-  const fedWidgets = fed.flatMap((input) => input.widget === undefined ? [] : [input.widget])
-  const labels = new Set(fed.map((input) => input.displayName ?? input.id))
+  const fedWidgets = fed.flatMap(({ name, input }) => input.widget === undefined ? [] : [{ name, widget: input.widget }])
+  const labels = new Set(fed.map(({ input }) => input.displayName ?? input.id))
   const label = labels.size === 1 ? [...labels][0] : undefined
 
-  const widgetType = declared?.widgetType ?? fedWidgets[0]?.widgetType
+  const widgetType = declared?.widgetType ?? fedWidgets[0]?.widget.widgetType
   if (widgetType === undefined) {
     // A choice that feeds no field with options is typed in as text.
     const typed = shape.value.type.kind === 'concrete' && shape.value.type.name === 'COMBO'
@@ -153,23 +159,27 @@ export function effectivePrimitiveSpec(
   const merge = specMergeFor(widgetType)
   let options: Record<string, unknown> = { ...(declared?.options ?? {}) }
   let base = declared
-  for (const widget of fedWidgets) {
+  const agreed: string[] = []
+  for (const { name, widget } of fedWidgets) {
     if (widget.widgetType !== widgetType) {
       diagnostics.push(diag('warning', 'schema', 'primitive.widgetType.conflict',
-        `${nodeId}: it feeds fields of different kinds ('${widgetType}' and '${widget.widgetType}')`, { data }))
+        `${nodeId} feeds ${name}, a field of another kind ('${widget.widgetType}', not '${widgetType}')`, { data }))
       continue
     }
     if (base === undefined) {
       base = widget
       options = { ...widget.options }
+      agreed.push(name)
       continue
     }
     const merged = merge(options, widget.options)
     if ('conflict' in merged) {
-      diagnostics.push(diag('warning', 'schema', 'primitive.options.conflict', `${nodeId}: ${merged.conflict}`, { data }))
+      diagnostics.push(diag('warning', 'schema', 'primitive.options.conflict',
+        `${nodeId} feeds ${[...agreed, name].join(' and ')}, which share no value: ${merged.conflict}`, { data }))
       continue
     }
     options = merged.options
+    agreed.push(name)
   }
 
   const derived = new Set(NUMERIC_LIMITS.map(([, option]) => option).filter((option) =>
@@ -184,8 +194,8 @@ export function effectivePrimitiveSpec(
   }
   // Reset goes to the primitive's own Default, else the default every fed
   // field shares, else the declared default moved into the effective range.
-  const fedDefaults = new Set(fedWidgets.map((widget) => JSON.stringify(widget.default ?? null)))
-  const shared = fedWidgets.length > 0 && fedDefaults.size === 1 ? fedWidgets[0]!.default : undefined
+  const fedDefaults = new Set(fedWidgets.map(({ widget }) => JSON.stringify(widget.default ?? null)))
+  const shared = fedWidgets.length > 0 && fedDefaults.size === 1 ? fedWidgets[0]!.widget.default : undefined
   const fallback = declared?.default
   const clamp = (value: unknown): unknown => {
     if (typeof value !== 'number') return value

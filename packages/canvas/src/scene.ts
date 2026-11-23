@@ -17,6 +17,7 @@ import {
   defaultBoundaryLabels,
   documentNodeResolver,
   documentPrimitiveResolver,
+  primitiveOf,
   documentValueSourceResolver,
   effectiveOccurrenceTopology,
   elabInputsOf,
@@ -1312,7 +1313,23 @@ export function buildScene(input: BuildSceneInput): Scene {
       rendered = rendered.replaceAll(`link '${solverId}'`, `link '${sceneId}'`)
     return rendered
   }
-  const solverDiagnostics = solvedTypes.diagnostics.map((diagnostic): Diagnostic => {
+  // A primitive whose fed fields share no value shows the problem on its
+  // value pin and on each wire it sends here; the value and wires stay.
+  const primitiveDiagnostics: Diagnostic[] = []
+  for (const node of Object.values(def.nodes)) {
+    const base = input.resolve(node.type)
+    const shape = base && primitiveOf(base)
+    if (!shape) continue
+    resolvePrimitive ??= documentPrimitiveResolver(input.document, input.resolve)
+    for (const diagnostic of resolvePrimitive(input.graphId, node, sourcePath)?.diagnostics ?? []) {
+      primitiveDiagnostics.push({ ...diagnostic, anchor: { port: { node: node.id, port: asPortId(shape.value.id) } } })
+      for (const link of Object.values(def.links)) {
+        if (isPortEndpoint(link.from) && link.from.node === node.id && link.from.port === shape.output.id)
+          primitiveDiagnostics.push({ ...diagnostic, anchor: { link: link.id } })
+      }
+    }
+  }
+  const solverDiagnostics = [...solvedTypes.diagnostics.map((diagnostic): Diagnostic => {
     const link = diagnostic.anchor?.link
     const renderedLink = link === undefined ? undefined : solverToScene.get(link)
     const edges = diagnostic.data?.['edges']
@@ -1327,7 +1344,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(renderedLink === undefined ? {} : { anchor: { ...diagnostic.anchor, link: renderedLink as import('@dinkster/core').LinkId } }),
       ...(renderedEdges === undefined ? {} : { data: { ...diagnostic.data, edges: renderedEdges } }),
     }
-  })
+  }), ...primitiveDiagnostics]
 
   // Port-anchored solver diagnostics (e.g. a stale DynamicSlot
   // specialization) mark their pin: the warning must be visible where the

@@ -90,6 +90,7 @@ describe('a primitive works out its value widget', () => {
       [['prim', 'INT', 'a', 'steps'], ['prim', 'INT', 'b', 'far']])
     const effective = effectiveOf(doc, 'prim')!
     expect(effective.diagnostics.map((d) => d.code)).toEqual(['primitive.options.conflict'])
+    expect(effective.diagnostics[0]!.message).toContain('a.Steps and b.far')
     expect(Object.keys(doc.graphs['g0']!.links)).toHaveLength(2)
   })
 
