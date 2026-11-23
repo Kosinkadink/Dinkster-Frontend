@@ -69,15 +69,20 @@ test('narrow shell preserves canvas space and keeps search clear of layout contr
   const canvas = page.locator('.canvas-pane')
   await expect(dock).toBeVisible()
   await expect(rail).toBeVisible()
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const searchShortcut = page.getByTestId('topbar-search').locator('kbd')
+  await expect(searchShortcut).toBeVisible()
+  const expandedSearch = (await page.getByTestId('topbar-search').boundingBox())!
+  const shortcut = (await searchShortcut.boundingBox())!
+  expect(shortcut.x + shortcut.width).toBeLessThanOrEqual(expandedSearch.x + expandedSearch.width)
   await page.setViewportSize({ width: 900, height: 700 })
   await expect(rail).toBeHidden()
   await expect(dock).toBeVisible()
   await expect.poll(async () => (await canvas.boundingBox())!.width).toBeGreaterThanOrEqual(320)
   const search = (await page.getByTestId('topbar-search').boundingBox())!
   const controls = (await page.locator('.dinkster-window-toolbar-actions').boundingBox())!
-  const shortcut = (await page.getByTestId('topbar-search').locator('kbd').boundingBox())!
   expect(search.x + search.width).toBeLessThanOrEqual(controls.x)
-  expect(shortcut.x + shortcut.width).toBeLessThanOrEqual(search.x + search.width)
+  await expect(page.getByTestId('topbar-search').locator('kbd')).toBeHidden()
 
   await page.getByTestId('rail-toggle').click()
   await expect(rail).toBeVisible()
