@@ -108,8 +108,8 @@ test.describe('plain widget editors', () => {
 
   test('COLOR editor passes the layout audit', async ({ page }) => {
     await openEditor(page, 'color')
-    await expect(page.getByTestId('color-editor')).toBeVisible()
-    await auditSurface(page, 'editor-color', '[data-testid=color-editor]')
+    await expect(page.getByTestId('color-picker-square')).toBeVisible()
+    await auditSurface(page, 'editor-color', '[data-testid=widget-editor]')
   })
 
   test('COMBO dropdown passes the layout audit', async ({ page }) => {

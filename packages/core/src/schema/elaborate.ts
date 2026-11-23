@@ -542,6 +542,10 @@ function elaboratePass(
     early.add(path)
     return settled.get(path)
   }
+  /** Every key of the shared choice a Use narrowed with `only`, by the narrowed row. */
+  const declaredKeys = new WeakMap<ChoiceSpec, readonly string[]>()
+  /** Choices already reported for a stored key their place does not offer, by diagnostic index. */
+  const unknownChoices = new Map<string, { readonly index: number; readonly dormant: boolean }>()
   let depth = 0
   let membersVisited = 0
   let halted = false
@@ -823,6 +827,7 @@ function elaboratePass(
         const shared = scope.shared?.get(raw.id)
         if (shared === undefined) continue
         row = applyUse(shared, raw as UseSpec)
+        if (shared.kind === 'choice' && row.kind === 'choice') declaredKeys.set(row, shared.options.map((option) => option.key))
       } else {
         row = raw
       }
@@ -1144,6 +1149,9 @@ function elaboratePass(
     const keys = row.options.map((option) => option.key)
     const storedKey = row.leader === undefined ? stateOf(path)?.selected : undefined
     let key: string | undefined
+    // Set when an option that is not chosen reads a stored key it does not
+    // offer: that place reads as its start key and stores nothing.
+    let startOfPlace = false
     if (row.leader !== undefined) {
       const outcome = evaluate(row.leader, scope)
       if (outcome.kind === 'value' && typeof outcome.value === 'string' && keys.includes(outcome.value)) key = outcome.value
@@ -1155,15 +1163,27 @@ function elaboratePass(
         return
       }
     } else if (storedKey !== undefined) {
-      if (keys.includes(storedKey)) key = storedKey
-      else {
+      if (keys.includes(storedKey)) {
+        key = storedKey
+      } else if (scope.dormant && declaredKeys.get(row)?.includes(storedKey)) {
+        startOfPlace = true
+        key = row.required ? (row.default !== undefined && keys.includes(row.default) ? row.default : keys[0]) : undefined
+      } else {
         // A stored key the pack no longer has is no pick: a required choice
         // goes to its start key and an optional one to none. Opening stores
         // that change (`selected`); the old option's values stay stored.
-        key = row.required ? row.default ?? keys[0] : undefined
-        report('elab.combo.removedOption',
-          `option '${storedKey}' of '${literalText(row.displayName) ?? row.id}' is no longer in the pack. It is now ${key === undefined ? 'none' : `'${key}'`}. The old values are kept.`,
-          path, 'warning', { construct: path, selected: key ?? null })
+        key = row.required ? (row.default !== undefined && keys.includes(row.default) ? row.default : keys[0]) : undefined
+        startOfPlace = scope.dormant === true
+        // A shared choice is reported once; the chosen place's start key
+        // replaces one an unchosen place reported first.
+        const earlier = unknownChoices.get(path)
+        if (earlier === undefined || (earlier.dormant && !scope.dormant)) {
+          report('elab.combo.removedOption',
+            `option '${storedKey}' of '${literalText(row.displayName) ?? row.id}' is no longer in the pack. It is now ${key === undefined ? 'none' : `'${key}'`}. The old values are kept.`,
+            path, 'warning', { construct: path, selected: key ?? null })
+          if (earlier !== undefined) diagnostics.splice(earlier.index, 1, diagnostics.pop()!)
+          unknownChoices.set(path, { index: earlier?.index ?? diagnostics.length - 1, dormant: scope.dormant === true })
+        }
       }
     } else if (row.required && !(shownWhole(scope) && row.default !== undefined) && !view && !scope.ghost && !scope.dormant) {
       // The editor stores a required choice's start key on every command
@@ -1174,7 +1194,7 @@ function elaboratePass(
       // On a subgraph node that shows the choice whole, the default is the definition's pick.
       key = row.required ? row.default ?? keys[0] : shownWhole(scope) ? row.default : undefined
     }
-    chosen.set(path, key ?? null)
+    if (!startOfPlace) chosen.set(path, key ?? null)
     const inRun = !scope.ghost && !scope.dormant
     if (key !== undefined && inRun) choices[path] = key
     if (key !== undefined && inRun && row.required && row.leader === undefined && storedKey === undefined) unstoredChoices[path] = key

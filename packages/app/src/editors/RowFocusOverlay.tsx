@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal } from 'solid-js'
+import { createEffect, createMemo, createSignal, type JSX } from 'solid-js'
 import { CanvasRowFocus, CanvasSidePart } from '@dinkster/ui'
 import { placeRow, rowPlacement, visibleCanvas, type RowBox } from './row-placement.js'
 
@@ -11,6 +11,12 @@ export interface RowFocusState extends RowBox {
   /** The declared default, as the row shows it. */
   readonly defaultText?: string
   readonly help?: string
+  /**
+   * Lines that explain a row which cannot be edited, such as a color a wire
+   * brings. The row then shows them in a neutral side part with no outline
+   * and no field, in place of its default and help.
+   */
+  readonly note?: JSX.Element
 }
 
 /**
@@ -32,7 +38,8 @@ export function RowFocusOverlay(props: {
     sideSize(),
   ))
   const side = createMemo(() => {
-    const { defaultText, help } = props.focus
+    const { defaultText, help, note } = props.focus
+    if (note !== undefined) return <CanvasSidePart>{note}</CanvasSidePart>
     if (defaultText === undefined && help === undefined) return undefined
     return (
       <CanvasSidePart
@@ -49,6 +56,7 @@ export function RowFocusOverlay(props: {
         <CanvasRowFocus
           rowWidth={placement().rowWidth}
           look={props.focus.look}
+          neutral={props.focus.note !== undefined}
           zoomed={placement().scale > 1}
           place={placement().place}
           sideTop={placement().sideTop}

@@ -59,6 +59,9 @@ export function widgetEditorAnchorAlive(
     JSON.stringify(row.sourceFilename ?? null) === JSON.stringify(ed.sourceFilename ?? null)
   if (!sameContract) return false
   if (ed.inRow !== undefined) {
+    // A selector's choice lives on its row, not in the node's values, so a
+    // change from elsewhere shows here.
+    if (target.selector !== undefined && !jsonSameValue((row.derivedValue ?? null) as Json, (ed.initial ?? null) as Json)) return false
     const width = row.width ?? node.layout.width - row.inset * 2
     return ed.rect.x === node.x + row.inset && ed.rect.width === width &&
       ed.rect.y + ed.rect.height / 2 === node.y + row.y + row.height / 2

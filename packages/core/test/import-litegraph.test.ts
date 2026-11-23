@@ -1010,22 +1010,39 @@ describe('serialized output slot identity', () => {
 // -- widget value mapping -----------------------------------------------------
 
 describe('versioned node widget upgrades', () => {
+  // Save Video as the node declares it: the prefix beside the mount, and the
+  // codec and encoding mode shared by the container's options. ComfyUI's
+  // hidden fallback codec is not a row of this node.
+  const saveVideoSchema = (): NodeSchema => {
+    const crf = (fallback: number, max: number) => ({ id: 'crf', kind: 'input', required: true, default: fallback,
+      type: { kind: 'concrete', types: ['FLOAT'] }, widget: { type: 'NUMBER', min: 0, max, step: 1 } })
+    const wire = {
+      outputNode: true,
+      body: [
+        { kind: 'input', id: 'video', required: true, type: { kind: 'concrete', types: ['VIDEO'] } },
+        { kind: 'row', rows: [
+          { kind: 'input', id: 'filename_prefix', required: true, default: 'video/ComfyUI',
+            type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'STRING', multiline: false } },
+          { kind: 'input', id: 'mount', required: false, type: { kind: 'concrete', types: ['STRING'] }, widget: { type: 'MOUNT' } },
+        ] },
+        { kind: 'choice', id: 'format', options: [
+          { key: 'auto', rows: [{ kind: 'use', id: 'codec' }] },
+          { key: 'mp4', rows: [{ kind: 'use', id: 'codec' }] },
+          { key: 'webm', rows: [{ kind: 'use', id: 'codec', only: ['auto', 'av1'] }] },
+        ], shared: [{ kind: 'choice', id: 'codec', options: [
+          { key: 'auto', rows: [] },
+          { key: 'h264', rows: [{ kind: 'use', id: 'encoding' }] },
+          { key: 'av1', rows: [{ kind: 'use', id: 'encoding', inside: [{ kind: 'use', id: 'crf', default: 24, widget: { type: 'NUMBER', min: 0, max: 63, step: 1 } }] }] },
+        ], shared: [{ kind: 'choice', id: 'encoding', required: false, options: [
+          { key: 'auto', rows: [] }, { key: 're-encode', rows: [crf(18, 51)] },
+        ] }] }] },
+      ],
+    } as unknown as DinksterWireSchema
+    return parseDinksterSchema('SaveVideo', wire).schema!
+  }
+
   it.each([['auto', 'auto'], ['mp4', 'h264'], ['webm', 'av1']])('recognizes unlisted SaveVideo %s/%s layouts without inventing a source version', (format, codec) => {
-    const encoding: ChoiceSpec = { kind: 'choice', id: 'encoding', required: false, shared: [], options: [{ key: 'auto', rows: [] }] }
-    const codecChoice: ChoiceSpec = { kind: 'choice', id: 'codec', required: true, shared: [], options: [
-      { key: 'auto', rows: [] }, { key: 'h264', rows: [encoding] }, { key: 'av1', rows: [encoding] },
-    ] }
-    const schema: NodeSchema = { ...sdSchema('SaveVideo', 'Save Video', [], true), body: [
-      { kind: 'row', rows: [
-        sdInput('filename_prefix', 'STRING', 'STRING'),
-        { ...sdInput('mount', 'STRING', 'MOUNT'), optional: true },
-      ] },
-      { kind: 'choice', id: 'format', required: true, shared: [], options: [
-        { key: 'auto', rows: [codecChoice] }, { key: 'mp4', rows: [codecChoice] },
-        { key: 'webm', rows: [{ ...codecChoice, options: [{ key: 'auto', rows: [] }, { key: 'av1', rows: [encoding] }] }] },
-      ] },
-      codecChoice,
-    ] }
+    const schema = saveVideoSchema()
     const localResolve = (type: string) => type === schema.type ? schema : undefined
     for (const version of [undefined, '0.28.0', 'unknown']) for (const { widgets_values, recognized } of [
       { widgets_values: ['video/unversioned', format, codec], recognized: true },
@@ -1053,16 +1070,16 @@ describe('versioned node widget upgrades', () => {
       expect(compiled.ok).toBe(recognized)
       if (compiled.ok) {
         expect(compiled.artifact.prompt.n1!.inputs).toEqual({ filename_prefix: 'video/unversioned' })
+        // The three-widget layout predates the encoding mode, so a codec other than auto encodes automatically.
         expect(compiled.artifact.prompt.n1!.slotVariants).toEqual({
-          format, 'format.codec': codec, codec,
-          ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto', 'codec.encoding': 'auto' }),
+          format, 'format.codec': codec, ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto' }),
         })
       }
     }
+    const [video, row, choice] = schema.body
     for (const body of [
-      [schema.body[1]!, schema.body[0]!, ...schema.body.slice(2)],
       [sdInput('extra', 'STRING', 'STRING'), ...schema.body],
-      [{ kind: 'row' as const, rows: [sdInput('filename_prefix', 'INT', 'INT'), { ...sdInput('mount', 'STRING', 'MOUNT'), optional: true }] }, ...schema.body.slice(1)],
+      [video!, { kind: 'row' as const, rows: [sdInput('filename_prefix', 'INT', 'INT'), { ...sdInput('mount', 'STRING', 'MOUNT'), optional: true }] }, choice!],
     ]) {
       const drifted = { ...schema, body }
       const resolveDrifted = (type: string) => type === schema.type ? drifted : undefined
@@ -1070,23 +1087,40 @@ describe('versioned node widget upgrades', () => {
       const imported = importLitegraph(source, resolveDrifted)
       expect(codesOf(imported.diagnostics)).not.toContain('import.widgets.layoutInferred')
       expect(imported.document!.graphs.g0!.nodes.n1!.ext?.['importer.inferredWidgetLayout']).toBeUndefined()
-      const compiled = compile({ document: imported.document!, revision: 1, resolve: resolveDrifted,
-        scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'drifted-save-video' })
-      expect(compiled.ok).toBe(false)
     }
+    // Rows are found by id, so drawing the format before the prefix changes nothing.
+    const reordered = { ...schema, body: [video!, choice!, row!] }
+    const resolveReordered = (type: string) => type === schema.type ? reordered : undefined
+    const imported = importLitegraph(workflow([lgNode(1, 'SaveVideo', { widgets_values: ['video/unversioned', format, codec] })]), resolveReordered)
+    expect(codesOf(imported.diagnostics)).toEqual(['import.widgets.layoutInferred'])
+  })
+
+  it('reads past the hidden fallback codec and keeps an appended mount in the last position', () => {
+    const schema = saveVideoSchema()
+    const localResolve = (type: string) => type === schema.type ? schema : undefined
+    for (const [widgets_values, values, dynamic] of [
+      [['video/a', 'mp4', 'h264', 're-encode', 20, 'auto'],
+        { filename_prefix: 'video/a', 'format.codec.encoding.crf': 20 }, { format: 'mp4', 'format.codec': 'h264', 'format.codec.encoding': 're-encode' }],
+      [['video/b', 'webm', 'av1', 're-encode', 30, 'h264', 're-encode', 22, 'outputs/b'],
+        { filename_prefix: 'video/b', 'format.codec.encoding.crf': 30, mount: 'outputs/b' }, { format: 'webm', 'format.codec': 'av1', 'format.codec.encoding': 're-encode' }],
+      [['video/c', 'auto', 'auto', 'av1', 'auto'],
+        { filename_prefix: 'video/c' }, { format: 'auto', 'format.codec': 'auto' }],
+    ] as const) {
+      const imported = importLitegraph(workflow([lgNode(1, 'SaveVideo', { widgets_values })]), localResolve)
+      expect(imported.diagnostics).toEqual([])
+      const node = imported.document!.graphs.g0!.nodes.n1!
+      expect(node.values).toEqual(values)
+      expect(Object.fromEntries(Object.entries(node.dynamic ?? {}).map(([key, state]) => [key, state.selected]))).toEqual(dynamic)
+    }
+    // A value that is not a codec is no fallback codec: the mount takes it.
+    const mounted = importLitegraph(workflow([lgNode(1, 'SaveVideo', { widgets_values: ['video/d', 'auto', 'auto', 'outputs/d'] })]), localResolve)
+    expect(mounted.document!.graphs.g0!.nodes.n1!.values).toEqual({ filename_prefix: 'video/d', mount: 'outputs/d' })
   })
 
   it.each(['auto', 'h264', 'av1'])('upgrades SaveVideo 0.3.68 %s choices without shifting the prefix or changing the source', (codec) => {
-    const encoding: ChoiceSpec = { kind: 'choice', id: 'encoding', required: false, shared: [], options: [{ key: 'auto', rows: [] }] }
-    const codecChoice: ChoiceSpec = { kind: 'choice', id: 'codec', required: true, shared: [], options: [
-      { key: 'auto', rows: [] }, { key: 'h264', rows: [encoding] }, { key: 'av1', rows: [encoding] },
-    ] }
-    const schema: NodeSchema = { ...sdSchema('SaveVideo', 'SaveVideo', [sdInput('filename_prefix', 'STRING', 'STRING')], true), body: [
-      sdInput('filename_prefix', 'STRING', 'STRING'),
-      { kind: 'choice', id: 'format', required: true, shared: [], options: [{ key: 'mp4', rows: [codecChoice] }] },
-      codecChoice,
-    ] }
+    const schema = saveVideoSchema()
     const localResolve = (type: string) => type === schema.type ? schema : undefined
+    const choices = { format: 'mp4', 'format.codec': codec, ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto' }) }
     for (const version of ['0.3.68', 'unknown']) for (const expanded of [false, true]) {
       const widgets_values = ['video/Kandinsky5', 'mp4', codec, ...(expanded ? [...(codec === 'auto' ? [] : ['auto']), 'auto'] : [])]
       const source = workflow([lgNode(1, 'SaveVideo', { properties: { ver: version }, widgets_values })])
@@ -1100,18 +1134,10 @@ describe('versioned node widget upgrades', () => {
         const inferred = version === 'unknown' && !expanded
         expect(codesOf(imported.diagnostics)).toEqual(inferred ? ['import.widgets.layoutInferred'] : [])
         expect(compiled.artifact.prompt.n1!.inputs).toEqual({ filename_prefix: 'video/Kandinsky5' })
-        expect(compiled.artifact.prompt.n1!.slotVariants).toEqual({
-          format: 'mp4', 'format.codec': codec,
-          ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto' }), codec: inferred ? codec : 'auto',
-          ...(inferred && codec !== 'auto' ? { 'codec.encoding': 'auto' } : {}),
-        })
+        expect(compiled.artifact.prompt.n1!.slotVariants).toEqual(choices)
       }
     }
-    const widgets_values = {
-      filename_prefix: 'video/keyed', format: 'mp4', 'format.codec': codec,
-      ...(codec === 'auto' ? {} : { 'format.codec.encoding': 'auto' }),
-      codec: 'av1', 'codec.encoding': 'auto',
-    }
+    const widgets_values = { filename_prefix: 'video/keyed', ...choices, codec: 'av1', 'codec.encoding': 'auto' }
     const source = workflow([lgNode(1, 'SaveVideo', { properties: { ver: '0.3.68' }, widgets_values })])
     const before = JSON.stringify(source)
     const imported = importLitegraph(source, localResolve)
@@ -1121,8 +1147,7 @@ describe('versioned node widget upgrades', () => {
       scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'save-video-keyed' })
     expect(compiled.ok).toBe(true)
     if (compiled.ok) {
-      const { filename_prefix, ...choices } = widgets_values
-      expect(compiled.artifact.prompt.n1!.inputs).toEqual({ filename_prefix })
+      expect(compiled.artifact.prompt.n1!.inputs).toEqual({ filename_prefix: 'video/keyed' })
       expect(compiled.artifact.prompt.n1!.slotVariants).toEqual(choices)
     }
   })
