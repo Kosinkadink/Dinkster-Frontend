@@ -1220,3 +1220,69 @@ describe('buildGraphConnectivity', () => {
   })
 
 })
+
+describe('rows kept for a wire on their output', () => {
+  const taps = (...ports: string[]): Connectivity => ({
+    isInputConnected: () => false,
+    isOutputConnected: (port) => ports.includes(port),
+    outputPorts: () => ports,
+  })
+  const shown = (schema: NodeSchema, node: object, connectivity: Connectivity) =>
+    elabInputsOf(elaborateInterface(schema, node as never, connectivity))
+      .map((input) => [input.spec.id, input.kept, input.apiName !== undefined] as const)
+
+  it('keeps a wired row of an option not chosen after the chosen rows, and only that row', () => {
+    const schema = schemaOf([{
+      kind: 'choice', id: 'mode', displayName: 'Mode', required: true, shared: [],
+      options: [
+        { key: 'fast', label: 'Fast', rows: [intInput('steps')] },
+        { key: 'fine', label: 'Fine', rows: [intInput('detail'), intInput('passes')] },
+      ],
+    }])
+    const node = { values: {}, dynamic: { mode: { selected: 'fast' } } }
+    expect(shown(schema, node, taps('mode.passes'))).toEqual([
+      ['mode', undefined, false],
+      ['mode.steps', undefined, true],
+      ['mode.passes', 'Not used while Mode is Fast. Its wire gives nothing.', false],
+    ])
+    // Chosen again, it is an ordinary row; with no wire, it is not drawn.
+    expect(shown(schema, { ...node, dynamic: { mode: { selected: 'fine' } } }, taps('mode.passes')).map(([id, kept]) => [id, kept]))
+      .toEqual([['mode', undefined], ['mode.detail', undefined], ['mode.passes', undefined]])
+    expect(shown(schema, node, taps()).map(([id]) => id)).toEqual(['mode', 'mode.steps'])
+  })
+
+  it('keeps a wired row of another type under its type-led pin', () => {
+    const schema = schemaOf([{
+      kind: 'typeChoice', id: 'model', displayName: 'Model', required: false, rows: [],
+      variants: [
+        { key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, rows: [intInput('width')] },
+        { key: 'latent', type: { kind: 'concrete', name: 'LATENT' }, rows: [intInput('scale')] },
+      ],
+    }])
+    expect(shown(schema, { values: {}, dynamic: { model: { selected: 'image' } } }, taps('model.scale'))).toEqual([
+      ['model', undefined, true],
+      ['model.width', undefined, true],
+      ['model.scale', 'Not used while Model is image. Its wire gives nothing.', false],
+    ])
+  })
+
+  it('keeps a whole member the group does not store at the end of its stored members', () => {
+    const schema = schemaOf([{
+      kind: 'group', id: 'items', displayName: 'Items', member: [intInput('amount'), intInput('weight')],
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 }, grows: 'button', minMembers: 0, maxMembers: 8,
+    }])
+    const node = { values: {}, dynamic: { items: { members: ['item0', 'item2'], seq: 3 } } }
+    const reason = 'No longer part of Items. Its wire gives nothing.'
+    expect(shown(schema, node, taps('items.item1.weight'))).toEqual([
+      ['items.item0.amount', undefined, true],
+      ['items.item0.weight', undefined, true],
+      ['items.item2.amount', undefined, true],
+      ['items.item2.weight', undefined, true],
+      ['items.item1.amount', reason, false],
+      ['items.item1.weight', reason, false],
+    ])
+    // The run's view has no kept rows.
+    expect(elabInputsOf(elaborateInterface(schema, node as never, taps('items.item1.weight'), { promoteGhosts: false }))
+      .some((input) => input.kept !== undefined)).toBe(false)
+  })
+})

@@ -545,8 +545,7 @@ function compileImpl(
   /**
    * A tap on a field the node declares but does not hold now: a member that
    * was removed, or a row under an option or type-led pin that is not
-   * chosen. Its wire stays and gives nothing, like a muted producer, so the
-   * node it feeds goes without the value and the run goes ahead.
+   * chosen. Its wire stays and gives nothing.
    */
   const tapsAbsentRow = (defId: string, nodeId: NodeId, tap: string): boolean => {
     const node = graphOf(defId)?.nodes[nodeId]
@@ -2157,7 +2156,13 @@ function compileImpl(
       if (isWidgetTapRef(link.from)) {
         const tapped = tappedInputs(path, defId, link.from.node, link.from.tap, [])
         if (!tapped && tapsAbsentRow(defId, link.from.node, link.from.tap)) {
-          diags.push(diag('warning', 'compile', 'compile.link.dropped', `${link.what} in graph '${defId}': field '${link.from.node}.${link.from.tap}' is not on its node now, so the wire gives nothing`))
+          // The wire gives nothing, and a run cannot send nothing yet: it is
+          // refused rather than run with the receiving field's own value.
+          const into = isPortEndpoint(link.to) ? ` into '${link.to.node}.${link.to.port}'` : ''
+          diags.push(diag('error', 'compile', 'compile.tap.givesNothing',
+            `The wire from '${link.from.node}.${link.from.tap}'${into} gives nothing: that field is no longer part of its node. A run cannot send nothing yet; unplug the wire.`,
+            { anchor: anchorOf(path, link.from.node) }))
+          continue
         } else if (!tapped) {
           diags.push(diag('error', 'compile', 'compile.tap.missingInput', `${link.from.node}.${link.from.tap}: tapped input is missing in graph ${defId}`))
           continue

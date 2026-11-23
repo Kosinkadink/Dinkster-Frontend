@@ -91,6 +91,12 @@ export interface DynamicAnnotations {
   }
   /** Inactive branch of a document-time selector; display-only. */
   readonly inactive?: true
+  /**
+   * A row no longer part of the node, kept only for the wire on its output
+   * (ElaboratedInput.kept): drawn inactive, not editable, no new wire starts
+   * or ends on it. The text says why.
+   */
+  readonly kept?: string
   /** Input that takes one value or a whole list (InputSpec.acceptsList), whatever its matched type. */
   readonly acceptsList?: true
   /** Derived source for the immediate enclosing region's iteration index. */
@@ -780,6 +786,7 @@ const annotationsOf = (a: DynamicAnnotations): DynamicAnnotations => ({
   ...(a.materialize !== undefined ? { materialize: a.materialize } : {}),
   ...(a.dynamicSlot !== undefined ? { dynamicSlot: a.dynamicSlot } : {}),
   ...(a.inactive ? { inactive: true } : {}),
+  ...(a.kept !== undefined ? { kept: a.kept } : {}),
   ...(a.acceptsList ? { acceptsList: true } : {}),
 })
 
@@ -881,7 +888,8 @@ export function layoutNode(
       ...(item.origin.kind === 'member' || (item.ancestry?.length ?? 0) > 0 ? { familyMember: true } : {}),
       ...(frames !== undefined ? { materialize: frames } : {}),
       ...(dynamicSlot !== undefined ? { dynamicSlot } : {}),
-      ...(selectorDisplay?.[item.address.port] === 'inactive' ? { inactive: true } : {}),
+      ...(selectorDisplay?.[item.address.port] === 'inactive' || (item.kind === 'input' && item.kept !== undefined) ? { inactive: true } : {}),
+      ...(item.kind === 'input' && item.kept !== undefined ? { kept: item.kept } : {}),
       ...(item.kind === 'input' && item.spec.acceptsList ? { acceptsList: true } : {}),
     }
   }
@@ -1230,7 +1238,7 @@ export function layoutNode(
       rowIndex.set(row, rows.length)
       rows.push({ kind: 'widget', y, height, inset, ...w })
       // Socketless controls keep their editor and outgoing value tap.
-      if (!w.socketless && w.editor !== true) pins.push({
+      if (!w.socketless && w.editor !== true && w.kept === undefined) pins.push({
         ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2, type: w.type,
         ...(w.optional ? { optional: true as const } : {}),
         widgetBacked: true as const,

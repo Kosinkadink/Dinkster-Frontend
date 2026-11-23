@@ -182,7 +182,32 @@ const chosen = schema('Strength under a choice', [
     ],
   },
 ])
+const typeLed = schema('Resize by input type', [
+  { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
+  {
+    kind: 'typeChoice',
+    id: 'input',
+    displayName: 'input',
+    required: false,
+    rows: [],
+    variants: [
+      {
+        key: 'IMAGE',
+        type: concrete('IMAGE'),
+        rows: [field('width', 'width', 'FLOAT', 512)],
+      },
+      {
+        key: 'LATENT',
+        type: concrete('LATENT'),
+        rows: [
+          field('scale', 'scale', 'FLOAT', 1.5, { min: 0, max: 8, step: 0.25 }),
+        ],
+      },
+    ],
+  },
+])
 const schemas = [
+  typeLed,
   sampler,
   scheduler,
   fieldScheduler,
@@ -369,7 +394,7 @@ export function widgetTapGallery(
       ],
     ),
     card(
-      "Does not work today: the wire from a field under a choice's option is lost on copy and paste and on replacing the node, and a subgraph's face cannot offer it.",
+      "A field under a choice's option has its own pin. Its wire survives copy and paste and replacing the node, and a subgraph's face can offer it.",
       [
         { id: 'chosen', schema: chosen, x: 0 },
         { id: 'chosen blend', schema: blend, x: right, ...small },
@@ -378,6 +403,64 @@ export function widgetTapGallery(
         {
           from: tap('chosen', 'mode.strength'),
           to: { node: 'chosen blend', port: 'factor' },
+        },
+      ],
+      [0, 60],
+    ),
+    card(
+      "Kept row under an option not chosen: the wire stays on strength, dimmed, after the chosen option's rows. It cannot be edited and gives nothing until it is unplugged or 'fixed' is chosen again.",
+      [
+        {
+          id: 'kept option',
+          schema: chosen,
+          x: 0,
+          dynamic: { mode: { selected: 'ramp' } },
+        },
+        { id: 'kept option blend', schema: blend, x: right, ...small },
+      ],
+      [
+        {
+          from: tap('kept option', 'mode.strength'),
+          to: { node: 'kept option blend', port: 'factor' },
+        },
+      ],
+      [0, 60],
+    ),
+    card(
+      'Kept row under a type-led pin: the input now takes an IMAGE, and the LATENT row scale stays, dimmed, after the IMAGE rows, with its wire.',
+      [
+        {
+          id: 'kept type',
+          schema: typeLed,
+          x: 0,
+          dynamic: { input: { selected: 'IMAGE' } },
+        },
+        { id: 'kept type blend', schema: blend, x: right, ...small },
+      ],
+      [
+        {
+          from: tap('kept type', 'input.scale'),
+          to: { node: 'kept type blend', port: 'factor' },
+        },
+      ],
+      [0, 60],
+    ),
+    card(
+      'Kept member: the document names weight 2, which the group does not store. The whole member stays, dimmed, at the end of the group before its spare row, with its wire.',
+      [
+        {
+          id: 'kept member',
+          schema: grouped,
+          x: 0,
+          values: { 'weights.weight0': 0.25, 'weights.weight1': 0.75 },
+          dynamic: { weights: { members: ['weight0'], seq: 2 } },
+        },
+        { id: 'kept member blend', schema: blend, x: right, ...small },
+      ],
+      [
+        {
+          from: tap('kept member', 'weights.weight1'),
+          to: { node: 'kept member blend', port: 'factor' },
         },
       ],
       [0, 60],

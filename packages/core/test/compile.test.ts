@@ -673,7 +673,6 @@ const dynSchemas: Record<string, NodeSchema> = {
     required: false,
   }]),
   ItemGroup: dynSchemaOf('ItemGroup', [group('items', 'item', { value: dynInput('value', { optional: true }) })]),
-  IntPinSink: dynSchemaOf('IntPinSink', [dynInput('steps', { type: INT })]),
   TapGroup: dynSchemaOf('TapGroup', [group('items', 'item', { value: dynInput('value', { type: INT, optional: true, widget: { widgetType: 'INT', options: {} } }) })]),
   TapChoice: dynSchemaOf('TapChoice', [choice('mode', [
     { key: 'a', rows: [dynInput('amount', { type: INT, optional: true, widget: { widgetType: 'INT', options: {} } })] },
@@ -1271,9 +1270,9 @@ describe('dynamic interfaces', () => {
     expect(result.artifact.prompt['target']!.outputMembers).toEqual({ items: ['item0'] })
   })
 
-  it("sends a field's output from a member, an option and a type-led pin, and nothing once the field is gone", () => {
+  it("sends a field's output from a member, an option and a type-led pin, and refuses the run once the field is gone", () => {
     const tapInto = (source: DynNode, tap: string, extra: Record<string, DynNode> = {}) => dynCompile(dynDoc({
-      nodes: { source, sink: { type: 'IntPinSink' }, ...extra },
+      nodes: { source, sink: { type: 'IntSink' }, ...extra },
       links: [[{ node: 'source', tap }, ['sink', 'steps']], ...(extra['image'] ? [[['image', 'out'], ['source', 'model']] as [DynEnd, DynEnd]] : [])],
     }))
     const sent = (result: ReturnType<typeof dynCompile>) => {
@@ -1286,12 +1285,19 @@ describe('dynamic interfaces', () => {
     expect(sent(tapInto({ type: 'TapSlot', values: { 'model.weight': 6 } }, 'model.weight', { image: { type: 'ImageSrc' } }))).toEqual({ steps: 6 })
 
     // The member removed, the other option chosen, the pin unplugged: the
-    // wire gives nothing, the node it feeds goes without, and the run goes ahead.
-    const removed = tapInto({ type: 'TapGroup', values: { 'items.item0': 4 }, dynamic: { items: { members: ['item0'], seq: 2 } } }, 'items.item1')
-    expect(sent(removed)).toEqual({})
-    if (removed.ok) expect(removed.artifact.diagnostics.map((d) => d.code)).toContain('compile.link.dropped')
-    expect(sent(tapInto({ type: 'TapChoice', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'b' } } }, 'mode.amount'))).toEqual({})
-    expect(sent(tapInto({ type: 'TapSlot', values: { 'model.weight': 6 } }, 'model.weight'))).toEqual({})
+    // wire gives nothing, which a run cannot send yet, so the run is refused
+    // with one message naming the wire, never run with the receiver's own value.
+    const refused = (result: ReturnType<typeof dynCompile>) => {
+      expect(result.ok).toBe(false)
+      return result.ok ? [] : result.diagnostics.map((d) => [d.code, d.message])
+    }
+    const givesNothing = (tap: string) => [['compile.tap.givesNothing',
+      `The wire from 'source.${tap}' into 'sink.steps' gives nothing: that field is no longer part of its node. A run cannot send nothing yet; unplug the wire.`]]
+    expect(refused(tapInto({ type: 'TapGroup', values: { 'items.item0': 4 }, dynamic: { items: { members: ['item0'], seq: 2 } } }, 'items.item1')))
+      .toEqual(givesNothing('items.item1'))
+    expect(refused(tapInto({ type: 'TapChoice', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'b' } } }, 'mode.amount')))
+      .toEqual(givesNothing('mode.amount'))
+    expect(refused(tapInto({ type: 'TapSlot', values: { 'model.weight': 6 } }, 'model.weight'))).toEqual(givesNothing('model.weight'))
 
     // A field the node never declares is still an error.
     const unknown = tapInto(member, 'itemz.item0')

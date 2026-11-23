@@ -223,6 +223,13 @@ export interface ElaboratedInput {
   readonly materialize?: readonly MaterializeFrame[]
   /** The rows its widget's `writes` and `reads` name, when it names any. */
   readonly parts?: WidgetParts
+  /**
+   * A row no longer part of the node that still has a wire on its output:
+   * under an option not chosen, under a type-led pin of another type, or in
+   * a member the group does not store. It is drawn dimmed, cannot be edited,
+   * is never sent, and its wire gives nothing. The text says why.
+   */
+  readonly kept?: string
 }
 
 /**
@@ -506,6 +513,8 @@ interface Scope {
   readonly formulaFrames: readonly FormulaFrame[]
   /** Use overrides for the shared rows of the choice whose option this is. */
   readonly shared?: ReadonlyMap<string, BodyRow>
+  /** Rows kept only for a wire on their output (see ElaboratedInput.kept). */
+  readonly kept?: { readonly reason: string; readonly onlyWired: boolean }
 }
 
 const scopeType = (type: TypeExpr, member: string): TypeExpr => {
@@ -924,6 +933,27 @@ function elaboratePass(
   }
 
   const connectedPorts = [...(connectivity.inputPorts?.() ?? []), ...(connectivity.outputPorts?.() ?? [])]
+
+  /**
+   * Walk rows that are no longer part of the node for the ones a wire on
+   * their output keeps (as drawn only). The walk settles nothing and reports
+   * nothing: what it reads is not the node's.
+   */
+  const keep = (walk: () => void): void => {
+    if (!view || census) return
+    const reported = diagnostics.length
+    const settledBefore = new Map(chosen)
+    const constructsBefore = new Set(constructs)
+    const unknownBefore = new Map(unknownChoices)
+    walk()
+    diagnostics.length = Math.min(diagnostics.length, reported)
+    chosen.clear()
+    for (const [path, key] of settledBefore) chosen.set(path, key)
+    constructs.clear()
+    for (const path of constructsBefore) constructs.add(path)
+    unknownChoices.clear()
+    for (const [path, entry] of unknownBefore) unknownChoices.set(path, entry)
+  }
   const problemRows = [...(options.problemRows ?? [])]
   /** Whether a wire reaches a row, or any row a box holds. */
   /** Whether the row, or a row the box holds at any depth, has a wire or a problem. */
@@ -945,6 +975,8 @@ function elaboratePass(
   })
 
   const emitInput = (row: InputSpec, path: string, scope: Scope, label?: string, extra: Partial<ElaboratedInput> = {}): void => {
+    if (scope.kept !== undefined &&
+      (emittedInputs.has(path) || (scope.kept.onlyWired && !connectivity.isOutputConnected(path)))) return
     if (!claim(emittedInputs, activeInputs, path, scope)) {
       exhaust('elab.projectedNamespaceCollision', `projected input namespace collision at '${path}'`)
       return
@@ -972,11 +1004,13 @@ function elaboratePass(
       spec,
       ...common(scope),
       ...(parts !== undefined ? { parts } : {}),
+      ...(scope.kept !== undefined ? { kept: scope.kept.reason } : {}),
       ...extra,
     })
   }
 
   const emitOutput = (row: OutputSpec, path: string, scope: Scope, label?: string): void => {
+    if (scope.kept !== undefined) return
     if (!claim(emittedOutputs, activeOutputs, path, scope)) {
       exhaust('elab.projectedNamespaceCollision', `projected output namespace collision at '${path}'`)
       return
@@ -1130,6 +1164,12 @@ function elaboratePass(
   const section = (row: SectionSpec, scope: Scope): void => {
     const id = scope.prefix + row.id
     if (!enter(id)) return
+    if (scope.kept !== undefined) {
+      // A kept row is drawn in the box around its choice, member or pin.
+      rows(row.rows, scope)
+      depth--
+      return
+    }
     const label = answer(row.displayName, scope, 'string') || undefined
     if (!scope.hidden) push({
       kind: 'section',
@@ -1156,7 +1196,7 @@ function elaboratePass(
       }
       if (row.kind !== 'input') continue
       const path = scope.prefix + row.id
-      emitInput(previous === undefined ? row : { ...row, adjacentTo: previous }, path, scope)
+      emitInput(previous === undefined || scope.kept !== undefined ? row : { ...row, adjacentTo: previous }, path, scope)
       previous = path
     }
     depth--
@@ -1264,7 +1304,7 @@ function elaboratePass(
     })
 
     /** Emit one member; returns whether it is in use (a stored value or a wire). */
-    const member = (position: number, key: string, ghost: boolean, dormant = false): boolean => {
+    const member = (position: number, key: string, ghost: boolean, dormant = false, kept?: Scope['kept']): boolean => {
       membersVisited++
       const frames = ghost ? [...(scope.frames ?? []), frameFor(offered.slice(0, position - storedCount + 1))] : scope.frames
       const required = scope.required && (!row.optionalAfterMinimum || position < row.minMembers)
@@ -1283,6 +1323,7 @@ function elaboratePass(
         }],
         ...(frames !== undefined ? { frames } : {}),
         ...(row.independentTypes ? { typeMember: `${path}.${key}` } : {}),
+        ...(kept !== undefined ? { kept } : {}),
       }
       const before = items.length
       if (row.value !== undefined) {
@@ -1338,6 +1379,23 @@ function elaboratePass(
         member(position, key, false, true)
       }
     }
+
+    // A member the group does not store that still has a wire on a field's
+    // output is kept whole, dimmed, after the stored members.
+    keep(() => {
+      const wired = new Map<number, string>()
+      for (const port of connectivity.outputPorts?.() ?? []) {
+        if (!port.startsWith(`${path}.`)) continue
+        const key = port.slice(path.length + 1).split('.')[0]!
+        const position = keyPosition(row.keys, key)
+        if (!keys.includes(key) && position !== undefined) wired.set(position, key)
+      }
+      const reason = `No longer part of ${labelOf(row.displayName, row.id, scope)}. Its wire gives nothing.`
+      for (const [position, key] of [...wired.entries()].sort(([a], [b]) => a - b)) {
+        if (halted) return
+        member(position, key, false, true, { reason, onlyWired: false })
+      }
+    })
 
     // Members the node offers beyond the stored ones: up to the minimum, and
     // one spare once every member of a group that grows by link or by a
@@ -1440,7 +1498,8 @@ function elaboratePass(
     const inRun = !scope.ghost && !scope.dormant
     if (key !== undefined && inRun) choices[path] = key
     if (key !== undefined && inRun && row.required && row.leader === undefined && storedKey === undefined) unstoredChoices[path] = key
-    if (row.leader === undefined) {
+    // A kept walk draws the wired rows of a choice, not its dropdown, unless it keeps a whole member.
+    if (row.leader === undefined && scope.kept?.onlyWired !== true) {
       const label = labelOf(row.displayName, row.id, scope)
       const tooltip = answer(row.tooltip, scope, 'string')
       const startKey = row.required ? row.default ?? keys[0] : undefined
@@ -1478,6 +1537,7 @@ function elaboratePass(
         },
         origin: { kind: 'selector', construct: path, ...(key !== undefined ? { selected: key } : {}) },
         ...(key !== undefined ? { derivedValue: key } : {}),
+        ...(scope.kept !== undefined ? { kept: scope.kept.reason } : {}),
         ...(scope.ancestry.length > 0 ? { ancestry: scope.ancestry } : {}),
         ...(scope.frames !== undefined ? { materialize: scope.frames } : {}),
       })
@@ -1504,6 +1564,24 @@ function elaboratePass(
         formulaFrames: [...scope.formulaFrames, frame],
       })
     }
+    // After the chosen option's rows: rows of other options that keep a wire.
+    const chosenLabel = key === undefined ? 'none' : row.options.find((option) => option.key === key)?.label ?? key
+    const reason = `Not used while ${labelOf(row.displayName, row.id, scope)} is ${chosenLabel}. Its wire gives nothing.`
+    keep(() => {
+      for (const option of row.options) {
+        if (option.key === key) continue
+        rows(option.rows, {
+          ...scope,
+          prefix: `${path}.`,
+          hidden: scope.hidden || row.hidden === true,
+          dormant: true,
+          origin: { kind: 'branch', construct: path, option: option.key },
+          shared,
+          formulaFrames: [...scope.formulaFrames, { prefix: `${path}.`, rows: every }],
+          kept: { reason, onlyWired: true },
+        })
+      }
+    })
   }
 
   const typeChoice = (row: TypeChoiceSpec, path: string, scope: Scope): void => {
@@ -1527,11 +1605,12 @@ function elaboratePass(
       displayName: label,
       ...(tooltip !== undefined ? { tooltip } : {}),
     }
-    const dependents = (list: readonly BodyRow[], variant: string | undefined, dormant: boolean): void => {
+    const dependents = (list: readonly BodyRow[], variant: string | undefined, dormant: boolean, kept?: string): void => {
       rows(list, {
         ...scope,
         prefix: `${path}.`,
         dormant: scope.dormant || dormant,
+        ...(kept !== undefined ? { kept: { reason: kept, onlyWired: true } } : {}),
         origin: { kind: 'dependent', construct: path, ...(variant !== undefined ? { variant } : {}) },
         formulaFrames: [...scope.formulaFrames, {
           prefix: `${path}.`,
@@ -1542,6 +1621,7 @@ function elaboratePass(
     if (row.variants === undefined) {
       emitInput(base, path, scope, undefined, { origin: { kind: 'slot', construct: path } })
       if (stored(path) || census) dependents(row.rows, undefined, !stored(path))
+      else keep(() => dependents(row.rows, undefined, true, `Not used while ${label} has no wire. Its wire gives nothing.`))
       return
     }
     const variants = row.variants.map(({ key, type }) => ({ key, type }))
@@ -1577,6 +1657,13 @@ function elaboratePass(
       )
     }
     if (variant !== undefined) dependents([...row.rows, ...variant.rows], variant.key, false)
+    // After the current type's rows: rows of other types that keep a wire.
+    const keptReason = `Not used while ${label} is ${variant === undefined ? 'not set' : variant.key}. Its wire gives nothing.`
+    keep(() => {
+      for (const item of row.variants!) {
+        if (item !== variant) dependents([...(variant === undefined ? row.rows : []), ...item.rows], item.key, true, keptReason)
+      }
+    })
     if (census) {
       for (const item of row.variants) {
         if (item !== variant) dependents([...(variant === undefined ? row.rows : []), ...item.rows], item.key, true)
