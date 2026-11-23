@@ -146,18 +146,6 @@
     },
     {
       "kind": "rawControl",
-      "path": "packages/app/src/MemoryPanel.tsx",
-      "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "inlineStyle",
-      "path": "packages/app/src/MemoryPanel.tsx",
-      "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
       "path": "packages/app/src/ModalSurface.tsx",
       "count": 1,
       "issue": 382

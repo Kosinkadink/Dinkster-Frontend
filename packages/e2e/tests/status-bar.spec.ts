@@ -48,7 +48,7 @@ test('status readings follow workflow state and open their explanatory panels', 
   await page.getByTestId('status-connection').click()
   await expect(page.getByTestId('backends-panel')).toBeVisible()
   await page.getByTestId('status-memory').click()
-  await expect(page.getByTestId('memory-panel')).toBeVisible()
+  await expect(page.getByTestId('resources-panel')).toBeVisible()
   await page.getByTestId('left-panel-toggle').click()
   const workflowId = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
