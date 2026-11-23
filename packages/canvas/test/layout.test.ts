@@ -1273,3 +1273,58 @@ describe('v14 COMBO layout', () => {
     expect(taps.every((pin) => pin.staticWidgetTap !== true)).toBe(true)
   })
 })
+
+describe('editors shown in the node', () => {
+  const editorMeasure: WidgetMeasure = (spec) =>
+    spec.widgetType === 'WEBCAM' ? { viewId: 'core.webcam', rows: 1 }
+      : spec.widgetType === 'AUDIO_RECORD' ? { viewId: 'core.audioRecord', rows: 1 }
+        : widgetMeasure(spec)
+  const editor = (id: string, widgetType: string, options: Record<string, unknown> = {}) =>
+    input(id, { type: { kind: 'concrete', name: widgetType }, widget: { widgetType, options } })
+  const body = [editor('frame', 'WEBCAM'), editor('clip', 'AUDIO_RECORD', { unfolded: true }), widget('width'), widget('height')]
+  const lay = (options: Parameters<typeof layoutNode>[5] = {}) =>
+    layoutNode(schemaOf(body), nodeData, defaultTokens, measure, editorMeasure, options)
+  const rowY = (layout: ReturnType<typeof lay>, id: string) =>
+    layout.rows.find((row) => row.kind === 'widget' && row.inputId === id)!.y
+
+  it('unfolds under its row, grows the node by its space and moves the rows below down', () => {
+    const folded = lay({ editorUnfolded: { clip: false } })
+    expect(folded.rows.some((row) => row.kind === 'editorSpace')).toBe(false)
+    const open = lay({ editorUnfolded: { clip: false, frame: true } })
+    const spaces = open.rows.filter((row) => row.kind === 'editorSpace')
+    expect(spaces.map((row) => row.valueKey)).toEqual(['frame'])
+    const space = spaces[0]!
+    const frameRow = open.rows.find((row) => row.kind === 'widget' && row.inputId === 'frame')!
+    expect(frameRow.kind === 'widget' && frameRow.unfolded).toBe(true)
+    expect(space.y).toBeGreaterThanOrEqual(frameRow.y + frameRow.height)
+    const grown = open.height - folded.height
+    expect(grown).toBe(space.height)
+    // Every row below starts under the space and moved down by its height.
+    for (const id of ['clip', 'width', 'height']) {
+      expect(rowY(open, id)).toBeGreaterThanOrEqual(space.y + space.height)
+      expect(rowY(open, id) - rowY(folded, id)).toBe(grown)
+    }
+    expect(space.picture).toEqual({ top: canvasPaintTokens.node.editorSpace.pad, height: 180 })
+  })
+
+  it('starts as the declaration says and folds each editor on its own', () => {
+    const fresh = lay()
+    expect(fresh.rows.filter((row) => row.kind === 'editorSpace').map((row) => row.valueKey)).toEqual(['clip'])
+    const both = lay({ editorUnfolded: { frame: true } })
+    expect(both.rows.filter((row) => row.kind === 'editorSpace').map((row) => row.valueKey)).toEqual(['frame', 'clip'])
+    const onlyFrame = lay({ editorUnfolded: { frame: true, clip: false } })
+    expect(onlyFrame.rows.filter((row) => row.kind === 'editorSpace').map((row) => row.valueKey)).toEqual(['frame'])
+  })
+
+  it('keeps a dragged picture height within its limits', () => {
+    const picture = (stored: number) => {
+      const space = lay({ editorUnfolded: { frame: true, clip: false }, pictureHeights: { frame: stored } })
+        .rows.find((row) => row.kind === 'editorSpace')!
+      return space.kind === 'editorSpace' ? space.picture!.height : undefined
+    }
+    const { pictureMin, pictureMax } = canvasPaintTokens.node.editorSpace
+    expect(picture(240)).toBe(240)
+    expect(picture(1)).toBe(pictureMin)
+    expect(picture(99_999)).toBe(pictureMax)
+  })
+})

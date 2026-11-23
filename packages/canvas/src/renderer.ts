@@ -3781,6 +3781,23 @@ export class CanvasRenderer {
           ctx.textAlign = 'center'
           ctx.fillText(`+ ${row.label}`, node.x + l.width / 2, rowY + row.height / 2, chrome.width - canvasPaintTokens.widget.growth.textPadding)
           ctx.textAlign = 'left'
+        } else if (row.kind === 'editorSpace') {
+          // The unfolded editor's panel. Its controls are the host's, laid
+          // over it; the picture's place is drawn inset so a still picture or
+          // an empty state reads as part of the panel.
+          const space = canvasPaintTokens.node.editorSpace
+          const x = node.x + row.inset
+          const width = l.width - row.inset * 2
+          ctx.fillStyle = t.colors.widgetBackground
+          ctx.beginPath()
+          ctx.roundRect(x, rowY + t.rowGeometry.fieldInsetY, width, row.height - t.rowGeometry.fieldInsetY * 2, canvasPaintTokens.node.box.radius)
+          ctx.fill()
+          if (row.picture) {
+            ctx.fillStyle = t.colors.canvasBackground
+            ctx.beginPath()
+            ctx.roundRect(x + space.pad, rowY + row.picture.top, width - space.pad * 2, row.picture.height, canvasPaintTokens.node.box.radius)
+            ctx.fill()
+          }
         } else if (row.kind === 'note') {
           // A formula note's text is unknown until formulas are evaluated, so
           // it draws dimmed like any other offer that is not settled yet.

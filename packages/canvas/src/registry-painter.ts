@@ -204,7 +204,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.stroke()
       paintToolboxIcon(ctx, openerIcon, x + paint.opener.iconInset,
         y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.value)
-      paintToolboxIcon(ctx, 'chevron-right', x + width - paint.opener.trailingInset - paint.opener.iconSize,
+      // An editor shown in the node points down while it is unfolded under this row.
+      paintToolboxIcon(ctx, row.unfolded ? 'chevron-down' : 'chevron-right', x + width - paint.opener.trailingInset - paint.opener.iconSize,
         y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.label)
     }
     const geometry = tokens.rowGeometry

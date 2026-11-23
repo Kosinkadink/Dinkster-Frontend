@@ -160,6 +160,21 @@ export const canvasPaintTokens = {
     scope: { outset: 5, stroke: 2.5, minScreenStroke: 2 },
     progress: { height: 3, minScreenHeight: 1.5 },
     /**
+     * The space an editor shown in the node takes under its editor button
+     * row when unfolded: a padded picture, then rows of its own controls.
+     */
+    editorSpace: {
+      /** An unfolded editor keeps the node at least this wide. */
+      minWidth: 260,
+      pad: 6,
+      gap: 6,
+      /** A dragged picture height is kept within these. */
+      pictureMin: 60,
+      pictureMax: 1200,
+      /** Height of the bar on a picture's bottom edge that is dragged. */
+      resizeBar: 6,
+    },
+    /**
      * Sections, groups, members and a choice's option rows drawn as boxes.
      * Horizontal values step in from the node's edge; vertical ones sit on
      * the row grid, so a closed row is as tall as a field.
@@ -611,6 +626,27 @@ export const canvasPaintTokens = {
     markerFontSize: 9,
   },
 } as const
+
+/**
+ * The editors that fold out in the node, by widget view id: the picture's own
+ * height (absent for an editor without one) and how many rows of controls sit
+ * under it. The rows are fixed for each editor, so the node does not change
+ * height when the editor's state changes.
+ */
+export const IN_NODE_EDITORS: Readonly<Record<string, { readonly picture?: number; readonly controlRows: number }>> = {
+  // Record strip (two rows), Microphone, Limit, the stored clip's line.
+  'core.audioRecord': { controlRows: 5 },
+  // Start camera or Capture frame and Stop; the stored frame's line.
+  'core.webcam': { picture: 180, controlRows: 2 },
+  // Camera projection, Field of view, then Model placement and Animation closed.
+  'core.load3d': { picture: 200, controlRows: 4 },
+  // Wipe divider, Image A frame, Image B frame.
+  'core.imageCompare': { picture: 180, controlRows: 3 },
+  // The camera position under the orbit and elevation pictures.
+  'core.cameraAngle': { picture: 150, controlRows: 1 },
+  // Interpolation; Delete point, Position and Value; two help lines.
+  'core.curve': { picture: 180, controlRows: 4 },
+}
 
 /** Minimum zoom for text detail and transient media DOM. */
 export const CANVAS_DETAIL_MIN_SCALE = canvasPaintTokens.detailMinScale

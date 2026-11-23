@@ -54,6 +54,8 @@ import Palette from 'lucide/dist/esm/icons/palette.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import ChevronRight from 'lucide/dist/esm/icons/chevron-right.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import ChevronDown from 'lucide/dist/esm/icons/chevron-down.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import List from 'lucide/dist/esm/icons/list.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import ListChecks from 'lucide/dist/esm/icons/list-checks.mjs'
@@ -128,6 +130,7 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   image: Image,
   palette: Palette,
   'chevron-right': ChevronRight,
+  'chevron-down': ChevronDown,
   list: List,
   'list-checks': ListChecks,
   spline: Spline,
