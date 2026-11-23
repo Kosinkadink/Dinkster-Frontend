@@ -4755,6 +4755,14 @@ export class AppState {
         handleStatusChange,
       )
       const disposeMountHealth = connection.mountError.subscribe(() => this.backendsTick.update((v) => v + 1))
+      const disposeLibraryChanges = connection.onLibraryChanged(() => {
+        for (const tab of this.tabs.get()) {
+          if (tab.execution || this.backendForTab(tab) !== nativeBackend) continue
+          this.workflowAssetChecks.get(tab.store)?.controller.abort()
+          this.workflowAssetChecks.delete(tab.store)
+        }
+        this.backendsTick.update((v) => v + 1)
+      })
       let catalogPrefix = this.settings.get<string>('search.registryUrl')
       const disposeCatalogSetting = this.settings.changed.subscribe(() => {
         const prefix = this.settings.get<string>('search.registryUrl')
@@ -4789,6 +4797,7 @@ export class AppState {
           this.clearProblems(packProblemsOwner)
           disposeCatalogSetting()
           disposeCompletionHydration()
+          disposeLibraryChanges()
           disposeMountHealth()
           disposeConnection()
           scopedClient.dispose()
