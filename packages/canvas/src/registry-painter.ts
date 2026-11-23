@@ -17,8 +17,8 @@ import { canvasPaintTokens } from './tokens.js'
 import { paintToolboxIcon } from './icons.js'
 
 const paint = canvasPaintTokens.widget
-/** The word before an automatic value, with the space after it. */
-const AUTOMATIC_WORD = 'auto '
+/** The word before an automatic value. */
+const AUTOMATIC_WORD = 'auto'
 const TEXT_PAD = paint.textPadding
 
 function compactAssetValue(value: Json, valid: boolean): string {
@@ -77,7 +77,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const automatic = value === undefined ? row.automatic : undefined
     const resolved: Json = value !== undefined ? value : automatic !== undefined ? automatic.value : (kind.defaultValue(row.spec) as Json)
     const automaticDot = automatic?.state === 'default' ? paint.automaticDot.radius * 2 + paint.automaticDot.gap : 0
-    const automaticReserve = automatic === undefined ? 0 : measureWidth(ctx, AUTOMATIC_WORD) + automaticDot
+    const automaticWord = automatic === undefined ? 0 : measureWidth(ctx, AUTOMATIC_WORD) + paint.automaticWordGap
+    const automaticReserve = automaticWord + automaticDot
     // Draw the shared row chrome (label) then let the view draw its content.
     const chrome = widgetChromeRect(x, y, width, row.height)
     if (row.viewId !== 'core.compositor') {
@@ -286,9 +287,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             const role = style['role']
             const marked = automatic !== undefined && (role === undefined || role === 'widgetValue')
             const line = run.split('\n')[0] ?? ''
-            const text = marked
-              ? ellipsize(ctx, `${AUTOMATIC_WORD}${line}`, Math.max(0, availableWidth - automaticDot))
-              : ellipsize(ctx, line, availableWidth)
+            const text = ellipsize(ctx, line, marked ? Math.max(0, availableWidth - automaticReserve) : availableWidth)
             const lineTop = y + ty * rowHeight + paint.verticalInset
             const lineBottom = y + (ty + 1) * rowHeight - paint.verticalInset
             const clipTop = Math.max(y, lineTop)
@@ -302,17 +301,22 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               ctx.beginPath()
               ctx.rect(alignRight ? zoneRight - zoneWidth : px + reserveLeft, clipTop, zoneWidth, clipBottom - clipTop)
               ctx.clip()
-              const dot = marked ? automaticDot : 0
-              const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD + dot
+              const before = marked ? automaticReserve : 0
+              const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD + before
               const textY = y + (ty + 0.5) * rowHeight
               ctx.fillText(text, textX, textY)
-              if (dot > 0) {
+              if (marked) {
                 // Marks about a value come before it, so values line up at the right.
-                const radius = paint.automaticDot.radius
-                ctx.fillStyle = tokens.colors.warningMark
-                ctx.beginPath()
-                ctx.arc(alignRight ? textX - measureWidth(ctx, text) - paint.automaticDot.gap - radius : textX - dot + radius, textY, radius, 0, Math.PI * 2)
-                ctx.fill()
+                const wordRight = alignRight ? textX - measureWidth(ctx, text) - paint.automaticWordGap : textX - paint.automaticWordGap
+                ctx.textAlign = 'right'
+                ctx.fillText(AUTOMATIC_WORD, wordRight, textY)
+                if (automaticDot > 0) {
+                  const radius = paint.automaticDot.radius
+                  ctx.fillStyle = tokens.colors.warningMark
+                  ctx.beginPath()
+                  ctx.arc(wordRight - measureWidth(ctx, AUTOMATIC_WORD) - paint.automaticDot.gap - radius, textY, radius, 0, Math.PI * 2)
+                  ctx.fill()
+                }
               }
               if (args.connected && (role === undefined || role === 'widgetValue')) {
                 paintStaleValueStrikethrough(ctx, text, textX, textY, alignRight ? 'right' : 'left', tokens.colors.value)

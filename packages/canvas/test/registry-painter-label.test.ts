@@ -9,7 +9,7 @@ import type { WidgetKind, WidgetRegistry, WidgetView } from '@dinkster/core'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createRegistryPainter } from '../src/registry-painter.js'
 import type { WidgetPaintArgs } from '../src/renderer.js'
-import { defaultTokens } from '../src/tokens.js'
+import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import { widgetChromeRect, type LayoutRow } from '../src/layout.js'
 
 beforeAll(() => {
@@ -559,23 +559,29 @@ describe('an automatic value', () => {
       connected: false,
       tokens: defaultTokens,
     })
-    return { value: textCalls.find((call) => call.text !== 'frame_rate')!, arcs }
+    const word = textCalls.find((call) => call.text === 'auto')
+    return { value: textCalls.find((call) => call.text !== 'frame_rate' && call.text !== 'auto')!, word, arcs }
   }
+  const gap = canvasPaintTokens.widget.automaticWordGap
 
-  it('shows the word auto and the worked-out value, dimmed, with no dot', () => {
-    const { value, arcs } = paintAutomatic(undefined, { value: 30, state: 'worked-out' })
-    expect(value.text).toBe('auto 30')
+  it('shows the word auto, a gap, then the worked-out value, dimmed, with no dot', () => {
+    const { value, word, arcs } = paintAutomatic(undefined, { value: 30, state: 'worked-out' })
+    expect(value.text).toBe('30')
     expect(value.fill).toBe(defaultTokens.colors.label)
+    expect(word).toMatchObject({ align: 'right', fill: defaultTokens.colors.label })
+    // Right-aligned at 6 px a character: the word ends one gap before the value starts.
+    expect(gap).toBeGreaterThanOrEqual(8)
+    expect(value.x - 2 * 6 - word!.x).toBe(gap)
     expect(arcs).toEqual([])
   })
 
   it('puts a warning dot before auto when the default is used', () => {
-    const { value, arcs } = paintAutomatic(undefined, { value: 24, state: 'default', reason: 'failed' })
-    expect(value.text).toBe('auto 24')
+    const { value, word, arcs } = paintAutomatic(undefined, { value: 24, state: 'default', reason: 'failed' })
+    expect([word?.text, value.text]).toEqual(['auto', '24'])
     expect(arcs).toHaveLength(1)
     expect(arcs[0]!.fillStyle).toBe(defaultTokens.colors.warningMark)
-    // Right-aligned value: the dot sits left of the words.
-    expect(arcs[0]!.x).toBeLessThan(value.x - value.text.length * 6)
+    // Right-aligned value: the dot sits left of the word.
+    expect(arcs[0]!.x).toBeLessThan(word!.x - 4 * 6)
   })
 
   it('shows a stored value as any value', () => {
