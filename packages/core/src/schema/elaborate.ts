@@ -45,9 +45,9 @@ import {
 import type {
   BodyRow,
   ButtonSpec,
-  Formulated,
   ChoiceSpec,
   DescribedSpec,
+  Formulated,
   GroupSpec,
   InputSpec,
   NoteSpec,
@@ -226,6 +226,34 @@ export interface ElaboratedInput {
   readonly automatic?: AutomaticState
   /** A field that declares `automatic` and holds a fixed value: what it would work out to if emptied. */
   readonly automaticIfEmptied?: AutomaticState
+  /** The rows its widget's `writes` and `reads` name, when it names any. */
+  readonly parts?: WidgetParts
+}
+
+/**
+ * The rows a custom widget names, by the widget's own part names, resolved to
+ * flattened ids with the names a formula at the widget's place can use. A
+ * name that resolves to no row, or to a row under an option that is not
+ * chosen, is left out: the widget treats that part as absent.
+ */
+export interface WidgetParts {
+  readonly writes: Readonly<Record<string, string>>
+  readonly reads: Readonly<Record<string, string>>
+}
+
+/** An editor row: a widget with no value of its own, drawn on its own line where it is written. */
+export interface ElaboratedEditor {
+  readonly kind: 'editor'
+  /** Flattened layout id. */
+  readonly id: string
+  readonly widget: WidgetSpec
+  readonly parts: WidgetParts
+  readonly visible?: Formulated<boolean>
+  readonly section?: string
+  readonly origin: ElaboratedOrigin
+  readonly ancestry?: readonly DynamicAncestor[]
+  /** Member state to persist before the editor writes a row of a member the document does not store. */
+  readonly materialize?: readonly MaterializeFrame[]
 }
 
 /** Why an automatic value could not be worked out, so the default is used. */
@@ -353,7 +381,7 @@ export const lineKeyOf = (item: ElaboratedItem): string | undefined =>
   item.kind === 'input' ? item.spec.id
     : item.kind === 'note' || item.kind === 'button' ? `${item.kind}:${item.id}` : undefined
 
-export type ElaboratedItem = ElaboratedInput | ElaboratedOutput | ElaboratedSection | ElaboratedGrowth | ElaboratedNote | ElaboratedButton
+export type ElaboratedItem = ElaboratedInput | ElaboratedOutput | ElaboratedSection | ElaboratedGrowth | ElaboratedNote | ElaboratedButton | ElaboratedEditor
 
 export interface ElaboratedInterface {
   /** Ordered as the body declares; members appear in their stored order at their group's place. */
@@ -461,6 +489,12 @@ export interface ElaborateOptions {
    * its arguments. A call it holds nothing for is loading.
    */
   readonly lookupAnswers?: (lookup: string, args: readonly Json[]) => LookupAnswerState | undefined
+  /**
+   * Flattened ids of rows that have a problem (an error or a warning) found
+   * outside elaboration. Such a row, and every box that holds it, shows even
+   * when its `visible` is false.
+   */
+  readonly problemRows?: ReadonlySet<string>
 }
 
 // ---------------------------------------------------------------------------
@@ -640,20 +674,38 @@ export function elaborateInterface(
   // choice declared later. Such a read takes the key the previous pass
   // settled, and the passes repeat until every key read is the key settled,
   // so declaration order does not change the result.
-  //
-  // The values in use of automatic fields settle the same way: a count or a
-  // leader reads the values the previous pass worked out.
+  const first = settle(schema, node, connectivity, options)
+  // A problem elaboration itself finds on a hidden row shows that row: once
+  // more with it among the problem rows. Hidden rows are elaborated either
+  // way, so that pass finds the same problems.
+  const known = options.problemRows ?? new Set<string>()
+  const found = [...first.problems].filter((path) => !known.has(path))
+  if (!first.hid || found.length === 0) return first.elaborated
+  return settle(schema, node, connectivity, { ...options, problemRows: new Set([...known, ...found]) }).elaborated
+}
+
+function settle(
+  schema: NodeSchema,
+  node: Pick<NodeData, 'values' | 'dynamic' | 'additionalInputs'>,
+  connectivity: Connectivity,
+  options: ElaborateOptions,
+): { readonly elaborated: ElaboratedInterface; readonly problems: ReadonlySet<string>; readonly hid: boolean } {
+  // The values in use of automatic fields settle the same way as the keys: a
+  // count or a leader reads the values the previous pass worked out.
   let settled: ReadonlyMap<string, string | null> = new Map()
   let inUse: ReadonlyMap<string, Json | Unknown> = new Map()
   for (let pass = 1; ; pass++) {
     const result = elaboratePass(schema, node, connectivity, options, settled, inUse)
     const unsettled = [...result.early].filter((path) => (result.chosen.get(path) ?? null) !== (settled.get(path) ?? null))
-    if (unsettled.length === 0 && (sameInUse(result.inUse, inUse) || pass === MAX_CHOICE_PASSES)) return result.elaborated
+    if (unsettled.length === 0 && (sameInUse(result.inUse, inUse) || pass === MAX_CHOICE_PASSES)) return result
     if (pass === MAX_CHOICE_PASSES) {
       return {
-        ...result.elaborated,
-        diagnostics: [...result.elaborated.diagnostics, diag('error', 'schema', 'elab.choice.unsettled',
-          `${schema.type}: the keys of ${unsettled.map((path) => `'${path}'`).join(', ')} depend on each other and never settle`)],
+        ...result,
+        elaborated: {
+          ...result.elaborated,
+          diagnostics: [...result.elaborated.diagnostics, diag('error', 'schema', 'elab.choice.unsettled',
+            `${schema.type}: the keys of ${unsettled.map((path) => `'${path}'`).join(', ')} depend on each other and never settle`)],
+        },
       }
     }
     settled = result.chosen
@@ -673,6 +725,9 @@ function elaboratePass(
   readonly chosen: ReadonlyMap<string, string | null>
   readonly early: ReadonlySet<string>
   readonly inUse: ReadonlyMap<string, Json | Unknown>
+  /** Rows this pass reported a problem on, and whether it hid any row. */
+  readonly problems: ReadonlySet<string>
+  readonly hid: boolean
 } {
   const budget: ElabBudget = { ...DEFAULT_ELAB_BUDGET, ...options.budget }
   const view = options.promoteGhosts ?? true
@@ -723,7 +778,11 @@ function elaboratePass(
   let membersVisited = 0
   let halted = false
 
+  /** Rows this pass reported a problem on. */
+  const problems = new Set<string>()
+  let hid = false
   const report = (code: string, message: string, port?: string, severity: 'error' | 'warning' = 'error', data?: Readonly<Record<string, unknown>>): void => {
+    if (port !== undefined) problems.add(port)
     diagnostics.push(diag(severity, 'schema', code, `${schema.type}: ${message}`, {
       ...(data !== undefined ? { data } : {}),
       ...(options.nodeId !== undefined && port !== undefined
@@ -915,11 +974,17 @@ function elaboratePass(
     }
   }
 
-  const evaluate = (text: string, scope: Scope): ReturnType<Formula['evaluate']> => {
-    const names = framesNamesOf(scope.formulaFrames.map((frame) => frame.rows))
+  /**
+   * The flattened id of each name a formula in this scope can write, the names
+   * under options not chosen, and the names a forwarded construct fixes to a
+   * definition's value instead of a row.
+   */
+  const namesAt = (scope: Scope): {
+    readonly where: Map<string, string>
+    readonly unknown: Set<string>
+    readonly fixed: Map<string, Extract<OuterName, { value: unknown }>>
+  } => {
     const where = new Map<string, string>()
-    const defaults = new Map<string, unknown>()
-    defaultsUnder(schema.body, '', defaults)
     const unknown = new Set<string>()
     const fixed = new Map<string, Extract<OuterName, { value: unknown }>>()
     for (const frame of scope.formulaFrames) {
@@ -948,6 +1013,27 @@ function elaboratePass(
         if (hidden.has(name)) unknown.add(name)
         else unknown.delete(name)
       }
+    }
+    return { where, unknown, fixed }
+  }
+
+  const partsAt = (widget: WidgetSpec, scope: Scope): WidgetParts | undefined => {
+    if (widget.writes === undefined && widget.reads === undefined) return undefined
+    const { where, unknown, fixed } = namesAt(scope)
+    const resolve = (mapping: Readonly<Record<string, string>> | undefined): Record<string, string> =>
+      Object.fromEntries(Object.entries(mapping ?? {}).flatMap(([part, name]) => {
+        const path = where.get(name)
+        return path === undefined || unknown.has(name) || fixed.has(name) ? [] : [[part, path]]
+      }))
+    return { writes: resolve(widget.writes), reads: resolve(widget.reads) }
+  }
+
+  const evaluate = (text: string, scope: Scope): ReturnType<Formula['evaluate']> => {
+    const names = framesNamesOf(scope.formulaFrames.map((frame) => frame.rows))
+    const { where, unknown, fixed } = namesAt(scope)
+    const defaults = new Map<string, unknown>()
+    defaultsUnder(schema.body, '', defaults)
+    for (const frame of scope.formulaFrames) {
       // A member the node shows but does not store reads its own rows' defaults.
       for (const row of scopeRowsOf(frame.rows)) {
         if (row.kind !== 'input' && row.kind !== 'state') continue
@@ -1032,12 +1118,16 @@ function elaboratePass(
   }
 
   const connectedPorts = [...(connectivity.inputPorts?.() ?? []), ...(connectivity.outputPorts?.() ?? [])]
+  const problemRows = [...(options.problemRows ?? [])]
   /** Whether a wire reaches a row, or any row a box holds. */
-  const wiredUnder = (row: BodyRow | UseSpec, prefix: string): boolean => {
-    if (row.kind === 'section' || row.kind === 'row') return row.rows.some((inner) => wiredUnder(inner, prefix))
+  /** Whether the row, or a row the box holds at any depth, has a wire or a problem. */
+  const heldUnder = (row: BodyRow | UseSpec, prefix: string): boolean => {
+    if (row.kind === 'section' || row.kind === 'row') return row.rows.some((inner) => heldUnder(inner, prefix))
     if (row.kind === 'note' || row.kind === 'button' || row.kind === 'editor' || row.kind === 'state') return false
     const path = prefix + row.id
-    return linked(path) || connectivity.isOutputConnected(path) || connectedPorts.some((port) => port.startsWith(`${path}.`))
+    const under = (port: string): boolean => port === path || port.startsWith(`${path}.`)
+    return linked(path) || connectivity.isOutputConnected(path) || connectedPorts.some(under) ||
+      problemRows.some(under)
   }
 
   // -- Emission ---------------------------------------------------------------
@@ -1068,12 +1158,14 @@ function elaboratePass(
       const stored = stateOf(path)?.options
       if (stored !== undefined) spec = { ...spec, widget: { ...widget, options: { ...widget.options, options: stored } } }
     }
+    const parts = row.widget === undefined ? undefined : partsAt(row.widget, scope)
     push({
       kind: 'input',
       address: { port: path },
       ...(scope.ghost || scope.dormant ? {} : { apiName: path }),
       spec,
       ...common(scope),
+      ...(parts !== undefined ? { parts } : {}),
       ...extra,
     })
     if (row.automatic !== undefined && !scope.dormant && !linked(path)) {
@@ -1143,10 +1235,11 @@ function elaboratePass(
   const one = (row: BodyRow, raw: Scope): void => {
     const framed = 'outer' in row && row.outer !== undefined ? { ...raw, formulaFrames: outerFrames(row.outer) } : raw
     // A row hidden by its `visible` is still stored and sent to the run; a
-    // row with a wire, or a box that holds one, shows anyway.
+    // row with a wire or a problem, or a box that holds one, shows anyway.
     const visible = 'visible' in row ? row.visible : undefined
-    const scope = visible !== undefined && !framed.hidden && answer(visible, framed, 'boolean') === false &&
-      !wiredUnder(row, framed.prefix) ? { ...framed, hidden: true } : framed
+    const hides = visible !== undefined && !framed.hidden && answer(visible, framed, 'boolean') === false
+    if (hides) hid = true
+    const scope = hides && !heldUnder(row, framed.prefix) ? { ...framed, hidden: true } : framed
     switch (row.kind) {
       case 'input':
         emitInput(row, scope.prefix + row.id, scope)
@@ -1186,11 +1279,22 @@ function elaboratePass(
       case 'described':
         described(row, scope.prefix + row.id, scope)
         return
+      case 'editor':
+        if (!scope.dormant && !scope.hidden) {
+          push({
+            kind: 'editor',
+            id: scope.prefix + row.id,
+            widget: row.widget,
+            parts: partsAt(row.widget, scope) ?? { writes: {}, reads: {} },
+            ...(row.visible !== undefined ? { visible: row.visible } : {}),
+            ...(scope.section !== undefined ? { section: scope.section } : {}),
+            ...common(scope),
+          })
+        }
+        return
       case 'note':
       case 'button':
         layoutRow(row, scope)
-        return
-      case 'editor':
         return
     }
   }
@@ -1782,6 +1886,7 @@ function elaboratePass(
       const outcome = evaluate(rule.check.formula, topScope)
       if (outcome.kind !== 'value' || outcome.value !== false) continue
       const fields = fieldsRead(rule.check.formula)
+      if (fields.length === 1) problems.add(fields[0]!)
       diagnostics.push(diag(rule.fix.length > 0 ? 'warning' : 'error', 'schema', 'node.rule.failed', rule.message, {
         data: { rule: index, hasFix: rule.fix.length > 0, fields },
         ...(fields.length === 1 && options.nodeId !== undefined
@@ -1896,7 +2001,7 @@ function elaboratePass(
     ...(suffix ? { titleSuffix: suffix } : {}),
     diagnostics,
   }
-  return { elaborated, chosen, early, inUse }
+  return { elaborated, chosen, early, inUse, problems, hid }
 }
 
 // ---------------------------------------------------------------------------

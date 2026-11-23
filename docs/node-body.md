@@ -27,14 +27,18 @@ non-empty legacy `interface` list.
 - **Button**: a capsule with its label and no pin, on its own line or as a
   cell of a Row. It does nothing when clicked: the editor never runs a
   button's steps.
-- **Editor**: decoded with the schema; the canvas does not draw it. An editor
-  row is a custom or compositor widget with no value of its own; it must name
-  at least one row it writes or reads.
+- **Editor**: a custom or compositor widget with no value of its own; it
+  must name at least one row it writes or reads. The canvas draws it as a
+  widget line with no label and no pin, and opening it opens its widget's
+  editor, titled by the node.
 
 A custom or compositor widget, on an editor row or on an input, may carry
-`writes` and `reads`: its own part names mapped to row ids of its scope. The
-editor keeps them on the widget spec, apart from the widget's own options, and
-does not hand those rows to the widget yet.
+`writes` and `reads`: its own part names mapped to row names of its scope.
+Elaboration resolves each name as a formula does, to the flattened id of that
+row; a name under an unchosen option, or one that names no row, is absent.
+The widget's editor reads and writes the resolved rows instead of fixed row
+names. An editor row whose widget writes exactly one row shows and edits that
+row's value. The editor never changes a written row that has a link.
 - **Group**, **Choice**, **Type choice** and **Described**: the rows below.
 
 ## Formulas the editor works out
@@ -56,7 +60,10 @@ fails:
 A row whose `visible` is false is not drawn and is still stored and sent to
 the run. A box whose `visible` is false hides every row in it. A row with a
 wire on its pin or its field's output shows anyway, and so does a box that
-holds one. A note whose text is a lookup shows its `unknown` text. A group's
+holds one at any depth. A row with a problem shows the same way, and hides
+again once the problem is gone: an error or a warning that elaboration or
+the type solver finds on it, a failed rule that reads only that field, or a
+stored value its widget refuses, such as a number out of range. A note whose text is a lookup shows its `unknown` text. A group's
 `memberLabel`, a group's `count` and a choice's `leader` are worked out as
 the rows above describe.
 

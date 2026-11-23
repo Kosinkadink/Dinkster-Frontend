@@ -1569,6 +1569,41 @@ export function createRowEditingScene(
   )
 }
 
+/** A node whose number declares 0 as a special value labelled "no limit", stored at 0. */
+export const rowSpecialSchema: NodeSchema = schema('Load frames', [
+  { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
+  {
+    ...widget('frame_load_cap', 'INT', 0, {
+      min: 1,
+      max: 10000,
+      special: [{ value: 0, label: 'no limit' }],
+    }),
+    tooltip: 'Most frames to load.',
+  },
+  {
+    ...widget('select_every_nth', 'INT', 1, { min: 1, max: 100 }),
+    tooltip: 'Load one frame of every this many.',
+  },
+])
+
+/** The node of the row-editing page's special value examples. */
+export function createRowSpecialScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  position: { x: number; y: number },
+  width = 280,
+): Scene {
+  return singleNodeScene(
+    rowSpecialSchema,
+    {},
+    { position, size: { width, height: 0 } },
+    tokens,
+    measure,
+    widgetMeasure,
+  )
+}
+
 /** A node with a toggle and a choice beside a number, for the keyboard's focus on a row. */
 export const rowFocusSchema: NodeSchema = schema('Sample settings', [
   {
