@@ -156,6 +156,15 @@ test('toolbar activity counts all workflows and excludes terminal history', asyn
   await expect(activity).toHaveAccessibleName('2 running, 1 queued')
   await expect(activity.locator('.dinkster-run-activity-running')).toHaveText('2')
   await expect(activity.locator('.dinkster-run-activity-waiting')).toHaveText('1')
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    for (const control of await page.locator('.dinkster-window-toolbar-host button:visible, .dinkster-window-toolbar-host .dinkster-run-activity').all()) {
+      const bounds = (await control.boundingBox())!
+      expect(bounds.x).toBeGreaterThanOrEqual(12)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 12)
+    }
+    await page.locator('.dinkster-window-toolbar-host').screenshot({ path: `test-results/captures/app-toolbar-activity-${width}.png` })
+  }
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     for (const execution of app.store.executions.get().values()) {

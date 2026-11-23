@@ -675,6 +675,14 @@ for (const state of ['running', 'pending'])
         await bar.evaluate((node, width) => {
           node.style.width = `${width}px`
         }, contentWidth + reservation)
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) => {
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => resolve()),
+              )
+            }),
+        )
         if (state === 'pending') {
           await page.getByLabel('Execution state').selectOption('running')
           const before = await bar.getByRole('button').evaluateAll((nodes) =>
