@@ -27,6 +27,28 @@ describe('Dinkster schema wire', () => {
     expect(out).toMatchObject({ labelFormula: { formula: 'mode' }, visible: false })
   })
 
+  it.each([
+    ['COMBO', 'COMBO', true],
+    ['COMBO', 'STRING', true],
+    ['INT', 'INT', true],
+    ['COMBO', 'INT', false],
+    ['STRING', 'COMBO', false],
+    ['INT', 'FLOAT', false],
+  ] as const)('accepts a known value from a %s input for a %s output: %s', (inputType, outputType, accepted) => {
+    const { schema, diagnostics } = parseDinksterSchema('Known', { body: [
+      { kind: 'input', id: 'value', type: concrete(inputType),
+        ...(inputType === 'COMBO' ? { widget: { type: 'COMBO', options: ['a', 'b'] } } : {}) },
+      { kind: 'output', id: 'out', type: concrete(outputType), knownValue: { input: 'value' } },
+    ] } as never)
+    if (accepted) {
+      expect(diagnostics).toEqual([])
+      expect(schema!.body[1]).toMatchObject({ knownValue: { input: 'value' } })
+    } else {
+      expect(schema).toBeUndefined()
+      expect(diagnostics.map((d) => d.message).join()).toContain('knownValue must name an input')
+    }
+  })
+
   it('keeps an editor row and the rows a widget writes and reads, apart from its params', () => {
     const { schema, diagnostics } = parseDinksterSchema('Viewport', { body: [
       { kind: 'input', id: 'model_file', type: concrete('STRING'),
