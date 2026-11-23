@@ -1,5 +1,5 @@
 /**
- * Interrupted durable-history records through the production library panel,
+ * Interrupted durable-history records through the production Runs panel,
  * against a fully route-stubbed page-origin backend (no live server):
  *
  * - restart-swept records (state 'interrupted', Dinkster #556) render with the
@@ -11,7 +11,7 @@
  *   /api/jobs body carries a NEW job identity, never the interrupted one.
  *   Nothing auto-resumes, by contract.
  */
-import { expect, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, openRailPanel, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const DIGEST = `blake3:${'a'.repeat(64)}`
 
@@ -159,16 +159,12 @@ async function bootAndOpenRuns(page: Page): Promise<void> {
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('test.ImageSink') ?? false,
   )).toBe(true)
   await waitForWorkspaceReady(page)
-  await page.getByTestId('library-toggle').click()
-  const library = page.getByTestId('library-overlay')
-  await expect(library).toBeVisible()
-  const runsTab = library.locator('[data-testid=collection-source][data-source=runs]')
-  if (await runsTab.isVisible()) await runsTab.click()
-  else await selectProductOption(page, library.getByTestId('library-source-select'), 'runs')
+  await openRailPanel(page, 'Runs')
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
 }
 
 const entryFor = (page: Page, jobId: string) =>
-  page.getByTestId('collection-entry').filter({ hasText: jobId })
+  page.getByTestId('runs-panel').getByTestId('collection-entry').filter({ hasText: jobId })
 
 test('Resubmit reopens the producing document and queues a FRESH submission', async ({ page }) => {
   const fixture = await installFixture(page)
@@ -178,7 +174,8 @@ test('Resubmit reopens the producing document and queues a FRESH submission', as
   await stamped.click()
   await stamped.locator('[data-testid=collection-action][data-action=resubmit]').click()
 
-  // The producing document opened as the active tab and the panel closed.
+  // Runs stays available while the producing document opens in the active tab.
+  await expect(page.getByTestId('runs-panel')).toBeVisible()
   await expect(page.getByTestId('library-overlay')).not.toBeVisible()
   await expect.poll(() => page.evaluate(() => {
     const doc = window.__dinksterTest?.app.activeTab()?.store.doc

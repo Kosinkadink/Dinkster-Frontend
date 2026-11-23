@@ -1,4 +1,4 @@
-import { expect, nativeAppViewTest as test, type WebSocketRoute } from './fixtures.js'
+import { expect, mockProjectPacks, waitForWorkspaceReady, nativeAppViewTest as test, type WebSocketRoute } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 const descriptors = {
@@ -16,6 +16,8 @@ test.beforeEach(async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'media-test', schemaWire: 1 }, nodes: {} } }))
   await page.routeWebSocket('**/api/events?*', () => {})
+  await mockProjectPacks(page)
+  await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
 })
 
 test('inspects every media kind through the owning value API without mutating the graph or values', async ({ page, request }, testInfo) => {
@@ -35,6 +37,7 @@ test('inspects every media kind through the owning value API without mutating th
     return route.fulfill({ json: { available: true, descriptor, renditions: [] } })
   })
   await page.goto('/')
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
   await page.evaluate(async (outputs) => {
     const app = window.__dinksterTest!.app
@@ -59,7 +62,8 @@ test('inspects every media kind through the owning value API without mutating th
     } })
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
   }, descriptors)
-  await page.locator('.dock-zone').getByRole('tab', { name: 'Outputs' }).click()
+  await page.locator('.dock-zone').getByRole('tab', { name: 'Runs', exact: true }).click()
+  await page.getByTestId('runs-panel').locator('.runs-details > summary').click()
   await expect(page.locator('.media-value-inspector')).toHaveCount(4)
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   const outputs = await page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'media-metadata-run')!.outputs)
@@ -77,7 +81,7 @@ test('inspects every media kind through the owning value API without mutating th
   }
   expect(requests.every((url) => !url.searchParams.has('rendition') && url.searchParams.get('jobId') === 'media-metadata-run' && url.searchParams.get('nodeId') === 'media')).toBe(true)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
-  await page.getByTestId('outputs-panel').screenshot({ path: testInfo.outputPath('media-output-inspection.png') })
+  await page.getByTestId('runs-panel').screenshot({ path: testInfo.outputPath('media-output-inspection.png') })
   await expect.poll(() => socket !== undefined).toBe(true)
   const videoInspector = page.locator('.media-value-inspector').filter({ has: page.locator('summary', { hasText: 'Inspect media / video' }) })
   await videoInspector.evaluate((element) => { element.setAttribute('data-mounted-identity', 'video-inspector') })
@@ -122,7 +126,7 @@ test('inspects every media kind through the owning value API without mutating th
   const localeModule = await (await request.get('/src/locale.ts')).text()
   const i18nModule = localeModule.match(/from "([^"]*packages\/core\/src\/index\.ts)"/)?.[1]
   expect(i18nModule).toBeDefined()
-  await page.getByTestId('outputs-panel').screenshot({ path: evidencePath('issue-457', 'media-inspector-i18n-en.png') })
+  await page.getByTestId('runs-panel').screenshot({ path: evidencePath('issue-457', 'media-inspector-i18n-en.png') })
 
   await page.evaluate(async ({ i18nModule }) => {
     const { registerCatalog, setLocale } = await import(i18nModule)
@@ -175,7 +179,7 @@ test('inspects every media kind through the owning value API without mutating th
   await page.evaluate(() => window.__dinksterTest!.app.flushPersistTabs())
   expect(backendRequests).toEqual(beforeLocaleRequests)
   expect(requests).toHaveLength(beforeLocaleValueRequests)
-  await page.getByTestId('outputs-panel').screenshot({ path: evidencePath('issue-457', 'media-inspector-i18n-de-DE.png') })
+  await page.getByTestId('runs-panel').screenshot({ path: evidencePath('issue-457', 'media-inspector-i18n-de-DE.png') })
   expect(await page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'media-metadata-run')!.status)).toBe('completed')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
   expect(await page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'media-metadata-run')!.outputs)).toEqual(outputs)
@@ -187,6 +191,7 @@ test(`shows transparent pixels without changing source bytes, server conversion 
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
   const png = await page.evaluate(() => {
     const canvas = document.createElement('canvas')
@@ -248,7 +253,8 @@ test(`shows transparent pixels without changing source bytes, server conversion 
   }, { converted: colorTransform !== undefined || video, descriptor })
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   const outputs = await page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()].find((entry) => entry.ref.prompt === 'transparent-media-run')!.outputs)
-  await page.locator('.dock-zone').getByRole('tab', { name: 'Outputs' }).click()
+  await page.locator('.dock-zone').getByRole('tab', { name: 'Runs', exact: true }).click()
+  await page.getByTestId('runs-panel').locator('.runs-details > summary').click()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getNodePreviews()['image']?.width)).toBe(320)
   expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getNodePreviews()['image']?.colorTransform)).toBe(colorTransform)
   await page.screenshot({ path: testInfo.outputPath('transparent-canvas-output.png') })
