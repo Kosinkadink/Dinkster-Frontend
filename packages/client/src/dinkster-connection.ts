@@ -866,6 +866,7 @@ const decodeWorkers = (value: unknown): readonly WorkerInfo[] | undefined => {
 
 /** One job's wire record plus the identity it is keyed by. */
 export interface DinksterJobRecord extends DinksterJobWire {
+  readonly clientId?: unknown
   readonly jobId?: unknown
   readonly attemptId?: unknown
   readonly outputs?: unknown
@@ -2583,7 +2584,22 @@ export class DinksterConnection {
     return this.decodeJobRecord(await res.json(), jobId)
   }
 
-  private decodeJobRecord(payload: unknown, jobId: string): DinksterJobRecord {
+  /** Inspect a stored run without changing this connection's submission identity. */
+  async fetchHistoryJob(run: HistoryRunRecord): Promise<DinksterJobRecord | undefined> {
+    const jobRef = run.jobRef ?? run.runId
+    const res = await this.fetchFn(`${this.baseUrl}/api/jobs/by-ref/${encodeURIComponent(jobRef)}`)
+    if (res.status === 404 || res.status === 410) return undefined
+    if (!res.ok) throw await this.failExecutionRequest(res, 'inspect')
+    const job = this.decodeJobRecord(await res.json(), run.jobId, run.clientId)
+    if (job.clientId !== run.clientId || job.jobId !== run.jobId ||
+      job.jobRef !== jobRef || job.sourceDocument !== run.sourceDocument ||
+      (run.state !== 'interrupted' && job.state !== run.state)) {
+      throw new Error('GET stored job: response run identity mismatch')
+    }
+    return job
+  }
+
+  private decodeJobRecord(payload: unknown, jobId: string, clientId = this.clientId): DinksterJobRecord {
     const state = (payload as { state?: unknown } | null)?.state
     if (typeof payload !== 'object' || payload === null || Array.isArray(payload) ||
       typeof state !== 'string' ||
@@ -2601,7 +2617,7 @@ export class DinksterConnection {
     if (record.jobId !== undefined && record.jobId !== jobId) {
       throw new Error(`GET job: response identity mismatch (expected ${jobId})`)
     }
-    if (record.clientId !== undefined && record.clientId !== this.clientId) {
+    if (record.clientId !== undefined && record.clientId !== clientId) {
       throw new Error('GET job: response clientId mismatch')
     }
     const artifacts = decodeJobArtifacts(record.artifacts)
@@ -4232,6 +4248,11 @@ export class DinksterConnection {
       fetchFn: this.fetchFn,
     })
     return this.valuesClient
+  }
+
+  /** Values keep the selected history record's original client identity. */
+  historyValues(run: HistoryRunRecord): DinksterValuesClient {
+    return new DinksterValuesClient({ baseUrl: this.baseUrl, clientId: run.clientId, fetchFn: this.fetchFn })
   }
 
   // -- WebSocket -----------------------------------------------------------------

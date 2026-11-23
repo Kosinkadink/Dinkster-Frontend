@@ -179,6 +179,12 @@ foreground against their actual fill, including the hovered fill.
   and cyan. Queued work stays cyan without motion. Its optional
   `finished`/`failed` result adds a lower-right cyan or
   coral dot, hidden while running. Tabs and the status bar use this same export.
+  `ProductRunActivity` shows separate numeric running and waiting activity:
+  a turning cyan ring always carries the running count, including one, and a
+  still secondary-text clock always carries the waiting count. Zero counts
+  hide their mark. Callers provide an accessible `label` and counts from
+  their execution scope; reduced motion stops the ring. It is shared by
+  canvas, top bar, status bar and Runs surfaces without owning their state.
   `ProductSpinner` alone announces its label; `ProductIcon` provides lucide
   icon anatomy.
 - `ProductFacts` renders labeled account facts as a definition list; values may
@@ -352,8 +358,8 @@ Template gallery uses ProductEmptyState for loading, failed reads, empty catalog
 and searches without matches. Failed reads retain Retry, and the empty folder
 explanation preserves the permission-gated server-path form below it.
 
-The Focused panel uses ProductEmptyState for an absent document and a context
-without problems. Context selection, problem filtering and canvas navigation
+The Problems panel uses ProductEmptyState when Selection only has no selected
+entity or no matching problems. Selection filtering and canvas navigation
 remain independent of the empty presentation.
 
 Badge popovers use ProductEmptyState when error, log or problem details are
@@ -925,7 +931,7 @@ narrow widths and browser CSS zoom.
 ## Extension asset editors
 
 The specialized asset editor shell is parked in
-[the rework queue](rework-queue.md#extension-asset-editor-shell). Generic
+[Extension asset editor shell](https://github.com/Kosinkadink/comfy-vibe-station/issues/1216). Generic
 `WidgetView.editorUi` contributions still use bounded group, text, status
 and action nodes through the Host UI renderer. The ordinary builtin asset
 picker is independent and remains available.

@@ -374,6 +374,7 @@ interface DinksterTestBridge {
     openTemplate(packId: string, templateId: string, title: string, owner: string): Promise<boolean>
     openEditorForBinding(tabId: string, context: { editorRole?: string; nodeId?: string; widgetType?: string; valueType?: string }): boolean
     dock: {
+      dock(panelId: string, zone: 'left' | 'right' | 'bottom'): void
       activate(zone: 'left' | 'right' | 'bottom', panelId: string): void
       setOpen(zone: 'left' | 'right' | 'bottom', open: boolean): void
     }
@@ -474,6 +475,7 @@ interface DinksterTestBridge {
       register(descriptor: { id: string; title: string; component: () => unknown }): () => void
       get(id: string): { id: string; title: string } | undefined
     }
+    backendsTick: { update(fn: (value: number) => number): void }
     /** Multi-backend surface: connected backends and per-tab targeting. */
     backends: {
       get(): ReadonlyArray<{

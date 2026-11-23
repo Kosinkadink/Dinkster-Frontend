@@ -6,28 +6,29 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { BrandMark } from './BrandMark.js'
 import { FrameRateStatus } from './FrameRateStatus.js'
-import { activeLocale, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
-import type { ExecutionState } from '@dinkster/client'
+import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type HostUiProviderV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
+import type { DinksterValuesClient, ExecutionState } from '@dinkster/client'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Database from 'lucide-solid/icons/database'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import Images from 'lucide-solid/icons/images'
+import Blocks from 'lucide-solid/icons/blocks'
 import Library from 'lucide-solid/icons/library'
 import BookOpen from 'lucide-solid/icons/book-open'
 import ScrollText from 'lucide-solid/icons/scroll-text'
 import Server from 'lucide-solid/icons/server'
-import Terminal from 'lucide-solid/icons/terminal'
 import Settings from 'lucide-solid/icons/settings'
 import Users from 'lucide-solid/icons/users'
-import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
+import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
-import { ActivityLog } from './ActivityLog.js'
+import { LogPanel } from './LogPanel.js'
 import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, CanvasViewControls, coreOccurrencePlanner } from './CanvasHost.js'
 import { ContextMenu } from './ContextMenu.js'
 import { historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
-import { ExecutionActivityCard } from './ExecutionActivityCard.js'
-import { ExecutionLogPanel } from './ExecutionLogPanel.js'
+import { ExecutionActivityCard, executionStatusLabel } from './ExecutionActivityCard.js'
+import { executionActivity } from './execution-activity.js'
+import { CollectionPanel } from './CollectionPanel.js'
 import { MediaDiagnostics, MediaValueInspector } from './MediaValueInspector.js'
 import { mediaMetadataOf } from './media-metadata.js'
 import { resolveNodeOccurrence } from './problem-display.js'
@@ -38,9 +39,9 @@ import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js
 import { AppView } from './AppView.js'
 import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
-import { ProductActionFooter } from './ProductForm.js'
+import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductRunActivity, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
 import '@dinkster/ui/styles.css'
@@ -60,7 +61,9 @@ import { ImportAssetResolutionDialog } from './ImportAssetResolutionDialog.js'
 import { ModalSurface } from './ModalSurface.js'
 import { attachDomTooltips, resolveCanvasTooltip, TooltipController, type DomTooltipTarget } from './tooltips.js'
 import { activateProblem, ProblemsPanel } from './ProblemsPanel.js'
-import { ContextPanel } from './ContextPanel.js'
+import { useSelectionContext } from './selection-context.js'
+import { RegionIterationInspector } from './RegionIterationInspector.js'
+import { regionIterationInventory } from './region-iteration.js'
 import { ProductSelect } from './ProductSelect.js'
 import { BackendsPanel } from './BackendsPanel.js'
 import { ProjectsDialog } from './ProjectsDialog.js'
@@ -90,6 +93,7 @@ import {
   PanelIndicatorBadge,
   ShellRegionIcon,
   ShellResizeHandle,
+  ShellTooltip,
   TransientStatus,
 } from './ShellChrome.js'
 import { PanelDragOverlay } from './PanelDragOverlay.js'
@@ -541,7 +545,9 @@ export function App(props: {
   })
   // Built-in browsable collections; sources are live (corpus re-read per
   // page), so one instance each for the app's lifetime is correct.
-  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app), historySource(app), runsSource(app)]
+  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app)]
+  const storedRuns = runsSource(app)
+  const browserHistory = historySource(app)
   const libraryTemplatesEnabled = createMemo(() => {
     tabs()
     activeTabId()
@@ -578,17 +584,6 @@ export function App(props: {
       })
       return
     }
-    // Runs entries select-only on click: opening rides the explicit 'open'
-    // action, otherwise the delete affordance (rendered on the selected
-    // entry) could never be reached - selection would open a tab and close
-    // this panel.
-    if (sourceId !== 'history') return
-    const exec = app.store.executions.get().get(entry.id)
-    if (exec?.artifact) {
-      void app.openExecutionView(exec.ref).then((ok) => {
-        if (ok) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
-      })
-    }
   }
   const libraryEntryAction = (sourceId: string, entry: CollectionEntry, actionId: string): void => {
     // Remote entries carry the backend that served them (owner); every
@@ -620,16 +615,8 @@ export function App(props: {
     if (sourceId !== 'runs' || entry.owner === undefined) return
     const runId = runIdOfEntry(entry)
     if (actionId === 'delete') void app.deleteHistoryRun(runId, entry.owner)
-    if (actionId === 'open') {
-      void app.openRunWorkflow(runId, entry.owner).then((ok) => {
-        if (ok) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
-      })
-    }
-    if (actionId === 'resubmit') {
-      void app.resubmitRunWorkflow(runId, entry.owner).then((ok) => {
-        if (ok) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
-      })
-    }
+    if (actionId === 'open') void app.openRunWorkflow(runId, entry.owner)
+    if (actionId === 'resubmit') void app.resubmitRunWorkflow(runId, entry.owner)
   }
   // Clearing the whole runs scope is destructive: the button arms on the
   // first click ("Confirm clear") and executes only on a second click
@@ -1126,10 +1113,18 @@ export function App(props: {
     const tab = activeTab()
     return tab ? app.executionForTab(tab) : undefined
   }
+  const [runScope, setRunScope] = createSolidSignal('workflow')
+  const [selectedRunKey, setSelectedRunKey] = createSolidSignal<string>()
+  const [selectedStoredRun, setSelectedStoredRun] = createSolidSignal<ExecutionState>()
+  createEffect(() => { activeTabId(); setSelectedRunKey(undefined); setSelectedStoredRun(undefined) })
+  const selectedRun = (): ExecutionState | undefined =>
+    selectedRunKey() === undefined ? activeExecution() : executions().get(selectedRunKey()!) ??
+      (selectedStoredRun()?.key === selectedRunKey() ? selectedStoredRun() : undefined)
+  const hiddenHistoryExecutions = useSignal(app.hiddenHistoryExecutions)
   const workflowExecutions = (): readonly ExecutionState[] => {
     executions()
     const tab = activeTab()
-    return tab ? app.executionsForTab(tab) : []
+    return tab ? app.executionsForTab(tab).filter((execution) => !hiddenHistoryExecutions().has(execution.key)) : []
   }
 
   /** The live tab an execution's lineage belongs to, if it is open. */
@@ -1232,21 +1227,34 @@ export function App(props: {
 
   const ExecutionRow = (p: { exec: ExecutionState }) => {
     const live = () => liveTabOf(p.exec)
-    return <ExecutionActivityCard
-      entry={p.exec}
-      title={app.tabTitleFor(p.exec.ref)}
-      testId="execution-row"
-      relation={overlayRoleOf(p.exec)}
-      cancelControl={<CancelExecutionButton app={app} execution={p.exec} />}
-      onOpen={() => { void app.openExecutionView(p.exec.ref) }}
-      onPin={live() ? () => {
-        const tab = live()
-        if (!tab) return
-        if (overlayRoleOf(p.exec) === 'pinned') app.followLatestExecution(tab.id)
-        else app.pinExecutionOverlay(tab.id, p.exec.ref)
-      } : undefined}
-    />
+    return <article class="runs-row" role="listitem" data-testid="execution-row"
+      data-status={p.exec.status} data-selected={selectedRun()?.key === p.exec.key}>
+      <div class="runs-row-heading">
+        <ProductButton size="compact" variant="ghost" aria-pressed={selectedRun()?.key === p.exec.key}
+          onClick={() => setSelectedRunKey(p.exec.key)}>{app.tabTitleFor(p.exec.ref)}</ProductButton>
+        <span class="execution-status">{p.exec.status === 'queued' && app.store.isUnconfirmed(p.exec.ref) ? 'Unconfirmed' : executionStatusLabel(p.exec.status)}</span>
+        <Show when={p.exec.submittedBy?.kind === 'agent'}><span class="collab-agent">{message('runs.agent')}</span></Show>
+        <CancelExecutionButton app={app} execution={p.exec} />
+      </div>
+      <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
+          entry={p.exec}
+          title={app.tabTitleFor(p.exec.ref)}
+          testId="run-details"
+          relation={overlayRoleOf(p.exec)}
+          onOpen={() => { void app.openExecutionView(p.exec.ref) }}
+          onPin={live() ? () => {
+            const tab = live()
+            if (!tab) return
+            if (overlayRoleOf(p.exec) === 'pinned') app.followLatestExecution(tab.id)
+            else app.pinExecutionOverlay(tab.id, p.exec.ref)
+          } : undefined}
+        />} />
+    </article>
   }
+
+  const RunList = (p: { runs: readonly ExecutionState[] }) => <For each={p.runs.map((run) => run.key)}>
+    {(key) => <Show when={executions().get(key)}>{(execution) => <ExecutionRow exec={execution()} />}</Show>}
+  </For>
 
   // ---- Shell panels ------------------------------------------------------
   // Surfaces are registered descriptors; the sidebar, dock, and rail render
@@ -1290,10 +1298,6 @@ export function App(props: {
       refreshTick={libraryTick}
       onActivate={activateLibraryEntry}
       onAction={libraryEntryAction}
-      sourceActions={[
-        { sourceId: 'runs', id: 'clear', label: clearArmed() ? 'Confirm clear' : 'Clear all' },
-      ]}
-      onSourceAction={librarySourceAction}
     />
     </BackendMetadataState>
   )
@@ -1309,7 +1313,6 @@ export function App(props: {
       : <ProductEmptyState title={message('shell.backend.assetsRequireNative')} />
     }}
   </Show>
-  const LogsBody = () => <ActivityLog entries={logs} clearArmed={logsClearArmed} />
   /**
    * Best-effort display title for a runtime node id: resolve through compile
    * provenance (region iteration suffixes and inner path segments included)
@@ -1337,56 +1340,193 @@ export function App(props: {
     }))
   }
   const executionLogFocus = useSignal(app.executionLogFocus)
-  const ExecutionLogBody = () => (
-    <ExecutionLogPanel
-      executions={workflowExecutions}
-      active={activeExecution}
+  const LogsBody = () => (
+    <LogPanel
+      entries={logs}
+      clearArmed={logsClearArmed}
+      onClear={requestLogsClear}
+      executions={() => { executions(); return app.executionList() }}
+      active={selectedRun}
       nodeTitle={runtimeNodeTitle}
       onFocusNode={focusRuntimeNode}
       filterRequest={executionLogFocus}
       onFilterApplied={(token) => app.consumeExecutionLogFocus(token)}
     />
   )
-  const QueuePanel = () => (
-    <div class="rail-panel-body" data-testid="queue-rail">
-      <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title="Nothing queued for this workflow." />}>
-        <For each={executionGroups()}>
-          {(group) => (
-            <div class="backend-group" role="list" aria-label={group.backend?.label ?? `${group.id} removed backend executions`}>
-              <Show when={multiBackend() || group.backend === undefined}>
+  const selectionContext = useSelectionContext(app)
+  const RunIterations = () => {
+    const inspection = createMemo(() => {
+      const view = selectionContext()
+      const execution = selectedRun()
+      if (view === undefined || execution === undefined || view.context.kind !== 'node' ||
+          view.context.nodeIds.length !== 1 || view.instancePath === undefined) return undefined
+      const node = view.doc.graphs[view.graphId]?.nodes[view.context.nodeIds[0]!]
+      if (node?.region === undefined) return undefined
+      const occurrence = { node: node.id, instancePath: view.instancePath.map(asNodeId) }
+      const registry = app.registryForTab(view.tab)
+      if (registry === undefined || regionIterationInventory(execution, occurrence) === undefined) return undefined
+      return { view, execution, occurrence, registry }
+    })
+    return <Show when={inspection()}>{(current) => <RegionIterationInspector
+      execution={current().execution} regionOccurrence={current().occurrence}
+      document={current().view.doc} resolveSchema={current().registry.resolve}
+      values={(() => { backendsTick(); return app.valuesForExecution(current().execution.ref) })()}
+    />}</Show>
+  }
+  const storedExecution = (entry: CollectionEntry): ExecutionState | undefined => {
+    executions()
+    return app.executionList().find((execution) => entry.owner === undefined
+      ? execution.key === entry.id
+      : execution.ref.connection === entry.owner && execution.jobRef === runIdOfEntry(entry))
+  }
+  const StoredRun = (p: { entry: CollectionEntry; selected: () => boolean; actions: JSX.Element }) => {
+    const [loaded, setLoaded] = createSolidSignal<{ execution: ExecutionState; values: DinksterValuesClient }>()
+    const [loadError, setLoadError] = createSolidSignal<string>()
+    const [loading, setLoading] = createSolidSignal(false)
+    let requested = false
+    let alive = true
+    let unsubscribe: (() => void) | undefined
+    onCleanup(() => {
+      alive = false
+      unsubscribe?.()
+    })
+    const load = async (): Promise<void> => {
+      const entry = p.entry
+      const backend = app.backends.get().find((candidate) => candidate.id === entry.owner)
+      if (backend?.protocol !== 'dinkster') return
+      const project = activeProjectId()
+      let connectionChanged = false
+      unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
+      const current = () => alive && !connectionChanged && p.entry.id === entry.id && p.entry.owner === entry.owner &&
+        activeProjectId() === project && app.backends.get().includes(backend)
+      setLoading(true)
+      try {
+        const runId = runIdOfEntry(entry)
+        const run = await backend.connection.getHistoryRun(runId, LIBRARY_SCOPE)
+        if (!current()) return
+        if (run === undefined || run.scope !== LIBRARY_SCOPE || (run.jobRef ?? run.runId) !== runId) throw new Error('Stored run is no longer available')
+        const job = await backend.connection.fetchHistoryJob(run)
+        if (!current()) return
+        if (job === undefined) throw new Error('Retained outputs are no longer available')
+        if (job.state === 'queued' || job.state === 'running') throw new Error('Stored run is no longer terminal')
+        const rawOutputs = job.outputs
+        if (rawOutputs !== undefined && (typeof rawOutputs !== 'object' || rawOutputs === null || Array.isArray(rawOutputs) ||
+          !Object.values(rawOutputs).every((outputs) => typeof outputs === 'object' && outputs !== null && !Array.isArray(outputs)))) {
+          throw new Error('Stored run outputs are malformed')
+        }
+        const execution: ExecutionState = {
+          ref: { connection: backend.id, prompt: asPromptId(run.jobId) },
+          key: JSON.stringify([backend.id, run.clientId, run.jobId, runId]),
+          status: run.state === 'failed' ? 'error' : run.state,
+          nodes: nodeStatesFromDinksterJob(job), blockedNodes: {}, expandedNodes: {}, regions: {},
+          outputs: rawOutputs as ExecutionState['outputs'] ?? {}, artifacts: job.artifacts ?? [], artifactsHydrated: true,
+          previews: {}, activities: [], logs: [], logsDropped: 0,
+          errors: run.error?.message === undefined ? [] : [diag('error', 'runtime', 'history.failed', run.error.message)],
+          jobRef: runId, ...(run.sourceDocument === undefined ? {} : { sourceDocument: run.sourceDocument }),
+          queuedAt: run.submittedAt * 1000, endedAt: run.finishedAt * 1000,
+        }
+        const values = backend.connection.historyValues(run)
+        setLoaded({ execution, values })
+      } catch (error) {
+        if (alive) setLoadError(error instanceof Error ? error.message : String(error))
+      } finally {
+        if (alive) setLoading(false)
+      }
+    }
+    createEffect(() => {
+      if (!p.selected()) return
+      const known = storedExecution(p.entry)
+      const inspected = loaded()?.execution
+      setSelectedStoredRun(known === undefined ? inspected : undefined)
+      setSelectedRunKey(known?.key ?? inspected?.key ?? p.entry.id)
+      if (known === undefined && !requested) { requested = true; void load() }
+    })
+    const Facts = () => <>
+      <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
+      <Show when={storedExecution(p.entry)?.artifact}>
+        <ProductButton size="compact" onClick={() => { const execution = storedExecution(p.entry); if (execution) void app.openExecutionView(execution.ref) }}>{message('runs.openSnapshot')}</ProductButton>
+      </Show>
+    </>
+    return <div class="runs-stored-row">
+      <strong>{p.entry.title}</strong>
+      <p>{p.entry.subtitle}</p>
+      <div class="collection-badges"><For each={p.entry.badges}>{(badge) => <span class="collection-badge">{badge}</span>}</For></div>
+      <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
+      <Show when={loadError()}>{(error) => <p role="status" title={message('runs.loadError', { error: error() })}>{message('runs.loadError', { error: error() })}</p>}</Show>
+      <Show when={storedExecution(p.entry)} fallback={<Show when={loaded()} fallback={<details class="runs-details" onClick={(event) => event.stopPropagation()}>
+        <summary>{message('runs.details')}</summary><Facts />
+      </details>}>{(source) => <Outputs app={app} execution={source().execution} source={source()} details={<Facts />} />}</Show>}>
+        {(execution) => <>
+          <CancelExecutionButton app={app} execution={execution()} />
+          <Outputs app={app} execution={execution()} details={<Facts />} />
+        </>}
+      </Show>
+      <Show when={p.selected()}>{p.actions}</Show>
+    </div>
+  }
+  const pendingRuns = () => {
+    executions()
+    return app.executionList().filter((execution) => execution.status === 'queued' || execution.status === 'running')
+  }
+  const runsActivity = () => {
+    executions()
+    const tab = activeTab()
+    return executionActivity(runScope() === 'all' ? app.executionList() : tab ? app.executionsForTab(tab) : [])
+  }
+  const RunsPanel = () => (
+    <div class="rail-panel-body runs-panel" data-testid="runs-panel">
+      <ProductSelect testId="runs-scope" ariaLabel={message('runs.scope')}
+        selectedId={runScope()} options={[
+          { id: 'workflow', label: message('runs.scope.workflow'), value: 'workflow' },
+          { id: 'all', label: message('runs.scope.all'), value: 'all' },
+        ]} onSelect={(option) => setRunScope(option.value)} />
+      <Show when={runsActivity().running > 0 || runsActivity().waiting > 0}>
+        <ProductRunActivity running={runsActivity().running} waiting={runsActivity().waiting}
+          label={message('runs.activity', runsActivity())} />
+      </Show>
+      <Show when={runScope() === 'workflow'} fallback={<>
+        <Show when={clearArmed() && clearArmOwner === activeBackend().id}>
+          <ProductNotice tone="info" testId="runs-clear-confirmation">{message('runs.clear.confirmation')}</ProductNotice>
+        </Show>
+        <Show when={activeBackend().protocol === 'dinkster'}>
+          <div role="list" aria-label={message('runs.pending')}>
+            <RunList runs={pendingRuns()} />
+          </div>
+        </Show>
+        <CollectionPanel sources={[activeBackend().protocol === 'dinkster' ? storedRuns : browserHistory]}
+          listOnly refreshTick={libraryTick} searchLabel={message('runs.search')}
+          renderState={(state) => state.kind === 'empty' && activeBackend().protocol === 'dinkster'
+            ? <ProductEmptyState title={message('runs.stored.empty')} /> : undefined}
+          entryContent={(entry, selected, actions) => <StoredRun entry={entry()} selected={selected} actions={actions} />}
+          onAction={libraryEntryAction}
+          sourceActions={[{ sourceId: 'runs', id: 'clear', label: message(clearArmed() ? 'runs.clear.confirm' : 'runs.clear.action') }]}
+          onSourceAction={librarySourceAction} />
+      </>}>
+      <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title={message('runs.empty')} />}>
+        <For each={executionGroups().map((group) => group.id)}>
+          {(id) => <Show when={executionGroups().find((group) => group.id === id)}>{(group) => (
+            <div class="backend-group" role="list" aria-label={group().backend?.label ?? `${id} removed backend executions`}>
+              <Show when={multiBackend() || group().backend === undefined}>
                 <h3
                   class="backend-group-title"
-                  classList={{ disconnected: group.backend === undefined }}
+                  classList={{ disconnected: group().backend === undefined }}
                   data-testid="backend-group"
-                  data-connection={group.id}
-                  role={group.backend === undefined ? 'status' : undefined}
+                  data-connection={id}
+                  role={group().backend === undefined ? 'status' : undefined}
                 >
-                  {group.backend?.label ?? `${group.id} - backend removed or disconnected`}
+                  {group().backend?.label ?? `${id} - backend removed or disconnected`}
                 </h3>
               </Show>
-              <For each={group.execs}>{(exec) => <ExecutionRow exec={exec} />}</For>
+              <RunList runs={group().execs} />
             </div>
-          )}
+          )}</Show>}
         </For>
+        <RunIterations />
+      </Show>
       </Show>
     </div>
   )
-  const OutputsPanel = () => (
-    <div class="rail-panel-body" data-testid="outputs-panel">
-      <BackendMetadataState>
-      <Show when={activeExecution()} fallback={
-        <div data-state="no-execution" role="status">
-          <ProductEmptyState title="No execution selected" hint="Run this workflow or open a recorded execution to inspect its outputs." />
-        </div>
-      }>
-        {(exec) => <Outputs app={app} execution={exec()} />}
-      </Show>
-      </BackendMetadataState>
-    </div>
-  )
-  // One composed problem list feeds every problem surface: the
-  // whole-document Problems tab, the Focused tab, and the Problems
-  // indicator, so their counts can never disagree.
+  // The indicator always counts the full list, regardless of the selection filter.
   const problemDiagnostics = (): readonly Diagnostic[] => {
     const execution = activeExecution()
     return [
@@ -1418,13 +1558,6 @@ export function App(props: {
       label: message('shell.status.problems', { count, severity }),
     }
   }
-  // Whole-document -> focused navigation: focus the owner on canvas (no
-  // document mutation) and bring the Focused tab forward so it shows that
-  // owner's problems.
-  const showProblemInContext = (diagnostic: Diagnostic): void => {
-    activateProblem(app, diagnostic)
-    setPanelOpen(app.panels, app.dock, 'context', 'right', true)
-  }
   const learnBackend = createMemo<Backend | undefined>(() => {
     backendsTick()
     const available = (backend: Backend): boolean =>
@@ -1444,7 +1577,7 @@ export function App(props: {
     registerBuiltinPanel({
       id: 'learn', get title() { return message('learn.panel.title') }, icon: BookOpen,
       get description() { return message('learn.panel.description') }, get ariaLabel() { return message('learn.panel.ariaLabel') },
-      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 12,
+      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 25,
       when: () => learnBackend() !== undefined,
       toggleTestId: 'learn-toggle', component: () => {
         return <LearnPanel
@@ -1461,26 +1594,12 @@ export function App(props: {
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 15,
       toggleTestId: 'assets-toggle', component: AssetsPanelBody,
     }),
-    // Logs live in the BOTTOM panel by default: a wide, short surface suits
-    // streaming rows, and it gives the bottom region its first resident
-    // (promises.md "Shell layout"). Dock stays an allowed placement.
     registerBuiltinPanel({
-      id: 'logs', get title() { return message('shell.panel.activity.title') }, icon: ScrollText,
-      get description() { return message('shell.panel.activity.description') }, get ariaLabel() { return message('shell.panel.activity.title') },
+      id: 'logs', get title() { return message('shell.panel.log.title') }, icon: ScrollText,
+      get description() { return message('shell.panel.log.description') }, get ariaLabel() { return message('shell.panel.log.title') },
       placement: 'bottom', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
       toggleTestId: 'logs-toggle',
-      headerAction: { get label() { return message('shell.action.clear') }, testId: 'logs-clear', run: requestLogsClear },
       component: LogsBody,
-    }),
-    // The Execution log is the per-run structured feed (node output,
-    // warnings, error reports), deliberately separate from the app-level
-    // Activity panel above (Dinkster issue #368).
-    registerBuiltinPanel({
-      id: 'execution-log', get title() { return message('shell.panel.executionLog.title') }, icon: Terminal,
-      get description() { return message('shell.panel.executionLog.description') }, get ariaLabel() { return message('shell.panel.executionLog.title') },
-      placement: 'bottom', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 25,
-      toggleTestId: 'execution-log-toggle',
-      component: ExecutionLogBody,
     }),
     registerBuiltinPanel({
       id: 'backends', get title() { return message('shell.panel.backends.title') }, icon: Server,
@@ -1499,60 +1618,44 @@ export function App(props: {
       </div>,
     }),
     registerBuiltinPanel({
-      id: 'queue', get title() { return message('shell.panel.executions.title') },
+      id: 'runs', get title() { return message('shell.panel.runs.title') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 10,
-      component: QueuePanel,
+      component: RunsPanel,
     }),
     registerBuiltinPanel({
-      id: 'outputs', get title() { return message('shell.panel.outputs.title') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
-      component: OutputsPanel,
-    }),
-    registerBuiltinPanel({
-      id: 'extensions', get title() { return message('shell.panel.extensions.title') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 30,
+      id: 'extensions', get title() { return message('shell.panel.extensions.title') }, icon: Blocks,
+      placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
+      toggleTestId: 'extensions-toggle',
       component: () => <ExtensionsPanel host={app.extensions} />,
     }),
     registerBuiltinPanel({
       id: 'boundary', get title() { return message('shell.panel.boundary.title') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 40,
       indicator: boundaryIndicator,
+      when: () => {
+        boundaryStateTick()
+        const tab = activeTab()
+        return tab !== undefined && currentGraphId(tab) !== tab.store.doc.root
+      },
       component: () => <BoundaryPanel app={app} />,
-    }),
-    // The Focused tab shows the focused entity and only its problems
-    // (docs/problem-surfaces.md); the Problems tab remains the whole-document
-    // list. Both read the same composed diagnostics.
-    registerBuiltinPanel({
-      id: 'context', get title() { return message('shell.panel.focused.title') },
-      get description() { return message('shell.panel.focused.description') }, get ariaLabel() { return message('shell.panel.focused.ariaLabel') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 55,
-      component: () => <ContextPanel
-        app={app}
-        diagnostics={problemDiagnostics}
-        execution={activeExecution}
-        values={(execution) => {
-          backendsTick()
-          return app.valuesForExecution(execution.ref)
-        }}
-      />,
     }),
     registerBuiltinPanel({
       id: 'node-help', get title() { locale(); return t('nodeHelp.panel.title') },
       get description() { locale(); return t('nodeHelp.panel.description') },
       get ariaLabel() { locale(); return t('nodeHelp.panel.ariaLabel') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 57,
+      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 30,
       component: () => <NodeHelpPanel app={app} locale={locale().tag} />,
     }),
     registerBuiltinPanel({
       id: 'problems', get title() { return message('shell.panel.problems.title') },
-      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 60,
+      placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
       indicator: problemsIndicator,
       component: () => <ProblemsPanel app={app} diagnostics={problemDiagnostics}
         importedNodes={importedNodes}
         migrationNotice={() => migrationNotices().get(activeTabId())}
         compatSkips={() => activeBackend().compatSkips.get()}
         packInferenceUnavailable={() => activeBackend().packInferenceUnavailable.get()}
-        onShowInContext={showProblemInContext} />,
+        selection={selectionContext} />,
     }),
     // Settings is the modal host's proving resident: the body is
     // placement-agnostic (SettingsDialog owns content, the host owns
@@ -2987,15 +3090,7 @@ export function App(props: {
         <TabDragGhost title={drag().title} x={drag().x} y={drag().y} refused={drag().refused} />
       )}</Show>
 
-      <Show when={tooltip()}>{(tip) => (
-        <aside class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip" style={{ left: `${Math.max(8, Math.min(tip().x, window.innerWidth - 368))}px`, top: `${Math.max(8, Math.min(tip().y, window.innerHeight - 120))}px` }}>
-          <div role="tooltip">
-            <Show when={tip().title}><div class="app-tooltip-title">{tip().title}</div></Show>
-            <For each={tip().lines}>{(line) => <div>{line}</div>}</For>
-            <Show when={tip().detailed}><For each={tip().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
-          </div>
-        </aside>
-      )}</Show>
+      <Show when={tooltip()}>{(tip) => <ShellTooltip tip={tip()} />}</Show>
       <Show when={queueRefusal() !== undefined && queueRefusal() === activeTab() && problemsIndicator()}>{(summary) => (
         <ProductEmptyState
           class="queue-refusal-toast"
@@ -3142,17 +3237,20 @@ function outputIterationGroup(runtimeId: string, workflowLabel: string): { reado
   }
 }
 
-function Outputs(props: { app: AppState; execution: ExecutionState }) {
+function Outputs(props: { app: AppState; execution: ExecutionState; details?: JSX.Element; source?: {
+  values: DinksterValuesClient
+} }) {
   const message = useAppMessage()
   const backendTick = useSignal(props.app.backendsTick)
   const [viewerIndex, setViewerIndex] = createSolidSignal<number>()
-  const [imagePage, setImagePage] = createSolidSignal(0)
+  const [viewerGrid, setViewerGrid] = createSolidSignal(false)
+  const [detailsOpen, setDetailsOpen] = createSolidSignal(false)
   const [failed, setFailed] = createSolidSignal<ReadonlySet<string>>(new Set())
   const [loaded, setLoaded] = createSolidSignal<ReadonlySet<string>>(new Set())
   const currentExecutionKey = createMemo(() => props.execution.key)
   const values = () => {
     backendTick()
-    return props.app.valuesForExecution(props.execution.ref)
+    return props.source?.values ?? props.app.valuesForExecution(props.execution.ref)
   }
   const outputIdentities = createMemo(() => {
     const media = new Set<string>()
@@ -3183,7 +3281,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
   createEffect(() => {
     currentExecutionKey()
     setViewerIndex(undefined)
-    setImagePage(0)
+    setViewerGrid(false)
     setFailed(new Set<string>())
     setLoaded(new Set<string>())
   })
@@ -3191,11 +3289,9 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
     values: values(),
   }))
-  const pageStart = () => Math.min(imagePage(), Math.max(0, Math.ceil(images().length / 4) - 1)) * 4
   const imageGroups = createMemo(() => {
     const groups = new Map<string, { readonly label: string; readonly images: { readonly image: ExecutedImage; readonly index: number }[] }>()
-    for (const [offset, image] of images().slice(pageStart(), pageStart() + 4).entries()) {
-      const index = pageStart() + offset
+    for (const [index, image] of images().slice(0, 3).entries()) {
       const { key, label } = outputIterationGroup(image.runtimeId, 'Workflow outputs')
       const group = groups.get(key) ?? { label, images: [] }
       group.images.push({ image, index })
@@ -3240,6 +3336,11 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
   }
   return (
     <>
+      <details class="runs-details" onClick={(event) => event.stopPropagation()}
+        onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
+        <summary>{message('runs.details')}</summary>
+        <Show when={detailsOpen()}>
+        {props.details}
       <section class="output-execution-provenance output-rail-provenance" aria-label="Execution provenance">
         <div><span>Backend</span><strong>{provenance().backendLabel}</strong></div>
         <div><span>Backend ID</span><strong>{provenance().backendId}</strong></div>
@@ -3248,7 +3349,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
         <Show when={!provenance().backendAvailable && images().length > 0}>
           <p role="status">{message('outputs.backendDisconnected')}</p>
         </Show>
-        <Show when={props.execution.errors.length > 0 && images().length > 0}>
+        <Show when={props.execution.errors.length > 0}>
           <p class="output-execution-error" role="alert">{props.execution.errors.map((error) => error.message).join(' ')}</p>
         </Show>
       </section>
@@ -3263,24 +3364,12 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
           }}</For>
         </section>
       )}</For>
-      <Show when={images().length > 4}>
-        <div class="output-viewer-toolbar" role="group" aria-label={message('outputs.pages.label')}>
-          <ProductButton size="compact" type="button" disabled={pageStart() === 0}
-            onClick={() => setImagePage(pageStart() / 4 - 1)}>{message('outputs.pages.previous')}</ProductButton>
-          <span aria-live="polite">{message('outputs.pages.position', { first: pageStart() + 1, last: Math.min(images().length, pageStart() + 4), count: images().length })}</span>
-          <ProductButton size="compact" type="button" disabled={pageStart() + 4 >= images().length}
-            onClick={() => setImagePage(pageStart() / 4 + 1)}>{message('outputs.pages.next')}</ProductButton>
-        </div>
-      </Show>
-      <div class="outputs" aria-label={`${images().length} execution images`}>
+      <For each={images()}>{(image) => <ExecutedImageFacts image={image} availability={availability(image.key)} />}</For>
+        </Show>
+      </details>
+      <div class="outputs runs-output-thumbnails" aria-label={`${images().length} execution images`}>
         <For each={imageGroups()} fallback={
-          <div data-state={emptyState().state} role={emptyState().state === 'empty' ? 'status' : undefined}>
-            <ProductEmptyState
-              tone={emptyState().state === 'error' || emptyState().state === 'owner-unavailable' ? 'error' : emptyState().state === 'waiting' || emptyState().state === 'loading' ? 'loading' : 'empty'}
-              title={emptyState().title}
-              hint={emptyState().detail}
-            />
-          </div>
+          <span data-state={emptyState().state} role="status" title={emptyState().detail}>{emptyState().title}</span>
         }>
           {(group) => (
             <section class="output-iteration-group" aria-label={group.label}>
@@ -3292,7 +3381,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
                 type="button"
                 class="output-thumbnail"
                 aria-label={`Open ${executedImageLabel(image, index, images().length)}`}
-                onClick={() => setViewerIndex(index)}
+                onClick={(event) => { event.stopPropagation(); setViewerGrid(false); setViewerIndex(index) }}
               >
                 <span class="output-thumbnail-preview">
                   <Show when={!failed().has(image.key)} fallback={<span class="output-thumbnail-unavailable">Image unavailable</span>}>
@@ -3300,7 +3389,6 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
                   </Show>
                   <span class="output-thumbnail-position">Output {index + 1} of {images().length}</span>
                 </span>
-                <ExecutedImageFacts image={image} availability={availability(image.key)} />
               </ProductButton>
               </div>
               )}</For>
@@ -3308,9 +3396,13 @@ function Outputs(props: { app: AppState; execution: ExecutionState }) {
             </section>
           )}
         </For>
+        <Show when={images().length > 3}>
+          <ProductButton size="compact" aria-label={message('runs.outputs.all', { count: images().length })}
+            onClick={(event) => { event.stopPropagation(); setViewerGrid(true); setViewerIndex(0) }}>+{images().length - 3}</ProductButton>
+        </Show>
       </div>
       <Show when={viewerIndex() !== undefined}>
-        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} provenance={provenance()} backendUrl={props.app.backendFor(props.execution.ref.connection)?.baseUrl} onRequestClose={() => setViewerIndex(undefined)} />
+        <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} initialMode={viewerGrid() ? 'grid' : 'single'} provenance={provenance()} backendUrl={props.app.backendFor(props.execution.ref.connection)?.baseUrl} onRequestClose={() => setViewerIndex(undefined)} />
       </Show>
     </>
   )
