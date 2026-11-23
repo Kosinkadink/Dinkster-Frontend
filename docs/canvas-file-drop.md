@@ -86,20 +86,12 @@ object, bytes, metadata, and write ordering. A native browser proof is authored
 in `packages/e2e/tests/image-upload-byte-proof.spec.ts`: its canvas-drop arm
 uses a deterministic valid PNG larger than 256 KiB and compares the POST body,
 returned digest, vault GET bytes/hash/length, AssetRef, and export/reopen value;
-its explicit Load Image arm also proves execution. The prior live proof and exact hashes are
-recorded in `docs/promises.md`.
+its explicit Load Image arm also proves execution.
 
-Historical backend defect observed 2026-08-07: live job
-`019fd935047563a88365345d68d1cd8a` failed at `dinkster.load_image` n16. Source
-document blob `blake3:5932696ceb7c52ed03f0566144103a929047ec68669bebac04aa5efc1f8f3a9a`
-records digest `blake3:b584866aabc7b7bb0c4c1016b809254d71261e15db24b392a3cb15bb62398b07`
-at 300047 bytes, but the backend vault file held only 78840 bytes. The backend
-handler performed one `request.content.read(limit+1)`, which does not guarantee
-EOF. Backend commit `6a5a1c23a25d7b24b8c01c49eec021d513eb4910`
-fixed the handler by draining chunks to EOF; verified-read commit
-`0313abfefc96ac037591d25879bd11d2eb831a01` protects GET and execution.
-Frontend retry, chunking, readback, digest, and decode workarounds remain
-explicitly out of scope.
+The backend drains request chunks to EOF and verifies stored content against
+its digest on GET and execution. A single `request.content.read(limit+1)` does
+not guarantee EOF. Frontend retry, chunking, readback, digest, and decode
+workarounds remain explicitly out of scope.
 
 ## Pasting images
 

@@ -96,10 +96,17 @@ test('a refused occurrence drag shows gesture-site feedback and creates no link'
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'n')
     return node?.layout.pins.filter((pin) => pin.familyOwner?.socketed === true).length ?? 0
   })).toBe(2)
+  await page.clock.install()
+  await page.clock.pauseAt(new Date(Date.now() + 100))
   const from = await pinPoint(page, 'p', 'out')
   const to = await pinPoint(page, 'n', 'items', true)
   await drag(page, from, to)
   const toast = page.getByTestId('gesture-refusal-toast')
+  await expect(toast).toBeVisible()
+  await page.evaluate(() => {
+    const splits = window.__dinksterTest!.app.editorSplits
+    splits.layout.set(structuredClone(splits.layout.get()))
+  })
   await expect(toast).toBeVisible()
   await expect(toast).toHaveAttribute('role', 'alert')
   await expect(toast).toContainText('occurrence.link.planUnavailable')
@@ -122,7 +129,10 @@ test('a refused occurrence drag shows gesture-site feedback and creates no link'
   await expect(toast).toBeHidden()
   await drag(page, from, to)
   await expect(toast).toBeVisible()
-  await expect(toast).toBeHidden({ timeout: 5_000 })
+  await page.clock.runFor(3_999)
+  await expect(toast).toBeVisible()
+  await page.clock.runFor(1)
+  await expect(toast).toBeHidden()
 })
 
 test('repeated family-forwarding fan-out refusal stays one Problem and flashes each time', async ({ page }) => {

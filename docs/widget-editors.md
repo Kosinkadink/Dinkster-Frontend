@@ -1270,14 +1270,10 @@ File. Component and client tests pin object identity, bytes, metadata, and the
 absence of a document write before upload success. The separate native browser
 arm in `packages/e2e/tests/image-upload-byte-proof.spec.ts` uses a deterministic
 valid PNG larger than 256 KiB and proves POST, vault GET, graph, export/reopen,
-and Load Image -> Preview Image execution. Historical job
-`019fd935047563a88365345d68d1cd8a` recorded a 300047-byte source AssetRef
-for digest `blake3:b584866aabc7b7bb0c4c1016b809254d71261e15db24b392a3cb15bb62398b07`
-while the vault held 78840 bytes because a single request-stream read did not
-guarantee EOF. Backend commit `6a5a1c23a25d7b24b8c01c49eec021d513eb4910`
-fixed the read by draining chunks to EOF, and `0313abfefc96ac037591d25879bd11d2eb831a01`
-made reads and execution verify content against the digest. No frontend
-truncation workaround is part of this contract.
+and Load Image -> Preview Image execution. The backend drains request chunks
+to EOF and verifies stored content against its digest on reads and execution.
+A single request-stream read does not guarantee EOF. No frontend truncation
+workaround is part of this contract.
 
 A typed ASSET whose semantic or MIME-derived browse kind is exactly
 `media/image`, `media/audio`, or `media/video` uses the bounded media-ingest

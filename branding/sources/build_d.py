@@ -1,16 +1,9 @@
-"""Export the approved reference trace; retain historical analytic comparisons.
+"""Read the approved vector D and retain historical analytic comparisons.
 
-The D silhouette is the union of the cyan, coral and yellow planes of
-references/A-plus-two-variants.png (left half). Geometry is defined once in
-reference-image pixel coordinates (straight edges, one bowl arc, and a fillet
-radius per corner), then mapped to a 1000x1000 viewBox. The stem and leg stay
-a separate island, as in the reference.
-
-The active master derives from the dark-on-light trace in reference-d.svg,
-with only its lower body tip locally rounded upward.
-The analytic counter below is historical, not the active master.
+The active silhouette is authored in dinkster-d.svg. The analytic counter
+below and reference-d.svg are historical, not production inputs.
 --faceted, --stadium and --echo retain historical alternatives for comparison.
-Run with --fit to re-estimate every fillet radius against the reference.
+Run with --fit to re-estimate analytic fillet radii against the reference.
 """
 
 import io
@@ -21,45 +14,14 @@ from pathlib import Path
 
 import cairosvg
 import numpy as np
-from fontTools.misc.bezierTools import splitCubicAtT
-from fontTools.pens.recordingPen import RecordingPen
-from fontTools.pens.svgPathPen import SVGPathPen
-from fontTools.svgLib.path import parse_path
 from PIL import Image, ImageDraw
 from scipy import ndimage
 
 REF = "A-plus-two-variants.png"  # run from this directory
-TRACE_SOURCE = Path(__file__).with_name("reference-d.svg")
-BODY_TIP_INCOMING_T = 0.78
-BODY_TIP_OUTGOING_T = 0.40
-BODY_TIP_HANDLE_SCALE = 0.35
 
 
 def approved_trace_path():
-    trace = RecordingPen()
-    parse_path(ET.parse(TRACE_SOURCE).getroot()[0].get("d"), trace)
-    incoming = splitCubicAtT(
-        trace.value[9][1][-1], *trace.value[10][1], BODY_TIP_INCOMING_T
-    )[0]
-    outgoing = splitCubicAtT(
-        trace.value[10][1][-1], *trace.value[11][1], BODY_TIP_OUTGOING_T
-    )[1]
-    # Trim only the tip's two adjacent cubics. The new tangent handles retain
-    # their endpoint directions; all other reference-trace spans are replayed.
-    controls = tuple(
-        tuple(p + BODY_TIP_HANDLE_SCALE * (p - q) for p, q in zip(point, handle))
-        for point, handle in ((incoming[-1], incoming[-2]), (outgoing[0], outgoing[1]))
-    )
-    result = SVGPathPen(None)
-    for index, (operation, points) in enumerate(trace.value):
-        if index == 10:
-            result.curveTo(*incoming[1:])
-            result.curveTo(*controls, outgoing[0])
-        elif index == 11:
-            result.curveTo(*outgoing[1:])
-        else:
-            getattr(result, operation)(*points)
-    return result.getCommands()
+    return ET.parse(Path(__file__).with_name("dinkster-d.svg")).getroot()[0].get("d")
 
 
 # Measured reference geometry (source pixels). Lines at 45 degrees are given

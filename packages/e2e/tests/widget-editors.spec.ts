@@ -17,7 +17,7 @@ catalogTest('mixed scalar COMBO keeps typed native choices through dropdown edit
     ] } },
   } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({ nodes: [{ id: 1, type: 'ScalarCombo', widgets_values: ['auto', true] }], links: [] }, 'Mixed scalar choices')
     window.__dinksterTest!.renderer!.setViewport({ x: 100, y: 100, scale: 1 })
@@ -46,7 +46,7 @@ catalogTest('native integer RGB color edits retain numeric values without catalo
     ] } },
   } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({ nodes: [{ id: 1, type: 'IntegerColor', widgets_values: [66051] }], links: [] }, 'Integer RGB color')
     window.__dinksterTest!.renderer!.setViewport({ x: 100, y: 100, scale: 1 })
@@ -78,7 +78,7 @@ catalogTest('socketless native color keeps its editor and neighboring input sock
     ] } },
   } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({ nodes: [{ id: 1, type: 'SocketlessFixture', widgets_values: ['solid', 'color', '#abcdef', 19] }], links: [] }, 'Socketless fixture')
     window.__dinksterTest!.renderer!.setViewport({ x: 100, y: 100, scale: 1 })
@@ -197,7 +197,6 @@ test.beforeEach(async ({ page, widgetDocument }) => {
   )
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
@@ -664,7 +663,7 @@ catalogTest('numeric union uses FLOAT editing in canvas and exposed AppView with
     nodes: { 'test.numeric_union': fixture.nodes['test.numeric_union'] },
   } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+  await waitForWorkspaceReady(page, 1)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.settings.set('features.appView.enabled', true)

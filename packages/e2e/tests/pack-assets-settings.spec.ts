@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, nativeTest as test } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_PACK_ASSETS_SETTINGS_PROOF_DIR']
 
@@ -64,9 +64,7 @@ test('declared pack settings are editable through the native connection', async 
   })
 
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', {
-    timeout: 15_000,
-  })
+  await waitForWorkspaceReady(page, 0)
   await page.getByTestId('settings-button').click()
   const dialog = page.getByRole('dialog', { name: 'Settings', exact: true })
   await dialog
