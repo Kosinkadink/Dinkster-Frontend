@@ -8,7 +8,7 @@
 import type { WidgetKind, WidgetRegistry, WidgetView } from '@dinkster/core'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createRegistryPainter } from '../src/registry-painter.js'
-import { fitItems, paintSwatchRow } from '../src/renderer.js'
+import { fitItems, fitSummary, paintSwatchRow } from '../src/renderer.js'
 import type { WidgetPaintArgs } from '../src/renderer.js'
 import { defaultTokens } from '../src/tokens.js'
 import { widgetChromeRect, type LayoutRow } from '../src/layout.js'
@@ -567,5 +567,48 @@ describe('a row of items shows as many as fit and counts the rest', () => {
     const all = fakeCtx()
     paintSwatchRow(all.ctx, colors.slice(0, 2), 100, 12, 40, defaultTokens, '#eeeeee')
     expect(all.textCalls).toEqual([])
+  })
+
+  it('writes the count instead of a bare +N when not one square fits', () => {
+    const colors = Array.from({ length: 9 }, (_, index) => `#00000${index}`)
+    // Two squares, their gaps and '+7' need 40 px; one square and '+8' 26 px.
+    const some = fakeCtx()
+    paintSwatchRow(some.ctx, colors, 100, 12, 50, defaultTokens, '#eeeeee', '9 colors')
+    expect(some.textCalls).toEqual([expect.objectContaining({ text: '+7' })])
+    const narrow = fakeCtx()
+    paintSwatchRow(narrow.ctx, colors, 100, 12, 24, defaultTokens, '#eeeeee', '9 colors')
+    expect(narrow.fills.filter((fill) => colors.includes(fill.fillStyle))).toEqual([])
+    // Below one square and '+8', the count is written, cut to the room.
+    expect(narrow.textCalls.map((call) => call.text)).toEqual(['9...'])
+  })
+
+  it('keeps whole items, then cuts the first, and shows the count only when the cut name would say less', () => {
+    const { ctx } = fakeCtx()
+    const items = ['dpmpp_2m_sde', 'euler', 'dpmpp_2m']
+    // 'dpmpp_2m_sde, euler +1' is 132 px; 'dpmpp_2m_sde +2' is 90 px.
+    expect(fitItems(ctx, items, 132, '3 selected')).toBe('dpmpp_2m_sde, euler +1')
+    expect(fitItems(ctx, items, 100, '3 selected')).toBe('dpmpp_2m_sde +2')
+    // At 84 px the cut 'dpmpp_2m... +2' keeps 8 characters (48 px), less
+    // than the 60 px count, so the count stands alone.
+    expect(fitItems(ctx, items, 84, '3 selected')).toBe('3 selected')
+    // A long first name keeps enough of itself to beat the count.
+    expect(fitItems(ctx, ['a-very-long-checkpoint-name', 'x', 'y'], 120, '3 assets')).toBe('a-very-long-ch... +2')
+    // Below the count's own width, the count is cut like any text.
+    expect(fitItems(ctx, items, 42, '3 selected')).toBe('3 se...')
+    // Without a count the first item is always cut as before.
+    expect(fitItems(ctx, items, 84)).toBe('dpmpp_2m... +2')
+  })
+
+  it('tries shorter forms, keeps a suffix while cutting, and falls to the count last', () => {
+    const { ctx } = fakeCtx()
+    const box = { text: 'x 8, y 12; 512 x 768', shorter: ['8, 12 / 512 x 768'] }
+    expect(fitSummary(ctx, box, 120)).toBe('x 8, y 12; 512 x 768')
+    expect(fitSummary(ctx, box, 110)).toBe('8, 12 / 512 x 768')
+    expect(fitSummary(ctx, box, 60)).toBe('8, 12 /...')
+    const markdown = { text: '# A long heading line (4 lines)', suffix: ' (4 lines)', count: '4 lines' }
+    expect(fitSummary(ctx, markdown, 186)).toBe('# A long heading line (4 lines)')
+    expect(fitSummary(ctx, markdown, 120)).toBe('# A lon... (4 lines)')
+    // The cut '# ...' would keep 2 characters, less than '4 lines'.
+    expect(fitSummary(ctx, markdown, 90)).toBe('4 lines')
   })
 })

@@ -416,6 +416,15 @@ export function App(props: {
   }
   const tooltips = new TooltipController(() => app.settings.get<number>('tooltips.delayMs'))
   const [tooltip, setTooltip] = createSolidSignal(tooltips.visible)
+  const [tooltipHeight, setTooltipHeight] = createSolidSignal(0)
+  // Below its target when it fits, else above it, else as low as keeps it
+  // wholly on screen.
+  const tooltipTop = (tip: NonNullable<ReturnType<typeof tooltip>>): number => {
+    const height = tooltipHeight()
+    if (tip.y + height <= window.innerHeight - 8) return tip.y
+    if (tip.above !== undefined && tip.above - height >= 8) return tip.above - height
+    return Math.max(8, window.innerHeight - 8 - height)
+  }
   let shellEl!: HTMLElement
   tooltips.register({ id: 'core.dom', resolve: (target, opts) => {
     const dom = target as Partial<DomTooltipTarget>
@@ -440,6 +449,9 @@ export function App(props: {
           return undefined
         }
       },
+      // The tooltip's 12px/1.4 lines fit between 8px window margins, after
+      // its padding, border and title gap.
+      tooltipLines: Math.floor((window.innerHeight - 16 - 21) / 16.8),
     })
   } })
   onMount(() => {
@@ -2996,7 +3008,9 @@ export function App(props: {
       )}</Show>
 
       <Show when={tooltip()}>{(tip) => (
-        <aside class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip" style={{ left: `${Math.max(8, Math.min(tip().x, window.innerWidth - 368))}px`, top: `${Math.max(8, Math.min(tip().y, window.innerHeight - 120))}px` }}>
+        <aside class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip"
+          ref={(element) => createEffect(() => { tooltip(); setTooltipHeight(element.offsetHeight) })}
+          style={{ left: `${Math.max(8, Math.min(tip().x, window.innerWidth - 368))}px`, top: `${tooltipTop(tip())}px` }}>
           <div role="tooltip">
             <Show when={tip().title}><div class="app-tooltip-title">{tip().title}</div></Show>
             <For each={tip().lines}>{(line) => <div>{line}</div>}</For>

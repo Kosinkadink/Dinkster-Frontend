@@ -13,8 +13,12 @@ export interface TooltipProvider {
   readonly id: string
   resolve(target: unknown, opts: TooltipResolveOptions): TooltipContent | undefined
 }
-export interface TooltipAnchor { readonly x: number; readonly y: number }
-export interface VisibleTooltip extends TooltipContent { readonly x: number; readonly y: number; readonly detailed: boolean }
+/**
+ * Where a tooltip opens: its top-left corner below the target, and `above`,
+ * the y its bottom edge takes instead when it does not fit below.
+ */
+export interface TooltipAnchor { readonly x: number; readonly y: number; readonly above?: number }
+export interface VisibleTooltip extends TooltipContent { readonly x: number; readonly y: number; readonly above?: number; readonly detailed: boolean }
 
 /** One tooltip policy boundary shared by DOM chrome and the painted canvas. */
 export class TooltipController {
@@ -110,7 +114,7 @@ export class TooltipController {
     const candidate = this.candidate
     if (!candidate) return
     const content = this.providers.map((p) => p.resolve(candidate.target, { detailed: this.detailed })).find(Boolean)
-    this.current = content ? { ...content, x: candidate.anchor.x, y: candidate.anchor.y, detailed: this.detailed } : undefined
+    this.current = content ? { ...content, ...candidate.anchor, detailed: this.detailed } : undefined
     this.currentTarget = content ? candidate.target : undefined
     this.currentOwner = content ? candidate.owner : undefined
     this.emit()
@@ -132,6 +136,8 @@ export interface CanvasTooltipContext {
   readonly resolvePack?: (id: string) => any
   /** The row view's whole-value readout lines, when the view writes one. */
   readonly widgetReadout?: (row: { readonly viewId: string; readonly spec: WidgetSpec }, value: Json) => readonly string[] | undefined
+  /** Text lines the tooltip holds while staying wholly on screen. */
+  readonly tooltipLines?: number
 }
 
 /** Items a widget readout lists before it says how many more there are. */
@@ -139,17 +145,21 @@ export const WIDGET_READOUT_ITEMS = 20
 
 /**
  * A row value's readout: its summary line, then up to WIDGET_READOUT_ITEMS
- * more lines and a count of the rest, so a long list never runs off screen.
- * Empty when the row has no value of its own to read.
+ * more lines and a count of the rest, using at most `room` lines in all so
+ * a long list never runs off screen. Empty when the row has no value of its
+ * own to read.
  */
-function widgetValueLines(row: { readonly viewId: string; readonly spec: WidgetSpec }, value: Json, context: CanvasTooltipContext): readonly string[] {
+function widgetValueLines(row: { readonly viewId: string; readonly spec: WidgetSpec }, value: Json, context: CanvasTooltipContext, room: number): readonly string[] {
   const readout = context.widgetReadout?.(row, value)
   if (readout === undefined) return [formatWidgetValue(value, row.spec)]
   const [head, ...items] = readout
   if (head === undefined) return []
-  return items.length > WIDGET_READOUT_ITEMS
-    ? [head, ...items.slice(0, WIDGET_READOUT_ITEMS), translate('widgetSummary.more', { count: items.length - WIDGET_READOUT_ITEMS })]
-    : readout
+  const shown = items.length <= Math.min(WIDGET_READOUT_ITEMS, room - 1)
+    ? items.length
+    : Math.max(0, Math.min(WIDGET_READOUT_ITEMS, room - 2))
+  return shown === items.length
+    ? readout
+    : [head, ...items.slice(0, shown), translate('widgetSummary.more', { count: items.length - shown })]
 }
 
 const joinedPorts = (ports: readonly string[] | undefined): string => ports?.join(', ') || 'its inputs'
@@ -330,7 +340,9 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       ...['min', 'max', 'step'].filter((key) => options[key] !== undefined).map((key) => `${key}: ${options[key]}`),
       ...(input?.tooltip ? [input.tooltip] : []),
     ]
-    const [text, ...more] = widgetValueLines(row, t.companion?.value ?? value, context)
+    // The title and any detail lines take their room first.
+    const room = (context.tooltipLines ?? Infinity) - 1 - (opts.detailed ? detail.length : 0)
+    const [text, ...more] = widgetValueLines(row, t.companion?.value ?? value, context, room)
     const state = t.companion?.state ?? (t.companion?.stale ? 'stale' : t.companion ? 'expected' : undefined)
     const line = state === 'expected'
       ? `Current expected value: ${text}`
@@ -343,7 +355,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
             : t.connected
               ? `Dormant stored value under connection: ${text}`
               : `Value: ${text}`
-    const [storedText, ...storedMore] = t.companion && t.connected ? widgetValueLines(row, value, context) : []
+    const [storedText, ...storedMore] = t.companion && t.connected ? widgetValueLines(row, value, context, room - 1 - more.length) : []
     const stored = storedText === undefined ? [] : [`Dormant stored value under connection: ${storedText}`, ...storedMore]
     return {
       title: row.label,
@@ -436,7 +448,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     const detail = element.dataset['tooltipDetail']?.split('|').filter(Boolean)
     return {
       target: { kind: 'dom', label: element.dataset['tooltipLabel']!, ...(detail ? { detail } : {}) },
-      anchor: { x: rect.left + rect.width / 2, y: rect.bottom + 8 },
+      anchor: { x: rect.left + rect.width / 2, y: rect.bottom + 8, above: rect.top - 8 },
     }
   }
   const showForElement = (element: HTMLElement, detailed?: boolean, immediate = false): void => {

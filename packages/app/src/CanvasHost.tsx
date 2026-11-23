@@ -3227,7 +3227,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           )
           props.tooltips?.show(
             tooltipTarget,
-            { x: target.x + 12, y: target.y + 14 },
+            { x: target.x + 12, y: target.y + 14, above: target.y - 14 },
             activeLens().detailedPinTooltips === true && target.kind === 'pin',
             immediateHeader,
             tooltipOwner,
@@ -3269,7 +3269,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
         props.tooltips?.show(
           { ...target, ...(tooltip ? { tooltip } : {}) },
-          { x: target.x + 12, y: target.y + 14 },
+          { x: target.x + 12, y: target.y + 14, above: target.y - 14 },
           undefined,
           false,
           tooltipOwner,
@@ -6617,7 +6617,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 const target = item().target
                 if (target === undefined) return
                 const rect = event.currentTarget.getBoundingClientRect()
-                props.tooltips?.show(target, { x: rect.left, y: rect.bottom + 8 }, undefined, true, tooltipOwner)
+                props.tooltips?.show(target, { x: rect.left, y: rect.bottom + 8, above: rect.top - 8 }, undefined, true, tooltipOwner)
               }}
               onBlur={() => props.tooltips?.hide()}
             >{item().label}</ProductButton>

@@ -755,6 +755,8 @@ family members, propagated values and diagnostics. The widget-state page selects
 each kind to show default, hovered, offered, diagnostic and empty rows. Zoom pages
 cover controls, content and overview detail. The minimap includes groups, links and reroutes.
 Core widget rows compares selected, empty and long values for the core kinds.
+Closed row summaries draws each kind's closed row empty, populated and in a
+narrow node, with incoming values, problems and the pointer readout.
 The default `widgetRowLook: 'raised-editors'` keeps a value typed in its row,
 color included, in an inset field, and raises every row that opens an editor:
 asset, recording, camera, 3D model, crop, compare, save target, video edit,
@@ -764,14 +766,28 @@ choice row. A row whose editor is parked (`PARKED_EDITOR_VIEWS`, today the
 compositor's layers) opens nothing, so it is drawn inset with its summary as
 plain text and no hover wash; its icon stays listed for when an editor
 returns. A color's 10 px square sits directly before its code, over a
-checker pattern when the color has opacity. A list shows as many values as fit,
-separated by a comma, then `+N`, each number written as stored in the shortest
-text that reads back as the same number, never rounded to the element's step;
-colors show as many squares as fit, then `+N`.
+checker pattern when the color has opacity. A list, several choices or several
+files show as many values as fit, in stored order and separated by a comma,
+then `+N`, each number written as stored in the shortest text that reads back
+as the same number, never rounded to the element's step; a choice reads as its
+option label, an empty item as `""`. When none fits whole the first is cut,
+unless less of it would stay visible than the count, which then stands alone
+(`3 selected`, `3 items`, `3 assets`). Colors show as many squares as fit, then
+`+N`, or `N colors` when not one square fits. Markdown shows its first line
+with text and its line count, `# Heading (3 lines)`. A crop region reads
+`x 8, y 12; 512 x 768`, a video edit its trim and crop numbers, and a save
+target `mount/prefix`, each with a shorter form for a narrow row (`8, 12 /
+512 x 768`, `Trim + crop`, `mount/.../last`); a value that fails its kind's
+validation reads `Invalid value` with its problem outline. The 3D, image
+comparison and camera angle rows say what they open (`Open 3D viewport`,
+`Open image comparison`, `Open camera angle`). Pointing at a row shows its
+summary and each item with its position in the tooltip, at most 20 and then
+how many more, fewer when the window is too short to hold them; the tooltip
+opens above the row when it does not fit below.
 A curve is drawn on its row's second line from the row's start, clear of the
 row's edges. An empty row says what it asks for ("Choose image", "Choose
 model", "Record audio", "Capture frame", "No edits", "Default output", "Empty",
-"No colors"); an empty number shows its declared `placeholder` or nothing. A
+"No colors", "No selections"); an empty number shows its declared `placeholder` or nothing. A
 value passed down a wire shows the same text, square or squares its own row
 would. The widget pages (Widget kinds, Core widget rows, Collection widget rows,
 Rows that open an editor, and the link-driven, offered, propagated and state
