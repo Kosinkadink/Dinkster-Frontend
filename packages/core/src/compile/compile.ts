@@ -285,6 +285,8 @@ export interface CompileInput {
   readonly placement?: Readonly<Record<string, string>>
 }
 
+const KNOWN_VALUE_TYPES: ReadonlySet<string> = new Set(['INT', 'FLOAT', 'STRING', 'BOOLEAN', 'COMBO'])
+
 interface FlatNode {
   readonly runtimeId: string
   readonly occ: Occurrence
@@ -1161,7 +1163,13 @@ function compileImpl(
     const inRegion = [...regions.values()].some((region) => path.length >= region.childPath.length &&
       region.childPath.every((segment, index) => path[index] === segment))
     const known = !inRegion && output.spec.knownValue && elab.inputsByValueKey.get(output.spec.knownValue.input)
-    if (known) return { knownValue: { path, defId, node: node.id, input: known } }
+    // A known value applies only to a value of a primitive or choice type. An
+    // input typed by a variable has none until the variable is bound, so the
+    // node runs.
+    const knownType = known ? canonicalTypeIdOf(known.spec.type) : undefined
+    if (known && knownType !== undefined && KNOWN_VALUE_TYPES.has(knownType)) {
+      return { knownValue: { path, defId, node: node.id, input: known } }
+    }
     return { runtimeId: occurrenceKey({ instancePath: path, node: node.id }), outputIndex }
   }
 
