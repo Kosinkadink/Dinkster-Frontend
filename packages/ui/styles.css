@@ -552,3 +552,13 @@
 .dinkster-canvas-comparison > h3 { margin: 0; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-body-size); font-weight: var(--dinkster-weight-bold); }
 .dinkster-canvas-example-stage { position: relative; overflow: hidden; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); }
 .dinkster-canvas-example-stage canvas { display: block; }
+/* The node's problem box hangs below the node at one screen size. Its outline takes the color of its strongest line; each line keeps its own. */
+.problem-box { position: absolute; z-index: 11; min-width: var(--dinkster-problem-box-min-width); max-width: var(--dinkster-problem-box-max-width); max-height: var(--dinkster-problem-box-max-height); overflow-y: auto; padding: var(--dinkster-space-4) 0; border: var(--dinkster-border-width) solid var(--dinkster-warning-border); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
+.problem-box[data-kind='error'] { border-color: var(--dinkster-danger-border); }
+.problem-box-line { display: flex; flex-direction: column; align-items: flex-start; gap: var(--dinkster-space-4); padding: var(--dinkster-space-8) var(--dinkster-space-12); }
+.problem-box-line + .problem-box-line { border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+.problem-box-line[data-highlighted='true'] { background: var(--dinkster-surface-raised); }
+.problem-box-text { margin: 0; }
+.problem-box-row { color: var(--dinkster-text-primary); }
+.problem-box-line[data-kind='error'] .problem-box-message { color: var(--dinkster-danger-foreground); }
+.problem-box-line[data-kind='warning'] .problem-box-message { color: var(--dinkster-warning-foreground); }

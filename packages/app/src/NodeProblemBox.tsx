@@ -1,11 +1,10 @@
 /**
- * The node's problem box: one line per cause, each starting with its row's
- * name, with the line's actions on their own line under its message. The
- * host owns where it hangs, when it opens and closes, and what an action does.
+ * The node's problem box in the editor: the product's ProblemBox with the
+ * app's wording. The host owns where it hangs, when it opens and closes, and
+ * what an action does.
  */
 
-import { createEffect, For, Show } from 'solid-js'
-import { ProductButton } from './ProductControls.js'
+import { ProblemBox, type ProblemBoxViewLine } from '@dinkster/ui'
 import { useAppMessage } from './locale.js'
 import type { ProblemBoxAction, ProblemBoxLine } from './problem-box.js'
 
@@ -22,13 +21,6 @@ export function NodeProblemBox(props: {
   readonly ref?: (element: HTMLDivElement) => void
 }) {
   const message = useAppMessage()
-  let element: HTMLDivElement | undefined
-  createEffect(() => {
-    if (element === undefined) return
-    element.style.left = `${props.x}px`
-    element.style.top = `${props.y}px`
-  })
-  const strongest = () => props.lines.some((line) => line.kind === 'error') ? 'error' : 'warning'
   const actionLabel = (action: ProblemBoxAction): string => action === 'edit-field'
     ? message('problemBox.editField')
     : message('problems.action.locateAsset')
@@ -37,47 +29,30 @@ export function NodeProblemBox(props: {
     line.problem.diagnostic.code === 'compile.input.missing' && line.rowName !== undefined
       ? message('problemBox.required', { label: line.rowName.charAt(0).toUpperCase() + line.rowName.slice(1) })
       : line.message
+  const viewLines = (): readonly ProblemBoxViewLine[] => props.lines.map((line) => ({
+    key: line.key,
+    kind: line.kind,
+    ...(line.row === undefined ? {} : { row: line.row }),
+    ...(line.rowName === undefined ? {} : { rowName: line.rowName }),
+    message: lineText(line),
+    actions: line.actions.map((action) => ({ id: action, label: actionLabel(action) })),
+  }))
+  const lineOf = (view: ProblemBoxViewLine | undefined): ProblemBoxLine | undefined =>
+    view === undefined ? undefined : props.lines.find((line) => line.key === view.key)
   return (
-    <div
-      ref={(el) => { element = el; props.ref?.(el) }}
-      class="problem-box"
-      data-testid="problem-box"
-      data-node={props.nodeId}
-      data-kind={strongest()}
-      role="dialog"
-      aria-label={message('problemBox.label', { node: props.nodeTitle })}
-      onPointerLeave={() => props.onPointLine(undefined)}
-    >
-      <For each={props.lines}>
-        {(line) => (
-          <div
-            class="problem-box-line"
-            data-testid="problem-box-line"
-            data-kind={line.kind}
-            data-row={line.row}
-            data-highlighted={props.highlighted === line.key ? 'true' : undefined}
-            onPointerEnter={() => props.onPointLine(line)}
-          >
-            <p class="problem-box-text">
-              <Show when={line.rowName}>{(name) => <span class="problem-box-row">{name()}: </span>}</Show>
-              <span class="problem-box-message">{lineText(line)}</span>
-            </p>
-            <For each={line.actions}>
-              {(action) => (
-                <ProductButton
-                  type="button"
-                  variant="secondary"
-                  size="compact"
-                  data-testid={`problem-box-${action}`}
-                  onClick={() => props.onAction(line, action)}
-                >
-                  {actionLabel(action)}
-                </ProductButton>
-              )}
-            </For>
-          </div>
-        )}
-      </For>
-    </div>
+    <ProblemBox
+      nodeId={props.nodeId}
+      label={message('problemBox.label', { node: props.nodeTitle })}
+      lines={viewLines()}
+      {...(props.highlighted === undefined ? {} : { highlighted: props.highlighted })}
+      x={props.x}
+      y={props.y}
+      onPointLine={(view) => props.onPointLine(lineOf(view))}
+      onAction={(view, action) => {
+        const line = lineOf(view)
+        if (line !== undefined) props.onAction(line, action as ProblemBoxAction)
+      }}
+      {...(props.ref === undefined ? {} : { ref: props.ref })}
+    />
   )
 }
