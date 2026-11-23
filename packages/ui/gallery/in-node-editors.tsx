@@ -27,6 +27,7 @@ import {
   CanvasEditorLine,
   CanvasEditorNote,
   CanvasEditorNumber,
+  CanvasEditorNumbers,
   CanvasEditorPicture,
   CanvasEditorSection,
   CanvasEditorSpace,
@@ -175,6 +176,12 @@ function GalleryChoice(props: { label: string; value: string; options: readonly 
   return <CanvasEditorChoice {...props} value={value()} onChange={setValue} />
 }
 
+/** A few numbers of an editor's own in an example, kept as one value. */
+function GalleryNumbers(props: { label: string; value: readonly number[] }) {
+  const [value, setValue] = createSignal(untrack(() => props.value))
+  return <CanvasEditorNumbers label={props.label} count={props.value.length} value={value()} onChange={setValue} />
+}
+
 /** What one unfolded editor's controls show in an example, by its view. */
 function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample }): JSX.Element {
   const state = (): EditorExampleState => props.example.states?.[props.row.valueKey] ?? {}
@@ -294,16 +301,14 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample }): JSX
             <GalleryNumber label="Field of view" value={35} min={10} max={150} />
           </CanvasEditorLine>
           <CanvasEditorSection label="Model placement" open={open('placement')}>
-            <CanvasEditorLine><CanvasEditorFact label="Model position X Y Z">0, 0, 0</CanvasEditorFact></CanvasEditorLine>
-            <CanvasEditorLine><CanvasEditorFact label="Model rotation X Y Z W">0, 0, 0, 1</CanvasEditorFact></CanvasEditorLine>
-            <CanvasEditorLine><CanvasEditorFact label="Model scale X Y Z">1, 1, 1</CanvasEditorFact></CanvasEditorLine>
+            <CanvasEditorLine><GalleryNumbers label="Model position X Y Z" value={[0, 0, 0]} /></CanvasEditorLine>
+            <CanvasEditorLine><GalleryNumbers label="Model rotation X Y Z W" value={[0, 0, 0, 1]} /></CanvasEditorLine>
+            <CanvasEditorLine><GalleryNumbers label="Model scale X Y Z" value={[1, 1, 1]} /></CanvasEditorLine>
           </CanvasEditorSection>
           <CanvasEditorSection label="Animation" open={open('animation')}>
             <CanvasEditorLine><GalleryChoice label="Animation clip" value="Walk" options={['Walk', 'Run', 'Idle']} /></CanvasEditorLine>
-            <CanvasEditorLine>
-              <GalleryNumber label="Time (s)" value={0.4} min={0} step={0.1} precision={2} />
-              <GalleryNumber label="Speed" value={1} min={0} step={0.1} precision={1} />
-            </CanvasEditorLine>
+            <CanvasEditorLine><GalleryNumber label="Animation time (s)" value={0.4} min={0} step={0.1} precision={2} /></CanvasEditorLine>
+            <CanvasEditorLine><GalleryNumber label="Animation speed" value={1} min={0} step={0.1} precision={1} /></CanvasEditorLine>
             <CanvasEditorButtons buttons={[{ label: 'Play animation', icon: canvasEditorIcons.play }]} />
           </CanvasEditorSection>
         </>
@@ -358,8 +363,10 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample }): JSX
             <GalleryChoice label="Interpolation" value={state()['histogram'] === true ? 'Linear' : 'Monotone cubic'} options={['Linear', 'Monotone cubic']} />
           </CanvasEditorLine>
           <CanvasEditorLine dimmed={selected === undefined}>
-            <CanvasEditorButtons buttons={[{ label: 'Delete point', icon: canvasEditorIcons.remove, iconOnly: true, intent: 'remove', disabled: selected === undefined }]} />
             <GalleryNumber label="Position" value={selected === undefined ? 0 : points[selected]!.position} min={0} max={1} step={0.01} precision={2} />
+            <CanvasEditorButtons buttons={[{ label: 'Delete point', icon: canvasEditorIcons.remove, iconOnly: true, intent: 'remove', disabled: selected === undefined }]} />
+          </CanvasEditorLine>
+          <CanvasEditorLine dimmed={selected === undefined}>
             <GalleryNumber label="Value" value={selected === undefined ? 0 : points[selected]!.value} min={0} max={1} step={0.01} precision={2} />
           </CanvasEditorLine>
           <CanvasEditorNote tone="muted">

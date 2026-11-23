@@ -568,6 +568,8 @@
 .dinkster-canvas-editor-note[data-tone='muted'] { color: var(--dinkster-text-muted); }
 .dinkster-canvas-editor-note[data-wrap='true'] { height: auto; padding-block: var(--dinkster-space-4); white-space: normal; }
 .dinkster-canvas-editor-buttons { padding: 0 var(--dinkster-space-4); }
+/* A button in an editor keeps to the row it sits on, as the node's own buttons do. */
+.dinkster-canvas-editor-buttons .dinkster-button { box-sizing: border-box; min-height: 0; height: var(--dinkster-input-canvas-height); padding-block: 0; }
 .dinkster-canvas-editor-section > summary { gap: calc(var(--dinkster-space-4) * 1.5); padding: 0 var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); color: var(--dinkster-text-secondary); list-style: none; cursor: pointer; user-select: none; }
 .dinkster-canvas-editor-section > summary:hover { color: var(--dinkster-text-primary); }
 .dinkster-canvas-editor-section > summary::-webkit-details-marker { display: none; }

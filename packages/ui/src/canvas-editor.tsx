@@ -8,7 +8,7 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-solid'
-import { CanvasClosedRow, CanvasRowField } from './canvas-field.js'
+import { CanvasClosedRow, CanvasRowField, CanvasSidePart } from './canvas-field.js'
 import { CanvasRowList } from './canvas-list.js'
 import { ProductButton, ProductIcon, ProductIconButton, ProductSpinner } from './controls.js'
 
@@ -317,7 +317,7 @@ export function CanvasEditorChoice(props: {
       onFocusOut={(event) => {
         if (open() && !slot.contains(event.relatedTarget as Node | null)) setOpen(false)
       }}>
-      <CanvasClosedRow label={props.label} value={props.value} onOpen={begin} />
+      <CanvasClosedRow label={props.label} value={props.value} onOpen={begin} choice />
       <Show when={open()}>
         <CanvasRowList
           look="flat-title"
@@ -341,6 +341,73 @@ export function CanvasEditorChoice(props: {
               const count = shown().length
               if (count > 0) setHighlight((highlight() + (event.key === 'ArrowDown' ? 1 : count - 1)) % count)
             }
+          }}
+        />
+      </Show>
+    </div>
+  )
+}
+
+/**
+ * A few numbers of an editor's own kept as one value, such as a position X
+ * Y Z, drawn as one row with the numbers separated by commas. Pressing it
+ * opens it in place as the node's open line field: Enter stores the numbers
+ * at once, Escape leaves. A text that is not exactly `count` numbers is
+ * refused in place, saying so, and nothing is stored.
+ */
+export function CanvasEditorNumbers(props: {
+  label: string
+  value: readonly number[]
+  count: number
+  onChange?: (value: readonly number[]) => void
+}) {
+  const [open, setOpen] = createSignal(false)
+  const [text, setText] = createSignal('')
+  const [problem, setProblem] = createSignal<string>()
+  const [width, setWidth] = createSignal(0)
+  let slot!: HTMLDivElement
+  const shown = () => props.value.join(', ')
+  const parse = (typed: string): readonly number[] | undefined => {
+    const parts = typed.split(',').map((part) => part.trim())
+    const numbers = parts.map(Number)
+    return parts.length === props.count && parts.every((part) => part !== '') && numbers.every(Number.isFinite)
+      ? numbers : undefined
+  }
+  const begin = () => {
+    setWidth(slot.offsetWidth + 2)
+    setText(shown())
+    setProblem(undefined)
+    setOpen(true)
+  }
+  const commit = () => {
+    const numbers = parse(text())
+    if (numbers === undefined) {
+      setProblem(`Type ${props.count} numbers separated by commas`)
+      return
+    }
+    props.onChange?.(numbers)
+    setOpen(false)
+  }
+  return (
+    <div class="dinkster-canvas-editor-field-slot" ref={slot}
+      onFocusOut={(event) => {
+        if (open() && !slot.contains(event.relatedTarget as Node | null)) setOpen(false)
+      }}>
+      <CanvasClosedRow label={props.label} value={shown()} onOpen={begin} />
+      <Show when={open()}>
+        <CanvasRowField
+          look="flat-title"
+          rowWidth={width()}
+          place="below-field"
+          label={props.label}
+          value={text()}
+          inputLabel={props.label}
+          onInput={(typed) => { setText(typed); setProblem(undefined) }}
+          inputRef={(element) => queueMicrotask(() => { element.focus(); element.select() })}
+          {...(problem() !== undefined ? { side: <CanvasSidePart problem={problem()!} /> } : {})}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commit()
+            else if (event.key === 'Escape') setOpen(false)
           }}
         />
       </Show>

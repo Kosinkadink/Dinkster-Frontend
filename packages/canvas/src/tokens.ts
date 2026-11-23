@@ -655,15 +655,15 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
   'core.load3d': {
     picture: 200,
     controlRows: 4,
-    // Model position, rotation and scale; Animation clip, its time and speed, Play.
-    sections: [{ id: 'placement', rows: 3 }, { id: 'animation', rows: 3 }],
+    // Model position, rotation and scale; Animation clip, its time, its speed, Play.
+    sections: [{ id: 'placement', rows: 3 }, { id: 'animation', rows: 4 }],
   },
   // Wipe divider, Image A frame, Image B frame.
   'core.imageCompare': { picture: 180, controlRows: 3 },
   // The camera position under the orbit and elevation pictures.
   'core.cameraAngle': { picture: 150, controlRows: 1 },
-  // Interpolation; Delete point, Position and Value; two help lines.
-  'core.curve': { picture: 180, controlRows: 4 },
+  // Interpolation; Position with Delete point; Value; two help lines.
+  'core.curve': { picture: 180, controlRows: 5 },
 }
 
 /** Minimum zoom for text detail and transient media DOM. */
