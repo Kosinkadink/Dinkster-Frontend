@@ -232,6 +232,8 @@ export type LayoutRow =
       readonly viewId: string
       /** The picture's top and height within the space; absent for an editor without one. */
       readonly picture?: { readonly top: number; readonly height: number }
+      /** The editor's own sections that are open, by section id. */
+      readonly openSections?: readonly string[]
     }
   | {
       /**
@@ -1420,7 +1422,9 @@ export function layoutNode(
         : stored !== undefined && Number.isFinite(stored)
           ? Math.min(space.pictureMax, Math.max(space.pictureMin, Math.round(stored)))
           : editor.picture
-      const controls = editor.controlRows * tokens.rowHeight
+      const openSections = (editor.sections ?? []).filter((section) =>
+        options.sectionOverrides?.[`${w.valueKey}.${section.id}`] === false)
+      const controls = (editor.controlRows + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
       const spaceRow: PendingRow = {
         kind: 'editorSpace',
         boxes: cell.boxes,
@@ -1428,6 +1432,7 @@ export function layoutNode(
           inputId: w.inputId,
           valueKey: w.valueKey,
           viewId: w.viewId,
+          ...(openSections.length > 0 ? { openSections: openSections.map((section) => section.id) } : {}),
           height: space.pad * 2 + controls + (pictureHeight === undefined ? 0 : pictureHeight + space.gap),
           ...(pictureHeight !== undefined ? { picture: { top: space.pad, height: pictureHeight } } : {}),
         },

@@ -633,13 +633,27 @@ export const canvasPaintTokens = {
  * under it. The rows are fixed for each editor, so the node does not change
  * height when the editor's state changes.
  */
-export const IN_NODE_EDITORS: Readonly<Record<string, { readonly picture?: number; readonly controlRows: number }>> = {
+export const IN_NODE_EDITORS: Readonly<Record<string, {
+  readonly picture?: number
+  readonly controlRows: number
+  /**
+   * The editor's own sections, closed at first, each one of the control rows
+   * when closed and `rows` more when open. Their open state is kept with the
+   * node's sections, under `<value key>.<section id>`.
+   */
+  readonly sections?: readonly { readonly id: string; readonly rows: number }[]
+}>> = {
   // Record strip (two rows), Microphone, Limit, the stored clip's line.
   'core.audioRecord': { controlRows: 5 },
   // Start camera or Capture frame and Stop; the stored frame's line.
   'core.webcam': { picture: 180, controlRows: 2 },
   // Camera projection, Field of view, then Model placement and Animation closed.
-  'core.load3d': { picture: 200, controlRows: 4 },
+  'core.load3d': {
+    picture: 200,
+    controlRows: 4,
+    // Model position, rotation and scale; Animation clip, its time and speed, Play.
+    sections: [{ id: 'placement', rows: 3 }, { id: 'animation', rows: 3 }],
+  },
   // Wipe divider, Image A frame, Image B frame.
   'core.imageCompare': { picture: 180, controlRows: 3 },
   // The camera position under the orbit and elevation pictures.
