@@ -3,7 +3,7 @@
  * painter over the core widget views, and what pointing at the row reads
  * out. Text is measured at 6 px a character.
  */
-import { createRegistryPainter, defaultTokens, type LayoutRow, type WidgetPaintArgs } from '@dinkster/canvas'
+import { createRegistryPainter, defaultTokens, widgetValueText, type LayoutRow, type WidgetPaintArgs } from '@dinkster/canvas'
 import { registerCatalog, type Json, type WidgetSpec } from '@dinkster/core'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -233,5 +233,22 @@ describe('pointing at a row reads out its whole value without changing it', () =
       'Current expected value: 1 item', '1. only',
       'Dormant stored value under connection: 3 items', '1. a', '2. b', '3. c',
     ])
+  })
+})
+
+describe('a value named beside the open row reads as the closed row would, in full', () => {
+  const valueText = (spec: WidgetSpec, value: Json) => widgetValueText(registry, rowOf(spec).viewId, value, spec)
+
+  it('writes the whole summary, never JSON', () => {
+    expect(valueText(specOf('BOUNDING_BOX'), { x: 0, y: 0, width: 1024, height: 768 })).toBe('x 0, y 0; 1024 x 768')
+    expect(valueText(specOf('MULTI_COMBO', { options: samplers }), ['dpmpp_2m_sde', 'euler', 'gone'])).toBe('DPM++ 2M SDE, Euler, gone')
+    expect(valueText(specOf('MULTI_COMBO', { options: samplers }), [])).toBe('No selections')
+    expect(valueText(specOf('COLORS'), ['#ff0000', '#00ff00'])).toBe('#ff0000, #00ff00')
+    expect(valueText(specOf('MARKDOWN'), '\n# Heading\nbody')).toBe('# Heading (3 lines)')
+  })
+
+  it('names no value for a row that only opens an editor, and nothing for a kind it cannot read', () => {
+    expect(valueText(specOf('LOAD_3D'), { camera: { fov: 35 } })).toBeNull()
+    expect(widgetValueText(registry, 'no.such.view', 1, specOf('UNKNOWN_KIND'))).toBeUndefined()
   })
 })

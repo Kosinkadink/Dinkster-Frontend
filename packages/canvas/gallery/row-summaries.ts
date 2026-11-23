@@ -248,6 +248,14 @@ const trims = schema('Video edits', [
   field('target', 'SAVE_TARGET', null),
 ])
 
+/** A crop field whose default the side part names while its row has the keyboard. */
+export const rowSummaryFocusSchema = schema('Crop image', [
+  {
+    ...field('crop', 'BOUNDING_BOX', { x: 0, y: 0, width: 1024, height: 768 }),
+    tooltip: 'The part of the image to keep.',
+  },
+])
+
 const specOf = (node: NodeSchema, id: string) =>
   (node.items.find((item) => item.kind === 'input' && item.id === id) as InputSpec)
     .widget!

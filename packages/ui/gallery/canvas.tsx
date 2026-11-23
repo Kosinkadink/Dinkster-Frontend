@@ -38,6 +38,7 @@ import {
 import { earlierWidgetRows } from '../../canvas/gallery/earlier-widget-rows.js'
 import {
   earlierRowSummaries,
+  rowSummaryFocusSchema,
   rowSummaryReadouts,
 } from '../../canvas/gallery/row-summaries.js'
 import {
@@ -52,7 +53,13 @@ import {
   type ProductNavigationGroup,
 } from '../src/index.js'
 import { NodeLookGallery } from './node-look.js'
-import { RowEditingGallery } from './row-editing.js'
+import {
+  MARGIN,
+  NODE_WIDTH,
+  RowEditingExample,
+  RowEditingGallery,
+  SIDE_ROOM,
+} from './row-editing.js'
 
 type Theme = 'dark' | 'light'
 
@@ -804,6 +811,35 @@ export function CanvasGallery() {
                 </ProductPanel>
               )}
             </For>
+          </div>
+        </ProductSection>
+        <ProductSection
+          title="Values beside the open row"
+          description="A value the side part names, such as the field's default, reads as the closed row would read it, in full, and never as JSON."
+        >
+          <div class="dinkster-canvas-comparison">
+            <h3>The crop row has the keyboard; its side part names the default.</h3>
+            <div class="dinkster-canvas-examples">
+              <For each={[['Before', true], ['After', false]] as const}>
+                {([caption, jsonDefault]) => (
+                  <RowEditingExample
+                    example={{
+                      id: 'crop-default',
+                      caption,
+                      scale: 1,
+                      width: MARGIN + NODE_WIDTH + SIDE_ROOM,
+                      node: { x: MARGIN, y: MARGIN },
+                      focus: 'crop',
+                      schema: rowSummaryFocusSchema,
+                    }}
+                    theme={theme()}
+                    registry={jsonDefault ? earlierRowSummaries(registry) : registry}
+                    jsonDefault={jsonDefault}
+                    testIdPrefix={`row-summaries-focus-${caption.toLowerCase()}`}
+                  />
+                )}
+              </For>
+            </div>
           </div>
         </ProductSection>
       </Show>

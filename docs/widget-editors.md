@@ -481,8 +481,9 @@ and never runs past an edge of the visible canvas.
 
 When the keyboard is on a row and nothing is open (after Enter or Escape in a
 field, or when Tab reaches a toggle, a choice or a row that opens an editor),
-the row shows the open field's outline with a side part holding its default
-and help. Enter or Space then acts on the row: a toggle flips and keeps the
+the row shows the open field's outline with a side part holding its default,
+written as the closed row would read it in full rather than as JSON, and its
+help. A row that only opens an editor shows no default. Enter or Space then acts on the row: a toggle flips and keeps the
 focus, any other row opens. Tab moves on and Escape leaves the row. The outline
 shows only when the keyboard put it there; a pointer press clears it.
 

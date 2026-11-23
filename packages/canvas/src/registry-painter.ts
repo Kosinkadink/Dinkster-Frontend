@@ -74,6 +74,24 @@ function compactSummary(view: WidgetView, value: Json, spec: WidgetSpec): RowSum
   return summary
 }
 
+/**
+ * The whole text a closed row reads for `value`, unfitted, for a place with
+ * room such as the side part's value lines. Null when the view names the
+ * editor it opens rather than a value; undefined when it draws no value text
+ * or cannot draw this value.
+ */
+export function widgetValueText(registry: WidgetRegistry, viewId: string, value: Json, spec: WidgetSpec): string | null | undefined {
+  const view = registry.viewsFor(spec.widgetType).find((candidate) => candidate.id === viewId)
+  if (view === undefined) return undefined
+  try {
+    if (view.readout?.(value, spec).length === 0) return null
+  } catch {
+    return undefined
+  }
+  const summary = compactSummary(view, value, spec)
+  return (summary?.items ?? summary?.swatches)?.join(', ') || summary?.text || undefined
+}
+
 /** Kind icon of each row that opens an editor, raised in the `raised-editors` look. */
 const RAISED_ROW_ICONS: Readonly<Record<string, NonNullable<ToolboxButton['icon']>>> = {
   'core.asset': 'image',

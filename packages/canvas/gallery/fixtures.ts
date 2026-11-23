@@ -1336,16 +1336,17 @@ export const rowFocusSchema: NodeSchema = schema('Sample settings', [
   },
 ])
 
-/** The node of the row-editing page's keyboard examples. */
+/** The node of a keyboard example: the row-editing page's, or `definition`. */
 export function createRowFocusScene(
   tokens: DesignTokens,
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
   position: { x: number; y: number },
   width = 280,
+  definition: NodeSchema = rowFocusSchema,
 ): Scene {
   return singleNodeScene(
-    rowFocusSchema,
+    definition,
     {},
     { position, size: { width, height: 0 } },
     tokens,

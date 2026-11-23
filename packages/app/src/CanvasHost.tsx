@@ -19,6 +19,7 @@ import {
   canvasTypePaintForTheme,
   canvasPaintTokens,
   createRegistryPainter,
+  widgetValueText,
   defaultTokens,
   hitTest,
   InteractionController,
@@ -5158,6 +5159,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const item = schema?.items.find((candidate) => candidate.kind === 'input' && candidate.id === row.inputId)
       const help = item?.kind === 'input' ? item.tooltip : undefined
       const declared = effectiveWidgetDefault(row.spec)
+      // The default reads as the closed row would read it, in full.
+      const defaultText = declared === undefined
+        ? undefined
+        : widgetValueText(widgetRegistry(), row.viewId, declared, row.spec) ?? formatWidgetValue(declared, row.spec)
       return {
         tabId: tab.id,
         graphId: currentGraphId(tab),
@@ -5167,7 +5172,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         look: tokens.nodeLook,
         nodeTop: node.y,
         nodeBottom: node.y + node.layout.height,
-        ...(declared === undefined ? {} : { defaultText: formatWidgetValue(declared, row.spec) }),
+        ...(defaultText == null ? {} : { defaultText }),
         ...(help === undefined ? {} : { help }),
       }
     }
