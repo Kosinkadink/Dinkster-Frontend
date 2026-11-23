@@ -46,14 +46,20 @@ describe('registered widget disposition inventory', () => {
   it('admits only structured relative save targets and copies schema defaults', () => {
     const kind = registry.kind('SAVE_TARGET')!
     const initial = { mount: '0-renders', prefix: 'nested/frame' }
+    const projectDefault = { prefix: 'nested/frame' }
     expect(kind.valueSchema.validate(initial)).toBe(true)
+    expect(kind.valueSchema.validate(projectDefault)).toBe(true)
     expect(kind.valueSchema.validate(null)).toBe(true)
-    expect(kind.defaultValue({ widgetType: 'SAVE_TARGET', options: {}, default: initial })).toEqual(initial)
-    expect(kind.defaultValue({ widgetType: 'SAVE_TARGET', options: {}, default: initial })).not.toBe(initial)
+    for (const declared of [initial, projectDefault]) {
+      expect(kind.defaultValue({ widgetType: 'SAVE_TARGET', options: {}, default: declared })).toEqual(declared)
+      expect(kind.defaultValue({ widgetType: 'SAVE_TARGET', options: {}, default: declared })).not.toBe(declared)
+    }
+    // Project default has one spelling: the mount key left out.
     for (const value of [
       'output/frame', {}, { ...initial, extra: true }, { ...initial, mount: 'bad_mount' },
       { ...initial, mount: '/tmp' }, { ...initial, prefix: '/absolute' },
       { ...initial, prefix: 'a//b' }, { ...initial, prefix: 'a/../b' }, { ...initial, prefix: 'a\\b' },
+      { mount: null, prefix: 'nested/frame' }, { mount: '', prefix: 'nested/frame' }, { prefix: '' }, { prefix: 'a/../b' },
     ]) expect(kind.valueSchema.validate(value)).toBe(false)
   })
 

@@ -15,10 +15,9 @@ import {
 } from '@dinkster/canvas'
 import {
   createWidgetRegistry,
-  isProjectDefaultTarget,
-  isSaveTarget,
   registerCoreWidgets,
   saveTargetDraft,
+  saveTargetText,
   widgetRegistrationDoors,
 } from '@dinkster/widgets'
 import {
@@ -47,11 +46,8 @@ type WidgetRow = Extract<LayoutRow, { kind: 'widget' }>
 /** The words a backend without mounts gives, as the product shows them. */
 const NO_BACKEND = 'mountWidget.error'
 
-/** A target as the row and the side part show it; Project default names the mount it means here, when known. */
 const targetText = (value: Json, projectMount: string): string =>
-  isSaveTarget(value)
-    ? `${value.mount}/${value.prefix}`
-    : isProjectDefaultTarget(value) ? `${projectMount}/${value.prefix}` : t('saveTargetWidget.default')
+  saveTargetText(value, projectMount) ?? t('saveTargetWidget.default')
 
 /** One labeled save target state: the production renderer's node with the open row's own controls over it. */
 function SaveTargetExampleCard(props: {
@@ -160,7 +156,6 @@ function SaveTargetExampleCard(props: {
       stored: example().stored,
       mount: open()?.mount ?? null,
       prefix: open()?.prefix ?? '',
-      cleared: false,
       ready: mounts() === 'ready' ? ready() : undefined,
       projectMount: projectText(),
     })
@@ -243,7 +238,6 @@ function SaveTargetExampleCard(props: {
           loading: t('saveTargetWidget.loading'),
           none: t('saveTargetWidget.none'),
           failed: t('saveTargetWidget.couldNotLoad'),
-          clear: t('saveTargetWidget.clear'),
         }}
         mounts={mounts()}
         options={options()}

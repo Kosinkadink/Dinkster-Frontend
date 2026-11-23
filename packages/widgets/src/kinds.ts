@@ -168,19 +168,36 @@ export const resolutionKind: WidgetKind<null> = {
 }
 
 type SaveTarget = { mount: string; prefix: string }
+/**
+ * A target on Project default: it names no mount, so each project saves it
+ * to its own default output mount. The mount key is left out; there is no
+ * other way to write it.
+ */
+type ProjectDefaultTarget = { prefix: string }
+
+const usablePrefix = (prefix: unknown): prefix is string =>
+  typeof prefix === 'string' && prefix !== '' && !prefix.includes('\\')
+  && prefix.split('/').every((segment) => !['', '.', '..'].includes(segment))
 
 export const isSaveTarget = (value: unknown): value is SaveTarget => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const target = value as Record<string, unknown>
   return Object.keys(target).length === 2 && typeof target['mount'] === 'string' && /^[a-z0-9][a-z0-9-]*$/.test(target['mount'])
-    && typeof target['prefix'] === 'string' && target['prefix'] !== '' && !target['prefix'].includes('\\')
-    && target['prefix'].split('/').every((segment) => !['', '.', '..'].includes(segment))
+    && usablePrefix(target['prefix'])
 }
 
-export const saveTargetKind: WidgetKind<SaveTarget | null> = {
+export const isProjectDefaultTarget = (value: unknown): value is ProjectDefaultTarget =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+  && Object.keys(value).length === 1 && usablePrefix((value as Record<string, unknown>)['prefix'])
+
+export const saveTargetKind: WidgetKind<SaveTarget | ProjectDefaultTarget | null> = {
   type: 'SAVE_TARGET',
-  valueSchema: { version: 1, validate: (value): value is SaveTarget | null => value === null || isSaveTarget(value) },
-  defaultValue: (spec) => isSaveTarget(spec.default) ? { ...spec.default } : null,
+  valueSchema: {
+    version: 1,
+    validate: (value): value is SaveTarget | ProjectDefaultTarget | null =>
+      value === null || isSaveTarget(value) || isProjectDefaultTarget(value),
+  },
+  defaultValue: (spec) => isSaveTarget(spec.default) || isProjectDefaultTarget(spec.default) ? { ...spec.default } : null,
   validate: () => [],
   defaultView: () => 'core.saveTarget',
 }
@@ -992,11 +1009,14 @@ export const resolutionView: WidgetView<null> = {
       t('resolutionWidget.title'), state, 'widget.edit')
   },
 }
-export const saveTargetView: WidgetView<SaveTarget | null> = {
-  ...makeCompactView<SaveTarget | null>('core.saveTarget', 'SAVE_TARGET'),
+export const saveTargetView: WidgetView<SaveTarget | ProjectDefaultTarget | null> = {
+  ...makeCompactView<SaveTarget | ProjectDefaultTarget | null>('core.saveTarget', 'SAVE_TARGET'),
   drawCompact(ctx, value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      value === null ? t('saveTargetWidget.default') : `${value.mount}/${value.prefix}`, state, 'widget.edit', value === null)
+      value === null ? t('saveTargetWidget.default')
+        : 'mount' in value ? `${value.mount}/${value.prefix}`
+          : `${t('saveTargetWidget.projectDefault')}/${value.prefix}`,
+      state, 'widget.edit', value === null)
   },
 }
 export const videoEditView: WidgetView<Json> = {

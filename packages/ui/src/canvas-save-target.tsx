@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createUniqueId, type JSX } from 'solid-js'
-import { Check, ChevronDown, Trash2 } from 'lucide-solid'
+import { Check, ChevronDown } from 'lucide-solid'
 import {
   CanvasSideLink,
   CanvasSidePart,
@@ -67,16 +67,14 @@ export interface CanvasTargetWords {
   readonly none: string
   /** The dropdown's value when the mounts could not be read. */
   readonly failed: string
-  readonly clear: string
 }
 
 /** The part of a save target box the keyboard is on. */
-export type CanvasTargetStop = 'mount' | 'prefix' | 'clear'
+export type CanvasTargetStop = 'mount' | 'prefix'
 
 /**
  * The box under an open save target row: the "Writable mount" dropdown,
- * whose list lies over the box, the relative filename prefix, and, on a
- * target that may be empty, Clear destination on the footer line. Nothing
+ * whose list lies over the box, and the relative filename prefix. Nothing
  * here stores; the caller does when the box is left.
  */
 export function CanvasTargetBox(props: {
@@ -95,14 +93,11 @@ export function CanvasTargetBox(props: {
   onPrefix?: (text: string) => void
   /** Why the prefix cannot be used, under the field. */
   prefixProblem?: string
-  /** Shows Clear destination on the footer line. */
-  onClear?: () => void
   /** The part the keyboard is on, drawn focused even without the browser's focus. */
   focused?: CanvasTargetStop
   onFocusStop?: (stop: CanvasTargetStop) => void
   mountRef?: (element: HTMLButtonElement) => void
   prefixRef?: (element: HTMLInputElement) => void
-  clearRef?: (element: HTMLButtonElement) => void
   /** A store is in flight: nothing can be changed. */
   frozen?: boolean
 }) {
@@ -226,26 +221,6 @@ export function CanvasTargetBox(props: {
         <p id={problemId} class="dinkster-canvas-target-note">
           {props.prefixProblem}
         </p>
-      </Show>
-      <Show when={props.onClear}>
-        {(clear) => (
-          <div class="dinkster-canvas-target-foot">
-            <button
-              ref={props.clearRef}
-              type="button"
-              class="dinkster-canvas-target-action"
-              data-focused={props.focused === 'clear'}
-              disabled={props.frozen === true}
-              tabindex="-1"
-              onFocus={() => props.onFocusStop?.('clear')}
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={() => clear()()}
-            >
-              <Trash2 class="dinkster-canvas-target-glyph" aria-hidden="true" />
-              {props.words.clear}
-            </button>
-          </div>
-        )}
       </Show>
     </div>
   )

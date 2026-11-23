@@ -569,7 +569,7 @@
 .dinkster-canvas-target-choice:focus-visible, .dinkster-canvas-target-choice[data-focused='true'], .dinkster-canvas-target-choice[aria-expanded='true'], .dinkster-canvas-target-input:focus, .dinkster-canvas-target-input[data-focused='true'] { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: calc(0px - var(--dinkster-focus-ring-width)); }
 .dinkster-canvas-target-glyph { flex: none; width: var(--dinkster-space-12); height: var(--dinkster-space-12); color: var(--dinkster-text-secondary); stroke-width: 2; }
 .dinkster-canvas-target-spinner { width: var(--dinkster-space-12); height: var(--dinkster-space-12); }
-.dinkster-canvas-target-list { position: absolute; top: calc(100% + var(--dinkster-border-width) * 2); left: 0; right: 0; z-index: 2; padding: var(--dinkster-space-4); border: var(--dinkster-border-width) solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-raised); box-shadow: var(--dinkster-elevation-high); }
+.dinkster-canvas-target-list { position: absolute; top: calc(100% + var(--dinkster-border-width) * 2); left: 0; min-width: 100%; width: max-content; box-sizing: border-box; z-index: 2; padding: var(--dinkster-space-4); border: var(--dinkster-border-width) solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-raised); box-shadow: var(--dinkster-elevation-high); }
 .dinkster-canvas-target-option { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); box-sizing: border-box; height: var(--dinkster-input-canvas-height); padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); border-radius: var(--dinkster-radius-small); color: var(--dinkster-text-primary); cursor: pointer; user-select: none; }
 .dinkster-canvas-target-option[data-active='true'] { background: var(--dinkster-surface-selected); }
 .dinkster-canvas-target-option[data-unavailable='true'] { color: var(--dinkster-text-disabled); cursor: default; }
@@ -580,11 +580,6 @@
 .dinkster-canvas-target-input[aria-invalid='true'], .dinkster-canvas-target-input[aria-invalid='true']:focus { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-danger-foreground); outline-offset: calc(0px - var(--dinkster-focus-ring-width)); }
 .dinkster-canvas-target-input::selection { background: var(--dinkster-border-focus); color: var(--dinkster-text-inverse); }
 .dinkster-canvas-target-note { margin: 0; padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); color: var(--dinkster-danger-foreground); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
-.dinkster-canvas-target-foot { display: flex; align-items: center; margin: var(--dinkster-space-4) calc(0px - var(--dinkster-space-4) - var(--dinkster-space-4) / 2) calc(0px - var(--dinkster-space-4) - var(--dinkster-space-4) / 2); padding: var(--dinkster-space-4) calc(var(--dinkster-space-8) + var(--dinkster-space-4) / 2); border-top: var(--dinkster-border-width) solid var(--dinkster-border-divider); }
-.dinkster-canvas-target-action { display: inline-flex; align-items: center; gap: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); padding: calc(var(--dinkster-space-4) / 2) 0; border: 0; border-radius: var(--dinkster-radius-small); background: transparent; color: var(--dinkster-text-primary); font: inherit; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
-.dinkster-canvas-target-action .dinkster-canvas-target-glyph { color: currentColor; }
-.dinkster-canvas-target-action:disabled { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
-.dinkster-canvas-target-action:focus-visible, .dinkster-canvas-target-action[data-focused='true'] { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .dinkster-canvas-target-error { margin: 0; color: var(--dinkster-danger-foreground); }
 .dinkster-canvas-target-help { margin: 0; }
 .dinkster-canvas-target-enter { margin: 0; color: var(--dinkster-text-secondary); }

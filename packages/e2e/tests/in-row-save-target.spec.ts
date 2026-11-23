@@ -14,7 +14,8 @@ type Mounts = (route: Route) => Promise<void> | void
 
 /**
  * A Save image node with a required target and a Gallery node whose target
- * may be empty, both edited in their rows. A Source node can wire a target
+ * may be empty, both edited in their rows and both declaring Project default
+ * with the name ComfyUI as their default. A Source node can wire a target
  * into the Save image node.
  */
 async function openTargets(page: Page, mounts: Mounts = (route) => route.fulfill({ json: READY }), options: { wired?: boolean } = {}): Promise<void> {
@@ -31,7 +32,7 @@ async function openTargets(page: Page, mounts: Mounts = (route) => route.fulfill
     const target = (optional: boolean) => ({
       kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional,
       ...(optional ? {} : { tooltip: 'Where the saved images are written.' }),
-      widget: { widgetType: 'SAVE_TARGET', options: { suffix: '.png' } },
+      widget: { widgetType: 'SAVE_TARGET', options: { suffix: '.png' }, default: { prefix: 'ComfyUI' } },
     })
     const image = { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }
     window.__dinksterTest!.app.registerSchemas([
@@ -162,22 +163,22 @@ test('while mounts load, when none is ready and when they cannot be read, nothin
   }
 })
 
-test('a stored mount that is gone stays stored until another mount is picked', async ({ page }) => {
+test('a stored mount this machine lacks stays stored until another mount or Use project default is picked', async ({ page }) => {
   await openTargets(page)
   await page.evaluate(() => window.__dinksterTest!.app.dispatchTo(window.__dinksterTest!.app.activeTab()!, {
     command: 'node.setValue', params: { graphId: 'g0', nodeId: 'save', inputId: 'target', value: { mount: 'usb1', prefix: 'renders/portrait' } },
   }))
   await openRow(page)
   await expect(mount(page)).toHaveAttribute('data-unavailable', 'true')
-  await expect(mount(page)).toContainText('usb1 (unavailable)')
-  await expect(side(page)).toContainText('Mount not available')
+  await expect(mount(page)).toContainText('usb1')
+  await expect(side(page)).toContainText('usb1 is not on this machine. Saving to output.')
   await prefix(page).fill('renders/renamed')
   await expect(side(page)).toContainText('Enter keeps usb1/renders/portrait')
-  // In the list the gone mount is dimmed and cannot be picked.
+  // In the list the missing mount is dimmed and cannot be picked.
   await mount(page).click()
-  const gone = page.getByRole('option', { name: 'usb1 (unavailable)' })
-  await expect(gone).toHaveAttribute('aria-disabled', 'true')
-  await gone.click({ force: true })
+  const missing = page.getByRole('option', { name: 'usb1 (not on this machine)' })
+  await expect(missing).toHaveAttribute('aria-disabled', 'true')
+  await missing.click({ force: true })
   await expect(page.getByRole('listbox', { name: 'Writable mount' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('listbox', { name: 'Writable mount' })).toHaveCount(0)
@@ -185,11 +186,14 @@ test('a stored mount that is gone stays stored until another mount is picked', a
   await page.keyboard.press('Enter')
   await expect(box(page)).toHaveCount(0)
   expect(await target(page)).toEqual({ mount: 'usb1', prefix: 'renders/portrait' })
+  // Use project default puts the box on Project default; leaving stores no mount.
   await openRow(page)
-  await pickMount(page, 'output')
-  await expect(side(page)).not.toContainText('Mount not available')
+  await side(page).getByRole('button', { name: 'Use project default' }).click()
+  await expect(mount(page)).toContainText('Project default')
+  await expect(side(page)).not.toContainText('not on this machine')
+  await expect(side(page)).toContainText('Enter stores output/renders/portrait')
   await page.keyboard.press('Enter')
-  await expect.poll(() => target(page)).toEqual({ mount: 'output', prefix: 'renders/portrait' })
+  await expect.poll(() => target(page)).toEqual({ prefix: 'renders/portrait' })
 })
 
 test('a name that cannot be used is not stored and the earlier target stays', async ({ page }) => {
@@ -206,28 +210,43 @@ test('a name that cannot be used is not stored and the earlier target stays', as
   }
 })
 
-test('Clear destination is offered only on a target that may be empty, and stores Default output only when the box is left', async ({ page }) => {
+test('Project default stores no mount, an empty target opens on it with the default name, and the default is a link', async ({ page }) => {
   await openTargets(page)
-  await openRow(page, 'save')
-  await expect(page.getByRole('button', { name: 'Clear destination' })).toHaveCount(0)
-  await page.keyboard.press('Escape')
+  // Picking Project default stores only the name; the row names the mount it means here.
   await openRow(page, 'gallery')
   await expect(side(page).locator('.dinkster-canvas-target-help')).toHaveText(['Subfolders and filename stem only. The writer adds numbering and .png.'])
-  await page.getByRole('button', { name: 'Clear destination' }).click()
-  await expect(prefix(page)).toHaveValue('')
-  await expect(rowValue(page)).toHaveValue('')
-  await expect(rowValue(page)).toHaveAttribute('placeholder', 'Default output')
-  await expect(side(page)).toContainText('Enter stores Default output')
-  expect(await target(page, 'gallery')).toEqual({ mount: 'output', prefix: 'gallery/shots' })
-  // Escape after Clear destination stores nothing.
-  await page.keyboard.press('Escape')
-  expect(await target(page, 'gallery')).toEqual({ mount: 'output', prefix: 'gallery/shots' })
-  await openRow(page, 'gallery')
-  await page.getByRole('button', { name: 'Clear destination' }).click()
+  await expect(page.getByRole('button', { name: 'Clear destination' })).toHaveCount(0)
+  await mount(page).click()
+  await expect(page.getByRole('option').first()).toHaveText('Project default (output)')
+  await page.getByRole('option', { name: 'Project default (output)' }).click()
+  await expect(mount(page)).toContainText('Project default')
+  await expect(rowValue(page)).toHaveValue('output/gallery/shots')
+  await expect(side(page)).toContainText('Enter stores output/gallery/shots')
   await page.mouse.click(900, 700)
-  await expect.poll(() => target(page, 'gallery')).toBeNull()
+  await expect.poll(() => target(page, 'gallery')).toEqual({ prefix: 'gallery/shots' })
   expect(await undo(page)).toBe(true)
   expect(await target(page, 'gallery')).toEqual({ mount: 'output', prefix: 'gallery/shots' })
+  // An empty target opens as Project default with the node's default name and is kept as it is.
+  await page.evaluate(() => window.__dinksterTest!.app.dispatchTo(window.__dinksterTest!.app.activeTab()!, {
+    command: 'node.setValue', params: { graphId: 'g0', nodeId: 'gallery', inputId: 'target', value: null },
+  }))
+  await openRow(page, 'gallery')
+  await expect(mount(page)).toContainText('Project default')
+  await expect(prefix(page)).toHaveValue('ComfyUI')
+  await expect(side(page)).toContainText('Enter keeps output/ComfyUI')
+  await page.keyboard.press('Enter')
+  await expect(box(page)).toHaveCount(0)
+  expect(await target(page, 'gallery')).toBeNull()
+  // The default is a link that puts the default back in the box; leaving stores it.
+  await openRow(page, 'save')
+  await expect(side(page)).toContainText('Enter keeps output/renders/portrait')
+  await side(page).getByRole('button', { name: 'output/ComfyUI' }).click()
+  await expect(box(page)).toBeVisible()
+  await expect(mount(page)).toContainText('Project default')
+  await expect(prefix(page)).toHaveValue('ComfyUI')
+  await expect(side(page)).toContainText('Enter stores output/ComfyUI')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => target(page)).toEqual({ prefix: 'ComfyUI' })
 })
 
 test('a row with a wire does not open', async ({ page }) => {
@@ -239,20 +258,17 @@ test('a row with a wire does not open', async ({ page }) => {
   await expect(page.getByTestId('save-target-editor')).toHaveCount(0)
 })
 
-test('the keyboard reaches the dropdown, the name and Clear destination in order, and Escape closes the list before the box', async ({ page }) => {
+test('the keyboard walks the dropdown and the name, and Escape closes the list before the box', async ({ page }) => {
   await openTargets(page)
   await openRow(page, 'gallery')
-  const clear = page.getByRole('button', { name: 'Clear destination' })
   await expect(prefix(page)).toBeFocused()
-  await page.keyboard.press('Alt+ArrowDown')
-  await expect(clear).toBeFocused()
   await page.keyboard.press('Alt+ArrowDown')
   await expect(mount(page)).toBeFocused()
   await page.keyboard.press('Alt+ArrowDown')
   await expect(prefix(page)).toBeFocused()
   await page.keyboard.press('Alt+ArrowUp')
   await expect(mount(page)).toBeFocused()
-  // The list opens from the dropdown; Down and Enter pick, the box stays open.
+  // The list opens from the dropdown on the picked mount; Down and Enter pick, the box stays open.
   await page.keyboard.press('Space')
   await expect(page.getByRole('listbox', { name: 'Writable mount' })).toBeVisible()
   await expect(mount(page)).toHaveAttribute('aria-expanded', 'true')
@@ -261,6 +277,12 @@ test('the keyboard reaches the dropdown, the name and Clear destination in order
   await expect(page.getByRole('listbox', { name: 'Writable mount' })).toHaveCount(0)
   await expect(box(page)).toBeVisible()
   await expect(mount(page)).toContainText('archive')
+  // Up from archive reaches Project default.
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('Enter')
+  await expect(mount(page)).toContainText('Project default')
   // Escape closes the list first, then the box, which stores nothing.
   await page.keyboard.press('ArrowDown')
   await expect(page.getByRole('listbox', { name: 'Writable mount' })).toBeVisible()
@@ -270,13 +292,4 @@ test('the keyboard reaches the dropdown, the name and Clear destination in order
   await page.keyboard.press('Escape')
   await expect(box(page)).toHaveCount(0)
   expect(await target(page, 'gallery')).toEqual({ mount: 'output', prefix: 'gallery/shots' })
-  // Enter on Clear destination clears; the next Enter stores.
-  await openRow(page, 'gallery')
-  await page.keyboard.press('Alt+ArrowDown')
-  await expect(clear).toBeFocused()
-  await page.keyboard.press('Enter')
-  await expect(box(page)).toBeVisible()
-  await expect(side(page)).toContainText('Enter stores Default output')
-  await page.keyboard.press('Enter')
-  await expect.poll(() => target(page, 'gallery')).toBeNull()
 })

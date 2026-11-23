@@ -5,16 +5,19 @@ and open the color picker. The picker accepts six-digit `#rrggbb` colors and
 commits the corresponding integer, retaining the INT socket and numeric saved
 value. Numeric bounds still apply. App View retains its numeric input.
 
-SAVE_TARGET opens a box under its row with a ready writable mount dropdown and
-a relative filename prefix; the row shows them together as they would be
-stored. Enter, Tab or a click outside store mount and prefix as one value;
-Escape stores nothing. The writer adds the descriptor's suffix and numbering;
-no host path is stored in the graph. Empty, absolute, dot-segment and
-backslash prefixes cannot be stored, nor can anything while the mounts load,
-when none is ready or when they cannot be read. An unavailable current mount
-stays visible and stored until another is picked. A target that may be empty
-also offers Clear destination; required save targets do not. Mount grants are
-checked again by the backend when it writes.
+SAVE_TARGET opens a box under its row with a mount dropdown and a relative
+filename prefix; the row shows them together as they would be stored. The
+dropdown's first entry is Project default, stored as `{"prefix": ...}` with
+no mount, so each project saves it to its own default output mount; the
+other entries are this machine's ready writable mounts. An empty target opens
+on Project default with the input's default name. Enter, Tab or a click
+outside store mount and prefix as one value; Escape stores nothing. The
+writer adds the descriptor's suffix and numbering; no host path is stored in
+the graph. Empty, absolute, dot-segment and backslash prefixes cannot be
+stored, nor can a named mount while the mounts load, when none is ready or
+when they cannot be read. A stored mount this machine lacks stays visible
+and stored until another entry or Use project default is picked. Mount
+grants are checked again by the backend when it writes.
 
 RESOLUTION_PREVIEW opens a proportional rectangle and exact pixel dimensions
 from the node's aspect ratio, megapixels and rounding multiple. The named

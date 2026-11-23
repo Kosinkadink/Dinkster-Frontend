@@ -156,7 +156,6 @@
   "saveTargetWidget.loading": "正在读取挂载点",
   "saveTargetWidget.none": "没有就绪的挂载点",
   "saveTargetWidget.couldNotLoad": "无法读取",
-  "saveTargetWidget.mountGone": "挂载点不可用",
   "saveTargetWidget.enterKeeps": "Enter 保留",
   "saveTargetWidget.enterStores": "Enter 保存",
   "saveTargetWidget.projectDefault": "项目默认",

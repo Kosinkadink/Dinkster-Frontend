@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, onCleanup, type Component } from 'solid-js'
 import type { MountSettings } from '@dinkster/client'
-import { effectiveWidgetDefault, inputsOf, type Json } from '@dinkster/core'
-import { isSaveTarget, saveTargetDraft } from '@dinkster/widgets'
+import { effectiveWidgetDefault, type Json } from '@dinkster/core'
+import { isProjectDefaultTarget, isSaveTarget, saveTargetDraft, saveTargetText } from '@dinkster/widgets'
 import {
   CanvasRowField,
   CanvasTargetBox,
@@ -18,10 +18,12 @@ import { placeRow, rowPlacement, visibleCanvas } from './row-placement.js'
 /**
  * A save target edited in its own row on the canvas: a box under the row
  * holds the mount dropdown and the filename prefix, and the row shows them
- * together as they would be stored. Nothing is stored while the box is
- * open; Enter, Tab, Ctrl+Enter or a press elsewhere store the mount and
- * prefix as one value, or nothing after Clear destination, through the same
- * controller path as every other field. Escape stores nothing.
+ * together as they would be stored. The dropdown's first entry is Project
+ * default, which stores no mount, so each project saves to its own default
+ * output mount. Nothing is stored while the box is open; Enter, Tab,
+ * Ctrl+Enter or a press elsewhere store the mount and prefix as one value
+ * through the same controller path as every other field. Escape stores
+ * nothing.
  */
 export const InRowSaveTargetImplementation: Component<WidgetEditorImplementationProps> = (props) => {
   const message = useAppMessage()
@@ -30,17 +32,16 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
   const spec = ed.spec!
   const inRow = ed.inRow!
   const initial = ed.initial ?? null
-  const stored = isSaveTarget(initial) ? initial : undefined
-  const textOf = (value: Json): string => (isSaveTarget(value) ? `${value.mount}/${value.prefix}` : message('saveTargetWidget.default'))
+  const declared = effectiveWidgetDefault(spec) ?? null
+  const defaultTarget = isSaveTarget(declared) || isProjectDefaultTarget(declared) ? declared : null
+  const defaultName = defaultTarget?.prefix ?? ''
+  // An empty target opens as Project default with the node's default name.
+  const opened: Json = initial === null && defaultName !== '' ? { prefix: defaultName } : initial
   const target = ed.target.kind === 'input' ? ed.target : undefined
-  const node = target && ed.tab.store.doc.graphs[target.familyOwner?.graphId ?? ed.graphId]?.nodes[target.familyOwner?.nodeId ?? target.nodeId]
-  const schema = node && host.app.registryForTab(ed.tab)?.resolve(node.type)
-  const optional = schema !== undefined && inputsOf(schema).find((input) => input.id === (target?.familyOwner?.valueKey ?? target?.valueKey))?.optional === true
   const suffix = typeof spec.options['suffix'] === 'string' ? spec.options['suffix'] : ''
 
-  const [mount, setMount] = createSignal(stored?.mount ?? '')
-  const [prefix, setPrefix] = createSignal(stored?.prefix ?? '')
-  const [cleared, setCleared] = createSignal(false)
+  const [mount, setMount] = createSignal<string | null>(isSaveTarget(opened) ? opened.mount : null)
+  const [prefix, setPrefix] = createSignal(isSaveTarget(opened) || isProjectDefaultTarget(opened) ? opened.prefix : '')
   const [settings, setSettings] = createSignal<MountSettings>()
   const [error, setError] = createSignal<string>()
   let live = true
@@ -48,10 +49,7 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
   const backend = host.app.backendForTab(ed.tab)
   if (backend.protocol === 'dinkster') {
     void backend.connection.fetchMountSettings().then((value) => {
-      if (!live) return
-      setSettings(value)
-      const output = value.activeOutputMount ?? value.outputMount
-      if (mount() === '' && output !== undefined) setMount(output)
+      if (live) setSettings(value)
     }).catch((reason: unknown) => {
       if (live) setError(reason instanceof Error ? reason.message : String(reason))
     })
@@ -63,30 +61,33 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
     if (settings() === undefined) return 'loading'
     return writable().length === 0 ? 'none' : 'ready'
   }
-  // A picked mount that is no longer ready stays listed, dimmed, so it is
-  // never replaced for the person.
+  /** The mount Project default means here, or its name while that is not known. */
+  const projectMount = (): string =>
+    settings()?.activeOutputMount ?? settings()?.outputMount ?? message('saveTargetWidget.projectDefault')
+  const textOf = (value: Json): string => saveTargetText(value, projectMount()) ?? message('saveTargetWidget.default')
+  // Project default comes first. A picked mount that is not on this machine
+  // stays listed, dimmed, so it is never replaced for the person.
   const options = createMemo<readonly CanvasTargetMount[]>(() => {
-    const entries: CanvasTargetMount[] = writable().map((entry) => ({ id: entry.id, label: entry.id }))
-    if (mount() !== '' && !entries.some((entry) => entry.id === mount()))
-      entries.unshift({ id: mount(), label: message('mountWidget.unavailable', { id: mount() }), unavailable: true })
+    const entries: CanvasTargetMount[] = [
+      {
+        id: '',
+        label: message('saveTargetWidget.projectDefaultIs', { mount: projectMount() }),
+        closedLabel: message('saveTargetWidget.projectDefault'),
+      },
+      ...writable().map((entry) => ({ id: entry.id, label: entry.id })),
+    ]
+    const picked = mount()
+    if (picked !== null && !entries.some((entry) => entry.id === picked))
+      entries.unshift({ id: picked, label: message('saveTargetWidget.notHere', { id: picked }), closedLabel: picked, unavailable: true })
     return entries
   })
   const draft = createMemo(() => saveTargetDraft({
-    stored: initial,
+    stored: opened,
     mount: mount(),
     prefix: prefix(),
-    cleared: cleared(),
     ready: mounts() === 'ready' ? writable().map((entry) => entry.id) : undefined,
+    projectMount: projectMount(),
   }))
-
-  const change = (apply: () => void): void => {
-    apply()
-    setCleared(false)
-  }
-  const clear = (): void => {
-    setCleared(true)
-    setPrefix('')
-  }
 
   /** Resolves true once the box is closed, false while it stays open. */
   const commit = (): Promise<boolean> => {
@@ -108,14 +109,14 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
   const [highlight, setHighlight] = createSignal<number>()
   const openList = (): void => {
     if (mounts() !== 'ready' || props.commitPending()) return
-    const at = options().findIndex((entry) => entry.id === mount())
+    const at = options().findIndex((entry) => entry.id === (mount() ?? ''))
     setHighlight(at >= 0 && options()[at]?.unavailable !== true ? at : options().findIndex((entry) => entry.unavailable !== true))
     setListOpen(true)
   }
   const pick = (index: number): void => {
     const entry = options()[index]
     if (entry === undefined || entry.unavailable === true) return
-    change(() => setMount(entry.id))
+    setMount(entry.id === '' ? null : entry.id)
     setListOpen(false)
     mountButton?.focus()
   }
@@ -128,11 +129,9 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
 
   let mountButton: HTMLButtonElement | undefined
   let prefixInput: HTMLInputElement | undefined
-  let clearButton: HTMLButtonElement | undefined
   const [focused, setFocused] = createSignal<CanvasTargetStop>('prefix')
-  const stops = (): CanvasTargetStop[] => ['mount', 'prefix', ...(optional ? ['clear' as const] : [])]
   const focusStop = (stop: CanvasTargetStop): void => {
-    ;(stop === 'mount' ? mountButton : stop === 'prefix' ? prefixInput : clearButton)?.focus()
+    ;(stop === 'mount' ? mountButton : prefixInput)?.focus()
   }
 
   const onKeyDown = (event: KeyboardEvent): void => {
@@ -146,23 +145,14 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
     const at = focused()
     if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault()
-      const order = stops()
-      const index = order.indexOf(at)
-      focusStop(order[(index + (event.key === 'ArrowDown' ? 1 : -1) + order.length) % order.length]!)
+      focusStop(at === 'mount' ? 'prefix' : 'mount')
     } else if (at === 'mount' && (event.key === ' ' || event.key === 'ArrowDown')) {
       event.preventDefault()
       openList()
-    } else if (at === 'clear' && event.key === ' ') {
-      event.preventDefault()
-      if (!props.commitPending()) clear()
     } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault()
       const queue = host.app.commands.get('workflow.queue')
       void commit().then((closed) => { if (closed && queue?.enabled?.() !== false) queue?.run() })
-    } else if (event.key === 'Enter' && at === 'clear' && !cleared()) {
-      // Enter on Clear destination clears; the next Enter stores.
-      event.preventDefault()
-      if (!props.commitPending()) clear()
     } else if (event.key === 'Enter') {
       event.preventDefault()
       void commit().then((closed) => {
@@ -175,24 +165,37 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
       event.preventDefault()
       const direction = event.shiftKey ? -1 : 1
       if (target === undefined) return
-      void commit().then((closed) => { if (closed) host.moveRow?.({ nodeId: target.nodeId, valueKey: target.valueKey }, direction) })
+      void commit().then((closed) => { if (closed && target !== undefined) host.moveRow?.({ nodeId: target.nodeId, valueKey: target.valueKey }, direction) })
     }
   }
 
-  const declared = effectiveWidgetDefault(spec)
   const side = createMemo(() => {
     const value = draft().store
+    const gone = draft().mountGone ? mount() : null
     const problem = props.commitError()
       ?? (mounts() === 'none' ? message('saveTargetWidget.noMounts') : undefined)
-      ?? (draft().mountGone ? message('saveTargetWidget.mountGone') : undefined)
+      ?? (gone === null ? undefined : message('saveTargetWidget.notHereSaving', { id: gone, mount: projectMount() }))
     return (
       <CanvasTargetSide
         {...(problem === undefined ? {} : { problem })}
         enter={value === undefined
-          ? { verb: message('saveTargetWidget.enterKeeps'), target: textOf(initial) }
+          ? { verb: message('saveTargetWidget.enterKeeps'), target: textOf(opened) }
           : { verb: message('saveTargetWidget.enterStores'), target: textOf(value) }}
+        {...(gone === null ? {} : {
+          action: {
+            label: message('saveTargetWidget.useProjectDefault'),
+            onClick: () => { setMount(null); prefixInput?.focus() },
+          },
+        })}
         defaultLabel="default"
-        defaultText={textOf((declared ?? null) as Json)}
+        defaultText={textOf(defaultTarget)}
+        {...(defaultTarget === null ? {} : {
+          onDefault: () => {
+            setMount(isSaveTarget(defaultTarget) ? defaultTarget.mount : null)
+            setPrefix(defaultName)
+            prefixInput?.focus()
+          },
+        })}
         {...(error() === undefined ? {} : { error: error()! })}
         {...(inRow.help === undefined ? {} : { tooltip: inRow.help })}
         naming={message('saveTargetWidget.naming', { suffix })}
@@ -228,27 +231,24 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
           loading: message('saveTargetWidget.loading'),
           none: message('saveTargetWidget.none'),
           failed: message('saveTargetWidget.couldNotLoad'),
-          clear: message('saveTargetWidget.clear'),
         }}
         mounts={mounts()}
         options={options()}
-        mount={mount()}
+        mount={mount() ?? ''}
         listOpen={listOpen()}
         {...(highlight() === undefined ? {} : { highlight: highlight()! })}
         onToggleList={() => (listOpen() ? setListOpen(false) : openList())}
         onHighlight={setHighlight}
         onPick={pick}
         prefix={prefix()}
-        onPrefix={(text) => change(() => setPrefix(text))}
+        onPrefix={setPrefix}
         {...(draft().prefixInvalid ? { prefixProblem: message('saveTargetWidget.invalid') } : {})}
-        {...(optional ? { onClear: () => { clear(); clearButton?.focus() } } : {})}
         onFocusStop={setFocused}
         mountRef={(element) => { mountButton = element }}
         prefixRef={(element) => {
           prefixInput = element
           queueMicrotask(() => { element.focus(); element.select() })
         }}
-        clearRef={(element) => { clearButton = element }}
         frozen={props.commitPending()}
       />
     </div>
