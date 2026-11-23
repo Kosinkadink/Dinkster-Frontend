@@ -121,9 +121,7 @@ export function canvasSideLayout(
  * The outline around an open field and its side part, as one path: an L
  * (or a T, when the side part slid) when the side part sits beside the
  * row, one box when it sits under or over the field. Coordinates are local
- * to the field's row, whose top left is 0,0; `sideTop` is the side part's
- * top. `fieldTop` moves the field's box up when it also holds a panel
- * opened over the row; `field.height` then covers the panel and the row.
+ * to the field, whose top left is 0,0; `sideTop` is the side part's top.
  */
 export function canvasFieldOutline(
   field: { readonly width: number; readonly height: number },
@@ -132,38 +130,36 @@ export function canvasFieldOutline(
   sideTop: number,
   radius: number,
   inset: number,
-  fieldTop = 0,
 ): string {
   const w = field.width
-  const t = fieldTop
-  const h = fieldTop + field.height
+  const h = field.height
   let points: [number, number][]
   if (side === undefined || place === 'below-node' || place === 'above-node')
     points = [
-      [0, t],
-      [w, t],
+      [0, 0],
+      [w, 0],
       [w, h],
       [0, h],
     ]
   else if (place === 'below-field')
     points = [
-      [0, t],
-      [w, t],
+      [0, 0],
+      [w, 0],
       [w, h + side.height],
       [0, h + side.height],
     ]
   else if (place === 'above-field')
     points = [
-      [0, t - side.height],
-      [w, t - side.height],
+      [0, -side.height],
+      [w, -side.height],
       [w, h],
       [0, h],
     ]
   else if (place === 'right') {
     const sideBottom = sideTop + side.height
     points = [
-      [0, t],
-      [w, t],
+      [0, 0],
+      [w, 0],
       [w, sideTop],
       [w + side.width, sideTop],
       [w + side.width, sideBottom],
@@ -176,8 +172,8 @@ export function canvasFieldOutline(
     points = [
       [-side.width, sideTop],
       [0, sideTop],
-      [0, t],
-      [w, t],
+      [0, 0],
+      [w, 0],
       [w, h],
       [0, h],
       [0, sideBottom],
@@ -245,11 +241,18 @@ export interface CanvasSideFact {
   readonly value: JSX.Element
 }
 
-export interface CanvasRowFrameProps {
+/** Where an open field's panel, such as a color picker, hangs: under the field or over it. */
+export type CanvasPanelPlace = 'below' | 'above'
+
+interface CanvasRowFrameProps {
   /** Width of the row at normal size. */
   rowWidth: number
   place: CanvasSidePlace
-  /** The side part's top, from the row's top, at normal size. */
+  /**
+   * The side part's top at normal size, from the row's top, or from the
+   * panel's top when a panel hangs over the row: the row and its panel are
+   * one column, and the side part sits beside, under or over that column.
+   */
   sideTop?: number
   /** The height the side part may take before it scrolls. */
   sideMaxHeight?: number
@@ -261,22 +264,21 @@ export interface CanvasRowFrameProps {
   look?: 'original' | 'flat-title'
   /** The caller scales the field with the canvas, zoomed in. */
   zoomed?: boolean
-  /**
-   * Content opened with the field at the row's width, under its row or
-   * over it, inside the same outline, such as a list or a picker.
-   */
+  /** Content hung under or over the row at its width, inside the same outline. */
   panel?: JSX.Element
-  panelPlace?: 'below' | 'above'
+  panelPlace?: CanvasPanelPlace
+  /** The height the panel may take before it scrolls, at normal size. */
+  panelMaxHeight?: number
 }
 
 /**
  * What an open field and a row the keyboard is on share: the outline around
- * the row's box, any panel opened with it, and its side part, and the side
- * part's place.
+ * the row's box and its side part, and the side part's place.
  */
-export function CanvasRowFrame(
+function CanvasRowFrame(
   props: CanvasRowFrameProps & {
     focus?: boolean
+    neutral?: boolean
     steppers?: boolean
     children?: JSX.Element
   },
@@ -294,22 +296,34 @@ export function CanvasRowFrame(
     width: number
     height: number
   }>()
+  // The column's top from the row's top: a panel over the row raises it.
+  const columnTop = () => (props.panelPlace === 'above' ? -panelHeight() : 0)
   let reported: CanvasSideSize | undefined
   const measure = () => {
     root.style.width = `${props.rowWidth}px`
     setRowHeight(row.offsetHeight)
-    setPanelHeight(panel?.offsetHeight ?? 0)
+    if (panel) {
+      panel.style.maxHeight =
+        props.panelMaxHeight === undefined ? '' : `${props.panelMaxHeight}px`
+      setPanelHeight(panel.offsetHeight)
+    } else setPanelHeight(0)
     if (!side) {
       setSideSize(undefined)
       return
     }
-    side.style.top = props.sideTop === undefined ? '' : `${props.sideTop}px`
+    side.style.top =
+      props.sideTop === undefined ? '' : `${props.sideTop + columnTop()}px`
     side.style.maxHeight =
       props.sideMaxHeight === undefined ? '' : `${props.sideMaxHeight}px`
     const size = { width: side.offsetWidth, height: side.offsetHeight }
     const previous = sideSize()
     if (previous?.width !== size.width || previous.height !== size.height)
       setSideSize(size)
+    // A side part beside a panel that reaches past the panel's bottom meets
+    // it at an inside corner, which stays square.
+    root.dataset.sidePast = String(
+      (props.sideTop ?? 0) + size.height > row.offsetHeight + panelHeight(),
+    )
     // A side part held to a height reports the height its lines need, so
     // its place is chosen from its whole size.
     const whole = {
@@ -333,6 +347,7 @@ export function CanvasRowFrame(
       props.side,
       props.panel,
       props.panelPlace,
+      props.panelMaxHeight,
     ]
     measure()
   })
@@ -351,7 +366,6 @@ export function CanvasRowFrame(
       props.sideTop ?? 0,
       4,
       1,
-      props.panelPlace === 'above' ? -panelHeight() : 0,
     )
   return (
     <div
@@ -362,10 +376,11 @@ export function CanvasRowFrame(
       class="dinkster-canvas-field"
       data-place={props.place}
       data-side={props.side !== undefined}
+      data-panel={props.panel === undefined ? 'none' : (props.panelPlace ?? 'below')}
       data-look={props.look ?? 'original'}
       data-focus={props.focus === true}
+      data-neutral={props.neutral === true}
       data-zoomed={props.zoomed === true}
-      data-panel={props.panel === undefined ? undefined : (props.panelPlace ?? 'below')}
       data-testid={props.focus === true ? 'canvas-row-focus' : 'canvas-row-field'}
     >
       <div
@@ -394,7 +409,7 @@ export function CanvasRowFrame(
         </div>
       </Show>
       <svg class="dinkster-canvas-field-outline" aria-hidden="true">
-        <path d={outline()} />
+        <path d={outline()} transform={`translate(0 ${columnTop()})`} />
       </svg>
     </div>
   )
@@ -420,6 +435,8 @@ export function CanvasRowField(
     fill?: number
     /** A mark about the value, such as a seed's mode icon, shown before it. */
     mark?: JSX.Element
+    /** A mark about the stored value, such as a color's square, shown before the label. */
+    labelMark?: JSX.Element
   },
 ) {
   let fill: HTMLDivElement | undefined
@@ -447,6 +464,9 @@ export function CanvasRowField(
       {...(props.zoomed === undefined ? {} : { zoomed: props.zoomed })}
       {...(props.panel === undefined ? {} : { panel: props.panel })}
       {...(props.panelPlace === undefined ? {} : { panelPlace: props.panelPlace })}
+      {...(props.panelMaxHeight === undefined
+        ? {}
+        : { panelMaxHeight: props.panelMaxHeight })}
       steppers={props.onStep !== undefined}
     >
       <Show when={props.fill !== undefined}>
@@ -478,6 +498,9 @@ export function CanvasRowField(
             </Show>
           </button>
         )}
+      </Show>
+      <Show when={props.labelMark}>
+        <span class="dinkster-canvas-field-label-mark">{props.labelMark}</span>
       </Show>
       <span class="dinkster-canvas-field-label">{props.label}</span>
       <Show when={props.mark}>
@@ -528,7 +551,12 @@ export function CanvasRowField(
  * the row's box, with the row's side part. The canvas still draws the row,
  * so the frame is clear over it and leaves the pointer to the canvas.
  */
-export function CanvasRowFocus(props: CanvasRowFrameProps) {
+export function CanvasRowFocus(
+  props: CanvasRowFrameProps & {
+    /** A side part that only explains, such as what a wire brings: no focus outline. */
+    neutral?: boolean
+  },
+) {
   return <CanvasRowFrame {...props} focus />
 }
 
