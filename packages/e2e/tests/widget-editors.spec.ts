@@ -5,7 +5,7 @@ const test = base.extend<{ widgetDocument: boolean }>({ widgetDocument: [true, {
 
 const catalogTest = test.extend({ widgetDocument: false })
 
-catalogTest('mixed scalar COMBO keeps typed native choices through dropdown edits', async ({ page }, testInfo) => {
+catalogTest('mixed scalar COMBO keeps typed native choices through list picks', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'scalar-combo-fixture', schemaWire: 2 },
     nodes: { ScalarCombo: { displayName: 'Mixed scalar choices', outputNode: true, body: [
@@ -24,16 +24,16 @@ catalogTest('mixed scalar COMBO keeps typed native choices through dropdown edit
   })
   const point = await nodeRowPoint(page, 'n1', 'bit_depth')
   await page.mouse.click(point.x, point.y)
-  await expect(page.getByTestId('combo-option')).toHaveText(['auto', '8', '10'])
+  await expect(listOptions(page)).toHaveText(['auto', '8', '10'])
   await page.screenshot({ path: testInfo.outputPath('mixed-scalar-depth.png') })
-  await page.getByTestId('combo-option').nth(1).click()
+  await listOptions(page).nth(1).click()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.bit_depth)).toBe(8)
   for (const [index, value] of [8, '8', true, 1].entries()) {
     const identity = await nodeRowPoint(page, 'n1', 'identity')
     await page.mouse.click(identity.x, identity.y)
-    await expect(page.getByTestId('combo-option')).toHaveCount(4)
+    await expect(listOptions(page)).toHaveCount(4)
     if (index === 0) await page.screenshot({ path: testInfo.outputPath('mixed-scalar-identity.png') })
-    await page.getByTestId('combo-option').nth(index).click()
+    await listOptions(page).nth(index).click()
     expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.identity)).toBe(value)
   }
 })
@@ -160,6 +160,9 @@ async function toolboxButtonPoint(page: Page, buttonId: string): Promise<{ x: nu
     }
   }, buttonId)
 }
+
+const listFilter = (page: Page) => page.locator('[data-editor-surface="in-row-list"] input')
+const listOptions = (page: Page) => page.locator('[data-editor-surface="in-row-list"] [role=option]')
 
 async function openEditor(page: Page, inputId: string) {
   // Synchronize the prior expanded surface before issuing another canvas hit.
@@ -923,15 +926,14 @@ test('FR15 a composing Enter never commits the COMBO, multiline, or COLOR editor
 
   // COMBO: a composing Enter selects the IME candidate, not the highlighted option.
   await openEditor(page, 'choice')
-  const search = page.getByTestId('combo-search')
+  const search = listFilter(page)
   await search.fill('be'); await search.press('ArrowDown')
   await search.evaluate((el) => {
     el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }))
   })
-  await expect(page.getByTestId('combo-dropdown')).toBeVisible()
+  await expect(search).toBeVisible()
   expect((await values()).choice).toBeUndefined()
   await search.press('Enter')
-  await expect(page.getByTestId('combo-dropdown')).not.toBeVisible()
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
   expect((await values()).choice).toBe('dinkster.beta')
 
@@ -1706,16 +1708,13 @@ test('COLOR stores a normalized code, keeps the stored color for text that is no
   expect(await value()).toBeUndefined()
 })
 
-test('static COMBO popover filters, navigates folders, cancels, and handles no options', async ({ page }, testInfo) => {
+test('static COMBO list in the row filters, navigates folders, cancels, and handles no options', async ({ page }, testInfo) => {
   await openEditor(page, 'choice')
-  const combo = page.getByTestId('combo-dropdown')
-  await expect(page.getByRole('dialog', { name: 'Edit choice COMBO' })).toBeVisible()
-  await expect(combo.getByTestId('widget-editor-label')).toHaveText('choice')
-  await expect(combo.getByTestId('widget-editor-type')).toHaveText('COMBO')
-  let search = page.getByTestId('combo-search')
+  let search = listFilter(page)
+  await expect(search).toHaveAttribute('aria-label', 'choice')
   await search.fill('be')
-  await expect(page.getByTestId('combo-option')).toContainText('Detailed decoder')
-  await page.getByTestId('combo-option').dispatchEvent('click')
+  await expect(listOptions(page)).toContainText('Detailed decoder')
+  await listOptions(page).dispatchEvent('click')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.choice).toBe('dinkster.beta')
 
@@ -1736,27 +1735,27 @@ test('static COMBO popover filters, navigates folders, cancels, and handles no o
   await expect(page.getByTestId('context-menu')).not.toBeVisible()
 
   await openEditor(page, 'choice')
-  await expect(page.getByTestId('combo-dropdown')).toContainText('Detailed decoder')
+  await expect(listOptions(page).nth(1)).toContainText('Detailed decoder')
   const rootScreenshot = testInfo.outputPath('structured-combo-root.png')
   await page.screenshot({ path: rootScreenshot, animations: 'disabled' })
   await testInfo.attach('structured-combo-root', { path: rootScreenshot, contentType: 'image/png' })
-  await page.getByTestId('combo-folder').dispatchEvent('click')
-  await page.getByTestId('combo-folder').dispatchEvent('click')
-  await expect(page.getByTestId('combo-folder-navigation')).toContainText('Advanced / Diffusion')
-  await expect(page.getByTestId('combo-option')).toContainText('Advanced solver')
+  await listOptions(page).and(page.locator('[data-kind=folder]')).dispatchEvent('click')
+  await listOptions(page).and(page.locator('[data-kind=folder]')).dispatchEvent('click')
+  await expect(listOptions(page).and(page.locator('[data-kind=back]'))).toHaveCount(1)
+  await expect(listOptions(page).and(page.locator('[data-kind=option]'))).toContainText('Advanced solver')
   const screenshotPath = testInfo.outputPath('structured-combo-folder.png')
   await page.screenshot({ path: screenshotPath, animations: 'disabled' })
   await testInfo.attach('structured-combo-folder', { path: screenshotPath, contentType: 'image/png' })
-  await page.getByTestId('combo-option').dispatchEvent('click')
-  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.choice).toBe('dinkster.gamma')
+  await listOptions(page).and(page.locator('[data-kind=option]')).dispatchEvent('click')
+  await expect.poll(async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values.choice).toBe('dinkster.gamma')
   await page.mouse.click(point.x, point.y, { button: 'right' })
   await page.locator('[data-item-id="core.widget.reset"]').click()
 
-  await openEditor(page, 'choice'); search = page.getByTestId('combo-search'); await search.fill('gamma'); await search.press('Escape')
+  await openEditor(page, 'choice'); search = listFilter(page); await search.fill('gamma'); await search.press('Escape')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.choice).toBe('dinkster.alpha')
   await openEditor(page, 'empty')
-  await expect(page.getByTestId('combo-dropdown')).toContainText('No matching options')
+  await expect(page.locator('[data-editor-surface="in-row-list"] .dinkster-canvas-list-empty')).toHaveText('No options available')
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
 })
@@ -1788,30 +1787,28 @@ test('huge COMBO lists render a capped window with paging rows and still commit 
   await page.mouse.click(point.x, point.y)
 
   // The 1200-entry list renders a capped window around the deep default.
-  const combo = page.getByTestId('combo-dropdown')
-  await expect(combo).toBeVisible()
-  await expect(page.getByTestId('combo-option')).toHaveCount(300)
-  await expect(combo.locator('.combo-option.active')).toHaveText('option-600')
-  await expect(page.getByTestId('combo-earlier')).toHaveText('450 earlier options')
-  await expect(page.getByTestId('combo-more')).toHaveText('450 more options - type to narrow')
+  const active = page.locator('[data-editor-surface="in-row-list"] [role=option][data-active=true]')
+  const pages = page.locator('[data-editor-surface="in-row-list"] .dinkster-canvas-list-page')
+  await expect(listOptions(page)).toHaveCount(300)
+  await expect(active).toHaveText('option-600')
+  await expect(pages).toHaveText(['450 earlier options', '450 more options'])
   const screenshotPath = testInfo.outputPath('huge-combo-window.png')
   await page.screenshot({ path: screenshotPath, animations: 'disabled' })
   await testInfo.attach('huge-combo-window', { path: screenshotPath, contentType: 'image/png' })
 
   // Paging jumps the highlight across the window boundary.
-  await page.getByTestId('combo-more').dispatchEvent('click')
-  await expect(combo.locator('.combo-option.active')).toHaveText('option-750')
-  await expect(page.getByTestId('combo-option')).toHaveCount(300)
+  await pages.last().dispatchEvent('click')
+  await expect(active).toHaveText('option-750')
+  await expect(listOptions(page)).toHaveCount(300)
 
   // Narrowing below the cap renders every match without paging rows.
-  await page.getByTestId('combo-search').fill('option-99')
-  await expect(page.getByTestId('combo-option')).toHaveCount(11)
-  await expect(page.getByTestId('combo-earlier')).toHaveCount(0)
-  await expect(page.getByTestId('combo-more')).toHaveCount(0)
+  await listFilter(page).fill('option-99')
+  await expect(listOptions(page)).toHaveCount(11)
+  await expect(pages).toHaveCount(0)
 
   // Enter commits the highlighted option from the full filtered list.
-  await page.getByTestId('combo-search').press('ArrowDown')
-  await page.getByTestId('combo-search').press('Enter')
+  await listFilter(page).press('ArrowDown')
+  await listFilter(page).press('Enter')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
-  expect((await activeDoc(page)).graphs.g0!.nodes.huge!.values.choice).toBe('option-990')
+  await expect.poll(async () => (await activeDoc(page)).graphs.g0!.nodes.huge!.values.choice).toBe('option-990')
 })

@@ -1683,6 +1683,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   })
 
   const [editor, setEditor] = createSolidSignal<WidgetEditorState | undefined>(undefined)
+  // An in-row editor that handed its row to a popover, which leaves the row drawn.
+  const [rowHandedOff, setRowHandedOff] = createSolidSignal<WidgetEditorState | undefined>(undefined)
   // The row the keyboard is on while nothing is open; only the keyboard sets it.
   const [rowFocus, setRowFocus] = createSolidSignal<RowFocusState | undefined>(undefined)
   const editorRestoresCanvasFocus = (state: WidgetEditorState): boolean => state.spec?.widgetType !== 'ASSET'
@@ -3428,7 +3430,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // A row edited in place is drawn by its field, so the canvas leaves it out.
     createEffect(() => {
       const ed = editor()
-      renderer.setOpenRow(ed?.inRow !== undefined && ed.target.kind === 'input'
+      renderer.setOpenRow(ed?.inRow !== undefined && ed !== rowHandedOff() && ed.target.kind === 'input'
         ? { nodeId: ed.target.nodeId, valueKey: ed.target.valueKey }
         : undefined)
     })
@@ -5044,6 +5046,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           nodeTop: hit.node.y,
           nodeBottom: hit.node.y + hit.node.layout.height,
           storedAtOpen: stored ?? null,
+          handOff: () => setRowHandedOff(untrack(editor)),
           ...(help === undefined ? {} : { help }),
           ...(caret === undefined || hit.row.viewId !== 'core.line' ? {} : { caret }),
           ...(hit.row.controllerMode === undefined ? {} : { controllerMode: hit.row.controllerMode }),
@@ -5066,12 +5069,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
 
     /**
-     * Number, slider, seed and single-line text rows are edited in their own
-     * row when the canvas edits in the row; every other kind keeps its card.
+     * Number, slider, seed and single-line text rows, and choices, are edited
+     * in their own row when the canvas edits in the row; every other kind
+     * keeps its card. A choice fed by the remote-choice route keeps its card.
      */
     function editsInRow(tab: Tab, node: SceneNode, row: Extract<Hit, { kind: 'widget' }>['row']): boolean {
       if (renderer.getDesignTokens().widgetEditing !== 'in-row') return false
-      if (!['core.number', 'core.slider', 'core.line', 'core.color', 'core.integerColor'].includes(row.viewId)) return false
+      // The select view belongs to COMBO alone.
+      const choice = row.viewId === 'core.select' && row.spec.remote === undefined
+      if (!['core.number', 'core.slider', 'core.line', 'core.color', 'core.integerColor'].includes(row.viewId) && !choice) return false
       if (widgetRegistry().kind(row.spec.widgetType) === undefined) return false
       if (widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi !== undefined) return false
       // Single-line text that holds a line break opens in the multiline editor,

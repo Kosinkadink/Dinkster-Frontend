@@ -143,12 +143,13 @@ interface PinPaint {
 }
 
 /**
- * Shape axis of a pin: cardinality decides, everything else is fill/ring. An
- * input that accepts a list takes one value or a list whatever its type is
- * matched to, so it keeps the one-value-or-list shape.
+ * Shape axis of a pin: cardinality decides, everything else is fill/ring. A
+ * pin that accepts a list takes one value or a list whatever its type is
+ * matched to, so it keeps the one-value-or-list shape: an input's pin, or
+ * the pin a subgraph's Inputs panel shows for such an input.
  */
 export const pinShapeOf = (type: TypeExpr, direction: 'in' | 'out' = 'out', acceptsList = false): PinShape => {
-  if (direction === 'in' && acceptsList) return 'scalar-list'
+  if (acceptsList) return 'scalar-list'
   if (cardinalityOf(type) === 'list') return 'diamond'
   if (direction === 'in' && type.kind === 'variable' &&
       (type.allowedTypes === undefined || type.allowedTypes.length === 0)) return 'scalar-list'
@@ -3974,7 +3975,9 @@ export class CanvasRenderer {
       const associated = pin.matchVariable !== undefined &&
         (pin.matchVariable === hoveredMatchVariable || pin.matchVariable === focusedMatchVariable)
       const radius = hovered || focused || associated ? pinRadius + PIN_HOVER_GROWTH : pinRadius
-      const shape = pinShapeOf(pin.type, pin.direction, pin.acceptsList === true)
+      // A field's output pin shares its input's annotations but sends one value.
+      const acceptsList = pin.direction === 'in' && pin.acceptsList === true
+      const shape = pinShapeOf(pin.type, pin.direction, acceptsList)
       const ringRadius = statusRingRadius(shape, pinRadius, radius)
       const problemKind = pin.direction === 'in' ? this.portProblems[node.id]?.[pin.portId] : undefined
       if (pin.widgetTap === true &&
@@ -4045,7 +4048,7 @@ export class CanvasRenderer {
             (pin.direction === 'in' && (pin.optional === true || pin.familyMember === true)),
           pin.direction,
           radius,
-          pin.acceptsList === true,
+          acceptsList,
         )
       }
     }
@@ -4522,14 +4525,14 @@ export class CanvasRenderer {
       const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? x : x + l.width, y + pin.y)
       if (this.overlay.dropTargets?.has(boundaryTargetKey(bnode.side, pin.portId))) {
         ctx.beginPath()
-        ctx.arc(px, py, statusRingRadius(pinShapeOf(pin.type, pin.direction), pinRadius, pinRadius), 0, Math.PI * 2)
+        ctx.arc(px, py, statusRingRadius(pinShapeOf(pin.type, pin.direction, pin.acceptsList === true), pinRadius, pinRadius), 0, Math.PI * 2)
         ctx.strokeStyle = t.colors.dropTarget
         ctx.lineWidth = screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH)
         ctx.stroke()
       }
       const pinColor = pinColorOf(t, pin.type)
       if (pin.ghost) {
-        const shape = pinShapeOf(pin.type, pin.direction)
+        const shape = pinShapeOf(pin.type, pin.direction, pin.acceptsList === true)
         pinOutlinePath(ctx, shape, px, py, pinShapeRadius(shape, pinRadius))
         ctx.globalAlpha = GHOST_ALPHA
         ctx.strokeStyle = pinColor
@@ -4537,7 +4540,7 @@ export class CanvasRenderer {
         ctx.stroke()
         ctx.globalAlpha = 1
       } else {
-        paintTypedPin(ctx, t, pin.type, px, py, scale, pin.maybeAbsent === true, pin.direction, pinRadius)
+        paintTypedPin(ctx, t, pin.type, px, py, scale, pin.maybeAbsent === true, pin.direction, pinRadius, pin.acceptsList === true)
       }
     }
   }

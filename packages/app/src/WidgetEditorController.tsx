@@ -121,6 +121,8 @@ export interface WidgetEditorState {
     readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
     /** Where a click opened a text row, in client coordinates. */
     readonly caret?: { readonly x: number; readonly y: number }
+    /** The editor now shows a popover instead of the row, so the canvas draws the row again. */
+    readonly handOff?: () => void
   }
   /** Where a click opened a text box, in client coordinates. */
   readonly caret?: { readonly x: number; readonly y: number }

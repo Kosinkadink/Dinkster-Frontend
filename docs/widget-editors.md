@@ -497,6 +497,52 @@ each widget row with its value, and it and the wired-row buttons stay
 available while a row is edited in place. The `widgetEditing` design token
 selects this (`in-row`, the default) or the earlier card (`card`).
 
+## Choice rows: a list in the row
+
+A single static COMBO and a DynamicCombo selector open one filtered list in
+their row; a list filled by a declared lookup uses the same list. The row's
+value area becomes the filter, which starts empty; the list hangs under the row
+at its width, or above it when there is no room below, inside the
+same outline, with the side part beside them. It never moves or resizes the node
+and scrolls inside after eight entries. Opening, typing, moving the highlight,
+refreshing and leaving with Tab never store; only Enter or a click on an entry
+stores it, once, as one undo step, and the keyboard stays on the row. The check
+marks the stored entry, the grey highlight the candidate; the highlight starts on
+the stored entry, else the first.
+
+- Enter on a folder opens it; Backspace in an empty filter or the Back entry
+  returns. A query searches every entry across folders, in source order.
+- Tab and Shift+Tab keep the stored value and move to the next or previous row.
+  Escape closes and keeps the keyboard on the row. Ctrl+Enter closes and runs
+  with the stored value. Composition keys pick nothing.
+- Alt+Down walks each action the list shows in screen order, then the side
+  part's `default` link, then the filter; Alt+Up walks back. Enter runs the one
+  reached. The `default` link stores the declared default through the normal
+  checks, even when the current options lack it.
+- A stored value missing from the options is kept and named in the side part
+  ("Not in the current list. Kept until you choose another."), never added as an
+  entry. Entries with one label and nothing else to tell them apart show their
+  values; a highlighted name the list cuts short is written out in the side part.
+- Lists over 300 entries render a window around the highlight with "N earlier
+  options" and "N more options" rows; filtering and the keyboard reach every
+  entry.
+- While a pick is stored the list is frozen and says so; a refusal keeps the list
+  open with the refusal as the side part's first line.
+- Choices whose options can be edited keep their editor behind an `Edit options`
+  action. Remote choices and MULTI_COMBO keep their popover, and ASSET and model
+  rows keep the ASSET editor.
+
+A list fed by a declared lookup takes its state from the host and calls nothing
+itself: waiting for an input, loading, ready (also while an old answer is
+refreshed), unavailable with Try again, paused, or off in a preview. Refresh and
+Try again ask the host once; a result never changes the stored value. After a
+failure, Try again stands in Refresh's place.
+While the list has options, a status line (refreshing, could not refresh,
+paused, storing) sits on the footer line under them, so the options never
+move; with no options it stands in their place. A status is a few words that
+fit one line of the list at the node's smallest width; longer explanations go
+in the side part.
+
 ## Color rows edited in their row
 
 COLOR rows and integer color rows (INT with `display: color`) are edited in
@@ -635,7 +681,8 @@ their space; the label may disappear if even its ellipsis cannot fit. Long asset
 names retain the ordinary proportional split and ellipsize within the row. Activating the
 row body opens optional expanded controls only when
 more deliberate editing is useful. INT, FLOAT and single-line STRING are
-edited in the row itself (see above); COLOR, COMBO, and MOUNT use a small
+edited in the row itself (see above), and single choices open a list in the
+row; COLOR, remote COMBO, MULTI_COMBO, and MOUNT use a small
 non-modal popover anchored to that row. A
 node-input multiline STRING in the `core.text` representation is edited
 directly in its painted rectangle instead. The popovers are non-draggable,
