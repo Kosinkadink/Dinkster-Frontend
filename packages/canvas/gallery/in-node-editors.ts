@@ -205,7 +205,7 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
     view: unfold('image'), states: { image: { camera: 'error', error: 'NotAllowedError: Permission denied' } } },
   { id: 'webcam-wired-before', summaries: { image: { text: 'Not known yet', placeholder: true } }, card: 19, caption: 'A wired image before a run: Not known yet; Start camera dimmed', type: 'Webcam Capture',
     view: unfold('image'), wired: { image: 'WEBCAM' }, states: { image: { camera: 'wired', known: false } } },
-  { id: 'webcam-wired-after', summaries: { image: { text: 'webcam_00001.png' } }, thumbnails: { image: 'frame' }, card: 19, caption: 'After a run: the image the wire brought, small beside its name on the row', type: 'Webcam Capture',
+  { id: 'webcam-wired-after', summaries: { image: { text: 'webcam_00001.png' } }, thumbnails: { image: 'frame' }, card: 19, caption: 'After a run: the picture shows the image the wire brought, and the row reads its name', type: 'Webcam Capture',
     view: unfold('image'), wired: { image: 'WEBCAM' }, states: { image: { camera: 'wired' } } },
   { id: 'load3d-live', thumbnails: { image: 'view' }, summaries: { image: { text: 'chair.glb' } }, card: 20, caption: 'Unfolded: the model in the live view, with Record viewport', type: 'Load 3D',
     values: { model_file: asset('chair.glb', 'model/gltf-binary') }, states: { image: { view: 'model' } } },

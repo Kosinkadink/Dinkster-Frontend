@@ -152,7 +152,8 @@ function CurvePicture(props: {
   hover?: { position: number; value: number }
 }) {
   const id = createUniqueId()
-  // The plot fills the picture; its border sits on the half pixel so it stays one pixel wide.
+  // The plot and its strips sit in the picture's field at one margin on every
+  // side; the border sits on the half pixel so it stays one pixel wide.
   const [size, setSize] = createSignal({ width: 320, height: 180 })
   let svgElement: SVGSVGElement | undefined
   onMount(() => {
@@ -162,7 +163,7 @@ function CurvePicture(props: {
     observer.observe(svgElement!)
     onCleanup(() => observer.disconnect())
   })
-  const edge = 0.5
+  const edge = 8.5
   const stripRoom = 9
   const left = () => edge + (props.outputStrip ? stripRoom : 0)
   const right = () => size().width - edge

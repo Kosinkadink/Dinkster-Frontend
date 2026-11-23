@@ -1454,7 +1454,9 @@ export function layoutNode(
       if (w === undefined || editor === undefined) continue
       const declared = w.familyMember !== true && w.spec.options['unfolded'] === true
       if (!(options.editorUnfolded?.[w.valueKey] ?? declared)) continue
-      cell.widget = { ...w, unfolded: true }
+      // Unfolded, the row is the editor's one-row header: what the folded row
+      // shows in small (the curve's sketch) is the editor itself under it.
+      cell.widget = { ...w, unfolded: true, rows: 1 }
       const stored = options.pictureHeights?.[w.valueKey]
       const pictureHeight = editor.picture === undefined ? undefined
         : stored !== undefined && Number.isFinite(stored)

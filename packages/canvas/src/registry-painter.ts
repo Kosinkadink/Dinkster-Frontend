@@ -244,7 +244,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         ? usableWidth * paint.structuredValueRatio
         : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding
         + (row.viewId === 'core.color' ? paint.swatchReserve : 0)
-        + (args.editorSummary?.thumbnail !== undefined ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
+        + (args.editorSummary?.thumbnail !== undefined && !row.unfolded ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
     const controller = row.controllerMode !== undefined && modeIcon === undefined
       ? controllerChipRect(width, rowHeight, geometry)
@@ -357,6 +357,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             return
           }
           if (style['role'] === 'curveSample') {
+            // The unfolded curve is drawn large under its row; the row keeps no sketch.
+            if (row.unfolded) return
             ctx.fillStyle = tokens.colors.widgetAffordanceActive
             if (rowsRaisedForEditors) {
               // The curve fills the row's second line from the row's start,
@@ -410,7 +412,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             const swatch = typeof style['swatch'] === 'string' && alignRight ? style['swatch'] : undefined
             const items = stringList(style['items'])
             const swatches = alignRight ? stringList(style['swatches']) : undefined
-            const thumbnail = alignRight ? summary?.thumbnail : undefined
+            // Unfolded, the editor shows the picture itself, so the row drops its small copy.
+            const thumbnail = alignRight && !row.unfolded ? summary?.thumbnail : undefined
             const iconReserve = (modeIcon !== undefined && style['role'] === 'widgetValue' && alignRight ? modeIconReserve : 0)
               + (swatch !== undefined ? paint.valueSwatch.size + paint.valueSwatch.gap : 0)
               + (thumbnail !== undefined ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
