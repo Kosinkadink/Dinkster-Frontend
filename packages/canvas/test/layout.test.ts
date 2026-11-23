@@ -858,6 +858,22 @@ describe('sections', () => {
     expect(outer!.y + outer!.height).toBeGreaterThan(inner!.y + inner!.height)
   })
 
+  it('narrows a field by 3 px a side in one box and 7 more per level, its outline past the pins', () => {
+    const member = { kind: 'group' as const, id: 'loras', member: [widget('name'), widget('strength')],
+      keys: { kind: 'numbered' as const, prefix: 'lora', start: 0, pad: 0 }, grows: 'button' as const, minMembers: 1 }
+    const l = layoutNode(
+      schemaOf([widget('outside'), section('outer', [widget('one'), member], { displayName: 'Outer' })]),
+      nodeData, defaultTokens, measure, widgetMeasure,
+    )
+    const insetOf = (id: string) => (l.rows.find((r) => r.kind === 'widget' && r.inputId === id) as { inset: number }).inset
+    const outside = insetOf('outside')
+    // section > group > member: three boxes deep.
+    expect([insetOf('one'), insetOf('loras.lora0.name')]).toEqual([outside + 3, outside + 3 + 7 + 7])
+    const outer = l.boxes!.find((b) => b.id === 'outer')!
+    expect(insetOf('one') - (outer.x + canvasPaintTokens.node.box.stroke)).toBe(3)
+    expect(outer.x - defaultTokens.pinRadius).toBeGreaterThanOrEqual(1)
+  })
+
   it('opening or closing a box moves neither its name nor any row above it', () => {
     const nested: NodeSchema['body'] = [
       input('a'),

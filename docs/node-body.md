@@ -188,8 +188,9 @@ outermost first: a section's flattened id, `group:<path>`,
 `member:<path>.<key>` and `option:<path>`. A box is layout only: ids, stored
 values and pin positions are the same with or without it.
 
-- The outline sits 1 px past the inner half of a pin, and each box inside a
-  box steps in by the same amount. A pin row inside a box keeps its pin on
+- The outline sits past the pins: its inner side lines up with a field
+  outside any box, and a field in one box sits 3 px inside it, so it is
+  3 px narrower on each side. Each box inside a box steps in 7 px more. A pin row inside a box keeps its pin on
   the node's edge; only its name moves in. The node's least width grows with
   the nesting.
 - A section or group box opens from its own header row: an arrow, the name,

@@ -155,11 +155,13 @@ export const canvasPaintTokens = {
     box: {
       stroke: 1,
       radius: 5,
-      /** Clearance between the outline and the inner half of a pin. */
-      pinGap: 1,
       /** Each box inside a box steps in this far from the outline around it. */
       step: 6,
-      /** A field inside a box sits this far inside its outline. */
+      /**
+       * A field inside a box sits this far inside its outline, and the
+       * outline's inner side lines up with a field outside any box, so a
+       * field in one box is this much narrower on each side.
+       */
       fieldGap: 3,
       /** The open header is this much shorter than the closed row, inside the outline. */
       headerShrink: 2,

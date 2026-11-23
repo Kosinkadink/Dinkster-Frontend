@@ -871,9 +871,13 @@ export function layoutNode(
   const verticalInset = canvasPaintTokens.widget.verticalInset
   const closedHeight = tokens.rowHeight - verticalInset * 2
   const headerHeight = closedHeight - box.headerShrink
-  /** Left edge of the outline of a box `depth` boxes deep. */
+  /**
+   * Left edge of the outline of a box `depth` boxes deep. The outermost
+   * outline's inner side is where a field outside any box starts, which
+   * keeps it past the pins.
+   */
   const outlineX = (depth: number): number =>
-    tokens.pinRadius + box.pinGap + (depth - 1) * (box.stroke + box.step)
+    tokens.pinRadius + WIDGET_PIN_GAP - box.stroke + (depth - 1) * (box.stroke + box.step)
   /** Left edge of a field inside `depth` boxes. */
   const fieldInset = (depth: number): number =>
     depth === 0 ? tokens.pinRadius + WIDGET_PIN_GAP : outlineX(depth) + box.stroke + box.fieldGap
