@@ -103,6 +103,30 @@ export function numericStepConstraints(widget: Pick<WidgetSpec, 'widgetType' | '
   }
 }
 
+function exactInteger(value: unknown): bigint | undefined {
+  if (typeof value === 'bigint') return value
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return BigInt(value)
+  return isCanonicalUnsafeInteger(value) ? BigInt(value) : undefined
+}
+
+/**
+ * The label of the declared special value equal to `value`, which a row shows
+ * in place of the number. Only an exactly equal number counts.
+ */
+export function specialValueLabel(value: unknown, spec: Pick<WidgetSpec, 'widgetType' | 'options'>): string | undefined {
+  const special = spec.options['special']
+  if (!Array.isArray(special) || (spec.widgetType !== 'INT' && spec.widgetType !== 'FLOAT')) return undefined
+  const read = spec.widgetType === 'INT' ? exactInteger : finiteOption
+  const current = read(value)
+  if (current === undefined) return undefined
+  for (const item of special) {
+    if (typeof item !== 'object' || item === null) continue
+    const { value: declared, label } = item as { value?: unknown; label?: unknown }
+    if (typeof label === 'string' && read(declared) === current) return label
+  }
+  return undefined
+}
+
 function specialValues<T extends bigint | number>(raw: unknown, read: (value: unknown) => T | undefined): T[] {
   if (!Array.isArray(raw)) return []
   const values: T[] = []
@@ -207,6 +231,8 @@ export function dragNumericValue(
   fast = false,
 ): IntegerWidgetValue {
   const steps = numberDragSteps(distance) * (fast ? 10 : 1)
+  // No step yet leaves the value as it was, so a special value outside the limits is not moved.
+  if (steps === 0) return start
   if (constraints.integer) {
     const min = constraints.min ?? MIN_INTEGER_WIDGET_VALUE
     const max = constraints.max ?? MAX_INTEGER_WIDGET_VALUE
@@ -246,6 +272,8 @@ export function randomNumericValue(
 }
 
 export function formatWidgetValue(value: unknown, spec: Pick<WidgetSpec, 'widgetType' | 'options'>): string {
+  const special = specialValueLabel(value, spec)
+  if (special !== undefined) return special
   if (spec.widgetType === 'FLOAT' && typeof value === 'number') {
     if (!Number.isFinite(value)) return String(value)
     const constraints = numericStepConstraints(spec)

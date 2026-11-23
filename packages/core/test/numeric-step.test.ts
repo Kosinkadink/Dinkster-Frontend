@@ -6,7 +6,7 @@
  * the randomize grids.
  */
 import { describe, expect, it } from 'vitest'
-import { dragNumericValue, numericStepConstraints, randomNumericValue, stepNumericValue } from '../src/index.js'
+import { dragNumericValue, formatWidgetValue, numericStepConstraints, randomNumericValue, stepNumericValue } from '../src/index.js'
 
 describe('numericStepConstraints', () => {
 
@@ -54,6 +54,18 @@ describe('stepNumericValue', () => {
     expect(stepNumericValue(0, 1, frames)).toBe(1)
     expect(stepNumericValue(1, -1, frames)).toBe(0)
     expect(stepNumericValue(0, -1, frames)).toBe(0)
+  })
+
+  it('shows a special value by its label, and a drag that has not moved a step leaves it', () => {
+    const frames = { widgetType: 'INT', options: { min: 1, step: 4, special: [{ value: 0, label: 'off' }, { value: '18446744073709551615', label: 'all' }] } }
+    expect(formatWidgetValue(0, frames)).toBe('off')
+    expect(formatWidgetValue('18446744073709551615', frames)).toBe('all')
+    expect(formatWidgetValue(5, frames)).toBe('5')
+    const scale = { widgetType: 'FLOAT', options: { min: 0.5, max: 1, step: 0.1, special: [{ value: 0, label: 'off' }] } }
+    expect(formatWidgetValue(0, scale)).toBe('off')
+    expect(formatWidgetValue(0.5, scale)).toBe('0.5')
+    expect(dragNumericValue(0, 3, numericStepConstraints(frames))).toBe(0)
+    expect(dragNumericValue(0, 40, numericStepConstraints(frames))).toBe(40)
   })
 
   it('steps a decimal past a limit to the nearest special value beyond it', () => {
