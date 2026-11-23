@@ -221,7 +221,8 @@ export function CanvasEditorButtons(props: {
  */
 export function CanvasEditorNumber(props: {
   label: string
-  value: number
+  /** No value shows no number; the steppers then do nothing. */
+  value: number | undefined
   min?: number
   max?: number
   step?: number
@@ -233,14 +234,16 @@ export function CanvasEditorNumber(props: {
   const [text, setText] = createSignal('')
   const [width, setWidth] = createSignal(0)
   let slot!: HTMLDivElement
-  const format = (value: number) => value.toFixed(props.precision ?? 0)
+  const format = (value: number | undefined) => value === undefined ? '' : value.toFixed(props.precision ?? 0)
   const clamp = (value: number) => Math.min(props.max ?? Infinity, Math.max(props.min ?? -Infinity, value))
   const store = (value: number) => {
     if (Number.isFinite(value)) props.onChange?.(clamp(value))
   }
   const stepped = (from: number, direction: -1 | 1, fast: boolean) =>
     clamp(from + direction * (props.step ?? 1) * (fast ? 10 : 1))
-  const step = (direction: -1 | 1, fast: boolean) => store(stepped(props.value, direction, fast))
+  const step = (direction: -1 | 1, fast: boolean) => {
+    if (props.value !== undefined) store(stepped(props.value, direction, fast))
+  }
   // While open, a step changes the typed text; Enter or leaving stores it.
   const stepText = (direction: -1 | 1, fast: boolean) => {
     const next = stepped(Number(text()), direction, fast)

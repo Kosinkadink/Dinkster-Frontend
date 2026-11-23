@@ -876,13 +876,11 @@ export const curveView: WidgetView<Json> = {
     const curve = isCurveValue(value) ? value : curveKind.defaultValue(spec) as unknown as CurveValue
     ctx.rect(0, 0, 1, 2, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
     const points = curve.points
-    const minX = points[0]?.position ?? 0
-    const maxX = points.at(-1)?.position ?? 1
-    const spanX = maxX - minX || 1
     const interpolate = curveInterpolator(curve)
+    // The sketch spans the plot's range, 0 to 1, so the held ends show.
     for (let index = 0; index < 64; index += 1) {
       const fraction = index / 63
-      const sample = interpolate(minX + fraction * spanX)
+      const sample = interpolate(fraction)
       ctx.rect(fraction, 1.8 - Math.max(0, Math.min(1, sample)) * 1.6, 0.02, 0.08,
         { role: 'curveSample' })
     }

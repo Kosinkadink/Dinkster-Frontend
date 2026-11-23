@@ -13,7 +13,7 @@ import {
   type TextMeasurer,
   type WidgetMeasure,
 } from '@dinkster/canvas'
-import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
+import { createWidgetRegistry, curveInterpolator, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import {
   createInNodeEditorScene,
   inNodeEditorExamples,
@@ -144,6 +144,7 @@ type Strip = readonly [string, string]
  */
 function CurvePicture(props: {
   points: readonly { position: number; value: number }[]
+  interpolation: 'linear' | 'monotone_cubic'
   selected?: number
   histogram?: boolean
   inputStrip?: Strip
@@ -171,6 +172,25 @@ function CurvePicture(props: {
   const bottom = () => size().height - edge - (props.inputStrip ? stripRoom : 0)
   const x = (position: number) => left() + position * (right() - left())
   const y = (value: number) => bottom() - value * (bottom() - top)
+  const curveRuns = () => {
+    const first = props.points[0]
+    const last = props.points.at(-1)
+    if (first === undefined || last === undefined) return []
+    const interpolate = curveInterpolator({ interpolation: props.interpolation, points: [...props.points] })
+    const run = (from: number, to: number, held: boolean) => {
+      const samples = Math.max(2, Math.ceil((x(to) - x(from)) / 2))
+      const points = Array.from({ length: samples + 1 }, (_, index) => {
+        const position = from + (to - from) * index / samples
+        return `${x(position)},${y(Math.max(0, Math.min(1, interpolate(position))))}`
+      }).join(' ')
+      return { held, points }
+    }
+    return [
+      ...(first.position > 0 ? [run(0, first.position, true)] : []),
+      run(first.position, last.position, false),
+      ...(last.position < 1 ? [run(last.position, 1, true)] : []),
+    ]
+  }
   const [hover, setHover] = createSignal(untrack(() => props.hover))
   const track = (event: PointerEvent) => {
     const svg = event.currentTarget as SVGSVGElement
@@ -229,7 +249,11 @@ function CurvePicture(props: {
       <Show when={props.outputStrip}>
         <rect class="dinkster-gallery-curve-strip" x={edge} y={top} width="6" height={bottom() - top} fill={`url(#${id}-out)`} />
       </Show>
-      <polyline class="dinkster-gallery-curve-line" points={props.points.map((point) => `${x(point.position)},${y(point.value)}`).join(' ')} />
+      {/* The curve as the node computes it, sampled across the plot; before the first
+          point and after the last it holds that point's value, drawn fainter. */}
+      <For each={curveRuns()}>
+        {(run) => <polyline class="dinkster-gallery-curve-line" data-held={run.held ? 'true' : 'false'} points={run.points} />}
+      </For>
       <For each={props.points}>
         {(point, index) => (
           <circle class="dinkster-gallery-curve-point" data-selected={index() === props.selected ? 'true' : 'false'}
@@ -267,7 +291,7 @@ function CurvePicture(props: {
 }
 
 /** An editor's own number in an example: it steps and is typed in, and keeps what it was given. */
-function GalleryNumber(props: { label: string; value: number; min?: number; max?: number; step?: number; precision?: number }) {
+function GalleryNumber(props: { label: string; value: number | undefined; min?: number; max?: number; step?: number; precision?: number }) {
   const [value, setValue] = createSignal(untrack(() => props.value))
   return <CanvasEditorNumber {...props} value={value()} onChange={setValue} />
 }
@@ -453,7 +477,9 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
       )
     }
     case 'core.curve': {
-      const value = props.example.values?.[props.row.valueKey] as { points?: { position: number; value: number }[] } | undefined
+      const value = props.example.values?.[props.row.valueKey] as
+        { interpolation?: 'linear' | 'monotone_cubic'; points?: { position: number; value: number }[] } | undefined
+      const interpolation = value?.interpolation ?? 'monotone_cubic'
       const points = value?.points ?? []
       const selected = num(state(), 'selected')
       const strip = (key: string): Strip | undefined => {
@@ -467,18 +493,18 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
       return (
         <>
           {picture(
-            <CurvePicture points={points} {...(selected === undefined ? {} : { selected })} histogram={state()['histogram'] === true}
+            <CurvePicture points={points} interpolation={interpolation} {...(selected === undefined ? {} : { selected })} histogram={state()['histogram'] === true}
               {...(inputStrip ? { inputStrip } : {})} {...(outputStrip ? { outputStrip } : {})} {...(hover ? { hover } : {})} />,
           )}
           <CanvasEditorLine>
-            <GalleryChoice label="Interpolation" value={state()['histogram'] === true ? 'Linear' : 'Monotone cubic'} options={['Linear', 'Monotone cubic']} />
+            <GalleryChoice label="Interpolation" value={interpolation === 'linear' ? 'Linear' : 'Monotone cubic'} options={['Linear', 'Monotone cubic']} />
           </CanvasEditorLine>
           <CanvasEditorLine dimmed={selected === undefined}>
-            <GalleryNumber label="Position" value={selected === undefined ? 0 : points[selected]!.position} min={0} max={1} step={0.01} precision={2} />
+            <GalleryNumber label="Position" value={selected === undefined ? undefined : points[selected]!.position} min={0} max={1} step={0.01} precision={2} />
             <CanvasEditorButtons buttons={[{ label: 'Delete point', icon: canvasEditorIcons.remove, iconOnly: true, intent: 'remove', disabled: selected === undefined }]} />
           </CanvasEditorLine>
           <CanvasEditorLine dimmed={selected === undefined}>
-            <GalleryNumber label="Value" value={selected === undefined ? 0 : points[selected]!.value} min={0} max={1} step={0.01} precision={2} />
+            <GalleryNumber label="Value" value={selected === undefined ? undefined : points[selected]!.value} min={0} max={1} step={0.01} precision={2} />
           </CanvasEditorLine>
           <CanvasEditorNote tone="muted">
             {state()['histogram'] === true ? 'Histogram from the selected run' : 'Drag a point to move it. Double-click to add one.'}
