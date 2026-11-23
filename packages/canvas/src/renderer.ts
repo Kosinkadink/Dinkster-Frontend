@@ -3955,7 +3955,9 @@ export class CanvasRenderer {
       if (pin.widgetBacked && pin.direction === 'in' && !connected && !isLegalTarget && !nodeSelected && !nodeHovered && problemKind === undefined)
         continue
       if (pin.familyOwner !== undefined && pin.familyOwner.socketed !== true) continue
-      if (isTarget) {
+      // A field row that takes the held wire shows its own outline, so the
+      // field's pin, the node's only target then, gets no ring.
+      if (isTarget && this.overlay.dropRow?.nodeId !== node.id) {
         ctx.beginPath()
         ctx.arc(px, py, statusRingRadius, 0, Math.PI * 2)
         ctx.strokeStyle = t.colors.dropTarget

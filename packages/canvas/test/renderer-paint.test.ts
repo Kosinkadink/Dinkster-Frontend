@@ -8,7 +8,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, compile, documentResolver, loadDocument, type InputSpec, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, selectorBadgeRect, valueSourceBadgeRect, VS_BADGE_SIZE, type Scene, type SceneNode } from '../src/scene.js'
-import { canvasGridLayer, CanvasRenderer, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
+import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
 import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasPaintTokens, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
@@ -668,6 +668,50 @@ describe('canvas hover affordance paint', () => {
     })))
   })
 
+})
+
+describe('drop target paint for a held wire', () => {
+  // One FLOAT field with its input pin on the left and its output pin
+  // (widget tap) on the right, both level with its row.
+  const fieldScene = (): Scene => emptyScene({
+    nodes: [{
+      id: 'field-node', x: 100, y: 100,
+      node: { id: 'field-node', type: 'Field', values: { amount: 1 } },
+      layout: {
+        width: 140, height: 52, headerHeight: 20, title: 'Field',
+        rows: [{
+          kind: 'widget', inputId: 'amount', valueKey: 'amount', label: 'amount',
+          y: 20, height: 24, inset: 9.5, spec: { widgetType: 'FLOAT', options: {} },
+        }],
+        pins: [
+          { portId: 'amount', address: { port: 'amount' }, direction: 'in', y: 32, type: typed('FLOAT'), widgetBacked: true },
+          { portId: 'amount', address: { port: 'amount' }, direction: 'out', y: 32, type: typed('FLOAT'), widgetTap: true },
+        ],
+      },
+    } as unknown as SceneNode],
+  })
+  /** The shape of each path stroked in the drop-target color: 'arc' rings a pin, 'roundRect' outlines a row. */
+  const dropStrokes = (calls: readonly PaintCall[]): string[] => {
+    const shapes: string[] = []
+    let shape = ''
+    for (const call of calls) {
+      if (call.method === 'beginPath') shape = ''
+      else if ((call.method === 'arc' || call.method === 'roundRect') && shape === '') shape = call.method
+      else if (call.method === 'stroke' && call.strokeStyle === defaultTokens.colors.dropTarget) shapes.push(shape)
+    }
+    return shapes
+  }
+
+  it("outlines only the row, with no ring around the field's pin, when the row takes the wire", () => {
+    for (const [direction, widgetTap] of [['in', false], ['out', true]] as const) {
+      const dropTargets = new Set([dropTargetKey('field-node', 'amount', direction, widgetTap)])
+      expect(dropStrokes(paintWith(fieldScene(), (renderer) => renderer.setOverlay({ dropTargets }))), direction)
+        .toEqual(['arc'])
+      expect(dropStrokes(paintWith(fieldScene(), (renderer) => renderer.setOverlay({
+        dropTargets, dropRow: { nodeId: 'field-node', valueKey: 'amount' },
+      }))), direction).toEqual(['roundRect'])
+    }
+  })
 })
 
 describe('link midpoint affordance', () => {
