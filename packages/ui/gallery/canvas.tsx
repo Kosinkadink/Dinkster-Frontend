@@ -46,6 +46,7 @@ import { NodeLookGallery } from './node-look.js'
 import { ColorEditingGallery } from './color-editing.js'
 import { RowEditingGallery } from './row-editing.js'
 import { RowListsGallery } from './row-lists.js'
+import { FixesNoticeGallery } from './fixes-notice.js'
 
 type Theme = 'dark' | 'light'
 
@@ -88,6 +89,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
     ['Wires', ['types', 'structure']],
     ['Subgraphs', ['boundary', 'boundary-names']],
     ['Flow nodes', ['switch-primitive']],
+    ['Problems with fixes', ['fixes-notice']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
 
@@ -145,6 +147,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'titles-content': 'The same titles at 50 percent zoom.',
   'node-look':
     'The same nodes in the original look and in the flat-title look the owner chose.',
+  'fixes-notice':
+    'The one quiet line that reports the small fixes the editor made by itself, with Review, one Undo and a cross, and the status bar count after it is dismissed. Every card works: Review, Undo, Redo adjustments, the cross and the count can be used.',
   previews:
     'Every node that can show a preview has a "Preview" caption row: before a picture, with one (open, and folded with the caption under the pointer), loading, failed, cached and estimated, and a text result open and folded. A minimized node keeps the caption folded while it has a picture or a text result; its caption opens the picture at its open height.',
   badges: 'Every badge on a node, and the toolbar above a selected node.',
@@ -582,7 +586,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'node-look') return
+    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'node-look' || currentPage === 'fixes-notice') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -686,6 +690,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'color-editing'}>
           <ColorEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'fixes-notice'}>
+          <FixesNoticeGallery theme={theme()} />
         </Show>
         <Show when={prepared()[0]}>
           {(first) => (

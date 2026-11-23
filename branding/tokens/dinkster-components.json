@@ -58,7 +58,9 @@
     "iconSize": 16,
     "railIconSize": 20,
     "menuRowHeight": 28,
-    "scrollbarSize": 8
+    "scrollbarSize": 8,
+    "fixesReviewWidth": 360,
+    "fixesReviewMaxHeight": 320
   },
   "siteLayout": {
     "shellMaxWidth": 1040,
