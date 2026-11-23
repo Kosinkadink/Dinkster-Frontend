@@ -1470,7 +1470,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       showGestureRefusal([diag('info', 'command', 'Frozen', message('frozen.editHint'))])
     }
   }, { defer: true }))
-  createEffect(on(activeTabId, () => setGestureRefusal(undefined), { defer: true }))
+  createEffect(on(activeTabId, (next, previous) => {
+    if (next !== previous) setGestureRefusal(undefined)
+  }, { defer: true }))
 
   const refuseFrozenEdit = (): boolean => {
     const tab = activeTab()
