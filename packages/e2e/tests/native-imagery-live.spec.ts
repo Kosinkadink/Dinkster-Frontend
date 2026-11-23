@@ -238,7 +238,7 @@ test('a native run decodes real pixels into the outputs panel and the node previ
   await page.getByRole('tab', { name: 'Runs', exact: true }).click()
   const outputImg = page.getByTestId('runs-panel').locator('.output-thumbnail img').first()
   await expect(outputImg).toBeVisible({ timeout: 15_000 })
-  expect(await outputImg.getAttribute('src')).toMatch(/^blob:/)
+  await expect(outputImg).toHaveAttribute('src', /^blob:/)
   await expect
     .poll(() => outputImg.evaluate((el) => (el as HTMLImageElement).naturalWidth), { timeout: 15_000 })
     .toBe(64)

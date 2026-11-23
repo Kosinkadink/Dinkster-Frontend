@@ -115,8 +115,8 @@ async function serveValue(route: Route): Promise<void> {
   } })
 }
 
-async function installGraph(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+async function installGraph(page: Page, associatedImage = false): Promise<void> {
+  await page.evaluate(async (associatedImage) => {
     const concrete = (name: string) => ({ kind: 'concrete', name } as const)
     const schema = (type: string, output: string, valueType: ReturnType<typeof concrete>, preview = true) => ({
       type,
@@ -187,7 +187,12 @@ async function installGraph(page: Page): Promise<void> {
         text: { state: 'done', outputs: { text: { ...descriptor('STRING', 'proof-text'), value: 'Recorded text wins' } } },
       },
     })
-    store.hydrateArtifacts(ref, [{
+    store.hydrateArtifacts(ref, associatedImage ? [{
+      nodeId: 'saved', digest: `blake3:${'a'.repeat(64)}`, name: 'original.exr',
+      size: 2 ** 30 + 1, mediaType: 'image/x-exr', virtualPath: 'output/original.exr',
+      preview: { digest: `blake3:${'b'.repeat(64)}`, name: 'preview.png', size: 128,
+        mediaType: 'image/png', virtualPath: `previews/${'b'.repeat(64)}/preview.png` },
+    }] : [{
       nodeId: 'saved',
       digest: `blake3:${'a'.repeat(64)}`,
       name: 'saved-result.mp4',
@@ -204,7 +209,7 @@ async function installGraph(page: Page): Promise<void> {
     }])
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  })
+  }, associatedImage)
 }
 
 test.beforeEach(async ({ page }) => {
@@ -237,20 +242,8 @@ test(`saved files retain original downloads with ${previewAvailable ? 'available
       await route.fulfill({ contentType: 'image/x-exr', body: 'original EXR bytes' })
     }
   })
-  await installGraph(page)
+  await installGraph(page, true)
   await page.evaluate(() => {
-    const app = window.__dinksterTest!.app
-    const store = app.store as unknown as {
-      executions: { get(): Map<string, { ref: unknown }> }
-      hydrateArtifacts(ref: unknown, artifacts: unknown[]): void
-    }
-    const execution = [...store.executions.get().values()][0]!
-    store.hydrateArtifacts(execution.ref, [{
-      nodeId: 'saved', digest: `blake3:${'a'.repeat(64)}`, name: 'original.exr',
-      size: 2 ** 30 + 1, mediaType: 'image/x-exr', virtualPath: 'output/original.exr',
-      preview: { digest: `blake3:${'b'.repeat(64)}`, name: 'preview.png', size: 128,
-        mediaType: 'image/png', virtualPath: `previews/${'b'.repeat(64)}/preview.png` },
-    }])
     window.__dinksterTest!.renderer!.setViewport({ x: -300, y: -300, scale: 1 })
   })
   await expect.poll(() => page.evaluate((available) => {
