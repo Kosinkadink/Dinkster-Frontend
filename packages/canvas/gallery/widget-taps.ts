@@ -446,14 +446,14 @@ export function widgetTapGallery(
       [0, 60],
     ),
     card(
-      'Kept member: the document names weight 2, which the group does not store. The whole member stays, dimmed, at the end of the group before its spare row, with its wire.',
+      'Kept member: a wire names the second weight, which the group does not store. The whole member stays, dimmed, as weight 2 at the end of the group, with its wire; the spare after it is weight 3 under a new key.',
       [
         {
           id: 'kept member',
           schema: grouped,
           x: 0,
           values: { 'weights.weight0': 0.25, 'weights.weight1': 0.75 },
-          dynamic: { weights: { members: ['weight0'], seq: 2 } },
+          dynamic: { weights: { members: ['weight0'] } },
         },
         { id: 'kept member blend', schema: blend, x: right, ...small },
       ],

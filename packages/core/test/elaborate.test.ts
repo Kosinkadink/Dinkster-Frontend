@@ -1281,6 +1281,18 @@ describe('rows kept for a wire on their output', () => {
       ['items.item1.amount', reason, false],
       ['items.item1.weight', reason, false],
     ])
+    // Members are named in the order drawn, and the spare never takes a kept member's key.
+    const valued = schemaOf([{
+      kind: 'group', id: 'weights', value: intInput('weight', { optional: true }),
+      keys: { kind: 'numbered', prefix: 'weight', start: 0, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 8,
+    }])
+    const drawn = elabInputsOf(elaborateInterface(valued, { values: { 'weights.weight0': 2 }, dynamic: { weights: { members: ['weight0'] } } } as never, taps('weights.weight1')))
+    expect(drawn.map((input) => [input.spec.id, input.spec.displayName, input.kept !== undefined])).toEqual([
+      ['weights.weight0', 'weight 1', false],
+      ['weights.weight1', 'weight 2', true],
+      ['weights.weight2', 'weight 3', false],
+    ])
+
     // The run's view has no kept rows.
     expect(elabInputsOf(elaborateInterface(schema, node as never, taps('items.item1.weight'), { promoteGhosts: false }))
       .some((input) => input.kept !== undefined)).toBe(false)

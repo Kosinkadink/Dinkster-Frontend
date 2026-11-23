@@ -4108,6 +4108,9 @@ export class CanvasRenderer {
         ctx.stroke()
         ctx.globalAlpha = pinAlpha
       } else {
+        // A kept row's pin is dimmed with its row and wire.
+        const pinAlpha = ctx.globalAlpha
+        if (pin.kept !== undefined) ctx.globalAlpha = pinAlpha * canvasPaintTokens.widget.inactiveOpacity
         paintTypedPin(
           ctx,
           t,
@@ -4121,6 +4124,7 @@ export class CanvasRenderer {
           radius,
           acceptsList,
         )
+        ctx.globalAlpha = pinAlpha
       }
     }
 

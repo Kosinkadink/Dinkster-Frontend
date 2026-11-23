@@ -1289,10 +1289,23 @@ function elaboratePass(
       outputMembers[path] = [...keys]
     }
 
-    let seq = Math.max(stateOf(path)?.seq ?? 0, ...keys.map((key) => keyPosition(row.keys, key)! + 1))
+    // Members the group does not store that still have a wire on a field's
+    // output (as drawn only). A member the group offers never takes one of
+    // their keys, or using it would bring the kept member back with its wire.
+    const kept = new Map<number, string>()
+    if (view && !census) {
+      for (const port of connectivity.outputPorts?.() ?? []) {
+        if (!port.startsWith(`${path}.`)) continue
+        const key = port.slice(path.length + 1).split('.')[0]!
+        const position = keyPosition(row.keys, key)
+        if (!keys.includes(key) && position !== undefined) kept.set(position, key)
+      }
+    }
+    const keptKeys = [...kept.entries()].sort(([a], [b]) => a - b).map(([, key]) => key)
+    let seq = Math.max(stateOf(path)?.seq ?? 0, ...[...keys, ...keptKeys].map((key) => keyPosition(row.keys, key)! + 1))
     const offered: string[] = []
     const fresh = (): string | undefined => {
-      if (row.keys.kind === 'named') return row.keys.names.find((name) => !keys.includes(name) && !offered.includes(name))
+      if (row.keys.kind === 'named') return row.keys.names.find((name) => !keys.includes(name) && !keptKeys.includes(name) && !offered.includes(name))
       if (seq >= Number.MAX_SAFE_INTEGER) return undefined
       return memberKeyAt(row.keys, seq++)
     }
@@ -1304,11 +1317,12 @@ function elaboratePass(
     })
 
     /** Emit one member; returns whether it is in use (a stored value or a wire). */
-    const member = (position: number, key: string, ghost: boolean, dormant = false, kept?: Scope['kept']): boolean => {
+    /** `drawnAt`: the member's place as drawn, after stored and kept members, which names it. */
+    const member = (position: number, key: string, ghost: boolean, dormant = false, keptBy?: Scope['kept'], drawnAt = position): boolean => {
       membersVisited++
       const frames = ghost ? [...(scope.frames ?? []), frameFor(offered.slice(0, position - storedCount + 1))] : scope.frames
       const required = scope.required && (!row.optionalAfterMinimum || position < row.minMembers)
-      const label = memberLabelOf(row, path, key, position, scope)
+      const label = memberLabelOf(row, path, key, drawnAt, scope)
       const memberScope: Scope = {
         ...scope,
         required,
@@ -1323,7 +1337,7 @@ function elaboratePass(
         }],
         ...(frames !== undefined ? { frames } : {}),
         ...(row.independentTypes ? { typeMember: `${path}.${key}` } : {}),
-        ...(kept !== undefined ? { kept } : {}),
+        ...(keptBy !== undefined ? { kept: keptBy } : {}),
       }
       const before = items.length
       if (row.value !== undefined) {
@@ -1383,17 +1397,10 @@ function elaboratePass(
     // A member the group does not store that still has a wire on a field's
     // output is kept whole, dimmed, after the stored members.
     keep(() => {
-      const wired = new Map<number, string>()
-      for (const port of connectivity.outputPorts?.() ?? []) {
-        if (!port.startsWith(`${path}.`)) continue
-        const key = port.slice(path.length + 1).split('.')[0]!
-        const position = keyPosition(row.keys, key)
-        if (!keys.includes(key) && position !== undefined) wired.set(position, key)
-      }
       const reason = `No longer part of ${labelOf(row.displayName, row.id, scope)}. Its wire gives nothing.`
-      for (const [position, key] of [...wired.entries()].sort(([a], [b]) => a - b)) {
+      for (const [index, key] of keptKeys.entries()) {
         if (halted) return
-        member(position, key, false, true, { reason, onlyWired: false })
+        member(keyPosition(row.keys, key)!, key, false, true, { reason, onlyWired: false }, keys.length + index)
       }
     })
 
@@ -1418,7 +1425,7 @@ function elaboratePass(
     }
     for (const [index, key] of offered.entries()) {
       if (halted) return
-      member(storedCount + index, key, true)
+      member(storedCount + index, key, true, false, undefined, storedCount + keptKeys.length + index)
     }
     if (grows === 'button' && !scope.ghost && !scope.hidden && storedCount + offered.length < limit) {
       const key = fresh()
