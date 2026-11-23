@@ -15,6 +15,7 @@ import {
 } from '@dinkster/canvas'
 import { createWidgetRegistry, curveInterpolator, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import {
+  GALLERY_NODE_WIDTH,
   createInNodeEditorScene,
   inNodeEditorExamples,
   type EditorExampleState,
@@ -354,10 +355,10 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
           {/* The Delete key on a selected point does the same; a curve keeps at least one point. */}
           <CanvasEditorButtons buttons={[{ label: 'Delete point', icon: canvasEditorIcons.remove, intent: 'remove',
             disabled: selected === undefined || points.length < 2 }]} />
-          <CanvasEditorNote tone="muted">
-            {state()['histogram'] === true ? 'Histogram from the selected run' : 'Drag a point to move it. Double-click to add one.'}
-          </CanvasEditorNote>
-          <CanvasEditorNote tone="muted">Click a point to select it.</CanvasEditorNote>
+          <Show when={state()['histogram'] === true}>
+            <CanvasEditorNote tone="muted">Histogram from the selected run</CanvasEditorNote>
+          </Show>
+          <CanvasEditorNote tone="muted" wrap>Double-click to add a point. Drag to move it. Click to select it.</CanvasEditorNote>
         </>
       )
     }
@@ -399,7 +400,7 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
         // On a backend that cannot take uploads the recorder is its one sentence.
         const noBackend = view.id === 'core.audioRecord' &&
           Object.values(example.states ?? {}).some((state) => state['status'] === 'noBackend')
-        const space = (example.width ?? 300) - tokens.rowGeometry.fieldInsetX * 2 - canvasPaintTokens.node.editorSpace.pad * 2
+        const space = (example.width ?? GALLERY_NODE_WIDTH) - tokens.rowGeometry.fieldInsetX * 2 - canvasPaintTokens.node.editorSpace.pad * 2
         return { viewId: view.id, rows: view.measure(spec).rows, ...(noBackend ? { editorControls: noBackendHeight(space) } : {}) }
       }
       const built = createInNodeEditorScene(tokens, measure, widgetMeasure, example, { x: MARGIN, y: MARGIN })

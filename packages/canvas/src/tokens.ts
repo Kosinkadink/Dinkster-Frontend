@@ -662,7 +662,7 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
   'core.imageCompare': { picture: 180, controlRows: 3 },
   // The camera position under the orbit and elevation pictures.
   'core.cameraAngle': { picture: 150, controlRows: 1 },
-  // Interpolation; Position; Value; Delete point; two help lines.
+  // Interpolation; Position; Value; Delete point; the help note, which wraps onto two lines.
   'core.curve': { picture: 180, controlRows: 6 },
 }
 

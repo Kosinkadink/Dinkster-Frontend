@@ -41,6 +41,9 @@ const schema = (type: string, body: readonly BodyRow[]): NodeSchema =>
   ({ type, displayName: type, category: 'gallery', source: 'v3', isOutputNode: false, body })
 
 /** The nodes of the page, declared as their packs declare them. */
+/** The width the app gives these nodes, so each card shows what the app shows. */
+export const GALLERY_NODE_WIDTH = 280
+
 export const inNodeEditorSchemas: readonly NodeSchema[] = [
   schema('Record Audio', [editor('audio', 'AUDIO_RECORD', { unfolded: true }), output('AUDIO')]),
   schema('Record two clips', [editor('first', 'AUDIO_RECORD'), editor('second', 'AUDIO_RECORD'), output('AUDIO')]),
@@ -175,10 +178,10 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
     values: { image: frame }, view: unfold('image'), states: { image: { camera: 'off' } } },
   { id: 'two-recorders', summaries: { second: { text: '0:07 clip' } }, card: 9, caption: 'Two recorders in one node: the first unfolded, the second folded', type: 'Record two clips',
     values: { second: clip }, view: unfold('first'), states: { first: { status: 'idle' } } },
-  { id: 'group-member', summaries: { 'clips.clip0': { text: 'No clip', placeholder: true }, 'clips.clip1': { text: '0:07 clip' }, 'clips.clip2': { text: 'No clip', placeholder: true } }, card: 10, caption: 'A growing group: every member starts folded; the second is unfolded and the third moved down', type: 'Record clips',
+  { id: 'group-member', summaries: { 'clips.clip0': { text: 'No clip', placeholder: true }, 'clips.clip1': { text: '0:07 clip' }, 'clips.clip2': { text: 'No clip', placeholder: true } }, card: 10, caption: 'A growing group: every member starts folded; the second is unfolded and the third moved down. Wider than the other cards by the room the grips and crosses need', type: 'Record clips',
     members: { clips: ['clip0', 'clip1', 'clip2'] }, values: { 'clips.clip1': clip }, view: unfold('clips.clip1'),
-    // As wide as the node grows for an editor unfolded in a group: its own width plus the group's insets, grip and cross.
-    width: 344, states: { 'clips.clip1': { status: 'ready' } } },
+    // As wide as the node grows for an editor unfolded in a group: the editor's own width plus the group's insets, grip and cross.
+    width: 324, states: { 'clips.clip1': { status: 'ready' } } },
   { id: 'audio-idle', card: 12, caption: 'Idle: Record, Microphone off', type: 'Record Audio', states: { audio: { status: 'idle' } } },
   { id: 'audio-waiting', card: 12, caption: 'Waiting for permission', type: 'Record Audio', states: { audio: { status: 'waiting' } } },
   { id: 'audio-recording', summaries: { audio: { text: 'Recording 0:07' } }, card: 13, caption: 'Recording: Stop, time and size; Microphone and Limit dimmed', type: 'Record Audio',
@@ -316,7 +319,7 @@ export function createInNodeEditorScene(
       graphs: {
         gallery: {
           nodes: {
-            [id]: { position, size: { width: example.width ?? 300, height: 0 }, ...(example.view ?? {}) },
+            [id]: { position, size: { width: example.width ?? GALLERY_NODE_WIDTH, height: 0 }, ...(example.view ?? {}) },
             ...(wired.length > 0 ? { [SOURCE]: { position: { x: -400, y: position.y }, size: { width: 160, height: 0 } } } : {}),
           },
         },

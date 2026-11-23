@@ -635,8 +635,11 @@ export function CurveSpace(props: {
           const index = selected()
           if (index !== undefined) remove(index)
         } }]} />
-      <CanvasEditorNote tone="muted">{bars() === undefined ? message('inNodeCurve.help') : message('inNodeCurve.histogram')}</CanvasEditorNote>
-      <CanvasEditorNote tone="muted">{message('inNodeCurve.select')}</CanvasEditorNote>
+      <Show when={bars() !== undefined}>
+        <CanvasEditorNote tone="muted">{message('inNodeCurve.histogram')}</CanvasEditorNote>
+      </Show>
+      {/* One note that wraps, never cut off; at the narrowest node it takes the two lines it is given. */}
+      <CanvasEditorNote tone="muted" wrap>{message('inNodeCurve.help')}</CanvasEditorNote>
     </>
   )
 }
