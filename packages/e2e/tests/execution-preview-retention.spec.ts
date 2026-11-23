@@ -6,7 +6,6 @@ const proofDir = '/tmp/preview-retention-whole-run'
 
 async function openDoc(page: Page): Promise<void> {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({

@@ -1,4 +1,4 @@
-import { expect, selectProductOption, nativeTest as test, type Page, type Request } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page, type Request } from './fixtures.js'
 import { mkdir } from 'node:fs/promises'
 
 interface AssetValue {
@@ -161,7 +161,7 @@ test.beforeEach(async ({ page }) => {
   await installMockBackend(page, requests)
   await page.goto('/')
   await page.evaluate(() => localStorage.setItem('dinkster.assetBrowser.view.v1', 'list'))
-  await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('status-connection').click()
   await page.getByTestId('backend-url-input').fill(MOCK)
   await page.getByTestId('backend-add').click()
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
@@ -433,7 +433,7 @@ test('selected image assets preview immediately inside the node and follow impor
   await tab('Imported Asset Browser').click()
   await expect(accessiblePreview).toHaveAccessibleName('Asset Browser, selected input sunset.png, 2 selected images: 320 by 180 pixels')
 
-  await page.getByTestId('backends-toggle').click()
+  await page.getByTestId('status-connection').click()
   await captureProof(page, 'imported-selected')
   for (const scale of [0.5, 1, 1.6]) {
     await expectGeometry(scale, 320, 180, 2)
@@ -441,7 +441,7 @@ test('selected image assets preview immediately inside the node and follow impor
   }
 
   await page.reload()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const store = window.__dinksterTest!.app.activeTab()!.store
     return 'status' in store && (store.status as { get(): string }).get() === 'live'

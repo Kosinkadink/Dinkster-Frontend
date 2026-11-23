@@ -128,7 +128,7 @@ it('does not register disabled template surfaces and withdraws enabled surfaces'
 })
 
 it('shows Learn for any connected guide catalog and rejects stale availability', async () => {
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}', {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{"mounts":[]}', {
     headers: { 'Content-Type': 'application/json' },
   }))
   app = new AppState()
@@ -196,17 +196,18 @@ it('renders backend targeting, review state and live shared-session tooltip hint
   option.click()
   expect(app.tabTargets.get().get(app.activeTab()!.id)).toBe(remote.id)
 
-  const review = host.querySelector<HTMLButtonElement>('[data-testid="review-upgrades-toggle"]')!
-  expect(review.getAttribute('aria-label')).toBe('Review upgrades')
-  expect(review.textContent).toBe('Review upgrades')
-  expect(review.getAttribute('aria-pressed')).toBe('false')
-  expect(review.hasAttribute('title')).toBe(false)
+  expect(host.querySelector('[data-testid="review-upgrades-toggle"]')).toBeNull()
+  app.settingsOpenRequest.set({ category: 'execution', id: 'execution.reviewUpgrades' })
+  app.modalPanel.set('settings')
+  const review = host.querySelector<HTMLButtonElement>('#setting-execution\\.reviewUpgrades')!
+  expect(review).not.toBeNull()
+  expect(review.getAttribute('aria-checked')).toBe('false')
   review.click()
-  expect(app.reviewReplacements.get()).toBe(true)
-  expect(review.getAttribute('aria-pressed')).toBe('true')
+  expect(app.settings.get('execution.reviewUpgrades')).toBe(true)
+  expect(review.getAttribute('aria-checked')).toBe('true')
   review.click()
-  expect(app.reviewReplacements.get()).toBe(false)
-  expect(review.getAttribute('aria-pressed')).toBe('false')
+  expect(app.settings.get('execution.reviewUpgrades')).toBe(false)
+  app.modalPanel.set('')
 
   const backends = host.querySelector<HTMLButtonElement>('[data-testid="backends-sidebar-toggle"]')!
   expect(backends.getAttribute('aria-pressed')).toBe('false')

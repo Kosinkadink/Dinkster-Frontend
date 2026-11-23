@@ -3,7 +3,7 @@
  * definition is instantiated twice, so bare definition node ids cannot tell
  * the host which runtime state belongs in the current drilled-in view.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 type ProjectedStates = Readonly<Record<string, { state: string; value?: number }>>
 
@@ -35,7 +35,7 @@ test('sibling subgraph occurrences project independently at root and when drille
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.routeWebSocket('/ws*', () => {})
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
 
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app

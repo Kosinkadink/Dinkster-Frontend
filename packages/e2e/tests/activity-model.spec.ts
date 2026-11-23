@@ -135,7 +135,7 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   await page.setViewportSize({ width: 1600, height: 950 })
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest !== undefined)).toBe(true)
-  await expect(page.getByTestId('status-bar')).toContainText('connected')
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected')
   await waitForWorkspaceReady(page)
   await expect(page.getByTestId('runs-panel').getByRole('img', { name: /running, .*queued/ })).toHaveCount(0)
   await seedExecutions(page)

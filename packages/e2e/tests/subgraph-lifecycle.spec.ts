@@ -9,7 +9,7 @@ async function ready(page: Page, mockLegacyDiscovery = false): Promise<void> {
     await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   }
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
 }
 
 async function nodePoint(page: Page, index = 0): Promise<{ id: string; x: number; y: number }> {
@@ -111,7 +111,6 @@ test('creates an empty subgraph from universal search and drills into it', async
 
 test('previews and removes root-unreachable subgraph definitions', async ({ page }, testInfo) => {
   await ready(page, true)
-  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'subgraph-cleanup-e2e', root: 'root',
