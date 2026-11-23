@@ -38,7 +38,6 @@ import {
   type CompanionDisplay,
   type CompanionMap,
   type PresenceActor,
-  type RowMarkMap,
   type LayoutRow,
   type Scene,
   type SceneNetStub,
@@ -3215,25 +3214,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               connected: companion !== undefined || linked,
             }
           }
-          if (target.kind === 'pin' && target.hit.pin.warn === true) {
-            const tab = activeTab()
-            const path = tab ? viewInstancePath(tab) : undefined
-            const ref = {
-              node: asNodeId(target.hit.node.id),
-              port: asPortId(target.hit.pin.address.port),
-            }
-            const diagnostics = scene.diagnostics.filter((diagnostic) => {
-              if (!diagnostic.anchor?.port || !samePortRef(diagnostic.anchor.port, ref)) return false
-              const occurrence = diagnostic.anchor.occurrence
-              return occurrence === undefined || (
-                path !== undefined &&
-                occurrence.node === target.hit.node.id &&
-                occurrence.instancePath.length === path.length &&
-                occurrence.instancePath.every((id, index) => id === path[index])
-              )
-            })
-            if (diagnostics.length > 0) tooltipTarget = { ...target, diagnostics }
-          }
           const tooltipTab = activeTab()
           const tooltipRegistry = registry()
           const tooltipResolve = tooltipTab && tooltipRegistry
@@ -3278,10 +3258,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const details = problemMessages(nodeId, kind)
           tooltip = {
             summary: kind === 'error'
-              ? `${details.length} document error${details.length === 1 ? '' : 's'}`
-              : kind === 'blocking-warning'
-                ? `${details.length} execution-blocking warning${details.length === 1 ? '' : 's'}`
-                : `${details.length} document warning${details.length === 1 ? '' : 's'}`,
+              ? `${details.length} error${details.length === 1 ? '' : 's'}`
+              : `${details.length} warning${details.length === 1 ? '' : 's'}`,
             detail: details,
           }
         }
@@ -4359,14 +4337,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
      * state instead of node.values, and link/net-driven rows display a
      * derived value that never executes from the stored one.
      */
-    const widgetValueDiagnostics = (): { diagnostics: Diagnostic[]; marks: RowMarkMap } => {
+    // Each diagnostic refers to its field's value key, so the shared problem
+    // projection outlines that row.
+    const widgetValueDiagnostics = (): Diagnostic[] => {
       const out: Diagnostic[] = []
-      // Row marks mirror each diagnostic at its widget row (red outline in
-      // the renderer) so the Problems entry is actionable on the canvas.
-      const marks: Record<string, Set<string>> = {}
-      const mark = (nodeId: string, valueKey: string): void => {
-        (marks[nodeId] ??= new Set()).add(valueKey)
-      }
       for (const node of scene.nodes) {
         for (const row of node.layout.rows) {
           if (row.kind !== 'widget' || row.selector !== undefined) continue
@@ -4376,7 +4350,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             out.push(diag('warning', 'schema', 'widget.kindUnavailable', `${node.id}.${row.valueKey}: widget kind '${row.spec.widgetType}' is not available; using the raw-value editor`, {
               refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
             }))
-            mark(node.id, row.valueKey)
             continue
           }
           // JSON cannot store undefined, so undefined means "not stored":
@@ -4395,18 +4368,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               requested: value,
               ...(row.spec.kind !== undefined ? { expectedKind: row.spec.kind } : {}),
             }))
-            mark(node.id, row.valueKey)
             continue
           }
           if (!kind.valueSchema.validate(value, row.spec)) {
             out.push(diag('warning', 'schema', `widget.${row.spec.widgetType}.badValue`, `${where}: stored value does not fit this widget's value shape`, {
               refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
             }))
-            mark(node.id, row.valueKey)
             continue
           }
           const found = kind.validate(value as Json, row.spec)
-          if (found.length > 0) mark(node.id, row.valueKey)
           for (const d of found) {
             out.push({
               ...d,
@@ -4416,7 +4386,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           }
         }
       }
-      return { diagnostics: out, marks }
+      return out
     }
 
     function refreshSceneDiagnostics(tab: Tab): void {
@@ -4428,10 +4398,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const availabilityDiags = tab.execution || !hasResidentMetadata
         ? [] : props.app.previewAvailabilityDiagnostics(tab) ?? []
       const widgetDiags = widgetValueDiagnostics()
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...availabilityDiags]
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...availabilityDiags]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
-      renderer.setRowMarks(widgetDiags.marks)
     }
 
     createEffect(on(comparisonCompilesChanged, () => {
@@ -4540,7 +4509,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const dismissed = exec === undefined ? undefined : dismissedErrorNodes().get(exec.key)
           return dismissed === undefined ? {} : { dismissedErrorNodes: dismissed }
         })(),
-        portProblems: projectedProblems.ports,
+        rowProblems: projectedProblems.rows,
         resolveSchema: reg?.resolve,
         mirrorPreviews: props.app.settings.get<boolean>('execution.mirrorPreviews'),
         imageEstimator,
@@ -4684,7 +4653,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       })
       renderer.setBadges(decorations.badges)
       renderer.setNodeDecorations(decorations.presentation)
-      renderer.setPortProblems(model.portProblems)
+      renderer.setRowMarks(model.rowProblems)
       const nodeOutputTexts = lens.id === 'standard' ? model.outputTexts : {}
       renderer.setNodeOutputTexts(nodeOutputTexts)
       renderer.setNodePreviews(model.previews)
@@ -4705,7 +4674,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           scene,
           states: model.states,
           badges: decorations.badges,
-          portProblems: model.portProblems,
+          rowProblems: model.rowProblems,
           outputTexts: nodeOutputTexts,
         },
       })
@@ -6375,10 +6344,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
   const problemMessages = (nodeId: string, kind: NodeProblemKind): readonly string[] => {
     const tab = activeTab()
-    const model = nodeProblems[nodeId]?.find((candidate) => candidate.kind === kind)
-    if (!tab || !model) return []
+    const lines = (nodeProblems[nodeId] ?? []).filter((line) => line.kind === kind)
+    if (!tab) return []
     const reg = props.app.registryForTab(tab)
-    return model.diagnostics.map((diagnostic) => problemDisplay(diagnostic, tab.store.doc, reg))
+    return lines.map((line) => problemDisplay(line.diagnostic, tab.store.doc, reg))
   }
 
   createEffect(() => {

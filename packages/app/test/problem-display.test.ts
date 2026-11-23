@@ -141,23 +141,46 @@ describe('groupProblemDiagnostics', () => {
 })
 
 describe('deriveNodeProblems', () => {
-  it('groups errors, blocking warnings, and advisory warnings separately by node', () => {
+  it('makes a problem that stops a run an error and lists errors before warnings', () => {
     const refs = [{ graphId: 'g0', nodeId: 'n5-a1b2', direction: 'input' as const }]
     const models = deriveNodeProblems({
       document: document(),
       graphId: 'g0',
       instancePath: [],
       diagnostics: [
+        diag('warning', 'schema', 'widget.COMBO.unknown', 'advisory', { refs }),
         diag('error', 'compile', 'compile.bad', 'bad', { refs }),
         diag('warning', 'compile', 'compile.input.missing', 'missing', { refs, blocksExecution: true }),
-        diag('warning', 'schema', 'widget.COMBO.unknown', 'advisory', { refs }),
       ],
     })
-    expect(models['n5-a1b2']?.map((model) => [model.kind, model.diagnostics.map((d) => d.code)])).toEqual([
-      ['error', ['compile.bad']],
-      ['blocking-warning', ['compile.input.missing']],
-      ['warning', ['widget.COMBO.unknown']],
+    expect(models['n5-a1b2']?.map((line) => [line.kind, line.diagnostic.code])).toEqual([
+      ['error', 'compile.bad'],
+      ['error', 'compile.input.missing'],
+      ['warning', 'widget.COMBO.unknown'],
     ])
+  })
+
+  it('gives two causes on one row two lines and counts a cause reported twice once', () => {
+    const tooSmall = diag('warning', 'schema', 'widget.INT.belowMin', 'too small', {
+      refs: [{ graphId: 'g0', nodeId: 'n5-a1b2', portId: 'width', valueKey: 'width', direction: 'input' }],
+    })
+    const required = diag('warning', 'compile', 'compile.input.missing', 'required', {
+      blocksExecution: true,
+      anchor: { occurrence: { instancePath: [], node: asNodeId('n5-a1b2') }, port: { node: asNodeId('n5-a1b2'), port: asPortId('width') } },
+    })
+    const other = diag('warning', 'schema', 'widget.INT.aboveMax', 'too large', {
+      refs: [{ graphId: 'g0', nodeId: 'n5-a1b2', portId: 'steps', valueKey: 'steps', direction: 'input' }],
+    })
+    const projection = deriveProblemProjection({
+      document: document(), graphId: 'g0', instancePath: [],
+      diagnostics: composeCanvasProblemDiagnostics({ owned: [required], scene: [tooSmall, other, { ...tooSmall }] }),
+    })
+    expect(projection.nodes['n5-a1b2']?.map((line) => [line.row, line.kind, line.diagnostic.code])).toEqual([
+      ['width', 'error', 'compile.input.missing'],
+      ['width', 'warning', 'widget.INT.belowMin'],
+      ['steps', 'warning', 'widget.INT.aboveMax'],
+    ])
+    expect(projection.rows).toEqual({ 'n5-a1b2': { width: 'error', steps: 'warning' } })
   })
 
   it('uses exact occurrence paths, filters other graphs and info, and deduplicates ref plus anchor', () => {
@@ -177,7 +200,7 @@ describe('deriveNodeProblems', () => {
       ],
     })
     expect(models['inner']).toHaveLength(1)
-    expect(models['inner']![0]!.diagnostics).toEqual([anchored])
+    expect(models['inner']![0]!.diagnostic).toEqual(anchored)
     const { refs: _refs, ...anchorOnly } = anchored
     expect(deriveNodeProblems({ graphId: 'g0', instancePath: [], diagnostics: [anchorOnly] })).toEqual({})
   })
@@ -199,7 +222,7 @@ describe('deriveNodeProblems', () => {
 
     expect(deriveNodeProblems({
       document: doc, graphId: 'inner', instancePath: ['instance'], diagnostics: [anchored],
-    })['nested']?.[0]?.diagnostics).toEqual([anchored])
+    })['nested']?.[0]?.diagnostic).toEqual(anchored)
     expect(deriveNodeProblems({
       document: doc, graphId: 'g0', instancePath: [], diagnostics: [anchored],
     })).toEqual({})
@@ -208,7 +231,7 @@ describe('deriveNodeProblems', () => {
     })).toEqual({})
   })
 
-  it('projects a port anchor to its exact input pin id and rejects wrong-graph occurrences', () => {
+  it('projects a port anchor to its exact input row and rejects wrong-graph occurrences', () => {
     const exact = diag('warning', 'compile', 'compile.input.missing', 'missing', {
       blocksExecution: true,
       anchor: {
@@ -220,13 +243,13 @@ describe('deriveNodeProblems', () => {
 
     expect(deriveProblemProjection({
       document: doc, graphId: 'inner', instancePath: ['instance'], diagnostics: [exact],
-    }).ports).toEqual({ nested: { model: 'blocking-warning' } })
+    }).rows).toEqual({ nested: { model: 'error' } })
     expect(deriveProblemProjection({
       document: doc, graphId: 'g0', instancePath: [], diagnostics: [exact],
-    }).ports).toEqual({})
+    }).rows).toEqual({})
     expect(deriveProblemProjection({
       document: doc, graphId: 'inner', instancePath: ['other-instance'], diagnostics: [exact],
-    }).ports).toEqual({})
+    }).rows).toEqual({})
   })
 
   it('keeps a compile warning and runtime validation error on the same node in grouping and projection', () => {
@@ -252,8 +275,8 @@ describe('deriveNodeProblems', () => {
     expect(groups).toHaveLength(2)
     expect(groups.map((group) => group.diagnostics)).toEqual([[runtime], [warning]])
     expect(groups[0]?.severity).toBe('error')
-    expect(projection.nodes['n5-a1b2']?.map((model) => model.kind)).toEqual(['error', 'blocking-warning'])
-    expect(projection.ports['n5-a1b2']?.['model']).toBe('error')
+    expect(projection.nodes['n5-a1b2']?.map((line) => line.diagnostic)).toEqual([warning, runtime])
+    expect(projection.rows['n5-a1b2']?.['model']).toBe('error')
   })
 
 })

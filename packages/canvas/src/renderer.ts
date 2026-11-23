@@ -13,12 +13,12 @@ import {
   MUTED_BADGE,
   nodeBadgeBounds,
   type BadgePlacement,
-  PROBLEM_BLOCKING_WARNING_BADGE,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
   type BadgeMap,
   type NodeBadge,
-  type PortProblemMap,
+  type ProblemKind,
+  type RowProblemMap,
 } from './badges.js'
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
@@ -320,11 +320,12 @@ export interface CompanionDisplay {
 export type CompanionMap = Readonly<Record<string, Readonly<Record<string, CompanionDisplay>>>>
 
 /**
- * node id -> value keys of rows carrying an anchored diagnostic. Widget rows
- * key by valueKey; fallback rows (unresolved schema) key by their stored
- * value key. Derived per scene build, never stored.
+ * node id -> row key -> strongest problem on that row. Widget rows key by
+ * valueKey, fallback rows (unresolved schema) by their stored value key, and
+ * inputs drawn without a field by their port id. Derived per scene build,
+ * never stored.
  */
-export type RowMarkMap = Readonly<Record<string, ReadonlySet<string>>>
+export type RowMarkMap = RowProblemMap
 
 /**
  * One row of a data-lens panel: label left, text right. Tones follow the
@@ -1219,14 +1220,18 @@ export class CanvasRenderer {
   private rowMarks: RowMarkMap = {}
 
   /**
-   * Diagnostic-anchored row marks per node/valueKey (fallback rows key by
-   * their stored value key). A marked row paints a red outline so the
-   * Problems entry is actionable at the widget the user must fix -
-   * mirroring (not replacing) the panel entry, like the pin warn ring.
-   * Derived per scene build, never stored.
+   * The strongest problem per row. A row with a problem is outlined in that
+   * problem's color: the field, or the input's row when it has no field.
+   * Nothing is drawn at the node's edge for it.
    */
   setRowMarks(marks: RowMarkMap): void {
     this.updateNodePaint(this.rowMarks, marks, () => { this.rowMarks = marks })
+  }
+
+  private rowProblemColor(nodeId: string, key: string): string | undefined {
+    const kind: ProblemKind | undefined = this.rowMarks[nodeId]?.[key]
+    return kind === undefined ? undefined
+      : kind === 'error' ? this.tokens.colors.error : PROBLEM_WARNING_BADGE.color
   }
 
   private rowDrags: Readonly<Record<string, RowDrag>> = {}
@@ -1281,13 +1286,6 @@ export class CanvasRenderer {
 
   private badges: BadgeMap = {}
 
-  private portProblems: PortProblemMap = {}
-
-  /** Exact input-pin problem rings, projected by the host's shared resolver. */
-  setPortProblems(problems: PortProblemMap): void {
-    this.updateNodePaint(this.portProblems, problems, () => { this.portProblems = problems })
-  }
-
   /** Header badges per node (subgraph marker, error chip, extensions). */
   setBadges(badges: BadgeMap): void {
     this.updateNodePaint(this.badges, badges, () => { this.badges = badges })
@@ -1302,8 +1300,7 @@ export class CanvasRenderer {
     const badges = this.badges[node.id] ?? []
     const state = this.nodeStates[node.id]?.state
     const missing = node.unrecognized === true || node.missingSchema === true
-    const strong = missing || state === 'running' || state === 'done' || state === 'error' ||
-      badges.some((badge) => badge.id === PROBLEM_ERROR_BADGE.id || badge.id === PROBLEM_BLOCKING_WARNING_BADGE.id)
+    const strong = missing || state === 'running' || state === 'done' || state === 'error'
     const paint = canvasPaintTokens.node.outline
     const stroke = screenAwareStroke(missing ? paint.idle * paint.unrecognizedFactor : strong ? paint.strong : paint.idle,
       this.viewport.scale, strong ? paint.strongScreen : paint.screen)
@@ -3280,12 +3277,11 @@ export class CanvasRenderer {
     ctx.restore()
   }
 
-  /** Core mode and blocking-warning tabs follow the theme; other badges carry their own color. */
+  /** Core mode tabs follow the theme; other badges carry their own color. */
   private badgeColor(badge: NodeBadge): string {
     const t = this.tokens
     return badge.id === MUTED_BADGE.id ? t.colors.mutedBadge
-      : badge.id === BYPASSED_BADGE.id ? t.colors.bypassedBadge
-        : badge.id === PROBLEM_BLOCKING_WARNING_BADGE.id ? t.colors.blockingWarning : badge.color
+      : badge.id === BYPASSED_BADGE.id ? t.colors.bypassedBadge : badge.color
   }
 
   /** The title bar's minimize arrow: down on an open node, right on a minimized one. */
@@ -3431,39 +3427,28 @@ export class CanvasRenderer {
       ctx.fillStyle = t.colors.bypassWash
       ctx.fill()
     }
-    // State/problem border. Problem kinds come from the same host-derived
-    // badge layer used below; the renderer only chooses paint precedence.
-    // Running stays visible over a blocking warning, while document errors
-    // and runtime errors remain stronger execution-stopping signals.
-    const badges = this.badges[node.id] ?? []
-    const hasDocumentError = badges.some((badge) => badge.id === PROBLEM_ERROR_BADGE.id)
-    const hasBlockingWarning = badges.some((badge) => badge.id === PROBLEM_BLOCKING_WARNING_BADGE.id)
+    // State border. A document problem draws nothing at the node's edge: it
+    // outlines its row and shows its tab below the node instead.
     const runtimeError = progress?.state === 'error'
     const running = progress?.state === 'running'
     const outlineColor = unrecognized
       ? t.colors.error
       : runtimeError
         ? t.stateColors.error
-        : hasDocumentError
-          ? t.colors.error
-          : running
-            ? t.stateColors.running
-            : hasBlockingWarning
-              ? t.colors.blockingWarning
-              : progress
-                ? t.stateColors[progress.state]
-                : t.colors.nodeIdleOutline
-    const strongOutline = unrecognized || runtimeError || hasDocumentError || running || hasBlockingWarning || progress?.state === 'done'
+        : running
+          ? t.stateColors.running
+          : progress
+            ? t.stateColors[progress.state]
+            : t.colors.nodeIdleOutline
+    const strongOutline = unrecognized || runtimeError || running || progress?.state === 'done'
     const outline = canvasPaintTokens.node.outline
     const outlineWidth = unrecognized ? outline.idle * outline.unrecognizedFactor : strongOutline ? outline.strong : t.crispEdges ? outline.crisp : outline.idle
-    const outlineDash = unrecognized || runtimeError || hasDocumentError
+    const outlineDash = unrecognized || runtimeError
       ? nodeStateDash('error', scale)
       : running
         ? undefined
-        : hasBlockingWarning
-          ? screenAwareDash(canvasPaintTokens.dash.blockingWarning.world, canvasPaintTokens.dash.blockingWarning.screen, scale)
-          : nodeStateDash(progress?.state, scale)
-    const outlineOwnsDash = unrecognized || runtimeError || hasDocumentError || running || hasBlockingWarning || progress !== undefined
+        : nodeStateDash(progress?.state, scale)
+    const outlineOwnsDash = unrecognized || runtimeError || running || progress !== undefined
     const dash = outlineOwnsDash ? outlineDash : modeDash(mode, scale)
     if (running) this.drawRunningGlow(ctx, node.x, node.y, l.width, l.height)
     if (dash !== undefined) ctx.setLineDash(dash)
@@ -3637,10 +3622,11 @@ export class CanvasRenderer {
           ctx.fillText(row.text, node.x + l.width - t.padX - paint.fallback.textInset, rowY + row.height / 2, (l.width - t.padX * 2) * paint.fallback.valueRatio)
           ctx.textAlign = 'left'
           ctx.globalAlpha = rowAlpha
-          if (this.rowMarks[sceneNode.id]?.has(row.label) === true) {
-            // Anchored diagnostic on this stored value: red outline mirrors
-            // the Problems entry at the row (same contract as widget rows).
-            ctx.strokeStyle = t.colors.error
+          const fallbackProblem = this.rowProblemColor(sceneNode.id, row.label)
+          if (fallbackProblem !== undefined) {
+            // A problem on this stored value outlines its row in the color
+            // of the row's strongest problem.
+            ctx.strokeStyle = fallbackProblem
             ctx.lineWidth = paint.diagnosticStroke
             ctx.strokeRect(node.x + t.padX, rowY + t.rowGeometry.fieldInsetY, l.width - t.padX * 2, row.height - t.rowGeometry.fieldInsetY * 2)
           }
@@ -3648,6 +3634,19 @@ export class CanvasRenderer {
           // Ghost (dynamic affordance) labels render dimmed: connect/edit
           // materializes them; until then they are an offer, not a member.
           const rowAlpha = ctx.globalAlpha
+          const inputProblem = row.input === undefined ? undefined : this.rowProblemColor(sceneNode.id, row.input.portId)
+          if (inputProblem !== undefined) {
+            // An input drawn without a field outlines its row; with an output
+            // on the same line it outlines only the input's half.
+            const innerWidth = l.width - t.padX * 2
+            const chrome = widgetChromeRect(node.x + t.padX, rowY, row.output === undefined ? innerWidth : innerWidth / 2,
+              row.height, t.rowGeometry.fieldInsetY)
+            ctx.strokeStyle = inputProblem
+            ctx.lineWidth = canvasPaintTokens.widget.diagnosticStroke
+            ctx.beginPath()
+            ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
+            ctx.stroke()
+          }
           if (row.input) {
             if (row.input.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
             if (row.input.inactive) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
@@ -3979,7 +3978,6 @@ export class CanvasRenderer {
       const acceptsList = pin.direction === 'in' && pin.acceptsList === true
       const shape = pinShapeOf(pin.type, pin.direction, acceptsList)
       const ringRadius = statusRingRadius(shape, pinRadius, radius)
-      const problemKind = pin.direction === 'in' ? this.portProblems[node.id]?.[pin.portId] : undefined
       if (pin.widgetTap === true &&
           !this.connectedWidgetTaps.has(`${node.id}\u0000${pin.address.port}`) &&
           !isLegalTarget && !nodeHovered)
@@ -3989,7 +3987,7 @@ export class CanvasRenderer {
       if (pin.widgetBacked && pin.direction === 'in' && !isLegalTarget &&
         this.wirelessBoundaryInputPins.has(`${node.id}\u0000${pin.portId}`))
         continue
-      if (pin.widgetBacked && pin.direction === 'in' && !connected && !isLegalTarget && !nodeSelected && !nodeHovered && problemKind === undefined)
+      if (pin.widgetBacked && pin.direction === 'in' && !connected && !isLegalTarget && !nodeSelected && !nodeHovered)
         continue
       // A field row that takes the held wire shows its own outline, so the
       // field's pin, the node's only target then, gets no ring.
@@ -3997,32 +3995,6 @@ export class CanvasRenderer {
         ctx.beginPath()
         ctx.arc(px, py, ringRadius, 0, Math.PI * 2)
         ctx.strokeStyle = t.colors.dropTarget
-        ctx.lineWidth = screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH)
-        ctx.stroke()
-      }
-      if (pin.warn === true && !isTarget) {
-        // Anchored solver warning (e.g. stale specialization): an error ring
-        // makes the advisory actionable at the pin the user must fix,
-        // mirroring (not replacing) the Problems entry. Drop-target rings
-        // win during a drag - the gesture needs the affordance more.
-        ctx.beginPath()
-        ctx.arc(px, py, ringRadius, 0, Math.PI * 2)
-        ctx.strokeStyle = t.colors.error
-        ctx.lineWidth = screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH)
-        ctx.stroke()
-      }
-      if (problemKind !== undefined && !isTarget) {
-        // Host-resolved document problems share the pin-ring channel with
-        // solver warnings. Paint after the legacy solver ring so exact
-        // severity wins; selection/hover affect pin visibility, not this
-        // independent diagnostic signal.
-        ctx.beginPath()
-        ctx.arc(px, py, ringRadius, 0, Math.PI * 2)
-        ctx.strokeStyle = problemKind === 'error'
-          ? t.colors.error
-          : problemKind === 'blocking-warning'
-            ? t.colors.blockingWarning
-            : PROBLEM_WARNING_BADGE.color
         ctx.lineWidth = screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH)
         ctx.stroke()
       }
@@ -4186,13 +4158,13 @@ export class CanvasRenderer {
       ctx.fill()
       ctx.globalAlpha = edgeAlpha
     }
-    if (this.rowMarks[sceneNode.id]?.has(row.valueKey) === true) {
-      // Anchored widget-value diagnostic (out-of-range INT, unknown
-      // COMBO option, ...): a red row outline makes the Problems entry
-      // actionable at the widget the user must fix, mirroring (not
-      // replacing) the panel entry - same contract as the pin warn ring.
+    const fieldProblem = this.rowProblemColor(sceneNode.id, row.valueKey) ?? this.rowProblemColor(sceneNode.id, row.inputId)
+    if (fieldProblem !== undefined) {
+      // A problem on this field (out-of-range number, unknown choice, ...)
+      // outlines the field in the color of its strongest problem, so the
+      // row shows where the user acts without changing the node's height.
       const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY)
-      ctx.strokeStyle = t.colors.error
+      ctx.strokeStyle = fieldProblem
       ctx.lineWidth = canvasPaintTokens.widget.diagnosticStroke
       ctx.beginPath()
       ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)

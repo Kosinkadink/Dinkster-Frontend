@@ -66,9 +66,13 @@ export function executionNodePresentation(
   return { states, badges }
 }
 
-/** Strongest document problem anchored to each exact input pin id. */
-export type PortProblemKind = 'error' | 'blocking-warning' | 'warning'
-export type PortProblemMap = Readonly<Record<string, Readonly<Record<string, PortProblemKind>>>>
+/** A problem that stops a run is an error; every other problem is a warning. */
+export type ProblemKind = 'error' | 'warning'
+/**
+ * Strongest problem per node per row. A row is keyed by its stored value key
+ * or, for an input drawn without a field, its input port id.
+ */
+export type RowProblemMap = Readonly<Record<string, Readonly<Record<string, ProblemKind>>>>
 
 export const SUBGRAPH_BADGE: NodeBadge = { id: 'core.subgraph', glyph: 'Subgraph', icon: 'boxes', placement: 'title', color: canvasPaintTokens.badge.colors.subgraph }
 export const subgraphBadge = (occurrences: number): NodeBadge => occurrences >= 2
@@ -142,13 +146,6 @@ export const PROBLEM_ERROR_BADGE: NodeBadge = {
 }
 /** A document error whose node cannot run here. */
 export const UNAVAILABLE_BADGE: NodeBadge = { ...PROBLEM_ERROR_BADGE, glyph: 'Unavailable', icon: 'unplug' }
-export const PROBLEM_BLOCKING_WARNING_BADGE: NodeBadge = {
-  id: 'core.problem.blocking-warning',
-  glyph: 'Warning',
-  icon: 'triangle-alert',
-  placement: 'below',
-  color: defaultTokens.colors.blockingWarning,
-}
 export const PROBLEM_WARNING_BADGE: NodeBadge = {
   id: 'core.problem.warning',
   glyph: 'Warning',
@@ -156,6 +153,11 @@ export const PROBLEM_WARNING_BADGE: NodeBadge = {
   placement: 'below',
   color: canvasPaintTokens.badge.colors.warning,
 }
+/** A problem tab that counts the separate causes behind it. */
+export const problemBadge = (base: NodeBadge, count: number): NodeBadge => ({
+  ...base,
+  glyph: count > 1 ? `${base.glyph} ${count}` : base.glyph,
+})
 /** A media conversion that lost or reinterpreted data at one pin this run. */
 export const mediaDiagnosticBadge = (id: string, glyph: string): NodeBadge => ({
   id,

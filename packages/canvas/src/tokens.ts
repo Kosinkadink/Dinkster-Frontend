@@ -101,7 +101,6 @@ export const canvasPaintTokens = {
     selectionUnion: { world: [5, 4], screen: [4, 3] },
     marquee: { world: [4, 3], screen: [3, 2] },
     remote: [6, 4],
-    blockingWarning: { world: [1, 3], screen: [1, 3] },
     growth: [3, 3],
     companionUnderline: [1, 2],
     running: { world: [13, 9], screen: [9, 6] },
@@ -756,8 +755,6 @@ export interface DesignTokens {
      * document-level problems the solver proved, independent of execution.
      */
     readonly error: string
-    /** Execution-blocking document warning, shared by its badge and outline. */
-    readonly blockingWarning: string
   }
   /** Data-type -> pin/link color. Unknown types get a stable hashed hue. */
   readonly typeColors: Readonly<Record<string, string>>
@@ -934,7 +931,6 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     companionUnproven: tokens.meaning.info.foreground,
     companionEstimate: tokens.meaning.success.foreground,
     error: tokens.meaning.danger.border,
-    blockingWarning: tokens.meaning.warning.border,
   }
 }
 

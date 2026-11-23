@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEPRECATED_BADGE, executionErrorBadge, LOG_INFO_BADGE, logWarningBadge, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, type Scene } from '@dinkster/canvas'
+import { DEPRECATED_BADGE, executionErrorBadge, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, type Scene } from '@dinkster/canvas'
 import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
@@ -1025,26 +1025,22 @@ describe('deriveSceneOverlays', () => {
     expect(m.companions).toEqual({ sink: { number: { value: 0 }, text: { value: '' } } })
   })
 
-  it('adds document problem badges without replacing the runtime error badge', () => {
+  it('adds counted document problem tabs without replacing the runtime error badge', () => {
+    const cause = (kind: 'error' | 'warning', code: string) => ({
+      kind, diagnostic: { severity: kind, origin: 'compile' as const, code, message: code },
+    })
     const m = deriveSceneOverlays({
       ...base,
       scene: scene([{ id: 'n1' }]),
       exec: exec({ nodes: { n1: { state: 'error' } }, errors: [runError('n1')] }),
-      nodeProblems: {
-        n1: [
-          { kind: 'error', diagnostics: [] },
-          { kind: 'blocking-warning', diagnostics: [] },
-          { kind: 'warning', diagnostics: [] },
-        ],
-      },
+      nodeProblems: { n1: [cause('error', 'a'), cause('error', 'b'), cause('warning', 'c')] },
     })
     expect(m.badges['n1']).toEqual([
       executionErrorBadge(1),
-      PROBLEM_ERROR_BADGE,
-      PROBLEM_BLOCKING_WARNING_BADGE,
+      problemBadge(PROBLEM_ERROR_BADGE, 2),
       PROBLEM_WARNING_BADGE,
     ])
-    expect(PROBLEM_ERROR_BADGE.glyph).toBe('Error')
+    expect(m.badges['n1']?.map((badge) => badge.glyph)).toEqual(['Error', 'Error 2', 'Warning'])
   })
 
   it('does not duplicate a pure runtime diagnostic as a document-error badge', () => {
@@ -1055,7 +1051,7 @@ describe('deriveSceneOverlays', () => {
       nodeProblems: {
         n1: [{
           kind: 'error',
-          diagnostics: [{ severity: 'error', origin: 'runtime', code: 'runtime.X', message: 'failed' }],
+          diagnostic: { severity: 'error', origin: 'runtime', code: 'runtime.X', message: 'failed' },
         }],
       },
     })

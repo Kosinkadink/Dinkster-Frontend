@@ -65,8 +65,8 @@ describe('buildCanvasSemanticItems', () => {
     const items = buildCanvasSemanticItems({
       scene,
       states: { source: { state: 'running', value: 0.5 } },
-      badges: { sink: [{ id: 'core.problem.blocking-warning', glyph: '!', color: '#000000' }] },
-      portProblems: { sink: { image: 'blocking-warning' } },
+      badges: { sink: [{ id: 'core.problem.error', glyph: 'Error 2', color: '#000000' }] },
+      rowProblems: { sink: { image: 'error' } },
       outputTexts: { source: { text: 'Estimated locally\nfloat: 3.5\nint: 3', estimate: true } },
     })
 
@@ -74,9 +74,9 @@ describe('buildCanvasSemanticItems', () => {
       'Node: Source, 0 inputs, 1 output, in Image pipeline, running 50 percent, live result estimated locally: float: 3.5, int: 3',
       'Button: Minimize Source',
       'Output: Image of Source, IMAGE, 1 connection',
-      'Node: Sink, 1 input, 0 outputs, in Image pipeline, muted, blocking warning',
+      'Node: Sink, 1 input, 0 outputs, in Image pipeline, muted, error 2',
       'Button: Minimize Sink',
-      'Input: Image of Sink, IMAGE, optional, blocking-warning, 1 connection',
+      'Input: Image of Sink, IMAGE, optional, error, 1 connection',
       'Row: strength of Sink, 0.50',
       'Row: caption of Sink, two lines',
       'Row: note of Sink, empty',
@@ -90,7 +90,7 @@ describe('buildCanvasSemanticItems', () => {
       scene,
       states: {},
       badges: {},
-      portProblems: {},
+      rowProblems: {},
       outputTexts: { source: { text: 'Preview error\nInvalid expression: unexpected token', error: true } },
     })
 
@@ -115,7 +115,7 @@ describe('buildCanvasSemanticItems', () => {
       scene: minimized,
       states: {},
       badges: {},
-      portProblems: {},
+      rowProblems: {},
       outputTexts: {},
     })
 
@@ -149,7 +149,7 @@ describe('buildCanvasSemanticItems', () => {
       groups: [{ id: 'g1', title: 'Empty group', x: 0, y: 0, width: 200, height: 100 }],
     }) as unknown as Scene
 
-    const items = buildCanvasSemanticItems({ scene: citizens, states: {}, badges: {}, portProblems: {}, outputTexts: {} })
+    const items = buildCanvasSemanticItems({ scene: citizens, states: {}, badges: {}, rowProblems: {}, outputTexts: {} })
 
     expect(items.map((item) => item.label)).toEqual([
       'Inputs boundary, 1 port',
@@ -217,7 +217,7 @@ describe('buildCanvasSemanticItems', () => {
       reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], diagnostics: [],
     }) as unknown as Scene
 
-    const items = buildCanvasSemanticItems({ scene: connected, states: {}, badges: {}, portProblems: {}, outputTexts: {} })
+    const items = buildCanvasSemanticItems({ scene: connected, states: {}, badges: {}, rowProblems: {}, outputTexts: {} })
 
     expect(items.find((item) => item.key === 'port:source:out:amount:tap')?.label)
       .toBe('Output: Amount of Tap source, FLOAT, 2 connections')
@@ -249,7 +249,7 @@ describe('buildCanvasSemanticItems', () => {
       }],
     }) as unknown as Scene
 
-    const items = buildCanvasSemanticItems({ scene: collapsed, states: {}, badges: {}, portProblems: {}, outputTexts: {} })
+    const items = buildCanvasSemanticItems({ scene: collapsed, states: {}, badges: {}, rowProblems: {}, outputTexts: {} })
 
     expect(items.find((item) => item.key === 'link:net1:0')).toBeUndefined()
     expect(items.find((item) => item.key === 'port:sink:in:image')?.label)

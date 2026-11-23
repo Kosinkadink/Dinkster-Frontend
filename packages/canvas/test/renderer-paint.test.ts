@@ -10,7 +10,7 @@ import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId
 import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, selectorBadgeRect, valueSourceBadgeRect, VS_BADGE_SIZE, type Scene, type SceneNode } from '../src/scene.js'
 import { paintToolboxIcon } from '../src/icons.js'
 import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
-import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
+import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasPaintTokens, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
 import { projectNodeLayoutHeight, TITLE_START, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
@@ -795,7 +795,6 @@ describe('graph image reuse', () => {
       renderer.setCompanions({})
       renderer.setBadges({})
       renderer.setNodeDecorations({})
-      renderer.setPortProblems({})
       renderer.setNodePreviews({})
       renderer.setNodeOutputTexts({})
       renderer.setInactiveNodes(undefined)
@@ -1222,62 +1221,28 @@ describe('diagnostic paint on the live renderer', () => {
     expect(calls.some((c) => c.method === 'fill' && c.fillStyle === ERR)).toBe(true)
   })
 
-  it('a warned pin draws an error ring WITHOUT dropping its normal pin fill', () => {
-    const base = fixtureScene()
-    // Scene->warn derivation is proven in dynamic-scene.test.ts; here inject
-    // the flag to test the renderer contract in isolation.
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((n) =>
-        n.id === 'c2'
-          ? {
-              ...n,
-              layout: {
-                ...n.layout,
-                pins: n.layout.pins.map((p) => (p.portId === 'in' ? { ...p, warn: true as const } : p)),
-              },
-            }
-          : n,
-      ),
-    }
-    const calls = paint(scene)
-    const ringRadius = defaultTokens.pinRadius + 3.5
-    // The ring: an arc at ring radius stroked with the error color.
-    const ringArcIdx = calls.findIndex((c) => c.method === 'arc' && c.args[2] === ringRadius)
-    expect(ringArcIdx).toBeGreaterThanOrEqual(0)
-    const ringStroke = calls.slice(ringArcIdx + 1).find((c) => c.method === 'stroke')
-    expect(ringStroke?.strokeStyle).toBe(ERR)
-    // The pin body still paints at the same coordinates with its type color.
-    const [rx, ry] = calls[ringArcIdx]!.args as [number, number]
-    const bodyIdx = calls.findIndex(
-      (c) => c.method === 'arc' && c.args[0] === rx && c.args[1] === ry && c.args[2] === defaultTokens.pinRadius,
-    )
-    expect(bodyIdx).toBeGreaterThan(ringArcIdx)
-    const bodyFill = calls.slice(bodyIdx + 1).find((c) => c.method === 'fill' || c.method === 'stroke')
-    expect(bodyFill?.method).toBe('fill')
-    expect(bodyFill?.fillStyle).toBe(typeColor(defaultTokens, 'LATENT'))
-  })
-
   it.each([
     ['error', defaultTokens.colors.error],
-    ['blocking-warning', defaultTokens.colors.blockingWarning],
     ['warning', PROBLEM_WARNING_BADGE.color],
-  ] as const)('paints an exact input problem ring for %s severity', (kind, color) => {
+  ] as const)('a %s on an input without a field outlines its row and rings no pin', (kind, color) => {
     const scene = fixtureScene('clean')
     const sink = nodeOf(scene, 'c2')
+    const row = sink.layout.rows.find((candidate) => candidate.kind === 'ports' && candidate.input?.portId === 'in')!
     const pin = sink.layout.pins.find((candidate) => candidate.direction === 'in' && candidate.portId === 'in')!
     const px = sink.x + PIN_INSET
     const py = sink.y + pin.y + PIN_DROP
-    const calls = paintWith(scene, (renderer) => renderer.setPortProblems({ c2: { in: kind } }))
-    const ring = calls.findIndex((call) =>
-      call.method === 'arc' && call.args[0] === px && call.args[1] === py &&
-      call.args[2] === defaultTokens.pinRadius + 3.5)
-
-    expect(ring).toBeGreaterThanOrEqual(0)
-    expect(paintedAfter(calls, ring, 'stroke')?.strokeStyle).toBe(color)
+    const calls = paintWith(scene, (renderer) => renderer.setRowMarks({ c2: { in: kind } }))
+    const innerWidth = sink.layout.width - defaultTokens.padX * 2
+    const chrome = widgetChromeRect(sink.x + defaultTokens.padX, sink.y + row.y,
+      row.kind === 'ports' && row.output !== undefined ? innerWidth / 2 : innerWidth, row.height, defaultTokens.rowGeometry.fieldInsetY)
+    const outline = calls.findIndex((call) =>
+      call.method === 'roundRect' && call.args[0] === chrome.x && call.args[1] === chrome.y &&
+      call.args[2] === chrome.width && call.args[3] === chrome.height)
+    expect(outline).toBeGreaterThanOrEqual(0)
+    expect(paintedAfter(calls, outline, 'stroke')?.strokeStyle).toBe(color)
     expect(calls.some((call) =>
       call.method === 'arc' && call.args[0] === px && call.args[1] === py &&
-      call.args[2] === defaultTokens.pinRadius)).toBe(true)
+      call.args[2] === defaultTokens.pinRadius + 3.5)).toBe(false)
   })
 
   it.each([66, 300, 1200])('bounds panned drawing work for %i nodes without rebuilding link lookups', (count) => {
@@ -2107,9 +2072,8 @@ describe('node chrome paint on the live renderer', () => {
     const node = nodeOf(scene, 'c1')
     const calls = paintWith(scene, (renderer) => {
       renderer.setNodeStates({ c1: { state: 'running', value: 0.5 } })
-      renderer.setBadges({ c1: [PROBLEM_ERROR_BADGE] })
     })
-    expect(nodeBorder(calls, node)?.strokeStyle).toBe(defaultTokens.colors.error)
+    expect(nodeBorder(calls, node)?.strokeStyle).toBe(defaultTokens.stateColors.running)
     expect(nodeBorder(calls, node)?.lineWidth).toBe(2.5)
   })
 
@@ -2178,47 +2142,16 @@ describe('node chrome paint on the live renderer', () => {
     expect(nodeBorder(calls, node)?.strokeStyle).toBe(outline)
   })
 
-  it('a document-error badge wins over running with an emphasized red node outline', () => {
+  it('a document problem tab draws nothing at the node edge: the node keeps its idle or run outline', () => {
     const scene = fixtureScene('clean')
     const node = nodeOf(scene, 'c1')
-    const calls = paintWith(scene, (renderer) => {
+    const idle = paintWith(scene, (renderer) => renderer.setBadges({ c1: [PROBLEM_ERROR_BADGE] }))
+    expect(nodeBorder(idle, node)?.strokeStyle).toBe(defaultTokens.colors.nodeIdleOutline)
+    const running = paintWith(scene, (renderer) => {
       renderer.setNodeStates({ c1: { state: 'running', value: 0.5 } })
-      renderer.setBadges({ c1: [PROBLEM_ERROR_BADGE] })
+      renderer.setBadges({ c1: [PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE] })
     })
-    expect(nodeBorder(calls, node)?.strokeStyle).toBe(defaultTokens.colors.error)
-    expect(nodeBorder(calls, node)?.lineWidth).toBe(2.5)
-  })
-
-  it('a blocking-warning badge wins over a completed run with an emphasized orange node outline', () => {
-    const scene = fixtureScene('clean')
-    const node = nodeOf(scene, 'c1')
-    const tokens: DesignTokens = {
-      ...defaultTokens,
-      colors: { ...defaultTokens.colors, blockingWarning: '#d47728' },
-    }
-    const calls = paintWithTokens(scene, tokens, (renderer) => {
-      renderer.setNodeStates({ c1: { state: 'done' } })
-      renderer.setBadges({ c1: [PROBLEM_BLOCKING_WARNING_BADGE] })
-    })
-    expect(PROBLEM_BLOCKING_WARNING_BADGE.color).toBe(defaultTokens.colors.blockingWarning)
-    expect(nodeBorder(calls, node)?.strokeStyle).toBe(tokens.colors.blockingWarning)
-    expect(nodeBorder(calls, node)?.lineWidth).toBe(2.5)
-    expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Warning')?.fillStyle)
-      .toBe(mixHex(tokens.colors.title, tokens.colors.blockingWarning, 0.7))
-  })
-
-  it('running state wins over a blocking-warning outline', () => {
-    const scene = fixtureScene('clean')
-    const node = nodeOf(scene, 'c1')
-    const calls = paintWith(scene, (renderer) => {
-      renderer.setNodeStates({ c1: { state: 'running', value: 0.5 } })
-      renderer.setBadges({ c1: [PROBLEM_BLOCKING_WARNING_BADGE] })
-    })
-    expect(nodeBorder(calls, node)).toMatchObject({
-      strokeStyle: defaultTokens.stateColors.running,
-      lineWidth: 2.5,
-      lineDash: [],
-    })
+    expect(nodeBorder(running, node)?.strokeStyle).toBe(defaultTokens.stateColors.running)
   })
 
   it('a fallback value row paints its stored key and value text', () => {
@@ -2244,11 +2177,11 @@ describe('node chrome paint on the live renderer', () => {
     expect(texts).toContain('20')
   })
 
-  it('a diagnosed widget row paints a red outline; undiagnosed rows never do', () => {
+  it('a field with an error paints a red outline; undiagnosed rows never do', () => {
     const scene = constructsScene()
     const free = nodeOf(scene, 'fs2')
     const row = free.layout.rows.find((candidate) => candidate.kind === 'widget')!
-    const marked = paintWith(scene, (r) => r.setRowMarks({ fs2: new Set([row.valueKey]) }))
+    const marked = paintWith(scene, (r) => r.setRowMarks({ fs2: { [row.valueKey]: 'error' } }))
     const chrome = widgetChromeRect(
       free.x + row.inset,
       free.y + row.y,

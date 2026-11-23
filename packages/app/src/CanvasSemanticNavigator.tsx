@@ -10,7 +10,7 @@ import {
   type NodeOutputText,
   type OutputTextMap,
   type PinLayout,
-  type PortProblemMap,
+  type RowProblemMap,
   type Scene,
   type SceneLinkEnd,
   type SceneNode,
@@ -43,7 +43,7 @@ export interface CanvasSemanticSource {
   readonly scene: Scene
   readonly states: Readonly<Record<string, NodeProgress>>
   readonly badges: Readonly<Record<string, readonly NodeBadge[]>>
-  readonly portProblems: PortProblemMap
+  readonly rowProblems: RowProblemMap
   readonly outputTexts: OutputTextMap
 }
 
@@ -79,9 +79,8 @@ const badgeStatus = (badge: NodeBadge): string | undefined => {
     case 'core.error': return 'runtime error'
     case 'core.execution.blocked': return badge.glyph
     case 'core.execution.expanded': return badge.glyph
-    case 'core.problem.error': return 'document error'
-    case 'core.problem.blocking-warning': return 'blocking warning'
-    case 'core.problem.warning': return 'warning'
+    case 'core.problem.error': return badge.glyph.toLowerCase()
+    case 'core.problem.warning': return badge.glyph.toLowerCase()
     case 'core.mode.muted': return 'muted'
     case 'core.mode.bypassed': return 'bypassed'
     case 'core.deprecated': return 'deprecated'
@@ -261,14 +260,13 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
     for (const pin of node.layout.pins) {
       const name = pinName(node, pin)
       const count = connections.get(pinConnectionKeyOf(node.id, pin)) ?? 0
-      const problem = pin.direction === 'in' ? source.portProblems[node.id]?.[pin.portId] : undefined
+      const problem = pin.direction === 'in' ? source.rowProblems[node.id]?.[pin.portId] : undefined
       const traits = [
         presentedType(defaultTokens, pin.type).label,
         ...(pin.matchVariable !== undefined ? [`match ${pin.matchVariable}`] : []),
         ...(pin.inferred === true ? ['inferred'] : []),
         ...(pin.optional === true ? ['optional'] : []),
         ...(pin.maybeAbsent === true ? ['may be absent'] : []),
-        ...(pin.warn === true ? ['solver warning'] : []),
         ...(problem === undefined ? [] : [problem]),
         count === 0 ? 'not connected' : `${count} connection${count === 1 ? '' : 's'}`,
       ]

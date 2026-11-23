@@ -234,14 +234,13 @@ test('diagnostics replace per scene rebuild: unrelated edits never duplicate an 
 test('node problem badges expose friendly details, clear live, and distinguish blocking warnings', async ({ page }) => {
   await openFixture(page, { count: 999 })
 
-  // The widget sweep is advisory: it paints the amber warning badge, not the
-  // explicit execution-blocking warning badge.
+  // The widget sweep is advisory: it paints the warning tab, not the error tab.
   await expect.poll(() => page.evaluate(() =>
     (window.__dinksterTest!.renderer!.getBadges()['widgets'] ?? []).map((badge) => badge.id),
   )).toContain('core.problem.warning')
   await expect.poll(() => page.evaluate(() =>
     (window.__dinksterTest!.renderer!.getBadges()['widgets'] ?? []).map((badge) => badge.id),
-  )).not.toContain('core.problem.blocking-warning')
+  )).not.toContain('core.problem.error')
 
   const advisory = await badgePoint(page, 'widgets', 'core.problem.warning')
   await page.keyboard.down('Alt')
@@ -269,8 +268,8 @@ test('node problem badges expose friendly details, clear live, and distinguish b
   )).not.toContain('core.problem.warning')
 
   // Compile the fixture's unvalued required API input and publish that real
-  // compile sweep under the active tab owner. Its severity remains warning,
-  // but its explicit blocksExecution signal selects the orange badge.
+  // compile sweep under the active tab owner. It stops a run, so it shows on
+  // the Error tab.
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
@@ -282,7 +281,7 @@ test('node problem badges expose friendly details, clear live, and distinguish b
   })
   await expect.poll(() => page.evaluate(() =>
     (window.__dinksterTest!.renderer!.getBadges()['widgets'] ?? []).map((badge) => badge.id),
-  )).toContain('core.problem.blocking-warning')
+  )).toContain('core.problem.error')
   await expect.poll(() => page.evaluate(() =>
     (window.__dinksterTest!.renderer!.getBadges()['widgets'] ?? []).map((badge) => badge.id),
   )).not.toContain('core.problem.warning')

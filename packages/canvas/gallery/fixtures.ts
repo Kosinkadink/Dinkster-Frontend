@@ -14,7 +14,6 @@ import {
   ERROR_BADGE,
   LOG_INFO_BADGE,
   MUTED_BADGE,
-  PROBLEM_BLOCKING_WARNING_BADGE,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
   SUBGRAPH_BADGE,
@@ -958,7 +957,6 @@ export function createCanvasGalleryFixture(
       'Skipped',
       'Failed',
       'Document error',
-      'Blocking warning',
       'Missing type',
       'Muted',
       'Bypassed',
@@ -990,7 +988,6 @@ export function createCanvasGalleryFixture(
       }
     }
     map['Document error']!.push(PROBLEM_ERROR_BADGE)
-    map['Blocking warning']!.push(PROBLEM_BLOCKING_WARNING_BADGE)
     map.Muted!.push(MUTED_BADGE)
     map.Bypassed!.push(BYPASSED_BADGE)
     const crowded = Array.from(
@@ -1078,7 +1075,6 @@ export function createCanvasGalleryFixture(
       'Skipped',
       'Failed',
       'Document error',
-      'Blocking warning',
       'Warning',
       'Muted',
       'Bypassed',
@@ -1109,7 +1105,6 @@ export function createCanvasGalleryFixture(
     })
     fixture.badges = {
       'Document error': [PROBLEM_ERROR_BADGE],
-      'Blocking warning': [PROBLEM_BLOCKING_WARNING_BADGE],
       Warning: [PROBLEM_WARNING_BADGE],
       Failed: [executionErrorBadge(1)],
       Muted: [MUTED_BADGE],
@@ -1138,7 +1133,7 @@ export function createCanvasGalleryFixture(
       dropTargets: new Set([dropTargetKey(held, 'cfg', 'in')]),
       dropRow: { nodeId: held, valueKey: 'cfg' },
     }
-    fixture.rowMarks = { 'Invalid value': new Set(['steps']) }
+    fixture.rowMarks = { 'Invalid value': { 'steps': 'error' } }
     fixture.scene.nodes = fixture.scene.nodes.map((node) => ({
       ...node,
       ...(node.id === 'Colored' ? { color: tokens.stateColors.running } : {}),
@@ -1239,7 +1234,6 @@ export function createCanvasGalleryFixture(
       BYPASSED_BADGE,
       PROBLEM_ERROR_BADGE,
       UNAVAILABLE_BADGE,
-      PROBLEM_BLOCKING_WARNING_BADGE,
       PROBLEM_WARNING_BADGE,
       mediaDiagnosticBadge('core.media.alpha_dropped.image.IMAGE', 'Alpha dropped: IMAGE'),
       mediaDiagnosticBadge('core.media.mask_polarity.mask.mask', 'Mask polarity: mask'),
@@ -1335,7 +1329,7 @@ export function createCanvasGalleryFixture(
     fixture.overlay = {
       hoveredWidget: { nodeId: 'Hovered', valueKey: widgetInput.id },
     }
-    fixture.rowMarks = { Invalid: new Set([widgetInput.id]) }
+    fixture.rowMarks = { Invalid: { [widgetInput.id]: 'error' } }
     fixture.height = 850
   } else if (page === 'previews') {
     // Rows of three: each row's height in the gallery.

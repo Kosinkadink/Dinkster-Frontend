@@ -1275,16 +1275,6 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
   })
 
-  // Port-anchored solver diagnostics (e.g. a stale DynamicSlot
-  // specialization) mark their pin: the warning must be visible where the
-  // user will act on it, not only in the Problems panel. Keys use the
-  // elaborated port key so dynamic member pins match exactly.
-  const warnedPins = new Set<string>()
-  for (const d of solverDiagnostics) {
-    const ref = d.anchor?.port
-    if (ref !== undefined) warnedPins.add(`${ref.node}\u0000${ref.port}`)
-  }
-
   const nodes: SceneNode[] = []
   const byId = new Map<string, SceneNode>()
   let fallbackY = 0
@@ -1383,12 +1373,10 @@ export function buildScene(input: BuildSceneInput): Scene {
                 ? matchVariableOf(pin.type)
                 : undefined
             const matchConstraint = matchConstraintOf(pin.type)
-            const warn = warnedPins.has(`${node.id}\u0000${pin.address.port}`)
             if (matchVariable === undefined) {
               return {
                 ...pin,
                 type,
-                ...(warn ? { warn: true as const } : {}),
               }
             }
             return {
@@ -1399,18 +1387,10 @@ export function buildScene(input: BuildSceneInput): Scene {
                 ? { matchConstraint }
                 : {}),
               ...(!sameTypeExpr(type, pin.type) ? { inferred: true as const } : {}),
-              ...(warn ? { warn: true as const } : {}),
             }
           }),
         }
-      : {
-          // Missing schema: no solver substitution, but anchored diagnostics
-          // still mark their pin so the red ring appears where the user acts.
-          ...rawLayout,
-          pins: rawLayout.pins.map((pin) =>
-            warnedPins.has(`${node.id}\u0000${pin.address.port}`) ? { ...pin, warn: true as const } : pin,
-          ),
-        }
+      : rawLayout
     const virtual = node.virtual === true ? input.renderVirtualNode?.(occurrenceNode) : undefined
     const layout = virtual === undefined ? layoutWithPorts : { ...layoutWithPorts, pins: [] }
     const sceneNode: SceneNode = {
