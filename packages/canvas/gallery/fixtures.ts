@@ -241,8 +241,10 @@ export interface CanvasGalleryFixture {
 /**
  * One node with an input that accepts a list beside an ordinary input of the
  * same type variable, shown open, matched by one image and matched by a list
- * of images, and a node whose input that accepts a list has the fixed type
- * INT, built and solved the way the app builds a graph.
+ * of images, a node whose input that accepts a list has the fixed type INT,
+ * and a node whose input that accepts a list is the union IMAGE or MASK, fed
+ * a list of images and one mask, built and solved the way the app builds a
+ * graph.
  */
 function acceptsListScene(
   tokens: DesignTokens,
@@ -261,8 +263,12 @@ function acceptsListScene(
       { kind: 'input', id: 'items', type: concrete('INT'), optional: false, acceptsList: true },
       { kind: 'input', id: 'value', type: concrete('INT'), optional: false },
     ])],
+    ['Either', schema('Either', [
+      { kind: 'input', id: 'items', type: { kind: 'union', names: ['IMAGE', 'MASK'] }, optional: false, acceptsList: true },
+    ])],
     ['Image', schema('Image', [{ kind: 'output', id: 'IMAGE', type: image }])],
     ['Images', schema('Images', [{ kind: 'output', id: 'IMAGE', displayName: 'list of IMAGE', type: { kind: 'list', element: image } }])],
+    ['Mask', schema('Mask', [{ kind: 'output', id: 'MASK', type: concrete('MASK') }])],
   ])
   const nodes: Record<string, { type: string; title?: string; x: number; y: number }> = {
     open: { type: 'Join', title: 'Open', x: 240, y: 0 },
@@ -271,6 +277,10 @@ function acceptsListScene(
     images: { type: 'Images', x: 0, y: 260 },
     list: { type: 'Join', title: 'A list of images', x: 240, y: 260 },
     fixed: { type: 'Count', title: 'Fixed type', x: 240, y: 390 },
+    unionImages: { type: 'Images', x: 0, y: 520 },
+    unionList: { type: 'Either', title: 'Union, a list of images', x: 240, y: 520 },
+    mask: { type: 'Mask', x: 0, y: 620 },
+    unionOne: { type: 'Either', title: 'Union, one mask', x: 240, y: 620 },
   }
   const loaded = loadDocument({
     format: 'dinkster-workflow',
@@ -291,6 +301,8 @@ function acceptsListScene(
         links: {
           'one image': { id: 'one image', from: { node: 'image', port: 'IMAGE' }, to: { node: 'one', port: 'items' } },
           'list of images': { id: 'list of images', from: { node: 'images', port: 'IMAGE' }, to: { node: 'list', port: 'items' } },
+          'union list': { id: 'union list', from: { node: 'unionImages', port: 'IMAGE' }, to: { node: 'unionList', port: 'items' } },
+          'union one': { id: 'union one', from: { node: 'mask', port: 'MASK' }, to: { node: 'unionOne', port: 'items' } },
         },
       },
     },
@@ -1166,7 +1178,7 @@ export function createCanvasGalleryFixture(
       })
     examples.push({
       caption:
-        'An input that accepts a list keeps the one-value-or-list pin while its type is open, after one image matches it, after a list of images matches it, and when its type is the fixed type INT. Value, an ordinary input of the same type, is a plain circle once its type is known.',
+        'An input that accepts a list keeps the one-value-or-list pin while its type is open, after one image matches it, after a list of images matches it, when its type is the fixed type INT, and when its type is the union IMAGE or MASK, with a list of images or one mask wired in. Value, an ordinary input of the same type, is a plain circle once its type is known.',
       scene: acceptsListScene(tokens, measure, widgetMeasure),
     })
     const subgraph = subgraphAcceptsListScenes(tokens, measure, widgetMeasure)
