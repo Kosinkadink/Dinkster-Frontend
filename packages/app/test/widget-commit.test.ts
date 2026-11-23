@@ -178,6 +178,22 @@ describe('resolveTypedNumber', () => {
     expect(stepTypedNumber('12000', steps, 12000, 1, false)).toBe('10000')
   })
 
+  it('stores a special value as typed, notes nothing for it, and counts the step from the offset', () => {
+    const frames: WidgetSpec = { widgetType: 'INT', options: { min: 1, step: 4, special: [{ value: 0, label: 'off' }] } }
+    expect(resolveTypedNumber('0', frames, 5)).toEqual({ kind: 'store', value: 0 })
+    expect(resolveTypedNumber('-1', frames, 5)).toEqual({ kind: 'store', value: 1, problem: 'Below 1. Enter uses 1.' })
+    expect(storedNumberNote(frames, 0)).toBeUndefined()
+    const auto: WidgetSpec = { widgetType: 'FLOAT', options: { min: 0, max: 100, special: [{ value: -1, label: 'auto' }] } }
+    expect(resolveTypedNumber('-1', auto, 7)).toEqual({ kind: 'store', value: -1 })
+    expect(resolveTypedNumber('-1.5', auto, 7)).toEqual({ kind: 'store', value: 0, problem: 'Below 0.0. Enter uses 0.0.' })
+    // Allowed values are 1, 5, 9, ...: 6 is nearer 5 than 9.
+    const shifted: WidgetSpec = { widgetType: 'INT', options: { step: 4, offset: 1 } }
+    expect(resolveTypedNumber('6', shifted, 5)).toEqual({ kind: 'store', value: 5, problem: 'Not a multiple of 4. Enter uses 5.' })
+    // Counted from 0 the nearest is 0, below the limit, so the next value up is used.
+    const lifted: WidgetSpec = { widgetType: 'INT', options: { min: 1, step: 4, offset: 0 } }
+    expect(resolveTypedNumber('1', lifted, 4)).toEqual({ kind: 'store', value: 4, problem: 'Not a multiple of 4. Enter uses 4.' })
+  })
+
   it('steps an open field from what Enter would store', () => {
     expect(stepTypedNumber('6*8', steps, 20, 1, false)).toBe('49')
     expect(stepTypedNumber('abc', steps, 20, 1, false)).toBe('21')
