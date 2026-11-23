@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { BoundaryItem, GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
+import type { NodeSchema } from '../src/schema/model.js'
 import { asGraphDefId, asLineageId, asNodeId, asPortId, asRerouteId } from '../src/ids.js'
 
 // ---------------------------------------------------------------------------
@@ -260,9 +261,23 @@ describe('boundary item lifecycle commands', () => {
   })
 
   it('exposing a choice descendant twice is refused without changing the document', () => {
+    const FLOAT = { kind: 'concrete', name: 'FLOAT' } as const
+    const batch = {
+      type: 'Batch', displayName: 'Batch', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{
+        kind: 'choice', id: 'mode', required: true, shared: [],
+        options: [{ key: 'soft', rows: [{ kind: 'input', id: 'strength', type: FLOAT, optional: false, widget: { widgetType: 'FLOAT', options: {}, default: 0.3 } }] }],
+      }, { kind: 'input', id: 'modeless', type: FLOAT, optional: true }],
+    } as unknown as NodeSchema
+    const makeStore = (d: WorkflowDocument) => new DocumentStore(d, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => (type: string) => type === 'Batch' ? batch : undefined }))
+    // Only a construct is shown whole.
+    const plain = makeStore(subDoc([]))
+    const notConstruct = plain.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'n1', port: 'modeless' } })
+    expect(!notConstruct.ok && notConstruct.diagnostics[0]!.code).toBe('boundary.notAConstruct')
     // The choice is shown whole: it owns every row inside it.
     const store = makeStore(subDoc([]))
-    expect(store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'mode', whole: true } }).ok).toBe(true)
+    expect(store.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'n1', port: 'mode' } }).ok).toBe(true)
     expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'mode', binds: { kind: 'construct', node: 'n1', port: 'mode' } }])
     const shown = structuredClone(store.doc)
     const child = store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'mode.strength' } })
@@ -272,7 +287,7 @@ describe('boundary item lifecycle commands', () => {
     // And the other way round: a row already shown keeps the construct from being shown whole.
     const other = makeStore(subDoc([{ id: 'strength', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('mode.strength') } }]))
     const before = structuredClone(other.doc)
-    const whole = other.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'mode', whole: true } })
+    const whole = other.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'n1', port: 'mode' } })
     expect(!whole.ok && whole.diagnostics[0]!.code).toBe('boundary.constructOwned')
     expect(other.doc).toEqual(before)
     expect(other.canUndo).toBe(false)

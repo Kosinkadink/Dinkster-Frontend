@@ -1222,8 +1222,8 @@ const showConstructOnSubgraphNode: MenuContribution = {
         action: {
           kind: 'command',
           invocation: {
-            command: 'boundary.addItem',
-            params: { graphId: ctx.graphId, side: construct.side, node: node.id, port: construct.path, whole: true },
+            command: 'boundary.showOnSubgraphNode',
+            params: { graphId: ctx.graphId, node: node.id, port: construct.path },
           },
         },
       }))

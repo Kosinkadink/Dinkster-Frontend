@@ -13,7 +13,9 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { boundaryBindingKey, isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type GraphDef, type Json, type JsonObject, type NodeBoundaryBinding, type WorkflowDocument } from '../format/document.js'
 import { asNodeId, asPortId, asRerouteId } from '../ids.js'
-import type { CommandDefinition } from './contract.js'
+import type { CommandDefinition, CommandExecutionContext, SharedReplayPreparation } from './contract.js'
+import { documentNodeResolver } from '../compile/compile.js'
+import { constructsAround } from '../schema/derive-boundary.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 
@@ -185,12 +187,6 @@ const bindingMatchesEndpoint = (binding: BoundaryBinding, target: BoundaryBindin
 
 const bindingFromParams = (params: JsonObject, side: Side): NodeBoundaryBinding | undefined => {
   if (typeof params.node !== 'string') return undefined
-  if (params.whole !== undefined) {
-    return params.whole === true && typeof params.port === 'string' && params.port.length > 0 &&
-      params.tap === undefined && params.viaReroute === undefined
-      ? { kind: 'construct', node: asNodeId(params.node), port: asPortId(params.port) }
-      : undefined
-  }
   if (typeof params.tap === 'string' && params.tap.length > 0 && params.port === undefined) {
     return side === 'outputs' && params.viaReroute === undefined
       ? { kind: 'widgetTap', node: asNodeId(params.node), tap: asPortId(params.tap) } : undefined
@@ -207,14 +203,12 @@ const bindingFromParams = (params: JsonObject, side: Side): NodeBoundaryBinding 
 }
 
 // ---------------------------------------------------------------------------
-// boundary.addItem {graphId, side, node, port?, tap?, whole?, itemId?, displayName?}
+// boundary.addItem {graphId, side, node, port?, tap?, itemId?, displayName?}
 //
 // Appends one endpoint exposure. IDs are allocated deterministically from the
 // target when omitted. Input targets are globally unique across primary and
-// fan-out bindings; outputs may re-expose a source. `whole: true` shows the
-// group, choice, type choice or described row at `port` whole; it owns every
-// row inside it, so it is refused while a row inside it is shown, and a row
-// inside a construct shown whole is refused.
+// fan-out bindings; outputs may re-expose a source. A row inside a construct
+// shown whole is refused: the construct owns it.
 // ---------------------------------------------------------------------------
 
 /** The item that already shows `binding`'s row through a construct, or a row inside it. */
@@ -228,6 +222,52 @@ function ownershipConflict(def: GraphDef, binding: NodeBoundaryBinding): Boundar
   }))
 }
 
+/** Append one item binding `binding`, after the ownership and duplicate checks. */
+function appendBinding(
+  tx: Parameters<CommandDefinition['run']>[2],
+  command: string,
+  graphId: string,
+  def: GraphDef,
+  side: Side,
+  binding: NodeBoundaryBinding,
+  itemId?: string,
+  displayName?: string,
+): readonly Diagnostic[] {
+  const items = def.boundary?.[side] ?? []
+  const allItems = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
+  if (itemId !== undefined && allItems.some((item) => item.id === itemId))
+    return [err('boundary.duplicateId', `${command}: boundary item '${itemId}' already exists in graph '${graphId}'`)]
+  const target = binding.kind === 'widgetTap' ? binding.tap : binding.port
+  const owner = ownershipConflict(def, binding)
+  if (owner !== undefined)
+    return [err('boundary.constructOwned', `${command}: '${target}' is already shown through '${owner.id}'`)]
+  if (side === 'inputs' && items.some((item) =>
+    [item.binds, ...(item.alsoBinds ?? [])].some((candidate) => bindingMatchesEndpoint(candidate, binding))))
+    return [err('boundary.duplicateBind', `${command}: inner input '${binding.node}/${target}' is already bound by another boundary input`)]
+  let id = itemId
+  if (id === undefined) {
+    id = target
+    // Allocate against BOTH sides: derivation treats boundary item ids
+    // as one global namespace, so a generated input id must not collide
+    // with an existing output id either.
+    for (let suffix = 2; allItems.some((item) => item.id === id); suffix++) id = `${target}_${suffix}`
+  }
+  const item = {
+    id,
+    ...(displayName !== undefined && displayName.length > 0 ? { displayName } : {}),
+    binds: binding,
+  }
+  if (!def.boundary) {
+    tx.set(['graphs', graphId, 'boundary'], {
+      inputs: side === 'inputs' ? [item] : [],
+      outputs: side === 'outputs' ? [item] : [],
+    } as unknown as Json)
+  } else {
+    tx.set(['graphs', graphId, 'boundary', side], [...items, item] as unknown as Json)
+  }
+  return []
+}
+
 const boundaryAddItem: CommandDefinition = {
   id: 'boundary.addItem',
   run(doc, params, tx) {
@@ -236,46 +276,56 @@ const boundaryAddItem: CommandDefinition = {
       typeof params.node !== 'string' || bindingFromParams(params, params.side) === undefined ||
       (params.itemId !== undefined && (typeof params.itemId !== 'string' || params.itemId.length === 0)) ||
       (params.displayName !== undefined && typeof params.displayName !== 'string')
-    ) return [err('params.invalid', "boundary.addItem: params must identify one port binding, one construct shown whole, or one outputs-side widget tap")]
+    ) return [err('params.invalid', "boundary.addItem: params must identify one port binding, or one outputs-side widget tap")]
     const def = graphOf(doc, params.graphId)
     if (!def) return [err('graph.missing', `boundary.addItem: unknown graph '${params.graphId}'`)]
     if (!def.nodes[params.node]) return [err('node.missing', `boundary.addItem: no node '${params.node}' in graph '${params.graphId}'`)]
-    const items = def.boundary?.[params.side] ?? []
-    const allItems = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
-    if (params.itemId !== undefined && allItems.some((item) => item.id === params.itemId))
-      return [err('boundary.duplicateId', `boundary.addItem: boundary item '${params.itemId}' already exists in graph '${params.graphId}'`)]
-    const binding = bindingFromParams(params, params.side)!
-    const owner = ownershipConflict(def, binding)
-    if (owner !== undefined)
-      return [err('boundary.constructOwned', `boundary.addItem: '${params.port}' is already shown through '${owner.id}'`)]
-    if (params.side === 'inputs' && items.some((item) =>
-      [item.binds, ...(item.alsoBinds ?? [])].some((candidate) => bindingMatchesEndpoint(candidate, binding))))
-      return [err('boundary.duplicateBind', `boundary.addItem: inner input '${params.node}/${params.port}' is already bound by another boundary input`)]
-    let id = params.itemId as string | undefined
-    if (id === undefined) {
-      const base = binding.kind === 'widgetTap'
-        ? binding.tap
-        : binding.port
-      id = base
-      // Allocate against BOTH sides: derivation treats boundary item ids
-      // as one global namespace, so a generated input id must not collide
-      // with an existing output id either.
-      for (let suffix = 2; allItems.some((item) => item.id === id); suffix++) id = `${base}_${suffix}`
-    }
-    const item = {
-      id,
-      ...(typeof params.displayName === 'string' && params.displayName.length > 0 ? { displayName: params.displayName } : {}),
-      binds: binding,
-    }
-    if (!def.boundary) {
-      tx.set(['graphs', params.graphId, 'boundary'], {
-        inputs: params.side === 'inputs' ? [item] : [],
-        outputs: params.side === 'outputs' ? [item] : [],
-      } as unknown as Json)
-    } else {
-      tx.set(['graphs', params.graphId, 'boundary', params.side], [...items, item] as unknown as Json)
-    }
-    return []
+    return appendBinding(tx, 'boundary.addItem', params.graphId, def, params.side, bindingFromParams(params, params.side)!,
+      params.itemId as string | undefined, params.displayName as string | undefined)
+  },
+}
+
+// ---------------------------------------------------------------------------
+// boundary.showOnSubgraphNode {graphId, node, port, side?}
+//
+// Shows the group, choice, type choice or described row at `port` of an inner
+// node whole on the subgraph node, in one undo step. Each subgraph node then
+// owns its members, pick and values. The first run reads the schema and
+// records the side, so a shared replay writes the same item without one.
+// ---------------------------------------------------------------------------
+
+function prepareShowParams(doc: WorkflowDocument, params: Json, context: CommandExecutionContext): SharedReplayPreparation {
+  if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.node !== 'string' ||
+      typeof params.port !== 'string' || params.port.length === 0 || (params.side !== undefined && !isSide(params.side)))
+    return { ok: false, diagnostics: [err('params.invalid', "boundary.showOnSubgraphNode: params must be {graphId, node, port, side?: 'inputs'|'outputs'}")] }
+  const def = graphOf(doc, params.graphId)
+  if (!def) return { ok: false, diagnostics: [err('graph.missing', `boundary.showOnSubgraphNode: unknown graph '${params.graphId}'`)] }
+  if (params.graphId === doc.root)
+    return { ok: false, diagnostics: [err('boundary.topLevel', 'boundary.showOnSubgraphNode: the top-level workflow has no subgraph node')] }
+  const node = def.nodes[params.node]
+  if (!node) return { ok: false, diagnostics: [err('node.missing', `boundary.showOnSubgraphNode: no node '${params.node}' in graph '${params.graphId}'`)] }
+  const resolve = context.kind === 'initial' ? context.schemaResolverFor?.(doc) : undefined
+  if (resolve === undefined) return { ok: true, params }
+  const schema = documentNodeResolver(doc, resolve)(params.graphId, node)
+  const construct = schema === undefined ? undefined : constructsAround(schema, params.port).find((entry) => entry.path === params.port)
+  if (construct === undefined)
+    return { ok: false, diagnostics: [err('boundary.notAConstruct', `boundary.showOnSubgraphNode: '${params.node}/${params.port}' is not a group, choice, type choice or described row`)] }
+  return { ok: true, params: { ...params, side: construct.side } }
+}
+
+const boundaryShowOnSubgraphNode: CommandDefinition = {
+  id: 'boundary.showOnSubgraphNode',
+  prepareForSharedReplay(doc, params, context) {
+    return prepareShowParams(doc, params, context)
+  },
+  run(doc, params, tx, context) {
+    const prepared = prepareShowParams(doc, params, context)
+    if (!prepared.ok) return [...prepared.diagnostics]
+    const p = prepared.params as JsonObject
+    if (!isSide(p.side)) return [err('params.invalid', 'boundary.showOnSubgraphNode: the side is unknown without the node\'s schema')]
+    const def = graphOf(doc, p.graphId as string)!
+    return appendBinding(tx, 'boundary.showOnSubgraphNode', p.graphId as string, def, p.side,
+      { kind: 'construct', node: asNodeId(p.node as string), port: asPortId(p.port as string) })
   },
 }
 
@@ -379,6 +429,7 @@ export const BOUNDARY_COMMANDS: readonly CommandDefinition[] = [
   boundaryAddBinding,
   boundaryRemoveBinding,
   boundaryAddItem,
+  boundaryShowOnSubgraphNode,
   boundaryRenameItem,
   boundarySetBinding,
   boundaryUnbind,
