@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { documentNodeResolver, documentPrimitiveResolver } from '../src/compile/compile.js'
+import { coreCommandRegistry } from '../src/commands/core-commands.js'
+import { DocumentStore } from '../src/commands/store.js'
 import type { NodeData, WorkflowDocument } from '../src/format/document.js'
 import { inputsOf, type InputSpec, type NodeSchema, type TypeExpr, type WidgetSpec } from '../src/schema/model.js'
 
@@ -100,5 +102,30 @@ describe('a primitive works out its value widget', () => {
   it('lets a Choice that feeds nothing be typed in as text', () => {
     const doc = docOf({ choice: { type: 'Choice' } }, [])
     expect(effectiveOf(doc, 'choice')?.spec?.widgetType).toBe('STRING')
+  })
+})
+
+describe('plugging a primitive into a field', () => {
+  const storeOf = (doc: WorkflowDocument) =>
+    new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+  const connect = (store: DocumentStore, to: string, port: string) =>
+    store.dispatch({ command: 'link.connect', params: { graphId: 'g0', from: { node: 'prim', port: 'INT' }, to: { node: to, port } } })
+
+  it('moves a value outside the new range to its nearest end in the same undo step', () => {
+    const store = storeOf(docOf({ prim: { type: 'Int', values: { value: 2 } }, a: { type: 'Steps' }, b: { type: 'Count' } },
+      [['prim', 'INT', 'a', 'steps']]))
+    expect(connect(store, 'b', 'count').ok).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['prim']!.values['value']).toBe(4)
+    expect(Object.keys(store.doc.graphs['g0']!.links)).toHaveLength(2)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['prim']!.values['value']).toBe(2)
+    expect(Object.keys(store.doc.graphs['g0']!.links)).toHaveLength(1)
+  })
+
+  it('leaves the value alone when the fields share no range', () => {
+    const store = storeOf(docOf({ prim: { type: 'Int', values: { value: 2 } }, a: { type: 'Steps' }, b: { type: 'Far' } },
+      [['prim', 'INT', 'a', 'steps']]))
+    expect(connect(store, 'b', 'far').ok).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['prim']!.values['value']).toBe(2)
   })
 })

@@ -51,7 +51,10 @@ import {
   ensureCommandViewGraph as ensureViewGraph,
   isCommandObject as isObj,
   isCompleteAssetRef,
+  schemaResolverForCommand,
 } from './command-support.js'
+import { documentPrimitiveResolver } from '../compile/compile.js'
+import { primitiveOf } from '../primitive.js'
 
 // Finite only (CO2): NaN/Infinity are not JSON and would poison geometry.
 const isVec2 = (v: Json | undefined): v is JsonObject & { x: number; y: number } =>
@@ -1200,7 +1203,7 @@ function connectError(def: GraphDef, graphId: string, from: LinkEndpoint, to: Li
 
 const linkConnect: CommandDefinition = {
   id: 'link.connect',
-  run(doc, params, tx) {
+  run(doc, params, tx, context) {
     if (!isObj(params) || !isEndpoint(params.from) || !isEndpoint(params.to))
       return [err('params.invalid', 'link.connect: params must be {graphId, from: Endpoint, to: Endpoint}')]
     const def = graphOf(doc, params.graphId)
@@ -1221,8 +1224,48 @@ const linkConnect: CommandDefinition = {
     const id = allocateOne(tx, graphId, def, 'l')
     const link: LinkData = { id: id as LinkData['id'], from, to }
     tx.set(['graphs', graphId, 'links', id], link as unknown as Json)
+    const resolve = schemaResolverForCommand(tx.current, context)
+    const correction = isObj(params.correct) ? params.correct
+      : resolve === undefined ? undefined : primitiveCorrectionOf(tx.current, graphId, from, resolve)
+    if (correction !== undefined && typeof correction.node === 'string' && typeof correction.valueKey === 'string' &&
+      typeof correction.value === 'number' && def.nodes[correction.node] !== undefined) {
+      tx.set(['graphs', graphId, 'nodes', correction.node, 'values', correction.valueKey], correction.value)
+    }
     return []
   },
+  prepareForSharedReplay(doc, params, context) {
+    if (!isObj(params) || params.correct !== undefined || !isEndpoint(params.from) || !isEndpoint(params.to)) return undefined
+    const graphId = params.graphId as string
+    const def = graphOf(doc, graphId)
+    const resolve = schemaResolverForCommand(doc, context)
+    if (!def || resolve === undefined) return undefined
+    const from = toEndpoint(params.from)
+    const to = toEndpoint(params.to)
+    const links = Object.fromEntries(Object.entries(def.links).filter(([, link]) => !sameEndpoint(link.to, to)))
+    const prospective = { ...doc, graphs: { ...doc.graphs, [graphId]: { ...def, links: { ...links, prospective: { id: 'prospective', from, to } } } } } as WorkflowDocument
+    const correct = primitiveCorrectionOf(prospective, graphId, from, resolve)
+    return correct === undefined ? undefined : { ok: true, params: { ...params, correct } }
+  },
+}
+
+/**
+ * Plugging a primitive into a field whose range does not hold its value
+ * moves the value to the nearest end of the range, in the same undo step as
+ * the wire. Nothing else ever corrects a primitive's value.
+ */
+function primitiveCorrectionOf(doc: WorkflowDocument, graphId: string, from: LinkEndpoint, resolve: SchemaResolver): JsonObject | undefined {
+  if (!isPortEndpoint(from)) return undefined
+  const node = doc.graphs[graphId]?.nodes[from.node]
+  const schema = node && resolve(node.type)
+  const shape = schema && primitiveOf(schema)
+  if (!node || !shape || shape.output.id !== from.port) return undefined
+  const value = node.values[shape.value.id]
+  const options = documentPrimitiveResolver(doc, resolve)(graphId, node)?.spec?.options
+  if (typeof value !== 'number' || options === undefined) return undefined
+  const min = typeof options['min'] === 'number' ? options['min'] : -Infinity
+  const max = typeof options['max'] === 'number' ? options['max'] : Infinity
+  if (min > max || (value >= min && value <= max)) return undefined
+  return { node: node.id, valueKey: shape.value.id, value: value < min ? min : max }
 }
 
 // ---------------------------------------------------------------------------
