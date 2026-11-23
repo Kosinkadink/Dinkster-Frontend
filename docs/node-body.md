@@ -203,8 +203,9 @@ as one undo step, after its last step; a step that fails, a list or form that
 is closed, or Cancel stores nothing. Copy, Download, Queue, Interrupt, Open
 link and a called file run after the commit; their failure is reported and
 does not take the commit back. Redo replays the committed values and calls
-nothing again. A file is saved as an ordinary download, in Desktop too, so a
-Save As closed without saving is not reported.
+nothing again. A file goes through the ordinary download, which Desktop shows
+as its Save As dialog; the press cannot see that dialog, so a Save As closed
+without saving is not reported.
 
 - **Off.** A button is drawn dimmed and does not run when the pack turns it
   off, when a field it needs arrives on a wire, when every field it sets has a
