@@ -293,6 +293,8 @@ describe('canvas tooltip provider', () => {
     ['expected', 'Current expected value: 1.30'],
     ['cached', 'Retained last-resolved value: 1.30'],
     ['stale', 'Stale/unproven value: 1.30'],
+    ['unknown', 'Known after a run'],
+    ['nothing', 'Nothing: the node feeding this wire was skipped'],
   ] as const)('names the %s connected display state and dormant stored value truthfully', (state, line) => {
     const row = {
       inputId: 'cfg', valueKey: 'cfg', label: 'cfg',
@@ -305,7 +307,7 @@ describe('canvas tooltip provider', () => {
     }
     expect(resolveCanvasTooltip(target, { detailed: false })?.lines).toEqual([
       line,
-      'Dormant stored value under connection: 8.00',
+      'Dormant stored value under connection: 8.00, used again when the wire is removed',
     ])
   })
 

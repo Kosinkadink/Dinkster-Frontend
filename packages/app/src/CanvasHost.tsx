@@ -3187,7 +3187,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (target.kind !== 'badge') {
           let tooltipTarget: unknown = target
           if (target.kind === 'widget' || target.kind === 'controller') {
-            const companion = companionDisplays[target.hit.node.id]?.[target.hit.row.valueKey]
+            const companion = target.kind === 'widget'
+              ? renderer.fieldCompanion(target.hit.node.id, target.hit.row.valueKey)
+              : companionDisplays[target.hit.node.id]?.[target.hit.row.valueKey]
             const linked = companionInputs.get(target.hit.node.id)?.has(target.hit.row.inputId) || scene.links.some((link) =>
               link.to.kind === 'port' && link.to.node === target.hit.node.id &&
               link.to.port === target.hit.row.inputId &&

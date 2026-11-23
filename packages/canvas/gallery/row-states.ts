@@ -237,6 +237,20 @@ export function rowStateExamples(
       caption: 'Wired but value not yet known. radius reads Known after a run: never Nothing, and never the stored 12 as if it arrived.',
       scene: feed(),
     },
+    {
+      id: 'unknown-narrow',
+      caption: 'The same on a narrow node. The words end in an ellipsis rather than growing the node; the readout on pointing gives them in full with the stored 12, used again when the wire is removed. The Link-driven widgets page showed the stored value struck through here before.',
+      scene: sceneOf(
+        [
+          { id: 'measure', schema: measureNode, x: 0, y: 0, width: 120 },
+          { id: 'soften', schema: soften, x: 170, y: 0, width: 130 },
+        ],
+        [{ from: ['measure', 'radius'], to: ['soften', 'radius'] }],
+        tokens,
+        measure,
+        widgetMeasure,
+      ),
+    },
   ]
   const promoted: RowStateExample[] = [
     {

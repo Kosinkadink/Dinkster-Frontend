@@ -312,19 +312,23 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     ]
     const text = formatWidgetValue(t.companion?.value ?? value, row.spec)
     const state = t.companion?.state ?? (t.companion?.stale ? 'stale' : t.companion ? 'expected' : undefined)
-    const line = state === 'expected'
-      ? `Current expected value: ${text}`
-      : state === 'cached'
-        ? `Retained last-resolved value: ${text}`
-        : state === 'stale'
-          ? `Stale/unproven value: ${text}`
-          : state === 'estimate'
-            ? `Mirrored estimate (computed locally, not executed): ${text}`
-            : t.connected
-              ? `Dormant stored value under connection: ${text}`
-              : `Value: ${text}`
+    const line = state === 'nothing'
+      ? 'Nothing: the node feeding this wire was skipped'
+      : state === 'unknown'
+        ? 'Known after a run'
+        : state === 'expected'
+          ? `Current expected value: ${text}`
+          : state === 'cached'
+            ? `Retained last-resolved value: ${text}`
+            : state === 'stale'
+              ? `Stale/unproven value: ${text}`
+              : state === 'estimate'
+                ? `Mirrored estimate (computed locally, not executed): ${text}`
+                : t.connected
+                  ? `Dormant stored value under connection: ${text}`
+                  : `Value: ${text}`
     const stored = t.companion && t.connected
-      ? [`Dormant stored value under connection: ${formatWidgetValue(value, row.spec)}`]
+      ? [`Dormant stored value under connection: ${formatWidgetValue(value, row.spec)}, used again when the wire is removed`]
       : []
     return { title: row.label, lines: [line, ...stored], ...(opts.detailed && detail.length ? { detail } : {}) }
   }

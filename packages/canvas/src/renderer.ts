@@ -4138,6 +4138,36 @@ export class CanvasRenderer {
   }
 
   /**
+   * The value a field row shows in place of its own, or undefined when the
+   * row is not wired. A wired row never shows its stored value as the one
+   * arriving: it reads "Nothing" when a run proved nothing arrives, and
+   * "Known after a run" while the arriving value is not known.
+   */
+  private rowCompanion(
+    nodeId: string,
+    row: Extract<LayoutRow, { kind: 'widget' }>,
+    driven?: { readonly value?: Json },
+  ): CompanionDisplay | undefined {
+    if (this.nothingInputs.has(`${nodeId}\u0000${row.inputId}`)) return { value: null, state: 'nothing' }
+    const arriving = driven !== undefined ? driven.value : this.panelFieldValues.get(`${nodeId}\u0000${row.inputId}`)
+    const known = driven !== undefined || arriving !== undefined
+      ? arriving === undefined ? undefined : { value: arriving }
+      : this.companions[nodeId]?.[row.valueKey]
+    // Selector rows ignore boundary bindings for inertness: the bound row
+    // remains the occurrence-local editor.
+    const linkSet = row.selector !== undefined ? this.valueDrivenInputPins : this.connectedInputPins
+    const wired = driven !== undefined || known !== undefined || linkSet.has(`${nodeId}\u0000${row.inputId}`)
+    return known ?? (wired ? { value: null, state: 'unknown' } : undefined)
+  }
+
+  /** What a node's field row shows in place of its stored value, as it is painted; undefined when unwired. */
+  fieldCompanion(nodeId: string, valueKey: string): CompanionDisplay | undefined {
+    const row = this.scene.nodes.find((node) => node.id === nodeId)?.layout.rows
+      .find((r): r is Extract<LayoutRow, { kind: 'widget' }> => r.kind === 'widget' && r.valueKey === valueKey)
+    return row === undefined ? undefined : this.rowCompanion(nodeId, row)
+  }
+
+  /**
    * One field row, painted the same on a node and on a subgraph's Inputs
    * panel. `node` is `sceneNode` with any drag offset applied; `driven` is
    * set for a panel field wired outside the subgraph, with the value the
@@ -4154,22 +4184,9 @@ export class CanvasRenderer {
     const l = node.layout
     const rowY = node.y + row.y
     if (this.openRows[sceneNode.id] === row.valueKey) return
-    const arriving = driven !== undefined ? driven.value : this.panelFieldValues.get(`${sceneNode.id}\u0000${row.inputId}`)
-    const known = driven !== undefined || arriving !== undefined
-      ? arriving === undefined ? undefined : { value: arriving }
-      : this.companions[sceneNode.id]?.[row.valueKey]
     const widgetWidth = row.width ?? l.width - row.inset * 2
-    // Selector rows ignore boundary bindings for inertness: the bound row
-    // remains the occurrence-local editor.
-    const linkSet = row.selector !== undefined ? this.valueDrivenInputPins : this.connectedInputPins
-    const wired = driven !== undefined || known !== undefined || linkSet.has(`${sceneNode.id}\u0000${row.inputId}`)
-    // A wired row never shows its stored value as the one arriving: it reads
-    // "Nothing" when a run proved nothing arrives, and "Known after a run"
-    // while the arriving value is not known.
-    const companion: CompanionDisplay | undefined = this.nothingInputs.has(`${sceneNode.id}\u0000${row.inputId}`)
-      ? { value: null, state: 'nothing' }
-      : known ?? (wired ? { value: null, state: 'unknown' } : undefined)
-    const connected = wired
+    const companion = this.rowCompanion(sceneNode.id, row, driven)
+    const connected = companion !== undefined
     const rowAlpha = ctx.globalAlpha
     if (row.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
     if (row.inactive) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
