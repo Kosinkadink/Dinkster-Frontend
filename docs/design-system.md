@@ -839,6 +839,18 @@ and dimmed nodes. Captions name what the canvas does not draw yet: "Not run" and
 "Nothing plugged in" text, and "Not known yet" in place of a wired field's
 struck-through stored value.
 
+Or else, Has value and Only if, under Flow nodes, draws those three nodes as
+ordinary nodes, one card per state of their design. The cards show Or else
+giving its first input that has a value and stopping there, falling through a
+skipped stage, an added third input, two orders of its rows, every input
+nothing, a failure that is not a fallback and a refused wire of another type;
+Has value on 0, No, empty text, an empty list, nothing and no wire; Only if on
+and off, behind a switched-off stage with an Or else after it, with nothing
+plugged into Value, with a Condition that is itself nothing, and with
+Condition shown on two subgraph nodes beside a finished run. A value on a wire
+is named in the caption, since the canvas does not paint it; a skipped node
+shows today's Skipped state and a node that was not run shows no state.
+
 The Idle outline page compares the previous outline (Before) with the quieter
 current outline (After) on idle, hovered and selected nodes. The app and
 gallery default to the shared subtle idle border; Before overrides only that
