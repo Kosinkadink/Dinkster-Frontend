@@ -53,18 +53,8 @@ export function ProductResourceUsage(props: {
     samples().length < 2
       ? ''
       : `${line()} L${x(samples().at(-1)!.timestamp)} ${height} L${x(samples()[0]!.timestamp)} ${height} Z`
-  const percent = (value: number, index: number) => {
-    const remaining = Math.max(
-      0,
-      props.total -
-        props.segments
-          .slice(0, index)
-          .reduce((sum, segment) => sum + Math.max(0, segment.value), 0),
-    )
-    return props.total > 0
-      ? (Math.min(remaining, Math.max(0, value)) / props.total) * 100
-      : 0
-  }
+  const percent = (value: number) =>
+    props.total > 0 ? (value / props.total) * 100 : 0
   return (
     <section
       class="dinkster-resource-usage"
@@ -86,12 +76,9 @@ export function ProductResourceUsage(props: {
               data-tone={segment.tone}
               x={props.segments
                 .slice(0, index())
-                .reduce(
-                  (sum, item, position) => sum + percent(item.value, position),
-                  0,
-                )}
+                .reduce((sum, item) => sum + percent(item.value), 0)}
               y="0"
-              width={percent(segment.value, index())}
+              width={percent(segment.value)}
               height="1"
             />
           )}
