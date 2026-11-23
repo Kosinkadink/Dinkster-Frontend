@@ -167,7 +167,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         ? compactSummary(view, args.companion.value, row.spec)
         : undefined
       const formatted = summary?.text ?? formatWidgetValue(args.companion.value, row.spec)
-      const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+      const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
       const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
       const lead = subgraphMarkReserve(row)
       const companionZone = shareRowWidth(field.right - field.left, lead + measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
@@ -187,7 +187,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     }
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
-    const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+    const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
     const inRow = tokens.widgetEditing === 'in-row'
     // In-row editing draws a number's after-run mode as an icon before its value instead of the chip.
     const modeIcon = inRow && numeric && row.controllerMode !== undefined ? row.controllerMode : undefined
