@@ -101,6 +101,7 @@ import {
   selectorOutPinPosition,
   previewFoldedOf,
   valueSourceBadgeRect,
+  valueSourceMarkRect,
   valueSourcePinPosition,
   type Scene,
   type SceneBoundaryNode,
@@ -539,7 +540,7 @@ export type CanvasHoverTarget =
   | { readonly kind: 'widgetTap'; readonly hit: Extract<Hit, { kind: 'widgetTap' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'widget'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'controller'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
-  | { readonly kind: 'subgraphMark'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
+  | { readonly kind: 'subgraphMark'; readonly mark: { readonly item: string; readonly label: string }; readonly x: number; readonly y: number }
   | { readonly kind: 'header'; readonly hit: Extract<Hit, { kind: 'header' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'reroute'; readonly hit: Extract<Hit, { kind: 'reroute' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'link'; readonly hit: Extract<Hit, { kind: 'link' }>; readonly x: number; readonly y: number }
@@ -3156,6 +3157,13 @@ export class InteractionController {
     return hit.localX >= rect.x && hit.localX <= rect.x + rect.size && hit.localY >= rect.y && hit.localY <= rect.y + rect.size
   }
 
+  /** A value source's subgraph mark when the world point is on it (valueSourceMarkRect). */
+  private valueSourceMarkAt(vs: SceneValueSource, wx: number, wy: number): SceneValueSource['subgraphMark'] {
+    if (vs.subgraphMark === undefined) return undefined
+    const rect = valueSourceMarkRect(vs, this.renderer.getDesignTokens().padX)
+    return wx >= rect.x && wx <= rect.x + rect.size && wy >= rect.y && wy <= rect.y + rect.size ? vs.subgraphMark : undefined
+  }
+
   /**
    * An Inputs panel field wired outside the subgraph hits as panel body, but
    * its subgraph mark still names and selects its input: the mark's row as a
@@ -3291,7 +3299,8 @@ export class InteractionController {
     const controllerChip = hit?.kind === 'widget' && hit.row.controllerMode !== undefined
       && this.controllerChipContains(hit)
     const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
-    const subgraphMark = hit?.kind === 'widget' && this.subgraphMarkContains(hit)
+    const subgraphMark = hit?.kind === 'widget' && this.subgraphMarkContains(hit) ? hit.row.subgraphMark
+      : wiredPanelMark?.row.subgraphMark ?? (hit?.kind === 'valueSource' ? this.valueSourceMarkAt(hit.valueSource, w.x, w.y) : undefined)
     this.host.onHoverTarget?.(toolboxButton
       ? { kind: 'toolbox', button: toolboxButton, x: clientX, y: clientY }
       : badge
@@ -3299,9 +3308,7 @@ export class InteractionController {
       : controllerChip
         ? { kind: 'controller', hit, x: clientX, y: clientY }
       : subgraphMark
-        ? { kind: 'subgraphMark', hit, x: clientX, y: clientY }
-      : wiredPanelMark
-        ? { kind: 'subgraphMark', hit: wiredPanelMark, x: clientX, y: clientY }
+        ? { kind: 'subgraphMark', mark: subgraphMark, x: clientX, y: clientY }
       : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'header' || hit.kind === 'reroute' ||
         hit.kind === 'link' && hit.link.mismatch === true)
         ? { kind: hit.kind, hit, x: clientX, y: clientY } as CanvasHoverTarget
@@ -3921,9 +3928,12 @@ export class InteractionController {
         }
         this.pushOverlay() // drop transient offsets; scene rebuild follows commit
         if (!g.moved) {
-          // Click without drag: open the value editor (the pill IS the widget).
+          // Click without drag: open the value editor (the pill IS the widget),
+          // or on its subgraph mark select the input that shows it.
           const vs = scene.valueSources.find((sv) => sv.id === g.pressedId)
-          if (vs) this.host.onValueSourceActivate?.(vs, clientX, clientY)
+          const mark = vs === undefined ? undefined : this.valueSourceMarkAt(vs, g.startWX, g.startWY)
+          if (mark !== undefined) this.host.onSubgraphMarkActivate?.(mark.item)
+          else if (vs) this.host.onValueSourceActivate?.(vs, clientX, clientY)
         }
         return
       }

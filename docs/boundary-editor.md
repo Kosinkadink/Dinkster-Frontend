@@ -149,6 +149,12 @@ and the subgraph node outside carry none. Hovering the icon names the input
 ("On the subgraph node as strength"); clicking it opens the Boundary panel
 with that input selected.
 
+A value source exposed as a field has no wire to its pill either (the pill
+has only an output), so its Inputs panel row has no pin and carries the icon
+too. While a node is entered, the pill carries the same icon before its
+title, so the pill and the row read as one field; hovering and clicking it
+work as on a field, and a click elsewhere on the pill works as before.
+
 ## Nested slot exposure
 
 A forwarded family starts in **Tracks template** mode. New nested slots become

@@ -501,6 +501,12 @@ export interface SceneValueSource {
    * not edited there.
    */
   readonly arriving?: { readonly value: Json }
+  /**
+   * While a subgraph node is entered, the boundary input that shows this
+   * source as a field on that node, and the input's name there; painted as
+   * the cyan subgraph icon before the title (valueSourceMarkRect).
+   */
+  readonly subgraphMark?: { readonly item: string; readonly label: string }
 }
 
 export const VS_HEIGHT_PAD = canvasPaintTokens.valueSource.heightPadding
@@ -528,6 +534,16 @@ export function valueSourceBadgeRect(vs: SceneValueSource): {
     width: VS_BADGE_SIZE,
     height: VS_BADGE_SIZE,
   }
+}
+
+/**
+ * World-space square of the subgraph mark before a value source's title
+ * (SceneValueSource.subgraphMark). Shared by painting and pointer hit
+ * testing; `padX` is the design tokens' padX.
+ */
+export function valueSourceMarkRect(vs: SceneValueSource, padX: number): { readonly x: number; readonly y: number; readonly size: number } {
+  const size = canvasPaintTokens.widget.subgraphMark.size
+  return { x: vs.x + padX, y: vs.y + (vs.height - size) / 2, size }
 }
 
 /** Compact one-line value text ('' for null; first line of strings). */
@@ -1677,11 +1693,14 @@ export function buildScene(input: BuildSceneInput): Scene {
     const title = vs.title ?? effective.spec?.widgetType ?? 'value'
     const sent = sentSourceValues.has(vs.id) ? { value: sentSourceValues.get(vs.id)! } : undefined
     const valueText = valueSourceValueText(sent !== undefined ? sent.value : vs.value)
+    // A sent value comes from a field on the entered node: room for its mark.
+    const markReserve = sent === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
     const width = Math.min(
       input.tokens.nodeMaxAutoWidth,
       Math.max(
         VS_MIN_WIDTH,
         input.tokens.padX +
+          markReserve +
           measure(title, 'label') +
           canvasPaintTokens.valueSource.valueGap +
           measure(valueText, 'value') +
@@ -2238,9 +2257,12 @@ export function buildScene(input: BuildSceneInput): Scene {
             ? derivedInputs.find((s) => s.id === item.id)
             : derivedOutputs.find((s) => s.id === item.id)
         const label = boundaryLabel(item, spec?.displayName, defaults, roles)
-        const pinless = side === 'inputs' && item.wireHidden === true
-        if (pinless) markLabels.set(item.id, label)
         const fields = side === 'inputs' ? outsideRows.get(item.id) : undefined
+        // A value source's field has no wire either: the pill has only an
+        // output, and the row's pin cannot start one (boundary.addBinding
+        // fans out port bindings only).
+        const pinless = side === 'inputs' && (item.wireHidden === true || item.binds.kind === 'valueSource' && fields !== undefined)
+        if (pinless) markLabels.set(item.id, label)
         return {
           id: item.id,
           label,
@@ -2468,6 +2490,13 @@ export function buildScene(input: BuildSceneInput): Scene {
       const label = markLabels.get(item.id)
       if (label === undefined) continue
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
+        // A value source's pill carries it while a node is entered, the
+        // pill then showing the value that node's field sends.
+        if (b.kind === 'valueSource') {
+          const index = valueSources.findIndex((vs) => vs.id === b.valueSource && vs.arriving !== undefined && vs.subgraphMark === undefined)
+          if (index >= 0) valueSources[index] = { ...valueSources[index]!, subgraphMark: { item: item.id, label } }
+          continue
+        }
         if (b.kind !== 'port' && b.kind !== 'dynamicCombo') continue
         const index = nodes.findIndex((candidate) => candidate.id === b.node)
         const target = nodes[index]
