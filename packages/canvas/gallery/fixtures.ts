@@ -1166,8 +1166,64 @@ export function createCanvasGalleryFixture(
       at: column(2),
       closed: { overlap: true },
     })
+    nextRow()
+    add(
+      'Wire source',
+      schema('Steps', [{ kind: 'output', id: 'INT', type: concrete('INT') }]),
+      {},
+      10,
+      false,
+      { at: { x: 24, y: rowY + 40 } },
+    )
+    add('Wire held over a closed box', sampling, {}, 11, false, {
+      at: column(1),
+      closed: { sampling: true },
+    })
+    add(
+      'Grows by hand, one row each',
+      schema('Prompts', [
+        { kind: 'output', id: 'CONDITIONING', type: concrete('CONDITIONING') },
+        {
+          kind: 'group',
+          id: 'prompts',
+          displayName: 'Prompts',
+          value: widget('prompt', 'STRING', 'a red fox'),
+          keys: { kind: 'numbered', prefix: 'prompt', start: 0, pad: 0 },
+          grows: 'button',
+          minMembers: 1,
+          maxMembers: 4,
+          addLabel: 'Add prompt',
+        },
+      ]),
+      {},
+      12,
+      false,
+      {
+        at: column(2),
+        dynamic: { prompts: { members: ['prompt0', 'prompt1'] } },
+      },
+    )
+    // A wire held over the closed row names the field it would reach.
+    const source = fixture.scene.nodes.find((node) => node.id === 'Wire source')!
+    const held = fixture.scene.nodes.find(
+      (node) => node.id === 'Wire held over a closed box',
+    )!
+    const out = source.layout.pins.find((pin) => pin.direction === 'out')!
+    const closedRow = held.layout.rows.find((row) => row.kind === 'section')
+    if (closedRow?.kind !== 'section') throw new Error('No closed box row')
     fixture.overlay = {
-      hoveredBox: { nodeId: 'Section closed', boxId: 'sampling' },
+      hoveredBox: {
+        nodeId: held.id,
+        boxId: 'sampling',
+        target: 'steps',
+      },
+      ghostLink: {
+        x1: source.x + source.layout.width,
+        y1: source.y + out.y,
+        x2: held.x,
+        y2: held.y + (closedRow.top + closedRow.y + closedRow.height) / 2,
+        typeName: 'INT',
+      },
     }
     fixture.height =
       Math.max(

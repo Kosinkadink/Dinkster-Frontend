@@ -178,8 +178,10 @@ export const canvasPaintTokens = {
       countFontSize: 11,
       dotRadius: 2.5,
       dotGap: 6,
-      grip: { width: 5, height: 8, dot: 1, pitch: 3 },
-      cross: { size: 7, reserve: 18, stroke: 1 },
+      /** Room before a member's label for a drag grip; none is drawn while members cannot be reordered. */
+      gripWidth: 5,
+      /** A remove cross; a field it ends stops `fieldGap` before it. */
+      cross: { size: 7, reserve: 18, stroke: 1, fieldGap: 4 },
       /** Name, arrow, dot and count room beside a header's text. */
       widthPadding: 40,
       /** Center distance of the pins a closed box gathers at one end, by how many there are. */

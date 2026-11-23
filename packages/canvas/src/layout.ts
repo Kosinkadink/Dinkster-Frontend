@@ -27,6 +27,7 @@
 
 import {
   elaborateInterface,
+  groupBoxKey,
   lineKeyOf,
   materializeFramesOf,
   resettableWidgetsOf,
@@ -113,6 +114,11 @@ export type LayoutRow =
       readonly nameInset?: number
       readonly input?: PortSlot
       readonly output?: PortSlot & { readonly index: number }
+      /**
+       * The row is a whole member of a group that grows by hand: a remove
+       * cross ends it, its right edge this far from the node's right edge.
+       */
+      readonly crossInset?: number
     }
   | ({
       readonly kind: 'widget'
@@ -120,8 +126,13 @@ export type LayoutRow =
       readonly height: number
       /** Left clearance from the node origin to widget chrome. */
       readonly inset: number
-      /** Explicit cell width for widgets sharing a horizontal line. */
+      /** Explicit cell width for widgets sharing a horizontal line, or beside a remove cross. */
       readonly width?: number
+      /**
+       * The row is a whole member of a group that grows by hand: a remove
+       * cross ends it, its right edge this far from the node's right edge.
+       */
+      readonly crossInset?: number
       readonly inputId: string
       /**
        * The node.values key this widget's value lives under (valueKeyOf):
@@ -256,9 +267,14 @@ export type LayoutRow =
        * collapsed and > 0; expanded boxes show the widgets themselves.
        */
       readonly hiddenModified?: number
+      /**
+       * Every port a closed box hides, in declared order, connected or not:
+       * a wire dropped on the closed row takes the first that fits.
+       */
+      readonly hiddenPorts?: readonly HiddenPort[]
     }
   | {
-      /** The header of a group member's own box: a grip, its label and a remove cross. */
+      /** The header of a group member's own box: its label and a remove cross. */
       readonly kind: 'member'
       readonly y: number
       readonly height: number
@@ -272,6 +288,9 @@ export type LayoutRow =
       readonly inset: number
       readonly top: number
     }
+
+/** A port inside a closed box: a pin once a wire reaches it. */
+export type HiddenPort = Omit<PinLayout, 'y'>
 
 export interface PinLayout extends DynamicAnnotations {
   readonly portId: string
@@ -818,6 +837,7 @@ export function layoutNode(
     readonly construct?: string
     readonly ordinal?: number
     readonly ghost?: true
+    readonly byHand?: true
   }
   interface PendingRow {
     kind: 'ports' | 'widget' | 'section' | 'member' | 'growth' | 'note' | 'button'
@@ -825,6 +845,7 @@ export function layoutNode(
     boxes: readonly string[]
     input?: PortSlot
     output?: PortSlot & { index: number }
+    removable?: true
     widget?: Extract<LayoutRow, { kind: 'widget' }> extends infer R
       ? Omit<R, 'kind' | 'y' | 'height' | 'inset'>
       : never
@@ -884,6 +905,7 @@ export function layoutNode(
         ...(item.members !== undefined ? { members: item.members } : {}),
         ...(item.ordinal !== undefined ? { ordinal: item.ordinal } : {}),
         ...(item.ghost ? { ghost: true as const } : {}),
+        ...(item.byHand ? { byHand: true as const } : {}),
       })
     }
   }
@@ -901,6 +923,10 @@ export function layoutNode(
   const closedAt = (chain: readonly string[]): string | undefined =>
     options.minimized === true ? undefined : chain.find((id) => decls.get(id)!.closed)
   const isHidden = (chain: readonly string[]): boolean => closedAt(chain) !== undefined
+  /** A row that is a whole member of a group growing by hand, with no member box of its own. */
+  const removable = (item: ElaboratedInput, chain: readonly string[]): boolean =>
+    item.origin.kind === 'member' && chain.at(-1) === groupBoxKey(item.origin.construct) &&
+    decls.get(chain.at(-1)!)!.byHand === true
   const chainKey = (chain: readonly string[]): string => chain.join('\n')
 
   // Modified widget values hidden by each closed box (derived, never
@@ -944,6 +970,10 @@ export function layoutNode(
   // Connected ports hidden by a closed box: pins gather on its closed row.
   const collapsedPins: ({ sectionId: string; portId: string; direction: 'in' | 'out'; type: TypeExpr; optional?: true; maybeAbsent?: true; widgetTap?: true; staticWidgetTap?: true } & DynamicAnnotations)[] = []
   const staticWidgetInputs = new Set<string>()
+  const hiddenPorts = new Map<string, HiddenPort[]>()
+  const hidePort = (at: string, port: HiddenPort): void => {
+    hiddenPorts.set(at, [...(hiddenPorts.get(at) ?? []), port])
+  }
   /** Rows each box holds directly, a box inside it counting as one: the closed row's count. */
   const held = new Map<string, number>()
   const hold = (chain: readonly string[]): void => {
@@ -999,6 +1029,10 @@ export function layoutNode(
       const spec = item.spec
       holdPort(chain, 'outputs')
       if (isHidden(chain)) {
+        hidePort(closedAt(chain)!, {
+          ...annotate(item), portId: spec.id, label: displayLabel(spec), direction: 'out', type: spec.type,
+          ...(spec.optional ? { maybeAbsent: true as const } : {}),
+        })
         if (isConnected('out', spec.id)) {
           collapsedPins.push({ sectionId: closedAt(chain)!, portId: spec.id, direction: 'out', type: spec.type, ...(spec.optional ? { maybeAbsent: true as const } : {}), ...annotate(item) })
         }
@@ -1027,6 +1061,13 @@ export function layoutNode(
     if (spec.widget && item.origin.kind === 'static') staticWidgetInputs.add(spec.id)
     if (isHidden(chain)) {
       const at = closedAt(chain)!
+      if (!spec.socketless) {
+        hidePort(at, {
+          ...annotate(item), portId: spec.id, label: displayLabel(spec), direction: 'in', type: spec.type,
+          ...(spec.optional ? { optional: true as const } : {}),
+          ...(widget && !spec.forceInput ? { widgetBacked: true as const } : {}),
+        })
+      }
       if (!spec.socketless && isConnected('in', spec.id)) {
         collapsedPins.push({
           sectionId: at, portId: spec.id, direction: 'in', type: spec.type,
@@ -1056,6 +1097,7 @@ export function layoutNode(
           ...(spec.optional ? { optional: true } : {}),
           ...annotate(item),
         },
+        ...(removable(item, chain) ? { removable: true as const } : {}),
       })
       continue
     }
@@ -1076,6 +1118,7 @@ export function layoutNode(
     pending.push({
       kind: 'widget',
       boxes: chain,
+      ...(removable(item, chain) ? { removable: true as const } : {}),
       widget: {
         inputId: spec.id,
         valueKey,
@@ -1274,6 +1317,7 @@ export function layoutNode(
           inset: outlineX(depth),
           count,
           ...(decl.closed && modified !== undefined ? { hiddenModified: modified } : {}),
+          ...(decl.closed && hiddenPorts.has(decl.id) ? { hiddenPorts: hiddenPorts.get(decl.id)! } : {}),
         }
         if (decl.closed) {
           const top = y + verticalInset - slack
@@ -1324,6 +1368,7 @@ export function layoutNode(
           ...(depth > 0 ? { nameInset: nameInset(depth) } : {}),
           ...(row.input ? { input: row.input } : {}),
           ...(row.output ? { output: row.output } : {}),
+          ...(row.removable && !row.output ? { crossInset: fieldInset(depth) } : {}),
         }, depth)
         if (row.input && !row.input.socketless) pins.push({ ...annotationsOf(row.input), portId: row.input.portId, label: row.input.label, direction: 'in', y: y + height / 2, type: row.input.type, ...(row.input.optional ? { optional: true as const } : {}) })
         if (row.output) pins.push({ ...annotationsOf(row.output), portId: row.output.portId, label: row.output.label, direction: 'out', y: y + height / 2, type: row.output.type, ...(row.output.maybeAbsent ? { maybeAbsent: true as const } : {}) })
@@ -1341,7 +1386,7 @@ export function layoutNode(
         // A choice's dropdown reaches the outline of its option box instead.
         const inset = w.lead ? outlineX(depth + 1) : fieldInset(depth)
         rowIndex.set(row, rows.length)
-        push({ kind: 'widget', y, height, inset, ...w }, depth)
+        push({ kind: 'widget', y, height, inset, ...w, ...(row.removable ? { crossInset: inset } : {}) }, depth)
         // Socketless controls keep their editor and outgoing value tap.
         if (!w.socketless) pins.push({
           ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2, type: w.type,
@@ -1474,6 +1519,12 @@ export function layoutNode(
       }
       left += cellWidth + gap
     }
+  }
+  // A field that is a whole member ends before its remove cross, whose right
+  // edge sits where the field's would.
+  for (const [index, row] of rows.entries()) {
+    if (row.kind === 'widget' && row.crossInset !== undefined && row.width === undefined)
+      rows[index] = { ...row, width: width - row.inset * 2 - box.cross.size - box.cross.fieldGap }
   }
 
   if (options.minimized) {

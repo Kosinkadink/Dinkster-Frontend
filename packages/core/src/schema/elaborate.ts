@@ -272,6 +272,8 @@ export interface ElaboratedBox {
   readonly ordinal?: number
   /** A member the document does not store yet. */
   readonly ghost?: true
+  /** A group that grows by hand: each member can be removed on the node. */
+  readonly byHand?: true
   readonly openName?: false
   readonly boxes?: readonly string[]
 }
@@ -1006,6 +1008,7 @@ function elaboratePass(
         box: 'group',
         construct: path,
         label: literalText(row.displayName) ?? row.id,
+        ...(row.grows === 'button' ? { byHand: true as const } : {}),
         ...(row.openName === false ? { openName: false as const } : {}),
         ...boxed(scope),
       }, (boxes) => {

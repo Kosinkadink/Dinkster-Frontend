@@ -567,7 +567,8 @@ export interface OverlayState {
   /** One widget row under the idle pointer. */
   readonly hoveredWidget?: { readonly nodeId: string; readonly valueKey: string }
   /** A box's header, closed row or tab under the idle pointer, by box key. */
-  readonly hoveredBox?: { readonly nodeId: string; readonly boxId: string }
+  /** A box under the pointer; `target` names the field a held wire would reach in a closed box. */
+  readonly hoveredBox?: { readonly nodeId: string; readonly boxId: string; readonly target?: string }
   readonly hoveredBadge?: { readonly nodeId: string; readonly badgeId: string }
   /** Live rubber-band selection rectangle (world coords, normalized). */
   readonly marquee?: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }
@@ -3319,8 +3320,24 @@ export class CanvasRenderer {
         ctx.closePath()
         ctx.fill()
       }
+      /** A remove cross centered on `cy`, its right edge at `right`. */
+      const paintCross = (right: number, cy: number): void => {
+        const cross = boxPaint.cross
+        const cx = right - cross.size / 2
+        ctx.strokeStyle = t.colors.boxCount
+        ctx.lineWidth = cross.stroke
+        ctx.beginPath()
+        ctx.moveTo(cx - cross.size / 2, cy - cross.size / 2)
+        ctx.lineTo(cx + cross.size / 2, cy + cross.size / 2)
+        ctx.moveTo(cx + cross.size / 2, cy - cross.size / 2)
+        ctx.lineTo(cx - cross.size / 2, cy + cross.size / 2)
+        ctx.stroke()
+      }
       for (const row of l.rows) {
         const rowY = node.y + row.y
+        if ((row.kind === 'widget' || row.kind === 'ports') && row.crossInset !== undefined) {
+          paintCross(node.x + l.width - row.crossInset, rowY + t.rowHeight / 2)
+        }
         if (row.kind === 'section') {
           // A box's header, closed row or tab: the whole row opens or closes it.
           const hovered = boxHovered(row.sectionId)
@@ -3354,8 +3371,16 @@ export class CanvasRenderer {
           paintArrow(arrowX, cy, !row.collapsed, textColor)
           // The count, and on a closed box the dot for a changed value.
           let textRight = right - boxPaint.textInset
-          const showCount = row.collapsed || row.box === 'group'
-          if (showCount) {
+          // A wire held over a closed row names the field it would reach in
+          // place of the count.
+          const target = hovered && row.collapsed ? this.overlay.hoveredBox?.target : undefined
+          if (target !== undefined) {
+            ctx.fillStyle = textColor
+            ctx.textAlign = 'right'
+            const text = fitText(ctx, target, (right - left) / 2)
+            ctx.fillText(text, textRight, cy)
+            textRight -= ctx.measureText(text).width + boxPaint.dotGap
+          } else if (row.collapsed || row.box === 'group') {
             ctx.font = `${boxPaint.countFontSize}px ${t.fontFamily}`
             ctx.fillStyle = t.colors.boxCount
             ctx.textAlign = 'right'
@@ -3376,36 +3401,18 @@ export class CanvasRenderer {
           ctx.textAlign = 'left'
           ctx.fillText(fitText(ctx, row.label, Math.max(0, textRight - textX)), textX, cy)
         } else if (row.kind === 'member') {
-          // A member's own box: drag grip, its label, and the remove cross.
+          // A member's own box: its label and the remove cross.
           const rowAlpha = ctx.globalAlpha
           if (row.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
           const left = node.x + row.inset
           const right = node.x + l.width - row.inset
           const cy = node.y + row.top + closedHeight / 2
-          const grip = boxPaint.grip
-          const gripX = left + boxPaint.textInset
-          ctx.fillStyle = t.colors.boxCount
-          for (let gx = 0; gx * grip.pitch < grip.width; gx++) {
-            for (let gy = 0; gy * grip.pitch < grip.height; gy++) {
-              ctx.beginPath()
-              ctx.arc(gripX + gx * grip.pitch + grip.dot, cy - grip.height / 2 + gy * grip.pitch + grip.dot, grip.dot / 2, 0, Math.PI * 2)
-              ctx.fill()
-            }
-          }
-          const cross = boxPaint.cross
-          const crossX = right - cross.reserve / 2
-          ctx.strokeStyle = t.colors.boxCount
-          ctx.lineWidth = cross.stroke
-          ctx.beginPath()
-          ctx.moveTo(crossX - cross.size / 2, cy - cross.size / 2)
-          ctx.lineTo(crossX + cross.size / 2, cy + cross.size / 2)
-          ctx.moveTo(crossX + cross.size / 2, cy - cross.size / 2)
-          ctx.lineTo(crossX - cross.size / 2, cy + cross.size / 2)
-          ctx.stroke()
-          const textX = gripX + grip.width + boxPaint.labelGap
+          const textX = left + boxPaint.textInset + boxPaint.gripWidth + boxPaint.labelGap
+          // The cross's right edge lines up with the fields inside the box.
+          paintCross(right - boxPaint.stroke - boxPaint.fieldGap, cy)
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
-          ctx.fillText(fitText(ctx, row.label, Math.max(0, right - cross.reserve - textX)), textX, cy)
+          ctx.fillText(fitText(ctx, row.label, Math.max(0, right - boxPaint.cross.reserve - textX)), textX, cy)
           ctx.globalAlpha = rowAlpha
         } else if (row.kind === 'growth') {
           // A group that grows by hand ends in an outlined Add row, as wide

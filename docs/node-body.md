@@ -195,19 +195,30 @@ values and pin positions are the same with or without it.
 - A section or group box opens from its own header row: an arrow, the name,
   and for a group its member count. Closed, the box is one row at the same
   place, so opening or closing it moves neither its name nor any row above
-  it. The closed row shows how many rows (for a group, members) it holds and
-  a dot when a value inside is not its default. The whole row opens or
-  closes the box and highlights under the pointer.
+  it. The closed row shows how many rows stand directly inside it (an inner
+  box counts one; for a group, how many members) and a dot when a value
+  inside is not its default. The whole row opens or closes the box and
+  highlights under the pointer; the right-click menu does the same.
 - A box declared with `openName: false` shows no header while open, only a
   small tab on its top edge; closed, it is an ordinary closed row.
 - Closing a box hides its rows and unconnected pins. Connected pins gather
   at the closed row, inputs on the left edge and outputs on the right. The
   open or closed state is view state (`view.setSectionCollapsed`, keyed by
   the box key) over the schema's start state; groups start open.
+- A wire dropped on a closed row takes the first port inside that fits, in
+  declared order, a free input before a wired one, and the box stays
+  closed. While the wire is held there, the row names that field in place
+  of its count. If nothing inside fits, the drop is an ordinary drop on the
+  node.
 - A member of a group of records that draws more than one row gets its own
-  box, headed by a drag grip, its label and a remove cross. A group that
-  grows by hand ends in an outlined Add row. A group that grows by plugging
-  in shows its spare member last with a hollow pin and a dimmed name.
+  box, headed by its label and a remove cross; members cannot be dragged.
+  In a group that grows by hand, a member that is one row has no box: the
+  row ends in the remove cross and its field stops short of it. The cross
+  does not remove the member by itself; unused members go with **Remove
+  unused dynamic inputs**. A group that grows by hand ends in an outlined
+  Add row. A group that grows by
+  plugging in shows its spare member last with a hollow pin and a dimmed
+  name.
 - A choice's dropdown reaches its box's outline and has its own outline; the
   chosen option's rows sit in a box joined to its underside. An option with
   no rows draws no box, and neither does a choice led by a formula.

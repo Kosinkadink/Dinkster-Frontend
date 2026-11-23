@@ -898,6 +898,41 @@ describe('sections', () => {
     }
   })
 
+  it('lists every port a closed box hides, wired or not, for a wire dropped on its row', () => {
+    const l = layout({ sectionOverrides: { adv: true }, connectedPorts: new Set(['in:b']) })
+    const row = l.rows.find((r) => r.kind === 'section')!
+    expect(row.kind === 'section' && row.hiddenPorts?.map((p) => [p.portId, p.direction, p.widgetBacked ?? false]))
+      .toEqual([['w', 'in', true], ['b', 'in', false]])
+    expect(layout().rows.find((r) => r.kind === 'section')).not.toHaveProperty('hiddenPorts')
+  })
+
+  it('ends each one-row member of a group grown by hand with a remove cross', () => {
+    const group = (grows: 'button' | 'link'): NodeSchema['body'][number] => ({
+      kind: 'group',
+      id: 'prompts',
+      value: widget('prompt'),
+      keys: { kind: 'numbered', prefix: 'prompt', start: 0, pad: 0 },
+      grows,
+      minMembers: 2,
+    })
+    const fields = (grows: 'button' | 'link') => {
+      const l = layoutNode(schemaOf([widget('top'), group(grows)]), nodeData, defaultTokens, measure, widgetMeasure)
+      return l.rows.flatMap((r) => r.kind === 'widget'
+        ? [{ id: r.inputId, inset: r.inset, cross: r.crossInset, right: l.width - r.inset - (r.width ?? l.width - r.inset * 2) }]
+        : [])
+    }
+    const cross = canvasPaintTokens.node.box.cross
+    const [top, ...members] = fields('button')
+    expect(top).toMatchObject({ id: 'top', cross: undefined, right: top!.inset })
+    expect(members.map((m) => m.id)).toEqual(['prompts.prompt0', 'prompts.prompt1'])
+    for (const member of members) {
+      // The cross's right edge is where the field's would be; the field ends before it.
+      expect(member.cross).toBe(member.inset)
+      expect(member.right - member.inset).toBe(cross.size + cross.fieldGap)
+    }
+    expect(fields('link').every((field) => field.cross === undefined)).toBe(true)
+  })
+
   it('keeps declared Advanced members continuous without enclosing primary rows or outputs', () => {
     const l = layoutNode(
       schemaOf([

@@ -2731,6 +2731,15 @@ export class InteractionController {
         const ok = direction === 'in' ? typesCompatible(type, pin.type) : typesCompatible(pin.type, type)
         if (ok) keys.add(dropTargetKey(node.id, pin.portId, direction, pin.widgetTap === true))
       }
+      // A closed box takes a wire for a port it hides.
+      for (const row of node.layout.rows) {
+        if (row.kind !== 'section') continue
+        for (const port of row.hiddenPorts ?? []) {
+          if (port.direction !== direction) continue
+          const ok = direction === 'in' ? typesCompatible(type, port.type) : typesCompatible(port.type, type)
+          if (ok) keys.add(dropTargetKey(node.id, port.portId, direction))
+        }
+      }
     }
     for (const r of scene.reroutes) {
       if (r.id === excludeReroute) continue
@@ -2786,13 +2795,7 @@ export class InteractionController {
     const pins = node.layout.pins.filter((pin) =>
       pin.direction === g.seeking && pin.widgetTap !== true,
     )
-    // Links hidden by the gesture (the grabbed rewire or net delivery) do
-    // not occupy their sink: the drag is moving them off it.
-    const isOccupied = (pin: PinLayout): boolean =>
-      pin.direction === 'in' && scene.links.some((link) =>
-        link.id !== g.rewireLinkId && g.hideLinkIds?.has(link.id) !== true &&
-        link.to.kind === 'port' && link.to.node === node.id && link.to.port === pin.portId,
-      )
+    const isOccupied = (pin: PinLayout): boolean => this.dropOccupied(g, scene, node.id, pin)
     const ranked = [...pins.filter((pin) => !isOccupied(pin)), ...pins.filter(isOccupied)]
     for (const pin of ranked) {
       if (!g.dropTargets.has(dropTargetKey(node.id, pin.portId, pin.direction))) continue
@@ -2805,6 +2808,46 @@ export class InteractionController {
       break
     }
     return g.bodyCandidate
+  }
+
+  /**
+   * Links hidden by the gesture (the grabbed rewire or net delivery) do not
+   * occupy their sink: the drag is moving them off it. Outputs fan out, so
+   * an output is never occupied.
+   */
+  private dropOccupied(
+    g: Extract<Gesture, { kind: 'link' }>,
+    scene: Scene,
+    nodeId: string,
+    port: { readonly portId: string; readonly direction: 'in' | 'out' },
+  ): boolean {
+    return port.direction === 'in' && scene.links.some((link) =>
+      link.id !== g.rewireLinkId && g.hideLinkIds?.has(link.id) !== true &&
+      link.to.kind === 'port' && link.to.node === nodeId && link.to.port === port.portId,
+    )
+  }
+
+  /**
+   * A wire held over a closed box takes the first port inside that fits, in
+   * declared order, a free input before an occupied one; the box stays
+   * closed and the wire meets the node's edge at its row.
+   */
+  private closedBoxDropCandidate(
+    g: Extract<Gesture, { kind: 'link' }>,
+    scene: Scene,
+    hit: Hit,
+  ): Extract<Hit, { kind: 'pin' }> | undefined {
+    if (hit.kind !== 'section' || !hit.row.collapsed) return undefined
+    const { node, row } = hit
+    const fits = (row.hiddenPorts ?? []).filter((port) =>
+      port.direction === g.seeking && g.dropTargets.has(dropTargetKey(node.id, port.portId, port.direction)))
+    const port = fits.find((candidate) => !this.dropOccupied(g, scene, node.id, candidate)) ?? fits[0]
+    if (port === undefined) return undefined
+    const y = (row.top + row.y + row.height) / 2
+    return {
+      kind: 'pin', node, pin: { ...port, y }, portId: port.portId, direction: port.direction,
+      x: node.x + (port.direction === 'in' ? 0 : node.layout.width), y: node.y + y, type: port.type,
+    }
   }
 
   /**
@@ -3127,7 +3170,8 @@ export class InteractionController {
         const bodyNode = rawBodyNode && this.bodyDropEligible(g, scene, rawBodyNode, w) ? rawBodyNode : undefined
         const boundaryBody = !explicitPin && (hit.kind === 'boundary-body' || hit.kind === 'boundary-header') ? hit.bnode : undefined
         const boundaryCandidate = boundaryBody ? this.boundaryBodyDropCandidate(g, scene, boundaryBody) : undefined
-        const nodeCandidate = explicitPin ?? (bodyNode ? this.bodyDropCandidate(g, scene, bodyNode) : undefined)
+        const closedBox = explicitPin ? undefined : this.closedBoxDropCandidate(g, scene, hit)
+        const nodeCandidate = explicitPin ?? closedBox ?? (bodyNode ? this.bodyDropCandidate(g, scene, bodyNode) : undefined)
         const candidate = nodeCandidate ?? boundaryCandidate
         if (!bodyNode) {
           g.bodyCandidateNode = undefined
@@ -3151,6 +3195,10 @@ export class InteractionController {
             : boundaryCandidate ? new Set([boundaryTargetKey(boundaryCandidate.bnode.side, boundaryCandidate.item)]) : g.dropTargets,
           ...(bodyNode && nodeCandidate ? { bodyDropNode: bodyNode.id } : {}),
           ...(boundaryBody && boundaryCandidate ? { bodyDropNode: boundarySceneId(boundaryBody.side) } : {}),
+          // The closed row names the field the wire would reach.
+          ...(closedBox && hit.kind === 'section'
+            ? { hoveredBox: { nodeId: hit.node.id, boxId: hit.row.sectionId, target: closedBox.pin.label ?? closedBox.portId } }
+            : {}),
           ...(g.hideLinkIds !== undefined ? { hiddenLinkIds: g.hideLinkIds } : {}),
         })
         return
@@ -3751,7 +3799,8 @@ export class InteractionController {
     const boundaryBody = rawHit.kind === 'boundary-body' || rawHit.kind === 'boundary-header' ? rawHit.bnode : undefined
     const hit: Hit = boundaryBody
       ? (this.boundaryBodyDropCandidate(g, scene, boundaryBody) ?? rawHit)
-      : bodyNode ? (this.bodyDropCandidate(g, scene, bodyNode) ?? rawHit) : rawHit
+      : this.closedBoxDropCandidate(g, scene, rawHit) ??
+        (bodyNode ? (this.bodyDropCandidate(g, scene, bodyNode) ?? rawHit) : rawHit)
     const rerouteLegal = hit.kind === 'reroute' && g.dropTargets.has(rerouteTargetKey(hit.reroute.id))
     const pinLegal =
       hit.kind === 'pin' &&

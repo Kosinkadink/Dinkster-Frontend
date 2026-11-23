@@ -1099,6 +1099,52 @@ describe('node-body link drops', () => {
     })
   })
 
+  describe('on a closed box', () => {
+    const FLOAT = { kind: 'concrete', name: 'FLOAT' }
+    const closedScene = (fits: boolean): Scene => {
+      const scene = typedScene() as any
+      const port = (portId: string, type: unknown) => ({ portId, label: `${portId} field`, address: { port: portId }, direction: 'in', type })
+      scene.nodes[1].layout.rows = [{
+        kind: 'section', y: 20, height: 24, top: 21, inset: 4, sectionId: 'sampling', box: 'section',
+        label: 'Sampling', collapsed: true, count: 3,
+        hiddenPorts: [
+          port('image', { kind: 'concrete', name: 'IMAGE' }),
+          port('busy', fits ? FLOAT : { kind: 'concrete', name: 'MASK' }),
+          port('free', fits ? FLOAT : { kind: 'concrete', name: 'MASK' }),
+        ],
+      }]
+      scene.links = [{
+        id: 'busy-link', from: { kind: 'port', node: 'n1', port: 'out' }, to: { kind: 'port', node: 'n2', port: 'busy' },
+        x1: 110, y1: 32, x2: 200, y2: 42,
+      }]
+      return scene
+    }
+
+    it('wires the first free field inside that fits and names it on the row', () => {
+      const harness = interactionHarness(closedScene(true))
+      harness.fire('pointerdown', 110, 32)
+      harness.fire('pointermove', 250, 35)
+      const overlay = harness.overlays.at(-1) as any
+      expect(overlay.hoveredBox).toEqual({ nodeId: 'n2', boxId: 'sampling', target: 'free field' })
+      expect(overlay.ghostLink).toMatchObject({ x2: 200, y2: 10 + (21 + 44) / 2 })
+      harness.fire('pointerup', 250, 35)
+      expect(harness.dispatched.at(-1)).toMatchObject({
+        command: 'link.connect', params: { to: { node: 'n2', port: 'free' } },
+      })
+    })
+
+    it('falls back to an ordinary body drop when nothing inside fits', () => {
+      const harness = interactionHarness(closedScene(false))
+      harness.fire('pointerdown', 110, 32)
+      harness.fire('pointermove', 250, 35)
+      expect((harness.overlays.at(-1) as any).hoveredBox?.target).toBeUndefined()
+      harness.fire('pointerup', 250, 35)
+      expect(harness.dispatched.at(-1)).toMatchObject({
+        command: 'link.connect', params: { to: { node: 'n2', port: 'first' } },
+      })
+    })
+  })
+
   it('gives an explicitly hovered pin priority over the body-ranked slot', () => {
     const harness = interactionHarness(typedScene())
     harness.fire('pointerdown', 110, 32)
