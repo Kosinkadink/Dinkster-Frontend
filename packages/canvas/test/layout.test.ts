@@ -1360,6 +1360,25 @@ describe('editors shown in the node', () => {
     expect(onlyFrame.rows.filter((row) => row.kind === 'editorSpace').map((row) => row.valueKey)).toEqual(['frame'])
   })
 
+  it('starts a group member folded and keeps its fold with it when the members are reordered', () => {
+    const schema = schemaOf([{
+      kind: 'group', id: 'frames', displayName: 'Frames', reorderable: true,
+      value: editor('frame', 'WEBCAM', { unfolded: true }), keys: { kind: 'numbered', prefix: 'frame', start: 0, pad: 0 },
+      grows: 'button', minMembers: 0,
+    }])
+    // The member rows in order, each unfolded one followed by its space.
+    const order = (members: string[], editorUnfolded?: Record<string, boolean>) =>
+      layoutNode(schema, { ...nodeData, dynamic: { frames: { members, seq: 3 } } }, defaultTokens, measure, editorMeasure,
+        editorUnfolded ? { editorUnfolded } : {})
+        .rows.flatMap((row) => row.kind === 'editorSpace' ? [`space ${row.valueKey}`]
+          : row.kind === 'widget' && row.viewId === 'core.webcam' ? [row.inputId] : [])
+    expect(order(['frame0', 'frame1', 'frame2'])).toEqual(['frames.frame0', 'frames.frame1', 'frames.frame2'])
+    expect(order(['frame0', 'frame1', 'frame2'], { 'frames.frame1': true }))
+      .toEqual(['frames.frame0', 'frames.frame1', 'space frames.frame1', 'frames.frame2'])
+    expect(order(['frame1', 'frame2', 'frame0'], { 'frames.frame1': true }))
+      .toEqual(['frames.frame1', 'space frames.frame1', 'frames.frame2', 'frames.frame0'])
+  })
+
   it('keeps a dragged picture height within its limits', () => {
     const picture = (stored: number) => {
       const space = lay({ editorUnfolded: { frame: true, clip: false }, pictureHeights: { frame: stored } })

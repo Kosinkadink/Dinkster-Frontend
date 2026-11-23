@@ -32,6 +32,7 @@ import {
   updateSceneNodePositions,
   updateSceneNodeValues,
   memberAt,
+  IN_NODE_EDITORS,
   type Hit,
   type GhostLink,
   type LinkDoubleClickContext,
@@ -4947,7 +4948,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
      */
     function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string, caret?: { x: number; y: number }): void {
       const tab = activeTab()
-      if (!tab || refuseFrozenEdit()) return
+      if (!tab) return
+      // An editor shown in the node folds out under its row and back, as a
+      // section opens and closes, also while a run holds the workflow. A
+      // field face of the Inputs panel is no node and keeps its editor.
+      if (IN_NODE_EDITORS[hit.row.viewId] !== undefined && hit.row.valueSourceOwner === undefined &&
+        tab.store.doc.graphs[currentGraphId(tab)]?.nodes[hit.node.id] !== undefined) {
+        void props.app.dispatchTo(tab, {
+          command: 'view.setEditorUnfolded',
+          params: { graphId: currentGraphId(tab), nodeId: hit.node.id, valueKey: hit.row.valueKey, unfolded: hit.row.unfolded !== true },
+        })
+        return
+      }
+      if (refuseFrozenEdit()) return
       // An Inputs panel field holding a value source's own value edits that
       // source, as a click on its pill does.
       const sourceOwner = hit.row.valueSourceOwner
@@ -5250,7 +5263,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const node = rowNodeOf(focus.nodeId)?.node
         const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
         if (node === undefined || row?.kind !== 'widget') { setRowFocus(undefined); return }
-        if (row.viewId !== 'core.toggle') setRowFocus(undefined)
+        // A toggle and an editor's fold keep the focus, so Enter turns them back.
+        if (row.viewId !== 'core.toggle' && IN_NODE_EDITORS[row.viewId] === undefined) setRowFocus(undefined)
         openWidgetEditor(rowHit(node, row))
       }
     }
