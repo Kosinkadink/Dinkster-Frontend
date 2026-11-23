@@ -643,6 +643,24 @@ export interface CanvasSideRepresentationProps {
 }
 
 /**
+ * The lines a wired row that cannot show an arriving value gives when it is
+ * clicked: why it reads Nothing or Known after a run, and the stored value
+ * that comes back when the wire is removed.
+ */
+export function CanvasRowAbsence(props: { state: 'nothing' | 'unknown'; stored: string }) {
+  return (
+    <>
+      <p class="dinkster-canvas-side-result">
+        {props.state === 'nothing'
+          ? 'Nothing arrives: the node feeding this wire was skipped.'
+          : 'Known after a run. The wire has no known value yet; this does not mean nothing.'}
+      </p>
+      <p class="dinkster-canvas-side-result">Stored {props.stored}, used again when the wire is removed.</p>
+    </>
+  )
+}
+
+/**
  * The control at the end of the side part that switches how a field is
  * drawn, such as Number or Slider. It changes the view only, never the value.
  */

@@ -1815,3 +1815,45 @@ test('huge COMBO lists render a capped window with paging rows and still commit 
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
   expect((await activeDoc(page)).graphs.g0!.nodes.huge!.values.choice).toBe('option-990')
 })
+
+test('a click on a wired row whose value is known only after a run explains it, and opens no field', async ({ page }) => {
+  await page.evaluate(async () => {
+    window.__dinksterTest!.app.registerSchemas([
+      {
+        type: 'MeasureTest', displayName: 'Measure', category: 'test', source: 'v3', isOutputNode: false,
+        items: [{ kind: 'output', id: 'radius', type: { kind: 'concrete', name: 'INT' } }],
+      },
+      {
+        type: 'SoftenTest', displayName: 'Soften', category: 'test', source: 'v3', isOutputNode: false,
+        items: [{
+          kind: 'input', id: 'radius', type: { kind: 'concrete', name: 'INT' }, optional: false,
+          widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 4 },
+        }],
+      },
+    ] as never)
+    await window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'known-after-run', root: 'g0',
+      graphs: { g0: {
+        id: 'g0', name: 'root',
+        nodes: {
+          measure: { id: 'measure', type: 'MeasureTest', values: {} },
+          soften: { id: 'soften', type: 'SoftenTest', values: { radius: 12 } },
+        },
+        links: { l1: { id: 'l1', from: { node: 'measure', port: 'radius' }, to: { node: 'soften', port: 'radius' } } },
+        nets: {}, reroutes: {}, nextOrdinal: 3,
+      } },
+      view: { graphs: { g0: { nodes: { measure: { position: { x: 100, y: 100 } }, soften: { position: { x: 420, y: 100 } } } } } },
+    } as never, 'Known after a run')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const note = page.getByTestId('row-focus')
+  const radius = await nodeRowPoint(page, 'soften', 'radius')
+  await page.mouse.click(radius.x, radius.y)
+  await expect(note).toContainText('Known after a run.')
+  await expect(note).toContainText('Stored 12, used again when the wire is removed.')
+  await expect(note.locator('[data-testid="canvas-row-focus"]')).toHaveAttribute('data-neutral', 'true')
+  await expect(page.locator('.widget-in-row-field')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(note).toHaveCount(0)
+  expect((await activeDoc(page)).graphs.g0!.nodes.soften!.values.radius).toBe(12)
+})

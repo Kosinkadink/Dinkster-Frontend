@@ -64,7 +64,7 @@ import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { colorFieldHasOpacity, colorKind, resolveColorText } from '@dinkster/widgets'
-import { CanvasColorArriving } from '@dinkster/ui'
+import { CanvasColorArriving, CanvasRowAbsence } from '@dinkster/ui'
 import {
   defaultValuesOf,
   initialDynamicStateOf,
@@ -3067,6 +3067,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       onWiredWidgetActivate: (hit) => {
         const color = usedWiredColor(hit.row, arrivingCompanions[hit.node.id]?.[hit.row.valueKey]?.value)
         if (color !== undefined) showRowNote({ nodeId: hit.node.id, valueKey: hit.row.valueKey }, <CanvasColorArriving arriving={color.arriving} used={color.used} />)
+        const state = color === undefined ? renderer.fieldCompanion(hit.node.id, hit.row.valueKey)?.state : undefined
+        if (state === 'nothing' || state === 'unknown') {
+          const values = hit.node.node.values ?? {}
+          const stored = Object.hasOwn(values, hit.row.valueKey) ? values[hit.row.valueKey] : effectiveWidgetDefault(hit.row.spec)
+          showRowNote(
+            { nodeId: hit.node.id, valueKey: hit.row.valueKey },
+            <CanvasRowAbsence state={state} stored={formatWidgetValue(stored, hit.row.spec)} />,
+          )
+        }
       },
       onWidgetRowAffordanceActivate: (hit) => {
         const tab = activeTab()
