@@ -334,7 +334,7 @@ function SoftwareHistory(props: {
                   {(entry) => (
                     <ProductListRow
                       title={`Snapshot ${entry.generation} - ${new Date(entry.timestamp).toLocaleString()}`}
-                      description={`History entry ${entry.id} - ${entry.reason}. Engine ${entry.snapshot.engine.version} (${entry.snapshot.engine.release}). Base ${entry.snapshot.base.id}, variant ${entry.snapshot.base.variant}. ${entry.exact ? 'Recorded exact software.' : 'Exact recovery inputs are incomplete.'}`}
+                      description={`History entry ${entry.id} - ${entry.reason}. Engine ${entry.snapshot.engine.version} (${entry.snapshot.engine.release}). Base ${entry.snapshot.base.id}, variant ${entry.snapshot.base.variant}. ${entry.exact ? 'Recorded without software substitutions.' : 'Recorded with software substitutions.'}`}
                     />
                   )}
                 </For>

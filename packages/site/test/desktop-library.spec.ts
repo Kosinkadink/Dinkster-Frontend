@@ -251,13 +251,15 @@ test('software history keeps snapshot identity, compatibility notices and empty/
   await expect(entries.nth(0)).toContainText(
     'History entry 7 - update. Engine 0.2.3',
   )
-  await expect(entries.nth(0)).toContainText('Recorded exact software.')
+  await expect(entries.nth(0)).toContainText(
+    'Recorded without software substitutions.',
+  )
   await expect(entries.nth(1)).toContainText('Snapshot 19')
   await expect(entries.nth(1)).toContainText(
     'History entry 13 - import. Engine 0.2.1',
   )
   await expect(entries.nth(1)).toContainText(
-    'Exact recovery inputs are incomplete.',
+    'Recorded with software substitutions.',
   )
   await expect(history.getByRole('button')).toHaveCount(0)
   await page.screenshot({
