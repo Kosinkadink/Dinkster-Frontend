@@ -151,77 +151,101 @@ export const pinShapeOf = (type: TypeExpr, direction: 'in' | 'out' = 'out'): Pin
   return 'circle'
 }
 
-const pinShapeRadius = (shape: PinShape, radius: number): number =>
-  shape === 'diamond' ? radius * PIN_DIAMOND_SCALE : radius
-
-const pinShapeRadialScale = (shape: PinShape): number =>
-  shape === 'diamond' ? PIN_DIAMOND_SCALE : shape === 'scalar-list' ? Math.SQRT2 : 1
-
-/** Trace the pin outline path for the shape axis (no fill/stroke). */
-const pinOutlinePath = (ctx: CanvasRenderingContext2D, shape: PinShape, x: number, y: number, r: number): void => {
-  ctx.beginPath()
-  if (shape === 'circle' || shape === 'scalar-list')
-    ctx.arc(x, y, r, 0, Math.PI * 2)
-  if (shape === 'diamond') {
-    ctx.moveTo(x, y - r)
-    ctx.lineTo(x + r, y)
-    ctx.lineTo(x, y + r)
-    ctx.lineTo(x - r, y)
-    ctx.closePath()
-  } else if (shape === 'scalar-list') {
-    ctx.moveTo(x - r, y - r)
-    ctx.lineTo(x + r, y - r)
-    ctx.lineTo(x + r, y + r)
-    ctx.lineTo(x - r, y + r)
-    ctx.closePath()
-  }
+const EITHER_PIN = {
+  diamond: canvasPaintTokens.pin.eitherDiamond,
+  circle: canvasPaintTokens.pin.eitherCircle,
+  ring: canvasPaintTokens.pin.eitherRing,
 }
 
-/** Paint a pin from independent shape, fill-pattern, and optionality axes. */
+/** The radius of a pin's outer outline: a diamond's corner, or a circle's radius. */
+const pinShapeRadius = (shape: PinShape, radius: number): number =>
+  shape === 'diamond' ? radius * PIN_DIAMOND_SCALE : shape === 'scalar-list' ? radius * EITHER_PIN.diamond : radius
+
+const pinShapeRadialScale = (shape: PinShape): number =>
+  shape === 'diamond' ? PIN_DIAMOND_SCALE : shape === 'scalar-list' ? EITHER_PIN.diamond : 1
+
+/** Trace the pin's outer outline path for the shape axis (no fill/stroke). */
+const pinOutlinePath = (ctx: CanvasRenderingContext2D, shape: PinShape, x: number, y: number, r: number): void => {
+  ctx.beginPath()
+  if (shape === 'circle') {
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    return
+  }
+  ctx.moveTo(x, y - r)
+  ctx.lineTo(x + r, y)
+  ctx.lineTo(x, y + r)
+  ctx.lineTo(x - r, y)
+  ctx.closePath()
+}
+
+/** Fill one pin outline with a single color or MultiType wedges. */
+const fillPinBody = (
+  ctx: CanvasRenderingContext2D,
+  pin: PinPaint,
+  colors: readonly string[],
+  shape: PinShape,
+  r: number,
+): void => {
+  if (colors.length === 1) {
+    pinOutlinePath(ctx, shape, pin.x, pin.y, r)
+    ctx.fillStyle = colors[0]!
+    ctx.fill()
+    return
+  }
+  // MultiType wedges and dividers clip to the outline so ONE fill
+  // implementation covers every shape; wedge arcs deliberately overshoot
+  // the outline (r * 2 reaches past a diamond's corners).
+  const base = pin.baseAngle ?? 0
+  const span = (Math.PI * 2) / colors.length
+  ctx.save()
+  pinOutlinePath(ctx, shape, pin.x, pin.y, r)
+  ctx.clip()
+  for (const [index, color] of colors.entries()) {
+    ctx.beginPath()
+    ctx.moveTo(pin.x, pin.y)
+    ctx.arc(pin.x, pin.y, r * 2, base + span * index, base + span * (index + 1))
+    ctx.closePath()
+    ctx.fillStyle = color
+    ctx.fill()
+  }
+  ctx.strokeStyle = pin.background
+  ctx.lineWidth = Math.min(
+    PIN_SLICE_DIVIDER_MAX_WORLD,
+    Math.max(PIN_SLICE_DIVIDER_MIN_WORLD, PIN_SLICE_DIVIDER_SCREEN_PX / pin.scale),
+  )
+  for (let index = 0; index < colors.length; index += 1) {
+    const angle = base + span * index
+    ctx.beginPath()
+    ctx.moveTo(pin.x, pin.y)
+    ctx.lineTo(pin.x + Math.cos(angle) * r * 2, pin.y + Math.sin(angle) * r * 2)
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+/**
+ * Paint a pin from independent shape, fill-pattern, and optionality axes. The
+ * one-value-or-list pin is the list diamond with a smaller circle in front,
+ * separated by a dark ring.
+ */
 const paintPin = (ctx: CanvasRenderingContext2D, pin: PinPaint): void => {
   const colors = pin.colors.length === 0 ? [pin.background] : pin.colors
   const r = pinShapeRadius(pin.shape, pin.radius)
-  if (colors.length === 1) {
-    pinOutlinePath(ctx, pin.shape, pin.x, pin.y, r)
-    ctx.fillStyle = colors[0]!
-    ctx.fill()
-  } else {
-    // MultiType wedges and dividers clip to the outline so ONE fill
-    // implementation covers every shape; wedge arcs deliberately overshoot
-    // the outline (r * 2 reaches past a diamond's corners).
-    const base = pin.baseAngle ?? 0
-    const span = (Math.PI * 2) / colors.length
-    ctx.save()
-    pinOutlinePath(ctx, pin.shape, pin.x, pin.y, r)
-    ctx.clip()
-    for (const [index, color] of colors.entries()) {
-      ctx.beginPath()
-      ctx.moveTo(pin.x, pin.y)
-      ctx.arc(pin.x, pin.y, r * 2, base + span * index, base + span * (index + 1))
-      ctx.closePath()
-      ctx.fillStyle = color
-      ctx.fill()
-    }
-    ctx.strokeStyle = pin.background
-    ctx.lineWidth = Math.min(
-      PIN_SLICE_DIVIDER_MAX_WORLD,
-      Math.max(PIN_SLICE_DIVIDER_MIN_WORLD, PIN_SLICE_DIVIDER_SCREEN_PX / pin.scale),
-    )
-    for (let index = 0; index < colors.length; index += 1) {
-      const angle = base + span * index
-      ctx.beginPath()
-      ctx.moveTo(pin.x, pin.y)
-      ctx.lineTo(pin.x + Math.cos(angle) * r * 2, pin.y + Math.sin(angle) * r * 2)
-      ctx.stroke()
-    }
-    ctx.restore()
-  }
+  fillPinBody(ctx, pin, colors, pin.shape, r)
   pinOutlinePath(ctx, pin.shape, pin.x, pin.y, r)
   ctx.strokeStyle = pin.background
   ctx.lineWidth = canvasPaintTokens.pin.outlineStroke
   if (pin.any) ctx.setLineDash([...canvasPaintTokens.dash.anyPin])
   ctx.stroke()
   if (pin.any) ctx.setLineDash([])
+  if (pin.shape === 'scalar-list') {
+    const circle = pin.radius * EITHER_PIN.circle
+    fillPinBody(ctx, pin, colors, 'circle', circle)
+    pinOutlinePath(ctx, 'circle', pin.x, pin.y, circle)
+    ctx.strokeStyle = pin.background
+    ctx.lineWidth = pin.radius * EITHER_PIN.ring
+    ctx.stroke()
+  }
   if (pin.optional) {
     ctx.beginPath()
     ctx.arc(pin.x, pin.y, Math.max(canvasPaintTokens.pin.optionalMinRadius, pin.radius * canvasPaintTokens.pin.optionalRadiusRatio), 0, Math.PI * 2)
@@ -776,6 +800,26 @@ const edgePinPoint = (t: DesignTokens, direction: 'in' | 'out', x: number, y: nu
   if (!t.crispEdges) return { x, y }
   const inset = canvasPaintTokens.node.outline.crisp / 2
   return { x: direction === 'in' ? x + inset : x - inset, y: y + canvasPaintTokens.widget.pixelCenter }
+}
+
+/**
+ * A pin's name on its row, `x` already inset from the node's edge: its
+ * capitals are centered on the pin's painted center. Leaves the `middle`
+ * baseline and left alignment the row loops use.
+ */
+const paintPinLabel = (
+  ctx: CanvasRenderingContext2D,
+  t: DesignTokens,
+  label: string,
+  x: number,
+  rowCenterY: number,
+  align: 'left' | 'right',
+): void => {
+  ctx.textAlign = align
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillText(label, x, edgePinPoint(t, 'in', x, rowCenterY).y + t.fontSize * canvasPaintTokens.type.capHeight / 2)
+  ctx.textBaseline = 'middle'
+  ctx.textAlign = 'left'
 }
 
 const statusRingCullPad = (radius: number, scale: number): number =>
@@ -3609,16 +3653,13 @@ export class CanvasRenderer {
             if (row.input.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
             if (row.input.inactive) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
             ctx.fillStyle = t.colors.label
-            ctx.textAlign = 'left'
-            ctx.fillText(row.input.label, node.x + t.rowGeometry.portLabelInset, rowY + row.height / 2)
+            paintPinLabel(ctx, t, row.input.label, node.x + t.rowGeometry.portLabelInset, rowY + row.height / 2, 'left')
             ctx.globalAlpha = rowAlpha
           }
           if (row.output) {
             if (row.output.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
             ctx.fillStyle = t.colors.label
-            ctx.textAlign = 'right'
-            ctx.fillText(row.output.label, node.x + l.width - t.rowGeometry.portLabelInset, rowY + row.height / 2)
-            ctx.textAlign = 'left'
+            paintPinLabel(ctx, t, row.output.label, node.x + l.width - t.rowGeometry.portLabelInset, rowY + row.height / 2, 'right')
             ctx.globalAlpha = rowAlpha
           }
         } else {
@@ -4465,14 +4506,11 @@ export class CanvasRenderer {
         if (dim) ctx.globalAlpha = GHOST_ALPHA
         if (row.input) {
           ctx.fillStyle = t.colors.label
-          ctx.textAlign = 'left'
-          ctx.fillText(row.input.label, x + t.rowGeometry.portLabelInset, rowY + row.height / 2)
+          paintPinLabel(ctx, t, row.input.label, x + t.rowGeometry.portLabelInset, rowY + row.height / 2, 'left')
         }
         if (row.output) {
           ctx.fillStyle = t.colors.label
-          ctx.textAlign = 'right'
-          ctx.fillText(row.output.label, x + l.width - t.rowGeometry.portLabelInset, rowY + row.height / 2)
-          ctx.textAlign = 'left'
+          paintPinLabel(ctx, t, row.output.label, x + l.width - t.rowGeometry.portLabelInset, rowY + row.height / 2, 'right')
         }
         if (dim) ctx.globalAlpha = 1
       }

@@ -270,7 +270,7 @@ export function widgetTapGallery(
       { id: 'pointed', schema: sampler, x: 0 },
     ]),
     card(
-      'A fitting wire dragged from an input toward the steps pin.',
+      'A fitting wire dragged from an input and held on the steps pin: its end is at the pin\'s center.',
       [
         { id: 'dragged', schema: sampler, x: 0 },
         { id: 'dragged scheduler', schema: scheduler, x: right, ...small },
@@ -460,13 +460,13 @@ export function widgetTapGallery(
         widgetTap: true,
       },
     },
-    // Short of the pin, every output the wire fits shows; here that is only
-    // the steps field's pin. The pointer went down on the scheduler.
+    // The pointer went down on the scheduler's steps pin and is held on the
+    // steps field's pin, the one output the wire fits.
     2: {
       hoveredNode: 'dragged scheduler',
       ghostLink: {
-        x1: pin.x + 28,
-        y1: pin.y + 18,
+        x1: pin.x,
+        y1: pin.y,
         x2: anchor.x,
         y2: anchor.y,
         typeName: 'INT',
