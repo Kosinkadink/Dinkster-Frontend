@@ -23,7 +23,7 @@ const VideoEditImplementation: Component<WidgetEditorImplementationProps> = (pro
   const commit = (value: Json, strictDuration: boolean): void => {
     if (!live || context?.editDisabledReason) return
     if (ed.tab.execution || ed.tab.store.revision !== revision) { props.close(); return }
-    if (ed.target.kind === 'valueSource') {
+    if (ed.target.kind !== 'input') {
       if (jsonSameValue(value, initial)) props.close()
       else props.commitValue(value)
       return

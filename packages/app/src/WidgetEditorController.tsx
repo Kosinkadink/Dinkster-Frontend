@@ -64,6 +64,18 @@ export type EditorTarget =
       }
     }
   | { readonly kind: 'valueSource'; readonly valueSourceId: string }
+  /**
+   * A value a button press asks for (a Pick, an Ask row, a picker): the
+   * editor hands it to the press instead of writing the document. Closing
+   * without a value cancels it.
+   */
+  | {
+      readonly kind: 'local'
+      readonly commit: (value: Json) => void
+      readonly cancel: () => void
+      /** A Pick's lookup list that is not ready; Try again asks the lookup again. */
+      readonly list?: { readonly state: 'stale' | 'failed' | 'paused'; readonly retry?: () => void }
+    }
 
 export interface WidgetEditorState {
   /**
@@ -107,6 +119,8 @@ export interface WidgetEditorState {
   /** Editor anchor rect in canvas world coordinates. */
   readonly rect: { x: number; y: number; width: number; height: number }
   readonly initial: Json | undefined
+  /** A clipboard image the asset picker starts uploading when it opens. */
+  readonly stagedFile?: File
   /** A known-missing stored ref must not issue an initial preview byte read. */
   readonly missingAssetDigest?: string
   readonly instancePath?: readonly string[]
@@ -259,6 +273,11 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     // (or any unmount) would otherwise re-enter here and commit the discarded
     // text. Closed editors never commit.
     if (!live) return Promise.resolve(false)
+    if (ed.target.kind === 'local') {
+      ed.target.commit(value)
+      close()
+      return Promise.resolve(true)
+    }
     if (ed.target.kind !== 'input') {
       return commitCommand({
         command: 'valueSource.setValue',

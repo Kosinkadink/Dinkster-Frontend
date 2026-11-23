@@ -459,8 +459,8 @@ export const isLookupSpec = (value: unknown): value is LookupSpec =>
   typeof (value as { lookup?: unknown }).lookup === 'string'
 
 /**
- * One action step, kept as declared. Running steps is not built in the
- * editor; a button that holds them is drawn and does nothing.
+ * One action step, kept as declared; `actions/steps.ts` decodes the steps a
+ * press runs and refuses any other kind.
  */
 export interface StepSpec {
   readonly step: string
@@ -675,7 +675,7 @@ export interface NoteSpec {
   readonly visible?: Formulated<boolean>
 }
 
-/** Runs an action. The editor draws it and does not run its steps. */
+/** Runs its steps when pressed (`actions/runner.ts`). */
 export interface ButtonSpec {
   readonly kind: 'button'
   readonly id: string
@@ -1070,7 +1070,7 @@ export interface NodeSchema {
   readonly validate?: readonly RuleSpec[]
   /** Text or a formula after the node's title. */
   readonly titleSuffix?: Formulated<string>
-  /** Buttons in the node's menu; drawn and inert, as body buttons are. */
+  /** Buttons in the node's menu, run as body buttons are. */
   readonly menu?: readonly ButtonSpec[]
   /** Type authority for explicit occurrence-authored extra input names. Absent means closed. */
   readonly additionalInputs?: TypeExpr

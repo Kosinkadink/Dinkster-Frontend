@@ -464,6 +464,19 @@ export const canvasPaintTokens = {
     fallbackValueWidthPadding: canvasSemanticTokens.space[8],
     fallback: { opacity: 0.75, textInset: 4, labelRatio: 0.45, valueRatio: 0.5 },
     growth: { stroke: 1, verticalInset: 3, textPadding: canvasSemanticTokens.space[8] },
+    button: {
+      edgeStroke: 1,
+      textPadding: canvasSemanticTokens.space[8],
+      widthPadding: 18,
+      iconSize: 12,
+      iconGap: canvasSemanticTokens.space[4],
+      spinnerRadius: 5,
+      spinnerStroke: 1.5,
+      cancelUnderlineOffset: 7,
+      cancelUnderlineDash: [1, 2],
+      cancelUnderlineStroke: 1,
+      labelGap: 6,
+    },
   },
   minimap: {
     fallbackWidth: 250,
@@ -556,6 +569,9 @@ export interface DesignTokens {
     readonly widgetAffordanceActive: string
     /** Low-contrast bounded-numeric value-zone fill. */
     readonly widgetRangeFill: string
+    /** A declared button: a surface above the node body, with a thin lighter edge. */
+    readonly buttonBackground: string
+    readonly buttonEdge: string
     readonly linkDefault: string
     readonly selection: string
     /**
@@ -723,6 +739,8 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     widgetAffordance: tokens.text.disabled,
     widgetAffordanceActive: tokens.border.focus,
     widgetRangeFill: tokens.interaction.selectedOverlay,
+    buttonBackground: tokens.surface.selected,
+    buttonEdge: tokens.border.hover,
     // Link and execution-mode semantics do not change with shell themes.
     linkDefault: '#8d9aa5',
     mutedBadge: '#4a4a5e',

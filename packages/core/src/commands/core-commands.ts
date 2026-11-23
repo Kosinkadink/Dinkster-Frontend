@@ -35,6 +35,7 @@ import { createTransactionBuilder, executeCommand, type CommandDefinition, type 
 import { BOUNDARY_COMMANDS } from './boundary-commands.js'
 import { SUBGRAPH_COMMANDS } from './subgraph-commands.js'
 import { DYNAMIC_COMMANDS } from './dynamic-commands.js'
+import { MEMBER_COMMANDS } from './member-commands.js'
 import { REPLACE_COMMANDS } from './replace-commands.js'
 import { CLIPBOARD_COMMANDS } from '../clipboard.js'
 import { EXPOSED_COMMANDS } from './exposed-commands.js'
@@ -3077,6 +3078,7 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   viewSetBookmark,
   viewClearBookmark,
   ...DYNAMIC_COMMANDS,
+  ...MEMBER_COMMANDS,
   ...BOUNDARY_COMMANDS,
   ...SUBGRAPH_COMMANDS,
   ...REPLACE_COMMANDS,

@@ -93,6 +93,18 @@ export type Hit =
       readonly row: Extract<LayoutRow, { kind: 'section' }>
     }
   | {
+      /** A declared button; a click presses it. The rect is the button in world space. */
+      readonly kind: 'button'
+      readonly node: SceneNode
+      readonly row: Extract<LayoutRow, { kind: 'button' }>
+      readonly x: number
+      readonly y: number
+      readonly width: number
+      readonly height: number
+      /** Pointer offset from the button's left edge. */
+      readonly localX: number
+    }
+  | {
       /** Grow-family affordance row: click materializes the offered member. */
       readonly kind: 'growth'
       readonly node: SceneNode
@@ -355,13 +367,16 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     // must remain usable where they meet the resize band.
     if (inside && contentDetail) {
       for (const row of l.rows) {
-        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button') continue
+        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note') continue
         const ry = node.y + row.y
         if (wy < ry || wy > ry + row.height) continue
         if (row.kind === 'section') return { kind: 'section', node, row }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
         const width = row.width ?? l.width - row.inset * 2
         if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
+        if (row.kind === 'button') {
+          return { kind: 'button', node, row, x: node.x + row.inset, y: ry, width, height: row.height, localX: wx - node.x - row.inset }
+        }
         return {
           kind: 'widget', node, row,
           x: node.x + row.inset, y: ry, width,
@@ -377,13 +392,16 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     if (wy <= node.y + l.headerHeight) return { kind: 'header', node }
     if (contentDetail) {
       for (const row of l.rows) {
-        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button') continue
+        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note') continue
         const ry = node.y + row.y
         if (wy < ry || wy > ry + row.height) continue
         if (row.kind === 'section') return { kind: 'section', node, row }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
         const width = row.width ?? l.width - row.inset * 2
         if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
+        if (row.kind === 'button') {
+          return { kind: 'button', node, row, x: node.x + row.inset, y: ry, width, height: row.height, localX: wx - node.x - row.inset }
+        }
         return {
           kind: 'widget',
           node,

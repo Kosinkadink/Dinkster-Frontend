@@ -417,6 +417,8 @@ export interface InteractionHost {
   ): void
   /** Click on a widget row; screen coords anchor an editor overlay. */
   onWidgetActivate?(hit: Extract<Hit, { kind: 'widget' }>, screenX: number, screenY: number): void
+  /** Click on a declared button; the client point is where the press happened. */
+  onButtonActivate?(hit: Extract<Hit, { kind: 'button' }>, screenX: number, screenY: number): void
   /** Click on the active lens's registered widget-row affordance. */
   onWidgetRowAffordanceActivate?(hit: Extract<Hit, { kind: 'widget' }>): void
   /** Click on the active lens's preview-surface affordance. */
@@ -507,6 +509,7 @@ export type CanvasHoverTarget =
   | { readonly kind: 'pin'; readonly hit: Extract<Hit, { kind: 'pin' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'widgetTap'; readonly hit: Extract<Hit, { kind: 'widgetTap' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'widget'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
+  | { readonly kind: 'button'; readonly hit: Extract<Hit, { kind: 'button' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'controller'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'header'; readonly hit: Extract<Hit, { kind: 'header' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'reroute'; readonly hit: Extract<Hit, { kind: 'reroute' }>; readonly x: number; readonly y: number }
@@ -706,6 +709,7 @@ type Gesture =
   | { readonly kind: 'preview-affordance'; readonly node: SceneNode; moved: boolean }
   | { readonly kind: 'section'; readonly hit: Extract<Hit, { kind: 'section' }>; moved: boolean }
   | { readonly kind: 'growth'; readonly hit: Extract<Hit, { kind: 'growth' }>; moved: boolean }
+  | { readonly kind: 'button'; readonly hit: Extract<Hit, { kind: 'button' }>; moved: boolean }
   | {
       readonly kind: 'resize'
       readonly nodeId: string
@@ -1741,6 +1745,9 @@ export class InteractionController {
         return
       case 'growth':
         this.gesture = { kind: 'growth', hit, moved: false }
+        return
+      case 'button':
+        this.gesture = { kind: 'button', hit, moved: false }
         return
       case 'pin':
         {
@@ -2850,7 +2857,7 @@ export class InteractionController {
 
   private nodeOfBodyHit(hit: Hit): SceneNode | undefined {
     return hit.kind === 'body' || hit.kind === 'header' || hit.kind === 'widget' ||
-      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'resize'
+      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'button' || hit.kind === 'resize'
       ? hit.node
       : undefined
   }
@@ -2999,7 +3006,7 @@ export class InteractionController {
         ? { kind: 'badge', hit: badge, x: clientX, y: clientY }
       : controllerChip
         ? { kind: 'controller', hit, x: clientX, y: clientY }
-      : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'header' || hit.kind === 'reroute' ||
+      : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'button' || hit.kind === 'header' || hit.kind === 'reroute' ||
         hit.kind === 'link' && hit.link.mismatch === true)
         ? { kind: hit.kind, hit, x: clientX, y: clientY } as CanvasHoverTarget
         : undefined)
@@ -3158,6 +3165,7 @@ export class InteractionController {
       case 'preview-affordance':
       case 'section':
       case 'growth':
+      case 'button':
         if (passed) g.moved = true
         return
       case 'resize': {
@@ -3418,6 +3426,10 @@ export class InteractionController {
             },
           })
         }
+        return
+      case 'button':
+        this.pushOverlay()
+        if (!g.moved) this.host.onButtonActivate?.(g.hit, clientX, clientY)
         return
       case 'node': {
         if (!g.moved) {
@@ -4295,6 +4307,8 @@ export class InteractionController {
         return j('section', hit.node.id, hit.row.sectionId)
       case 'growth':
         return j('growth', hit.node.id, hit.row.construct)
+      case 'button':
+        return j('button', hit.node.id, hit.row.buttonId)
       case 'header':
       case 'body':
         return j('node', hit.node.id)
@@ -4365,6 +4379,7 @@ export class InteractionController {
       case 'widget':
       case 'section':
       case 'growth':
+      case 'button':
       case 'pin':
         if (!this.selection.has(hit.node.id)) {
           this.selection = new Set([hit.node.id])

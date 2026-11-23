@@ -54,7 +54,12 @@ import {
   type OccurrenceLinkIntention,
   type OccurrenceMutationPlanner,
   type BoundaryExposureSource,
+  type ButtonPaint,
+  type ButtonPaintMap,
+  BUTTON_CANCEL_ZONE,
 } from '@dinkster/canvas'
+import { buttonKey, createButtonPresses, type ButtonBox, type ButtonPlace } from './button-presses.js'
+import { ButtonAskForm, ButtonBoxView, ButtonLinkConfirm, type ScreenRect } from './ButtonOverlays.js'
 import { canvasMeasures } from './canvas-measures.js'
 import { VideoPreview } from './VideoPreview.js'
 import type { VideoPreferences } from './video-preview.js'
@@ -93,6 +98,7 @@ import {
   planOccurrenceLinkMutation,
   samePortRef,
   serializeSelection,
+  type AskRequest,
   type AssetRef,
   type CommandInvocation,
   type CommandOutcome,
@@ -148,7 +154,7 @@ import { BadgePopover, type BadgeAnchor } from './BadgePopover.js'
 import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
 import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
-import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type WidgetEditorState } from './WidgetEditor.js'
+import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type EditorTarget, type WidgetEditorState } from './WidgetEditor.js'
 import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
 import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
@@ -1728,6 +1734,139 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   onCleanup(retractWidgetFocus)
   let editorClickAway: (() => void) | undefined
   let openAssetWidgetAt = (_clientX: number, _clientY: number): void => {}
+
+  // Declared buttons: their presses, the boxes they leave, and the list,
+  // form, editor or address they open at the button.
+  const [askForm, setAskForm] = createSolidSignal<{ place: ButtonPlace; request: AskRequest; answer: (values: Readonly<Record<string, Json>> | undefined) => void }>()
+  const [linkConfirm, setLinkConfirm] = createSolidSignal<{ place: ButtonPlace; url: string; answer: (open: boolean) => void }>()
+  const [buttonHover, setButtonHover] = createSolidSignal<{ place: ButtonPlace; box: ButtonBox }>()
+  const [sceneVersion, setSceneVersion] = createSolidSignal(0)
+  let clientRectToWorld = (_rect: DOMRect): { x: number; y: number; width: number; height: number } | undefined => undefined
+  /** A button's line in world space; a menu button's is its whole node. */
+  let buttonWorldRect = (_place: ButtonPlace): { x: number; y: number; width: number; height: number } | undefined => undefined
+  const buttonScreenRect = (place: ButtonPlace): ScreenRect | undefined => {
+    sceneVersion()
+    const rect = buttonWorldRect(place)
+    if (rect === undefined) return undefined
+    const viewport = editorViewport()
+    const canvas = canvasClientRect()
+    return {
+      x: canvas.left + rect.x * viewport.scale + viewport.x,
+      y: canvas.top + rect.y * viewport.scale + viewport.y,
+      width: rect.width * viewport.scale,
+      height: rect.height * viewport.scale,
+    }
+  }
+  /** Settles once: with the user's answer, or undefined when the press is cancelled. */
+  const answerOnce = <T,>(signal: AbortSignal, open: (answer: (value: T | undefined) => void) => void, close: () => void): Promise<T | undefined> =>
+    new Promise((resolve) => {
+      let settled = false
+      const answer = (value: T | undefined): void => {
+        if (settled) return
+        settled = true
+        signal.removeEventListener('abort', onAbort)
+        close()
+        resolve(value)
+      }
+      const onAbort = (): void => answer(undefined)
+      if (signal.aborted) { resolve(undefined); return }
+      signal.addEventListener('abort', onAbort, { once: true })
+      open(answer)
+    })
+  /** The button each open press editor answers to, so it closes when its node goes. */
+  const pressEditorPlaces = new WeakMap<EditorTarget, ButtonPlace>()
+  /** The field editor an Ask form's row opened, which closes with the form. */
+  let askRowTarget: EditorTarget | undefined
+  const buttonPresses = createButtonPresses(props.app, {
+    edit: (request, signal) => {
+      let target: Extract<EditorTarget, { kind: 'local' }> | undefined
+      return answerOnce<Json>(signal, (answer) => {
+        const rect = buttonWorldRect(request.place)
+        if (rect === undefined) { answer(undefined); return }
+        target = { kind: 'local', commit: answer, cancel: () => answer(undefined), ...(request.list ? { list: request.list } : {}) }
+        pressEditorPlaces.set(target, request.place)
+        setEditor({
+          tab: request.place.tab,
+          graphId: request.place.graphId,
+          label: request.label,
+          target,
+          spec: request.spec,
+          multiline: false,
+          rect,
+          initial: request.initial,
+          ...(request.stagedFile ? { stagedFile: request.stagedFile } : {}),
+        })
+      }, () => { if (target !== undefined && untrack(editor)?.target === target) setEditor(undefined) })
+    },
+    // One form and one address question show at a time: a newer one closes the older as Cancel would.
+    ask: (place, request, signal) => {
+      let entry: ReturnType<typeof askForm>
+      return answerOnce<Readonly<Record<string, Json>>>(
+        signal,
+        (answer) => {
+          untrack(askForm)?.answer(undefined)
+          entry = { place, request, answer }
+          setAskForm(entry)
+        },
+        () => {
+          if (untrack(askForm) !== entry) return
+          setAskForm(undefined)
+          if (askRowTarget !== undefined && untrack(editor)?.target === askRowTarget) setEditor(undefined)
+        },
+      )
+    },
+    confirmLink: async (place, url, signal) => {
+      let entry: ReturnType<typeof linkConfirm>
+      return await answerOnce<boolean>(
+        signal,
+        (answer) => {
+          untrack(linkConfirm)?.answer(false)
+          entry = { place, url, answer: (open: boolean) => answer(open) }
+          setLinkConfirm(entry)
+        },
+        () => { if (untrack(linkConfirm) === entry) setLinkConfirm(undefined) },
+      ) === true
+    },
+  })
+  // A list or editor a press opened closes, as Cancel would, when its node leaves the view.
+  createEffect(() => {
+    const current = editor()
+    const place = current === undefined ? undefined : pressEditorPlaces.get(current.target)
+    if (current !== undefined && place !== undefined && buttonScreenRect({ ...place, menu: true }) === undefined) {
+      untrack(() => current.target.kind === 'local' && current.target.cancel())
+    }
+  })
+  // An editor a press opened and something else replaced hands nothing back.
+  let lastEditor: WidgetEditorState | undefined
+  createEffect(() => {
+    const current = editor()
+    if (lastEditor !== undefined && lastEditor !== current && lastEditor.target.kind === 'local') lastEditor.target.cancel()
+    lastEditor = current
+  })
+  const buttonPlaceOf = (tab: Tab, nodeId: string, button: string, menu = false, label?: string): ButtonPlace => {
+    const instancePath = viewInstancePath(tab)
+    return {
+      tab, graphId: currentGraphId(tab), nodeId, button,
+      ...(label !== undefined ? { label } : {}),
+      ...(menu ? { menu: true as const } : {}),
+      ...(instancePath !== undefined && instancePath.length > 0 ? { instancePath } : {}),
+    }
+  }
+  /** A read-only view of a run draws its buttons off. */
+  const READ_ONLY_BUTTON = 'Buttons work in the editable workflow, not in this read-only view.'
+  const buttonAvailabilityOf = (place: ButtonPlace) =>
+    place.tab.execution !== undefined ? { enabled: false as const, reason: READ_ONLY_BUTTON } : buttonPresses.availability(place)
+  // A form or address whose node left the view is closed, as Cancel would.
+  createEffect(() => {
+    const form = askForm()
+    if (form !== undefined && buttonScreenRect({ ...form.place, menu: true }) === undefined) untrack(() => form.answer(undefined))
+    const confirm = linkConfirm()
+    if (confirm !== undefined && buttonScreenRect(confirm.place) === undefined) untrack(() => confirm.answer(false))
+  })
+  const shownOnThisGraph = (place: ButtonPlace): boolean => {
+    const tab = activeTab()
+    return tab !== undefined && place.tab === tab && place.graphId === currentGraphId(tab)
+  }
   interface ControllerMenuState {
     readonly x: number
     readonly y: number
@@ -2834,6 +2973,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       return item?.action !== undefined ? item as MenuActionItem : undefined
     }
     lifecycleSelectNodes = (ids) => controller.setSelection(ids)
+    /** A node's own menu buttons, run like body buttons; an off one says why. */
+    const nodeMenuButtonGroups = (tab: Tab, target: MenuTarget, schema: NodeSchema | undefined): ResolvedMenuGroup[] => {
+      if (target.kind !== 'node' || schema?.menu === undefined) return []
+      const items = schema.menu.filter((button) => button.visible !== false).map((button): MenuActionItem => {
+        const availability = buttonAvailabilityOf(buttonPlaceOf(tab, target.nodeId, button.id, true))
+        return {
+          id: `node.button.${button.id}`,
+          label: button.label,
+          ...(availability.enabled ? {} : { disabled: true, hint: availability.reason }),
+          action: { kind: 'host', action: 'pressNodeMenuButton', params: { nodeId: target.nodeId, button: button.id } },
+        }
+      })
+      return items.length === 0 ? [] : [{ group: '00-node-buttons', items }]
+    }
+
     const openCanvasMenu = (
       target: MenuTarget,
       worldX: number,
@@ -2909,6 +3063,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ? props.app.previewSelectionExecutionScopes(tab, menuNodeIds)
         : undefined
       const resolvedGroups = [
+        // The node's own buttons come first: the menu scrolls past its height.
+        ...nodeMenuButtonGroups(tab, target, targetSchema),
         ...resolveNodeMenuGroups(
           props.app.menuRegistry,
           ctx,
@@ -3051,6 +3207,23 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         publishPresence()
       },
       onWidgetActivate: (hit, _screenX, _screenY) => openWidgetEditor(hit),
+      onButtonActivate: (hit) => {
+        const tab = activeTab()
+        if (!tab) return
+        const place = buttonPlaceOf(tab, hit.node.id, hit.row.buttonId, false, hit.row.label)
+        // A working button is not pressed again; its right end is Cancel.
+        if (buttonPresses.isBusy(place)) {
+          if (hit.localX >= hit.width - BUTTON_CANCEL_ZONE) buttonPresses.cancel(place)
+          return
+        }
+        const availability = buttonAvailabilityOf(place)
+        if (!availability.enabled) {
+          setButtonHover({ place, box: { tone: 'info', message: availability.reason } })
+          return
+        }
+        setButtonHover(undefined)
+        void buttonPresses.press(place)
+      },
       onWidgetRowAffordanceActivate: (hit) => {
         const tab = activeTab()
         if (!tab || tab.execution) return
@@ -3211,6 +3384,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         refreshToolboxScopeHighlight()
       },
       onHoverTarget: (target) => {
+        const hoverTab = activeTab()
+        const hoveredButton = target?.kind === 'button' && hoverTab !== undefined
+          ? buttonPlaceOf(hoverTab, target.hit.node.id, target.hit.row.buttonId)
+          : undefined
+        const hoveredOff = hoveredButton === undefined || buttonPresses.isBusy(hoveredButton) ? undefined : buttonAvailabilityOf(hoveredButton)
+        if (hoveredButton !== undefined && hoveredOff !== undefined && !hoveredOff.enabled) {
+          // A turned-off button says why in the same box its results use.
+          props.tooltips?.hideMatching((candidate) => (candidate as { kind?: string } | null | undefined)?.kind !== 'dom', tooltipOwner)
+          setButtonHover({ place: hoveredButton, box: { tone: 'info', message: hoveredOff.reason } })
+          return
+        }
+        setButtonHover(undefined)
         if (!target) { props.tooltips?.hideMatching((candidate) => (candidate as { kind?: string } | null | undefined)?.kind !== 'dom', tooltipOwner); return }
         if (target.kind !== 'badge') {
           let tooltipTarget: unknown = target
@@ -3721,6 +3906,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         })
       },
       extractSubgraph: () => { beginExtractSubgraph() },
+      pressNodeMenuButton: (params, m) => {
+        if (!params || typeof params !== 'object' || Array.isArray(params)) return
+        const { nodeId, button } = params as JsonObject
+        if (typeof nodeId !== 'string' || typeof button !== 'string' || m.tab !== activeTab()) return
+        const label = m.tab.store.doc.graphs[m.graphId]?.nodes[nodeId] === undefined ? undefined
+          : registry()?.resolve(m.tab.store.doc.graphs[m.graphId]!.nodes[nodeId]!.type)?.menu?.find((item) => item.id === button)?.label
+        void buttonPresses.press(buttonPlaceOf(m.tab, nodeId, button, true, label))
+      },
       flattenSubgraph: () => { flattenSelectedSubgraph() },
       runOnMachine: (params, m) => {
         if (!params || typeof params !== 'object' || Array.isArray(params)) return
@@ -4042,6 +4235,51 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
 
     let scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
+    clientRectToWorld = (rect) => {
+      const canvas = canvasEl.getBoundingClientRect()
+      const start = renderer.toWorld(rect.left - canvas.left, rect.top - canvas.top)
+      const end = renderer.toWorld(rect.right - canvas.left, rect.bottom - canvas.top)
+      return { x: start.x, y: start.y, width: end.x - start.x, height: end.y - start.y }
+    }
+    buttonWorldRect = (place) => {
+      if (!shownOnThisGraph(place)) return undefined
+      const node = scene.nodes.find((candidate) => candidate.id === place.nodeId)
+      if (node === undefined) return undefined
+      if (place.menu) return { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height }
+      const row = node.layout.rows.find((item) => item.kind === 'button' && item.buttonId === place.button)
+      if (row === undefined) return undefined
+      // A button can be a cell of a Row line; its list and box span the whole line.
+      const line = node.layout.rows.filter((item) => item.y === row.y && item.kind !== 'ports')
+      const left = Math.min(...line.map((item) => 'inset' in item ? item.inset : 0))
+      const right = Math.max(...line.map((item) => 'inset' in item ? item.inset + ('width' in item && item.width !== undefined ? item.width : node.layout.width - item.inset * 2) : node.layout.width))
+      return { x: node.x + left, y: node.y + row.y, width: right - left, height: row.height }
+    }
+    function refreshButtonPaint(tab: Tab | undefined): void {
+      const paint: Record<string, Record<string, ButtonPaint>> = {}
+      if (tab !== undefined) {
+        const states = buttonPresses.states()
+        for (const node of scene.nodes) {
+          for (const row of node.layout.rows) {
+            if (row.kind !== 'button') continue
+            const place = buttonPlaceOf(tab, node.id, row.buttonId)
+            const busy = states.get(buttonKey(place))?.busy
+            const item: ButtonPaint | undefined = busy !== undefined
+              ? { kind: 'busy', text: busy }
+              : buttonAvailabilityOf(place).enabled ? undefined : { kind: 'off' }
+            if (item !== undefined) (paint[node.id] ??= {})[row.buttonId] = item
+          }
+        }
+      }
+      renderer.setButtonPaint(paint satisfies ButtonPaintMap)
+    }
+    createEffect(() => {
+      buttonPresses.states()
+      const tab = activeTab()
+      untrack(() => refreshButtonPaint(tab))
+    })
+    const dismissButtonBoxes = (): void => buttonPresses.dismissBoxes()
+    window.addEventListener('pointerdown', dismissButtonBoxes, { capture: true })
+    onCleanup(() => window.removeEventListener('pointerdown', dismissButtonBoxes, { capture: true }))
     let sceneKey = ''
     let sceneBuildContext: {
       readonly document: WorkflowDocument
@@ -4197,6 +4435,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // something Solid guarantees, so the rebuild calls the helper directly
       // (untracked: the scene effect must not subscribe to overlay signals).
       untrack(() => refreshSceneOverlays(tab))
+      untrack(() => refreshButtonPaint(tab))
+      if (replaced) setSceneVersion((version) => version + 1)
       // Solver + widget-value diagnostics are derived per-build; replace
       // (never append) so the Problems panel reflects the CURRENT graph
       // state and clears when the condition (a stale DynamicSlot
@@ -6935,6 +7175,72 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               if (editorRestoresCanvasFocus(ed)) queueMicrotask(() => canvasEl.focus())
             }}
           />
+        )}
+      </Show>
+
+      <For each={[...buttonPresses.states().values()].filter((state) => state.box !== undefined && shownOnThisGraph(state.place))}>
+        {(state) => (
+          <Show when={buttonScreenRect(state.place)}>
+            {(rect) => <ButtonBoxView box={state.box!} under={rect()} />}
+          </Show>
+        )}
+      </For>
+      {/* A menu button has no row to draw its work on, so it shows under its node with Cancel. */}
+      <For each={[...buttonPresses.states().values()].filter((state) => state.place.menu && state.box === undefined && shownOnThisGraph(state.place))}>
+        {(state) => (
+          <Show when={buttonScreenRect(state.place)}>
+            {(rect) => (
+              <ButtonBoxView
+                box={{ tone: 'info', message: `${state.busy ?? state.place.label ?? state.place.button}...` }}
+                under={rect()}
+                testId="button-menu-working"
+                onCancel={() => buttonPresses.cancel(state.place)}
+              />
+            )}
+          </Show>
+        )}
+      </For>
+      <Show when={buttonHover()} keyed>
+        {(hover) => (
+          <Show when={shownOnThisGraph(hover.place) ? buttonScreenRect(hover.place) : undefined}>
+            {(rect) => <ButtonBoxView box={hover.box} under={rect()} testId="button-reason" />}
+          </Show>
+        )}
+      </Show>
+      <Show when={askForm()} keyed>
+        {(form) => (
+          <Show when={buttonScreenRect({ ...form.place, menu: true })}>
+            {(rect) => (
+              <ButtonAskForm
+                request={form.request}
+                beside={rect()}
+                widgetKind={(type) => props.app.widgetRegistryForTab(form.place.tab).kind(type)}
+                editRow={(row, at, value, set) => {
+                  const rect = clientRectToWorld(at)
+                  if (rect === undefined) return
+                  askRowTarget = { kind: 'local', commit: set, cancel: () => {} }
+                  setEditor({
+                    tab: form.place.tab,
+                    graphId: form.place.graphId,
+                    label: row.displayName ?? row.id,
+                    target: askRowTarget,
+                    spec: row.widget,
+                    multiline: false,
+                    rect,
+                    initial: value,
+                  })
+                }}
+                onAnswer={form.answer}
+              />
+            )}
+          </Show>
+        )}
+      </Show>
+      <Show when={linkConfirm()} keyed>
+        {(confirm) => (
+          <Show when={buttonScreenRect(confirm.place)}>
+            {(rect) => <ButtonLinkConfirm url={confirm.url} under={rect()} onAnswer={confirm.answer} />}
+          </Show>
         )}
       </Show>
     </>

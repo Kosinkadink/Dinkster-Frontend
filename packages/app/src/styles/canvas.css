@@ -612,3 +612,45 @@
 .widget-editor-host-ui-content .host-ui-column { align-items: stretch; gap: var(--dinkster-space-8); }
 .widget-editor-host-ui-content .host-ui-text,
 .widget-editor-host-ui-content .host-ui-status { overflow-wrap: anywhere; }
+
+/* A declared button's result, skip or reason box: under its line, its icon in the text. */
+.button-box {
+  position: fixed;
+  z-index: 25;
+  box-sizing: border-box;
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 7px 9px;
+  background: var(--dinkster-surface-panel);
+  border: 1px solid var(--dinkster-border-subtle);
+  border-radius: 6px;
+  color: var(--dinkster-text-primary);
+  box-shadow: var(--dinkster-elevation-high);
+  font: 12px/1.4 var(--dinkster-font-family);
+  pointer-events: none;
+  overflow-wrap: anywhere;
+}
+.button-box[data-tone='warn'] { border-color: var(--dinkster-warning-border); }
+.button-box-icon { flex: none; display: inline-flex; margin-top: 2px; color: var(--dinkster-text-secondary); }
+.button-box[data-tone='warn'] .button-box-icon { color: var(--dinkster-warning-foreground); }
+.button-box:has(.button-box-cancel) { align-items: center; }
+.button-box:has(.button-box-cancel) .button-box-icon { margin-top: 0; }
+.button-box-cancel { flex: none; margin: -4px -4px -4px auto; pointer-events: auto; }
+.button-link-confirm { pointer-events: auto; }
+.button-link-body { display: grid; gap: 6px; min-width: 0; }
+.button-link-address { font-family: var(--dinkster-font-mono, monospace); color: var(--dinkster-text-secondary); }
+.button-link-body .product-action-footer { margin: 0; }
+
+/* An Ask step's form, in the side part beside its node. */
+.button-ask-form {
+  position: fixed;
+  z-index: 25;
+  display: grid;
+  gap: var(--dinkster-space-8);
+  width: 280px;
+  padding: var(--dinkster-space-12);
+}
+.button-ask-title { margin: 0; font-size: var(--dinkster-type-body-size); font-weight: 600; }
+.button-ask-form .product-action-footer { margin: 0; }
