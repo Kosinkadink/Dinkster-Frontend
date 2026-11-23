@@ -235,6 +235,18 @@ nothing again. In Desktop a file opens its Save As dialog; closing it without
 saving is reported at the button and keeps the changes. In a browser a file
 is an ordinary download.
 
+Steps that are not a button's, such as a rule's fix, run through `runSteps`
+in the same file. It takes parts, each a node, a scope and its steps, and runs
+them in order on one scratch copy, so a later part sees what an earlier one
+set; every change is stored as one undo step, or nothing. Its options make a
+run fail and store nothing when two parts set one field to different values,
+when the caller's `unchanged` check fails at the start or before storing, or,
+with `strict`, when the user changed a field it sets meanwhile. `insideOnly`
+refuses, before anything runs, steps that ask the user or act outside the
+workflow, and `noWait` also refuses pack functions and lookups. `lead` stores
+commands, such as the user's own edit that led to a fix, first in the same
+undo step.
+
 - **Off.** A button is drawn dimmed and does not run when the pack turns it
   off, when a field it needs arrives on a wire, when every field it sets has a
   wire, when a step opens an editor that does not exist yet, and in a run's

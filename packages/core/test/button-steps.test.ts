@@ -8,7 +8,8 @@
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { buttonAvailability, runPress, type ActionHost, type CallAnswer, type PressTarget } from '../src/actions/runner.js'
+import { buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESSAGE, runPress, runSteps, type ActionHost, type CallAnswer, type LookupResult, type PressTarget, type StepPart } from '../src/actions/runner.js'
+import { decodeSteps } from '../src/actions/steps.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { createLocalSession, type DocumentSession } from '../src/commands/session.js'
 import type { GraphDef, Json, NodeData, WorkflowDocument } from '../src/format/document.js'
@@ -576,3 +577,109 @@ describe('steps outside the workflow', () => {
     expect(copied.log).toEqual(['copy 640x768'])
   })
 })
+
+describe('steps that are not a button\'s', () => {
+  const whole = { kind: 'concrete', types: ['INT'] }
+  addSchema('test.fix', [
+    { kind: 'input', id: 'a', type: whole, required: true, default: 0 },
+    { kind: 'input', id: 'b', type: whole, required: true, default: 0 },
+  ])
+  const part = (nodeId: string, steps: readonly unknown[]): StepPart => ({ graphId: 'g0', nodeId, prefix: '', steps: decodeSteps(steps as never) })
+  const set = (field: string, value: unknown) => ({ step: 'set', field, value })
+  const twoNodes = () => sessionOf(documentOf({ n1: { type: 'test.fix', values: { a: 1, b: 0 } }, n2: { type: 'test.fix', values: { a: 1, b: 0 } } }))
+  const edit = (session: DocumentSession, inputId: string, value: number) =>
+    session.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId, value } })
+
+  it('runs every part as one undo step, a later part reading what an earlier one set', async () => {
+    const session = twoNodes()
+    const outcome = await runSteps(session, [
+      part('n1', [set('a', { value: 5 })]),
+      part('n1', [set('b', { formula: 'a + 1' })]),
+      part('n2', [set('a', { value: 7 })]),
+    ], hostOf())
+    expect(outcome).toEqual({ kind: 'done', skipped: [], notes: [] })
+    expect(valuesOf(session)).toMatchObject({ a: 5, b: 6 })
+    expect(valuesOf(session, 'n2')).toMatchObject({ a: 7 })
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toMatchObject({ a: 1, b: 0 })
+    expect(valuesOf(session, 'n2')).toMatchObject({ a: 1 })
+    expect(session.canUndo).toBe(false)
+  })
+
+  it('stores nothing when one part fails or two set one field to different values', async () => {
+    const failing = twoNodes()
+    const outcome = await runSteps(failing, [part('n1', [set('a', { value: 5 })]), part('n2', [set('a', { value: 'five' })])], hostOf())
+    expect(outcome.kind).toBe('failed')
+    expect(valuesOf(failing)).toMatchObject({ a: 1 })
+    expect(failing.canUndo).toBe(false)
+
+    const clashing = twoNodes()
+    const clash = await runSteps(clashing, [part('n1', [set('a', { value: 5 })]), part('n1', [set('a', { value: 6 })])], hostOf(), { conflictMessage: 'These fixes disagree.' })
+    expect(clash).toMatchObject({ kind: 'failed', message: 'Nothing was changed. These fixes disagree.' })
+    expect(clashing.canUndo).toBe(false)
+    // One part may set a field twice, and two parts may agree.
+    const agreeing = twoNodes()
+    const agree = await runSteps(agreeing, [part('n1', [set('a', { value: 4 }), set('a', { value: 5 })]), part('n1', [set('a', { value: 5 })])], hostOf())
+    expect(agree.kind).toBe('done')
+    expect(valuesOf(agreeing)).toMatchObject({ a: 5 })
+    expect(CONFLICT_MESSAGE).toBe('Two of these set the same field to different values.')
+  })
+
+  it('refuses, before anything runs, steps that ask the user or wait when told to', async () => {
+    const session = twoNodes()
+    const host = hostOf({ pick: async () => (host.log.push('pick'), 'p'), lookup: async () => (host.log.push('lookup'), { state: 'ready', value: 3n }) })
+    const pick = [set('a', { value: 5 }), { step: 'pick', name: 'chosen', options: { value: ['p'] } }]
+    expect(await runSteps(session, [part('n1', pick)], host, { insideOnly: true })).toMatchObject({ kind: 'failed', message: `Nothing was changed. ${INSIDE_ONLY_MESSAGE}` })
+    expect(await runSteps(session, [part('n1', [{ step: 'copy', value: { value: 'x' } }])], host, { insideOnly: true })).toMatchObject({ kind: 'failed' })
+    const looked = [set('a', { value: 5 }), set('b', { lookup: 'pack.count', args: [] })]
+    expect(await runSteps(session, [part('n1', looked)], host, { noWait: true })).toMatchObject({ kind: 'failed', message: `Nothing was changed. ${NO_WAIT_MESSAGE}` })
+    expect(host.log).toEqual([])
+    expect(valuesOf(session)).toMatchObject({ a: 1, b: 0 })
+    expect(session.canUndo).toBe(false)
+  })
+
+  it('stores nothing when what the fix was worked out from changed, or, when strict, a field it sets did', async () => {
+    const stale = 'Could not apply this fix. The workflow changed.'
+    const waiting = () => {
+      const answer = later<LookupResult>()
+      return { answer, host: hostOf({ lookup: () => answer.promise }) }
+    }
+    const fix = [part('n1', [set('a', { lookup: 'pack.count', args: [] })])]
+
+    const started = twoNodes()
+    edit(started, 'b', 9)
+    expect(await runSteps(started, fix, hostOf(), { unchanged: (doc) => doc.graphs['g0']!.nodes['n1']!.values['b'] === 0, staleMessage: stale }))
+      .toMatchObject({ kind: 'failed', message: `Nothing was changed. ${stale}` })
+
+    const meanwhile = twoNodes()
+    const first = waiting()
+    const running = runSteps(meanwhile, fix, first.host, { unchanged: (doc) => doc.graphs['g0']!.nodes['n1']!.values['b'] === 0, staleMessage: stale })
+    await Promise.resolve()
+    edit(meanwhile, 'b', 9)
+    first.answer.settle({ state: 'ready', value: 3n })
+    expect(await running).toMatchObject({ kind: 'failed', message: `Nothing was changed. ${stale}` })
+    expect(valuesOf(meanwhile)).toMatchObject({ a: 1, b: 9 })
+
+    // Without strict the user's value is kept and reported; with strict the run fails.
+    const strict = twoNodes()
+    const second = waiting()
+    const strictRun = runSteps(strict, fix, second.host, { strict: true, staleMessage: stale })
+    await Promise.resolve()
+    edit(strict, 'a', 2)
+    second.answer.settle({ state: 'ready', value: 3n })
+    expect(await strictRun).toMatchObject({ kind: 'failed', message: `Nothing was changed. ${stale}` })
+    expect(valuesOf(strict)).toMatchObject({ a: 2 })
+  })
+
+  it('stores the user\'s own edit and the fix it led to as one undo step', async () => {
+    const session = twoNodes()
+    const lead = [{ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'a', value: 3 } }]
+    const outcome = await runSteps(session, [part('n1', [set('b', { formula: 'a * 2' })])], hostOf(), { lead, noWait: true })
+    expect(outcome.kind).toBe('done')
+    expect(valuesOf(session)).toMatchObject({ a: 3, b: 6 })
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toMatchObject({ a: 1, b: 0 })
+    expect(session.canUndo).toBe(false)
+  })
+})
+

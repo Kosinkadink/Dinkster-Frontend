@@ -98,7 +98,7 @@ export type CallAnswer =
 
 /** What a Pick shows: the list of a field, in the state its lookup is in. */
 export interface PickRequest {
-  readonly target: PressTarget
+  readonly target: StepPlace
   readonly options: readonly NormalizedComboOption[]
   readonly state: 'ready' | 'stale' | 'failed' | 'paused'
   /** The lookup the list came from, for the list's Try again. */
@@ -106,7 +106,7 @@ export interface PickRequest {
 }
 
 export interface AskRequest {
-  readonly target: PressTarget
+  readonly target: StepPlace
   readonly title: string
   readonly rows: readonly InputSpec[]
 }
@@ -143,14 +143,24 @@ export interface ActionHost {
   random(): number
 }
 
-export interface PressTarget {
+/** The node a list of steps runs on. */
+export interface StepPlace {
   readonly graphId: string
   readonly nodeId: string
+  /** The node's occurrence path for the lookup service; the node id by default. */
+  readonly occurrence?: string
+}
+
+export interface PressTarget extends StepPlace {
   /** The button's flattened id, or a menu button's id. */
   readonly button: string
   readonly menu?: boolean
-  /** The node's occurrence path for the lookup service; the node id by default. */
-  readonly occurrence?: string
+}
+
+/** Steps to run on a node, with names resolved in the scope `prefix` names ('' for the node's own fields). */
+export interface StepPart extends StepPlace {
+  readonly prefix: string
+  readonly steps: readonly Step[]
 }
 
 export interface PressProgress {
@@ -165,6 +175,19 @@ export interface PressOptions {
   readonly onProgress?: (progress: PressProgress | undefined) => void
   /** False once the document the press started on was closed or replaced. */
   readonly stillCurrent?: () => boolean
+  /** Checked when the run starts and again just before it stores; false fails the run with `staleMessage`. */
+  readonly unchanged?: (doc: WorkflowDocument) => boolean
+  /** A field the user changed while the run waited fails the run with `staleMessage`, instead of keeping the user's value. */
+  readonly strict?: boolean
+  readonly staleMessage?: string
+  /** Two parts that set one field to different values fail the run with this message. */
+  readonly conflictMessage?: string
+  /** Refuse, before anything is staged, steps that ask the user or act outside the workflow. */
+  readonly insideOnly?: boolean
+  /** As `insideOnly`, and also refuse a step that waits on a pack function or a lookup. */
+  readonly noWait?: boolean
+  /** Commands staged first and stored with the run as its one undo step, such as the user's own edit that led to it. */
+  readonly lead?: readonly CommandInvocation[]
 }
 
 export interface PressOutcome {
@@ -191,6 +214,10 @@ export const LOOKUP_FAILED_MESSAGE = 'The pack could not provide this value.'
 export const EXTRA_KEY_MESSAGE = 'The pack answered something this button may not set.'
 export const NO_EDITOR_MESSAGE = 'This editor is not available yet.'
 export const ALL_WIRED_MESSAGE = 'Every field this would set has a wire.'
+export const STALE_MESSAGE = 'The workflow changed while the steps waited.'
+export const CONFLICT_MESSAGE = 'Two of these set the same field to different values.'
+export const INSIDE_ONLY_MESSAGE = 'These steps ask the user or act outside the workflow, so they cannot run here.'
+export const NO_WAIT_MESSAGE = 'These steps wait on a pack or a lookup, so they cannot run here.'
 
 // ---------------------------------------------------------------------------
 // Values
@@ -318,7 +345,7 @@ interface View {
   readonly connectivity: Connectivity
 }
 
-function viewOf(doc: WorkflowDocument, target: PressTarget, host: ActionHost): View | undefined {
+function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost): View | undefined {
   const graph = doc.graphs[target.graphId]
   const node = graph?.nodes[target.nodeId]
   const schema = node && host.schemaOf(doc, target.graphId, node)
@@ -396,7 +423,7 @@ type Action =
       readonly source?: LinkEndpoint
     }
 
-function invocationsOf(action: Action, doc: WorkflowDocument, target: PressTarget, actor: string | undefined): CommandInvocation[] {
+function invocationsOf(action: Action, doc: WorkflowDocument, target: StepPlace, actor: string | undefined): CommandInvocation[] {
   const { graphId, nodeId } = target
   switch (action.kind) {
     case 'value':
@@ -440,16 +467,16 @@ function scratchOf(doc: WorkflowDocument, host: ActionHost): DocumentStore {
   return new DocumentStore(doc, host.commands, 1, () => {}, context)
 }
 
+/** Dispatch `invocations` on a scratch store; a refusal names the first diagnostic. */
+function dispatchOn(store: DocumentStore, invocations: readonly CommandInvocation[], actor: string | undefined): void {
+  if (invocations.length === 0) return
+  const outcome = store.dispatch({ ...batch(invocations), ...(actor !== undefined ? { actor } : {}) })
+  if (!outcome.ok) refuse(outcome.diagnostics.find((item) => item.severity === 'error')?.message ?? 'The change could not be made.')
+}
+
 /** Apply `actions` to the scratch store; a refusal names the first diagnostic. */
-function stageOn(store: DocumentStore, actions: readonly Action[], target: PressTarget, actor: string | undefined): void {
-  for (const action of actions) {
-    const invocations = invocationsOf(action, store.doc, target, actor)
-    if (invocations.length === 0) continue
-    const outcome = store.dispatch({ ...batch(invocations), ...(actor !== undefined ? { actor } : {}) })
-    if (!outcome.ok) {
-      refuse(outcome.diagnostics.find((item) => item.severity === 'error')?.message ?? 'The change could not be made.')
-    }
-  }
+function stageOn(store: DocumentStore, actions: readonly Action[], target: StepPlace, actor: string | undefined): void {
+  for (const action of actions) dispatchOn(store, invocationsOf(action, store.doc, target, actor), actor)
 }
 
 // ---------------------------------------------------------------------------
@@ -491,22 +518,21 @@ class Press {
   readonly actions: Action[] = []
   readonly notes: string[] = []
   readonly skipped: Skip[] = []
-  readonly store: DocumentStore
   view: View
   context: FormulaContext
   readonly signal: AbortSignal
 
+  /** Runs on `store`, a scratch copy shared by every part of one run, so a later part sees what an earlier one staged. */
   constructor(
     readonly session: DocumentSession,
-    readonly target: PressTarget,
+    readonly target: StepPlace,
     readonly host: ActionHost,
-    readonly button: { readonly spec: ButtonSpec; readonly prefix: string },
-    view: View,
+    readonly prefix: string,
+    readonly store: DocumentStore,
     readonly options: PressOptions,
   ) {
-    this.store = scratchOf(session.doc, host)
-    this.view = view
-    this.context = view.contexts.get(button.prefix) ?? refuse('The button is not on the node.')
+    this.view = viewOf(store.doc, target, host) ?? refuse('The node is not in the workflow.')
+    this.context = this.view.contexts.get(prefix) ?? refuse('The button is not on the node.')
     this.signal = options.signal ?? new AbortController().signal
   }
 
@@ -516,7 +542,7 @@ class Press {
     stageOn(this.store, actions, this.target, this.session.allocationActor)
     this.actions.push(...actions)
     this.view = viewOf(this.store.doc, this.target, this.host) ?? refuse('The node is gone.')
-    this.context = this.view.contexts.get(this.button.prefix) ?? refuse('The button is not on the node.')
+    this.context = this.view.contexts.get(this.prefix) ?? refuse('The button is not on the node.')
   }
 
   checkAbort(): void {
@@ -590,6 +616,7 @@ class Press {
   }
 
   async lookup(name: string, args: readonly Argument[], use: 'options' | 'value', context = this.context): Promise<{ request: LookupRequest; result: LookupResult }> {
+    if (this.options.noWait === true) return refuse(NO_WAIT_MESSAGE)
     const request: LookupRequest = {
       nodeType: this.view.node.type,
       node: this.target.occurrence ?? this.target.nodeId,
@@ -930,6 +957,7 @@ class Press {
   }
 
   async call(step: Extract<Step, { step: 'call' }>, context: FormulaContext): Promise<CallAnswer & { readonly kind: 'answer' | 'file' }> {
+    if (this.options.noWait === true) return refuse(NO_WAIT_MESSAGE)
     const request: CallRequest = {
       nodeType: this.view.node.type,
       function: step.function,
@@ -969,16 +997,19 @@ class Press {
 
   // -- the commit ------------------------------------------------------------
 
-  /** Build the staged changes again on the live document, skipping what changed meanwhile, and dispatch them once. */
-  commit(edited: ReadonlySet<string>, gone: boolean): number {
-    if (gone || this.options.stillCurrent?.() === false) return refuse('The node was removed while the button waited.')
-    const live = scratchOf(this.session.doc, this.host)
+  /**
+   * Build the staged changes again on `live`, a copy of the live document,
+   * skipping what changed meanwhile; the invocations to dispatch, and how
+   * many fields they set.
+   */
+  rebuild(live: DocumentStore, edited: ReadonlySet<string>): { readonly invocations: readonly CommandInvocation[]; readonly written: number } {
     const invocations: CommandInvocation[] = []
     const written = new Set<string>()
     for (const action of this.actions) {
       const view = viewOf(live.doc, this.target, this.host) ?? refuse('The node was removed while the button waited.')
       if (action.kind === 'value' || action.kind === 'mode') {
         if (edited.has(`${action.kind === 'value' ? 'values' : 'controllers'}:${action.path}`)) {
+          if (this.options.strict === true) return refuse(this.options.staleMessage ?? STALE_MESSAGE)
           this.skip(action.path, 'edited')
           continue
         }
@@ -1015,14 +1046,20 @@ class Press {
       }
       const built = invocationsOf(action, live.doc, this.target, this.session.allocationActor)
       if (built.length === 0) continue
-      stageOn(live, [action], this.target, this.session.allocationActor)
+      dispatchOn(live, built, this.session.allocationActor)
       invocations.push(...built)
     }
-    if (invocations.length > 0) {
-      const outcome = this.session.dispatch(batch(invocations))
-      if (!outcome.ok) return refuse(outcome.diagnostics.find((item) => item.severity === 'error')?.message ?? 'The change could not be made.')
+    return { invocations, written: written.size }
+  }
+
+  /** The value or mode this press leaves on each field it sets, keyed by node and field. */
+  finalWrites(): Map<string, string> {
+    const writes = new Map<string, string>()
+    for (const action of this.actions) {
+      if (action.kind === 'value') writes.set(`${this.target.graphId} ${this.target.nodeId} values:${action.path}`, JSON.stringify(action.value))
+      if (action.kind === 'mode') writes.set(`${this.target.graphId} ${this.target.nodeId} controllers:${action.path}`, JSON.stringify(action.mode))
     }
-    return written.size
+    return writes
   }
 
   // -- outside the workflow --------------------------------------------------
@@ -1077,6 +1114,9 @@ function summary(changed: number, skipped: readonly Skip[], notes: readonly stri
   return parts.join(' ')
 }
 
+/** Steps that ask the user for something: they cannot run where nobody waits on them. */
+const ASKS_THE_USER = new Set<Step['step']>(['pick', 'ask', 'openPicker', 'openEditor', 'pasteImage'])
+
 /**
  * Run the steps of the button `target` names on `session`'s document. The
  * press is one undo step, or nothing when it fails or is cancelled.
@@ -1087,88 +1127,158 @@ export async function runPress(
   host: ActionHost,
   options: PressOptions = {},
 ): Promise<PressOutcome> {
-  const failed = (message: string, press?: Press): PressOutcome =>
-    ({ kind: 'failed', message: `Nothing was changed. ${message}`, warning: true, skipped: [], notes: press?.notes ?? [] })
   const availability = buttonAvailability(session.doc, target, host)
-  if (!availability.enabled) return failed(availability.reason)
+  if (!availability.enabled) return failedOutcome(availability.reason)
   const view = viewOf(session.doc, target, host)!
   const button = buttonOf(view, target)!
-  const steps = decodeSteps(button.spec.steps)
+  const { graphId, nodeId, occurrence } = target
+  return run(session, [{ graphId, nodeId, ...(occurrence !== undefined ? { occurrence } : {}), prefix: button.prefix, steps: decodeSteps(button.spec.steps) }], host, options)
+}
 
-  // Which of this node's fields change while the press waits, and whether the node goes.
-  const fieldsOf = (doc: WorkflowDocument): NodeData | undefined => doc.graphs[target.graphId]?.nodes[target.nodeId]
-  const edited = new Set<string>()
+/**
+ * Run lists of steps that are not a button's, such as the fixes of a node's
+ * rules, as one run: each part in order on one scratch copy of the document,
+ * so a later part sees what an earlier one set, then every change stored as
+ * one undo step, or nothing when any part fails or the run is cancelled.
+ * Steps outside the workflow run after that, part by part.
+ */
+export async function runSteps(
+  session: DocumentSession,
+  parts: readonly StepPart[],
+  host: ActionHost,
+  options: PressOptions = {},
+): Promise<PressOutcome> {
+  return run(session, parts, host, options)
+}
+
+const failedOutcome = (message: string, notes: readonly string[] = []): PressOutcome =>
+  ({ kind: 'failed', message: `Nothing was changed. ${message}`, warning: true, skipped: [], notes })
+
+async function run(session: DocumentSession, parts: readonly StepPart[], host: ActionHost, options: PressOptions): Promise<PressOutcome> {
+  const stale = options.staleMessage ?? STALE_MESSAGE
+  if (options.insideOnly === true || options.noWait === true) {
+    const steps = parts.flatMap((part) => part.steps)
+    if (steps.some((step) => isOutsideStep(step) || ASKS_THE_USER.has(step.step))) return failedOutcome(INSIDE_ONLY_MESSAGE)
+    if (options.noWait === true && steps.some((step) => step.step === 'call')) return failedOutcome(NO_WAIT_MESSAGE)
+  }
+  if (options.unchanged?.(session.doc) === false) return failedOutcome(stale)
+
+  // Which fields of each node the run touches change while it waits, and whether a node goes.
+  const placeKey = (place: StepPlace): string => `${place.graphId} ${place.nodeId}`
+  const nodeOf = (doc: WorkflowDocument, place: StepPlace): NodeData | undefined => doc.graphs[place.graphId]?.nodes[place.nodeId]
+  const places = new Map(parts.map((part) => [placeKey(part), part]))
+  const edited = new Map([...places.keys()].map((key) => [key, new Set<string>()]))
+  const before = new Map([...places].map(([key, place]) => [key, nodeOf(session.doc, place)]))
   let gone = false
-  let before = fieldsOf(session.doc)
   const stop = session.onOp(() => {
-    const after = fieldsOf(session.doc)
-    if (after === undefined || before === undefined) {
-      gone = true
-      return
-    }
-    for (const store of ['values', 'controllers'] as const) {
-      const old = before[store] ?? {}
-      const now = after[store] ?? {}
-      for (const key of new Set([...Object.keys(old), ...Object.keys(now)])) {
-        if (JSON.stringify((old as Record<string, unknown>)[key]) !== JSON.stringify((now as Record<string, unknown>)[key])) edited.add(`${store}:${key}`)
+    for (const [key, place] of places) {
+      const was = before.get(key)
+      const now = nodeOf(session.doc, place)
+      if (was === undefined || now === undefined) {
+        gone = true
+        continue
       }
+      for (const store of ['values', 'controllers'] as const) {
+        const old = was[store] ?? {}
+        const next = now[store] ?? {}
+        for (const field of new Set([...Object.keys(old), ...Object.keys(next)])) {
+          if (JSON.stringify((old as Record<string, unknown>)[field]) !== JSON.stringify((next as Record<string, unknown>)[field])) edited.get(key)!.add(`${store}:${field}`)
+        }
+      }
+      before.set(key, now)
     }
-    before = after
   })
 
-  let press: Press | undefined
+  const actor = session.allocationActor
+  const lead = options.lead ?? []
+  const presses: Press[] = []
   let changed = 0
   try {
-    press = new Press(session, target, host, button, view, options)
-    for (const step of steps) {
-      if (isOutsideStep(step)) break
-      press.checkAbort()
-      await press.run(step)
+    const scratch = scratchOf(session.doc, host)
+    dispatchOn(scratch, lead, actor)
+    for (const part of parts) {
+      const press = new Press(session, part, host, part.prefix, scratch, options)
+      presses.push(press)
+      for (const step of part.steps) {
+        if (isOutsideStep(step)) break
+        press.checkAbort()
+        await press.run(step)
+      }
     }
-    press.checkAbort()
+    presses[0]?.checkAbort()
     stop()
-    changed = press.commit(edited, gone)
+
+    // Two parts may set one field only to the same value.
+    const writes = new Map<string, string>()
+    for (const press of presses) {
+      for (const [field, value] of press.finalWrites()) {
+        if (writes.has(field) && writes.get(field) !== value) refuse(options.conflictMessage ?? CONFLICT_MESSAGE)
+        writes.set(field, value)
+      }
+    }
+    if (options.unchanged?.(session.doc) === false) refuse(stale)
+    if (gone || options.stillCurrent?.() === false) refuse('The node was removed while the button waited.')
+
+    // Build everything again on the live document and store it as one undo step.
+    const live = scratchOf(session.doc, host)
+    dispatchOn(live, lead, actor)
+    const invocations: CommandInvocation[] = [...lead]
+    for (const press of presses) {
+      const rebuilt = press.rebuild(live, edited.get(placeKey(press.target))!)
+      invocations.push(...rebuilt.invocations)
+      changed += rebuilt.written
+    }
+    if (invocations.length > 0) {
+      const outcome = session.dispatch(batch(invocations))
+      if (!outcome.ok) refuse(outcome.diagnostics.find((item) => item.severity === 'error')?.message ?? 'The change could not be made.')
+    }
   } catch (error) {
     stop()
     options.onProgress?.(undefined)
+    const notes = presses.flatMap((press) => press.notes)
     if (error instanceof Cancelled) return { kind: 'cancelled', skipped: [], notes: [] }
-    if (error instanceof Refusal) return failed(error.message, press)
-    return failed(error instanceof Error && error.message !== '' ? error.message : 'The button could not finish.', press)
+    if (error instanceof Refusal) return failedOutcome(error.message, notes)
+    return failedOutcome(error instanceof Error && error.message !== '' ? error.message : 'The button could not finish.', notes)
   }
 
   // The outside steps read the committed document.
   const outsideFailures: string[] = []
   const unsaved: string[] = []
-  const committed = viewOf(session.doc, target, host)
-  if (committed !== undefined) {
-    press.view = committed
-    press.context = committed.contexts.get(button.prefix) ?? press.context
-  }
-  for (const step of steps.filter(isOutsideStep)) {
-    try {
-      const closed = await press.outside(step)
-      if (closed !== undefined) unsaved.push(closed)
-    } catch (error) {
-      const reason = error instanceof Error && error.message !== '' ? error.message : 'it did not finish'
-      outsideFailures.push(`${OUTSIDE_WORDS[step.step] ?? 'This step'} failed: ${reason}`)
+  for (const [index, press] of presses.entries()) {
+    const part = parts[index]!
+    const committed = viewOf(session.doc, part, host)
+    if (committed !== undefined) {
+      press.view = committed
+      press.context = committed.contexts.get(part.prefix) ?? press.context
+    }
+    for (const step of part.steps.filter(isOutsideStep)) {
+      try {
+        const closed = await press.outside(step)
+        if (closed !== undefined) unsaved.push(closed)
+      } catch (error) {
+        const reason = error instanceof Error && error.message !== '' ? error.message : 'it did not finish'
+        outsideFailures.push(`${OUTSIDE_WORDS[step.step] ?? 'This step'} failed: ${reason}`)
+      }
     }
   }
   options.onProgress?.(undefined)
+  const skipped = presses.flatMap((press) => press.skipped)
+  const notes = presses.flatMap((press) => press.notes)
   const message = [
     ...unsaved.map((name) => `The Save As dialog was closed, so ${name} was not saved.`),
-    summary(changed, press.skipped, press.notes),
+    summary(changed, skipped, notes),
   ].filter((part) => part !== undefined).join(' ') || undefined
   if (outsideFailures.length > 0) {
-    const kept = press.actions.length > 0 ? 'The changes were made. ' : ''
+    const kept = lead.length > 0 || presses.some((press) => press.actions.length > 0) ? 'The changes were made. ' : ''
     return {
       kind: 'done',
       message: `${kept}${outsideFailures.join(' ')}${message === undefined ? '' : ` ${message}`}`,
       warning: true,
-      skipped: press.skipped,
-      notes: press.notes,
+      skipped,
+      notes,
     }
   }
-  return { kind: 'done', ...(message !== undefined ? { message } : {}), skipped: press.skipped, notes: press.notes }
+  return { kind: 'done', ...(message !== undefined ? { message } : {}), skipped, notes }
 }
 
 // ---------------------------------------------------------------------------
