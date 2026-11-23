@@ -494,6 +494,16 @@ describe('dynamic.compact', () => {
     expect(store.revision).toBe(revision)
   })
 
+  it("retains a member whose only wire leaves a field's output", () => {
+    const store = makeStore(doc({ g0: graph({
+      id: 'g0',
+      nodes: { n1: node('n1', { dynamic: state }), sink: node('sink') },
+      links: { l1: { id: asLinkId('l1'), from: { node: asNodeId('n1'), tap: asPortId('images.m2') }, to: port('sink', 'in') } },
+    }) }))
+    expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
+    expect(dynOf(store, 'n1')).toEqual({ images: { members: ['m2'], seq: 3 } })
+  })
+
   it('retains a member whose only state is a chosen key or an authored menu at a flattened id', () => {
     const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', { dynamic: {
       items: { members: ['m0', 'm1', 'm2'], seq: 3 },

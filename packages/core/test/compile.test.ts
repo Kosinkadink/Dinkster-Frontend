@@ -673,6 +673,16 @@ const dynSchemas: Record<string, NodeSchema> = {
     required: false,
   }]),
   ItemGroup: dynSchemaOf('ItemGroup', [group('items', 'item', { value: dynInput('value', { optional: true }) })]),
+  IntPinSink: dynSchemaOf('IntPinSink', [dynInput('steps', { type: INT })]),
+  TapGroup: dynSchemaOf('TapGroup', [group('items', 'item', { value: dynInput('value', { type: INT, optional: true, widget: { widgetType: 'INT', options: {} } }) })]),
+  TapChoice: dynSchemaOf('TapChoice', [choice('mode', [
+    { key: 'a', rows: [dynInput('amount', { type: INT, optional: true, widget: { widgetType: 'INT', options: {} } })] },
+    { key: 'b', rows: [] },
+  ])]),
+  TapSlot: dynSchemaOf('TapSlot', [{
+    kind: 'typeChoice', id: 'model', type: IMAGE, required: false,
+    rows: [dynInput('weight', { type: INT, optional: true, widget: { widgetType: 'INT', options: {} } })],
+  }]),
   OrderedGroup: dynSchemaOf('OrderedGroup', [group('items', 'item', { value: dynInput('value', { optional: true }) }, { reorderable: true })]),
   NamedGroup: dynSchemaOf('NamedGroup', [{
     kind: 'group', id: 'args', value: dynInput('value'), keys: { kind: 'named', names: ['a', 'b'] }, grows: 'link', minMembers: 1,
@@ -1242,6 +1252,34 @@ describe('dynamic interfaces', () => {
     if (!result.ok) return
     expect(result.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': 7 })
     expect(result.artifact.prompt['target']!.outputMembers).toEqual({ items: ['item0'] })
+  })
+
+  it("sends a field's output from a member, an option and a type-led pin, and nothing once the field is gone", () => {
+    const tapInto = (source: DynNode, tap: string, extra: Record<string, DynNode> = {}) => dynCompile(dynDoc({
+      nodes: { source, sink: { type: 'IntPinSink' }, ...extra },
+      links: [[{ node: 'source', tap }, ['sink', 'steps']], ...(extra['image'] ? [[['image', 'out'], ['source', 'model']] as [DynEnd, DynEnd]] : [])],
+    }))
+    const sent = (result: ReturnType<typeof dynCompile>) => {
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      return result.ok ? result.artifact.prompt['sink']!.inputs : undefined
+    }
+    const member = { type: 'TapGroup', values: { 'items.item0': 4, 'items.item1': 9 }, dynamic: { items: { members: ['item0', 'item1'], seq: 2 } } }
+    expect(sent(tapInto(member, 'items.item1'))).toEqual({ steps: 9 })
+    expect(sent(tapInto({ type: 'TapChoice', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'a' } } }, 'mode.amount'))).toEqual({ steps: 5 })
+    expect(sent(tapInto({ type: 'TapSlot', values: { 'model.weight': 6 } }, 'model.weight', { image: { type: 'ImageSrc' } }))).toEqual({ steps: 6 })
+
+    // The member removed, the other option chosen, the pin unplugged: the
+    // wire gives nothing, the node it feeds goes without, and the run goes ahead.
+    const removed = tapInto({ type: 'TapGroup', values: { 'items.item0': 4 }, dynamic: { items: { members: ['item0'], seq: 2 } } }, 'items.item1')
+    expect(sent(removed)).toEqual({})
+    if (removed.ok) expect(removed.artifact.diagnostics.map((d) => d.code)).toContain('compile.link.dropped')
+    expect(sent(tapInto({ type: 'TapChoice', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'b' } } }, 'mode.amount'))).toEqual({})
+    expect(sent(tapInto({ type: 'TapSlot', values: { 'model.weight': 6 } }, 'model.weight'))).toEqual({})
+
+    // A field the node never declares is still an error.
+    const unknown = tapInto(member, 'itemz.item0')
+    expect(unknown.ok).toBe(false)
+    if (!unknown.ok) expect(unknown.diagnostics.map((d) => d.code)).toContain('compile.tap.missingInput')
   })
 
   it('sends the member order a move leaves, with each value and wire still on its member', () => {

@@ -88,6 +88,7 @@ import {
   type PortAddress,
 } from '../schema/elaborate.js'
 import { solveGraphTypes } from '../schema/solve.js'
+import { constructsOf } from '../schema/body.js'
 import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
 import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
@@ -535,6 +536,19 @@ function compileImpl(
   }
 
   const graphOf = (defId: string): GraphDef | undefined => doc.graphs[defId]
+
+  /**
+   * A tap on a field the node declares but does not hold now: a member that
+   * was removed, or a row under an option or type-led pin that is not
+   * chosen. Its wire stays and gives nothing, like a muted producer, so the
+   * node it feeds goes without the value and the run goes ahead.
+   */
+  const tapsAbsentRow = (defId: string, nodeId: NodeId, tap: string): boolean => {
+    const node = graphOf(defId)?.nodes[nodeId]
+    const schema = node && resolveNode(defId, node)
+    if (!node || !schema) return false
+    return [...constructsOf(schema, node.dynamic).keys()].some((construct) => tap.startsWith(`${construct}.`))
+  }
 
   const anchorOf = (path: readonly NodeId[], node: NodeId): { occurrence: Occurrence } => ({
     occurrence: { instancePath: path, node },
@@ -1523,6 +1537,9 @@ function compileImpl(
             const driver = index.inputDriverOf.get(portRefKey(ref))
             const netSource = index.netSourceOf.get(portRefKey(ref))
             if (driver || netSource) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: at.path, defId: at.defId, endpoint: driver?.from ?? netSource! } }] }
+            const absent = tappedInputs(at.path, at.defId, endpoint.node, endpoint.tap, []) === undefined &&
+              tapsAbsentRow(at.defId, endpoint.node, endpoint.tap)
+            if (absent) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `field '${endpoint.node}.${endpoint.tap}' is not on its node now` } }] }
             const tapped = tapValue(at.path, at.defId, endpoint.node, endpoint.tap, sink)
             if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `widget tap '${endpoint.node}.${endpoint.tap}' reaches a muted occurrence` } }] }
             if (tapped === undefined) {
@@ -2132,11 +2149,12 @@ function compileImpl(
       const link = connection
       if (isWidgetTapRef(link.from)) {
         const tapped = tappedInputs(path, defId, link.from.node, link.from.tap, [])
-        if (!tapped) {
+        if (!tapped && tapsAbsentRow(defId, link.from.node, link.from.tap)) {
+          diags.push(diag('warning', 'compile', 'compile.link.dropped', `${link.what} in graph '${defId}': field '${link.from.node}.${link.from.tap}' is not on its node now, so the wire gives nothing`))
+        } else if (!tapped) {
           diags.push(diag('error', 'compile', 'compile.tap.missingInput', `${link.from.node}.${link.from.tap}: tapped input is missing in graph ${defId}`))
           continue
-        }
-        if (tapped !== 'muted' && tapped.some((i) => canonicalTypeIdOf(i.input.spec.type) === undefined)) {
+        } else if (tapped !== 'muted' && tapped.some((i) => canonicalTypeIdOf(i.input.spec.type) === undefined)) {
           diags.push(diag('error', 'compile', 'compile.tap.nonConcrete', `${link.from.node}.${link.from.tap}: tapped input has no concrete type`))
           continue
         }

@@ -506,7 +506,8 @@ const outputFamilyOf = (schema: NodeSchema, id: string): GroupSpec | undefined =
   return group?.value?.kind === 'output' ? group : undefined
 }
 
-const staticWidgetTap = (
+/** The field a widget tap reads, wherever it sits: top level, in a member, under an option. */
+const widgetTapInput = (
   schema: NodeSchema,
   state: Pick<NodeData, 'values' | 'dynamic'>,
   id: string,
@@ -515,7 +516,6 @@ const staticWidgetTap = (
     elaborateInterface(schema, state, EMPTY_CONNECTIVITY, { promoteGhosts: false }),
   ).filter((input) =>
     input.address.port === id &&
-    input.origin.kind === 'static' &&
     input.spec.widget !== undefined &&
     input.spec.forceInput !== true,
   )
@@ -1337,6 +1337,7 @@ function planReplacementForCase(
       }
       const source = sourceInput(mapping)
       if (source === undefined) continue
+      if (mapping.kind === 'value' || mapping.kind === 'copy') recordWidgetMove(source, address, spec)
       if (mapping.kind === 'value') {
         if (spec.widget === undefined) {
           errors.push(
@@ -1864,12 +1865,12 @@ function planReplacementForCase(
       }
       continue
     }
-    const sourceInput = sourceSchema === undefined ? undefined : staticWidgetTap(sourceSchema, node, tap)
+    const sourceInput = sourceSchema === undefined ? undefined : widgetTapInput(sourceSchema, node, tap)
     const mappedTargets = widgetMoves.get(tap) ?? []
     const mappedTarget = mappedTargets.length === 1 ? mappedTargets[0] : undefined
     const mappedTargetSpec = mappedTarget === undefined ? undefined : activeTargetInput(mappedTarget)
     const targetInput = mappedTargets.length === 0
-      ? staticWidgetTap(target, { values }, tap)
+      ? widgetTapInput(target, { values }, tap)
       : mappedTargetSpec === undefined ? undefined : { spec: mappedTargetSpec }
     if (sourceInput !== undefined && targetInput !== undefined &&
         sameTapType(sourceInput.spec.type, targetInput.spec.type)) {
