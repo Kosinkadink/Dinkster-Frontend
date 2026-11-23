@@ -40,6 +40,8 @@ export type PostOpOutcome =
   | { readonly kind: 'stale-base'; readonly revision: number }
   | { readonly kind: 'snapshot-required' }
   | { readonly kind: 'protocol-unsupported'; readonly supported: readonly number[] }
+  /** The server judged the op and stored none of it, such as a number outside its limits. */
+  | { readonly kind: 'refused'; readonly code: string; readonly message: string }
   | { readonly kind: 'forbidden' | 'actor-principal-mismatch' | 'rate-limited'; readonly diagnostic: CollabDenial }
   | { readonly kind: 'error'; readonly message: string }
 
