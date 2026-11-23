@@ -22,6 +22,7 @@
 
 import type { CommandInvocation } from '../commands/contract.js'
 import type { Json, WorkflowDocument } from '../format/document.js'
+import type { NodeSchema } from '../schema/model.js'
 
 // ---------------------------------------------------------------------------
 // Targets and context
@@ -120,6 +121,11 @@ export interface MenuContext {
    * that can never estimate would be dead state).
    */
   readonly mirrorCapable?: (nodeType: string) => boolean
+  /**
+   * Node schemas by type, subgraph types included. Omitted for headless
+   * consumers; items that need a node's rows then offer nothing.
+   */
+  readonly resolve?: (nodeType: string) => NodeSchema | undefined
   /** Graph definition being edited (root or a drilled-in subgraph). */
   readonly graphId: string
   readonly target: MenuTarget
