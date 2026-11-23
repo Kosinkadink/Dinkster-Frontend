@@ -417,7 +417,7 @@ test('output inspection distinguishes lifecycle, asset identity, errors, and una
   await installState('disconnected-owner')
   const disconnected = page.getByRole('list', { name: 'Configured disconnected owner', exact: true }).getByTestId('execution-row')
   const disconnectedState = disconnected.locator('.runs-output-thumbnails > [data-state]')
-  await expect(disconnectedState).toHaveText('Output owner unavailable')
+  await expect(disconnectedState).toHaveText('Output backend unavailable')
   await expect(disconnectedState).toHaveAttribute('title', /removed or disconnected/)
   await disconnected.locator('.runs-details > summary').click()
   await expect(disconnected).toContainText('Configured disconnected owner')
