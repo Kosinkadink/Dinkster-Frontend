@@ -369,7 +369,7 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
         caption: 'Paused: the list keeps what it shows and the filter. Refresh can be tried by hand; nothing retries on a timer.',
         node: 'lora',
         open: 'lora',
-        list: { options: loras(), highlight: 0, status: { tone: 'notice', text: 'Paused: the pack limits how often it is asked' }, actions: refresh },
+        list: { options: loras(), highlight: 0, status: { tone: 'notice', text: 'Paused: asked too often' }, actions: refresh },
         side: loraSide,
       },
       {

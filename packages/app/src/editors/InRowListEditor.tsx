@@ -394,6 +394,8 @@ export const createInRowList = (
       }]),
     ]
     const problem = props.commitError() ?? (missing() ? 'Not in the current list. Kept until you choose another.' : undefined)
+    // A field with nothing to say beside it, such as an asset without a default or help, has no side part.
+    if (facts.length === 0 && problem === undefined && inRow.help === undefined) return undefined
     return (
       <CanvasSidePart
         facts={facts}
@@ -404,6 +406,7 @@ export const createInRowList = (
   })
 
   const [sideSize, setSideSize] = createSignal({ width: 0, height: 0 })
+  createEffect(() => { if (side() === undefined) setSideSize({ width: 0, height: 0 }) })
   const [listSize, setListSize] = createSignal(0)
   const placement = createMemo(() => {
     const row = rowPlacement(
@@ -476,7 +479,7 @@ export const createInRowList = (
           {...(placement().listMaxHeight === undefined ? {} : { listMaxHeight: placement().listMaxHeight! })}
           onListSize={setListSize}
           onSideSize={setSideSize}
-          side={side()}
+          {...(side() === undefined ? {} : { side: side() })}
         />
       </div>
     </Show>

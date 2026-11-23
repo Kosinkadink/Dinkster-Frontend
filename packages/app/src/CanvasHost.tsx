@@ -5080,9 +5080,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
      */
     function editsInRow(tab: Tab, node: SceneNode, row: Extract<Hit, { kind: 'widget' }>['row']): boolean {
       if (renderer.getDesignTokens().widgetEditing !== 'in-row') return false
-      const choice = row.viewId === 'core.select' && row.spec.widgetType === 'COMBO' && row.spec.remote === undefined
+      // The select and asset views belong to COMBO and ASSET alone.
+      const choice = row.viewId === 'core.select' && row.spec.remote === undefined
       // One asset or model; source options and multiple picks keep their editors.
-      const asset = row.viewId === 'core.asset' && row.spec.widgetType === 'ASSET' && row.spec.selection !== true &&
+      const asset = row.viewId === 'core.asset' && row.spec.selection !== true &&
         !(row.type !== undefined && assetMultiSelect(row.type, registry()?.mergeableTypes))
       if (row.viewId !== 'core.number' && row.viewId !== 'core.slider' && row.viewId !== 'core.line' && !choice && !asset) return false
       if (widgetRegistry().kind(row.spec.widgetType) === undefined) return false
