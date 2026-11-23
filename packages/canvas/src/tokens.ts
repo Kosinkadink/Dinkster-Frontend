@@ -52,7 +52,7 @@ export const canvasPaintTokens = {
     radius: 3,
     baselineOffset: 0.5,
     /** The subgraph mark at the right end of the title bar. */
-    mark: { size: 16, hitSize: 20, iconSize: 10, padding: 3, gap: 3 },
+    mark: { size: 16, hitSize: 20, iconSize: 12, padding: 2, gap: 3 },
     tab: {
       height: 16,
       fontSize: 11,
@@ -62,7 +62,7 @@ export const canvasPaintTokens = {
       offset: 3,
       gap: 2,
       padding: 6,
-      iconSize: 10,
+      iconSize: 12,
       iconGap: 4,
       maxLabelWidth: 120,
       stroke: 1,
@@ -639,10 +639,7 @@ export interface DesignTokens {
     readonly fontSize: number
     readonly lineHeight: number
     readonly padding: number
-    /**
-     * Left inset of the text: 2 less than the label over it, so the text
-     * starts just left of its label and labels stay in one column.
-     */
+    /** Left inset of the text: the label's inset, so text and label start at one x. */
     readonly textInset: number
     /** Compact floating-label band, independent of the shared row height. */
     readonly labelHeight: number
@@ -814,7 +811,7 @@ export const defaultTokens: DesignTokens = {
     fontSize: 14,
     lineHeight: 20,
     padding: 6,
-    textInset: 4,
+    textInset: 6,
     labelHeight: 18,
     scrollbarWidth: 6,
     scrollbarInset: 2,

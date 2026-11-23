@@ -116,12 +116,12 @@ describe('badge layout', () => {
     const list = [MUTED_BADGE, DEPRECATED_BADGE, ERROR_BADGE, { id: 'pack.plain', glyph: 'Plain', placement: 'below' as const, color: '#345678' }]
     const entries = layoutNodeBadges(node, list, { tokens, outset: 2, measureLabel })
     const rects = Object.fromEntries(entries.map(({ badge, x, y, width, height }) => [badge.id, { x, y, width, height }]))
-    // Width: two 6 px paddings, a 10 px icon and a 4 px gap, and the words; no icon, no icon space.
-    expect(rects[MUTED_BADGE.id]).toEqual({ x: 340 - 51, y: 100 - 2 - 3 - 16, width: 51, height: 16 })
-    expect(rects[DEPRECATED_BADGE.id]).toEqual({ x: 340 - 51 - 2 - 76, y: 79, width: 76, height: 16 })
+    // Width: two 6 px paddings, a 12 px icon and a 4 px gap, and the words; no icon, no icon space.
+    expect(rects[MUTED_BADGE.id]).toEqual({ x: 340 - 53, y: 100 - 2 - 3 - 16, width: 53, height: 16 })
+    expect(rects[DEPRECATED_BADGE.id]).toEqual({ x: 340 - 53 - 2 - 78, y: 79, width: 78, height: 16 })
     const bottom = 100 + node.layout.height + 2 + 3
-    expect(rects[ERROR_BADGE.id]).toEqual({ x: 40, y: bottom, width: 51, height: 16 })
-    expect(rects['pack.plain']).toEqual({ x: 40 + 51 + 2, y: bottom, width: 37, height: 16 })
+    expect(rects[ERROR_BADGE.id]).toEqual({ x: 40, y: bottom, width: 53, height: 16 })
+    expect(rects['pack.plain']).toEqual({ x: 40 + 53 + 2, y: bottom, width: 37, height: 16 })
   })
 
   it('keeps only the subgraph mark in the title bar, at its right end, with its count after the icon', () => {
@@ -129,7 +129,7 @@ describe('badge layout', () => {
     const [mark] = layoutNodeBadges(node, [SUBGRAPH_BADGE, MUTED_BADGE], { tokens, measureLabel })
     expect(mark).toMatchObject({ x: 340 - tokens.padX - 16, y: 100 + node.layout.headerHeight / 2 - 8, width: 16, height: 16 })
     const [counted] = layoutNodeBadges(node, [subgraphBadge(12)], { tokens, measureLabel })
-    // 3 px padding each side, the 10 px icon, a 3 px gap and "12".
+    // 2 px padding each side, the 12 px icon, a 3 px gap and "12".
     expect(counted).toMatchObject({ x: 340 - tokens.padX - 29, width: 29 })
   })
 
@@ -188,7 +188,7 @@ describe('badge layout', () => {
   it('caps a tab\'s words at 120 px', () => {
     const node = { ...original, x: 0, y: 0, layout: { ...original.layout, width: 600 } }
     const [entry] = layoutNodeBadges(node, [{ id: 'long', glyph: 'A label much longer than any tab may show', icon: 'info', color: '#345678' }], { tokens, measureLabel })
-    expect(entry!.width).toBe(12 + 10 + 4 + 120)
+    expect(entry!.width).toBe(12 + 12 + 4 + 120)
     expect(entry!.compact).toBe(false)
   })
 })

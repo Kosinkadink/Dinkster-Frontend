@@ -1810,7 +1810,7 @@ describe('node chrome paint on the live renderer', () => {
       renderer.setNodeOutputTexts({ [node.id]: { text: 'hidden by image' } })
       renderer.setNodePreviews({ [node.id]: { status: 'loading' } })
     })
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'loading')).toBe(true)
+    expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'loading...'))).toBe(true)
     expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'hidden by image')).toBe(false)
     const projectedLayout = nodeOf((() => {
       const { ctx } = recordingCtx()
@@ -1826,10 +1826,36 @@ describe('node chrome paint on the live renderer', () => {
     expect(projectedLayout).not.toHaveProperty('textOutput')
   })
 
+  it('keeps the checker under a preview picture one device pixel inside the picture', () => {
+    // At 1.5 device pixels per screen pixel and zoom 2, a device pixel is a third of a world unit.
+    // A checker reaching the picture's edges shows through their partly covered pixels as dashes.
+    const scene = fixtureScene('withMismatch')
+    const node = nodeOf(scene, 'img')
+    const image = {} as CanvasImageSource
+    Object.assign(globalThis, { devicePixelRatio: 1.5 })
+    try {
+      const calls = paintWith(scene, (renderer) => {
+        renderer.setViewport({ x: 0, y: 0, scale: 2 })
+        renderer.setNodePreviews({ [node.id]: { image, width: 320, height: 240 } })
+      })
+      const at = calls.findIndex((call) => call.method === 'drawImage' && call.args[0] === image)
+      const [x, y, width, height] = calls[at]!.args.slice(1).map(Number) as [number, number, number, number]
+      const checker = calls[at - 1]!
+      expect(checker).toMatchObject({ method: 'fillRect', fillStyle: 'checkerboard' })
+      const [cx, cy, cw, ch] = checker.args.map(Number) as [number, number, number, number]
+      expect(cx).toBeCloseTo(x + 1 / 3)
+      expect(cy).toBeCloseTo(y + 1 / 3)
+      expect(cx + cw).toBeCloseTo(x + width - 1 / 3)
+      expect(cy + ch).toBeCloseTo(y + height - 1 / 3)
+    } finally {
+      delete (globalThis as { devicePixelRatio?: number }).devicePixelRatio
+    }
+  })
+
   it('says loading, failed or unavailable in the caption row and keeps a list page\'s panel', () => {
     const scene = fixtureScene('withMismatch')
     const node = nodeOf(scene, 'img')
-    for (const [status, word] of [['loading', 'loading'], ['failed', 'failed'], ['unavailable', 'unavailable']] as const) {
+    for (const [status, word] of [['loading', 'loading...'], ['failed', 'failed'], ['unavailable', 'unavailable']] as const) {
       const calls = paintWith(scene, (renderer) => renderer.setNodePreviews({ [node.id]: { status } }))
       expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], word))).toBe(true)
       // A page of a list output keeps its panel, so its paging controls stay.
@@ -2748,10 +2774,10 @@ describe('badge and toolbox paint on the live renderer', () => {
       const call = calls.find((candidate) => candidate.method === 'fillText' && candidate.args[0] === word)!
       expect(side === 'above' ? Number(call.args[2]) < header.top : Number(call.args[2]) > n.y + n.layout.height).toBe(true)
     }
-    // The mark: 3 px padding, a 10 px icon, a 3 px gap and "12" (6 px a character here), ending padX before the right edge.
-    const markX = n.x + n.layout.width - defaultTokens.padX - (3 + 10 + 3 + 12 + 3)
+    // The mark: 2 px padding, a 12 px icon, a 3 px gap and "12" (6 px a character here), ending padX before the right edge.
+    const markX = n.x + n.layout.width - defaultTokens.padX - (2 + 12 + 3 + 12 + 2)
     const count = calls.find((call) => call.method === 'fillText' && call.args[0] === '12')!
-    expect(count.args[1]).toBe(markX + 3 + 10 + 3)
+    expect(count.args[1]).toBe(markX + 2 + 12 + 3)
     expect(Number(count.args[2])).toBeGreaterThan(header.top)
     expect(Number(count.args[2])).toBeLessThan(header.bottom)
     const title = calls.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && call.args[2] === titleY)!
@@ -2761,6 +2787,21 @@ describe('badge and toolbox paint on the live renderer', () => {
     const unmarked = paintWith(scene, (renderer) => renderer.setBadges({ c1: [MUTED_BADGE, ERROR_BADGE] }))
     const fullWidth = unmarked.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && call.args[2] === titleY)!
     expect(String(fullWidth.args[0]).length).toBeGreaterThan(String(title.args[0]).length)
+  })
+
+  it('draws a tab\'s and the title mark\'s icons 12 px, 2 px inside their 16 px boxes', () => {
+    const n = nodeOf(fixtureScene('clean'), 'c1')
+    const calls = paintWith(emptyScene({ nodes: [n] }), (renderer) => renderer.setBadges({ c1: [MUTED_BADGE, SUBGRAPH_BADGE] }))
+    // An icon is drawn by moving to its corner, then scaling Lucide's 24-unit box.
+    const scaleAfter = (x: number, y: number) =>
+      calls[calls.findIndex((call) => call.method === 'translate' && call.args[0] === x && call.args[1] === y) + 1]
+    const markX = n.x + n.layout.width - defaultTokens.padX - 16
+    const markY = n.y + n.layout.headerHeight / 2 - 8
+    expect(scaleAfter(markX + 2, markY + 2)).toMatchObject({ method: 'scale', args: [0.5, 0.5] })
+    // The tab's words follow its 12 px icon and a 4 px gap; the tab's top is 8.5 above them.
+    const words = calls.find((call) => call.method === 'fillText' && call.args[0] === 'Muted')!
+    const tabTop = Number(words.args[2]) - canvasPaintTokens.badge.baselineOffset - 8
+    expect(scaleAfter(Number(words.args[1]) - 4 - 12, tabTop + 2)).toMatchObject({ method: 'scale', args: [0.5, 0.5] })
   })
 
   it('paints the minimize arrow before the title, down when open and right when minimized', () => {

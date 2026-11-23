@@ -180,7 +180,11 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
 /** Whether a name from outside the canvas, such as an extension badge's icon, is one the canvas paints. */
 export const isCanvasIconName = (name: string): name is NonNullable<ToolboxButton['icon']> => Object.hasOwn(ICONS, name)
 
-/** Paint Lucide's 24px SVG node data into a square canvas button. */
+/**
+ * Paint Lucide's 24px SVG node data into a square canvas button. `padding` is
+ * kept clear inside the square on each side; 0 when the square is already the
+ * icon's own box, as in a tab or a mark.
+ */
 export function paintToolboxIcon(
   ctx: CanvasRenderingContext2D,
   icon: NonNullable<ToolboxButton['icon']>,
@@ -188,6 +192,7 @@ export function paintToolboxIcon(
   y: number,
   size: number,
   color: string,
+  padding = size * canvasPaintTokens.icon.paddingRatio,
 ): void {
   if (icon === 'circle') {
     const radius = size * canvasPaintTokens.icon.circleRadiusRatio
@@ -199,7 +204,7 @@ export function paintToolboxIcon(
     ctx.restore()
     return
   }
-  paintIcon(ctx, ICONS[icon], x, y, size, color)
+  paintIcon(ctx, ICONS[icon], x, y, size, color, padding)
 }
 
 /** Paint the icon-only status for an after-generate controller chip. */
@@ -226,8 +231,15 @@ export function paintSeedModeIcon(
   paintIcon(ctx, SEED_MODE_ICONS[mode], x, y, size, color)
 }
 
-function paintIcon(ctx: CanvasRenderingContext2D, nodes: IconNode, x: number, y: number, size: number, color: string): void {
-  const pad = size * canvasPaintTokens.icon.paddingRatio
+function paintIcon(
+  ctx: CanvasRenderingContext2D,
+  nodes: IconNode,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+  pad = size * canvasPaintTokens.icon.paddingRatio,
+): void {
   const scale = (size - pad * 2) / canvasPaintTokens.icon.viewBoxSize
   ctx.save()
   ctx.translate(x + pad, y + pad)

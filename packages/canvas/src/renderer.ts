@@ -1425,8 +1425,12 @@ export class CanvasRenderer {
       tileContext.fillRect(half, half, half, half)
       this.previewChecker = ctx.createPattern(tile, 'repeat')
     }
+    // The checker stops one device pixel inside the picture: an edge that
+    // falls part way across a pixel would otherwise show the checker through
+    // the picture's partly covered edge pixels as a dashed line.
+    const inset = 1 / (this.viewport.scale * (globalThis.devicePixelRatio ?? 1))
     ctx.fillStyle = this.previewChecker ?? t.colors.widgetBackground
-    ctx.fillRect(fit.x, fit.y, fit.width, fit.height)
+    ctx.fillRect(fit.x + inset, fit.y + inset, Math.max(0, fit.width - inset * 2), Math.max(0, fit.height - inset * 2))
     try {
       ctx.drawImage(image, fit.x, fit.y, fit.width, fit.height)
     } catch {
@@ -3291,7 +3295,7 @@ export class CanvasRenderer {
       ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${paint.fontSize}px ${t.fontFamily}`
       const textY = y + height / 2 + canvasPaintTokens.badge.baselineOffset
       if (title) {
-        if (badge.icon !== undefined) paintToolboxIcon(ctx, badge.icon, x + mark.padding, y + (height - mark.iconSize) / 2, mark.iconSize, words)
+        if (badge.icon !== undefined) paintToolboxIcon(ctx, badge.icon, x + mark.padding, y + (height - mark.iconSize) / 2, mark.iconSize, words, 0)
         if (badge.count !== undefined) ctx.fillText(String(badge.count), x + mark.padding + mark.iconSize + mark.gap, textY)
       } else if (entry.overflow) {
         ctx.textAlign = 'center'
@@ -3299,7 +3303,7 @@ export class CanvasRenderer {
       } else {
         let textX = x + paint.padding
         if (badge.icon !== undefined) {
-          paintToolboxIcon(ctx, badge.icon, textX, y + (height - paint.iconSize) / 2, paint.iconSize, words)
+          paintToolboxIcon(ctx, badge.icon, textX, y + (height - paint.iconSize) / 2, paint.iconSize, words, 0)
           textX += paint.iconSize + paint.iconGap
         }
         if (!entry.compact || badge.icon === undefined) {
@@ -3643,7 +3647,7 @@ export class CanvasRenderer {
       const folded = l.preview.folded === true
       const statusLabel = preview.statusMessage ?? (preview.status === 'failed'
         ? 'failed'
-        : preview.status === 'unavailable' ? 'unavailable' : 'loading')
+        : preview.status === 'unavailable' ? 'unavailable' : 'loading...')
       if (panel !== undefined) {
         const mediaRect = panel.media
         ctx.fillStyle = t.colors.widgetBackground
@@ -4551,7 +4555,7 @@ export class CanvasRenderer {
       let titleX = x + t.padX
       if (vs.subgraphMark !== undefined) {
         const mark = valueSourceMarkRect(vs, t.padX)
-        paintToolboxIcon(ctx, 'boxes', x + (mark.x - vs.x), y + (mark.y - vs.y), mark.size, t.colors.subgraphMark)
+        paintToolboxIcon(ctx, 'boxes', x + (mark.x - vs.x), y + (mark.y - vs.y), mark.size, t.colors.subgraphMark, 0)
         titleX += mark.size + canvasPaintTokens.widget.subgraphMark.gap
       }
       const alpha = ctx.globalAlpha

@@ -236,6 +236,31 @@ test('The content column is centered beside the sidebar', async ({ page }) => {
   expect(Math.abs(gaps.left - gaps.right)).toBeLessThanOrEqual(1)
 })
 
+test('An open row\'s side part draws its rules and keys in the node\'s divider and label colors', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await openPage(page, 'row-editing')
+  await cardsReady(page, 'row-editing', 'dark')
+  const palette = (name: string) =>
+    page.evaluate((name) => {
+      const probe = document.createElement('span')
+      probe.style.color = `var(${name})`
+      document.body.append(probe)
+      const color = getComputedStyle(probe).color
+      probe.remove()
+      return color
+    }, name)
+  const help = page.locator('.dinkster-canvas-side-help').first()
+  const key = page.locator('.dinkster-canvas-side-fact dt').first()
+  expect(
+    await help.evaluate((element) => getComputedStyle(element).borderTopColor),
+  ).toBe(await palette('--dinkster-border-divider'))
+  expect(
+    await key.evaluate((element) => getComputedStyle(element).color),
+  ).toBe(await palette('--dinkster-text-secondary'))
+})
+
 for (const theme of ['dark', 'light'] as const) {
   test(`Canvas text input preserves shared behavior at compact density, ${theme}`, async ({
     page,

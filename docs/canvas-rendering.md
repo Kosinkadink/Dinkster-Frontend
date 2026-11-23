@@ -103,7 +103,7 @@ starts where that target ends, and a node's automatic width reserves the
 space. See [node minimization](node-minimization.md) for what it does.
 
 The title bar holds the node's name and suffix and, for a subgraph node, one
-mark at its right end: a 16px square with the boxes icon, followed by the
+mark at its right end: a 16px square with a 12px boxes icon, followed by the
 linked count when two or more occurrences share the definition. The name is
 cut with an ellipsis before the mark. Every other badge is a tab outside the
 node. Tabs above say what the node is and how it is set: Deprecated, Muted,
@@ -118,7 +118,7 @@ A tab is 16px high with 11px words and 3px rounded corners. Its fill is 16
 percent of its color over the canvas background, its 1px line 65 percent, and
 its icon and words 70 percent of its color over the title color, so the words
 stay readable in either theme; under the pointer the fill rises to 30 percent
-and the line takes the words' color. A tab is as wide as its padding, 10px
+and the line takes the words' color. A tab is as wide as its padding, 12px
 icon, 4px gap and measured words, the words capped at 120px. When a lane is
 full, tabs narrow to their icons and the last becomes a "+N" tab listing the
 rest; hovering a narrowed tab shows it whole. Paint, pointer targets and the
