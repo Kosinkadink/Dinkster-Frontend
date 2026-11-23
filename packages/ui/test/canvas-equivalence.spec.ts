@@ -177,15 +177,15 @@ for (const dpr of [1, 1.25, 2]) {
   })
 }
 
-test('every registered gallery widget survives selection, drag, edit and theme invalidation', async ({
-  page,
-}) => {
-  await page.goto('/#canvas')
-  await expect(
-    page.getByRole('img', { name: 'anatomy in dark theme', exact: true }),
-  ).toHaveAttribute('data-ready', 'anatomy-dark')
-  await page.addScriptTag({ content: script })
-  for (const input of galleryWidgetInputs) {
+for (const input of galleryWidgetInputs)
+  test(`gallery widget ${input.id} survives selection, drag, edit and theme invalidation`, async ({
+    page,
+  }) => {
+    await page.goto('/#canvas')
+    await expect(
+      page.getByRole('img', { name: 'anatomy in dark theme', exact: true }),
+    ).toHaveAttribute('data-ready', 'anatomy-dark')
+    await page.addScriptTag({ content: script })
     const result = await page.evaluate(
       async (widgetId) =>
         window.canvasFrameEquivalence.compareCanvasFrames(
@@ -205,5 +205,4 @@ test('every registered gallery widget survives selection, drag, edit and theme i
     ).toEqual(frameStates.map(() => 0))
     expect(result.corruptionDifferences, input.id).toBe(1)
     expect(result.staleDifferences, input.id).toBeGreaterThan(0)
-  }
-})
+  })

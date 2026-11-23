@@ -779,18 +779,18 @@ for (const state of ['running', 'pending'])
     }
   })
 
-test('Window toolbar keeps actions and identity inside native reservations', async ({
-  page,
-}) => {
-  await page.goto('/#window-toolbar')
-  await page.addStyleTag({
-    content:
-      '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }',
-  })
-  await page.getByLabel('Account state').selectOption('signed-out')
-  const sections = page.locator('section[aria-label]')
-  await expect(sections).toHaveCount(18)
-  for (const state of ['idle', 'running', 'pending']) {
+for (const state of ['idle', 'running', 'pending'])
+  test(`Window toolbar keeps actions and identity inside native reservations when ${state}`, async ({
+    page,
+  }) => {
+    await page.goto('/#window-toolbar')
+    await page.addStyleTag({
+      content:
+        '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }',
+    })
+    await page.getByLabel('Account state').selectOption('signed-out')
+    const sections = page.locator('section[aria-label]')
+    await expect(sections).toHaveCount(18)
     await page.getByLabel('Execution state').selectOption(state)
     for (const fixtureWidth of [1440, 929, 928, 873, 872, 793, 792, 390]) {
       for (const section of await sections.all()) {
@@ -933,39 +933,39 @@ test('Window toolbar keeps actions and identity inside native reservations', asy
         }
       }
     }
-  }
-  await page.getByLabel('Execution state').selectOption('running')
-  const first = sections.first()
-  const search = first.getByRole('button', { name: 'Search', exact: true })
-  await page.getByLabel('Search shortcut').selectOption('Alt+K')
-  await expect(search).toHaveAccessibleDescription('Search (Alt+K)')
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await expect(search.locator('kbd')).toHaveText('Alt+K')
-  await expect(search.locator('kbd')).toBeVisible()
-  await page.getByLabel('Search shortcut').selectOption('')
-  await expect(search.locator('kbd')).toHaveCount(0)
-  await expect(search).toHaveAttribute('title', 'Search')
-  await search.click()
-  await expect(page.getByRole('status')).toHaveText('Search opened')
-  await first.getByRole('button', { name: 'Cancel run' }).click()
-  await expect(page.getByRole('status')).toHaveText('Run cancelled')
-  const trigger = first.getByRole('button', {
-    name: 'Dinkster menu',
-    exact: true,
+    await page.getByLabel('Execution state').selectOption('running')
+    const first = sections.first()
+    const search = first.getByRole('button', { name: 'Search', exact: true })
+    await page.getByLabel('Search shortcut').selectOption('Alt+K')
+    await expect(search).toHaveAccessibleDescription('Search (Alt+K)')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(search.locator('kbd')).toHaveText('Alt+K')
+    await expect(search.locator('kbd')).toBeVisible()
+    await page.getByLabel('Search shortcut').selectOption('')
+    await expect(search.locator('kbd')).toHaveCount(0)
+    await expect(search).toHaveAttribute('title', 'Search')
+    await search.click()
+    await expect(page.getByRole('status')).toHaveText('Search opened')
+    await first.getByRole('button', { name: 'Cancel run' }).click()
+    await expect(page.getByRole('status')).toHaveText('Run cancelled')
+    const trigger = first.getByRole('button', {
+      name: 'Dinkster menu',
+      exact: true,
+    })
+    await trigger.click()
+    await expect(first.getByRole('menu')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(first.getByRole('menu')).toBeHidden()
+    await trigger.click()
+    await first.getByRole('menuitem', { name: 'Projects' }).click()
+    await expect(first.getByRole('menu')).toBeHidden()
+    await expect(page.getByRole('status')).toHaveText('Projects opened')
+    await page.addScriptTag({ content: axe.source })
+    expect(
+      await page.evaluate(
+        async () =>
+          (await (window as unknown as { axe: typeof axe }).axe.run())
+            .violations,
+      ),
+    ).toEqual([])
   })
-  await trigger.click()
-  await expect(first.getByRole('menu')).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(first.getByRole('menu')).toBeHidden()
-  await trigger.click()
-  await first.getByRole('menuitem', { name: 'Projects' }).click()
-  await expect(first.getByRole('menu')).toBeHidden()
-  await expect(page.getByRole('status')).toHaveText('Projects opened')
-  await page.addScriptTag({ content: axe.source })
-  expect(
-    await page.evaluate(
-      async () =>
-        (await (window as unknown as { axe: typeof axe }).axe.run()).violations,
-    ),
-  ).toEqual([])
-})
