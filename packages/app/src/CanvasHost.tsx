@@ -4428,7 +4428,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const availabilityDiags = tab.execution || !hasResidentMetadata
         ? [] : props.app.previewAvailabilityDiagnostics(tab) ?? []
       const widgetDiags = widgetValueDiagnostics()
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...availabilityDiags]
+      // A node's declared rules are checked as the user edits, so a failed
+      // one is listed for its node before the run is queued, under the same
+      // workflow origin compile gives it.
+      const ruleDiags = scene.nodes.flatMap(({ node, elaborated }) =>
+        (elaborated?.diagnostics ?? [])
+          .filter((d) => d.code === 'node.rule.failed')
+          .map((d): Diagnostic => ({ ...d, origin: 'compile', refs: [{ graphId: scene.graphId, nodeId: node.id }] })))
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...ruleDiags, ...availabilityDiags]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
       renderer.setRowMarks(widgetDiags.marks)

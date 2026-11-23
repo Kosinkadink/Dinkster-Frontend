@@ -1109,6 +1109,23 @@ describe('formula properties', () => {
     expect(note(elaborate(body('str(1 // 0)'), { w: 4 }))).toEqual({ kind: 'note', id: 'n', text: 'working it out', unknown: true })
   })
 
+  it('reports a failed rule of the node, an error without a fix and a warning with one, and passes it while unknown or failed', () => {
+    const rules = (check: string, fix: unknown[] = []) => {
+      const { schema, diagnostics } = parseDinksterSchema('Formulas', { body: [field('w'), pick], validate: [
+        { check: { formula: check }, message: 'Width must be even', fix },
+      ] } as never)
+      expect(diagnostics).toEqual([])
+      return (values: Record<string, unknown>, dynamic: Record<string, unknown> = { pick: { selected: 'a' } }) =>
+        elaborateInterface(schema!, { values, dynamic } as never, EMPTY_CONNECTIVITY, { promoteGhosts: false }).diagnostics
+          .map((diagnostic) => [diagnostic.severity, diagnostic.code, diagnostic.message])
+    }
+    expect(rules('w % 2 == 0')({ w: 3 })).toEqual([['error', 'node.rule.failed', 'Width must be even']])
+    expect(rules('w % 2 == 0')({ w: 4 })).toEqual([])
+    expect(rules('w % 2 == 0', [{ step: 'Set', row: 'w', value: { value: 4 } }])({ w: 3 })).toEqual([['warning', 'node.rule.failed', 'Width must be even']])
+    expect(rules('pick.under > 5')({}, { pick: { selected: 'b' } })).toEqual([])
+    expect(rules('1 // 0 > 5')({ w: 3 })).toEqual([])
+  })
+
   it("works out a button's enabled, reason and tooltip, and leaves it enabled while unknown or failed", () => {
     const body = (enabled: string) => [field('w'), pick, { kind: 'button', id: 'go', label: 'Go', steps: [],
       enabled: { formula: enabled }, disabledReason: { formula: '"needs " + str(w) + " more"' }, tooltip: { formula: '"Go " + str(w)' } }]

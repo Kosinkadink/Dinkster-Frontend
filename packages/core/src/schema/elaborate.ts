@@ -1480,6 +1480,18 @@ function elaboratePass(
   }
   rows(schema.body, topScope)
 
+  // A rule of the node as a whole. Unknown, or a check that cannot be worked
+  // out, passes; a failed rule is an error, or a warning when it has a fix.
+  if (!census && !halted) {
+    for (const [index, rule] of (schema.validate ?? []).entries()) {
+      const outcome = evaluate(rule.check.formula, topScope)
+      if (outcome.kind !== 'value' || outcome.value !== false) continue
+      diagnostics.push(diag(rule.fix.length > 0 ? 'warning' : 'error', 'schema', 'node.rule.failed', rule.message, {
+        data: { rule: index, hasFix: rule.fix.length > 0 },
+      }))
+    }
+  }
+
   if (census && !halted) {
     for (const key of Object.keys(node.dynamic ?? {})) {
       if (!readState.has(key)) report('elab.dynamic.unknownState', `'${key}' is no longer part of this node. What was stored for it is kept in the file.`, key, 'error', { construct: key })

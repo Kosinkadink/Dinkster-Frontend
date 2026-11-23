@@ -50,6 +50,7 @@ fails:
 | A label on an input, output, section, choice or type choice; a choice's tooltip | The id |
 | A note's `text` | Its `unknown` text, dimmed |
 | A button's `enabled`, `disabledReason` and `tooltip` | Enabled, with no reason |
+| A rule's `check` in the node's `validate` | The rule passes |
 
 A row whose `visible` is false is not drawn and is still stored and sent to
 the run. A box whose `visible` is false hides every row in it. A row with a
@@ -57,6 +58,12 @@ wire on its pin or its field's output shows anyway, and so does a box that
 holds one. A note whose text is a lookup shows its `unknown` text. A group's
 `memberLabel`, a group's `count` and a choice's `leader` are worked out as
 the rows above describe.
+
+A rule whose `check` is false is one problem on the node, with the rule's
+message: an error when the rule has no `fix`, which stops the run, and a
+warning when it has one. It is listed in Problems and marks the node as
+the user edits, and it leaves when the check passes again. The editor does
+not offer or run the fix.
 
 ## Elaboration and flattened ids
 
