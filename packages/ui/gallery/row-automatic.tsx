@@ -99,12 +99,15 @@ const retimeSchema: NodeSchema = {
 
 /**
  * How the automatic frame_rate stands. `worked-out` and `default` show a
- * value; `loading` waits for a lookup's answer and shows the default.
+ * value; `loading` waits for a lookup's answer and shows the default;
+ * `not-known` shows the default while nothing is under way (offline).
  * Absent when the user fixed a value.
  */
 interface AutomaticState {
-  readonly state: "worked-out" | "default" | "loading";
+  readonly state: "worked-out" | "default" | "loading" | "not-known";
   readonly value: number;
+  /** One plain line in the side part: why the value shown is not fresh. */
+  readonly note?: string;
 }
 
 interface AutomaticExample {
@@ -120,6 +123,18 @@ interface AutomaticExample {
 const WORKED_OUT: AutomaticState = { state: "worked-out", value: 24 };
 const NOT_KNOWN: AutomaticState = { state: "default", value: 24 };
 const LOADING: AutomaticState = { state: "loading", value: 24 };
+// The words a lookup-fed list uses for the same lookup states.
+const STALE: AutomaticState = {
+  state: "worked-out",
+  value: 25,
+  note: "Could not refresh",
+};
+const PAUSED: AutomaticState = { state: "worked-out", value: 25, note: "Paused" };
+const OFFLINE: AutomaticState = {
+  state: "not-known",
+  value: 24,
+  note: "Offline",
+};
 
 const groups: readonly {
   readonly title: string;
@@ -145,6 +160,18 @@ const groups: readonly {
         caption:
           "A lookup is still loading: auto and the default, dimmed, with no warning while it loads.",
         automatic: LOADING,
+      },
+      {
+        id: "closed-kept",
+        caption:
+          "The lookup could not refresh, or editing lookups are paused, and an answer for the same values is kept: auto and that answer, 25, like any worked-out value, with no dot.",
+        automatic: STALE,
+      },
+      {
+        id: "closed-offline",
+        caption:
+          "Offline with no answer kept: auto and the default, dimmed, with no dot. Nothing is under way and the field cannot fix it.",
+        automatic: OFFLINE,
       },
       {
         id: "closed-fixed",
@@ -183,6 +210,27 @@ const groups: readonly {
         caption:
           "Opened while the lookup loads: the default as the hint, and the shared spinner in the default line. No warning while it loads.",
         automatic: LOADING,
+        open: { text: "" },
+      },
+      {
+        id: "open-stale",
+        caption:
+          "Opened while the kept answer could not be refreshed: its 25 is the hint, one plain grey line says Could not refresh, and the default line reads automatic (25). No warning.",
+        automatic: STALE,
+        open: { text: "" },
+      },
+      {
+        id: "open-paused",
+        caption:
+          "Opened while editing lookups are paused: the kept 25 is the hint, one plain grey line says Paused, and the default line reads automatic (25).",
+        automatic: PAUSED,
+        open: { text: "" },
+      },
+      {
+        id: "open-offline",
+        caption:
+          "Opened offline with no answer kept: the default, 24, as the hint, one plain grey line says Offline, and the default line reads automatic (not known). No spinner and no warning.",
+        automatic: OFFLINE,
         open: { text: "" },
       },
       {
@@ -468,7 +516,11 @@ function AutomaticExampleView(props: {
             ),
         }))}
         help={RATE_HELP}
-      />
+      >
+        <Show when={automatic.note}>
+          <p class="dinkster-canvas-side-note">{automatic.note}</p>
+        </Show>
+      </CanvasSidePart>
     );
   });
   createEffect(() => {
