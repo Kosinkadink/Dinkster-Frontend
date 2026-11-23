@@ -405,7 +405,10 @@ selected through the left bar, including pack panels and panels moved here;
 a panel without an icon gets a default panel icon. When the left bar is
 hidden, each section restores its tab row so every panel stays reachable.
 The bottom zone has no entries in the left bar; its top-bar switch opens it
-and its own tabs choose a panel. In wide
+and its own tabs choose a panel. Side and bottom panel tab rows mark the
+selected tab with a filled rounded block and an inset 3 px cyan bar with
+rounded ends on its bottom edge, rather than a white underline. Workflow
+tabs and other tab controls keep their own selection styles. In wide
 mode, the dock shares the flex row with the canvas, so opening it shrinks the
 canvas rather than covering it. In narrow mode it uses the contained sheet
 behavior described above.
@@ -459,6 +462,19 @@ visible tooltip may bridge empty rail space for 300 ms, then hides if no
 target is reached. Leaving the rail boundary hides immediately, so a later
 re-entry uses the configured delay again. Opening a dock panel dismisses
 the shown tooltip, including while keyboard focus remains on its selected toggle.
+
+## Tooltip placement
+
+DOM tooltips use the element's current bounds and the tooltip's measured size.
+They sit centered 8 px below the element, or 8 px above when there is no room
+below. Horizontal placement shifts only enough to retain an 8 px window
+margin. Activity rail help sits to the right of the item, vertically centered.
+Canvas help keeps its producer's point anchor and uses the same measured
+window clamp. Placement updates when the content or window size changes;
+content, delay, focus and dismissal rules are unchanged. If long help fits on
+neither side, it uses the side with more room and cuts at a whole line with an
+ellipsis rather than covering the element or adding a scrollbar. Rail and
+canvas help use the same whole-line limit against the window height.
 
 ## The bottom panel
 

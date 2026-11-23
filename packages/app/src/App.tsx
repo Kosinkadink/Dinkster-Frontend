@@ -91,6 +91,7 @@ import {
   PanelIndicatorBadge,
   ShellRegionIcon,
   ShellResizeHandle,
+  ShellTooltip,
   TransientStatus,
 } from './ShellChrome.js'
 import { PanelDragOverlay } from './PanelDragOverlay.js'
@@ -1218,9 +1219,13 @@ export function App(props: {
     return tab ? app.backendForTab(tab) : backends()[0]!
   }
 
-  const servicesLabel = (): string | undefined => {
+  const servicesKind = (): 'qa' | 'custom' | undefined => {
     backendsTick()
     const name = activeBackend().registry.get()?.server?.services?.name
+    return name === 'qa' || name === 'custom' ? name : undefined
+  }
+  const servicesLabel = (): string | undefined => {
+    const name = servicesKind()
     return name === 'qa' ? message('shell.services.qa')
       : name === 'custom' ? message('shell.services.custom') : undefined
   }
@@ -2686,6 +2691,7 @@ export function App(props: {
       )}</Show>
       <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
       <ProductWindowToolbar title={message('shell.applicationControls')} platform="linux" service={servicesLabel()}
+        serviceKind={servicesKind()}
         brand={
           <DinksterAppMenu
             theme={(settingsTick(), app.settings.get<'dark' | 'light'>('dinkster.theme'))}
@@ -2985,15 +2991,7 @@ export function App(props: {
         <TabDragGhost title={drag().title} x={drag().x} y={drag().y} refused={drag().refused} />
       )}</Show>
 
-      <Show when={tooltip()}>{(tip) => (
-        <aside class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip" style={{ left: `${Math.max(8, Math.min(tip().x, window.innerWidth - 368))}px`, top: `${Math.max(8, Math.min(tip().y, window.innerHeight - 120))}px` }}>
-          <div role="tooltip">
-            <Show when={tip().title}><div class="app-tooltip-title">{tip().title}</div></Show>
-            <For each={tip().lines}>{(line) => <div>{line}</div>}</For>
-            <Show when={tip().detailed}><For each={tip().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
-          </div>
-        </aside>
-      )}</Show>
+      <Show when={tooltip()}>{(tip) => <ShellTooltip tip={tip()} />}</Show>
       <Show when={queueRefusal() !== undefined && queueRefusal() === activeTab() && problemsIndicator()}>{(summary) => (
         <ProductEmptyState
           class="queue-refusal-toast"
