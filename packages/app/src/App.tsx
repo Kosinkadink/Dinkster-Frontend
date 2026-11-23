@@ -26,7 +26,7 @@ import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, CanvasViewControls, coreOccurrencePlanner } from './CanvasHost.js'
 import { ContextMenu } from './ContextMenu.js'
 import { historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
-import { ExecutionActivityCard, executionStatusLabel } from './ExecutionActivityCard.js'
+import { ExecutionActivityCard, ExecutionOpenButton, executionStatusLabel } from './ExecutionActivityCard.js'
 import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
 import { MediaDiagnostics, MediaValueInspector } from './MediaValueInspector.js'
@@ -1215,6 +1215,7 @@ export function App(props: {
           onClick={() => setSelectedRunKey(p.exec.key)}>{app.tabTitleFor(p.exec.ref)}</ProductButton>
         <span class="execution-status">{p.exec.status === 'queued' && app.store.isUnconfirmed(p.exec.ref) ? 'Unconfirmed' : executionStatusLabel(p.exec.status)}</span>
         <Show when={p.exec.submittedBy?.kind === 'agent'}><span class="collab-agent">{message('runs.agent')}</span></Show>
+        <ExecutionOpenButton entry={p.exec} title={app.tabTitleFor(p.exec.ref)} onOpen={() => { void app.openExecutionView(p.exec.ref) }} />
         <CancelExecutionButton app={app} execution={p.exec} />
       </div>
       <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
@@ -1222,7 +1223,7 @@ export function App(props: {
           title={app.tabTitleFor(p.exec.ref)}
           testId="run-details"
           relation={overlayRoleOf(p.exec)}
-          onOpen={() => { void app.openExecutionView(p.exec.ref) }}
+          hideOpen
           onPin={live() ? () => {
             const tab = live()
             if (!tab) return
@@ -1426,12 +1427,14 @@ export function App(props: {
     })
     const Facts = () => <>
       <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
-      <Show when={storedExecution(p.entry)?.artifact}>
-        <ProductButton size="compact" onClick={() => { const execution = storedExecution(p.entry); if (execution) void app.openExecutionView(execution.ref) }}>{message('runs.openSnapshot')}</ProductButton>
-      </Show>
     </>
     return <div class="runs-stored-row">
-      <strong>{p.entry.title}</strong>
+      <div class="runs-row-heading">
+        <strong>{p.entry.title}</strong>
+        <Show when={storedExecution(p.entry)?.artifact && storedExecution(p.entry)}>{(execution) =>
+          <ExecutionOpenButton entry={execution()} title={p.entry.title} onOpen={() => { void app.openExecutionView(execution().ref) }} />
+        }</Show>
+      </div>
       <p>{p.entry.subtitle}</p>
       <div class="collection-badges"><For each={p.entry.badges}>{(badge) => <span class="collection-badge">{badge}</span>}</For></div>
       <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>

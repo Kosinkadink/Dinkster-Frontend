@@ -110,7 +110,7 @@ test.beforeEach(async ({ page }) => {
 
 test('execution row opens a frozen view pinned to that execution', async ({ page }) => {
   await queueAndComplete(page)
-  await (await executionDetails(page.getByTestId('execution-row').first())).locator('.execution-open').click()
+  await page.getByTestId('execution-row').first().locator('.execution-open').click()
 
   // A third, frozen tab opened and became active.
   const tabs = page.getByTestId('tab-bar').locator('.tab')
@@ -131,13 +131,13 @@ test('execution row opens a frozen view pinned to that execution', async ({ page
   // Reopening the same execution reuses the tab instead of stacking another.
   await page.getByTestId('frozen-go-live').click()
   await expect(page.getByTestId('tab-bar').locator('.tab.frozen.active')).toHaveCount(0)
-  await (await executionDetails(page.getByTestId('execution-row').first())).locator('.execution-open').click()
+  await page.getByTestId('execution-row').first().locator('.execution-open').click()
   await expect(tabs).toHaveCount(3)
 })
 
 test('frozen snapshot survives live edits and both sides report divergence', async ({ page }) => {
   await queueAndComplete(page)
-  await (await executionDetails(page.getByTestId('execution-row').first())).locator('.execution-open').click()
+  await page.getByTestId('execution-row').first().locator('.execution-open').click()
   await expect(page.getByTestId('tab-bar').locator('.tab.frozen.active')).toHaveCount(1)
   const frozenTabId = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.id)
 
