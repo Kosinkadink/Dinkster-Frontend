@@ -26,11 +26,26 @@ const scene = ({
       isSubgraph: false,
     },
     {
-      id: 'sink', x: 260, y: 30, node: { id: 'sink', type: 'Sink', values: {}, mode: 'muted' },
+      id: 'sink', x: 260, y: 30,
+      node: { id: 'sink', type: 'Sink', values: { strength: 0.5, caption: 'two\n  lines', note: '' }, mode: 'muted' },
       layout: {
         title: 'Sink', width: 180, height: 100,
         pins: [{ portId: 'image', direction: 'in', y: 50, type: concrete('IMAGE'), optional: true, address: { port: 'image' } }],
-        rows: [{ kind: 'ports', y: 30, height: 24, input: { portId: 'image', label: 'Image', type: concrete('IMAGE'), optional: true } }],
+        rows: [
+          { kind: 'ports', y: 30, height: 24, input: { portId: 'image', label: 'Image', type: concrete('IMAGE'), optional: true } },
+          {
+            kind: 'widget', y: 54, height: 24, inputId: 'strength', valueKey: 'strength', label: 'strength',
+            address: { port: 'strength' }, spec: { widgetType: 'FLOAT', options: { step: 0.01 } },
+          },
+          {
+            kind: 'widget', y: 78, height: 24, inputId: 'caption', valueKey: 'caption', label: 'caption',
+            address: { port: 'caption' }, spec: { widgetType: 'STRING', options: {} },
+          },
+          {
+            kind: 'widget', y: 102, height: 24, inputId: 'note', valueKey: 'note', label: 'note',
+            address: { port: 'note' }, spec: { widgetType: 'STRING', options: {} },
+          },
+        ],
       },
       isSubgraph: false,
     },
@@ -46,7 +61,7 @@ const scene = ({
 }) as unknown as Scene
 
 describe('buildCanvasSemanticItems', () => {
-  it('derives names, typed ports, connectivity, groups, and state without viewport input', () => {
+  it('derives names, typed ports, rows with their values, connectivity, groups, and state without viewport input', () => {
     const items = buildCanvasSemanticItems({
       scene,
       states: { source: { state: 'running', value: 0.5 } },
@@ -57,9 +72,14 @@ describe('buildCanvasSemanticItems', () => {
 
     expect(items.map((item) => item.label)).toEqual([
       'Node: Source, 0 inputs, 1 output, in Image pipeline, running 50 percent, live result estimated locally: float: 3.5, int: 3',
+      'Button: Minimize Source',
       'Output: Image of Source, IMAGE, 1 connection',
       'Node: Sink, 1 input, 0 outputs, in Image pipeline, muted, blocking warning',
+      'Button: Minimize Sink',
       'Input: Image of Sink, IMAGE, optional, blocking-warning, 1 connection',
+      'Row: strength of Sink, 0.50',
+      'Row: caption of Sink, two lines',
+      'Row: note of Sink, empty',
       'Link: Source.Image to Sink.Image, IMAGE',
       'Group: Image pipeline, 2 nodes',
     ])
@@ -104,6 +124,10 @@ describe('buildCanvasSemanticItems', () => {
     expect(items.find((item) => item.key === 'node:sink')?.label)
       .toContain('minimized, 1 hidden connected input, 0 hidden connected outputs')
     expect(items.some((item) => item.category === 'port')).toBe(false)
+    expect(items.find((item) => item.key === 'minimize:source')).toMatchObject({
+      label: 'Button: Restore Source',
+      target: { kind: 'minimize', nodeId: 'source' },
+    })
     expect(items.find((item) => item.key === 'link:link-1')?.label)
       .toContain('Source.Retained label to Sink.Retained label')
   })
@@ -141,14 +165,17 @@ describe('buildCanvasSemanticItems', () => {
     ])
   })
 
-  it('counts widget-tap and boundary endpoint connectivity by retained pin identity', () => {
+  it('counts widget-tap, row and boundary endpoint connectivity by retained pin identity', () => {
     const connected = ({
       graphId: 'g0',
       nodes: [{
         id: 'source', x: 0, y: 0, node: { id: 'source', type: 'Source', values: {} }, isSubgraph: false,
         layout: {
           title: 'Tap source', width: 160, height: 80,
-          rows: [{ kind: 'widget', y: 30, height: 24, inputId: 'amount', valueKey: 'amount', label: 'Amount', type: concrete('FLOAT') }],
+          rows: [{
+            kind: 'widget', y: 30, height: 24, inputId: 'amount', valueKey: 'amount', label: 'Amount',
+            address: { port: 'amount' }, spec: { widgetType: 'FLOAT', options: {} },
+          }],
           pins: [{ portId: 'amount', direction: 'out', y: 42, type: concrete('FLOAT'), address: { port: 'amount' }, widgetTap: true }],
         },
       }, {
@@ -183,6 +210,9 @@ describe('buildCanvasSemanticItems', () => {
       }, {
         id: 'boundary-output', from: { kind: 'widgetTap', node: 'source', input: 'amount' },
         to: { kind: 'boundary', side: 'outputs', item: 'result' }, x1: 160, y1: 42, x2: 440, y2: 42,
+      }, {
+        id: 'wired-row', from: { kind: 'reroute', reroute: 'r1' },
+        to: { kind: 'port', node: 'source', port: 'amount' }, x1: -40, y1: 42, x2: 0, y2: 42,
       }],
       reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], diagnostics: [],
     }) as unknown as Scene
@@ -195,6 +225,9 @@ describe('buildCanvasSemanticItems', () => {
       .toEqual({ kind: 'port', nodeId: 'source', id: 'amount', direction: 'out', widgetTap: true })
     expect(items.find((item) => item.key === 'port:sink:in:amount')?.label)
       .toBe('Input: Amount of Sink, FLOAT, 2 connections')
+    // A wire into the row's input, not its tap, makes the row connected.
+    expect(items.find((item) => item.key === 'widget:source:amount')?.label)
+      .toBe('Row: Amount of Tap source, no value, connected')
     expect(items.find((item) => item.key === 'boundary-port:inputs:feed')?.label)
       .toBe('Output: Feed of inputs boundary, FLOAT, 1 connection')
     expect(items.find((item) => item.key === 'boundary-port:outputs:result')?.label)

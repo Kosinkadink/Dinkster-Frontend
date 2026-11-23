@@ -121,6 +121,8 @@ const boundaryItem = {
     // also rejects duplicates.
     alsoBinds: { type: 'array', minItems: 1, items: { $ref: '#/$defs/boundaryBinding' } },
     promoted: { type: 'boolean' },
+    // Presentation only; invariants allow it on inputs shown as fields.
+    wireHidden: { const: true },
     ext: { $ref: '#/$defs/extData' },
   },
   allOf: [
@@ -637,6 +639,7 @@ export const WORKFLOW_SCHEMA = {
                 allOf: [
                   { $ref: '#/$defs/boundaryItem' },
                   { not: { required: ['alsoBinds'] } },
+                  { not: { required: ['wireHidden'] } },
                   { properties: { binds: { not: { required: ['viaReroute'] } } } },
                   { properties: { binds: { properties: { kind: { enum: ['port', 'widgetTap', 'unbound'] } } } } },
                 ],
@@ -683,6 +686,9 @@ export const WORKFLOW_SCHEMA = {
         },
         collapsed: { type: 'boolean' },
         views: { type: 'object', additionalProperties: { type: 'string' } },
+        textLines: { type: 'object', additionalProperties: { type: 'number' } },
+        previewFolded: { type: 'boolean' },
+        minimizedPreviewOpen: { type: 'boolean' },
         sections: {
           type: 'object',
           additionalProperties: {

@@ -1,8 +1,8 @@
-import { expect, appViewTest as test } from './fixtures.js'
+import { expect, appViewTest as test, waitForWorkspaceReady } from './fixtures.js'
 
 test('canvas view controls switch views and lenses without stale placeholders', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   const canvas = page.getByTestId('graph-canvas')
   await expect(canvas).toHaveAttribute('data-lens', 'standard')
   await expect(page.getByTestId('views-switcher')).toContainText('Graph')
@@ -32,7 +32,7 @@ test('canvas view controls switch views and lenses without stale placeholders', 
 
 test('canvas view menus dismiss on outside pointerdown and global Escape', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   const switcher = page.getByTestId('lens-switcher')
   await switcher.click()
   await expect(page.getByTestId('canvas-popover-backdrop')).toHaveCount(0)

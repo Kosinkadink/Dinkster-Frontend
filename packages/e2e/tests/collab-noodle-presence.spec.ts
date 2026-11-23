@@ -24,6 +24,7 @@ test('a remote link drag paints a presence noodle and clears on release', async 
     await Promise.all([owner.goto('/'), peer.goto('/')])
     await Promise.all([owner, peer].map(async (page) => {
       await page.getByTestId('backends-sidebar-toggle').click()
+      await page.getByRole('button', { name: 'Add backend', exact: true }).click()
       await page.getByTestId('backend-url-input').fill(BACKEND)
       await page.getByTestId('backend-add').click()
     }))

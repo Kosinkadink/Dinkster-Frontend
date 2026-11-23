@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, openRailPanel, test, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_OUTPUT_REFUSAL_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -135,7 +135,7 @@ test.beforeEach(async ({ page }) => {
   await page.routeWebSocket('/ws*', () => {})
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await registerSchemas(page)
 })
 

@@ -98,6 +98,17 @@ against the new registry rather than keeping an unidentified-node review from
 before the extension loaded. Successful enablement shows a dismissible
 success toast and refreshes the scoped node catalog.
 
+In a Desktop project window, Review installation from an uninstalled search
+preview or the imported-packs Problems report opens this same project needs
+review. Selecting a catalog pack keeps it as an explicit requested extra across
+review refreshes, without registering its preview schemas or adding a node.
+Imported nodes use their recorded importer pack and version when no installed
+schema or saved environment stamp identifies them. Truly unidentified nodes and
+conflicting versions still block preparation. Closing or changing the source
+workflow while its needs are loading discards that handoff; changing the active
+workflow invalidates a retained explicit selection. Browser and remote pack
+prompts keep their existing host/terminal-command review contract.
+
 Review installation prepares an exact-version software review through the existing
 host installation API. It does not apply the plan, enable packs, or run a workflow. The installation
 client can send an explicit `every-project` or `only-project` scope during

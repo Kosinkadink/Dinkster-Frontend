@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, appViewTest as test, type Page } from './fixtures.js'
+import { expect, appViewTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/app-view-preview-promotion'
 const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XxW8WQAAAABJRU5ErkJggg==', 'base64')
@@ -94,7 +94,7 @@ async function injectLiveFrame(page: Page, width: number, height: number, label:
 test.beforeEach(async ({ page }) => {
   mkdirSync(proofDir, { recursive: true })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
@@ -154,9 +154,12 @@ test('a compact pre-execution surface promotes to App View', async ({ page }) =>
   }
   const compact = await page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'other')!
-    return { compact: node.layout.preview?.compact, height: node.layout.preview?.height }
+    // Before a picture the preview is exactly its caption row.
+    const renderer = window.__dinksterTest!.renderer! as unknown as { getDesignTokens(): { previewCaptionHeight: number } }
+    const captionHeight = renderer.getDesignTokens().previewCaptionHeight
+    return { compact: node.layout.preview?.compact, height: node.layout.preview?.height, captionHeight }
   })
-  expect(compact).toEqual({ compact: true, height: 24 })
+  expect(compact).toEqual({ compact: true, height: compact.captionHeight, captionHeight: compact.captionHeight })
   await screenshotGraph('00-pre-execution-compact.png')
 
   const widgetPoint = await canvasPoint(page, 'count', 'other')

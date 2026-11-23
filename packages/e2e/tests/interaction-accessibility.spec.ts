@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TestInfo } from '@playwright/test'
-import { expect, test, waitForStartupOwnership, type Locator, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Locator, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_INTERACTION_ACCESSIBILITY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -126,33 +126,16 @@ async function widgetPoint(page: Page): Promise<{ x: number; y: number }> {
   })
 }
 
-async function controllerPoint(page: Page): Promise<{ x: number; y: number }> {
-  return page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'proof')!
-    const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'seed')! as any
-    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    const inset = row.inset ?? 0
-    const rowWidth = node.layout.width - inset * 2
-    const size = row.height - 8
-    const chipX = Math.max(12, rowWidth - 18 - size)
-    return {
-      x: canvas.left + node.x + inset + chipX + size / 2,
-      y: canvas.top + node.y + row.y + row.height / 2,
-    }
-  })
-}
-
 test.beforeEach(async ({ page }) => {
   await page.route('/system_stats', (route) =>
     route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }),
   )
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 })
 
-test('touch reaches widget actions and semantic menu targets on a narrow viewport', async ({ page }, testInfo) => {
+test('touch reaches the in-row field and its after-run modes on a narrow viewport', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 640 })
   await installProofSurfaces(page)
   const railToggle = page.getByRole('button', { name: 'Toggle right rail' })
@@ -160,69 +143,52 @@ test('touch reaches widget actions and semantic menu targets on a narrow viewpor
 
   const widget = await widgetPoint(page)
   await page.touchscreen.tap(widget.x, widget.y)
-  const editor = page.getByTestId('widget-editor')
-  await expect(editor).toBeVisible()
-  const input = editor.getByRole('textbox', { name: 'Value' })
-  const cancel = page.getByTestId('widget-editor-cancel')
-  await expectTouchTarget(input)
-  await expectTouchTarget(cancel)
-  await expectContained(page, editor)
-  await captureSurface(editor, testInfo, 'touch-widget-editor-390x640')
-  await touch(cancel, page)
-  await expect(editor).not.toBeVisible()
-
-  const controller = await controllerPoint(page)
-  await page.mouse.click(controller.x, controller.y)
-  const menu = page.getByTestId('seed-controller-menu')
-  await expect(menu).toBeVisible()
-  await expectContained(page, menu)
-  const options = menu.getByRole('menuitemradio')
-  for (let index = 0; index < await options.count(); index += 1) await expectTouchTarget(options.nth(index))
-  await captureSurface(menu, testInfo, 'touch-controller-menu-390x640')
-  await touch(page.getByTestId('seed-controller-randomize'), page)
-  await expect(menu).not.toBeVisible()
+  const field = page.getByTestId('canvas-row-field')
+  const input = page.getByTestId('widget-editor').locator('input')
+  await expect(input).toBeVisible()
+  const side = field.locator('.dinkster-canvas-field-side')
+  await expectContained(page, side)
+  const modes = page.getByRole('group', { name: 'After each run' }).getByRole('button')
+  await expect(modes).toHaveCount(4)
+  for (let index = 0; index < await modes.count(); index += 1) await expectTouchTarget(modes.nth(index))
+  await captureSurface(side, testInfo, 'touch-widget-editor-390x640')
+  await touch(page.getByRole('group', { name: 'After each run' }).getByRole('button', { name: 'randomize' }), page)
   await expect.poll(() => page.evaluate(() => {
     const node = window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.proof! as unknown as {
       readonly controllers?: Readonly<Record<string, string>>
     }
     return node.controllers?.seed
   })).toBe('randomize')
+  await input.press('Escape')
+  await expect(page.getByTestId('widget-editor')).toHaveCount(0)
 })
 
-test('seed controller menu follows a short canvas resize and keeps its tail reachable', async ({ page }, testInfo) => {
+test('an open field keeps its after-run modes reachable through a short canvas resize', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 400 })
   await installProofSurfaces(page)
   const railToggle = page.getByRole('button', { name: 'Toggle right rail' })
   if (await railToggle.getAttribute('aria-pressed') === 'true') await touch(railToggle, page)
   await page.getByTestId('minimap-toggle').click()
 
-  const controller = await controllerPoint(page)
-  await page.mouse.click(controller.x, controller.y)
-  const menu = page.getByTestId('seed-controller-menu')
-  await expect(menu).toBeVisible()
+  const widget = await widgetPoint(page)
+  await page.mouse.click(widget.x, widget.y)
+  await expect(page.getByTestId('canvas-row-field').locator('.dinkster-canvas-field-side')).toBeVisible()
   await page.setViewportSize({ width: 390, height: 360 })
+  // Put the canvas at a fractional page position past the half pixel, as
+  // other font metrics do; it is drawn from its rounded position.
+  await page.evaluate(() => { document.body.style.marginTop = '0.3px' })
+  // The side part stays whole on the visible canvas; the canvas does not move.
   await expect.poll(() => page.evaluate(() => {
     const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    const surface = document.querySelector('[data-testid=seed-controller-menu]')!.getBoundingClientRect()
-    return surface.left >= canvas.left && surface.top >= canvas.top &&
-      surface.right <= canvas.right && surface.bottom <= canvas.bottom &&
-      surface.left >= 0 && surface.top >= 0 &&
-      surface.right <= window.innerWidth && surface.bottom <= window.innerHeight
+    const side = document.querySelector('[data-testid=canvas-row-field] .dinkster-canvas-field-side')!.getBoundingClientRect()
+    return side.left >= canvas.left && side.top >= canvas.top &&
+      side.right <= canvas.right && side.bottom <= canvas.bottom
   })).toBe(true)
-  expect(await menu.evaluate((element) => {
-    const style = getComputedStyle(element)
-    return {
-      bounded: style.maxHeight !== 'none' && element.scrollHeight > element.clientHeight,
-      overflowY: style.overflowY,
-    }
-  })).toEqual({ bounded: true, overflowY: 'auto' })
 
-  const randomize = page.getByTestId('seed-controller-randomize')
-  await randomize.scrollIntoViewIfNeeded()
+  const randomize = page.getByRole('group', { name: 'After each run' }).getByRole('button', { name: 'randomize' })
   await expect(randomize).toBeInViewport()
   expect(await capture(page, testInfo, 'touch-controller-menu-resized-390x360')).toEqual({ width: 780, height: 720 })
   await touch(randomize, page)
-  await expect(menu).not.toBeVisible()
   await expect.poll(() => page.evaluate(() => {
     const node = window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.proof! as unknown as {
       readonly controllers?: Readonly<Record<string, string>>
