@@ -306,13 +306,12 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
       {
         id: 'failed',
         title: 'Failed without an answer',
-        caption: 'The pack could not provide this list; the error itself goes to the doctor. Try again, and no options from other arguments.',
+        caption: 'The pack could not provide this list; the error itself goes to the doctor. Try again stands where Refresh stood, and no options come from other arguments.',
         node: 'preset',
         open: 'preset',
         list: {
           options: [],
-          status: { tone: 'error', text: 'The pack could not provide this list', action: 'Try again' },
-          actions: refresh,
+          status: { tone: 'error', text: 'Could not load options', action: 'Try again' },
         },
         side: presetSide,
       },

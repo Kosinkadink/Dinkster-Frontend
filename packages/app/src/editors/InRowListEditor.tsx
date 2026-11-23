@@ -37,10 +37,10 @@ export type RowListLookupFailure = 'failed' | 'timeout' | 'wrong-shape' | 'offli
 
 /** One sentence per failure; the details go to the doctor. */
 const FAILURE_TEXT: Readonly<Record<RowListLookupFailure, string>> = {
-  failed: 'The pack could not provide this list',
-  timeout: 'The pack took too long to answer',
-  'wrong-shape': 'The pack answered with something other than a list',
-  offline: 'The backend is not connected',
+  failed: 'Could not load options',
+  timeout: 'Timed out',
+  'wrong-shape': 'Could not load options',
+  offline: 'Backend not connected',
 }
 
 export interface RowListLookup {
@@ -187,8 +187,8 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
     if (query().trim() !== '' && entries().length === 0 && options().length > 0)
       list.push({ id: 'clear', label: 'Clear filter', onClick: () => { setQuery(''); setHighlight(savedIndex() ?? 0) } })
     const state = lookupState()
-    // After a failed refresh, Try again stands where Refresh stood.
-    const tryAgain = state?.kind === 'stale' && !state.refreshing
+    // After a failure, Try again stands where Refresh stood.
+    const tryAgain = (state?.kind === 'stale' || state?.kind === 'unavailable') && !state.refreshing
     if (lookup !== undefined && state?.kind !== 'waiting' && state?.kind !== 'off' && !tryAgain)
       list.push({ id: 'refresh', label: 'Refresh', disabled: refreshing(), onClick: () => lookup.refresh() })
     if (editable) list.push({ id: 'edit', label: 'Edit options', onClick: () => setAuthoring(true) })

@@ -530,10 +530,13 @@ the stored entry, else the first.
 A list fed by a declared lookup takes its state from the host and calls nothing
 itself: waiting for an input, loading, ready (also while an old answer is
 refreshed), unavailable with Try again, paused, or off in a preview. Refresh and
-Try again ask the host once; a result never changes the stored value.
-While the list has options, a status line (refreshing, could not refresh with
-Try again in Refresh's place, paused, storing) sits on the footer line under
-them, so the options never move; with no options it stands in their place.
+Try again ask the host once; a result never changes the stored value. After a
+failure, Try again stands in Refresh's place.
+While the list has options, a status line (refreshing, could not refresh,
+paused, storing) sits on the footer line under them, so the options never
+move; with no options it stands in their place. A status is a few words that
+fit one line of the list at the node's smallest width; longer explanations go
+in the side part.
 
 ## Product number, slider, and color controls
 
