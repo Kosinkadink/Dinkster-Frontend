@@ -283,7 +283,7 @@ describe('solver: open lists peel the constructor', () => {
     expect(solved.diagnostics.filter((diagnostic) => diagnostic.code === 'solve.varConflict')).toEqual([
       expect.objectContaining({
         severity: 'error',
-        message: 'These inputs must be the same type: list is IMAGE, item is LATENT',
+        message: 'These inputs must be the same type: list is IMAGE, item is LATENT.',
         anchor: { port: { node: 'append', port: 'item' }, link: 'l1' },
       }),
     ])

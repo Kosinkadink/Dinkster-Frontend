@@ -892,7 +892,7 @@ export function solveGraphTypes(
       .map(([port, types]) => `${labels?.get(port) ?? port} is ${[...types].join(' or ')}`)
     const last = into.at(-1)!
     diagnostics.push(
-      diag('error', 'schema', 'solve.varConflict', `These inputs must be the same type: ${named.join(', ')}`, {
+      diag('error', 'schema', 'solve.varConflict', `These inputs must be the same type: ${named.join(', ')}.`, {
         anchor: { port: last.to, ...(last.source.kind === 'link' ? { link: last.source.id } : {}) },
         data: { node, edges: into.map((feed) => sourceLabel(feed.source)) },
       }),
