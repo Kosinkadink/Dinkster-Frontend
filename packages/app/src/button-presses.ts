@@ -25,6 +25,7 @@ import {
 import type { LookupArg, LookupCall, LookupEntry } from '@dinkster/client'
 import type { AppState, Tab } from './app-state.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
+import { desktopSaveBridge } from './desktop-bridge.js'
 
 /** The box under a button's line: a note or skip (circled i), or a failure (warning triangle). */
 export interface ButtonBox {
@@ -180,7 +181,12 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
       },
       copy: (text) => navigator.clipboard.writeText(text),
       async download(filename, content) {
-        // A browser saves it as an ordinary download; Desktop shows its Save As dialog.
+        // Desktop shows its own Save As dialog and says whether it was closed; a browser saves an ordinary download.
+        const native = desktopSaveBridge()
+        if (native !== undefined) {
+          const result = await native.saveFile(typeof content === 'string' ? new TextEncoder().encode(content) : content, filename)
+          return result.status
+        }
         const blob = new Blob([typeof content === 'string' ? content : content.slice()], {
           type: typeof content === 'string' ? 'text/plain;charset=utf-8' : 'application/octet-stream',
         })
@@ -195,6 +201,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         } finally {
           setTimeout(() => URL.revokeObjectURL(url), 60_000)
         }
+        return 'saved'
       },
       async queue(toHere) {
         app.queueRefusal.set(undefined)

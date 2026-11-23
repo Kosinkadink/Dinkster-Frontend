@@ -133,7 +133,8 @@ export interface ActionHost {
   editorFor(field: ElaboratedInput): ((signal: AbortSignal) => Promise<Json | undefined>) | undefined
   pasteImage(field: ElaboratedInput, signal: AbortSignal): Promise<Json>
   copy(text: string): Promise<void>
-  download(filename: string, content: string | Uint8Array): Promise<void>
+  /** Saves a file; 'closed' when the user closed a Save As dialog without saving. */
+  download(filename: string, content: string | Uint8Array): Promise<'saved' | 'closed'>
   queue(toHere: { readonly graphId: string; readonly nodeId: string } | undefined): Promise<void>
   interrupt(): Promise<void>
   /** Opens a new tab; `confirm` asks the user first, showing the address, until `signal` cancels. */
@@ -1026,22 +1027,27 @@ class Press {
 
   // -- outside the workflow --------------------------------------------------
 
-  async outside(step: Step): Promise<void> {
+  /** Runs a step outside the workflow; the name of a file the user closed Save As on. */
+  async outside(step: Step): Promise<string | undefined> {
     switch (step.step) {
       case 'queue':
-        return this.host.queue(step.toHere ? { graphId: this.target.graphId, nodeId: this.target.nodeId } : undefined)
+        await this.host.queue(step.toHere ? { graphId: this.target.graphId, nodeId: this.target.nodeId } : undefined)
+        return undefined
       case 'interrupt':
-        return this.host.interrupt()
+        await this.host.interrupt()
+        return undefined
       case 'copy':
-        return this.host.copy(display(await this.value(step.value)))
+        await this.host.copy(display(await this.value(step.value)))
+        return undefined
       case 'download':
-        return this.host.download(step.filename, display(await this.value(step.value)))
+        return await this.host.download(step.filename, display(await this.value(step.value))) === 'closed' ? step.filename : undefined
       case 'openLink':
-        return this.host.openLink(display(await this.value(step.url)), step.url.kind !== 'literal', this.signal)
+        await this.host.openLink(display(await this.value(step.url)), step.url.kind !== 'literal', this.signal)
+        return undefined
       case 'call': {
         const answer = await this.call(step, this.context)
         if (answer.kind !== 'file') return refuse('The pack answered with fields where the button expected a file.')
-        return this.host.download(step.download!, answer.bytes)
+        return await this.host.download(step.download!, answer.bytes) === 'closed' ? step.download : undefined
       }
       default:
         return refuse(`${step.step} changes the workflow after a step that acts outside it.`)
@@ -1132,6 +1138,7 @@ export async function runPress(
 
   // The outside steps read the committed document.
   const outsideFailures: string[] = []
+  const unsaved: string[] = []
   const committed = viewOf(session.doc, target, host)
   if (committed !== undefined) {
     press.view = committed
@@ -1139,14 +1146,18 @@ export async function runPress(
   }
   for (const step of steps.filter(isOutsideStep)) {
     try {
-      await press.outside(step)
+      const closed = await press.outside(step)
+      if (closed !== undefined) unsaved.push(closed)
     } catch (error) {
       const reason = error instanceof Error && error.message !== '' ? error.message : 'it did not finish'
       outsideFailures.push(`${OUTSIDE_WORDS[step.step] ?? 'This step'} failed: ${reason}`)
     }
   }
   options.onProgress?.(undefined)
-  const message = summary(changed, press.skipped, press.notes)
+  const message = [
+    ...unsaved.map((name) => `The Save As dialog was closed, so ${name} was not saved.`),
+    summary(changed, press.skipped, press.notes),
+  ].filter((part) => part !== undefined).join(' ') || undefined
   if (outsideFailures.length > 0) {
     const kept = press.actions.length > 0 ? 'The changes were made. ' : ''
     return {

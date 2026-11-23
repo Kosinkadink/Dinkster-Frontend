@@ -81,7 +81,10 @@ function hostOf(overrides: Partial<ActionHost> = {}): Fake {
       throw new Error('The clipboard holds no image.')
     },
     copy: async (text) => void log.push(`copy ${text}`),
-    download: async (name, content) => void log.push(`download ${name} ${typeof content === 'string' ? content : `${content.length} bytes`}`),
+    download: async (name, content) => {
+      log.push(`download ${name} ${typeof content === 'string' ? content : `${content.length} bytes`}`)
+      return 'saved'
+    },
     queue: async (toHere) => void log.push(`queue ${toHere === undefined ? 'all' : toHere.nodeId}`),
     interrupt: async () => void log.push('interrupt'),
     openLink: async (url, confirm) => void log.push(`open ${url} ${confirm ? 'shown first' : 'directly'}`),
@@ -563,6 +566,10 @@ describe('steps outside the workflow', () => {
     const host = hostOf({ call: async (request) => ({ kind: 'file', bytes: new TextEncoder().encode(`${request.download}\n`), notes: [] }) })
     expect((await runPress(session, at('download'), host)).kind).toBe('done')
     expect(host.log).toEqual(['download probe.txt 10 bytes'])
+    // Closing Desktop's Save As is reported, not a failure, and keeps the changes made.
+    const closed = await runPress(sessionOf(documentOf({ n1: { type: 'dev.buttons.call_probe' } })), at('download'), { ...host, download: async () => 'closed' })
+    expect(closed).toMatchObject({ kind: 'done', message: 'The Save As dialog was closed, so probe.txt was not saved.' })
+    expect(closed).not.toHaveProperty('warning')
     const menu = sessionOf(documentOf({ n1: { type: 'dev.buttons.field_steps', values: { width: 640 } } }))
     const copied = hostOf()
     await runPress(menu, at('menu_copy', 'n1', true), copied)
