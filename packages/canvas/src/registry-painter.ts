@@ -29,23 +29,6 @@ function compactBooleanValue(value: Json, options: Readonly<Record<string, unkno
 const stringList = (value: unknown): readonly string[] | undefined =>
   Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : undefined
 
-/**
- * One piece of a value drawn in several looks, such as a save target's
- * mounts: 'resolved' is a value the host worked out, drawn in italics;
- * 'gone' is a stored value this machine lacks, struck through.
- */
-interface ValuePart {
-  readonly text: string
-  readonly look?: 'resolved' | 'gone'
-}
-
-const valueParts = (value: unknown): readonly ValuePart[] | undefined =>
-  Array.isArray(value) && value.length > 0 && value.every((part) =>
-    typeof part === 'object' && part !== null && typeof (part as ValuePart).text === 'string'
-    && ((part as ValuePart).look === undefined || (part as ValuePart).look === 'resolved' || (part as ValuePart).look === 'gone'))
-    ? value as readonly ValuePart[]
-    : undefined
-
 /** A row's value text, whether it is the row's empty-state message, and any color square before it. */
 interface RowSummary extends CompanionSummary {
   readonly placeholder: boolean
@@ -423,14 +406,6 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             const text = swatches !== undefined ? ''
               : items !== undefined ? fitItems(ctx, items, fitWidth)
               : ellipsize(ctx, run.split('\n')[0] ?? '', fitWidth)
-            // Parts in their own looks, right to left, when they fit whole; otherwise the plain run.
-            const baseFont = ctx.font
-            const partFont = (part: ValuePart): string => (part.look === 'resolved' ? `italic ${baseFont}` : baseFont)
-            const parts = alignRight && swatches === undefined && items === undefined ? valueParts(style['parts']) : undefined
-            const gap = measureWidth(ctx, ' ')
-            const partWidths = parts?.map((part) => { ctx.font = partFont(part); const width = measureWidth(ctx, part.text); ctx.font = baseFont; return width })
-            const partsFit = partWidths !== undefined && parts !== undefined
-              && partWidths.reduce((sum, width) => sum + width, 0) + parts.filter((part) => part.look === 'gone').length * gap <= fitWidth
             const lineTop = y + ty * rowHeight + geometry.fieldInsetY
             const lineBottom = y + (ty + 1) * rowHeight - geometry.fieldInsetY
             const clipTop = Math.max(y, lineTop)
@@ -448,21 +423,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               ctx.clip()
               const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD
               const textY = y + (ty + 0.5) * rowHeight
-              if (partsFit) {
-                const valueColor = ctx.fillStyle as string
-                let right = textX
-                for (let index = parts.length - 1; index >= 0; index--) {
-                  const part = parts[index]!
-                  if (part.look === 'gone') right -= gap
-                  ctx.font = partFont(part)
-                  ctx.fillStyle = part.look === 'gone' ? tokens.colors.label : valueColor
-                  ctx.fillText(part.text, right, textY)
-                  if (part.look === 'gone') paintStaleValueStrikethrough(ctx, part.text, right, textY, 'right', tokens.colors.label)
-                  right -= partWidths[index]!
-                }
-                ctx.font = baseFont
-                ctx.fillStyle = valueColor
-              } else ctx.fillText(text, textX, textY)
+              if (!(alignRight && paintValueParts(ctx, style['parts'], textX, textY, fitWidth, tokens))) ctx.fillText(text, textX, textY)
               if (swatches !== undefined) paintSwatchRow(ctx, swatches, textX, textY, fitWidth, tokens, ctx.fillStyle as string)
               if (modeIcon !== undefined && role === 'widgetValue' && alignRight) {
                 // Marks about a value come before it, so values line up at the right.
@@ -547,4 +508,62 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.fill()
     }
   }
+}
+
+/**
+ * One piece of a value drawn in its own look, such as a save target's
+ * mounts: 'resolved' is a value the host worked out, drawn in italics;
+ * 'gone' is a stored value this machine lacks, struck through.
+ */
+interface ValuePart {
+  readonly text: string
+  readonly look?: 'resolved' | 'gone'
+}
+
+const valueParts = (value: unknown): readonly ValuePart[] | undefined =>
+  Array.isArray(value) && value.length > 0 && value.every((part) =>
+    typeof part === 'object' && part !== null && typeof (part as ValuePart).text === 'string'
+    && ((part as ValuePart).look === undefined || (part as ValuePart).look === 'resolved' || (part as ValuePart).look === 'gone'))
+    ? value as readonly ValuePart[]
+    : undefined
+
+/**
+ * Draws a value style's `parts` right-aligned at `right`, each in its look,
+ * when they fit whole in `fitWidth`. Returns false, drawing nothing, when
+ * there are no parts or they do not fit, so the caller draws the plain text.
+ */
+function paintValueParts(
+  ctx: CanvasRenderingContext2D,
+  style: unknown,
+  right: number,
+  y: number,
+  fitWidth: number,
+  tokens: DesignTokens,
+): boolean {
+  const parts = valueParts(style)
+  if (parts === undefined) return false
+  const baseFont = ctx.font
+  const valueColor = ctx.fillStyle
+  const fontOf = (part: ValuePart): string => (part.look === 'resolved' ? `italic ${baseFont}` : baseFont)
+  const gap = measureWidth(ctx, ' ')
+  const widths = parts.map((part) => {
+    ctx.font = fontOf(part)
+    return measureWidth(ctx, part.text)
+  })
+  ctx.font = baseFont
+  const total = widths.reduce((sum, width) => sum + width, 0) + parts.filter((part) => part.look === 'gone').length * gap
+  if (total > fitWidth) return false
+  let x = right
+  for (let index = parts.length - 1; index >= 0; index--) {
+    const part = parts[index]!
+    if (part.look === 'gone') x -= gap
+    ctx.font = fontOf(part)
+    ctx.fillStyle = part.look === 'gone' ? tokens.colors.label : valueColor
+    ctx.fillText(part.text, x, y)
+    if (part.look === 'gone') paintStaleValueStrikethrough(ctx, part.text, x, y, 'right', tokens.colors.label)
+    x -= widths[index]!
+  }
+  ctx.font = baseFont
+  ctx.fillStyle = valueColor
+  return true
 }
