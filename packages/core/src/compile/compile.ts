@@ -86,7 +86,7 @@ import {
   type PortAddress,
 } from '../schema/elaborate.js'
 import { solveGraphTypes } from '../schema/solve.js'
-import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, projectConstructs, projectEditableOptions } from './crossing.js'
+import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
 import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
@@ -1324,20 +1324,24 @@ function compileImpl(
     let curPath = path
     let curDefId = defId
     let curNode = node
-    let curAddrKey = portAddressKey(address.port)
+    let curPort: string = address.port
     for (;;) {
-      const drv = inputDriverIndexFor(curPath, curDefId as GraphDefId).get(curNode)?.get(curAddrKey)
+      const drv = inputDriverIndexFor(curPath, curDefId as GraphDefId).get(curNode)?.get(portAddressKey(curPort))
       if (drv) return { endpoint: drv, path: curPath, defId: curDefId }
       if (curPath.length === 0) return undefined
       const def = graphOf(curDefId)
-      const item = def?.boundary?.inputs.find(
-        (i) => [i.binds, ...(i.alsoBinds ?? [])].some(
-          (b) => b.kind === 'port'
-            && b.node === curNode
-            && portAddressKey(b.port) === curAddrKey,
-        ),
-      )
-      if (!item) return undefined
+      // The outer address that reaches this inner port: a field's item id, or
+      // the row under a construct the subgraph node shows whole.
+      let outerPort: string | undefined
+      for (const i of def?.boundary?.inputs ?? []) {
+        for (const b of [i.binds, ...(i.alsoBinds ?? [])]) {
+          if (outerPort !== undefined || (b.kind !== 'port' && b.kind !== 'construct') || b.node !== curNode) continue
+          outerPort = b.kind === 'port'
+            ? (b.port === curPort ? i.id : undefined)
+            : outerConstructAddress(def!, b, i.id, curPort, (inner) => resolveNode(curDefId, inner))
+        }
+      }
+      if (outerPort === undefined) return undefined
       const instanceNode = curPath[curPath.length - 1]!
       const parentPath = curPath.slice(0, -1)
       const parentCtx = occCtxByPath.get(pathKey(parentPath))
@@ -1345,7 +1349,7 @@ function compileImpl(
       curPath = parentPath
       curDefId = parentCtx.defId
       curNode = instanceNode
-      curAddrKey = portAddressKey(item.id)
+      curPort = outerPort
     }
   }
 

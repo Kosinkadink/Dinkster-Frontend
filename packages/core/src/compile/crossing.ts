@@ -6,7 +6,8 @@
 
 import type { BoundaryItem, ConstructBoundaryBinding, DynamicPortState, GraphDef, Json, NodeData } from '../format/document.js'
 import type { NodeId } from '../ids.js'
-import { constructRowOf, innerMemberKey, interiorMembersOf, resolveBoundaryRoute } from '../schema/derive-boundary.js'
+import { constructRowOf, innerMemberKey, interiorMembersOf, outerMemberKey, resolveBoundaryRoute } from '../schema/derive-boundary.js'
+import { elaborateInterface, elabInputsOf } from '../schema/elaborate.js'
 import type { NodeSchema } from '../schema/model.js'
 
 /** Project schema-opted-in menus through promoted inputs without changing values. */
@@ -127,15 +128,48 @@ export function innerConstructAddress(
 ): string | undefined {
   if (outerPort !== itemId && !outerPort.startsWith(`${itemId}.`)) return undefined
   const rest = outerPort.slice(itemId.length)
+  const found = constructAt(child, binding, resolveNode)
+  if (found === undefined) return undefined
+  const { target, row } = found
+  if (row.kind !== 'group' || rest === '') return `${binding.port}${rest}`
+  const [, key, ...more] = rest.split('.')
+  const inner = innerMemberKey(row, interiorMembersOf(row, target.dynamic?.[binding.port]), key!)
+  return inner === undefined ? undefined : [binding.port, inner, ...more].join('.')
+}
+
+/**
+ * The address on the subgraph node that holds an inner address under a
+ * construct it shows whole: the inverse of innerConstructAddress. Undefined
+ * for an address outside the construct or in a member the definition owns.
+ */
+export function outerConstructAddress(
+  child: GraphDef,
+  binding: ConstructBoundaryBinding,
+  itemId: string,
+  innerPort: string,
+  resolveNode: (node: NodeData) => NodeSchema | undefined,
+): string | undefined {
+  if (innerPort !== binding.port && !innerPort.startsWith(`${binding.port}.`)) return undefined
+  const rest = innerPort.slice(binding.port.length)
+  const found = constructAt(child, binding, resolveNode)
+  if (found === undefined) return undefined
+  const { target, row } = found
+  if (row.kind !== 'group' || rest === '') return `${itemId}${rest}`
+  const [, key, ...more] = rest.split('.')
+  const outer = outerMemberKey(row, interiorMembersOf(row, target.dynamic?.[binding.port]), key!)
+  return outer === undefined ? undefined : [itemId, outer, ...more].join('.')
+}
+
+function constructAt(
+  child: GraphDef,
+  binding: ConstructBoundaryBinding,
+  resolveNode: (node: NodeData) => NodeSchema | undefined,
+): { readonly target: NodeData; readonly schema: NodeSchema; readonly row: NonNullable<ReturnType<typeof constructRowOf>> } | undefined {
   const target = child.nodes[binding.node]
   const schema = target && resolveNode(target)
   const route = schema && resolveBoundaryRoute(schema, binding, undefined, target.values, target.dynamic)
   const row = route?.ok ? constructRowOf(route.route) : undefined
-  if (row === undefined) return undefined
-  if (row.kind !== 'group' || rest === '') return `${binding.port}${rest}`
-  const [, key, ...more] = rest.split('.')
-  const inner = innerMemberKey(row, interiorMembersOf(row, target!.dynamic?.[binding.port]), key!)
-  return inner === undefined ? undefined : [binding.port, inner, ...more].join('.')
+  return row === undefined ? undefined : { target: target!, schema: schema!, row }
 }
 
 export interface ConstructProjection {
@@ -167,13 +201,19 @@ export function projectConstructs(
     if (!found) dynamic.set(node.id, (found = { ...(base.get(node.id) ?? node.dynamic) }))
     return found
   }
-  const write = (node: NodeData, key: string, value: Json, owner: string): void => {
+  const valuesOf = (node: NodeData): Record<string, Json> => {
     let found = values.get(node.id)
     if (!found) values.set(node.id, (found = { ...node.values }))
-    found[key] = value
+    return found
+  }
+  const own = (node: NodeData, key: string, owner: string): void => {
     let byKey = owners.get(node.id)
     if (!byKey) owners.set(node.id, (byKey = new Map()))
-    byKey.set(key, owner)
+    if (!byKey.has(key)) byKey.set(key, owner)
+  }
+  const write = (node: NodeData, key: string, value: Json, owner: string): void => {
+    valuesOf(node)[key] = value
+    own(node, key, owner)
   }
   for (const item of [...(child.boundary?.inputs ?? []), ...(child.boundary?.outputs ?? [])]) {
     if (item.binds.kind === 'port' && item.promoted === true && Object.hasOwn(instance.values, item.id)) {
@@ -190,26 +230,26 @@ export function projectConstructs(
     const under = (key: string): boolean => key === item.id || key.startsWith(`${item.id}.`)
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
       if (binding.kind !== 'construct') continue
-      const target = child.nodes[binding.node]
-      const schema = target && resolveNode(target)
-      const route = schema && resolveBoundaryRoute(schema, binding, undefined, target.values, target.dynamic)
-      const row = route?.ok ? constructRowOf(route.route) : undefined
-      if (!target || row === undefined) continue
-      if (row.kind !== 'group') {
-        // The pick is the subgraph node's: picking inside writes it there.
-        let byKey = owners.get(target.id)
-        if (!byKey) owners.set(target.id, (byKey = new Map()))
-        byKey.set(binding.port, item.id)
-      }
+      const found = constructAt(child, binding, resolveNode)
+      if (found === undefined) continue
+      const { target, schema, row } = found
       const interior = row.kind === 'group' ? interiorMembersOf(row, target.dynamic?.[binding.port]) : undefined
       const map = (key: string): string | undefined => innerConstructAddress(child, binding, item.id, key, resolveNode)
+      const outerOf = (key: string): string | undefined => outerConstructAddress(child, binding, item.id, key, resolveNode)
+      if (row.kind === 'group' && typeof row.grows === 'string') {
+        // A member the subgraph node owns starts empty: what the definition
+        // stores at that place inside is not the subgraph node's.
+        const owned = (key: string): boolean => key.startsWith(`${binding.port}.`) && outerOf(key) !== undefined
+        for (const key of Object.keys(values.get(target.id) ?? target.values)) if (owned(key)) delete valuesOf(target)[key]
+        for (const key of Object.keys(dynamic.get(target.id) ?? base.get(target.id) ?? target.dynamic ?? {})) if (owned(key)) delete dynamicOf(target)[key]
+      }
       for (const [key, state] of Object.entries(instance.dynamic ?? {})) {
         if (!under(key)) continue
         const innerKey = map(key)
         if (innerKey === undefined) continue
         const into = dynamicOf(target)
         if (key === item.id && row.kind === 'group' && interior !== undefined) {
-          const own = (state.members ?? []).flatMap((member) => innerMemberKey(row, interior, member) ?? [])
+          const ownMembers = (state.members ?? []).flatMap((member) => innerMemberKey(row, interior, member) ?? [])
           const labels = Object.entries(state.memberLabels ?? {}).flatMap(([member, label]) => {
             const moved = innerMemberKey(row, interior, member)
             return moved === undefined ? [] : [[moved, label] as const]
@@ -219,7 +259,7 @@ export function projectConstructs(
           into[innerKey] = {
             ...previous,
             ...rest,
-            members: [...interior.members, ...own],
+            members: [...interior.members, ...ownMembers],
             ...(labels.length > 0 || previous?.memberLabels !== undefined
               ? { memberLabels: { ...previous?.memberLabels, ...Object.fromEntries(labels) } }
               : {}),
@@ -232,6 +272,19 @@ export function projectConstructs(
         if (!under(key)) continue
         const innerKey = map(key)
         if (innerKey !== undefined) write(target, innerKey, value, key)
+      }
+      // Every row of the construct is the subgraph node's, stored there or
+      // not: an edit inside writes it outside, never into the definition.
+      if (row.kind !== 'group') own(target, binding.port, item.id)
+      const dynamicNow = dynamic.get(target.id) ?? base.get(target.id) ?? target.dynamic
+      const shown = elaborateInterface(schema, {
+        values: values.get(target.id) ?? target.values,
+        ...(dynamicNow !== undefined ? { dynamic: dynamicNow } : {}),
+        ...(target.additionalInputs !== undefined ? { additionalInputs: target.additionalInputs } : {}),
+      })
+      for (const key of [...elabInputsOf(shown).map((input) => input.address.port), ...shown.constructs]) {
+        const outer = outerOf(key)
+        if (outer !== undefined) own(target, key, outer)
       }
     }
   }

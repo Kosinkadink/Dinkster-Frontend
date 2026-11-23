@@ -989,6 +989,7 @@ export type ExtractRefusalCode =
   | 'subgraph.extract.specializedSlotUnsupported'
   | 'subgraph.lifecycle.boundaryUnresolved'
   | 'subgraph.lifecycle.multiDriver'
+  | 'boundary.constructOwned'
 
 export interface CutRefusal {
   readonly code: ExtractRefusalCode
@@ -1331,6 +1332,27 @@ export function auditExtractionCuts(
         boundaries[index] = { ...rest, kind: 'unrepresentable', refusal }
       }
     }
+  }
+
+  // A wire that crosses into a construct the definition shows whole would
+  // become a second owner of a row the moved construct already owns.
+  const crossingPorts = [
+    ...links.filter((link) => link.kind === 'in-cut').map((link) => link.to),
+    ...links.filter((link) => link.kind === 'out-cut').map((link) => link.from),
+    ...nets.flatMap((net) => net.kind === 'in-cut' ? net.insideSinks : net.kind === 'out-cut' ? [graph.nets[net.id]!.source] : []),
+  ].filter(isPortEndpoint)
+  for (const [index, boundary] of boundaries.entries()) {
+    if (boundary.kind !== 'in-cut' && boundary.kind !== 'out-cut') continue
+    const owned = boundary.movedBindings.flatMap((binding) => {
+      if (binding.kind !== 'construct') return []
+      const port = crossingPorts.find((crossing) => crossing.node === binding.node && crossing.port.startsWith(`${binding.port}.`))
+      return port === undefined ? [] : [port]
+    })[0]
+    if (owned === undefined) continue
+    const refusal: CutRefusal = { code: 'boundary.constructOwned', source: 'boundary', id: boundary.itemId, endpoint: owned }
+    refusals.push(refusal)
+    const { nestedItem: _nestedItem, ...rest } = boundary
+    boundaries[index] = { ...rest, kind: 'unrepresentable', refusal }
   }
 
   const inputs = [

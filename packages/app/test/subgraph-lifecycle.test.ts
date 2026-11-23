@@ -527,6 +527,28 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     expect(refused.session.canUndo).toBe(false)
   })
 
+  it('a muted subgraph node whose output passes on a value source is not flattened', async () => {
+    const base = fixture('muted')
+    const portrait = base.graphs.portrait!
+    const doc: WorkflowDocument = { ...base, graphs: {
+      ...base.graphs,
+      root: { ...base.graphs.root!, links: {
+        ...base.graphs.root!.links,
+        l2: { id: 'l2' as never, from: { node: 'first', port: 'fixed' } as never, to: { node: 'k', port: 'in' } as never },
+      } },
+      portrait: {
+        ...portrait,
+        valueSources: { v: { id: 'v' as never, value: 3 } },
+        boundary: { ...portrait.boundary!, outputs: [{ id: 'fixed', binds: { kind: 'valueSource', valueSource: 'v', type: IMAGE } }] } as never,
+      },
+    } }
+    // Muted, the sink gets nothing; flattened, the value source would reach it.
+    const { ok, reports, session } = await flatten(doc, 'root', [], 'first')
+    expect(ok).toBe(false)
+    expect(reports.map((entry) => entry.code)).toContain('subgraph.flatten.modeUnsupported')
+    expect(session.doc).toEqual(doc)
+  })
+
   it('extracting the inner nodes inside the definition keeps them shown whole through the new subgraph node', () => {
     const doc = fixture()
     const before = runOf(doc)
@@ -549,6 +571,22 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     ])
     expect(inner.boundary!.inputs.map((item) => item.binds.kind)).toEqual(['construct', 'construct'])
     expect(runOf(session.doc)).toEqual(before)
+  })
+
+  it('extracting a node whose shown construct also takes a wire from outside the selection is refused', () => {
+    const doc = fixture()
+    const detail = doc.graphs.detail!
+    const wired: WorkflowDocument = { ...doc, graphs: { ...doc.graphs, detail: {
+      ...detail,
+      nodes: { ...detail.nodes, src: { id: 'src' as never, type: 'Src', values: {} } },
+      links: { w: { id: 'w' as never, from: { node: 'src', port: 'out' } as never, to: { node: 'b', port: 'images.image0' } as never } },
+    } }, view: { graphs: { ...doc.view.graphs, detail: { nodes: { ...doc.view.graphs.detail!.nodes, src: { position: { x: -300, y: 200 } } } } } } }
+    const geometry = [{ id: 'b', kind: 'node' as const, x: 0, y: 200, width: 140, height: 80 }]
+    const invocation = extractInvocation(wired, 'detail', ['first', 'd'], { nodeIds: ['b'], geometry }, 'Inner', resolveSchema)
+    const session = createLocalSession(wired, coreCommandRegistry([], (type) => documentResolver(session.doc, resolveSchema)(type)))
+    const outcome = invocation === undefined ? undefined : session.dispatch(invocation)
+    expect(outcome?.ok ?? false).toBe(false)
+    expect(session.doc).toEqual(wired)
   })
 
   it('a saved and reopened document, and a pasted copy in a new one, run the same', () => {

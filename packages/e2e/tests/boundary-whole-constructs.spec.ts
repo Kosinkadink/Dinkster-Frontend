@@ -4,7 +4,8 @@
  * The contract under test: the subgraph node outside shows the group's own
  * members and the choice with its pick and fields, stored on that node;
  * entering the subgraph from it shows the definition's members followed by
- * the outer node's, with the outer values; the "Show ... on subgraph node"
+ * the outer node's, with the outer values, and an edit there is written on
+ * the outer node; the "Show ... on subgraph node"
  * menu item adds one whole item to the boundary, and undo removes it.
  */
 import { mkdirSync } from 'node:fs'
@@ -89,6 +90,19 @@ test.beforeEach(async ({ page }) => {
             options: [
               { key: 'image', rows: [{ kind: 'input', id: 'strength', type: FLOAT, optional: false, widget: { widgetType: 'FLOAT', options: {}, default: 0.3 } }] },
               { key: 'text', rows: [{ kind: 'input', id: 'words', type: STRING, optional: false, widget: { widgetType: 'STRING', options: {}, default: '' } }] },
+            ],
+          },
+          { kind: 'output', id: 'out', type: IMAGE },
+        ],
+      },
+      {
+        type: 'Feather', displayName: 'Feather', category: 'test', source: 'v3', isOutputNode: true,
+        body: [
+          {
+            kind: 'typeChoice', id: 'src', displayName: 'Source', required: false, rows: [],
+            variants: [
+              { key: 'image', type: IMAGE, rows: [] },
+              { key: 'mask', type: { kind: 'concrete', name: 'MASK' }, rows: [] },
             ],
           },
           { kind: 'output', id: 'out', type: IMAGE },
@@ -195,6 +209,17 @@ test('the subgraph node shows the whole group and choice; entering shows definit
     { key: 'mode', label: expect.any(String), value: 'image' },
     { key: 'mode.strength', label: expect.any(String), value: 0.3 },
   ])
+  // A field the subgraph node does not store yet is still its own: the edit
+  // lands outside, and the definition keeps nothing.
+  await page.getByTestId('graph-canvas').focus()
+  const strength = await widgetPoint(page, 'm', 'mode.strength')
+  await page.mouse.click(strength.x, strength.y)
+  await page.getByTestId('widget-editor').locator('input').fill('0.65')
+  await page.getByTestId('widget-editor-commit').click()
+  await expect.poll(async () => (await activeDoc(page)).graphs['g0']!.nodes['i0']!.values['look.strength']).toBe(0.65)
+  expect((await activeDoc(page)).graphs['sub']!.nodes['m']!.values).toEqual({})
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await activeDoc(page)).graphs['g0']!.nodes['i0']!.values['look.strength']).toBeUndefined()
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await activeDoc(page)).graphs['g0']!.nodes['i0']!.dynamic?.['look']?.selected).toBe('text')
 
@@ -220,4 +245,51 @@ test('the subgraph node shows the whole group and choice; entering shows definit
 
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await activeDoc(page)).graphs['sub']!.boundary).toEqual(before)
+})
+
+test('a subgraph node does not offer to clear a variant its definition picks inside', async ({ page }) => {
+  await page.evaluate(async () => {
+    const shown = (selected?: string) => ({
+      id: selected === undefined ? 'bare' : 'picked', name: 'Feather pass',
+      nodes: { f: { id: 'f', type: 'Feather', values: {}, ...(selected !== undefined ? { dynamic: { src: { selected } } } : {}) } },
+      links: {}, nets: {}, reroutes: {}, nextOrdinal: 100,
+      boundary: { inputs: [{ id: 'feather', binds: { kind: 'construct', node: 'f', port: 'src' } }], outputs: [] },
+    })
+    await window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'lineage-definition-pick', root: 'g0',
+      graphs: {
+        g0: {
+          id: 'g0', name: 'root', links: {}, nets: {}, reroutes: {}, nextOrdinal: 100,
+          nodes: {
+            p: { id: 'p', type: '#picked', values: {}, dynamic: { feather: { selected: 'mask' } } },
+            b: { id: 'b', type: '#bare', values: {}, dynamic: { feather: { selected: 'mask' } } },
+          },
+        },
+        picked: shown('image'),
+        bare: shown(),
+      },
+      view: { graphs: { g0: { nodes: { p: { position: { x: 200, y: 160 } }, b: { position: { x: 200, y: 400 } } } } } },
+    } as never, 'DefinitionPick')
+  })
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.lineage)).toBe('lineage-definition-pick')
+  await identityViewport(page)
+  const clearOn = async (nodeId: string) => {
+    const point = await page.evaluate((nodeId) => {
+      const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === nodeId)!
+      const pin = node.layout.pins.find((item) => item.portId === 'feather')!
+      const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+      return { x: rect.left + node.x, y: rect.top + node.y + pin.y }
+    }, nodeId)
+    await page.mouse.click(point.x, point.y, { button: 'right' })
+    const item = page.locator('[data-item-id="core.slot.specialize.clear"]')
+    await expect(item).toBeVisible()
+    return item
+  }
+  // Cleared, this node would run the definition's variant, so clearing is not offered.
+  await expect(await clearOn('p')).toHaveAttribute('aria-disabled', 'true')
+  if (proofDir) await page.screenshot({ path: join(proofDir, 'clear-variant.png') })
+  await page.keyboard.press('Escape')
+  // Where the definition picks nothing, clearing gives none, as on a plain node.
+  await expect(await clearOn('b')).toHaveAttribute('aria-disabled', 'false')
+  await page.keyboard.press('Escape')
 })

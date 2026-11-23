@@ -671,7 +671,6 @@ function elaboratePass(
         else unknown.delete(name)
       }
       // A member the node shows but does not store reads its own rows' defaults.
-      if (frame.outer !== undefined) continue
       for (const row of scopeRowsOf(frame.rows)) {
         if (row.kind !== 'input' && row.kind !== 'state') continue
         const path = frame.prefix + row.id

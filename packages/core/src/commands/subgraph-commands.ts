@@ -1800,7 +1800,14 @@ const subgraphFlatten: CommandDefinition = {
       }
     }
 
+    // A muted subgraph node gives its consumers nothing. Its nodes stay
+    // muted after flattening, but a value source or an outside wire it passes
+    // on has no mode, so flattening would start delivering it.
+    const flattenedNodes = new Set(nodeIds.values())
+    const mutedLeak = (from: LinkEndpoint): boolean =>
+      occurrence.mode === 'muted' && !((isPortEndpoint(from) || isWidgetTapRef(from)) && flattenedNodes.has(from.node))
     const links: Record<string, LinkData> = {}
+    const fromShellOutput = new Set<string>()
     for (const [id, link] of Object.entries(parent.links)) {
       if (occurrencePlan !== undefined && (
         isPortEndpoint(link.from) && link.from.node === nodeId ||
@@ -1808,6 +1815,7 @@ const subgraphFlatten: CommandDefinition = {
       )) continue
       let from = link.from
       if (isPortEndpoint(from) && from.node === nodeId) {
+        fromShellOutput.add(id)
         const match = matchBoundaryItem(body.boundary.outputs, from)
         const targets = match.ok ? targetsAt(match.item, from.port) : undefined
         if (targets === undefined) {
@@ -1897,6 +1905,9 @@ const subgraphFlatten: CommandDefinition = {
         const endpoint = redirectFrom(endpointFromBinding(targets[0]!))
         if (endpoint === undefined || !isPortEndpoint(endpoint)) {
           return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: net source '${source.port}' resolves to a structural producer, which named nets cannot represent`, graphId, instancePath, nodeId, source)]
+        }
+        if (mutedLeak(endpoint)) {
+          return [lifecycleError('subgraph.flatten.modeUnsupported', `subgraph.flatten: muted output '${source.port}' passes on a value that is not muted`, graphId, instancePath, nodeId, source)]
         }
         source = endpoint
         netSourceRemap.set(id, source)
@@ -1993,6 +2004,9 @@ const subgraphFlatten: CommandDefinition = {
       const from = redirectFrom(link.from)
       if (from === undefined) {
         return [lifecycleError('subgraph.flatten.stateUnresolved', 'subgraph.flatten: literal input forwarding has no acyclic producer', graphId, instancePath, nodeId)]
+      }
+      if (fromShellOutput.has(id) && mutedLeak(from)) {
+        return [lifecycleError('subgraph.flatten.modeUnsupported', `subgraph.flatten: muted output '${(parent.links[id]!.from as PortRef).port}' passes on a value that is not muted`, graphId, instancePath, nodeId)]
       }
       links[id] = { ...link, from }
     }

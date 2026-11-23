@@ -235,7 +235,12 @@ function appendBinding(
 ): readonly Diagnostic[] {
   const items = def.boundary?.[side] ?? []
   const allItems = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
-  if (itemId !== undefined && allItems.some((item) => item.id === itemId))
+  // An address under a construct item's id names a row inside it, so an id
+  // may not sit under a construct's id, nor a construct's id over another.
+  const taken = (id: string): boolean => allItems.some((item) => item.id === id ||
+    (binding.kind === 'construct' && item.id.startsWith(`${id}.`)) ||
+    (item.binds.kind === 'construct' && id.startsWith(`${item.id}.`)))
+  if (itemId !== undefined && taken(itemId))
     return [err('boundary.duplicateId', `${command}: boundary item '${itemId}' already exists in graph '${graphId}'`)]
   const target = binding.kind === 'widgetTap' ? binding.tap : binding.port
   const owner = ownershipConflict(def, binding)
@@ -250,7 +255,7 @@ function appendBinding(
     // Allocate against BOTH sides: derivation treats boundary item ids
     // as one global namespace, so a generated input id must not collide
     // with an existing output id either.
-    for (let suffix = 2; allItems.some((item) => item.id === id); suffix++) id = `${target}_${suffix}`
+    for (let suffix = 2; taken(id); suffix++) id = `${target}_${suffix}`
   }
   const item = {
     id,

@@ -9,10 +9,11 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { ExecutionScope } from '../src/compile/artifact.js'
-import { compile, type CompileInput } from '../src/compile/compile.js'
+import { compile, documentResolver, type CompileInput } from '../src/compile/compile.js'
+import { definitionPick, occurrenceDynamicView } from '../src/compile/occurrence-view.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
-import type { BodyRow, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
+import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -639,5 +640,99 @@ describe('whole constructs shown on a subgraph node', () => {
     }))
     expect(plain).toEqual(['compile.port.unknownOutput'])
     expect(shown).toEqual(plain)
+  })
+
+  it('a subgraph node that stores no pick for an optional choice runs the definition\'s pick, through two levels', () => {
+    const optional = { ...(constructSchemas.Mode!.body[0] as ChoiceSpec), required: false }
+    const resolveOptional = (type: string) => type === 'OptMode' ? schemaOf('OptMode', [optional, output('out')]) : constructSchemas[type]
+    const sub = (selected?: string) => ({
+      nodes: { n: { type: 'OptMode', ...(selected !== undefined ? { dynamic: { mode: { selected } } } : {}), values: { 'mode.strength': 0.4 } } },
+      boundary: { inputs: [{ id: 'look', binds: { kind: 'construct', node: 'n', port: 'mode' } }] },
+    })
+    const doc = docOf({
+      g0: { nodes: {
+        fresh: { type: '#sub' },
+        text: { type: '#sub', dynamic: { look: { selected: 'text' } } },
+        nested: { type: '#fix' },
+        unpicked: { type: '#bare' },
+      } },
+      fix: {
+        nodes: { d: { type: '#sub' } },
+        boundary: { inputs: [{ id: 'outer', binds: { kind: 'construct', node: 'd', port: 'look' } }] },
+      },
+      sub: sub('image'),
+      bare: sub(),
+    })
+    const result = compile({ ...inputOf(doc), resolve: resolveOptional })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.artifact.prompt['fresh.n']!.slotVariants).toEqual({ mode: 'image' })
+    expect(result.artifact.prompt['text.n']!.slotVariants).toEqual({ mode: 'text' })
+    expect(result.artifact.prompt['nested.d.n']!.slotVariants).toEqual({ mode: 'image' })
+    // Where the definition picked nothing, the subgraph node runs none.
+    expect(result.artifact.prompt['unpicked.n']!.slotVariants?.['mode']).toBeUndefined()
+    // What the editor asks before it offers a "none" it could not keep.
+    expect(definitionPick(doc, 'sub', 'look', resolveOptional)).toBe('image')
+    expect(definitionPick(doc, 'fix', 'outer', resolveOptional)).toBe('image')
+    expect(definitionPick(doc, 'bare', 'look', resolveOptional)).toBeUndefined()
+  })
+
+  it('a bypassed inner node passes on a wire that reaches it through a whole group', () => {
+    const doc = docOf({
+      g0: {
+        nodes: { a: { type: 'Src' }, s: { type: '#sub', dynamic: { imgs: { members: ['image0'] } } } },
+        links: [[['a', 'out'], ['s', 'imgs.image0']]],
+      },
+      sub: {
+        nodes: { n: { type: 'Batch', mode: 'bypassed', dynamic: { images: { members: ['image0'] } } }, k: { type: 'Sink' } },
+        links: [[['n', 'out'], ['k', 'in']]],
+        boundary: { inputs: [{ id: 'imgs', binds: { kind: 'construct', node: 'n', port: 'images' } }] },
+      },
+    })
+    expect(okConstructPrompt(doc)['s.k']!.inputs).toEqual({ in: ['a', 0] })
+  })
+
+  // Weigh shows its group, Seeded its choice and a field beside it. The
+  // definition keeps a stale value past its one member.
+  const entered = (): WorkflowDocument => docOf({
+    g0: { nodes: {
+      s: { type: '#sub', dynamic: { mix: { members: ['w0'] }, look: { selected: 'image' } }, values: { seed: 7, 'look.strength': 0.9 } },
+    } },
+    sub: {
+      nodes: {
+        n: { type: 'Weigh', dynamic: { weights: { members: ['w0'] } }, values: { 'weights.w0': 0.1, 'weights.w1': 0.77 } },
+        m: { type: 'Seeded', dynamic: { mode: { selected: 'image' } }, values: { seed: 1, 'mode.strength': 0.4 } },
+      },
+      boundary: { inputs: [
+        { id: 'mix', binds: { kind: 'construct', node: 'n', port: 'weights' } },
+        { id: 'seed', promoted: true, binds: { kind: 'port', node: 'm', port: 'seed' } },
+        { id: 'look', binds: { kind: 'construct', node: 'm', port: 'mode' } },
+      ] },
+    },
+  })
+  const seededSchemas: Record<string, NodeSchema> = {
+    ...constructSchemas,
+    Seeded: schemaOf('Seeded', [input('seed', { type: INT, widget: { widgetType: 'INT', options: {}, default: 0 } }), constructSchemas.Mode!.body[0]!]),
+  }
+
+  it('inside the subgraph, every row of a shown construct is the subgraph node\'s, stored there or not', () => {
+    const doc = entered()
+    const view = occurrenceDynamicView(doc, documentResolver(doc, (type) => seededSchemas[type]), ['s'])
+    const owner = (node: string, key: string) => view.valueOwners.get(node)?.get(key)
+    // The subgraph node's own member, stored nowhere yet, and its stored choice field.
+    expect(owner('n', 'weights.w1')).toEqual({ graphId: 'g0', nodeId: 's', valueKey: 'mix.w0' })
+    expect(owner('m', 'mode.strength')).toEqual({ graphId: 'g0', nodeId: 's', valueKey: 'look.strength' })
+    // The definition's member stays the definition's.
+    expect(owner('n', 'weights.w0')).toBeUndefined()
+    // The node's value beside its field wins over the definition's, and the
+    // stale value inside is not the subgraph node's member.
+    expect(view.values.get('m')).toMatchObject({ seed: 7, 'mode.strength': 0.9 })
+    expect(view.values.get('n')).toEqual({ 'weights.w0': 0.1 })
+
+    const result = compile({ ...inputOf(doc), resolve: (type: string) => seededSchemas[type] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.artifact.prompt['s.m']!.inputs).toEqual({ seed: 7, 'mode.strength': 0.9 })
+    expect(result.artifact.prompt['s.n']!.inputs['weights.w1']).not.toBe(0.77)
   })
 })

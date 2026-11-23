@@ -2,7 +2,7 @@ import { boundaryBindingKey, suppressedDeliveryKey, type BoundaryRouteLeg, type 
 import { asNodeId, asPortId, isOccurrenceAncestorOrSelf, isPortEndpoint, occurrenceKey, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
-import { boundaryOutputFanOutProblems, innerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
+import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, projectConstructs, projectEditableOptions } from './crossing.js'
 import { documentNodeResolver } from './compile.js'
 
 export interface ValueOwner {
@@ -21,6 +21,28 @@ export interface OccurrenceDynamicView {
   readonly controllers: ReadonlyMap<string, NonNullable<NodeData['controllers']>>
   /** Per inner-node projected value: where an edit must be written. */
   readonly valueOwners: ReadonlyMap<string, ReadonlyMap<string, ValueOwner>>
+}
+
+/**
+ * The option or variant a subgraph node of `defId` runs for a choice it shows
+ * whole at `port` while it stores none of its own: what the definition picks
+ * inside, through any number of subgraphs. Undefined when nothing is picked.
+ */
+export function definitionPick(doc: WorkflowDocument, defId: string, port: string, resolveSchema: SchemaResolver): string | undefined {
+  const child = doc.graphs[defId]
+  const match = child?.boundary === undefined ? undefined : matchBoundaryItem(child.boundary.inputs, { port })
+  if (!match?.ok) return undefined
+  const resolveNode = documentNodeResolver(doc, resolveSchema)
+  for (const binding of [match.item.binds, ...(match.item.alsoBinds ?? [])]) {
+    if (binding.kind !== 'construct') continue
+    const inner = innerConstructAddress(child!, binding, match.item.id, port, (node) => resolveNode(defId, node))
+    const node = child!.nodes[binding.node]
+    if (inner === undefined || node === undefined) continue
+    const nested = subgraphDefIdOf(node.type)
+    const picked = node.dynamic?.[inner]?.selected ?? (nested === undefined ? undefined : definitionPick(doc, nested, inner, resolveSchema))
+    if (picked !== undefined) return picked
+  }
+  return undefined
 }
 
 interface InputEvidence {
@@ -138,7 +160,7 @@ export function occurrenceDynamicView(
     // values reach the inner node, and an edit there is written back outside.
     const constructs = projectConstructs(child, { values: instanceValues, ...(instanceDynamic !== undefined ? { dynamic: instanceDynamic } : {}) }, (inner) => resolveNode(child.id, inner), childOverlays)
     for (const [target, dynamic] of constructs.dynamic) childOverlays.set(target, dynamic)
-    for (const [target, projected] of constructs.values) childValues.set(target, { ...projected, ...childValues.get(target) })
+    for (const [target, projected] of constructs.values) childValues.set(target, projected)
     for (const [target, owners] of constructs.owners) {
       const targetOwners = childValueOwners.get(target) ?? new Map<string, ValueOwner>()
       childValueOwners.set(target, targetOwners)

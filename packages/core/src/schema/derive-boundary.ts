@@ -396,11 +396,27 @@ export function innerMemberKey(group: GroupSpec, interior: { readonly next: numb
   return position === undefined ? undefined : memberKeyAt(group.keys, interior.next + position)
 }
 
+/** The subgraph node's key for an inner member: undefined for a member the definition owns. */
+export function outerMemberKey(group: GroupSpec, interior: { readonly members: readonly string[]; readonly next: number }, key: string): string | undefined {
+  if (typeof group.grows !== 'string') return key
+  if (group.keys.kind === 'named') return interior.members.includes(key) ? undefined : key
+  const position = keyPosition(group.keys, key)
+  return position === undefined || position < interior.next ? undefined : memberKeyAt(group.keys, position - interior.next)
+}
+
 /** The row a construct route reaches. */
 export function constructRowOf(route: BoundaryRoute): GroupSpec | ChoiceSpec | TypeChoiceSpec | DescribedSpec | undefined {
   if (route.terminal.kind === 'family') return route.terminal.declaring
   if (route.terminal.kind === 'construct') return route.terminal.row
   return undefined
+}
+
+/** Whether rows hold a field or an input: a construct of outputs only sits among the outputs. */
+function holdsInput(list: readonly OptionRow[]): boolean {
+  return scopeRowsOf(list).some((entry) =>
+    entry.kind === 'input' || entry.kind === 'choice' || entry.kind === 'typeChoice' || entry.kind === 'use' ||
+    (entry.kind === 'described' && entry.kinds.some((kind) => kind.kind === 'input')) ||
+    (entry.kind === 'group' && holdsInput(memberRowsOf(entry))))
 }
 
 /** A construct a row sits in, as a subgraph can show it whole. */
@@ -421,10 +437,6 @@ export function constructsAround(schema: NodeSchema, port: string): readonly Enc
   const segs = port.split('.')
   let rows: readonly OptionRow[] = schema.body
   let prefix = ''
-  const holdsInput = (list: readonly OptionRow[]): boolean => scopeRowsOf(list).some((entry) =>
-    entry.kind === 'input' || entry.kind === 'choice' || entry.kind === 'typeChoice' || entry.kind === 'use' ||
-    (entry.kind === 'described' && entry.kinds.some((kind) => kind.kind === 'input')) ||
-    (entry.kind === 'group' && holdsInput(memberRowsOf(entry))))
   for (let index = 0; index < segs.length; index++) {
     const row = rowById(rows, segs[index]!)
     if (row === undefined) break
@@ -795,10 +807,6 @@ export function deriveBoundarySchema(
     if (!resolved) return undefined
     const { node, route } = resolved
     const row = constructRowOf(route)!
-    const holdsInput = (list: readonly OptionRow[]): boolean => scopeRowsOf(list).some((entry) =>
-      entry.kind === 'input' || entry.kind === 'choice' || entry.kind === 'typeChoice' || entry.kind === 'use' ||
-      (entry.kind === 'described' && entry.kinds.some((kind) => kind.kind === 'input')) ||
-      (entry.kind === 'group' && holdsInput(memberRowsOf(entry))))
     if (side === 'output' && holdsInput([row])) {
       fail('boundary.sideMismatch', `boundary output '${item.id}' shows '${binds.port}', which holds a field or an input; it belongs among the inputs`)
       return undefined

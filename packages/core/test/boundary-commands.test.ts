@@ -293,6 +293,10 @@ describe('boundary item lifecycle commands', () => {
     expect(other.canUndo).toBe(false)
     // A sibling whose id only starts the same way is not inside the choice.
     expect(store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'modeless' } }).ok).toBe(true)
+    // An existing id under the construct's would read as a row inside it, so the new id moves aside.
+    const beside = makeStore(subDoc([portItem('mode.strength')]))
+    expect(beside.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'n1', port: 'mode' } }).ok).toBe(true)
+    expect(beside.doc.graphs.sub!.boundary!.inputs.map((item) => item.id)).toEqual(['mode.strength', 'mode_2'])
   })
 
   it('adds items with deterministic IDs and creates an absent boundary', () => {
