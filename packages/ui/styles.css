@@ -69,6 +69,12 @@
 .dinkster-link { color: var(--dinkster-accent-foreground); text-decoration: underline; }
 .dinkster-link:hover { color: var(--dinkster-text-primary); }
 .dinkster-icon { width: var(--dinkster-icon-size); height: var(--dinkster-icon-size); flex: none; }
+.dinkster-run-activity { display: inline-flex; align-items: center; gap: var(--dinkster-space-8); }
+.dinkster-run-activity-running, .dinkster-run-activity-waiting { display: inline-flex; align-items: center; gap: var(--dinkster-space-4); font-variant-numeric: tabular-nums; }
+.dinkster-run-activity-running { color: var(--dinkster-accent-foreground); }
+.dinkster-run-activity-running > .dinkster-icon { animation: dinkster-spin calc(var(--dinkster-motion-standard) * 4) linear infinite; }
+.dinkster-run-activity-waiting { color: var(--dinkster-text-secondary); }
+@media (prefers-reduced-motion: reduce) { .dinkster-run-activity-running > .dinkster-icon { animation: none !important; } }
 .dinkster-run-icon { position: relative; display: inline-flex; flex: none; }
 .dinkster-run-icon:is([data-running], [data-queued]) { color: var(--dinkster-accent-foreground); }
 .dinkster-run-icon[data-running] > .dinkster-icon { animation: dinkster-breathe 2.4s ease-in-out infinite; }

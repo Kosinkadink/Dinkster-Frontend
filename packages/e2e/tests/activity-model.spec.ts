@@ -33,6 +33,7 @@ async function installFixture(page: Page): Promise<void> {
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'fixture has no supervisor' }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
+  await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
@@ -143,7 +144,7 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   await seedExecutions(page)
 
   await page.getByTestId('workflow-queue-toggle').click()
-  await expect(page.getByTestId('workflow-queue-summary')).toContainText('1 queued, 1 running')
+  await expect(page.getByTestId('workflow-queue-summary')).toContainText('1 running, 1 queued')
   await expect(page.getByTestId('workflow-queue-entry')).toHaveCount(6)
   await expect(page.getByTestId('execution-row')).toHaveCount(6)
   await expect(page.getByTestId('backend-group').filter({ hasText: 'backend removed or disconnected' })).toContainText('/removed-activity-proof')
