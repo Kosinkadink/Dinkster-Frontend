@@ -1,9 +1,12 @@
 {
   "App.tsx": [
     "attribute:aria-label:Execution provenance",
+    "attribute:title:No execution selected",
+    "attribute:title:Nothing queued for this workflow.",
     "text:Backend",
     "text:Backend ID",
     "text:Execution",
+    "text:Execution owner removed or disconnected. Retained output routes are used when available.",
     "text:Image unavailable",
     "text:Output",
     "text:Status",
@@ -138,7 +141,9 @@
     "text:Cancel",
     "text:Cancel",
     "text:Close",
+    "text:FROZEN",
     "text:Follow Latest",
+    "text:Go to Live",
     "text:Insert node...",
     "text:Load image",
     "text:Next",
@@ -154,6 +159,7 @@
     "text:Unpin Spec",
     "text:Value Source:",
     "text:View Frozen",
+    "text:execution",
     "text:schemas from this run are unavailable - nodes render without definitions",
     "text:x"
   ],
@@ -239,6 +245,7 @@
     "text:Compare split:",
     "text:Descriptor",
     "text:Execution",
+    "text:Execution owner removed or disconnected. Retained output routes are used when available.",
     "text:Fit",
     "text:Grid",
     "text:Image",
@@ -323,6 +330,7 @@
   "ProjectsDialog.tsx": [
     "attribute:aria-label:New project name",
     "attribute:placeholder:New project name",
+    "text:A project keeps its own tabs, backend connections, and layout. Windows on the same project stay in sync.",
     "text:Create project",
     "text:Current",
     "text:New window",
@@ -359,6 +367,7 @@
     "text:&gt;",
     "text:Commands",
     "text:Nodes",
+    "text:Search Dinkster",
     "text:Settings",
     "text:Show",
     "text:Tabs",
@@ -422,7 +431,9 @@
   "WorkflowQueueControl.tsx": [
     "attribute:aria-label:Workflow jobs",
     "attribute:data-tooltip-detail:Ctrl+Enter",
+    "attribute:data-tooltip-label:Queue workflow",
     "attribute:title:No jobs for this workflow.",
+    "text:Queue",
     "text:Workflow",
     "text:nodes",
     "text:of"
