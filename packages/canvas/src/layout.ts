@@ -953,6 +953,7 @@ export function layoutNode(
     readonly byHand?: true
     readonly reorderable?: true
     readonly member?: string
+    readonly interiorNote?: string
   }
   /** A whole member's grip before its place is known. */
   type PendingGrip = Omit<MemberGrip, 'gripX'>
@@ -1036,6 +1037,7 @@ export function layoutNode(
         ...(item.byHand ? { byHand: true as const } : {}),
         ...(item.reorderable ? { reorderable: true as const } : {}),
         ...(item.member !== undefined ? { member: item.member } : {}),
+        ...(item.interiorNote !== undefined ? { interiorNote: item.interiorNote } : {}),
       })
     }
   }
@@ -1142,6 +1144,9 @@ export function layoutNode(
       if (decl.kind === 'option') continue
       if (isHidden(decl.parents)) continue
       pending.push({ kind: decl.kind === 'member' ? 'member' : 'section', boxes: decl.parents, header: decl })
+      if (decl.interiorNote !== undefined && !isHidden([...decl.parents, decl.id])) {
+        pending.push({ kind: 'note', boxes: [...decl.parents, decl.id], note: { noteId: `${decl.id}.interior`, text: decl.interiorNote } })
+      }
       continue
     }
     const chain = chainOf(item)
@@ -1183,17 +1188,26 @@ export function layoutNode(
         })
         continue
       }
-      outputs.push({
-        boxes: chain,
-        slot: {
-          portId: spec.id,
-          label: displayLabel(spec),
-          type: spec.type,
-          index: outputIndex++,
-          ...(spec.optional ? { maybeAbsent: true as const } : {}),
-          ...annotate(item),
-        },
-      })
+      const slot = {
+        portId: spec.id,
+        label: item.outsideCount ? `${displayLabel(spec)}, outside current count` : displayLabel(spec),
+        type: spec.type,
+        index: outputIndex++,
+        ...(spec.optional ? { maybeAbsent: true as const } : {}),
+        ...annotate(item),
+        ...(item.outsideCount ? { ghost: true as const } : {}),
+      }
+      if (schema.source === 'subgraph' || item.outsideCount) {
+        // A subgraph node's outputs keep the place the author gave them: an
+        // output shares the line of the pin-only input directly above it in
+        // the same box, unless it is kept on a line of its own.
+        const above = pending.at(-1)
+        if (!spec.ownRow && !item.outsideCount && above?.kind === 'ports' && above.input !== undefined &&
+          above.output === undefined && chainKey(above.boxes) === chainKey(chain)) above.output = slot
+        else pending.push({ kind: 'ports', boxes: chain, output: slot })
+        continue
+      }
+      outputs.push({ boxes: chain, slot })
       continue
     }
     // input

@@ -56,6 +56,7 @@ import {
   boundaryNamesGalleryScene,
   structuralGalleryScene,
 } from './structure.js'
+import { boundaryTreeGallery } from './boundary-tree.js'
 import { switchPrimitiveGallery } from './switch-primitive.js'
 import { widgetTapGallery } from './widget-taps.js'
 
@@ -965,6 +966,12 @@ export function createCanvasGalleryFixture(
     fixture.scene.nodes = [...first.nodes]
     fixture.scene.links = [...first.links]
     fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
+  } else if (page === 'boundary-tree') {
+    const cards = boundaryTreeGallery(tokens, measure, widgetMeasure)
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
     examples.push(...cards)
   } else if (page === 'widget-taps') {
     const gallery = widgetTapGallery(tokens, measure, widgetMeasure)

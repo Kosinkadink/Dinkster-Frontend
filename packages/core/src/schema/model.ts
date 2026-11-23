@@ -608,7 +608,8 @@ export interface OutputSpec extends PortSpecBase {
   /** Presentation-only pre-execution estimate sourced from a selected asset. */
   readonly represents?: OutputRepresents
   /** Exact pre-execution value sourced from a typed primitive identity input. */
-  readonly knownValue?: OutputKnownValue
+  readonly knownValue?: OutputKnownValue  /** Layout only: on a subgraph node, never share the line of the input pin above. */
+  readonly ownRow?: true
 }
 
 /** A stored value with no pin and no field, written by an editor or an action. */
@@ -718,6 +719,11 @@ export interface GroupSpec {
   readonly addLabel?: string
   readonly memberLabel?: Formulated<string>
   readonly openName?: false
+  /**
+   * On a subgraph node that shows the group whole: a quiet line before the
+   * node's own members about the members its definition keeps inside.
+   */
+  readonly interiorNote?: string
 }
 
 /** One option of a choice: its key and the rows it holds. */
