@@ -12,6 +12,14 @@ const catalog = {
 async function prepare(page: Page): Promise<void> {
   await page.route(/\/api\/.*/, (route) => { throw new Error(`unexpected unmocked API request: ${route.request().url()}`) })
   await mockProjectPacks(page)
+  await page.route('/api/models/settings?project=default', (route) => {
+    expect(route.request().method()).toBe('GET')
+    return route.fulfill({ json: {
+      settings: { version: 1, downloadLocation: null, locations: [] },
+      locations: [], revision: 'audit-f5-proof', project: 'default', changesAllowed: true,
+      restartRequired: false, pendingRemovals: [],
+    } })
+  })
   await page.route('/api/models/downloads?scope=local', (route) => {
     expect(route.request().method()).toBe('GET')
     return route.fulfill({ json: { instance: 'audit-f5-proof', jobs: [] } })

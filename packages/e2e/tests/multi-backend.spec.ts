@@ -13,6 +13,7 @@ import { expect, selectProductOption, test, type Page } from './fixtures.js'
 
 const secondBackend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
 if (!secondBackend) throw new Error('DINKSTER_E2E_NATIVE_FRONTEND must identify the second native frontend')
+const secondBackendLabel = new URL(secondBackend).host
 
 /** Queue the active tab and wait until a new row reaches 'completed'. */
 async function queueAndComplete(page: Page, expectedRows: number): Promise<void> {
@@ -80,7 +81,7 @@ test('tab targets are per tab; runs group by backend with distinct connections',
   await selectProductOption(page, page.getByTestId('tab-target'), secondBackend!)
   const targets = await page.evaluate(() => [...window.__dinksterTest!.app.tabTargets.get().values()])
   expect(targets).toEqual([secondBackend])
-  await expect(page.getByTestId('status-connection').locator('.status-connection-name')).toHaveText(secondBackend!)
+  await expect(page.getByTestId('status-connection').locator('.status-connection-name')).toHaveText(secondBackendLabel)
 
   // Queue on the second origin, then retarget back to default and queue again.
   await queueAndComplete(page, 1)
@@ -113,7 +114,7 @@ test('frozen views route outputs through the run backend, surviving removal', as
   // Open the frozen view of the second-origin run.
   await page.getByTestId('execution-row').first().locator('.runs-details > summary').click()
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
-  await expect(page.getByTestId('status-bar')).toContainText(secondBackend!)
+  await expect(page.getByTestId('status-connection').locator('.status-connection-name')).toHaveText(secondBackendLabel)
   await page.getByRole('tab', { name: 'Runs', exact: true }).click()
   const image = page.getByTestId('runs-panel').locator('.output-thumbnail img').first()
   await expect.poll(() => image.evaluate((element) => ({
@@ -125,7 +126,7 @@ test('frozen views route outputs through the run backend, surviving removal', as
 
   // Removing the second origin keeps the history row and frozen image route.
   if (!await page.getByTestId('backends-panel').isVisible()) await page.getByTestId('status-connection').click()
-  await page.getByTestId('backend-row').filter({ hasText: secondBackend! }).getByRole('button', { name: `Actions for ${secondBackend}` }).click()
+  await page.getByTestId('backend-row').filter({ hasText: secondBackend! }).getByRole('button', { name: `Actions for ${secondBackendLabel}` }).click()
   await page.getByRole('menuitem', { name: 'Remove backend', exact: true }).click()
   await page.getByRole('button', { name: 'Remove backend', exact: true }).click()
   await expect(page.getByTestId('backend-row')).toHaveCount(1)
