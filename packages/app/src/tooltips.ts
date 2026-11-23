@@ -436,11 +436,12 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     const related = event.relatedTarget instanceof Element ? event.relatedTarget : undefined
     const session = sessionOf(element)
     const sharedSession = session !== undefined && session === sessionOf(related)
-    if (sharedSession) {
+    const immediate = element.dataset['tooltipImmediate'] === 'true'
+    if (sharedSession && !immediate) {
       const { target, anchor } = domTargetOf(element)
       observeShown(element)
       controller.showInSession(target, anchor, event.altKey)
-    } else showForElement(element, event.altKey)
+    } else showForElement(element, event.altKey, immediate)
   }
   const leave = (event: PointerEvent) => {
     const element = elementAt(event)
