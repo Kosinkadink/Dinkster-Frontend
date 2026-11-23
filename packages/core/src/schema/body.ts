@@ -298,7 +298,8 @@ const WIDGET_KINDS: Readonly<Record<string, FormulaNameKind>> = {
   MULTI_COMBO: 'text[]',
 }
 
-function rowKind(row: InputSpec | StateSpec): FormulaNameKind {
+/** The kind of value a formula reads from a field or state row. */
+export function rowKind(row: InputSpec | StateSpec): FormulaNameKind {
   if (row.kind === 'input' && row.widget !== undefined) {
     const widgets = row.widget.representations?.representations.map((item) => item.widget) ?? [row.widget]
     const kinds = widgets.map((widget) => widget.widgetType.startsWith('CUSTOM') ? 'opaque' : WIDGET_KINDS[widget.widgetType])

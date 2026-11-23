@@ -1,0 +1,1600 @@
+{
+ "dev.buttons.app_workflow": {
+  "body": [
+   {
+    "default": "portrait.app.json",
+    "id": "app",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "COMBO"
+     ]
+    },
+    "widget": {
+     "options": [
+      "portrait.app.json",
+      "upscale.app.json"
+     ],
+     "type": "COMBO"
+    }
+   },
+   {
+    "default": "{}",
+    "id": "overrides",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "STRING"
+     ]
+    },
+    "widget": {
+     "multiline": true,
+     "type": "STRING"
+    }
+   },
+   {
+    "id": "source",
+    "kind": "choice",
+    "leader": "\"wired\" if linked(app) else \"picked\"",
+    "options": [
+     {
+      "key": "picked",
+      "rows": [
+       {
+        "icon": "download",
+        "id": "load_inputs",
+        "kind": "button",
+        "label": "Load inputs",
+        "steps": [
+         {
+          "args": [
+           "app"
+          ],
+          "function": "dinkster_nodes_dev.buttons.exposure",
+          "step": "call",
+          "writes": [
+           "exposed",
+           "overrides"
+          ]
+         }
+        ]
+       },
+       {
+        "id": "exposed",
+        "kind": "described",
+        "kinds": [
+         {
+          "id": "number",
+          "kind": "input",
+          "required": true,
+          "type": {
+           "kind": "concrete",
+           "types": [
+            "INT"
+           ]
+          }
+         },
+         {
+          "id": "decimal",
+          "kind": "input",
+          "required": true,
+          "type": {
+           "kind": "concrete",
+           "types": [
+            "FLOAT"
+           ]
+          }
+         },
+         {
+          "id": "toggle",
+          "kind": "input",
+          "required": true,
+          "type": {
+           "kind": "concrete",
+           "types": [
+            "BOOLEAN"
+           ]
+          }
+         },
+         {
+          "id": "text",
+          "kind": "input",
+          "required": true,
+          "type": {
+           "kind": "concrete",
+           "types": [
+            "STRING"
+           ]
+          }
+         },
+         {
+          "id": "result",
+          "kind": "output",
+          "type": {
+           "kind": "variable",
+           "templateId": "A"
+          }
+         }
+        ],
+        "maxEntries": 32
+       }
+      ]
+     },
+     {
+      "key": "wired",
+      "rows": [
+       {
+        "id": "generic_in",
+        "kind": "input",
+        "required": false,
+        "type": {
+         "kind": "variable",
+         "templateId": "A"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "exposed_info",
+    "kind": "output",
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "STRING"
+     ]
+    }
+   }
+  ],
+  "category": "dev/buttons",
+  "description": "Load the exposed inputs of a saved app workflow with a button.",
+  "displayName": "App workflow",
+  "idempotent": true,
+  "interface": [],
+  "nodeType": "dev.buttons.app_workflow",
+  "schemaVersion": 2,
+  "version": 1
+ },
+ "dev.buttons.ask_steps": {
+  "body": [
+   {
+    "default": "0.0, 0.25, 0.5, 0.75, 1.0",
+    "id": "values",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "STRING"
+     ]
+    },
+    "widget": {
+     "multiline": true,
+     "type": "STRING"
+    }
+   },
+   {
+    "default": "medium",
+    "id": "size",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "STRING"
+     ]
+    }
+   },
+   {
+    "default": "example.com",
+    "id": "site",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "STRING"
+     ]
+    }
+   },
+   {
+    "id": "picture",
+    "kind": "input",
+    "required": false,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "ASSET"
+     ]
+    },
+    "widget": {
+     "accept": [
+      "image/png",
+      "image/jpeg"
+     ],
+     "kind": "media/image",
+     "type": "ASSET"
+    }
+   },
+   {
+    "kind": "row",
+    "rows": [
+     {
+      "id": "fill",
+      "kind": "button",
+      "label": "Fill",
+      "steps": [
+       {
+        "rows": [
+         {
+          "default": 0.0,
+          "id": "start",
+          "required": true,
+          "type": {
+           "kind": "concrete",
+           "types": [
+            "FLOAT"
+           ]
+          }
+         },
+         {
+          "default": 1.0,
+          "id": "end",
+          "required": true,
+          "type": {
+           "kind": "concrete",
+           "types": [
+            "FLOAT"
+           ]
+          }
+         },
+         {
+          "default": 5,
+          "id": "count",
+          "required": true,
+          "type": {
+           "kind": "concrete",
+           "types": [
+            "INT"
+           ]
+          },
+          "widget": {
+           "max": 64,
+           "min": 2,
+           "type": "NUMBER"
+          }
+         }
+        ],
+        "step": "ask",
+        "title": "Fill with a range"
+       },
+       {
+        "field": "values",
+        "step": "set",
+        "value": {
+         "formula": "join(\", \", [fixed(start + (end - start) * i / (count - 1), 2) for i in range(count)])"
+        }
+       }
+      ]
+     },
+     {
+      "icon": "list",
+      "id": "size",
+      "kind": "button",
+      "label": "Size",
+      "steps": [
+       {
+        "name": "chosen",
+        "options": {
+         "value": [
+          "small",
+          "medium",
+          "large"
+         ]
+        },
+        "step": "pick"
+       },
+       {
+        "field": "size",
+        "step": "set",
+        "value": {
+         "formula": "chosen"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "kind": "row",
+    "rows": [
+     {
+      "icon": "folder-open",
+      "id": "pick_picture",
+      "kind": "button",
+      "label": "Choose",
+      "steps": [
+       {
+        "field": "picture",
+        "step": "openPicker"
+       }
+      ]
+     },
+     {
+      "icon": "clipboard-paste",
+      "id": "paste",
+      "kind": "button",
+      "label": "Paste",
+      "steps": [
+       {
+        "field": "picture",
+        "step": "pasteImage"
+       }
+      ]
+     },
+     {
+      "icon": "pencil",
+      "id": "mask",
+      "kind": "button",
+      "label": "Mask",
+      "steps": [
+       {
+        "field": "picture",
+        "step": "openEditor"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "kind": "row",
+    "rows": [
+     {
+      "icon": "play",
+      "id": "run",
+      "kind": "button",
+      "label": "Run",
+      "steps": [
+       {
+        "step": "queue"
+       }
+      ]
+     },
+     {
+      "id": "run_here",
+      "kind": "button",
+      "label": "Run to here",
+      "steps": [
+       {
+        "step": "queue",
+        "toHere": true
+       }
+      ]
+     },
+     {
+      "icon": "square",
+      "id": "stop",
+      "kind": "button",
+      "label": "Stop",
+      "steps": [
+       {
+        "step": "interrupt"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "kind": "row",
+    "rows": [
+     {
+      "icon": "copy",
+      "id": "copy",
+      "kind": "button",
+      "label": "Copy",
+      "steps": [
+       {
+        "step": "copy",
+        "value": {
+         "formula": "values"
+        }
+       }
+      ]
+     },
+     {
+      "icon": "save",
+      "id": "save",
+      "kind": "button",
+      "label": "Save",
+      "steps": [
+       {
+        "filename": "values.txt",
+        "step": "download",
+        "value": {
+         "formula": "values"
+        }
+       }
+      ]
+     },
+     {
+      "icon": "external-link",
+      "id": "open",
+      "kind": "button",
+      "label": "Open site",
+      "steps": [
+       {
+        "step": "openLink",
+        "url": {
+         "formula": "\"https://\" + site"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "values",
+    "kind": "output",
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "STRING"
+     ]
+    }
+   }
+  ],
+  "category": "dev/buttons",
+  "description": "Buttons that ask first, open host editors, and act outside the workflow.",
+  "displayName": "Buttons: lists, forms and outside steps",
+  "idempotent": true,
+  "interface": [],
+  "nodeType": "dev.buttons.ask_steps",
+  "schemaVersion": 2,
+  "version": 1
+ },
+ "dev.buttons.call_probe": {
+  "body": [
+   {
+    "default": "answer",
+    "id": "mode",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "COMBO"
+     ]
+    },
+    "widget": {
+     "options": [
+      "answer",
+      "partial",
+      "raise",
+      "extra",
+      "wrong_type",
+      "slow",
+      "file",
+      "large_file"
+     ],
+     "type": "COMBO"
+    }
+   },
+   {
+    "default": 0.0,
+    "id": "delay",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "FLOAT"
+     ]
+    },
+    "widget": {
+     "max": 10.0,
+     "min": 0.0,
+     "type": "NUMBER"
+    }
+   },
+   {
+    "default": "",
+    "id": "first",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "STRING"
+     ]
+    }
+   },
+   {
+    "default": 0,
+    "id": "second",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "INT"
+     ]
+    },
+    "widget": {
+     "max": 10,
+     "min": 0,
+     "type": "NUMBER"
+    }
+   },
+   {
+    "kind": "row",
+    "rows": [
+     {
+      "id": "call",
+      "kind": "button",
+      "label": "Call",
+      "steps": [
+       {
+        "field": "first",
+        "step": "set",
+        "value": {
+         "value": "staged"
+        }
+       },
+       {
+        "args": [
+         "mode",
+         "delay"
+        ],
+        "function": "dinkster_nodes_dev.buttons.call_probe",
+        "step": "call",
+        "writes": [
+         "first",
+         "second"
+        ]
+       }
+      ]
+     },
+     {
+      "icon": "download",
+      "id": "download",
+      "kind": "button",
+      "label": "Download",
+      "steps": [
+       {
+        "args": [
+         "mode",
+         "delay"
+        ],
+        "download": "probe.txt",
+        "function": "dinkster_nodes_dev.buttons.call_probe",
+        "step": "call"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "category": "dev/buttons",
+  "description": "A button whose pack function answers in each way the runner handles.",
+  "displayName": "Buttons: call outcomes",
+  "idempotent": true,
+  "interface": [],
+  "nodeType": "dev.buttons.call_probe",
+  "schemaVersion": 2,
+  "version": 1
+ },
+ "dev.buttons.field_steps": {
+  "body": [
+   {
+    "default": "draft",
+    "id": "title",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "STRING"
+     ]
+    }
+   },
+   {
+    "default": 512,
+    "id": "width",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "INT"
+     ]
+    },
+    "widget": {
+     "max": 2048,
+     "min": 64,
+     "step": 64,
+     "type": "NUMBER"
+    }
+   },
+   {
+    "default": 768,
+    "id": "height",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "INT"
+     ]
+    },
+    "widget": {
+     "max": 2048,
+     "min": 64,
+     "step": 64,
+     "type": "NUMBER"
+    }
+   },
+   {
+    "default": 0.5,
+    "id": "scale",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "FLOAT"
+     ]
+    },
+    "widget": {
+     "max": 1.0,
+     "min": 0.0,
+     "step": 0.25,
+     "type": "NUMBER"
+    }
+   },
+   {
+    "default": false,
+    "id": "flag",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "BOOLEAN"
+     ]
+    }
+   },
+   {
+    "default": "fast",
+    "id": "mode",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "COMBO"
+     ]
+    },
+    "widget": {
+     "options": [
+      "fast",
+      "balanced",
+      "best"
+     ],
+     "type": "COMBO"
+    }
+   },
+   {
+    "afterRun": "fixed",
+    "default": 7,
+    "id": "seed",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "INT"
+     ]
+    },
+    "widget": {
+     "max": 1000,
+     "min": 0,
+     "type": "NUMBER"
+    }
+   },
+   {
+    "id": "image",
+    "kind": "input",
+    "required": false,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "dev.image"
+     ]
+    }
+   },
+   {
+    "kind": "row",
+    "rows": [
+     {
+      "id": "double",
+      "kind": "button",
+      "label": "Double",
+      "steps": [
+       {
+        "field": "width",
+        "step": "set",
+        "value": {
+         "formula": "width * 2"
+        }
+       },
+       {
+        "field": "height",
+        "step": "set",
+        "value": {
+         "formula": "width + 64"
+        }
+       }
+      ]
+     },
+     {
+      "icon": "arrow-left-right",
+      "id": "swap",
+      "kind": "button",
+      "label": "Swap",
+      "steps": [
+       {
+        "a": "width",
+        "b": "height",
+        "step": "swap"
+       }
+      ]
+     },
+     {
+      "id": "toggle",
+      "kind": "button",
+      "label": "Toggle",
+      "steps": [
+       {
+        "field": "flag",
+        "step": "toggle"
+       }
+      ]
+     },
+     {
+      "icon": "rotate-ccw",
+      "id": "reset",
+      "kind": "button",
+      "label": "Reset",
+      "steps": [
+       {
+        "field": "width",
+        "step": "reset"
+       },
+       {
+        "field": "title",
+        "step": "reset"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "kind": "row",
+    "rows": [
+     {
+      "id": "append",
+      "kind": "button",
+      "label": "Append",
+      "steps": [
+       {
+        "field": "title",
+        "step": "append",
+        "value": {
+         "formula": "mode"
+        }
+       }
+      ]
+     },
+     {
+      "icon": "dice-5",
+      "id": "random",
+      "kind": "button",
+      "label": "Random",
+      "steps": [
+       {
+        "field": "seed",
+        "high": {
+         "value": 20
+        },
+        "low": {
+         "value": 10
+        },
+        "step": "randomize"
+       }
+      ]
+     },
+     {
+      "id": "increment",
+      "kind": "button",
+      "label": "Increment",
+      "steps": [
+       {
+        "field": "seed",
+        "mode": "increment",
+        "step": "setMode"
+       }
+      ]
+     },
+     {
+      "id": "best",
+      "kind": "button",
+      "label": "Best",
+      "steps": [
+       {
+        "field": "mode",
+        "step": "set",
+        "value": {
+         "value": "best"
+        }
+       },
+       {
+        "field": "scale",
+        "step": "set",
+        "value": {
+         "formula": "scale + 0.25"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "kind": "row",
+    "rows": [
+     {
+      "id": "too_wide",
+      "kind": "button",
+      "label": "Too wide",
+      "steps": [
+       {
+        "field": "title",
+        "step": "set",
+        "value": {
+         "value": "wide"
+        }
+       },
+       {
+        "field": "width",
+        "step": "set",
+        "value": {
+         "value": 4096
+        }
+       }
+      ]
+     },
+     {
+      "id": "off_step",
+      "kind": "button",
+      "label": "Off step",
+      "steps": [
+       {
+        "field": "width",
+        "step": "set",
+        "value": {
+         "value": 100
+        }
+       }
+      ]
+     },
+     {
+      "id": "bad_option",
+      "kind": "button",
+      "label": "Bad option",
+      "steps": [
+       {
+        "field": "mode",
+        "step": "set",
+        "value": {
+         "value": "slow"
+        }
+       }
+      ]
+     },
+     {
+      "id": "quarter",
+      "kind": "button",
+      "label": "Quarter",
+      "steps": [
+       {
+        "field": "scale",
+        "step": "set",
+        "value": {
+         "value": 0.3
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "kind": "row",
+    "rows": [
+     {
+      "id": "needs_image",
+      "kind": "button",
+      "label": "Needs image",
+      "steps": [
+       {
+        "field": "title",
+        "step": "set",
+        "value": {
+         "formula": "\"image \" + str(linked(image))"
+        }
+       }
+      ]
+     },
+     {
+      "icon": "x",
+      "id": "disconnect",
+      "kind": "button",
+      "label": "Disconnect",
+      "steps": [
+       {
+        "input": "image",
+        "step": "disconnect"
+       }
+      ]
+     },
+     {
+      "icon": "plus",
+      "id": "add_source",
+      "kind": "button",
+      "label": "Add source",
+      "steps": [
+       {
+        "nodeType": "dev.image.gradient",
+        "step": "addNode",
+        "to": "image",
+        "values": {
+         "width": {
+          "value": 64
+         }
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "category": "dev/buttons",
+  "description": "One button per step that sets fields.",
+  "displayName": "Buttons: field steps",
+  "idempotent": true,
+  "interface": [],
+  "menu": [
+   {
+    "id": "menu_reset",
+    "kind": "button",
+    "label": "Reset size",
+    "steps": [
+     {
+      "field": "width",
+      "step": "reset"
+     },
+     {
+      "field": "height",
+      "step": "reset"
+     }
+    ]
+   },
+   {
+    "icon": "copy",
+    "id": "menu_copy",
+    "kind": "button",
+    "label": "Copy size",
+    "steps": [
+     {
+      "step": "copy",
+      "value": {
+       "formula": "str(width) + \"x\" + str(height)"
+      }
+     }
+    ]
+   }
+  ],
+  "nodeType": "dev.buttons.field_steps",
+  "schemaVersion": 2,
+  "version": 1
+ },
+ "dev.buttons.lora_preset": {
+  "body": [
+   {
+    "default": "All",
+    "id": "category_filter",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "COMBO"
+     ]
+    },
+    "widget": {
+     "options": [
+      "All",
+      "sd",
+      "sdxl"
+     ],
+     "type": "COMBO"
+    }
+   },
+   {
+    "default": "a.safetensors",
+    "id": "lora_name",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "COMBO"
+     ]
+    },
+    "widget": {
+     "options": [
+      "a.safetensors",
+      "sd/x.safetensors",
+      "sdxl/y.safetensors"
+     ],
+     "type": "COMBO"
+    }
+   },
+   {
+    "kind": "row",
+    "rows": [
+     {
+      "default": "SD-ALL",
+      "id": "preset",
+      "kind": "input",
+      "required": true,
+      "type": {
+       "kind": "concrete",
+       "types": [
+        "COMBO"
+       ]
+      },
+      "widget": {
+       "options": [
+        "SD-NONE",
+        "SD-ALL",
+        "SD-INS",
+        "SD-MIDD",
+        "SD-OUTD"
+       ],
+       "type": "COMBO"
+      }
+     },
+     {
+      "enabled": {
+       "formula": "known(preset) and preset != None"
+      },
+      "id": "apply_preset",
+      "kind": "button",
+      "label": "Apply",
+      "steps": [
+       {
+        "field": "block_vector",
+        "step": "set",
+        "value": {
+         "args": [
+          "preset"
+         ],
+         "lookup": "dinkster_nodes_dev.buttons.preset_vector"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "icon": "list",
+    "id": "pick_preset",
+    "kind": "button",
+    "label": "Pick a preset",
+    "steps": [
+     {
+      "name": "chosen",
+      "options": {
+       "lookup": "dinkster_nodes_dev.buttons.preset_names"
+      },
+      "step": "pick"
+     },
+     {
+      "field": "preset",
+      "step": "set",
+      "value": {
+       "formula": "chosen"
+      }
+     },
+     {
+      "field": "block_vector",
+      "step": "set",
+      "value": {
+       "args": [
+        {
+         "formula": "chosen"
+        }
+       ],
+       "lookup": "dinkster_nodes_dev.buttons.preset_vector"
+      }
+     }
+    ]
+   },
+   {
+    "default": "1,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1",
+    "id": "block_vector",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "STRING"
+     ]
+    },
+    "widget": {
+     "multiline": true,
+     "placeholder": "block weight vectors",
+     "type": "STRING"
+    }
+   },
+   {
+    "id": "populated_vector",
+    "kind": "output",
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "STRING"
+     ]
+    }
+   }
+  ],
+  "category": "dev/buttons",
+  "description": "Pick a block weight preset and apply its vector with a button.",
+  "displayName": "Load LoRA (block weight)",
+  "idempotent": true,
+  "interface": [],
+  "nodeType": "dev.buttons.lora_preset",
+  "schemaVersion": 2,
+  "version": 1
+ },
+ "dev.buttons.member_steps": {
+  "body": [
+   {
+    "grows": "button",
+    "id": "loras",
+    "keys": {
+     "numbered": {
+      "pad": 0,
+      "prefix": "lora_",
+      "start": 1
+     }
+    },
+    "kind": "group",
+    "maxMembers": 4,
+    "member": [
+     {
+      "default": "none",
+      "id": "name",
+      "kind": "input",
+      "required": true,
+      "type": {
+       "kind": "concrete",
+       "types": [
+        "STRING"
+       ]
+      }
+     },
+     {
+      "default": 1.0,
+      "id": "strength",
+      "kind": "input",
+      "required": true,
+      "type": {
+       "kind": "concrete",
+       "types": [
+        "FLOAT"
+       ]
+      },
+      "widget": {
+       "max": 2.0,
+       "min": -2.0,
+       "type": "NUMBER"
+      }
+     },
+     {
+      "id": "clip",
+      "kind": "input",
+      "required": false,
+      "type": {
+       "kind": "concrete",
+       "types": [
+        "dev.image"
+       ]
+      }
+     }
+    ],
+    "minMembers": 1
+   },
+   {
+    "kind": "row",
+    "rows": [
+     {
+      "icon": "plus",
+      "id": "add",
+      "kind": "button",
+      "label": "Add",
+      "steps": [
+       {
+        "group": "loras",
+        "step": "addMember",
+        "values": {
+         "name": {
+          "value": "added"
+         },
+         "strength": {
+          "formula": "len(loras) * 0.5"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "id": "remove_first",
+      "kind": "button",
+      "label": "Remove first",
+      "steps": [
+       {
+        "group": "loras",
+        "step": "removeMember",
+        "which": "first"
+       }
+      ]
+     },
+     {
+      "id": "remove_last",
+      "kind": "button",
+      "label": "Remove last",
+      "steps": [
+       {
+        "group": "loras",
+        "step": "removeMember",
+        "which": "last"
+       }
+      ]
+     },
+     {
+      "id": "remove_second",
+      "kind": "button",
+      "label": "Remove 2nd",
+      "steps": [
+       {
+        "group": "loras",
+        "step": "removeMember",
+        "which": {
+         "formula": "1"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "kind": "row",
+    "rows": [
+     {
+      "icon": "trash-2",
+      "id": "clear",
+      "kind": "button",
+      "label": "Clear",
+      "steps": [
+       {
+        "group": "loras",
+        "step": "clearMembers"
+       }
+      ]
+     },
+     {
+      "id": "copy_first",
+      "kind": "button",
+      "label": "Copy first",
+      "steps": [
+       {
+        "field": "strength",
+        "group": "loras",
+        "step": "setEach",
+        "value": {
+         "formula": "loras.strength[0]"
+        }
+       }
+      ]
+     },
+     {
+      "id": "halve_each",
+      "kind": "button",
+      "label": "Halve each",
+      "steps": [
+       {
+        "field": "strength",
+        "group": "loras",
+        "step": "setEach",
+        "value": {
+         "formula": "strength / 2"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "category": "dev/buttons",
+  "description": "Buttons that add, remove and fill the members of a group.",
+  "displayName": "Buttons: member steps",
+  "idempotent": true,
+  "interface": [],
+  "nodeType": "dev.buttons.member_steps",
+  "schemaVersion": 2,
+  "version": 1
+ },
+ "dev.buttons.seed": {
+  "body": [
+   {
+    "afterRun": "randomize",
+    "default": 0,
+    "id": "seed",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "INT"
+     ]
+    },
+    "widget": {
+     "max": 1125899906842624,
+     "min": -1125899906842624,
+     "type": "NUMBER"
+    }
+   },
+   {
+    "kind": "row",
+    "rows": [
+     {
+      "id": "each_time",
+      "kind": "button",
+      "label": "Each time",
+      "steps": [
+       {
+        "field": "seed",
+        "mode": "randomize",
+        "step": "setMode"
+       }
+      ]
+     },
+     {
+      "id": "new_fixed_random",
+      "kind": "button",
+      "label": "New",
+      "steps": [
+       {
+        "field": "seed",
+        "step": "randomize"
+       },
+       {
+        "field": "seed",
+        "mode": "fixed",
+        "step": "setMode"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "SEED",
+    "kind": "output",
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "INT"
+     ]
+    }
+   }
+  ],
+  "category": "dev/buttons",
+  "description": "A seed with its after-run controller and a button that picks a new fixed random seed.",
+  "displayName": "Seed",
+  "idempotent": true,
+  "interface": [],
+  "nodeType": "dev.buttons.seed",
+  "schemaVersion": 2,
+  "version": 1
+ },
+ "dev.buttons.translate": {
+  "body": [
+   {
+    "default": "auto",
+    "id": "from_translate",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "COMBO"
+     ]
+    },
+    "widget": {
+     "options": [
+      "auto",
+      "en",
+      "es",
+      "fr"
+     ],
+     "type": "COMBO"
+    }
+   },
+   {
+    "default": "en",
+    "id": "to_translate",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "COMBO"
+     ]
+    },
+    "widget": {
+     "options": [
+      "en",
+      "es",
+      "fr"
+     ],
+     "type": "COMBO"
+    }
+   },
+   {
+    "default": true,
+    "id": "manual_translate",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "BOOLEAN"
+     ]
+    }
+   },
+   {
+    "disabledReason": "Manual translate is off. The translation happens when you press Run.",
+    "enabled": {
+     "formula": "manual_translate"
+    },
+    "icon": "languages",
+    "id": "translate",
+    "kind": "button",
+    "label": "Translate",
+    "steps": [
+     {
+      "args": [
+       "text",
+       "from_translate",
+       "to_translate",
+       "service_delay"
+      ],
+      "function": "dinkster_nodes_dev.buttons.translate_now",
+      "step": "call",
+      "writes": [
+       "text"
+      ]
+     }
+    ]
+   },
+   {
+    "default": "hola, un gato en la playa",
+    "id": "text",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "STRING"
+     ]
+    },
+    "widget": {
+     "multiline": true,
+     "placeholder": "Input prompt",
+     "type": "STRING"
+    }
+   },
+   {
+    "default": 0.0,
+    "id": "service_delay",
+    "kind": "state",
+    "partOfRun": false,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "FLOAT"
+     ]
+    }
+   },
+   {
+    "id": "text",
+    "kind": "output",
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "STRING"
+     ]
+    }
+   }
+  ],
+  "category": "dev/buttons",
+  "description": "Press Translate to translate the text in place with a local test service.",
+  "displayName": "Translate text",
+  "idempotent": true,
+  "interface": [],
+  "nodeType": "dev.buttons.translate",
+  "schemaVersion": 2,
+  "version": 1
+ },
+ "dev.image.gradient": {
+  "body": [
+   {
+    "default": 256,
+    "id": "width",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "INT"
+     ]
+    }
+   },
+   {
+    "default": 256,
+    "id": "height",
+    "kind": "input",
+    "required": true,
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "INT"
+     ]
+    }
+   },
+   {
+    "id": "image",
+    "kind": "output",
+    "type": {
+     "kind": "concrete",
+     "types": [
+      "dev.image"
+     ]
+    }
+   }
+  ],
+  "category": "dev/image",
+  "description": "",
+  "displayName": "Gradient Image",
+  "idempotent": true,
+  "interface": [],
+  "nodeType": "dev.image.gradient",
+  "schemaVersion": 2,
+  "version": 1
+ }
+}
