@@ -168,6 +168,37 @@ describe('static schemas', () => {
     expect(elabInputsOf(stored).find((input) => input.spec.id === 'mode.other')!.apiName).toBeUndefined()
     expect(elaborateInterface(schema, node)).toEqual(active)
   })
+
+  it('reads a shared choice key an unchosen option leaves out as that option\'s start key, and still reports an undeclared key once', () => {
+    // Save Video's shape: webm offers only auto and av1 of the shared codec.
+    const schema = schemaOf([choiceOf('format', [
+      { key: 'mp4', rows: [{ kind: 'use', id: 'codec' }] },
+      { key: 'webm', rows: [{ kind: 'use', id: 'codec', only: ['auto', 'av1'] }] },
+    ], { shared: [choiceOf('codec', [
+      { key: 'auto', rows: [] },
+      { key: 'h264', rows: [intInput('crf')] },
+      { key: 'av1', rows: [intInput('cq')] },
+    ], { default: 'h264' })] })])
+    const census = (format: string, codec: string) => elaborateInterface(schema,
+      { values: {}, dynamic: { format: { selected: format }, 'format.codec': { selected: codec } } },
+      EMPTY_CONNECTIVITY, { includeDormant: true })
+
+    const stored = census('mp4', 'h264')
+    expect(stored.diagnostics).toEqual([])
+    expect(stored.choices).toEqual({ format: 'mp4', 'format.codec': 'h264' })
+    expect(stored.unstoredChoices).toBeUndefined()
+    // The census still reaches the rows of every codec option.
+    expect(elabInputsOf(stored).map((input) => input.spec.id)).toEqual(expect.arrayContaining(['format.codec.crf', 'format.codec.cq']))
+    const selectors = elabInputsOf(stored).filter((input) => input.spec.id === 'format.codec')
+    expect(selectors.map((input) => input.derivedValue)).toEqual(['h264', 'auto'])
+
+    // The chosen option that leaves the key out still reports it.
+    expect(census('webm', 'h264').diagnostics.map((diagnostic) => diagnostic.message))
+      .toEqual(["Test: choice 'format.codec' has unknown option 'h264'"])
+    // A key no option declares is reported once, not once per place.
+    expect(census('mp4', 'vp9').diagnostics.map((diagnostic) => diagnostic.message))
+      .toEqual(["Test: choice 'format.codec' has unknown option 'vp9'"])
+  })
 })
 
 // ---------------------------------------------------------------------------
