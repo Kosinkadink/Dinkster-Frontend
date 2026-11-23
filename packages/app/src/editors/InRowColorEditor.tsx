@@ -29,7 +29,7 @@ import type { WidgetEditorImplementationProps } from '../WidgetEditorController.
 import { widgetCommitError } from '../widget-commit.js'
 
 /** Where Alt+Down and Alt+Up move the keyboard, in order. */
-type Stop = CanvasColorControl | 'default' | 'text'
+type Stop = CanvasColorControl | 'saved' | 'default' | 'text'
 
 /**
  * A color row edited in its own row on the canvas, as a draft: the code is
@@ -147,26 +147,30 @@ export const InRowColorImplementation: Component<WidgetEditorImplementationProps
   })
   onCleanup(() => host.bindClickAway?.(undefined))
 
-  // Alt+Down and Alt+Up take the keyboard through the picker, the swatches
-  // and the default link and back to the text; Tab always moves between
-  // the node's rows.
-  const defaultLink = (): HTMLElement | null => frame.querySelector<HTMLElement>('.dinkster-canvas-side-link')
+  // Alt+Down and Alt+Up take the keyboard through the picker, the swatches,
+  // the saved and default links and back to the text; Tab always moves
+  // between the node's rows.
+  const link = (name: 'saved' | 'default'): HTMLElement | null =>
+    frame.querySelector<HTMLElement>(`[data-color-link="${name}"] .dinkster-canvas-side-link`)
+  const showsSaved = (): boolean => storedCode !== undefined && draft().live !== storedCode
   const stops = (): Stop[] => [
     'square', 'hue',
     ...(withOpacity ? ['opacity' as const] : []),
     ...(swatches.length > 0 ? ['swatches' as const] : []),
+    ...(showsSaved() ? ['saved' as const] : []),
     ...(defaultCode === undefined ? [] : ['default' as const]),
     'text',
   ]
   const [focused, setFocused] = createSignal<Stop>('text')
   const stopOf = (element: EventTarget | null): Stop | undefined => {
     if (element === input) return 'text'
-    if (element !== null && element === defaultLink()) return 'default'
+    if (element !== null && element === link('saved')) return 'saved'
+    if (element !== null && element === link('default')) return 'default'
     return (Object.keys(controls) as CanvasColorControl[]).find((name) => controls[name] === element)
   }
   const focusStop = (stop: Stop): void => {
     if (stop === 'swatches' && candidate() === undefined) setCandidate(Math.max(0, swatches.indexOf(draft().live)))
-    const element = stop === 'text' ? input : stop === 'default' ? defaultLink() : controls[stop]
+    const element = stop === 'text' ? input : stop === 'saved' || stop === 'default' ? link(stop) : controls[stop]
     element?.focus()
   }
 
@@ -183,11 +187,12 @@ export const InRowColorImplementation: Component<WidgetEditorImplementationProps
       const queue = host.app.commands.get('workflow.queue')
       void commit().then((closed) => { if (closed && queue?.enabled?.() !== false) queue?.run() })
     } else if (event.key === 'Enter' && at !== 'text') {
-      // Enter on the picker puts the keyboard back in the text; on a swatch
-      // or the default it first makes that color the draft.
+      // Enter on the picker puts the keyboard back in the text; on a swatch,
+      // the saved color or the default it first makes that color the draft.
       event.preventDefault()
       if (props.commitPending()) return
       if (at === 'swatches' && candidate() !== undefined) choose(swatches[candidate()!]!)
+      if (at === 'saved' && storedCode !== undefined) choose(storedCode)
       if (at === 'default' && defaultCode !== undefined) choose(defaultCode)
       input?.focus()
     } else if (event.key === 'Enter') {
@@ -233,11 +238,11 @@ export const InRowColorImplementation: Component<WidgetEditorImplementationProps
         droppedOpacity={result.droppedOpacity}
         enter={{ verb: result.invalid || result.enter === storedCode ? 'keeps' : 'stores', color: result.enter }}
         {...(result.invalid ? { preview: result.live } : {})}
-        {...(storedCode === undefined || result.live === storedCode ? {} : { saved: storedCode })}
+        {...(showsSaved() ? { saved: storedCode!, onSaved: () => { choose(storedCode!); input?.focus() } } : {})}
         {...(defaultCode === undefined ? {} : { defaultColor: defaultCode, onDefault: () => { choose(defaultCode); input?.focus() } })}
         {...(inRow.help === undefined ? {} : { help: inRow.help })}
       >
-        {focused() === 'text' || focused() === 'default' ? undefined : <CanvasColorKeys control={focused() as CanvasColorControl} point={point()} />}
+        {focused() === 'text' || focused() === 'saved' || focused() === 'default' ? undefined : <CanvasColorKeys control={focused() as CanvasColorControl} point={point()} />}
       </CanvasColorSide>
     )
   })
@@ -256,7 +261,7 @@ export const InRowColorImplementation: Component<WidgetEditorImplementationProps
         noDefault={defaultCode === undefined}
         {...(swatches.includes(draft().live) ? { chosen: draft().live } : {})}
         {...(candidate() === undefined ? {} : { candidate: candidate()! })}
-        {...(focused() === 'text' || focused() === 'default' ? {} : { focused: focused() as CanvasColorControl })}
+        {...(focused() === 'text' || focused() === 'saved' || focused() === 'default' ? {} : { focused: focused() as CanvasColorControl })}
         onPick={pick}
         onSwatch={choose}
         onCandidate={setCandidate}

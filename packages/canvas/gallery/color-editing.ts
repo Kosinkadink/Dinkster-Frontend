@@ -236,7 +236,7 @@ export const colorEditingGroups: readonly {
     examples: [
       {
         id: 'pick',
-        caption: 'Dragged in the picker: the text, the live square, the ring and the bars follow. Nothing is stored; beside the field, saved shows the blue it had.',
+        caption: 'Dragged in the picker: the text, the live square, the ring and the bars follow. Nothing is stored; beside the field, saved shows the blue it had, as a link that puts it back in the field like default.',
         stored: '#3366cc',
         text: '#cc6633',
         used: workflowColors,

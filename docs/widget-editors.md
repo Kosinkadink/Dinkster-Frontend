@@ -498,7 +498,7 @@ COLOR rows and integer color rows (INT with `display: color`) are edited in
 the row the same way, as a draft. The closed row draws a square of the stored
 color directly before its code. Open, the field holds the code, selected, with
 a live square of the draft before it; while the draft differs from the stored
-color, the side part lists it as `saved`. A picker hangs under the field
+color, the side part lists it as a `saved` link that puts it back in the field. A picker hangs under the field
 inside the same outline: a saturation and value square, a hue strip, an
 opacity strip on a field that has opacity, and up to eight swatches. The
 square marks the chosen point with a 10 px ring; each strip marks its value
@@ -519,17 +519,17 @@ the larger room and scrolls with the field in view.
   leaving keeps the stored color.
 - A field without opacity that is given a color with opacity takes the color,
   drops the opacity and says so in the side part.
-- The picker, the swatches and the side part's `default` link change only the
+- The picker, the swatches and the side part's `saved` and `default` links change only the
   draft. Enter, Tab, Ctrl+Enter and a click elsewhere store it as one undo
   step, as for a number; Escape keeps the stored color.
 - The swatches are the field's default, then the colors stored in the
   workflow's color fields, most used first and ties in code order. They are
   read when the field opens and do not move during the edit.
 - Alt+Down moves the keyboard from the text to the square, then the hue, the
-  opacity, the swatches and the `default` link, and back to the text; Alt+Up
+  opacity, the swatches, the `saved` and `default` links, and back to the text; Alt+Up
   goes the other way. Arrows change the focused control by one step and Shift
   by ten; in the swatches Left and Right choose one. Enter on a picker control
-  returns to the text without storing; on a swatch or the `default` link it
+  returns to the text without storing; on a swatch or a link it
   first puts that color in the field. Tab always moves between the node's rows.
 
 A color row a wire drives opens no field. When the wire brings a color with

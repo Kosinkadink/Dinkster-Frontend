@@ -499,8 +499,8 @@ export function CanvasColorKeys(props: { control: CanvasColorControl; point: Can
 /**
  * An open color field's side part: a refusal or "Not a color." first, then
  * what leaving the field does with its color, the saved color while the
- * draft differs from it, the default as a link that puts it in the field,
- * and the field's help.
+ * draft differs from it and the default, each a link that puts its color in
+ * the field, and the field's help.
  */
 export function CanvasColorSide(props: {
   problem?: string
@@ -513,8 +513,9 @@ export function CanvasColorSide(props: {
   enter?: { readonly verb: 'stores' | 'keeps'; readonly color: string }
   /** The last valid color, which the preview holds while the text is not a color. */
   preview?: string
-  /** The stored color, shown while the draft differs from it. */
+  /** The stored color, shown while the draft differs from it, as a link that puts it back in the field. */
   saved?: string
+  onSaved?: () => void
   defaultColor?: string
   onDefault?: () => void
   help?: string
@@ -528,16 +529,29 @@ export function CanvasColorSide(props: {
       facts={[
         ...(props.saved === undefined
           ? []
-          : [{ key: 'saved', value: <CanvasColorCode color={props.saved} /> }]),
+          : [
+              {
+                key: 'saved',
+                value: (
+                  <span data-color-link="saved">
+                    <CanvasSideLink onClick={() => props.onSaved?.()}>
+                      <CanvasColorCode color={props.saved} />
+                    </CanvasSideLink>
+                  </span>
+                ),
+              },
+            ]),
         ...(props.defaultColor === undefined
           ? []
           : [
               {
                 key: 'default',
                 value: (
-                  <CanvasSideLink onClick={() => props.onDefault?.()}>
-                    <CanvasColorCode color={props.defaultColor} />
-                  </CanvasSideLink>
+                  <span data-color-link="default">
+                    <CanvasSideLink onClick={() => props.onDefault?.()}>
+                      <CanvasColorCode color={props.defaultColor} />
+                    </CanvasSideLink>
+                  </span>
                 ),
               },
             ]),
