@@ -47,6 +47,24 @@ export const colorEditingSchema: NodeSchema = {
   ],
 }
 
+/** The same node with its color stored as a whole number, as an integer color view shows it. */
+const integerColorSchema: NodeSchema = {
+  ...colorEditingSchema,
+  items: colorEditingSchema.items.map((item) =>
+    item.kind === 'input' && item.id === 'color'
+      ? {
+          ...item,
+          type: { kind: 'concrete', name: 'INT' },
+          widget: {
+            widgetType: 'INT',
+            options: { min: 0, max: 0xffffff, display: 'color' },
+            default: 0x3366cc,
+          },
+        }
+      : item,
+  ),
+}
+
 const SOURCE = 'Color source'
 const sourceSchema: NodeSchema = {
   type: SOURCE,
@@ -70,6 +88,7 @@ export function createColorEditingScene(
   stored: string,
   wired = false,
   width = 280,
+  integer = false,
 ): Scene {
   const id = colorEditingSchema.type
   const loaded = loadDocument({
@@ -86,7 +105,10 @@ export function createColorEditingScene(
           [id]: {
             id,
             type: id,
-            values: { ...defaultValuesOf(colorEditingSchema), color: stored },
+            values: {
+              ...defaultValuesOf(colorEditingSchema),
+              color: integer ? Number.parseInt(stored.slice(1), 16) : stored,
+            },
           },
           ...(wired ? { [SOURCE]: { id: SOURCE, type: SOURCE, values: {} } } : {}),
         },
@@ -127,7 +149,13 @@ export function createColorEditingScene(
     document: loaded.document,
     graphId: 'gallery',
     resolve: (type) =>
-      type === id ? colorEditingSchema : type === SOURCE ? sourceSchema : undefined,
+      type === id
+        ? integer
+          ? integerColorSchema
+          : colorEditingSchema
+        : type === SOURCE
+          ? sourceSchema
+          : undefined,
     tokens,
     measure,
     widgetMeasure,
@@ -156,6 +184,8 @@ export interface ColorEditingExample {
   readonly hue?: number
   /** The field declares opacity. */
   readonly opacity?: boolean
+  /** The color is stored as a whole number, as an integer color view shows it. */
+  readonly integer?: boolean
   /** Colors already stored in the workflow, one entry per field. */
   readonly used?: readonly string[]
   /** The swatch the keyboard is on. */
@@ -274,6 +304,25 @@ export const colorEditingGroups: readonly {
         caption: 'A wire brings #3366cc80 to a field without opacity. No field opens; the side part shows the color that arrives and the color used.',
         stored: '#3366cc',
         arriving: '#3366cc80',
+      },
+    ],
+  },
+  {
+    title: 'A whole-number color',
+    examples: [
+      {
+        id: 'integer-closed',
+        caption: 'A color stored as a whole number is drawn like any color, with no minus and plus: a click anywhere on the row opens it.',
+        stored: '#3366cc',
+        integer: true,
+      },
+      {
+        id: 'integer-open',
+        caption: 'Opened, it is the same field and picker without opacity. Enter stores the whole number 3368652 for #3366cc.',
+        stored: '#3366cc',
+        text: '#3366cc',
+        integer: true,
+        used: workflowColors,
       },
     ],
   },

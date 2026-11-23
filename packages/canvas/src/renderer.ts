@@ -341,7 +341,7 @@ export function widgetRowAffordanceRect(
 ): { readonly x: number; readonly y: number; readonly width: number; readonly height: number } {
   const paint = canvasPaintTokens.lensAffordance
   const size = Math.max(paint.rowMinSize, Math.min(paint.rowMaxSize, rowHeight - paint.rowPadding))
-  const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+  const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
   const trailingEdge = row.controllerMode !== undefined
     ? controllerChipRect(rowWidth, rowHeight, geometry).x - CONTROLLER_CHIP_TEXT_GAP
     : rowWidth - (numeric ? geometry.stepperZone + CONTROLLER_CHIP_TEXT_GAP : CONTROLLER_CHIP_TEXT_GAP)
@@ -4189,7 +4189,7 @@ export class CanvasRenderer {
       paintSeedControllerIcon(ctx, row.controllerMode, x, y, chip.width, t.colors.label)
       ctx.globalAlpha = chipAlpha
     }
-    const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+    const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
     if (numeric && row.derivedValue === undefined && !row.ghost) {
       // Edge glyphs reserve only the small bump zones; the broad center
       // remains the familiar editor activation target.
@@ -4825,7 +4825,7 @@ export const defaultWidgetPainter: WidgetPainter = (args) => {
   ctx.fill()
   if (args.companion !== undefined) {
     const formatted = formatWidgetValue(args.companion.value, row.spec).split('\n')[0] ?? ''
-    const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+    const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
     const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
     const companionZone = shareRowWidth(field.right - field.left, measureWidth(ctx, row.label) + paint.labelWidthPadding, measureWidth(ctx, formatted) + paint.labelWidthPadding)
     ctx.fillStyle = tokens.colors.label
@@ -4996,7 +4996,7 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   const text = prefix + (summary?.text ?? formatWidgetValue(companion.value, row.spec).split('\n')[0] ?? '')
   const swatch = summary?.swatch
   const swatchReserve = swatch === undefined ? 0 : canvasPaintTokens.widget.valueSwatch.size + canvasPaintTokens.widget.valueSwatch.gap
-  const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+  const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
   const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, tokens.rowGeometry)
   // The subgraph mark before the name widens the name's share, as the painter lays it out.
   const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap

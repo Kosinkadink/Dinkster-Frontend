@@ -24,6 +24,7 @@ import {
   colorFieldDraft,
   createWidgetRegistry,
   hsvToHex,
+  integerColorHex,
   parseColorText,
   pickedColor,
   registerCoreWidgets,
@@ -128,6 +129,8 @@ function ColorEditingExampleCard(props: {
           nodeAt(),
           current.stored,
           current.arriving !== undefined,
+          undefined,
+          current.integer === true,
         )
         const node = built.nodes.find((item) => item.id === colorEditingSchema.type)!
         canvas.style.width = `${width()}px`
@@ -179,9 +182,12 @@ function ColorEditingExampleCard(props: {
     const color = parseColorText(draft().live)!
     return pickedColor(color, example().hue ?? 0)
   }
+  // A whole-number color declares its default as a number.
+  const declared = () =>
+    effectiveWidgetDefault(target()?.row.spec ?? { widgetType: 'COLOR', options: {} })
   const swatches = () =>
     workflowSwatches(
-      effectiveWidgetDefault(target()?.row.spec ?? { widgetType: 'COLOR', options: {} }) as string | undefined,
+      typeof declared() === 'number' ? integerColorHex(declared()) : (declared() as string | undefined),
       example().used ?? [],
       withOpacity(),
     )

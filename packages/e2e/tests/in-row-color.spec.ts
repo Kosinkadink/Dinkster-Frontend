@@ -188,7 +188,7 @@ test('the keyboard: Alt+Down walks the picker, Enter returns to the text, Tab st
   await expect.poll(() => page.evaluate(() => (window as unknown as { queuedTint?: unknown }).queuedTint)).toBe('#00ff00')
 })
 
-test('opacity: a field that declares it keeps it, another drops it with a note; an integer color stores a whole number', async ({ page }) => {
+test('opacity: a field that declares it keeps it, another drops it with a note; an integer color has no steppers and stores a whole number', async ({ page }) => {
   await openPaint(page)
   await open(page, 'tint')
   await expect(page.getByTestId('color-picker-opacity')).toBeVisible()
@@ -202,7 +202,12 @@ test('opacity: a field that declares it keeps it, another drops it with a note; 
   await expect(side(page)).toContainText('Enter stores #112233')
   await page.keyboard.press('Enter')
   await expect.poll(() => value(page, 'fill')).toBe('#112233')
-  await open(page, 'code')
+  // An integer color has no steppers: a click where a number's minus would
+  // be opens the color field and changes nothing.
+  const edge = await rowPoint(page, 'n1', 'code', 0.1)
+  await page.mouse.click(edge.x, edge.y)
+  await expect(field(page)).toBeFocused()
+  expect(await value(page, 'code')).toBe(66051)
   await expect(field(page)).toHaveValue('#010203')
   await expect(page.getByTestId('color-picker-opacity')).toHaveCount(0)
   await page.keyboard.type('#ab1203')
