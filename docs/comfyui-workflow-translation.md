@@ -352,7 +352,9 @@ EndLoop list-result flattening when the required list schema is registered.
 Authored positional tuples remain ordinary scalar values.
 
 The obsolete loop-to-region converter and its structural corpus are preserved
-on the branch recorded in `docs/rework-queue.md`; they are not current importer
+on the branch recorded in
+[Obsolete loop-to-region lowering](https://github.com/Kosinkadink/comfy-vibe-station/issues/1197);
+they are not current importer
 behavior.
 
 ### Coverage report
