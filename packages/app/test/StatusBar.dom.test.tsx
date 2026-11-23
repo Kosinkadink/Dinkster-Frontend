@@ -47,8 +47,8 @@ it('follows the active backend run and opens the explanatory panels without togg
   app.store.register({ connection: backend.id, prompt: asPromptId('queued') }, artifact as never, 103)
   app.store.register({ connection: other.id, prompt: asPromptId('foreign-queued') }, artifact as never, 104)
   await vi.waitFor(() => expect(root.querySelector('[data-testid="status-run"]')?.textContent).toContain('75%'))
-  expect(root.querySelector('[data-testid="status-run"]')?.textContent).toContain('1 queued')
-  expect(root.querySelector('[data-testid="status-run"] .dinkster-run-icon')?.hasAttribute('data-running')).toBe(true)
+  expect(root.querySelector('[data-testid="status-run"]')?.getAttribute('aria-label')).toContain('1 running, 1 queued')
+  expect(root.querySelector('[data-testid="status-run"] .dinkster-run-activity')?.getAttribute('aria-label')).toBe('1 running, 1 queued')
   root.querySelector<HTMLButtonElement>('[data-testid="status-run"]')!.click()
   root.querySelector<HTMLButtonElement>('[data-testid="status-connection"]')!.click()
   root.querySelector<HTMLButtonElement>('[data-testid="status-connection"]')!.click()
@@ -61,7 +61,42 @@ it('follows the active backend run and opens the explanatory panels without togg
   expect(root.querySelector('[data-testid="status-connection"]')?.textContent).toContain('disconnected')
 })
 
+it('combines connected backend work, opens App log and withdraws stale work on disconnect', async () => {
+  app = createWorkflowApp(null)
+  const backend = app.backends.get()[0]!
+  const other = app.addBackend('/status-tasks-other', 'Other backend', false, 'dinkster')!
+  for (const owner of [backend, other]) {
+    vi.spyOn(owner.connection, 'fetchSchemas').mockResolvedValue({ connection: owner.id, hash: 'status-test', schemas: new Map(), diagnostics: [], resolve: () => undefined })
+    vi.spyOn(owner.connection, 'fetchModelDownloads').mockResolvedValue({ instance: 'test', jobs: [] })
+    vi.spyOn(owner.connection, 'fetchMountSettings').mockRejectedValue(new Error('Unavailable in fixture'))
+    vi.spyOn(owner.connection, 'fetchMemoryStatus').mockResolvedValue({ devices: {}, queue: { queued: 0, running: [], maxRunningJobs: 1, paused: false }, memoryGovernor: {}, leases: [] })
+    ;(owner.connection.status as Signal<ConnectionStatus>).set('connected')
+  }
+  const open = vi.fn()
+  const root = document.createElement('div')
+  document.body.append(root)
+  dispose = render(() => <StatusBar app={app} backend={() => backend} tab={() => app.activeTab()} problems={() => undefined}
+    context={() => undefined} visible={() => true} placement={() => undefined} transient={() => undefined} extensions={null}
+    openPanel={() => {}} openRuns={() => {}} openAppLog={open} />, root)
+  const background = () => root.querySelector<HTMLButtonElement>('[data-testid="status-background"]')
+  expect(background()).toBeNull()
+  backend.composition.set({ done: 2, total: 7 })
+  other.composition.set({ done: 4, total: 5 })
+  await vi.waitFor(() => expect(background()?.textContent).toContain('2 tasks'))
+  expect(background()?.getAttribute('aria-label')).toContain('composing packs 2/7')
+  expect(background()?.getAttribute('aria-label')).toContain('Other backend: composing packs 4/5')
+  background()!.click()
+  expect(open).toHaveBeenCalledOnce()
+  ;(other.connection.status as Signal<ConnectionStatus>).set('disconnected')
+  expect(background()?.textContent).toContain('composing packs 2/7')
+  expect(background()?.getAttribute('aria-label')).not.toContain('Other backend')
+  ;(backend.connection.status as Signal<ConnectionStatus>).set('disconnected')
+  expect(background()).toBeNull()
+})
+
 it('shows the fullest measured graphics card and omits CPU, unknown and disconnected readings', async () => {
+  let now = Date.now()
+  vi.spyOn(Date, 'now').mockImplementation(() => now)
   app = createWorkflowApp(null)
   const backend = app.backends.get()[0]!
   vi.spyOn(backend.connection, 'fetchSchemas').mockResolvedValue({ connection: backend.id, hash: 'status-test', schemas: new Map(), diagnostics: [], resolve: () => undefined })
@@ -88,6 +123,10 @@ it('shows the fullest measured graphics card and omits CPU, unknown and disconne
   expect(memoryButton.getAttribute('aria-label')).not.toContain('cuda:2')
   memoryButton.click()
   expect(opened).toEqual(['memory'])
+  expect(memoryButton.hasAttribute('data-stale')).toBe(false)
+  now += 60_000
+  await vi.waitFor(() => expect(memoryButton.getAttribute('aria-label')).toContain('Stale'), { timeout: 2000 })
+  expect(memoryButton.hasAttribute('data-stale')).toBe(true)
   status.set('disconnected')
   expect(root.querySelector('[data-testid="status-memory"]')).toBeNull()
 })

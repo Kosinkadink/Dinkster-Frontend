@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, mockProjectPacks, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
+import { expect, mockProjectPacks, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 
 const proof = process.env['DINKSTER_STATUS_PROOF_DIR']
 
@@ -27,7 +27,7 @@ test('status readings follow workflow state and open their explanatory panels', 
       availableBytes: 6000000000, consumers: {}, measured: { totalBytes: 8000000000, freeBytes: 6000000000, gpuName: 'Fixture GPU' } } },
   } }))
   await page.goto('/')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     app.backends.get()[0]!.connection.status.get()
@@ -53,14 +53,16 @@ test('status readings follow workflow state and open their explanatory panels', 
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const ref = { connection: app.backends.get()[0]!.id, prompt: 'status-running' }
-    app.store.register(ref, { snapshot: tab.store.doc, scope: { kind: 'full' }, prompt: { first: {}, second: {} },
-      provenance: { toSource: {}, toRuntime: {} }, schemaHash: 'status-fixture' } as never, 100)
+    const artifact = { snapshot: tab.store.doc, scope: { kind: 'full' }, prompt: { first: {}, second: {} },
+      provenance: { toSource: {}, toRuntime: {} }, schemaHash: 'status-fixture' } as never
+    app.store.register(ref, artifact, 100)
+    app.store.register({ connection: ref.connection, prompt: 'status-queued' }, artifact, 103)
     app.store.apply({ kind: 'started', execution: ref, timestamp: 101 } as never)
     app.store.apply({ kind: 'nodeStates', execution: ref, timestamp: 102, snapshot: true,
       nodes: { first: { state: 'done' }, second: { state: 'running', value: 0.5 } } } as never)
   })
   await expect(page.getByTestId('status-run')).toContainText('75%')
-  await expect(page.getByTestId('status-run').locator('.dinkster-run-icon')).toHaveAttribute('data-running', '')
+  await expect(page.getByTestId('status-run').getByRole('img')).toHaveAccessibleName('1 running, 1 queued')
   await page.getByTestId('status-run').click()
   await expect(page.getByTestId('runs-panel')).toBeVisible()
   await expect(page.getByTestId('runs-scope')).toHaveAttribute('data-selected-id', 'workflow')
@@ -94,9 +96,20 @@ test('status readings follow workflow state and open their explanatory panels', 
   })
   await expect(page.getByTestId('status-connection')).toContainText('disconnected')
   await expect(page.getByTestId('status-memory')).toHaveCount(0)
+  await expect(page.getByTestId('status-background')).toHaveCount(0)
   await capture('disconnected')
   await page.setViewportSize({ width: 520, height: 900 })
   await expect(page.getByTestId('status-problems')).toBeVisible()
   await expect(page.getByTestId('status-run')).toBeVisible()
   await capture('compact')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.keyboard.press('Control+,')
+  const settings = page.getByRole('dialog')
+  await settings.getByRole('button', { name: 'Execution', exact: true }).click()
+  const review = settings.locator('[id="setting-execution.reviewUpgrades"]')
+  await expect(review).toHaveAttribute('aria-checked', 'false')
+  await review.click()
+  await expect(review).toHaveAttribute('aria-checked', 'true')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.settings.get('execution.reviewUpgrades'))).toBe(true)
+  await capture('review-upgrades-settings')
 })
