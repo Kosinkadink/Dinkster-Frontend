@@ -85,9 +85,9 @@ test('frozen layout is temporary, edits are refused, and copies keep the arrange
   await expect.poll(() => arrangement(page)).toMatchObject({ position: { x: 170, y: 190 } })
   const section = await pointOn(page, 'n0', 'section')
   await page.mouse.click(section.x, section.y)
-  await expect.poll(() => arrangement(page)).toMatchObject({ sections: { settings: true } })
+  await expect.poll(() => arrangement(page)).toMatchObject({ sections: { settings: { collapsed: true } } })
   await page.mouse.click(section.x, section.y)
-  await expect.poll(() => arrangement(page)).toMatchObject({ sections: { settings: false } })
+  await expect.poll(() => arrangement(page)).toMatchObject({ sections: { settings: { collapsed: false } } })
   expect(await graph(page)).toEqual(originalGraph)
 
   const widget = await pointOn(page, 'n0', 'widget')
