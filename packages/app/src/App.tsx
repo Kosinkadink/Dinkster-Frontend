@@ -27,6 +27,7 @@ import { CanvasHost, CanvasViewControls, coreOccurrencePlanner } from './CanvasH
 import { ContextMenu } from './ContextMenu.js'
 import { historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
 import { ExecutionActivityCard, executionStatusLabel } from './ExecutionActivityCard.js'
+import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
 import { MediaDiagnostics, MediaValueInspector } from './MediaValueInspector.js'
 import { mediaMetadataOf } from './media-metadata.js'
@@ -40,7 +41,7 @@ import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductWordmark } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductRunActivity, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductWordmark } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import Menu from 'lucide-solid/icons/menu'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
@@ -1469,6 +1470,11 @@ export function App(props: {
     executions()
     return app.executionList().filter((execution) => execution.status === 'queued' || execution.status === 'running')
   }
+  const runsActivity = () => {
+    executions()
+    const tab = activeTab()
+    return executionActivity(runScope() === 'all' ? app.executionList() : tab ? app.executionsForTab(tab) : [])
+  }
   const RunsPanel = () => (
     <div class="rail-panel-body runs-panel" data-testid="runs-panel">
       <ProductSelect testId="runs-scope" ariaLabel={message('runs.scope')}
@@ -1476,6 +1482,10 @@ export function App(props: {
           { id: 'workflow', label: message('runs.scope.workflow'), value: 'workflow' },
           { id: 'all', label: message('runs.scope.all'), value: 'all' },
         ]} onSelect={(option) => setRunScope(option.value)} />
+      <Show when={runsActivity().running > 0 || runsActivity().waiting > 0}>
+        <ProductRunActivity running={runsActivity().running} waiting={runsActivity().waiting}
+          label={message('runs.activity', runsActivity())} />
+      </Show>
       <Show when={runScope() === 'workflow'} fallback={<>
         <Show when={clearArmed() && clearArmOwner === activeBackend().id}>
           <ProductNotice tone="info" testId="runs-clear-confirmation">{message('runs.clear.confirmation')}</ProductNotice>

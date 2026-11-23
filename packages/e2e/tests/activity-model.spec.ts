@@ -35,6 +35,7 @@ async function installFixture(page: Page): Promise<void> {
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'fixture has no supervisor' }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
+  await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
@@ -136,12 +137,15 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   await expect.poll(() => page.evaluate(() => window.__dinksterTest !== undefined)).toBe(true)
   await expect(page.getByTestId('status-bar')).toContainText('connected')
   await waitForWorkspaceReady(page)
+  await expect(page.getByTestId('runs-panel').getByRole('img', { name: /running, .*queued/ })).toHaveCount(0)
   await seedExecutions(page)
+  await capture(page, 'after-activity-workflow-counts')
 
   await page.getByTestId('workflow-queue-toggle').click()
-  await expect(page.getByTestId('workflow-queue-summary')).toContainText('1 queued, 1 running')
+  await expect(page.getByTestId('workflow-queue-summary')).toContainText('1 running, 1 queued')
   await expect(page.getByTestId('workflow-queue-entry')).toHaveCount(6)
   await expect(page.getByTestId('execution-row')).toHaveCount(6)
+  await expect(page.getByTestId('runs-panel').getByRole('img', { name: '1 running, 1 queued', exact: true })).toBeVisible()
   await expect(page.getByTestId('backend-group').filter({ hasText: 'backend removed or disconnected' })).toContainText('/removed-activity-proof')
   const runningEntry = page.getByTestId('workflow-queue-entry').filter({ hasText: 'running-' })
   await expect(runningEntry).toContainText(/Running|running/)
@@ -162,9 +166,18 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   await page.getByTestId('workflow-queue-toggle').click()
   await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
   const panel = page.getByTestId('runs-panel')
+  await expect(panel.getByRole('img', { name: '2 running, 1 queued', exact: true })).toBeVisible()
   const runs = panel.getByRole('listbox', { name: 'Runs results', exact: true })
   const runEntries = runs.getByTestId('collection-entry')
   await expect(panel.getByTestId('execution-row')).toHaveCount(3)
+  await capture(page, 'after-activity-all-workflows-counts')
+  await page.evaluate(() => {
+    const store = window.__dinksterTest!.app.store
+    const external = [...store.executions.get().values()].find((entry) => entry.ref.prompt.startsWith('external-incomplete-'))!
+    store.apply({ kind: 'completed', execution: external.ref, timestamp: Date.now() + 8 } as never)
+  })
+  await expect(panel.getByRole('img', { name: '1 running, 1 queued', exact: true })).toBeVisible()
+  await expect(panel.getByTestId('execution-row')).toHaveCount(2)
   await expect(runEntries).toHaveCount(23)
   const group = runEntries.filter({ hasText: /2 runs|x2/ }).first()
   await group.getByTestId('collection-expand').click()

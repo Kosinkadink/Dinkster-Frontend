@@ -614,6 +614,11 @@ pointer.
 Runs defaults to This workflow. It uses the same lineage-filtered entries
 as the center-region queue disclosure, with output thumbnails and Details.
 All workflows combines pending browser runs and stored backend history.
+The scope's active work uses the shared ProductRunActivity presentation: a
+turning accent ring with the running count and a still gray clock with the
+queued count. Both include 1; zero-count marks disappear, and an idle scope
+has no activity marks. The accessible summary is localized. Counts follow
+execution updates and the selected scope; finished history never contributes.
 Backend-wide queue depth is never presented as one workflow's queue.
 
 Every move between a zone, floating, and a separate window goes through one
