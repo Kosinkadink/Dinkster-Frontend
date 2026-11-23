@@ -3067,6 +3067,19 @@ export class AppState {
         ]
       },
     })
+    this.settings.register({
+      id: 'canvas.minimap.size',
+      get name() { return t('settings.canvas.minimap.size') },
+      type: 'combo',
+      defaultValue: 'small',
+      get options() {
+        return [
+          { value: 'small', label: t('settings.canvas.minimap.size.small') },
+          { value: 'medium', label: t('settings.canvas.minimap.size.medium') },
+          { value: 'large', label: t('settings.canvas.minimap.size.large') },
+        ]
+      },
+    })
     this.settings.register({ id: 'canvas.minimap.bookmarks', get name() { return t('settings.canvas.minimap.bookmarks') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.visible', get name() { return t('settings.canvas.minimap.visible') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.nodes', get name() { return t('settings.canvas.minimap.nodes') }, type: 'boolean', defaultValue: true })

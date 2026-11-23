@@ -21,18 +21,49 @@ test.beforeEach(async ({ page }) => {
 
 const viewport = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
 
-/** Count minimap pixels that differ from the canvas background (#181818). */
+/** Count minimap pixels that differ from its panel background. */
 const paintedPixels = (page: Page) =>
   page.evaluate(() => {
     const canvas = document.querySelector<HTMLCanvasElement>('[data-testid=minimap]')!
+    const background = getComputedStyle(canvas).backgroundColor.match(/\d+/g)!.slice(0, 3).map(Number)
     const ctx = canvas.getContext('2d')!
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data
     let n = 0
     for (let i = 0; i < data.length; i += 4) {
-      if (data[i] !== 0x18) n++
+      if (data[i] !== background[0] || data[i + 1] !== background[1] || data[i + 2] !== background[2]) n++
     }
     return n
   })
+
+test('minimap sizes persist with small as the default and keep controls inside their fixed row', async ({ page }) => {
+  const map = page.getByTestId('minimap')
+  const bar = page.locator('.canvas-corner-bar')
+  await expect(map).toHaveCSS('width', '160px')
+  await expect(map).toHaveCSS('height', '96px')
+  await expect(page.getByTestId('canvas-zoom-in')).toBeHidden()
+  await expect(page.getByTestId('canvas-zoom-out')).toBeHidden()
+  const before = await viewport(page)
+  await map.hover()
+  await page.mouse.wheel(0, -100)
+  await expect.poll(async () => (await viewport(page)).scale).toBeGreaterThan(before.scale)
+
+  for (const [size, width, height, count] of [
+    ['medium', 196, 118, 6], ['large', 256, 150, 6], ['small', 160, 96, 4],
+  ] as const) {
+    await page.evaluate((value) => window.__dinksterTest!.app.settings.set('canvas.minimap.size', value), size)
+    await expect(map).toHaveCSS('width', `${width}px`)
+    await expect(map).toHaveCSS('height', `${height}px`)
+    await expect(bar).toHaveCSS('width', `${width}px`)
+    await expect(bar.locator('button:visible')).toHaveCount(count)
+    const buttons = await bar.locator('button:visible').all()
+    const boxes = await Promise.all(buttons.map(async (button) => (await button.boundingBox())!))
+    const gaps = boxes.slice(1).map((box, index) => box.x - boxes[index]!.x - boxes[index]!.width)
+    expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThan(1)
+  }
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.minimap.size', 'medium'))
+  await page.reload()
+  await expect(page.getByTestId('minimap')).toHaveCSS('width', '196px')
+})
 
 test('renders an overview and click-jumps the main viewport; document untouched', async ({ page }) => {
   const minimap = page.getByTestId('minimap')
@@ -294,7 +325,7 @@ test('display toggles persist and minimap can be hidden and restored', async ({ 
     await page.setViewportSize(size)
     const [toggleBox, zoom] = await Promise.all([
       toggle.boundingBox(),
-      page.locator('.canvas-zoom-controls').boundingBox(),
+      page.locator('.canvas-corner-bar').boundingBox(),
     ])
     for (const box of [toggleBox!, zoom!]) {
       expect(box.x).toBeGreaterThanOrEqual(0)
@@ -319,6 +350,7 @@ test('display toggles persist and minimap can be hidden and restored', async ({ 
 })
 
 test('corner zoom controls are keyboard reachable, truthful, and preserve the document', async ({ page }) => {
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.minimap.size', 'medium'))
   const revisionBefore = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   const documentBefore = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
   const level = page.getByTestId('canvas-zoom-level')
