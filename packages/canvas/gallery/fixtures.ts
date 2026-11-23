@@ -50,6 +50,7 @@ import {
   structuralGalleryScene,
 } from './structure.js'
 import { widgetTapGallery } from './widget-taps.js'
+import { rowSummariesGallery } from './row-summaries.js'
 
 export const canvasGalleryPages = [
   ['anatomy', 'Node anatomy'],
@@ -68,6 +69,7 @@ export const canvasGalleryPages = [
   ['node-look', 'Original and new node look'],
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],
+  ['row-summaries', 'Closed row summaries'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
   ['widget-companions', 'Propagated values'],
@@ -691,6 +693,13 @@ export function createCanvasGalleryFixture(
     fixture.scene.nodes = [...gallery.scene.nodes]
     fixture.scene.links = [...gallery.scene.links]
     fixture.companions = gallery.companions
+    examples.push(...gallery.examples)
+  } else if (page === 'row-summaries') {
+    const gallery = rowSummariesGallery(tokens, measure, widgetMeasure)
+    fixture.scene.nodes = [...gallery.scene.nodes]
+    fixture.scene.links = [...gallery.scene.links]
+    fixture.companions = gallery.companions
+    fixture.rowMarks = gallery.rowMarks
     examples.push(...gallery.examples)
   } else if (page === 'titles' || page === 'titles-content') {
     const long = {

@@ -11,7 +11,7 @@
 import { formatWidgetValue, type Json, type WidgetRegistry, type WidgetSpec, type WidgetView } from '@dinkster/core'
 import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
-import { defaultWidgetPainter, fitItems, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintSwatchRow, paintValueSwatch, type CompanionSummary, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
+import { defaultWidgetPainter, fitSummary, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintSwatchRow, paintValueSwatch, type CompanionSummary, type SummaryFit, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
 import type { DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
@@ -28,6 +28,19 @@ function compactBooleanValue(value: Json, options: Readonly<Record<string, unkno
 
 const stringList = (value: unknown): readonly string[] | undefined =>
   Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : undefined
+
+/** A view's value text with what its style lets the painter do when it does not fit. */
+function summaryFitOf(run: string, style: Readonly<Record<string, unknown>>): SummaryFit {
+  const items = stringList(style['items'])
+  const shorter = stringList(style['shorter'])
+  return {
+    text: run.split('\n')[0] ?? '',
+    ...(items !== undefined ? { items } : {}),
+    ...(typeof style['suffix'] === 'string' ? { suffix: style['suffix'] } : {}),
+    ...(typeof style['count'] === 'string' ? { count: style['count'] } : {}),
+    ...(shorter !== undefined ? { shorter } : {}),
+  }
+}
 
 /** A row's value text, whether it is the row's empty-state message, and any color square before it. */
 interface RowSummary extends CompanionSummary {
@@ -46,12 +59,10 @@ function compactSummary(view: WidgetView, value: Json, spec: WidgetSpec): RowSum
       rect: () => {},
       text: (_x, _y, run, style) => {
         if (summary !== undefined || style['role'] !== 'widgetValue') return
-        const text = run.split('\n')[0] ?? ''
         summary = {
-          text,
+          ...summaryFitOf(run, style),
           placeholder: style['placeholder'] === true,
           ...(typeof style['swatch'] === 'string' ? { swatch: style['swatch'] } : {}),
-          ...(stringList(style['items']) !== undefined ? { items: stringList(style['items'])! } : {}),
           ...(stringList(style['swatches']) !== undefined ? { swatches: stringList(style['swatches'])! } : {}),
         }
       },
@@ -398,14 +409,11 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const availableWidth = Math.max(0, zoneWidth - TEXT_PAD * 2)
           if (!multiline) {
             const swatch = typeof style['swatch'] === 'string' && alignRight ? style['swatch'] : undefined
-            const items = stringList(style['items'])
             const swatches = alignRight ? stringList(style['swatches']) : undefined
             const iconReserve = (modeIcon !== undefined && style['role'] === 'widgetValue' && alignRight ? modeIconReserve : 0)
               + (swatch !== undefined ? paint.valueSwatch.size + paint.valueSwatch.gap : 0)
             const fitWidth = Math.max(0, availableWidth - iconReserve)
-            const text = swatches !== undefined ? ''
-              : items !== undefined ? fitItems(ctx, items, fitWidth)
-              : ellipsize(ctx, run.split('\n')[0] ?? '', fitWidth)
+            const text = swatches !== undefined ? '' : fitSummary(ctx, summaryFitOf(run, style), fitWidth)
             const lineTop = y + ty * rowHeight + geometry.fieldInsetY
             const lineBottom = y + (ty + 1) * rowHeight - geometry.fieldInsetY
             const clipTop = Math.max(y, lineTop)
@@ -424,7 +432,10 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD
               const textY = y + (ty + 0.5) * rowHeight
               ctx.fillText(text, textX, textY)
-              if (swatches !== undefined) paintSwatchRow(ctx, swatches, textX, textY, fitWidth, tokens, ctx.fillStyle as string)
+              if (swatches !== undefined) {
+                paintSwatchRow(ctx, swatches, textX, textY, fitWidth, tokens, ctx.fillStyle as string,
+                  typeof style['count'] === 'string' ? style['count'] : undefined)
+              }
               if (modeIcon !== undefined && role === 'widgetValue' && alignRight) {
                 // Marks about a value come before it, so values line up at the right.
                 paintSeedModeIcon(ctx, modeIcon, textX - measureWidth(ctx, text) - paint.modeIconGap - modeIconSize,

@@ -382,6 +382,7 @@ for (const theme of ['dark', 'light'] as const) {
             'core-rows',
             'collection-rows',
             'editor-rows',
+            'row-summaries',
             'widget-driven',
             'widget-offered',
             'widget-companions',

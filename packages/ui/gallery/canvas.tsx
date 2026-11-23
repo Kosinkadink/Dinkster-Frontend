@@ -1,5 +1,10 @@
 import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
-import { registerCatalog, type WidgetRegistry } from '@dinkster/core'
+import {
+  registerCatalog,
+  type Json,
+  type WidgetRegistry,
+  type WidgetSpec,
+} from '@dinkster/core'
 import english from '../../app/src/locales/en.json'
 import {
   CanvasRenderer,
@@ -31,6 +36,10 @@ import {
   type CanvasGalleryPage,
 } from '../../canvas/gallery/fixtures.js'
 import { earlierWidgetRows } from '../../canvas/gallery/earlier-widget-rows.js'
+import {
+  earlierRowSummaries,
+  rowSummaryReadouts,
+} from '../../canvas/gallery/row-summaries.js'
 import {
   ProductButton,
   ProductDialog,
@@ -73,6 +82,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'row-editing',
         'collection-rows',
         'editor-rows',
+        'row-summaries',
         'widget-driven',
         'widget-offered',
         'widget-companions',
@@ -161,6 +171,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Multi-choice, list, colors and curve rows; After raises the rows that open an editor and draws the curve in its row.',
   'editor-rows':
     'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for.',
+  'row-summaries':
+    'What a closed row shows for its value, for the 16 kinds of field: empty or initial, set, and in a node too narrow for the whole value. Lists show values in stored order and then how many more, or only the count when not even one fits; Markdown shows its first line and how many lines it has; crop regions, save targets and video edits fall back to shorter forms. Rows that only open an editor say what they open. Resolution preview is removed by the node rewrite, where a note replaces it, and is shown unchanged. Pointing at a row lists its whole value, below. Known after a run and Nothing come from the row looks work and are not drawn here yet.',
   'widget-driven':
     'A row whose value comes from a wire is dimmed and its stored value is struck through.',
   'widget-offered':
@@ -210,6 +222,12 @@ const rowsAfter: Variant = {
   ...current,
   id: 'raised-editors',
   caption: 'After',
+}
+const summariesBefore: Variant = {
+  id: 'earlier-summaries',
+  caption: 'Before',
+  tokens: (t) => t,
+  registry: earlierRowSummaries,
 }
 
 function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
@@ -268,6 +286,8 @@ function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
     case 'widget-companions':
     case 'widget-states':
       return [rowsBefore, rowsAfter]
+    case 'row-summaries':
+      return [summariesBefore, { ...current, id: 'summaries', caption: 'After' }]
     default:
       return [current]
   }
@@ -562,6 +582,13 @@ export function CanvasGallery() {
   registerCatalog('en', english)
   const registry = createWidgetRegistry()
   registerCoreWidgets(widgetRegistrationDoors(registry))
+  const readoutLines = (spec: WidgetSpec, value: Json) => {
+    const kind = registry.kind(spec.widgetType)
+    const view = registry
+      .viewsFor(spec.widgetType)
+      .find((candidate) => candidate.id === kind?.defaultView(spec))
+    return view?.readout?.(value, spec) ?? []
+  }
   createEffect(() => {
     const currentTheme = theme()
     const currentPage = page()
@@ -759,6 +786,25 @@ export function CanvasGallery() {
               )}
             </ProductField>
           </ProductPanel>
+        </ProductSection>
+      </Show>
+      <Show when={page() === 'row-summaries'}>
+        <ProductSection
+          title="Readout on pointing"
+          description="Pointing at a row shows its whole value in the canvas tooltip, without opening the editor and without changing anything: the summary, then each item with its position, at most 20 before a count of the rest."
+        >
+          <div class="dinkster-canvas-examples">
+            <For each={rowSummaryReadouts}>
+              {(readout) => (
+                <ProductPanel>
+                  <p class="dinkster-metadata">{readout.label}</p>
+                  <For each={readoutLines(readout.spec, readout.value)}>
+                    {(line) => <p class="dinkster-description">{line}</p>}
+                  </For>
+                </ProductPanel>
+              )}
+            </For>
+          </div>
         </ProductSection>
       </Show>
       <Show when={badgeDetails()}>

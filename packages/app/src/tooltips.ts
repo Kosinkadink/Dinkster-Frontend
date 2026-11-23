@@ -1,6 +1,6 @@
 import { defaultTokens, presentedType, typeIdDisplayLabel } from '@dinkster/canvas'
 import { effectiveAbsentPolicy, effectiveWidgetDefault, formatWidgetValue, t as translate } from '@dinkster/core'
-import type { InputSpec, RegionContract, TypeExpr } from '@dinkster/core'
+import type { InputSpec, Json, RegionContract, TypeExpr, WidgetSpec } from '@dinkster/core'
 
 export interface TooltipContent {
   readonly title?: string
@@ -130,6 +130,26 @@ const isDomTooltipTarget = (target: unknown): target is DomTooltipTarget =>
 export interface CanvasTooltipContext {
   readonly resolveSchema?: (type: string) => any
   readonly resolvePack?: (id: string) => any
+  /** The row view's whole-value readout lines, when the view writes one. */
+  readonly widgetReadout?: (row: { readonly viewId: string; readonly spec: WidgetSpec }, value: Json) => readonly string[] | undefined
+}
+
+/** Items a widget readout lists before it says how many more there are. */
+export const WIDGET_READOUT_ITEMS = 20
+
+/**
+ * A row value's readout: its summary line, then up to WIDGET_READOUT_ITEMS
+ * more lines and a count of the rest, so a long list never runs off screen.
+ * Empty when the row has no value of its own to read.
+ */
+function widgetValueLines(row: { readonly viewId: string; readonly spec: WidgetSpec }, value: Json, context: CanvasTooltipContext): readonly string[] {
+  const readout = context.widgetReadout?.(row, value)
+  if (readout === undefined) return [formatWidgetValue(value, row.spec)]
+  const [head, ...items] = readout
+  if (head === undefined) return []
+  return items.length > WIDGET_READOUT_ITEMS
+    ? [head, ...items.slice(0, WIDGET_READOUT_ITEMS), translate('widgetSummary.more', { count: items.length - WIDGET_READOUT_ITEMS })]
+    : readout
 }
 
 const joinedPorts = (ports: readonly string[] | undefined): string => ports?.join(', ') || 'its inputs'
@@ -310,7 +330,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       ...['min', 'max', 'step'].filter((key) => options[key] !== undefined).map((key) => `${key}: ${options[key]}`),
       ...(input?.tooltip ? [input.tooltip] : []),
     ]
-    const text = formatWidgetValue(t.companion?.value ?? value, row.spec)
+    const [text, ...more] = widgetValueLines(row, t.companion?.value ?? value, context)
     const state = t.companion?.state ?? (t.companion?.stale ? 'stale' : t.companion ? 'expected' : undefined)
     const line = state === 'expected'
       ? `Current expected value: ${text}`
@@ -323,10 +343,13 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
             : t.connected
               ? `Dormant stored value under connection: ${text}`
               : `Value: ${text}`
-    const stored = t.companion && t.connected
-      ? [`Dormant stored value under connection: ${formatWidgetValue(value, row.spec)}`]
-      : []
-    return { title: row.label, lines: [line, ...stored], ...(opts.detailed && detail.length ? { detail } : {}) }
+    const [storedText, ...storedMore] = t.companion && t.connected ? widgetValueLines(row, value, context) : []
+    const stored = storedText === undefined ? [] : [`Dormant stored value under connection: ${storedText}`, ...storedMore]
+    return {
+      title: row.label,
+      lines: [...(text === undefined ? [] : [line, ...more]), ...stored],
+      ...(opts.detailed && detail.length ? { detail } : {}),
+    }
   }
   if (t.kind === 'header') {
     if (t.hit.node.node.region !== undefined) return regionContractTooltip(t.hit.node.node.region)

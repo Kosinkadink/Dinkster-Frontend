@@ -427,9 +427,19 @@ export function App(props: {
     const resolveSchema = registry
       ? (tab ? documentResolver(tab.store.doc, registry.resolve) : registry.resolve)
       : () => undefined
+    const widgets = app.widgetRegistryForTab(tab)
     return resolveCanvasTooltip(target, opts, {
       resolveSchema,
       resolvePack: (id) => registry?.packs?.get(id),
+      // Reading a value never edits it; a value the view cannot read falls
+      // back to its plain text.
+      widgetReadout: (row, value) => {
+        try {
+          return widgets.viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.readout?.(value, row.spec)
+        } catch {
+          return undefined
+        }
+      },
     })
   } })
   onMount(() => {

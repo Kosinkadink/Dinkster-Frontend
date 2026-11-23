@@ -84,6 +84,13 @@ export interface WidgetView<V extends Json = Json> {
   /** Height of the compact row(s), in row units. */
   measure(spec: WidgetSpec): { readonly rows: number }
   drawCompact(ctx: SceneBuilder, value: V, spec: WidgetSpec, state: CompactState): void
+  /**
+   * The whole value as plain text lines, for reading a row without opening
+   * its editor: the summary first, then each item on its own line with its
+   * position. An empty list means the row has no value of its own to read.
+   * Without it the host writes the value as text.
+   */
+  readout?(value: V, spec: WidgetSpec): readonly string[]
   /** Declarative expanded editing rendered by the host. */
   readonly editorUi?: HostUiProviderV1
   editorSizing?(spec: WidgetSpec): EditorSizing
