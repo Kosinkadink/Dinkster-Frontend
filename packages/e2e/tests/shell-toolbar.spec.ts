@@ -169,7 +169,7 @@ test('toolbar activity counts all workflows and excludes terminal history', asyn
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.connection.status.get())).toBe('connected')
   await page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
-    backend.registry.set({ ...backend.registry.get()! } as Parameters<typeof backend.registry.set>[0])
+    backend.registry.set({ ...backend.registry.get()! } as unknown as Parameters<typeof backend.registry.set>[0])
   })
   await expect.poll(() => reconciled.size).toBe(3)
   await expect(activity).toHaveAccessibleName('2 running, 1 queued')
