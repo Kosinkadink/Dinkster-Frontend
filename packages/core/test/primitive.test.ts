@@ -4,6 +4,7 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { MenuActionItem, MenuContext, MenuItem } from '../src/menus/contract.js'
 import { resetMenuContributions } from '../src/menus/reset-items.js'
+import { primitiveForField } from '../src/primitive.js'
 import type { NodeData, WorkflowDocument } from '../src/format/document.js'
 import { inputsOf, type InputSpec, type NodeSchema, type TypeExpr, type WidgetSpec } from '../src/schema/model.js'
 
@@ -143,6 +144,29 @@ describe('a primitive works out its value widget', () => {
   it('lets a Choice that feeds nothing be typed in as text', () => {
     const doc = docOf({ choice: { type: 'Choice' } }, [])
     expect(effectiveOf(doc, 'choice')?.spec?.widgetType).toBe('STRING')
+  })
+})
+
+describe('dragging a wire off a field', () => {
+  const T: TypeExpr = { kind: 'variable', templateId: 'T' }
+  const general = schemaOf('Primitive', [
+    input('value', T),
+    { kind: 'output', id: 'value', type: T, knownValue: { input: 'value' } },
+  ] as NodeSchema['body'], { isOutputNode: false })
+  const STRING = { kind: 'concrete', name: 'STRING' } as const
+  const text = schemaOf('Text', [
+    input('value', STRING, { widgetType: 'STRING', options: {} }),
+    { kind: 'output', id: 'STRING', type: STRING, knownValue: { input: 'value' } },
+  ] as NodeSchema['body'], { isOutputNode: false })
+  const all = [...Object.values(schemas), general, text]
+  const field = (type: string, widgetType = type): InputSpec => input('f', { kind: 'concrete', name: type }, { widgetType, options: {} })
+
+  it('makes the primitive of the field\'s own type, and the general one for any other field', () => {
+    expect(primitiveForField(all, field('INT'))?.type).toBe('Int')
+    expect(primitiveForField(all, field('COMBO'))?.type).toBe('Choice')
+    expect(primitiveForField(all, field('STRING'))?.type).toBe('Text')
+    // A color is text drawn as a color picker; no fixed primitive draws one, so the general one takes it.
+    expect(primitiveForField(all, field('STRING', 'COLOR'))?.type).toBe('Primitive')
   })
 })
 
