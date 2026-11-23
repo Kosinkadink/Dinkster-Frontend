@@ -741,7 +741,9 @@ export function RowListExample(props: { example: ListExample; theme: 'dark' | 'l
     if (example().canvas !== undefined) return
     const fieldHeight = current.screen.height
     const listBottom = current.listPlace === 'below' ? fieldHeight + (current.listMaxHeight ?? listSize()) : fieldHeight
-    const sideBottom = current.sideTop + (current.sideMaxHeight ?? sideSize().height)
+    // The side part's top is measured from the top of the row and list together.
+    const columnTop = current.listPlace === 'above' ? -(current.listMaxHeight ?? listSize()) : 0
+    const sideBottom = columnTop + current.sideTop + (current.sideMaxHeight ?? sideSize().height)
     stage.style.height = `${Math.max(canvas.clientHeight, current.screen.y + Math.max(listBottom, sideBottom) + MARGIN)}px`
   })
   const list = () => example().list

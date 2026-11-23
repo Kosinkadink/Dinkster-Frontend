@@ -9,11 +9,11 @@ import {
 } from 'solid-js'
 import { Check, ChevronLeft, ChevronRight, CircleAlert } from 'lucide-solid'
 import {
-  CanvasRowFrame,
+  CanvasRowField,
   canvasSideLayout,
   type CanvasBox,
-  type CanvasRowFrameProps,
   type CanvasSideLayout,
+  type CanvasSidePlace,
   type CanvasSideSize,
 } from './canvas-field.js'
 
@@ -63,7 +63,8 @@ export interface CanvasListLayout extends CanvasSideLayout {
  * it when the room under it is too short and the room over it is larger,
  * and takes the room there is. The side part stays beside the row, touching
  * it, as `canvasSideLayout` places it; under or over the field it goes past
- * the list, never over it.
+ * the list, never over it. The side part's top is measured from the top of
+ * the row and list together, as the row field's frame places it.
  *
  * `row` and `bounds` are screen boxes; `list` and `side` are at normal size.
  * `nodeBelow` and `nodeAbove` are the distances, at normal size, from the
@@ -87,11 +88,12 @@ export function canvasListLayout(
   const room = listPlace === 'below' ? roomBelow : roomAbove
   const listHeight = Math.min(list, room)
   const fits = list <= room ? {} : { listMaxHeight: room }
+  // The side part's top is measured from the column of row and list.
+  const offset = listPlace === 'above' ? listHeight : 0
   const beside = canvasSideLayout(row, bounds, side, scale, nodeBelow, nodeAbove)
   if (beside.place === 'right' || beside.place === 'left')
-    return { ...beside, listPlace, ...fits }
-  // Under or over: the field's box holds the list too.
-  const offset = listPlace === 'above' ? listHeight : 0
+    return { ...beside, sideTop: beside.sideTop + offset, listPlace, ...fits }
+  // Under or over: the side part goes past the list.
   const box = {
     x: row.x,
     y: row.y - offset * zoom,
@@ -106,12 +108,7 @@ export function canvasListLayout(
     Math.max(nodeBelow + offset, fieldHeight + listHeight),
     Math.max(nodeAbove - offset, 0),
   )
-  return {
-    ...around,
-    sideTop: around.sideTop - offset,
-    listPlace,
-    ...fits,
-  }
+  return { ...around, listPlace, ...fits }
 }
 
 /**
@@ -124,7 +121,18 @@ export function canvasListLayout(
  * one entry does not fit the whole list scrolls as one.
  */
 export function CanvasRowList(
-  props: Omit<CanvasRowFrameProps, 'panel' | 'panelPlace'> & {
+  props: {
+    /** Width of the row at normal size. */
+    rowWidth: number
+    place: CanvasSidePlace
+    /** The side part's top, from the top of the row and list together, at normal size. */
+    sideTop?: number
+    sideMaxHeight?: number
+    side?: JSX.Element
+    onSideSize?: (size: CanvasSideSize) => void
+    ref?: (element: HTMLDivElement) => void
+    look?: 'original' | 'flat-title'
+    zoomed?: boolean
     label: string
     query: string
     onQuery: (text: string) => void
@@ -324,7 +332,7 @@ export function CanvasRowList(
     </div>
   ) as JSX.Element
   return (
-    <CanvasRowFrame
+    <CanvasRowField
       rowWidth={props.rowWidth}
       place={props.place}
       {...(props.sideTop === undefined ? {} : { sideTop: props.sideTop })}
@@ -336,28 +344,22 @@ export function CanvasRowList(
       {...(props.zoomed === undefined ? {} : { zoomed: props.zoomed })}
       panel={listBody}
       panelPlace={props.listPlace ?? 'below'}
-    >
-      <span class="dinkster-canvas-field-label">{props.label}</span>
-      <input
-        ref={(element) => {
-          input = element
-          props.inputRef?.(element)
-        }}
-        class="dinkster-canvas-field-input"
-        type="text"
-        role="combobox"
-        aria-expanded="true"
-        aria-controls={listboxId}
-        aria-autocomplete="list"
-        value={props.query}
-        aria-label={props.inputLabel}
-        placeholder={props.placeholder ?? 'Filter options'}
-        autocomplete="off"
-        spellcheck={false}
-        onInput={(event) => props.onQuery(event.currentTarget.value)}
-        onKeyDown={(event) => props.onKeyDown?.(event)}
-      />
-    </CanvasRowFrame>
+      label={props.label}
+      value={props.query}
+      onInput={(text) => props.onQuery(text)}
+      {...(props.onKeyDown === undefined ? {} : { onKeyDown: props.onKeyDown })}
+      inputLabel={props.inputLabel}
+      placeholder={props.placeholder ?? 'Filter options'}
+      inputRef={(element) => {
+        input = element
+        // The filter controls the list: a combobox whose options are the entries.
+        element.setAttribute('role', 'combobox')
+        element.setAttribute('aria-expanded', 'true')
+        element.setAttribute('aria-controls', listboxId)
+        element.setAttribute('aria-autocomplete', 'list')
+        props.inputRef?.(element)
+      }}
+    />
   )
 }
 
