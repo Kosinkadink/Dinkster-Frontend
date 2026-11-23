@@ -272,8 +272,8 @@ A boundary forwards one inner input or output by its flattened id, such as
 `loras.lora0.strength`. The member must be stored on the inner node
 (`boundary.memberMissing`), except in a group grown to a count; a row under a
 choice or type choice must belong to the chosen option or variant
-(`boundary.branchInactive`). Forwarding a whole group, choice or type choice
-is refused: the boundary schema reports `boundary.familyBind` and compile
-reports the bound id as an unknown port (`compile.port.unknownInput` or
-`compile.port.unknownOutput`). See
-[Boundary editor](boundary-editor.md).
+(`boundary.branchInactive`). A `construct` binding shows a whole group,
+choice, type choice or described row instead: each subgraph node owns its
+members, pick and values under the item's id, after the definition's own
+members. A `port` binding that names a construct is refused
+(`boundary.familyBind`). See [Boundary editor](boundary-editor.md).

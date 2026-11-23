@@ -98,6 +98,16 @@ const boundaryBinding = {
     },
     {
       type: 'object',
+      required: ['kind', 'node', 'port'],
+      properties: {
+        kind: { const: 'construct' },
+        node: { type: 'string', minLength: 1 },
+        port: { type: 'string', minLength: 1 },
+      },
+      not: { anyOf: [{ required: ['tap'] }, { required: ['viaReroute'] }] },
+    },
+    {
+      type: 'object',
       required: ['kind', 'node', 'tap'],
       properties: {
         kind: { const: 'widgetTap' },
@@ -156,6 +166,24 @@ const boundaryItem = {
             items: {
               $ref: '#/$defs/boundaryBinding',
               properties: { kind: { const: 'port' } },
+              required: ['kind'],
+            },
+          },
+        },
+      },
+    },
+    {
+      if: {
+        properties: { binds: { type: 'object', properties: { kind: { const: 'construct' } }, required: ['kind'] } },
+        required: ['binds'],
+      },
+      then: {
+        not: { required: ['promoted'] },
+        properties: {
+          alsoBinds: {
+            items: {
+              $ref: '#/$defs/boundaryBinding',
+              properties: { kind: { const: 'construct' } },
               required: ['kind'],
             },
           },
@@ -641,7 +669,7 @@ export const WORKFLOW_SCHEMA = {
                   { not: { required: ['alsoBinds'] } },
                   { not: { required: ['wireHidden'] } },
                   { properties: { binds: { not: { required: ['viaReroute'] } } } },
-                  { properties: { binds: { properties: { kind: { enum: ['port', 'widgetTap', 'unbound'] } } } } },
+                  { properties: { binds: { properties: { kind: { enum: ['port', 'construct', 'widgetTap', 'unbound'] } } } } },
                 ],
               },
             },
