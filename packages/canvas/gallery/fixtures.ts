@@ -241,7 +241,8 @@ export interface CanvasGalleryFixture {
 /**
  * One node with an input that accepts a list beside an ordinary input of the
  * same type variable, shown open, matched by one image and matched by a list
- * of images, built and solved the way the app builds a graph.
+ * of images, and a node whose input that accepts a list has the fixed type
+ * INT, built and solved the way the app builds a graph.
  */
 function acceptsListScene(
   tokens: DesignTokens,
@@ -256,6 +257,10 @@ function acceptsListScene(
       { kind: 'input', id: 'value', type: variable, optional: false },
       { kind: 'output', id: 'list', type: { kind: 'list', element: variable } },
     ])],
+    ['Count', schema('Count', [
+      { kind: 'input', id: 'items', type: concrete('INT'), optional: false, acceptsList: true },
+      { kind: 'input', id: 'value', type: concrete('INT'), optional: false },
+    ])],
     ['Image', schema('Image', [{ kind: 'output', id: 'IMAGE', type: image }])],
     ['Images', schema('Images', [{ kind: 'output', id: 'IMAGE', displayName: 'list of IMAGE', type: { kind: 'list', element: image } }])],
   ])
@@ -265,6 +270,7 @@ function acceptsListScene(
     one: { type: 'Join', title: 'One image', x: 240, y: 130 },
     images: { type: 'Images', x: 0, y: 260 },
     list: { type: 'Join', title: 'A list of images', x: 240, y: 260 },
+    fixed: { type: 'Count', title: 'Fixed type', x: 240, y: 390 },
   }
   const loaded = loadDocument({
     format: 'dinkster-workflow',
@@ -1074,7 +1080,7 @@ export function createCanvasGalleryFixture(
       })
     examples.push({
       caption:
-        'An input that accepts a list keeps the one-value-or-list pin while its type is open, after one image matches it, and after a list of images matches it. Value, an ordinary input of the same type, turns into a plain circle once matched.',
+        'An input that accepts a list keeps the one-value-or-list pin while its type is open, after one image matches it, after a list of images matches it, and when its type is the fixed type INT. Value, an ordinary input of the same type, is a plain circle once its type is known.',
       scene: acceptsListScene(tokens, measure, widgetMeasure),
     })
     fixture.height = 850
