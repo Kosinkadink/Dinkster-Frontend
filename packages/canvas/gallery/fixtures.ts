@@ -31,7 +31,9 @@ import {
   mediaDiagnosticBadge,
   regionIterationBadge,
   subgraphBadge,
+  partialExecutionButtons,
   toolboxButton,
+  toolboxSeparator,
   type BadgeMap,
   type NodeBadge,
   type CompanionMap,
@@ -1010,23 +1012,43 @@ export function createCanvasGalleryFixture(
     })
     fixture.badges = map
     fixture.overlay = { selection: new Set([`${badges[0]!.id}: ${badges[0]!.glyph}`]) }
+    // The rows CanvasHost builds for one ordinary node in the root graph.
     fixture.toolbox = [
+      partialExecutionButtons({
+        between: 'requires a contiguous multi-node selection',
+      }).map(toolboxButton),
       [
-        ...(
-          [
-            'play',
-            'play-to',
-            'play-between',
-            'play-from',
-            'volume-x',
-            'ban',
-            'circle',
-            'group',
-            'boxes',
-            'trash-2',
-            'ellipsis-vertical',
-          ] as const
-        ).map((icon) => toolboxButton({ id: icon, icon, label: icon })),
+        toolboxButton({ id: 'core.delete', icon: 'trash-2', label: 'Delete' }),
+        toolboxSeparator(),
+        toolboxButton({
+          id: 'core.mode',
+          icon: 'sliders-horizontal',
+          label: 'Choose mode',
+        }),
+        toolboxButton({
+          id: 'core.extractSubgraph',
+          icon: 'group',
+          label: 'Extract as subgraph',
+        }),
+        toolboxButton({
+          id: 'core.flattenSubgraph',
+          icon: 'ungroup',
+          label: 'Flatten subgraph one level',
+          disabled: true,
+          reason: 'Select exactly one subgraph occurrence.',
+        }),
+        toolboxSeparator(),
+        toolboxButton({
+          id: 'core.color',
+          icon: 'circle',
+          label: 'Choose color',
+        }),
+        toolboxSeparator(),
+        toolboxButton({
+          id: 'core.more',
+          icon: 'ellipsis-vertical',
+          label: 'More actions',
+        }),
       ],
     ]
     fixture.height = 1300

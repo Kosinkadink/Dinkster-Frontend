@@ -900,9 +900,8 @@ and 200 percent, for a default box, a box made taller and a box that scrolls.
 
 ### Text box height
 
-A text box's text starts 2 units left of the label over it (the label at 6,
-the text at 4), so the box's text reads apart from the labels, which stay in
-one column down the node; the open editor uses the same inset.
+A text box's text starts at the same x as the label over it (both at 6); the
+open editor uses the same inset.
 
 Each multiline text box has its own height, in whole lines, from 2 to 16. A
 new node starts at the height the widget declares. A short bar in the middle

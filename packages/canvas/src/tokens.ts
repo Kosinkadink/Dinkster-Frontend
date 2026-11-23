@@ -52,9 +52,10 @@ export const canvasPaintTokens = {
     radius: 3,
     baselineOffset: 0.5,
     /** The subgraph mark at the right end of the title bar. */
-    mark: { size: 16, hitSize: 20, iconSize: 10, padding: 3, gap: 3 },
+    /** `iconSize` is the drawn size of the mark's icon. */
+    mark: { size: 20, hitSize: 20, iconSize: 14, padding: 3, gap: 3 },
     tab: {
-      height: 16,
+      height: 20,
       fontSize: 11,
       /** Distance from the node's left and right outer edges to the first tab. */
       inset: 0,
@@ -62,7 +63,8 @@ export const canvasPaintTokens = {
       offset: 3,
       gap: 2,
       padding: 6,
-      iconSize: 10,
+      /** Drawn size of a tab's icon. */
+      iconSize: 14,
       iconGap: 4,
       maxLabelWidth: 120,
       stroke: 1,
@@ -82,6 +84,8 @@ export const canvasPaintTokens = {
     },
   },
   controller: {
+    /** Drawn size of the mode icon as a share of its square chip, centered in it. */
+    chipIconRatio: 0.6,
     edgeWidth: 12,
     glyphHalf: 3,
     verticalInset: canvasSemanticTokens.space[4],
@@ -188,6 +192,15 @@ export const canvasPaintTokens = {
     dividerMinWorld: 0.75,
     dividerMaxWorld: canvasSemanticTokens.space[4],
     diamondScale: 1.25,
+    /**
+     * The pin for an input that takes one value or a list: the list diamond
+     * behind a smaller circle with a dark ring around the circle. Multiples of
+     * an ordinary pin's radius: the diamond's corner, the circle's radius and
+     * the ring's width.
+     */
+    eitherDiamond: 1.65,
+    eitherCircle: 0.75,
+    eitherRing: 0.22,
     /** A pointed pin's radius grows by this many pixels, so an 11px disc becomes 13px on the same whole-pixel center. */
     hoverGrowth: 1,
     statusRingGap: 3.5,
@@ -215,6 +228,8 @@ export const canvasPaintTokens = {
   },
   toolbox: {
     buttonSize: 28,
+    /** Drawn size of a button's icon, centered in the button. */
+    iconSize: 16.8,
     gap: 5,
     padding: 6,
     selectionGap: canvasSemanticTokens.space[16],
@@ -338,6 +353,8 @@ export const canvasPaintTokens = {
     multilineLeadingNumerator: 4,
     multilineLeadingDenominator: 3,
     semiboldWeight: 600,
+    /** Noto Sans capital height in ems; a pin's name centers its capitals on the pin. */
+    capHeight: 0.714,
     smallMinSize: 9,
     smallReduction: 1,
     adornmentMinSize: 8,
@@ -350,7 +367,8 @@ export const canvasPaintTokens = {
     outputPinGap: canvasSemanticTokens.space[4],
     outputOffsetY: 10,
   },
-  icon: { circleRadiusRatio: 0.22, paddingRatio: 0.2, viewBoxSize: 24, stroke: 2 },
+  /** The filled circle icon's radius is a share of the icon's drawn size. */
+  icon: { circleRadiusRatio: 11 / 30, viewBoxSize: 24, stroke: 2 },
   virtualNote: {
     verticalPadding: canvasSemanticTokens.space[8],
     bodyTint: 0.28,
@@ -441,9 +459,14 @@ export const canvasPaintTokens = {
     nameOffset: 3,
   },
   widget: {
-    opener: { iconSize: 20, iconInset: 2, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
-    /** The subgraph icon before the name of a field shown on the subgraph node without a wire. */
-    subgraphMark: { size: 12, gap: canvasSemanticTokens.space[4] },
+    /**
+     * A row that opens an editor: `iconSize` is the drawn size of its kind icon
+     * and chevron, `iconInset` the kind icon's distance from the row's left
+     * edge and `trailingInset` the chevron's from its right edge.
+     */
+    opener: { iconSize: 12, iconInset: 6, trailingInset: 8, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
+    /** The subgraph icon before the name of a field shown on the subgraph node without a wire; `size` is drawn. */
+    subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
     curve: { sourceRows: 2, inset: 4, insetX: 6, minSampleHeight: 1 },
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
     valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3 },
@@ -506,8 +529,10 @@ export const canvasPaintTokens = {
     pixelCenter: 0.5,
     rangeFillAccentOpacity: 0.2,
     dragLineStroke: 2,
-    modeIconSize: canvasSemanticTokens.space[16] + canvasSemanticTokens.space[4],
-    modeIconGap: canvasSemanticTokens.space[4],
+    /** A seed's mode icon before its value: drawn size, room kept before it, gap to the value. */
+    modeIconSize: canvasSemanticTokens.space[12],
+    modeIconLead: canvasSemanticTokens.space[4],
+    modeIconGap: canvasSemanticTokens.space[8],
     staleValueStroke: 1.5,
     companion: { stroke: 1, underlineOffset: canvasSemanticTokens.space[4] },
     fallbackValueWidthPadding: canvasSemanticTokens.space[8],
@@ -639,10 +664,7 @@ export interface DesignTokens {
     readonly fontSize: number
     readonly lineHeight: number
     readonly padding: number
-    /**
-     * Left inset of the text: 2 less than the label over it, so the text
-     * starts just left of its label and labels stay in one column.
-     */
+    /** Left inset of the text: the label's inset, so text and label start at one x. */
     readonly textInset: number
     /** Compact floating-label band, independent of the shared row height. */
     readonly labelHeight: number
@@ -769,6 +791,9 @@ export const previousCanvasTypePaint: Pick<DesignTokens, 'typeColors' | 'typeFal
   typeFallbackLightness: 62,
 }
 
+/** A field's box inset from the node's edge in the default look; a pin's name lines up with the field's label inside it. */
+const defaultFieldInsetX = 8
+
 export const defaultTokens: DesignTokens = {
   rowHeight: 26,
   headerHeight: 26,
@@ -794,13 +819,14 @@ export const defaultTokens: DesignTokens = {
   rowGeometry: {
     portRowHeight: 26,
     fieldInsetY: 1,
-    fieldInsetX: 8,
+    fieldInsetX: defaultFieldInsetX,
     stepperZone: 22,
     stepperCenter: 12.5,
     stepperStroke: 1,
     stepperLabelInset: 2,
     textEndInset: 4,
-    portLabelInset: 10,
+    // A pin's name starts where a text or choice field's label does.
+    portLabelInset: defaultFieldInsetX + canvasPaintTokens.widget.labelInset,
     boxedTopInset: 5,
     pinTopInset: 1,
     pinBottomInset: 2,
@@ -814,7 +840,7 @@ export const defaultTokens: DesignTokens = {
     fontSize: 14,
     lineHeight: 20,
     padding: 6,
-    textInset: 4,
+    textInset: 6,
     labelHeight: 18,
     scrollbarWidth: 6,
     scrollbarInset: 2,
