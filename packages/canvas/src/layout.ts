@@ -1549,6 +1549,7 @@ export function layoutNode(
         if (line.at(-1) === row) y = lineBottoms.get(line)!
       } else if (row.kind === 'ports') {
         const height = tokens.rowGeometry.portRowHeight
+        rowIndex.set(row, rows.length)
         push({
           kind: 'ports',
           y,
@@ -1576,11 +1577,12 @@ export function layoutNode(
         // A choice's dropdown reaches the outline of its option box instead.
         const inset = w.lead ? outlineX(depth + 1) : fieldInset(depth)
         rowIndex.set(row, rows.length)
-        // A member drawn as one line of fields has its cross and grip once, at the line's end.
-        const lineEnd = lines.get(row)!.at(-1) === row
+        // A member drawn as one line of fields has its grip once, before the
+        // line, and its cross once, after it.
+        const line = lines.get(row)!
         push({
-          kind: 'widget', y, height, inset, ...w, ...(row.removable && lineEnd ? { crossInset: inset } : {}),
-          ...(row.reorder && lineEnd ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
+          kind: 'widget', y, height, inset, ...w, ...(row.removable && line.at(-1) === row ? { crossInset: inset } : {}),
+          ...(row.reorder && line[0] === row ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
         }, depth)
         // Socketless controls keep their editor and outgoing value tap.
         if (!w.socketless) pins.push({
@@ -1594,7 +1596,6 @@ export function layoutNode(
           ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
           ...(staticWidgetInputs.has(w.inputId) ? { staticWidgetTap: true as const } : {}),
         })
-        const line = lines.get(row)!
         lineBottoms.set(line, Math.max(lineBottoms.get(line) ?? y, y + height))
         if (line.at(-1) === row) y = lineBottoms.get(line)!
       }
@@ -1722,22 +1723,22 @@ export function layoutNode(
       left += cellWidth + gap
     }
   }
-  // A field that is a whole member ends before its remove cross, whose right
-  // edge sits where the field's would. A member that can be moved has its
-  // grip there instead, or just before the cross, and the field ends before
-  // the grip. A spare member ends where the members' fields do.
+  // A member that can be moved has its grip at the left end, where its field
+  // or name would start, and they start after the grip. A field that is a
+  // whole member ends before its remove cross, whose right edge sits where
+  // the field's would. A spare member starts where the members' fields do.
   const gripSpaces = new Set(pending.flatMap((row) =>
-    row.gripSpace && lines.get(row)!.at(-1) === row ? [rowIndex.get(row)] : []))
+    row.gripSpace && lines.get(row)![0] === row ? [rowIndex.get(row)] : []))
   for (const [index, row] of rows.entries()) {
     if (row.kind !== 'widget' && row.kind !== 'ports') continue
     const crossRoom = row.crossInset === undefined ? 0 : box.cross.size + box.cross.fieldGap
     const gripRoom = row.reorder === undefined && !gripSpaces.has(index) ? 0 : box.gripWidth + box.cross.fieldGap
-    const right = width - (row.crossInset ?? fieldInset(rowDepth[index]!)) - crossRoom
-    const reorder = row.reorder === undefined ? {} : { reorder: { ...row.reorder, gripX: right - box.gripWidth / 2 } }
-    if (row.kind === 'widget' && crossRoom + gripRoom > 0)
-      rows[index] = { ...row, width: (row.width ?? width - row.inset * 2) - crossRoom - gripRoom, ...reorder }
-    else if (row.reorder !== undefined)
-      rows[index] = { ...row, ...reorder }
+    if (crossRoom + gripRoom === 0) continue
+    const left = row.kind === 'widget' ? row.inset : fieldInset(rowDepth[index]!)
+    const reorder = row.reorder === undefined ? {} : { reorder: { ...row.reorder, gripX: left + box.gripWidth / 2 } }
+    rows[index] = row.kind === 'widget'
+      ? { ...row, inset: row.inset + gripRoom, width: (row.width ?? width - row.inset * 2) - crossRoom - gripRoom, ...reorder }
+      : { ...row, nameInset: (row.nameInset ?? 0) + gripRoom, ...reorder }
   }
 
   if (options.minimized) {

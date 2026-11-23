@@ -240,9 +240,12 @@ values and pin positions are the same with or without it.
   of its count. If nothing inside fits, the drop is an ordinary drop on the
   node.
 - A member of a group of records that draws more than one row gets its own
-  box, headed by its label and a remove cross; members cannot be dragged.
-  In a group that grows by hand, a member that is one row has no box: the
-  row ends in the remove cross and its field stops short of it. The cross
+  box, headed by its grip when the group can be reordered, its label and a
+  remove cross. In a group that grows by hand, a member that is one row has
+  no box: the row ends in the remove cross and its field stops short of it.
+  In a group that can be reordered, a stored member that is one row starts
+  with its grip, and its field or name, and the spare member's, start after
+  the grip's room. Dragging a grip moves the member (`dynamic.moveMember`). The cross
   does not remove the member by itself; unused members go with **Remove
   unused dynamic inputs**. A group that grows by hand ends in an outlined
   Add row. A group that grows by

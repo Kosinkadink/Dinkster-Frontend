@@ -253,6 +253,25 @@ describe('pairing', () => {
     expect(new Set(fields.map((row) => `${row.inset} ${row.width}`)).size).toBe(1)
   })
 
+  it('starts a reorderable group\'s spare socket name where the members\' names start', () => {
+    const schema = schemaOf([{
+      kind: 'group', id: 'images', displayName: 'Images', reorderable: true,
+      value: input('image'), keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 }, grows: 'link', minMembers: 1,
+    }])
+    const node = { ...nodeData, dynamic: { images: { members: ['image0', 'image1'] } } }
+    // Both members are plugged in, so the group shows its spare.
+    const wired = { ...EMPTY_CONNECTIVITY, isInputConnected: (port: string) => port === 'images.image0' || port === 'images.image1' }
+    const layout = layoutNode(schema, node, defaultTokens, measure, widgetMeasure, { elaborated: elaborateInterface(schema, node, wired) })
+    const sockets = layout.rows.filter((row) => row.kind === 'ports') as Extract<(typeof layout.rows)[number], { kind: 'ports' }>[]
+    expect(sockets.map((row) => [row.input?.portId, row.reorder !== undefined])).toEqual([
+      ['images.image0', true], ['images.image1', true], ['images.image2', false],
+    ])
+    expect(new Set(sockets.map((row) => row.nameInset)).size).toBe(1)
+    // The grip stands between the pin on the node's edge and the name.
+    const grip = sockets[0]!.reorder!
+    expect(grip.gripX + canvasPaintTokens.node.box.gripWidth / 2).toBeLessThan(defaultTokens.rowGeometry.portLabelInset + sockets[0]!.nameInset!)
+  })
+
   it('keeps force-input widgets of a chosen option as socket rows', () => {
     const mode: NodeSchema['body'][number] = {
       kind: 'choice',
