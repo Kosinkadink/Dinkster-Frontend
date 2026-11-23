@@ -2480,13 +2480,13 @@ describe('node chrome paint on the live renderer', () => {
     )).toBe(false)
   })
 
-  it('a pin name starts a text field\'s label gap after the pin and centers its capitals on the pin', () => {
+  it('a pin name starts a field row\'s label gap after the pin and centers its capitals on the pin', () => {
     const scene = constructsScene()
     const calls = paint(scene)
     // Noto Sans capitals are 0.714 em tall; their middle is half that above the baseline.
     const capitalsMiddle = defaultTokens.fontSize * 0.714 / 2
-    // A text field leaves 12 px from its box's edge to its label; the pin's inner edge is its center plus its radius.
-    const gap = 12
+    // A field row leaves 6 px from its box's edge to its label; the pin's inner edge is its center plus its radius.
+    const gap = 6
     const sink = nodeOf(scene, 'c1')
     const input = sink.layout.pins.find((p) => p.direction === 'in')!
     const inputLabel = calls.find((c) => c.method === 'fillText' && c.args[0] === 'in')

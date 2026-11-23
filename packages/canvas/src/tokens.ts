@@ -812,8 +812,8 @@ export const defaultTokens: DesignTokens = {
     stepperLabelInset: 2,
     textEndInset: 4,
     // The pin's inner edge, 6 px in (radius 5.5 centered half a pixel inside
-    // the border), then the gap a text field leaves before its label.
-    portLabelInset: 6 + canvasPaintTokens.controller.fieldInset + canvasPaintTokens.widget.labelInset,
+    // the border), then the gap a field row leaves from its box to its label.
+    portLabelInset: 6 + canvasPaintTokens.widget.labelInset,
     boxedTopInset: 5,
     pinTopInset: 1,
     pinBottomInset: 2,
