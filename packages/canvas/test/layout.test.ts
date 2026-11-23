@@ -253,6 +253,25 @@ describe('pairing', () => {
     expect(new Set(fields.map((row) => `${row.inset} ${row.width}`)).size).toBe(1)
   })
 
+  it('starts a reorderable group\'s spare socket name where the members\' names start', () => {
+    const schema = schemaOf([{
+      kind: 'group', id: 'images', displayName: 'Images', reorderable: true,
+      value: input('image'), keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 }, grows: 'link', minMembers: 1,
+    }])
+    const node = { ...nodeData, dynamic: { images: { members: ['image0', 'image1'] } } }
+    // Both members are plugged in, so the group shows its spare.
+    const wired = { ...EMPTY_CONNECTIVITY, isInputConnected: (port: string) => port === 'images.image0' || port === 'images.image1' }
+    const layout = layoutNode(schema, node, defaultTokens, measure, widgetMeasure, { elaborated: elaborateInterface(schema, node, wired) })
+    const sockets = layout.rows.filter((row) => row.kind === 'ports') as Extract<(typeof layout.rows)[number], { kind: 'ports' }>[]
+    expect(sockets.map((row) => [row.input?.portId, row.reorder !== undefined])).toEqual([
+      ['images.image0', true], ['images.image1', true], ['images.image2', false],
+    ])
+    expect(new Set(sockets.map((row) => row.nameInset)).size).toBe(1)
+    // The grip stands between the pin on the node's edge and the name.
+    const grip = sockets[0]!.reorder!
+    expect(grip.gripX + canvasPaintTokens.node.box.gripWidth / 2).toBeLessThan(defaultTokens.rowGeometry.portLabelInset + sockets[0]!.nameInset!)
+  })
+
   it('keeps force-input widgets of a chosen option as socket rows', () => {
     const mode: NodeSchema['body'][number] = {
       kind: 'choice',
@@ -1039,8 +1058,11 @@ describe('sections', () => {
     })
     const fields = (grows: 'button' | 'link', tokens = { ...defaultTokens, memberRemoveCross: true }) => {
       const l = layoutNode(schemaOf([widget('top'), group(grows)]), nodeData, tokens, measure, widgetMeasure)
+      const outline = l.boxes!.find((b) => b.id === 'group:prompts')!
+      // From the inner side of the group's outline to the node's right edge.
+      const outlineRight = l.width - (outline.x + outline.width - canvasPaintTokens.node.box.stroke)
       return l.rows.flatMap((r) => r.kind === 'widget'
-        ? [{ id: r.inputId, inset: r.inset, cross: r.crossInset, right: l.width - r.inset - (r.width ?? l.width - r.inset * 2) }]
+        ? [{ id: r.inputId, inset: r.inset, cross: r.crossInset, right: l.width - r.inset - (r.width ?? l.width - r.inset * 2), outlineRight }]
         : [])
     }
     const cross = canvasPaintTokens.node.box.cross
@@ -1048,9 +1070,9 @@ describe('sections', () => {
     expect(top).toMatchObject({ id: 'top', cross: undefined, right: top!.inset })
     expect(members.map((m) => m.id)).toEqual(['prompts.prompt0', 'prompts.prompt1'])
     for (const member of members) {
-      // The cross's right edge is where the field's would be; the field ends before it.
-      expect(member.cross).toBe(member.inset)
-      expect(member.right - member.inset).toBe(cross.size + cross.fieldGap)
+      // The cross stands as far inside the outline as before the field's end.
+      expect(member.cross! - member.outlineRight).toBe(cross.fieldGap)
+      expect(member.right - (member.cross! + cross.size)).toBe(cross.fieldGap)
     }
     expect(fields('link').every((field) => field.cross === undefined)).toBe(true)
     // The editor draws no cross until pressing it removes the member.

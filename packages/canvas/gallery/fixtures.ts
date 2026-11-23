@@ -1709,6 +1709,58 @@ export function createCanvasGalleryFixture(
       at: column(0),
       dynamic: { loras: { members: ['lora0'] } },
     })
+    // A member's grip at the left end and its remove cross at the right: a
+    // one-row member with both, one with a grip only beside its spare
+    // member, and member boxes, whose headers already have both.
+    nextRow()
+    add(
+      'Grip and cross',
+      schema('Prompts', [
+        {
+          kind: 'group',
+          id: 'prompts',
+          displayName: 'Prompts',
+          value: widget('prompt', 'STRING', 'a red fox'),
+          keys: { kind: 'numbered', prefix: 'prompt', start: 0, pad: 0 },
+          grows: 'button',
+          minMembers: 1,
+          maxMembers: 4,
+          reorderable: true,
+          addLabel: 'Add prompt',
+        },
+      ]),
+      {},
+      23,
+      false,
+      { at: column(0), dynamic: { prompts: { members: ['prompt0', 'prompt1'] } } },
+    )
+    add(
+      'Grip only',
+      schema('Weights', [
+        {
+          kind: 'group',
+          id: 'weights',
+          displayName: 'Weights',
+          value: widget('weight', 'FLOAT', 1, { min: 0, max: 2, step: 0.05 }),
+          keys: { kind: 'numbered', prefix: 'weight', start: 0, pad: 0 },
+          grows: 'filled',
+          minMembers: 1,
+          reorderable: true,
+        },
+      ]),
+      { 'weights.weight0': 0.5, 'weights.weight1': 1.25 },
+      24,
+      false,
+      { at: column(1), dynamic: { weights: { members: ['weight0', 'weight1'] } } },
+    )
+    add('Member boxes', stack, named, 25, false, {
+      at: column(2),
+      dynamic: { loras: { members: ['lora0', 'lora1'] } },
+    })
+    examples.splice(-3, 3, {
+      caption: 'Grip at the left end, cross at the right',
+      nodes: examples.slice(-3).flatMap((example) => example.nodes ?? []),
+    })
     const dragging = fixture.scene.nodes.find((node) => node.id === 'Dragging lora 1 below lora 2')!
     const draggedGrip = dragging.layout.rows.flatMap((row) =>
       row.kind === 'member' && row.reorder?.member === 'lora0' ? [row.reorder] : [])[0]!
