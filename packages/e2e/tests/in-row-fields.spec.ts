@@ -20,7 +20,6 @@ async function openSampler(page: Page): Promise<void> {
   } }))
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
   await waitForWorkspaceReady(page)
   const close = page.locator('.template-gallery-close')
   if ((await close.count()) > 0 && (await close.first().isVisible())) await close.first().click()
@@ -367,7 +366,7 @@ async function openMixed(page: Page): Promise<void> {
   } }))
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
+  await waitForWorkspaceReady(page)
   const close = page.locator('.template-gallery-close')
   if ((await close.count()) > 0 && (await close.first().isVisible())) await close.first().click()
   await page.evaluate(async () => {
