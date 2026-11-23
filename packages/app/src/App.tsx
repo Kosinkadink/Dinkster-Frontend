@@ -25,7 +25,7 @@ import { LogPanel } from './LogPanel.js'
 import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, CanvasViewControls, coreOccurrencePlanner } from './CanvasHost.js'
 import { ContextMenu } from './ContextMenu.js'
-import { historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
+import { historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
 import { ExecutionActivityCard, ExecutionOpenButton, executionStatusLabel } from './ExecutionActivityCard.js'
 import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
@@ -119,7 +119,8 @@ import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
 import { CancelExecutionButton } from './CancelExecutionButton.js'
 import { ExecutedImageFacts, ExecutedImageViewer, SavedOutputFiles, ViewerImage, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
-import { executedImageInventory, executedImageLabel, type ExecutedImage } from './executed-image-inventory.js'
+import { executedImageInventory, executedImageLabel, executionThumbnail, type ExecutedImage } from './executed-image-inventory.js'
+import { RunThumbnail } from './RunThumbnail.js'
 import {
   beginTabDragModel,
   moveTabDragModel,
@@ -1209,9 +1210,12 @@ export function App(props: {
 
   const ExecutionRow = (p: { exec: ExecutionState }) => {
     const live = () => liveTabOf(p.exec)
+    const thumbnail = () => p.exec.status === 'queued' || p.exec.status === 'running' ? undefined : executionThumbnail(p.exec)
     return <article class="runs-row" role="listitem" data-testid="execution-row"
       data-status={p.exec.status} data-selected={selectedRun()?.key === p.exec.key}>
       <div class="runs-row-heading">
+        <Show when={thumbnail()}>{(asset) => <RunThumbnail
+          url={app.assetUrlForExecution(p.exec.ref, asset().digest)} mediaType={asset().mediaType} />}</Show>
         <ProductButton size="compact" variant="ghost" aria-pressed={selectedRun()?.key === p.exec.key}
           onClick={() => setSelectedRunKey(p.exec.key)}>{app.tabTitleFor(p.exec.ref)}</ProductButton>
         <span class="execution-status">{p.exec.status === 'queued' && app.store.isUnconfirmed(p.exec.ref) ? 'Unconfirmed' : executionStatusLabel(p.exec.status)}</span>
@@ -1446,11 +1450,19 @@ export function App(props: {
       setSelectedRunKey(known?.key ?? inspected?.key ?? p.entry.id)
       if (known === undefined && !requested) { requested = true; void load() }
     })
+    const thumbnail = () => {
+      backendsTick()
+      const asset = historyRunOfEntry(p.entry)?.thumbnail
+      const backend = app.backends.get().find((candidate) => candidate.id === p.entry.owner)
+      return asset !== undefined && backend?.protocol === 'dinkster'
+        ? { url: backend.connection.assetUrl(asset.digest), mediaType: asset.mediaType } : undefined
+    }
     const Facts = () => <>
       <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
     </>
     return <div class="runs-stored-row">
       <div class="runs-row-heading">
+        <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
         <strong>{p.entry.title}</strong>
         <Show when={storedExecution(p.entry)?.artifact && storedExecution(p.entry)}>{(execution) =>
           <ExecutionOpenButton entry={execution()} title={p.entry.title} onOpen={() => { void app.openExecutionView(execution().ref) }} />

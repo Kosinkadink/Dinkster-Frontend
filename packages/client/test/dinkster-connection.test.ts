@@ -3742,6 +3742,20 @@ describe('persistent history wire', () => {
     expect(records[0]?.error?.['phase']).toBe('running')
   })
 
+  it('keeps valid image/video thumbnails and omits malformed optional media without losing history', async () => {
+    const image = { digest: DIGEST, name: '', size: 0, mediaType: 'image/png', virtualPath: '' }
+    const video = { ...image, digest: 'blake3:' + 'c'.repeat(64), mediaType: 'video/webm' }
+    const thumbnails = [image, video, undefined, null, { ...image, digest: 'https://foreign/image' },
+      { ...image, size: -1 }, { ...image, mediaType: 'audio/wav' }, { ...image, virtualPath: 42 }]
+    const { conn } = submitHarness(() => jsonResponse(200, {
+      records: thumbnails.map((thumbnail, index) => ({ ...run, runId: `run-${index}`, thumbnail })),
+    }))
+    const records = (await conn.listHistory({ scope: 'local' })).records
+    expect(records).toHaveLength(thumbnails.length)
+    expect(records.map((record) => record.thumbnail)).toEqual([image, video, ...Array(6).fill(undefined)])
+    expect(records.slice(2).every((record) => !('thumbnail' in record))).toBe(true)
+  })
+
   it('listHistory throws on a rejected cursor (restart from page one)', async () => {
     const { conn } = submitHarness(() => jsonResponse(400, { error: 'cursor-query-mismatch' }))
     await expect(conn.listHistory({ scope: 'local', cursor: 'stale' })).rejects.toThrow('400')

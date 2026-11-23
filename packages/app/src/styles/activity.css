@@ -5,7 +5,9 @@
 .runs-row { padding: var(--dinkster-space-8); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
 .runs-row[data-selected='true'] { border-color: var(--dinkster-border-focus); }
 .runs-row-heading { display: flex; align-items: center; gap: var(--dinkster-space-8); min-width: 0; }
-.runs-row-heading > .product-button:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; justify-content: flex-start; }
+.run-thumbnail { width: var(--dinkster-space-32); height: var(--dinkster-space-32); flex: none; object-fit: cover; border-radius: var(--dinkster-radius-small); }
+.run-thumbnail[data-ready='false'] { visibility: hidden; }
+.runs-row > .runs-row-heading > .product-button:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; justify-content: flex-start; }
 .runs-row-heading > span { color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); white-space: nowrap; }
 .runs-details { min-width: 0; order: 2; }
 .runs-details > summary { cursor: pointer; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); }
