@@ -139,18 +139,11 @@ export function ActivityBarButton(props: {
   readonly tooltipDetail?: string | undefined
   readonly pressed: boolean | undefined
   readonly panelId?: string | undefined
-  readonly suppressTooltipWhenPressed?: boolean | undefined
   readonly testId?: string | undefined
   readonly class?: string | undefined
   readonly onActivate: () => void
 }) {
-  let labelElement!: HTMLSpanElement
-  const [labelCut, setLabelCut] = createSignal(false)
-  // Native bubbling handlers measure before the shell captures tooltip content.
-  const measureLabel = (): void => {
-    setLabelCut(labelElement.scrollWidth > labelElement.clientWidth)
-  }
-  const tooltip = () => labelCut() && props.tooltip !== props.label
+  const tooltip = () => props.tooltip !== props.label
     ? `${props.label}\n${props.tooltip}`
     : props.tooltip
   return (
@@ -158,16 +151,14 @@ export function ActivityBarButton(props: {
       class={`sidebar-button${props.class ? ` ${props.class}` : ''}`}
       data-testid={props.testId}
       data-panel-toggle={props.panelId}
-      data-tooltip-label={props.suppressTooltipWhenPressed && props.pressed ? undefined : tooltip()}
+      data-tooltip-label={tooltip()}
       data-tooltip-detail={props.tooltipDetail}
+      data-tooltip-immediate="true"
       aria-label={props.accessibleName === props.label ? props.label : `${props.label}: ${props.accessibleName}`}
       aria-pressed={props.pressed}
-      on:pointerover={measureLabel}
-      on:focusin={measureLabel}
       onClick={props.onActivate}
     >
       <span class="sidebar-button-icon" aria-hidden="true"><Icon icon={props.icon ?? PanelLeft} /></span>
-      <span class="sidebar-button-label" ref={labelElement}>{props.label}</span>
     </button>
   )
 }
