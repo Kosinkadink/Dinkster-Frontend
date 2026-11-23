@@ -129,19 +129,8 @@ function SaveTargetExampleCard(props: {
     return row ? { node, row } : undefined
   })
 
-  const mounts = (): CanvasTargetMounts => {
-    switch (example().mounts ?? 'ready') {
-      case 'loading':
-        return { kind: 'loading' }
-      case 'none':
-        return { kind: 'none' }
-      case 'failed':
-        return { kind: 'failed', message: t(NO_BACKEND) }
-      case 'ready':
-        return { kind: 'ready' }
-    }
-  }
-  const ready = (): readonly string[] => (mounts().kind === 'ready' ? galleryMounts : [])
+  const mounts = (): CanvasTargetMounts => example().mounts ?? 'ready'
+  const ready = (): readonly string[] => (mounts() === 'ready' ? galleryMounts : [])
   const open = () => example().open
   const options = (): readonly CanvasTargetMount[] => {
     const picked = open()?.mount ?? ''
@@ -157,8 +146,12 @@ function SaveTargetExampleCard(props: {
       mount: open()?.mount ?? '',
       prefix: open()?.prefix ?? '',
       cleared: example().cleared === true,
-      ready: mounts().kind === 'ready' ? ready() : undefined,
+      ready: mounts() === 'ready' ? ready() : undefined,
     })
+  const tooltip = () => {
+    const input = schema().items.find((item) => item.kind === 'input' && item.id === 'target')
+    return input?.kind === 'input' ? input.tooltip : undefined
+  }
   const declared = () => effectiveWidgetDefault(target()?.row.spec ?? { widgetType: 'SAVE_TARGET', options: {} })
 
   const placement = () => {
@@ -195,7 +188,7 @@ function SaveTargetExampleCard(props: {
 
   const side = createMemo(() => {
     const result = draft()
-    const problem = mounts().kind === 'none'
+    const problem = mounts() === 'none'
       ? t('saveTargetWidget.noMounts')
       : result.mountGone ? t('saveTargetWidget.mountGone') : undefined
     return (
@@ -206,7 +199,9 @@ function SaveTargetExampleCard(props: {
           : { verb: t('saveTargetWidget.enterStores'), target: targetText(result.store) }}
         defaultLabel="default"
         defaultText={targetText((declared() ?? null) as Json)}
-        help={t('saveTargetWidget.naming', { suffix: '.png' })}
+        {...(mounts() === 'failed' ? { error: t(NO_BACKEND) } : {})}
+        {...(tooltip() === undefined ? {} : { tooltip: tooltip()! })}
+        naming={t('saveTargetWidget.naming', { suffix: '.png' })}
       />
     )
   })
@@ -229,7 +224,7 @@ function SaveTargetExampleCard(props: {
           prefix: t('saveTargetWidget.prefix'),
           loading: t('saveTargetWidget.loading'),
           none: t('saveTargetWidget.none'),
-          failed: t('saveTargetWidget.noMount'),
+          failed: t('saveTargetWidget.couldNotLoad'),
           clear: t('saveTargetWidget.clear'),
         }}
         mounts={mounts()}

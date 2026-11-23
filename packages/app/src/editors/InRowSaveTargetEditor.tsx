@@ -59,10 +59,9 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
 
   const writable = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready') ?? []
   const mounts = (): CanvasTargetMounts => {
-    const failure = error()
-    if (failure !== undefined) return { kind: 'failed', message: failure }
-    if (settings() === undefined) return { kind: 'loading' }
-    return writable().length === 0 ? { kind: 'none' } : { kind: 'ready' }
+    if (error() !== undefined) return 'failed'
+    if (settings() === undefined) return 'loading'
+    return writable().length === 0 ? 'none' : 'ready'
   }
   // A picked mount that is no longer ready stays listed, dimmed, so it is
   // never replaced for the person.
@@ -77,7 +76,7 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
     mount: mount(),
     prefix: prefix(),
     cleared: cleared(),
-    ready: mounts().kind === 'ready' ? writable().map((entry) => entry.id) : undefined,
+    ready: mounts() === 'ready' ? writable().map((entry) => entry.id) : undefined,
   }))
 
   const change = (apply: () => void): void => {
@@ -108,7 +107,7 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
   const [listOpen, setListOpen] = createSignal(false)
   const [highlight, setHighlight] = createSignal<number>()
   const openList = (): void => {
-    if (mounts().kind !== 'ready' || props.commitPending()) return
+    if (mounts() !== 'ready' || props.commitPending()) return
     const at = options().findIndex((entry) => entry.id === mount())
     setHighlight(at >= 0 && options()[at]?.unavailable !== true ? at : options().findIndex((entry) => entry.unavailable !== true))
     setListOpen(true)
@@ -183,9 +182,8 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
   const declared = effectiveWidgetDefault(spec)
   const side = createMemo(() => {
     const value = draft().store
-    const failure = mounts().kind
     const problem = props.commitError()
-      ?? (failure === 'none' ? message('saveTargetWidget.noMounts') : undefined)
+      ?? (mounts() === 'none' ? message('saveTargetWidget.noMounts') : undefined)
       ?? (draft().mountGone ? message('saveTargetWidget.mountGone') : undefined)
     return (
       <CanvasTargetSide
@@ -195,7 +193,9 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
           : { verb: message('saveTargetWidget.enterStores'), target: textOf(value) }}
         defaultLabel="default"
         defaultText={textOf((declared ?? null) as Json)}
-        help={message('saveTargetWidget.naming', { suffix })}
+        {...(error() === undefined ? {} : { error: error()! })}
+        {...(inRow.help === undefined ? {} : { tooltip: inRow.help })}
+        naming={message('saveTargetWidget.naming', { suffix })}
       />
     )
   })
@@ -227,7 +227,7 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
           prefix: message('saveTargetWidget.prefix'),
           loading: message('saveTargetWidget.loading'),
           none: message('saveTargetWidget.none'),
-          failed: message('saveTargetWidget.noMount'),
+          failed: message('saveTargetWidget.couldNotLoad'),
           clear: message('saveTargetWidget.clear'),
         }}
         mounts={mounts()}

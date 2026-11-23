@@ -50,13 +50,10 @@ export interface CanvasTargetMount {
 
 /**
  * Where a save target's mounts stand: still being read, read with none
- * ready, not readable (with the error's own words), or read.
+ * ready, not readable, or read. The box says it in a few words; the side
+ * part holds any sentence.
  */
-export type CanvasTargetMounts =
-  | { readonly kind: 'loading' }
-  | { readonly kind: 'none' }
-  | { readonly kind: 'failed'; readonly message: string }
-  | { readonly kind: 'ready' }
+export type CanvasTargetMounts = 'loading' | 'none' | 'failed' | 'ready'
 
 /** The words a save target box shows, from the caller's catalog. */
 export interface CanvasTargetWords {
@@ -110,7 +107,7 @@ export function CanvasTargetBox(props: {
   const problemId = createUniqueId()
   const optionId = (index: number) => `${listboxId}-${index}`
   const picked = () => props.options.find((option) => option.id === props.mount)
-  const ready = () => props.mounts.kind === 'ready'
+  const ready = () => props.mounts === 'ready'
   let mountButton: HTMLButtonElement | undefined
   createEffect(() => {
     if (!mountButton) return
@@ -120,7 +117,7 @@ export function CanvasTargetBox(props: {
     else mountButton.removeAttribute('aria-activedescendant')
   })
   const value = (): JSX.Element => {
-    switch (props.mounts.kind) {
+    switch (props.mounts) {
       case 'loading':
         return (
           <>
@@ -151,7 +148,7 @@ export function CanvasTargetBox(props: {
           }}
           type="button"
           class="dinkster-canvas-target-choice"
-          data-state={props.mounts.kind}
+          data-state={props.mounts}
           data-unavailable={ready() && picked()?.unavailable === true}
           data-focused={props.focused === 'mount'}
           aria-haspopup="listbox"
@@ -202,13 +199,6 @@ export function CanvasTargetBox(props: {
           </div>
         </Show>
       </div>
-      <Show when={props.mounts.kind === 'failed' && props.mounts}>
-        {(failed) => (
-          <p class="dinkster-canvas-target-note" role="alert">
-            {(failed() as { readonly message: string }).message}
-          </p>
-        )}
-      </Show>
       <label class="dinkster-canvas-target-caption" for={prefixId}>
         {props.words.prefix}
       </label>
@@ -258,26 +248,42 @@ export function CanvasTargetBox(props: {
 }
 
 /**
- * An open save target's side part: a problem first, such as a stored mount
- * that is gone, then what leaving the box does ("Enter keeps" or "Enter
- * stores" and the target), the default and the naming help.
+ * An open save target's side part: an error first, such as why the mounts
+ * could not be read, then a problem, such as a stored mount that is gone,
+ * then what leaving the box does ("Enter keeps" or "Enter stores" and the
+ * target) and the default; under the divider the input's own tooltip, when
+ * it declares one, and the naming help.
  */
 export function CanvasTargetSide(props: {
+  error?: string
   problem?: string
   enter: { readonly verb: string; readonly target: string }
   defaultLabel: string
   defaultText: string
-  help?: string
+  tooltip?: string
+  naming: string
 }) {
   return (
-    <CanvasSidePart
-      {...(props.problem === undefined ? {} : { problem: props.problem })}
-      facts={[{ key: props.defaultLabel, value: props.defaultText }]}
-      {...(props.help === undefined ? {} : { help: props.help })}
-    >
-      <p class="dinkster-canvas-target-enter">
-        {props.enter.verb} <span class="dinkster-canvas-target-enter-value">{props.enter.target}</span>
-      </p>
-    </CanvasSidePart>
+    <>
+      <CanvasSidePart
+        {...(props.problem === undefined ? {} : { problem: props.problem })}
+        facts={[{ key: props.defaultLabel, value: props.defaultText }]}
+      >
+        <Show when={props.error}>
+          <p class="dinkster-canvas-target-error" role="alert">
+            {props.error}
+          </p>
+        </Show>
+        <p class="dinkster-canvas-target-enter">
+          {props.enter.verb} <span class="dinkster-canvas-target-enter-value">{props.enter.target}</span>
+        </p>
+      </CanvasSidePart>
+      <div class="dinkster-canvas-side-help">
+        <Show when={props.tooltip}>
+          <p class="dinkster-canvas-target-help">{props.tooltip}</p>
+        </Show>
+        <p class="dinkster-canvas-target-help">{props.naming}</p>
+      </div>
+    </>
   )
 }

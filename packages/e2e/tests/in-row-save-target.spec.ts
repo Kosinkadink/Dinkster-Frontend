@@ -30,6 +30,7 @@ async function openTargets(page: Page, mounts: Mounts = (route) => route.fulfill
   await page.evaluate(async (wired) => {
     const target = (optional: boolean) => ({
       kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional,
+      ...(optional ? {} : { tooltip: 'Where the saved images are written.' }),
       widget: { widgetType: 'SAVE_TARGET', options: { suffix: '.png' } },
     })
     const image = { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }
@@ -101,6 +102,8 @@ test('a picked mount and typed name are stored together on leaving, as one undo 
     await expect(prefix(page)).toBeFocused()
     await expect(rowValue(page)).toHaveValue('output/renders/portrait')
     await expect(side(page)).toContainText('Enter keeps output/renders/portrait')
+    // Under the divider, the input's tooltip comes before the naming help.
+    await expect(side(page).locator('.dinkster-canvas-target-help')).toHaveText(['Where the saved images are written.', 'Subfolders and filename stem only. The writer adds numbering and .png.'])
     await pickMount(page, 'archive')
     await prefix(page).fill(expected.prefix)
     await expect(rowValue(page)).toHaveValue(`archive/${expected.prefix}`)
@@ -131,7 +134,7 @@ test('while mounts load, when none is ready and when they cannot be read, nothin
   const cases: readonly [string, Mounts, string][] = [
     ['loading', async (route) => { await new Promise<void>((resolve) => { release = resolve }); await route.fulfill({ json: READY }) }, 'Loading mounts'],
     ['none', (route) => route.fulfill({ json: { mounts: [{ id: 'reference', mode: 'read', state: 'ready' }, { id: 'offline', mode: 'readwrite', state: 'missing' }] } }), 'No mount ready'],
-    ['failed', (route) => route.fulfill({ status: 500, json: { error: 'mount settings unavailable' } }), 'None'],
+    ['failed', (route) => route.fulfill({ status: 500, json: { error: 'mount settings unavailable' } }), 'Could not load'],
   ]
   for (const [state, handler, words] of cases) {
     await openTargets(page, handler)
@@ -139,7 +142,12 @@ test('while mounts load, when none is ready and when they cannot be read, nothin
     await expect(mount(page), state).toHaveAttribute('data-state', state)
     await expect(mount(page), state).toContainText(words)
     if (state === 'none') await expect(side(page)).toContainText('No ready writable mounts. Add or reconnect a writable folder in mount settings.')
-    if (state === 'failed') await expect(box(page).locator('.dinkster-canvas-target-note')).toBeVisible()
+    // The error's own sentence leads the side part; the box holds only the few words.
+    if (state === 'failed') {
+      await expect(side(page).locator('.dinkster-canvas-target-error')).not.toBeEmpty()
+      await expect(side(page).locator('p').first()).toHaveClass('dinkster-canvas-target-error')
+      await expect(box(page).locator('.dinkster-canvas-target-note')).toHaveCount(0)
+    }
     // The list does not open, and a typed name cannot be stored.
     await mount(page).click({ force: true })
     await expect(page.getByRole('listbox', { name: 'Writable mount' }), state).toHaveCount(0)
@@ -204,6 +212,7 @@ test('Clear destination is offered only on a target that may be empty, and store
   await expect(page.getByRole('button', { name: 'Clear destination' })).toHaveCount(0)
   await page.keyboard.press('Escape')
   await openRow(page, 'gallery')
+  await expect(side(page).locator('.dinkster-canvas-target-help')).toHaveText(['Subfolders and filename stem only. The writer adds numbering and .png.'])
   await page.getByRole('button', { name: 'Clear destination' }).click()
   await expect(prefix(page)).toHaveValue('')
   await expect(rowValue(page)).toHaveValue('')

@@ -155,7 +155,7 @@
   "saveTargetWidget.apply": "Apply destination",
   "saveTargetWidget.loading": "Loading mounts",
   "saveTargetWidget.none": "No mount ready",
-  "saveTargetWidget.noMount": "None",
+  "saveTargetWidget.couldNotLoad": "Could not load",
   "saveTargetWidget.mountGone": "Mount not available",
   "saveTargetWidget.enterKeeps": "Enter keeps",
   "saveTargetWidget.enterStores": "Enter stores",

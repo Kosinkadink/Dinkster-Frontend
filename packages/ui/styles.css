@@ -554,5 +554,7 @@
 .dinkster-canvas-target-action .dinkster-canvas-target-glyph { color: currentColor; }
 .dinkster-canvas-target-action:disabled { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 .dinkster-canvas-target-action:focus-visible, .dinkster-canvas-target-action[data-focused='true'] { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
+.dinkster-canvas-target-error { margin: 0; color: var(--dinkster-danger-foreground); }
+.dinkster-canvas-target-help { margin: 0; }
 .dinkster-canvas-target-enter { margin: 0; color: var(--dinkster-text-secondary); }
 .dinkster-canvas-target-enter-value { color: var(--dinkster-text-primary); overflow-wrap: anywhere; }
