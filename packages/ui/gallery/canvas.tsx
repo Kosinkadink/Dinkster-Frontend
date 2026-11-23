@@ -58,6 +58,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'idle-outline',
         'titles',
         'titles-content',
+        'title-suffix',
         'node-look',
         'previews',
         'badges',
@@ -143,6 +144,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   titles:
     'A title that does not fit ends in an ellipsis instead of squeezing its letters, drawn at 75 percent zoom.',
   'titles-content': 'The same titles at 50 percent zoom.',
+  'title-suffix':
+    'A node\'s declared title suffix, worked out from its values ("20 steps, euler"), one space after the title in the row names\' dim regular type: beside a pack title, beside a renamed title, cut first on a narrow node ("20 steps with the euler sampler"), and on a minimized node.',
   'node-look':
     'The same nodes in the original look and in the flat-title look the owner chose.',
   previews:

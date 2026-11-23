@@ -68,6 +68,7 @@ import { CanvasColorArriving } from '@dinkster/ui'
 import {
   defaultValuesOf,
   initialDynamicStateOf,
+  ruleProblemRefs,
   documentResolver,
   elabOutputsOf,
   effectiveOccurrenceTopology,
@@ -2545,6 +2546,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       repaintMinimap?.()
     }
     updateTheme()
+    createEffect(() => renderer.setRenamingNode(nodePrompt()?.nodeId))
     const themeObserver = new MutationObserver(updateTheme)
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     onCleanup(() => themeObserver.disconnect())
@@ -4438,10 +4440,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const availabilityDiags = tab.execution || !hasResidentMetadata
         ? [] : props.app.previewAvailabilityDiagnostics(tab) ?? []
       const widgetDiags = widgetValueDiagnostics()
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...availabilityDiags]
+      // A node's declared rules are checked as the user edits, so a failed
+      // one is listed before the run is queued, under the same workflow
+      // origin compile gives it. A rule whose check reads exactly one field
+      // is that field's problem and outlines its row.
+      const marks: Record<string, Set<string>> = Object.fromEntries(
+        Object.entries(widgetDiags.marks).map(([nodeId, keys]) => [nodeId, new Set(keys)]))
+      const ruleDiags = scene.nodes.flatMap(({ node, elaborated }) =>
+        (elaborated?.diagnostics ?? [])
+          .filter((d) => d.code === 'node.rule.failed')
+          .map((d): Diagnostic => {
+            const refs = ruleProblemRefs(d, scene.graphId, node.id)
+            const field = refs[0]?.valueKey
+            if (field !== undefined) (marks[node.id] ??= new Set()).add(field)
+            return { ...d, origin: 'compile', refs }
+          }))
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...ruleDiags, ...availabilityDiags]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
-      renderer.setRowMarks(widgetDiags.marks)
+      renderer.setRowMarks(marks)
     }
 
     createEffect(on(comparisonCompilesChanged, () => {
