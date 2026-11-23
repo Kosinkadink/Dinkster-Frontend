@@ -3648,6 +3648,32 @@ export class CanvasRenderer {
           ctx.fillText(`+ ${row.label}`, node.x + l.width / 2, rowY + row.height / 2, l.width - t.padX * 2 - canvasPaintTokens.widget.growth.textPadding)
           ctx.textAlign = 'left'
           ctx.globalAlpha = rowAlpha
+        } else if (row.kind === 'note') {
+          // A formula note's text is unknown until formulas are evaluated, so
+          // it draws dimmed like any other offer that is not settled yet.
+          const rowAlpha = ctx.globalAlpha
+          if (row.unknown) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
+          const width = row.width ?? l.width - row.inset * 2
+          ctx.fillStyle = t.colors.label
+          ctx.textAlign = 'left'
+          ctx.fillText(row.text, node.x + row.inset + canvasPaintTokens.widget.labelInset, rowY + row.height / 2, width - canvasPaintTokens.widget.labelInset * 2)
+          ctx.globalAlpha = rowAlpha
+        } else if (row.kind === 'button') {
+          // Buttons do nothing yet: drawn as a solid capsule, never hovered.
+          const paint = canvasPaintTokens.widget
+          const width = row.width ?? l.width - row.inset * 2
+          const x = node.x + row.inset
+          ctx.fillStyle = t.colors.widgetBackground
+          ctx.beginPath()
+          ctx.roundRect(x, rowY + paint.verticalInset, width, row.height - paint.verticalInset * 2, paint.radius)
+          ctx.fill()
+          ctx.strokeStyle = t.colors.label
+          ctx.lineWidth = canvasPaintTokens.widget.growth.stroke
+          ctx.stroke()
+          ctx.fillStyle = t.colors.label
+          ctx.textAlign = 'center'
+          ctx.fillText(row.label, x + width / 2, rowY + row.height / 2, width - paint.growth.textPadding)
+          ctx.textAlign = 'left'
         } else if (row.kind === 'fallback') {
           // Stored value on a schemaless node: read-only and dimmed, but
           // recognizable - the document's key and value survive the missing

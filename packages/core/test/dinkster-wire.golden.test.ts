@@ -388,6 +388,26 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('carries a color field that uses opacity to the schema model, and only that field', () => {
+    const decoded = parseDinksterSchema('Colors', {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      body: [
+        { kind: 'input', id: 'fill', type: concrete('STRING'), required: true, default: '#33669980', widget: { type: 'COLOR', alpha: true } },
+        { kind: 'input', id: 'line', type: concrete('COLOR'), required: true, default: '#336699', widget: { type: 'COLOR' } },
+      ],
+    })
+    expect(decoded.diagnostics).toEqual([])
+    const [fill, line] = inputsOf(decoded.schema!)
+    expect(fill!.widget).toMatchObject({ widgetType: 'COLOR', options: { alpha: true } })
+    expect(line!.widget!.options).toEqual({})
+    const rejected = parseDinksterSchema('BadColor', {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      body: [{ kind: 'input', id: 'fill', type: concrete('STRING'), required: true, widget: { type: 'COLOR', alpha: 'yes' } }],
+    })
+    expect(rejected.schema).toBeUndefined()
+    expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error', message: expect.stringContaining('alpha must be a boolean') })])
+  })
+
   it('renders numeric-only unions as FLOAT without changing imported numeric values or socket types', () => {
     const widget = { type: 'NUMBER', min: 1, max: 1000, step: 0.01, round: false, display: 'number' }
     for (const types of [['FLOAT', 'INT'], ['INT', 'FLOAT']]) {

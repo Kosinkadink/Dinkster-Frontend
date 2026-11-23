@@ -196,7 +196,7 @@ const samplerNode = (type: string, title: string, options: readonly string[]) =>
   ])
 
 type Endpoint = Record<string, Json>
-interface NodeEntry {
+export interface NodeEntry {
   readonly type: NodeSchema
   readonly x: number
   readonly y: number
@@ -207,7 +207,7 @@ interface NodeEntry {
   /** A subgraph node: an instance of the named graph. */
   readonly instanceOf?: string
 }
-interface Graph {
+export interface Graph {
   readonly name?: string
   readonly nodes: Record<string, NodeEntry>
   /** [from node, from port, to node, to port], or explicit endpoints. */
@@ -231,7 +231,7 @@ const COLUMN = 230
  * app does: the top level with the occurrence view, a subgraph entered
  * through one of its nodes, or a subgraph opened with no node.
  */
-function sceneOf(
+export function sceneOf(
   tokens: DesignTokens,
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
@@ -352,7 +352,7 @@ function sceneOf(
 }
 
 /** Two scenes of one card together: what is outside, then what is inside. */
-const joined = (a: Scene, b: Scene): Scene => ({
+export const joined = (a: Scene, b: Scene): Scene => ({
   ...b,
   nodes: [...a.nodes, ...b.nodes],
   links: [...a.links, ...b.links],
