@@ -268,7 +268,9 @@ export function BoundaryTree(props: {
               onClick={select(row.id)}
             >
               <Dot color={row.color} />
-              <span class="boundary-tree-label">{row.label}</span>
+              <span class="boundary-tree-label" title={row.label}>
+                {row.label}
+              </span>
               <Marks condition={row.condition} problem={row.problem} />
             </span>
           )}

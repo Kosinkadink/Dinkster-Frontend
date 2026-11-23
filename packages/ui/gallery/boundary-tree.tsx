@@ -216,14 +216,10 @@ const fieldSettings = () => (
     <Setting label="Default">
       <ProductTextInput value="0.45" aria-label="Default" />
     </Setting>
-    <Setting label="Line">
-      <span>3 of 4 fields</span>
-      <ProductButton>Put on a line of its own</ProductButton>
-    </Setting>
   </>
 )
 
-const outputSettings = () => (
+const outputSettings = (forced: boolean, where: string) => (
   <>
     <div class="boundary-tree-settings-head">
       <span class="boundary-tree-panel-title">preview</span>
@@ -236,11 +232,9 @@ const outputSettings = () => (
       <ProductLink href="#canvas">preview on Blend</ProductLink>
     </Setting>
     <Setting label="On the node">
-      <ProductCheckbox label="A line of its own" checked />
+      <ProductCheckbox label="Force its own row" checked={forced} />
     </Setting>
-    <span class="boundary-tree-quiet">
-      Otherwise it shares the line of the pin just above it.
-    </span>
+    <span class="boundary-tree-quiet">{where}</span>
   </>
 )
 
@@ -326,15 +320,18 @@ export function BoundaryTreeGallery() {
         />
       </Example>
       <Example
-        caption="An output kept on a line of its own"
-        note="preview would otherwise share the line of the pin above it on the node; here it is kept apart."
+        caption="An output with Force its own row"
+        note="Force its own row keeps preview off the line of the pin above it; the sentence under it says where it sits on the node now."
       >
         <Panel
           title="Detail pass"
           uses="used in 2 places"
           entries={detailPass({ lookOpen: false })}
           selected="preview"
-          settings={outputSettings()}
+          settings={outputSettings(
+            true,
+            'On the node it has a row of its own, because Force its own row is on.',
+          )}
         />
       </Example>
       <Example
@@ -388,7 +385,7 @@ export function BoundaryTreeGallery() {
       </Example>
       <Example
         caption="Taking a field out of its line"
-        note="Dragging feather by its name up or down takes it out of the line, into a slot of its own."
+        note="Dragging feather by its name up or down takes it out of the line, into a slot of its own; from the keyboard, Alt with the up or down arrow does the same."
       >
         <Panel
           title="Detail pass"
@@ -440,6 +437,7 @@ export function BoundaryTreeGallery() {
             output('preview', 'preview', 'IMAGE', 'Blend'),
           ]}
           selected="preview"
+          settings={outputSettings(false, 'On the node it sits beside mask.')}
         />
       </Example>
       <Example
