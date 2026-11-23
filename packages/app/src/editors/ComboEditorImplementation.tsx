@@ -169,7 +169,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
     } as CommandInvocation))
   }
 
-  return <div ref={(el) => { root = el; props.bindPopover(el) }} class="widget-editor floating-surface widget-editor-popover combo-dropdown" classList={{ 'multi-combo-dropdown': multi, 'editable-combo-dropdown': editable }} data-testid={multi ? 'multi-combo-dropdown' : 'combo-dropdown'} data-remote={remote()?.state ?? 'static'} data-chip={multi ? spec.options['chip'] === true ? 'true' : spec.options['chip'] === false ? 'false' : 'absent' : undefined} data-editor-surface="popover" role="dialog" aria-label={`Edit ${ed.label} ${multi ? 'MULTI_COMBO' : 'COMBO'}`} style={props.popoverStyle}>
+  return <div ref={(el) => { root = el; props.bindPopover(el) }} class="widget-editor floating-surface widget-editor-popover combo-dropdown" classList={{ 'multi-combo-dropdown': multi, 'editable-combo-dropdown': editable }} data-testid={multi ? 'multi-combo-dropdown' : 'combo-dropdown'} data-editor-target={ed.target.kind} data-remote={remote()?.state ?? 'static'} data-chip={multi ? spec.options['chip'] === true ? 'true' : spec.options['chip'] === false ? 'false' : 'absent' : undefined} data-editor-surface="popover" role="dialog" aria-label={`Edit ${ed.label} ${multi ? 'MULTI_COMBO' : 'COMBO'}`} style={props.popoverStyle}>
     <props.header type={multi ? 'MULTI_COMBO' : 'COMBO'} />
     <Show when={editable}><div class="combo-authoring" data-testid="combo-authoring">
       <ProductField controlId="combo-selected-draft" label={message('comboAuthoring.selected')} description={message('comboAuthoring.selectedHint')} layout="stack" invalid={parsedSelection() === undefined}>
