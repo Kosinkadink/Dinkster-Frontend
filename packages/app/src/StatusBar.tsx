@@ -204,7 +204,7 @@ export function StatusBar(props: {
           onClick={() => props.openPanel('problems')}>{message('shell.status.problemCount', { count: problem().count })}</ProductButton>}</Show>
         <Show when={adjusted() > 0}>
           <span class="status-item status-adjusted" data-testid="status-adjusted">
-            <ProductFixesCount count={adjusted()} label={message('fixesNotice.count', { count: adjusted() })}
+            <ProductFixesCount size="compact" count={adjusted()} label={message('fixesNotice.count', { count: adjusted() })}
               onOpen={() => props.app.reopenAdjustmentNotice(props.tab()!.id)} />
           </span>
         </Show>
