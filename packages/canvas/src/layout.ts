@@ -921,6 +921,7 @@ export function layoutNode(
     }
     if (item.kind === 'output') {
       const spec = item.spec
+      if (spec.hidden === true) continue
       if (isHidden(spec.section)) {
         if (isConnected('out', spec.id)) {
           collapsedPins.push({ sectionId: spec.section!, portId: spec.id, direction: 'out', type: spec.type, ...(spec.optional ? { maybeAbsent: true as const } : {}), ...annotate(item) })

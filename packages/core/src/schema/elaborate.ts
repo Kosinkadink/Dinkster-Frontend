@@ -45,6 +45,7 @@ import {
 import type {
   BodyRow,
   ButtonSpec,
+  Formulated,
   ChoiceSpec,
   DescribedSpec,
   GroupSpec,
@@ -60,7 +61,7 @@ import type {
   UseSpec,
   WidgetSpec,
 } from './model.js'
-import { scopeRowsOf } from './model.js'
+import { isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
 
 // ---------------------------------------------------------------------------
 // Connectivity facts (structural link presence - built once per graph)
@@ -78,6 +79,8 @@ export interface Connectivity {
   isOutputConnected(port: string): boolean
   /** Enumerable document input ports with a link or net endpoint. */
   inputPorts?(): readonly string[]
+  /** Enumerable producer ports (outputs and widget taps) with a link or net endpoint. */
+  outputPorts?(): readonly string[]
 }
 
 export const EMPTY_CONNECTIVITY: Connectivity = {
@@ -131,6 +134,7 @@ export function buildGraphConnectivity(def: GraphDef): (node: NodeId) => Connect
       isOutputConnected: (port) =>
         outs?.has(producerKey('port', port)) === true || outs?.has(producerKey('tap', port)) === true,
       inputPorts: () => [...(inputPorts.get(node) ?? [])],
+      outputPorts: () => [...(outs ?? [])].map((key) => (JSON.parse(key) as [string, string])[1]),
     }
     cache.set(node, c)
     return c
@@ -284,6 +288,10 @@ export interface ElaboratedButton {
   /** Flattened id. */
   readonly id: string
   readonly label: string
+  /** The button's `enabled` worked out to false; absent when enabled, unknown or failed. */
+  readonly enabled?: false
+  readonly disabledReason?: string
+  readonly tooltip?: string
   readonly section?: string
   /** Line key of the cell drawn before this one in a `Row`. */
   readonly adjacentTo?: string
@@ -757,6 +765,35 @@ function elaboratePass(
     }
   }
 
+  /**
+   * A literal as itself; a formula's answer when it is of `type`. Undefined
+   * when the formula is unknown or fails, so each caller gives the plan's
+   * "while unknown" answer.
+   */
+  function answer(value: Formulated<string> | undefined, scope: Scope, type: 'string'): string | undefined
+  function answer(value: Formulated<boolean> | undefined, scope: Scope, type: 'boolean'): boolean | undefined
+  function answer(value: Formulated<string | boolean> | undefined, scope: Scope, type: 'string' | 'boolean'): string | boolean | undefined {
+    if (value === undefined || typeof value === type) return value as string | boolean | undefined
+    if (!isFormulaSpec(value)) return undefined
+    const outcome = evaluate(value.formula, scope)
+    return outcome.kind === 'value' && typeof outcome.value === type ? outcome.value as string | boolean : undefined
+  }
+
+  /** A label: its literal or its formula's answer, else the id. */
+  const labelOf = (value: Formulated<string> | undefined, id: string, scope: Scope): string => {
+    const label = answer(value, scope, 'string')
+    return label === undefined || label === '' ? id : label
+  }
+
+  const connectedPorts = [...(connectivity.inputPorts?.() ?? []), ...(connectivity.outputPorts?.() ?? [])]
+  /** Whether a wire reaches a row, or any row a box holds. */
+  const wiredUnder = (row: BodyRow | UseSpec, prefix: string): boolean => {
+    if (row.kind === 'section' || row.kind === 'row') return row.rows.some((inner) => wiredUnder(inner, prefix))
+    if (row.kind === 'note' || row.kind === 'button' || row.kind === 'editor' || row.kind === 'state') return false
+    const path = prefix + row.id
+    return linked(path) || connectivity.isOutputConnected(path) || connectedPorts.some((port) => port.startsWith(`${path}.`))
+  }
+
   // -- Emission ---------------------------------------------------------------
 
   const common = (scope: Scope): Pick<ElaboratedInput, 'origin' | 'ancestry' | 'materialize'> => ({
@@ -770,10 +807,11 @@ function elaboratePass(
       exhaust('elab.projectedNamespaceCollision', `projected input namespace collision at '${path}'`)
       return
     }
+    const own = row.labelFormula !== undefined ? labelOf(row.labelFormula, row.id, scope) : row.displayName ?? row.id
     let spec: InputSpec = {
       ...row,
       id: path,
-      displayName: label ?? (scope.labelPrefix !== undefined ? `${scope.labelPrefix} ${row.displayName ?? row.id}` : row.displayName ?? row.id),
+      displayName: label ?? (scope.labelPrefix !== undefined ? `${scope.labelPrefix} ${own}` : own),
       optional: row.optional || !scope.required || scope.ghost,
       ...(scope.section !== undefined ? { section: scope.section } : {}),
       ...(scope.hidden ? { hidden: true as const } : {}),
@@ -799,14 +837,16 @@ function elaboratePass(
       exhaust('elab.projectedNamespaceCollision', `projected output namespace collision at '${path}'`)
       return
     }
+    const own = row.labelFormula !== undefined ? labelOf(row.labelFormula, row.id, scope) : row.displayName ?? row.id
     push({
       kind: 'output',
       address: { port: path },
       spec: {
         ...row,
         id: path,
-        displayName: label ?? (scope.labelPrefix !== undefined ? `${scope.labelPrefix} ${row.displayName ?? row.id}` : row.displayName ?? row.id),
+        displayName: label ?? (scope.labelPrefix !== undefined ? `${scope.labelPrefix} ${own}` : own),
         ...(scope.section !== undefined ? { section: scope.section } : {}),
+        ...(scope.hidden ? { hidden: true as const } : {}),
         ...(scope.typeMember !== undefined ? { type: scopeType(row.type, scope.typeMember) } : {}),
       },
       ...common(scope),
@@ -842,7 +882,12 @@ function elaboratePass(
     }
   }
 
-  const one = (row: BodyRow, scope: Scope): void => {
+  const one = (row: BodyRow, outer: Scope): void => {
+    // A row hidden by its `visible` is still stored and sent to the run; a
+    // row with a wire, or a box that holds one, shows anyway.
+    const visible = 'visible' in row ? row.visible : undefined
+    const scope = visible !== undefined && !outer.hidden && answer(visible, outer, 'boolean') === false &&
+      !wiredUnder(row, outer.prefix) ? { ...outer, hidden: true } : outer
     switch (row.kind) {
       case 'input':
         emitInput(row, scope.prefix + row.id, scope)
@@ -898,19 +943,30 @@ function elaboratePass(
       ...(scope.section !== undefined ? { section: scope.section } : {}),
       ...(adjacentTo !== undefined ? { adjacentTo } : {}),
     }
-    const item: ElaboratedItem = row.kind === 'note'
-      ? typeof row.text === 'string'
-        ? { kind: 'note', id, text: row.text, ...placed }
-        : { kind: 'note', id, text: row.unknown ?? '', unknown: true, ...placed }
-      : { kind: 'button', id, label: row.label, ...placed }
+    let item: ElaboratedItem
+    if (row.kind === 'note') {
+      const text = isLookupSpec(row.text) ? undefined : answer(row.text, scope, 'string')
+      item = text !== undefined ? { kind: 'note', id, text, ...placed } : { kind: 'note', id, text: row.unknown ?? '', unknown: true, ...placed }
+    } else {
+      // Unknown or failed: enabled, with no reason (section 2).
+      const enabled = answer(row.enabled, scope, 'boolean')
+      const reason = enabled === false ? answer(row.disabledReason, scope, 'string') : undefined
+      const tooltip = answer(row.tooltip, scope, 'string')
+      item = {
+        kind: 'button', id, label: row.label, ...placed,
+        ...(enabled === false ? { enabled: false as const } : {}),
+        ...(reason ? { disabledReason: reason } : {}),
+        ...(tooltip ? { tooltip } : {}),
+      }
+    }
     return push(item) ? lineKeyOf(item) : undefined
   }
 
   const section = (row: SectionSpec, scope: Scope): void => {
     const id = scope.prefix + row.id
     if (!enter(id)) return
-    const label = literalText(row.displayName)
-    push({
+    const label = answer(row.displayName, scope, 'string') || undefined
+    if (!scope.hidden) push({
       kind: 'section',
       spec: {
         kind: 'section',
@@ -1082,7 +1138,7 @@ function elaboratePass(
         })
       }
       const emitted = items.slice(before)
-      if (ghost && emitted.length === 0 && position === storedCount + offered.length - 1) {
+      if (ghost && !scope.hidden && emitted.length === 0 && position === storedCount + offered.length - 1) {
         push({
           kind: 'growth',
           construct: path,
@@ -1141,7 +1197,7 @@ function elaboratePass(
       if (halted) return
       member(storedCount + index, key, true)
     }
-    if (grows === 'button' && !scope.ghost && storedCount + offered.length < limit) {
+    if (grows === 'button' && !scope.ghost && !scope.hidden && storedCount + offered.length < limit) {
       const key = fresh()
       if (key !== undefined) {
         push({
@@ -1219,7 +1275,8 @@ function elaboratePass(
     if (key !== undefined && inRun) choices[path] = key
     if (key !== undefined && inRun && row.required && row.leader === undefined && storedKey === undefined) unstoredChoices[path] = key
     if (row.leader === undefined) {
-      const label = literalText(row.displayName) ?? row.id
+      const label = labelOf(row.displayName, row.id, scope)
+      const tooltip = answer(row.tooltip, scope, 'string')
       const startKey = row.required ? row.default ?? keys[0] : undefined
       const widget: WidgetSpec = {
         widgetType: 'COMBO',
@@ -1237,7 +1294,7 @@ function elaboratePass(
         socketless: true,
         widget,
         ...(row.hidden ? { hidden: true as const } : {}),
-        ...(literalText(row.tooltip) !== undefined ? { tooltip: literalText(row.tooltip)! } : {}),
+        ...(tooltip ? { tooltip } : {}),
       }
       if (!claim(emittedInputs, activeInputs, path, scope)) {
         exhaust('elab.projectedNamespaceCollision', `projected input namespace collision at '${path}'`)
@@ -1294,8 +1351,8 @@ function elaboratePass(
   }
 
   const typeChoiceBody = (row: TypeChoiceSpec, path: string, scope: Scope): void => {
-    const label = literalText(row.displayName) ?? row.id
-    const tooltip = literalText(row.tooltip)
+    const label = labelOf(row.displayName, row.id, scope)
+    const tooltip = answer(row.tooltip, scope, 'string') || undefined
     const base: InputSpec = {
       kind: 'input',
       id: row.id,
