@@ -1178,7 +1178,7 @@ test('widget popover is anchored, non-draggable, Escape-restoring, and fits a su
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'ColorsWidgetTest', displayName: 'Palette', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'palette', type: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } }, optional: false,
+      body: [{ kind: 'input', id: 'palette', type: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } }, optional: false,
         widget: { widgetType: 'COLORS', default: ['#112233'], options: {} } }],
     }])
     await app.openDocument({

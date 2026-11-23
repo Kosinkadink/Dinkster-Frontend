@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, createUniqueId, onCleanup, untrack, type Component } from 'solid-js'
-import { documentResolver, effectiveWidgetDefault, jsonSameValue, type Json } from '@dinkster/core'
+import { documentResolver, effectiveWidgetDefault, jsonSameValue, scopeRowsOf, type Json } from '@dinkster/core'
 import {
   colorCode,
   colorFieldDraft,
@@ -83,7 +83,7 @@ export const InRowColorImplementation: Component<WidgetEditorImplementationProps
       const resolve = documentResolver(doc, registry.resolve)
       for (const graph of Object.values(doc.graphs)) {
         for (const node of Object.values(graph.nodes)) {
-          for (const item of resolve(node.type)?.items ?? []) {
+          for (const item of scopeRowsOf(resolve(node.type)?.body ?? [])) {
             if (item.kind !== 'input' || item.widget === undefined) continue
             const value = node.values[item.id]
             const color = item.widget.widgetType === colorKind.type ? (typeof value === 'string' ? value : undefined)

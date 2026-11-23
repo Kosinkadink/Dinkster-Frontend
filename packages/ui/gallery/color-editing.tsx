@@ -56,7 +56,7 @@ import { MARGIN, NODE_WIDTH, SIDE_ROOM } from './row-editing.js'
 
 type WidgetRow = Extract<LayoutRow, { kind: 'widget' }>
 
-const colorInput = colorEditingSchema.items.find(
+const colorInput = colorEditingSchema.body.find(
   (item) => item.kind === 'input' && item.id === 'color',
 )
 const help = colorInput?.kind === 'input' ? colorInput.tooltip : undefined
