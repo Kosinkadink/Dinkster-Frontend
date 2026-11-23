@@ -1730,13 +1730,12 @@ function compileImpl(
       const occ: Occurrence = { instancePath: path, node: node.id }
       const runtimeId = occurrenceKey(occ)
       const elab = elabAt(ctx, node, schema)
-      const dynamic = ctx.overlays.get(node.id) ?? node.dynamic
       const authoredOptions = new Map<string, readonly string[]>()
       for (const input of elab.inputs) {
         const widget = input.spec.widget
         const target = widget?.optionsInput ??
           widget?.representations?.representations.find((item) => item.widget.optionsInput !== undefined)?.widget.optionsInput
-        if (target !== undefined) authoredOptions.set(target, (dynamic?.[valueKeyOf(input)]?.options ?? []).map(String))
+        if (target !== undefined) authoredOptions.set(target, (node.dynamic?.[valueKeyOf(input)]?.options ?? []).map(String))
       }
       const selectorInputKey = schema.selector === undefined
         ? undefined
