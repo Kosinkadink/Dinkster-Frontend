@@ -2094,17 +2094,13 @@ describe('node chrome paint on the live renderer', () => {
     expect(nodeBorder(calls, node)?.lineWidth).toBe(2.5)
   })
 
-  it('outlines a node with an Error in solid red unless its tokens say dashed or nothing', () => {
+  it('outlines a node with an Error in solid red', () => {
     const scene = fixtureScene('clean')
     const node = nodeOf(scene, 'c1')
-    const border = (outline?: 'solid' | 'dashed' | 'none') => nodeBorder(paintWithTokens(scene,
-      outline === undefined ? defaultTokens : { ...defaultTokens, documentErrorOutline: outline },
+    const border = nodeBorder(paintWithTokens(scene, defaultTokens,
       (renderer) => renderer.setBadges({ c1: [PROBLEM_ERROR_BADGE] })), node)
-    expect(border()?.strokeStyle).toBe(ERR)
-    expect(border()?.lineDash).toEqual([])
-    expect(border('dashed')?.strokeStyle).toBe(ERR)
-    expect(border('dashed')?.lineDash.length).toBeGreaterThan(0)
-    expect(border('none')?.strokeStyle).toBe(defaultTokens.colors.nodeIdleOutline)
+    expect(border?.strokeStyle).toBe(ERR)
+    expect(border?.lineDash).toEqual([])
   })
 
   it('muted and bypassed dim the whole node; bypassed also gets the purple wash', () => {

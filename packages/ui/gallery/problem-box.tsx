@@ -51,20 +51,17 @@ function ProblemBoxCard(props: {
       ),
     ]).then(() => {
       if (disposed) return
-      const base: DesignTokens = {
+      const tokens: DesignTokens = {
         ...defaultTokens,
         ...canvasTypePaintForTheme(theme),
         colors: canvasColorsForTheme(theme),
       }
-      const card = props.card(base)
-      const tokens: DesignTokens = card.errorOutline === undefined ? base : { ...base, documentErrorOutline: card.errorOutline }
-      const scale = card.scale ?? 1
+      const card = props.card(tokens)
       const nodesBottom = Math.max(...card.scene.nodes.map((node) => node.y + node.layout.height))
-      const width = card.width
-      const height = Math.ceil((nodesBottom + card.room) * scale)
-      canvas.style.width = `${width}px`
+      const height = nodesBottom + card.room
+      canvas.style.width = `${card.width}px`
       canvas.style.height = `${height}px`
-      frame.style.width = `${width}px`
+      frame.style.width = `${card.width}px`
       frame.style.height = `${height}px`
       renderer?.dispose()
       renderer = new CanvasRenderer(canvas, tokens, createRegistryPainter(props.registry))
@@ -74,7 +71,7 @@ function ProblemBoxCard(props: {
       renderer.setBadges(card.badges)
       renderer.setRowMarks(card.rowMarks)
       renderer.setProblemRowHighlight(card.highlight)
-      renderer.setViewport({ x: 0, y: 0, scale })
+      renderer.setViewport({ x: 0, y: 0, scale: 1 })
       renderer.renderNow()
       const viewport = renderer.getViewport()
       setCaption(card.caption)
@@ -149,29 +146,19 @@ export function ProblemBoxGallery(props: { theme: 'dark' | 'light' }) {
     }
     return problemBoxGallery(tokens, measure, widgetMeasure)
   }
-  // Consecutive cards with the same row share one line; the others wrap together.
-  const segments: { row?: string; ids: string[] }[] = []
-  for (const card of cardsFor(defaultTokens)) {
-    const last = segments[segments.length - 1]
-    if (last !== undefined && last.row === card.row) last.ids.push(card.id)
-    else segments.push({ ...(card.row === undefined ? {} : { row: card.row }), ids: [card.id] })
-  }
+  const ids = cardsFor(defaultTokens).map((card) => card.id)
   return (
-    <For each={segments}>
-      {(segment) => (
-        <div class="dinkster-canvas-examples">
-          <For each={segment.ids}>
-            {(id) => (
-              <ProblemBoxCard
-                id={id}
-                theme={props.theme}
-                registry={registry}
-                card={(tokens) => cardsFor(tokens).find((card) => card.id === id)!}
-              />
-            )}
-          </For>
-        </div>
-      )}
-    </For>
+    <div class="dinkster-canvas-examples">
+        <For each={ids}>
+          {(id) => (
+            <ProblemBoxCard
+              id={id}
+              theme={props.theme}
+              registry={registry}
+              card={(tokens) => cardsFor(tokens).find((card) => card.id === id)!}
+            />
+          )}
+        </For>
+    </div>
   )
 }

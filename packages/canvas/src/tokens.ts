@@ -660,11 +660,6 @@ export interface DesignTokens {
    * centers.
    */
   readonly crispEdges: boolean
-  /**
-   * The outline of a node with an Error in the workflow: solid red (the
-   * default), dashed red, or the node's ordinary outline with nothing added.
-   */
-  readonly documentErrorOutline?: 'solid' | 'dashed' | 'none'
   /** Placement inside widget and pin rows; the node look sets it. */
   readonly rowGeometry: RowGeometry
   readonly badgeTab: { readonly height: number; readonly fontSize: number; readonly inset: number }
