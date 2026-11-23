@@ -66,6 +66,8 @@ export const canvasPaintTokens = {
       /** Drawn size of a tab's icon. */
       iconSize: 14,
       iconGap: 4,
+      /** Gap in screen px between the node's lowest tab and its open problem box. */
+      problemBoxGap: 4,
       maxLabelWidth: 120,
       stroke: 1,
       /** Shares of the tab's color: its fill over the canvas, its line over the canvas, its words over the title color. */

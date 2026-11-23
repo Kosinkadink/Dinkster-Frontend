@@ -562,3 +562,4 @@
 .problem-box-row { color: var(--dinkster-text-primary); }
 .problem-box-line[data-kind='error'] .problem-box-message { color: var(--dinkster-danger-foreground); }
 .problem-box-line[data-kind='warning'] .problem-box-message { color: var(--dinkster-warning-foreground); }
+.dinkster-problem-box-frame { position: relative; }

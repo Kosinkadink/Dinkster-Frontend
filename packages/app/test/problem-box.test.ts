@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { outputRowKey, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, type BadgePlacement, type SceneNode } from '@dinkster/canvas'
 import { diag } from '@dinkster/core'
-import { problemBoxLines, problemBoxPlacement, problemBoxRows } from '../src/problem-box.js'
+import { problemBoxPlacement } from '@dinkster/canvas'
+import { problemBoxLines, problemBoxRows } from '../src/problem-box.js'
 import type { NodeProblemLine } from '../src/problem-display.js'
 
 const widget = (key: string, y: number) => ({ kind: 'widget', y, height: 20, inset: 8, inputId: key, valueKey: key, label: key })

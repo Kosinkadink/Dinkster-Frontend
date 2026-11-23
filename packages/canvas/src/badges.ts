@@ -357,3 +357,23 @@ export function hitTestBadge(scene: Scene, badges: BadgeMap, wx: number, wy: num
   }
   return undefined
 }
+
+/** Gap between the node's lowest tab and the box, in screen px. */
+export const PROBLEM_BOX_GAP = canvasPaintTokens.badge.tab.problemBoxGap
+
+/**
+ * Where the box hangs, in canvas-pane px (the canvas element's own px): below the node and its tabs, left
+ * edge with the node, so it never covers the node, its pins or its wires.
+ */
+export function problemBoxPlacement(
+  node: SceneNode,
+  tabs: readonly BadgePlacement[],
+  viewport: { readonly x: number; readonly y: number; readonly scale: number },
+): { readonly x: number; readonly y: number } {
+  const below = tabs.filter((entry) => entry.badge.placement === 'below')
+  const bottom = Math.max(node.y + node.layout.height, ...below.map((entry) => entry.y + entry.height))
+  return {
+    x: node.x * viewport.scale + viewport.x,
+    y: bottom * viewport.scale + viewport.y + PROBLEM_BOX_GAP,
+  }
+}

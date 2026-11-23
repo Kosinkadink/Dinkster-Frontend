@@ -72,6 +72,7 @@ export const canvasGalleryPages = [
   ['row-lists', 'Lists in the row proposal'],
   ['color-editing', 'Color in the row'],
   ['node-look', 'Original and new node look'],
+  ['problem-box', 'The node\'s problem box'],
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],
   ['widget-driven', 'Link-driven widgets'],

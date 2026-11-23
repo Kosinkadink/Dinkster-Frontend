@@ -72,7 +72,7 @@ test('Canvas waits for the bundled italic face before publishing title paint', a
   }
 })
 
-test('Canvas pages are listed under seven headings in the side list', async ({
+test('Canvas pages are listed under eight headings in the side list', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
@@ -85,6 +85,7 @@ test('Canvas pages are listed under seven headings in the side list', async ({
     'Wires',
     'Subgraphs',
     'Flow nodes',
+    'Problems with fixes',
     'Zoom',
   ])
   // Only the heading holding the current page starts open.
@@ -92,7 +93,16 @@ test('Canvas pages are listed under seven headings in the side list', async ({
     await headings.evaluateAll((all) =>
       all.map((heading) => heading.getAttribute('aria-expanded')),
     ),
-  ).toEqual(['true', 'false', 'false', 'false', 'false', 'false', 'false'])
+  ).toEqual([
+    'true',
+    'false',
+    'false',
+    'false',
+    'false',
+    'false',
+    'false',
+    'false',
+  ])
   await expect(pageLink(page, 'anatomy')).toHaveAttribute(
     'aria-current',
     'page',

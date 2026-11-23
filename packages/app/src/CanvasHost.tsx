@@ -55,6 +55,7 @@ import {
   type OccurrenceMutationPlanner,
   type BoundaryExposureSource,
   outputRowKey,
+  problemBoxPlacement,
 } from '@dinkster/canvas'
 import { canvasMeasures } from './canvas-measures.js'
 import { VideoPreview } from './VideoPreview.js'
@@ -137,7 +138,7 @@ import { RowFocusOverlay, type RowFocusState } from './editors/RowFocusOverlay.j
 import type { ExecutedImagePreview } from './scene-overlays.js'
 import { applyNodeDecorations, deriveSceneOverlays, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
 import { composeCanvasProblemDiagnostics, deriveProblemProjection, NO_PROBLEM_ROWS, problemDisplay, problemInputRows, type NodeProblemKind, type NodeProblemMap, type ProblemRowsShown } from './problem-display.js'
-import { problemBoxLines, problemBoxPlacement, problemBoxRows, type ProblemBoxLine } from './problem-box.js'
+import { problemBoxLines, problemBoxRows, type ProblemBoxLine } from './problem-box.js'
 import { NodeProblemBox } from './NodeProblemBox.js'
 import { BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
 import { pasteClipboardIntoTab } from './clipboard-paste.js'
