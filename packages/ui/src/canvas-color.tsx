@@ -56,7 +56,11 @@ function Checker(props: { id: string; cell: number }) {
   )
 }
 
-/** A color's square: 10 pixels, over a checker when the color has opacity. */
+/**
+ * A color's square: 10 pixels, over a checker when the color has opacity,
+ * with a one-pixel edge inside it so white, black and colors near the
+ * background still show their bounds.
+ */
 export function CanvasColorSquare(props: { color: string; size?: number }) {
   const id = createUniqueId()
   const size = () => props.size ?? 10
@@ -75,6 +79,15 @@ export function CanvasColorSquare(props: { color: string; size?: number }) {
         <rect width={size()} height={size()} rx={2} fill={`url(#${id})`} />
       </Show>
       <rect width={size()} height={size()} rx={2} fill={props.color} />
+      <rect
+        class="dinkster-canvas-color-square-edge"
+        x={0.5}
+        y={0.5}
+        width={size() - 1}
+        height={size() - 1}
+        rx={1.5}
+        fill="none"
+      />
     </svg>
   )
 }
@@ -102,19 +115,22 @@ export type CanvasColorControl = 'square' | 'hue' | 'opacity' | 'swatches'
 
 /** A ring's outer radius, its one-pixel contrast rim included. */
 const RING = 6
-const clampRing = (at: number, length: number): number =>
-  Math.min(Math.max(at, RING), Math.max(RING, length - RING))
+/** Half a bar's width, its contrast rims included. */
+const BAR = 3
+const clampTo = (at: number, length: number, half: number): number =>
+  Math.min(Math.max(at, half), Math.max(half, length - half))
 const bounded = (value: number, max: number): number =>
   Math.min(max, Math.max(0, value))
 
 /**
- * The ring marking the chosen point: a 10 pixel ring with a contrast rim,
- * kept wholly inside its control. `light` and `dark` are the ring's and the
+ * The ring marking the chosen point on the square, where saturation and
+ * value are picked at once: a 10 pixel ring with a contrast rim, kept
+ * wholly inside the square. `light` and `dark` are the ring's and the
  * rim's colors, which do not change with the theme.
  */
 function Ring(props: { x: number; y: number; light: string; dark: string }) {
   return (
-    <g class="dinkster-canvas-color-ring" data-x={props.x} data-y={props.y}>
+    <g class="dinkster-canvas-color-handle" data-shape="ring" data-x={props.x} data-y={props.y}>
       <circle
         cx={props.x}
         cy={props.y}
@@ -131,6 +147,19 @@ function Ring(props: { x: number; y: number; light: string; dark: string }) {
         stroke={props.light}
         stroke-width={2}
       />
+    </g>
+  )
+}
+
+/**
+ * The bar marking a strip's value: an upright bar the strip's full height,
+ * light with a dark rim on each side, kept wholly inside the strip.
+ */
+function Bar(props: { x: number; height: number; light: string; dark: string }) {
+  return (
+    <g class="dinkster-canvas-color-handle" data-shape="bar" data-x={props.x} data-y={props.height / 2}>
+      <rect x={props.x - BAR} width={BAR * 2} height={props.height} rx={1.5} fill={props.dark} />
+      <rect x={props.x - BAR + 1} y={1} width={BAR * 2 - 2} height={Math.max(0, props.height - 2)} rx={1} fill={props.light} />
     </g>
   )
 }
@@ -290,8 +319,8 @@ export function CanvasColorPicker(props: {
           <rect width="100%" height="100%" rx={2} fill={`url(#${id}-black)`} />
           <Show when={square().width > 0}>
             <Ring
-              x={clampRing(props.point.s * square().width, square().width)}
-              y={clampRing((1 - props.point.v) * square().height, square().height)}
+              x={clampTo(props.point.s * square().width, square().width, RING)}
+              y={clampTo((1 - props.point.v) * square().height, square().height, RING)}
               light={white()}
               dark={black()}
             />
@@ -327,9 +356,9 @@ export function CanvasColorPicker(props: {
           </defs>
           <rect width="100%" height="100%" rx={2} fill={`url(#${id}-hue)`} />
           <Show when={hue().width > 0}>
-            <Ring
-              x={clampRing((props.point.h / 360) * hue().width, hue().width)}
-              y={hue().height / 2}
+            <Bar
+              x={clampTo((props.point.h / 360) * hue().width, hue().width, BAR)}
+              height={hue().height}
               light={white()}
               dark={black()}
             />
@@ -365,9 +394,9 @@ export function CanvasColorPicker(props: {
             <rect width="100%" height="100%" rx={2} fill={`url(#${id}-checker)`} />
             <rect width="100%" height="100%" rx={2} fill={`url(#${id}-opacity)`} />
             <Show when={opacity().width > 0}>
-              <Ring
-                x={clampRing((props.point.a / 255) * opacity().width, opacity().width)}
-                y={opacity().height / 2}
+              <Bar
+                x={clampTo((props.point.a / 255) * opacity().width, opacity().width, BAR)}
+                height={opacity().height}
                 light={white()}
                 dark={black()}
               />
@@ -405,7 +434,7 @@ export function CanvasColorPicker(props: {
                   if (!props.disabled) props.onSwatch?.(code)
                 }}
               >
-                <CanvasColorSquare color={code} size={22} />
+                <CanvasColorSquare color={code} size={24} />
               </div>
             )}
           </For>
@@ -469,8 +498,9 @@ export function CanvasColorKeys(props: { control: CanvasColorControl; point: Can
 
 /**
  * An open color field's side part: a refusal or "Not a color." first, then
- * what leaving the field does with its color, the default as a link that
- * puts it in the field, and the field's help.
+ * what leaving the field does with its color, the saved color while the
+ * draft differs from it, the default as a link that puts it in the field,
+ * and the field's help.
  */
 export function CanvasColorSide(props: {
   problem?: string
@@ -483,6 +513,8 @@ export function CanvasColorSide(props: {
   enter?: { readonly verb: 'stores' | 'keeps'; readonly color: string }
   /** The last valid color, which the preview holds while the text is not a color. */
   preview?: string
+  /** The stored color, shown while the draft differs from it. */
+  saved?: string
   defaultColor?: string
   onDefault?: () => void
   help?: string
@@ -493,8 +525,11 @@ export function CanvasColorSide(props: {
     <CanvasSidePart
       {...(props.problem === undefined ? {} : { problem: props.problem })}
       {...(props.problemId === undefined ? {} : { problemId: props.problemId })}
-      facts={
-        props.defaultColor === undefined
+      facts={[
+        ...(props.saved === undefined
+          ? []
+          : [{ key: 'saved', value: <CanvasColorCode color={props.saved} /> }]),
+        ...(props.defaultColor === undefined
           ? []
           : [
               {
@@ -505,8 +540,8 @@ export function CanvasColorSide(props: {
                   </CanvasSideLink>
                 ),
               },
-            ]
-      }
+            ]),
+      ]}
       {...(props.help === undefined ? {} : { help: props.help })}
     >
       <Show when={props.pending}>

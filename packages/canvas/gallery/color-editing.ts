@@ -224,7 +224,7 @@ export const colorEditingGroups: readonly {
       },
       {
         id: 'open',
-        caption: 'Just opened. The saved square stays by the name; a live square sits before the typed code. Both rings start at the saved color, and Enter keeps it.',
+        caption: 'Just opened. A live square sits before the typed code, and the ring and bars start at the saved color, so Enter keeps it. The saved color is not listed beside the field until the draft differs from it.',
         stored: '#3366cc',
         text: '#3366cc',
         used: workflowColors,
@@ -236,7 +236,7 @@ export const colorEditingGroups: readonly {
     examples: [
       {
         id: 'pick',
-        caption: 'Dragged in the picker: the text, the live square and the rings follow. Nothing is stored and the saved square stays blue.',
+        caption: 'Dragged in the picker: the text, the live square, the ring and the bars follow. Nothing is stored; beside the field, saved shows the blue it had.',
         stored: '#3366cc',
         text: '#cc6633',
         used: workflowColors,
@@ -250,7 +250,7 @@ export const colorEditingGroups: readonly {
       },
       {
         id: 'invalid',
-        caption: 'Typed cc6x after picking #cc6633. The preview and rings hold #cc6633; Enter keeps the stored #3366cc.',
+        caption: 'Typed cc6x after picking #cc6633. The preview, ring and bar hold #cc6633; Enter keeps the stored #3366cc.',
         stored: '#3366cc',
         text: 'cc6x',
         lastValid: '#cc6633',
@@ -286,7 +286,7 @@ export const colorEditingGroups: readonly {
       },
       {
         id: 'clear',
-        caption: 'Fully transparent: the ring sits inside the clear end, and the color keeps its RGB.',
+        caption: 'Fully transparent: the opacity bar sits inside the clear end, and the color keeps its RGB.',
         stored: '#3366cc',
         text: '#3366cc00',
         opacity: true,
@@ -327,11 +327,31 @@ export const colorEditingGroups: readonly {
     ],
   },
   {
-    title: 'Rings at the edges',
+    title: 'Squares near the background',
+    examples: [
+      {
+        id: 'square-white',
+        caption: 'White: an edge inside the square keeps it apart from a light node and a light field.',
+        stored: '#ffffff',
+      },
+      {
+        id: 'square-black',
+        caption: 'Black: the same edge keeps it apart from a dark node.',
+        stored: '#000000',
+      },
+      {
+        id: 'square-node',
+        caption: 'The dark node\'s own color, #141c1d: the edge still shows where the square is.',
+        stored: '#141c1d',
+      },
+    ],
+  },
+  {
+    title: 'Handles at the edges',
     examples: [
       {
         id: 'black',
-        caption: 'Black: the ring sits wholly inside the corner, and the hue strip keeps the hue the edit was at.',
+        caption: 'Black: the ring sits wholly inside the corner, and the hue bar keeps the hue the edit was at.',
         stored: '#3366cc',
         text: '#000000',
         hue: 220,
@@ -339,7 +359,7 @@ export const colorEditingGroups: readonly {
       },
       {
         id: 'white',
-        caption: 'White, after red: the square ring at the top-left corner and the hue ring at the red end both stay inside.',
+        caption: 'White, after red: the ring at the top-left corner and the hue bar at the red end both stay inside.',
         stored: '#3366cc',
         text: '#ffffff',
         hue: 0,
@@ -366,7 +386,7 @@ export const colorEditingGroups: readonly {
       },
       {
         id: 'refused',
-        caption: 'The store was refused: the refusal comes first, and the draft, live square and rings stay.',
+        caption: 'The store was refused: the refusal comes first, and the draft, live square, ring and bars stay.',
         stored: '#3366cc',
         text: '#cc6633',
         used: workflowColors,

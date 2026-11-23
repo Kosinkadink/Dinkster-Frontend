@@ -497,11 +497,15 @@ selects this (`in-row`, the default) or the earlier card (`card`).
 COLOR rows and integer color rows (INT with `display: color`) are edited in
 the row the same way, as a draft. The closed row draws a square of the stored
 color directly before its code. Open, the field holds the code, selected, with
-a live square of the draft before it; the square by the label keeps showing
-the stored color. A picker hangs under the field inside the same outline: a
-saturation and value square, a hue strip, an opacity strip on a field that
-has opacity, and up to eight swatches. Each control always shows a 10 px ring
-at the chosen point, kept wholly inside the control. When there is not room
+a live square of the draft before it; while the draft differs from the stored
+color, the side part lists it as `saved`. A picker hangs under the field
+inside the same outline: a saturation and value square, a hue strip, an
+opacity strip on a field that has opacity, and up to eight swatches. The
+square marks the chosen point with a 10 px ring; each strip marks its value
+with an upright bar the strip's full height. Rings and bars are light with a
+dark rim and stay wholly inside their control. Every color square, in the
+row, the field, the side part and the swatches, has a one-pixel edge inside
+it, so white, black and colors near the background still show. When there is not room
 below, the picker goes above the field; when neither side holds it, it takes
 the larger room and scrolls with the field in view.
 
@@ -511,7 +515,7 @@ the larger room and scrolls with the field in view.
   opacity that is not fully opaque. An integer color stores the whole number.
   Another spelling of the stored color stores nothing.
 - Text that is not a color shows "Not a color." first in the side part. The
-  live square and the rings hold the last valid color of the edit, and
+  live square, the ring and the bars hold the last valid color of the edit, and
   leaving keeps the stored color.
 - A field without opacity that is given a color with opacity takes the color,
   drops the opacity and says so in the side part.

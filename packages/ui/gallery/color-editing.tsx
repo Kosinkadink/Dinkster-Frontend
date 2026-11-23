@@ -255,6 +255,7 @@ function ColorEditingExampleCard(props: {
         droppedOpacity={result.droppedOpacity}
         enter={{ verb: result.invalid || result.enter === current.stored ? 'keeps' : 'stores', color: result.enter }}
         {...(result.invalid ? { preview: result.live } : {})}
+        {...(result.live === current.stored ? {} : { saved: current.stored })}
         {...(defaultColor() === undefined ? {} : { defaultColor: defaultColor()! })}
         {...(help === undefined ? {} : { help })}
       >
@@ -338,7 +339,6 @@ function ColorEditingExampleCard(props: {
               look="flat-title"
               rowWidth={current().rowWidth}
               label={target()!.row.label}
-              labelMark={<CanvasColorSquare color={example().stored} />}
               mark={<CanvasColorSquare color={draft().live} />}
               value={example().text ?? ''}
               onInput={() => undefined}

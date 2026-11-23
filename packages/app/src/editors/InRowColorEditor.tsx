@@ -233,6 +233,7 @@ export const InRowColorImplementation: Component<WidgetEditorImplementationProps
         droppedOpacity={result.droppedOpacity}
         enter={{ verb: result.invalid || result.enter === storedCode ? 'keeps' : 'stores', color: result.enter }}
         {...(result.invalid ? { preview: result.live } : {})}
+        {...(storedCode === undefined || result.live === storedCode ? {} : { saved: storedCode })}
         {...(defaultCode === undefined ? {} : { defaultColor: defaultCode, onDefault: () => { choose(defaultCode); input?.focus() } })}
         {...(inRow.help === undefined ? {} : { help: inRow.help })}
       >
@@ -293,7 +294,6 @@ export const InRowColorImplementation: Component<WidgetEditorImplementationProps
         look={inRow.look}
         rowWidth={placement().rowWidth}
         label={ed.label}
-        {...(storedCode === undefined ? {} : { labelMark: <CanvasColorSquare color={storedCode} /> })}
         mark={<CanvasColorSquare color={draft().live} />}
         value={text()}
         onInput={(value) => {

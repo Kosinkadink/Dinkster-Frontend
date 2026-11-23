@@ -71,14 +71,14 @@ test('typed colors: the code is selected, half-typed text holds the last color, 
   await open(page, 'fill')
   await expect(field(page)).toHaveValue('#336699')
   expect(await field(page).evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([0, 7])
-  // The picker hangs under the field with its rings inside each control.
+  // The picker hangs under the field with its handles inside each control.
   await expect(page.getByTestId('color-picker-square')).toBeVisible()
   await expect(page.getByTestId('color-picker-opacity')).toHaveCount(0)
   for (const control of ['color-picker-square', 'color-picker-hue']) {
     const inside = await page.getByTestId(control).evaluate((element) => {
       const box = element.getBoundingClientRect()
-      const ring = element.querySelector('.dinkster-canvas-color-ring')!.getBoundingClientRect()
-      return ring.left >= box.left && ring.right <= box.right && ring.top >= box.top && ring.bottom <= box.bottom
+      const handle = element.querySelector('.dinkster-canvas-color-handle')!.getBoundingClientRect()
+      return handle.left >= box.left && handle.right <= box.right && handle.top >= box.top && handle.bottom <= box.bottom
     })
     expect(inside, control).toBe(true)
   }
@@ -95,8 +95,11 @@ test('typed colors: the code is selected, half-typed text holds the last color, 
   expect(await revision(page)).toBe(before)
   // A CSS name is stored as its code; one undo restores the color.
   await open(page, 'fill')
+  // The saved color is listed beside the field only once the draft differs from it.
+  await expect(side(page)).not.toContainText('saved')
   await page.keyboard.type('Tomato')
   await expect(side(page)).toContainText('Enter stores #ff6347')
+  await expect(side(page)).toContainText(/saved\s*#336699/)
   await page.keyboard.press('Enter')
   await expect.poll(() => value(page, 'fill')).toBe('#ff6347')
   await expect(field(page)).toHaveCount(0)

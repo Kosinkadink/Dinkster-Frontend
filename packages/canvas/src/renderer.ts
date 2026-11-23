@@ -4940,9 +4940,9 @@ function hasOpacity(color: string): boolean {
   return alpha !== null && !/^f+$/i.test(alpha[1] ?? alpha[2]!)
 }
 
-/** The square of a color directly before its code; opacity shows over a checker pattern. */
+/** The square of a color directly before its code; opacity shows over a checker pattern, and an edge inside it keeps white and black squares visible. */
 export function paintValueSwatch(ctx: CanvasRenderingContext2D, color: string, left: number, top: number, tokens: DesignTokens): void {
-  const { size, radius, checkerCell } = canvasPaintTokens.widget.valueSwatch
+  const { size, radius, checkerCell, edge } = canvasPaintTokens.widget.valueSwatch
   // Whole pixels keep the square's edges and checker cells sharp.
   left = Math.round(left)
   top = Math.round(top)
@@ -4966,6 +4966,13 @@ export function paintValueSwatch(ctx: CanvasRenderingContext2D, color: string, l
   }
   ctx.fillStyle = color
   ctx.fillRect(left, top, size, size)
+  ctx.restore()
+  ctx.save()
+  ctx.strokeStyle = tokens.colors.swatchEdge
+  ctx.lineWidth = edge
+  ctx.beginPath()
+  ctx.roundRect(left + edge / 2, top + edge / 2, size - edge, size - edge, Math.max(0, radius - edge / 2))
+  ctx.stroke()
   ctx.restore()
 }
 
