@@ -44,6 +44,25 @@ export function primitiveOf(schema: NodeSchema): PrimitiveShape | undefined {
 }
 
 /**
+ * The primitive a wire dragged off a field makes: the one whose value has
+ * the field's own type (Int for a whole number, Choice for a dropdown),
+ * otherwise the general one whose type follows what it is wired to.
+ */
+export function primitiveForField(schemas: Iterable<NodeSchema>, field: InputSpec): NodeSchema | undefined {
+  const typeName = field.widget?.widgetType ?? (field.type.kind === 'concrete' ? field.type.name : undefined)
+  let general: NodeSchema | undefined
+  for (const schema of [...schemas].sort((a, b) => a.type.localeCompare(b.type))) {
+    const shape = primitiveOf(schema)
+    if (shape === undefined || outputsOf(schema).length !== 1) continue
+    const value = shape.value.type
+    const output = shape.output.type
+    if (value.kind === 'concrete' && output.kind === 'concrete' && value.name === typeName && output.name === typeName) return schema
+    if (value.kind === 'variable' && output.kind === 'variable') general ??= schema
+  }
+  return general
+}
+
+/**
  * The schema with the primitive's value field drawn as its effective widget
  * and, when the fed fields share one, under their label.
  */
