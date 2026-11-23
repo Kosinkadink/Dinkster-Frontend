@@ -122,8 +122,8 @@ export function canvasSideLayout(
  * (or a T, when the side part slid) when the side part sits beside the
  * row, one box when it sits under or over the field. Coordinates are local
  * to the field's row, whose top left is 0,0; `sideTop` is the side part's
- * top. `fieldTop` moves the field's box up when it also holds a list
- * opened over the row; `field.height` then covers the list and the row.
+ * top. `fieldTop` moves the field's box up when it also holds a panel
+ * opened over the row; `field.height` then covers the panel and the row.
  */
 export function canvasFieldOutline(
   field: { readonly width: number; readonly height: number },
@@ -261,14 +261,17 @@ export interface CanvasRowFrameProps {
   look?: 'original' | 'flat-title'
   /** The caller scales the field with the canvas, zoomed in. */
   zoomed?: boolean
-  /** A list opened with the field, under its row or over it. */
-  list?: JSX.Element
-  listPlace?: 'below' | 'above'
+  /**
+   * Content opened with the field at the row's width, under its row or
+   * over it, inside the same outline, such as a list or a picker.
+   */
+  panel?: JSX.Element
+  panelPlace?: 'below' | 'above'
 }
 
 /**
  * What an open field and a row the keyboard is on share: the outline around
- * the row's box, any list opened with it, and its side part, and the side
+ * the row's box, any panel opened with it, and its side part, and the side
  * part's place.
  */
 export function CanvasRowFrame(
@@ -284,9 +287,9 @@ export function CanvasRowFrame(
   let root!: HTMLDivElement
   let row!: HTMLDivElement
   let side: HTMLDivElement | undefined
-  let list: HTMLDivElement | undefined
+  let panel: HTMLDivElement | undefined
   const [rowHeight, setRowHeight] = createSignal(0)
-  const [listHeight, setListHeight] = createSignal(0)
+  const [panelHeight, setPanelHeight] = createSignal(0)
   const [sideSize, setSideSize] = createSignal<{
     width: number
     height: number
@@ -295,7 +298,7 @@ export function CanvasRowFrame(
   const measure = () => {
     root.style.width = `${props.rowWidth}px`
     setRowHeight(row.offsetHeight)
-    setListHeight(list?.offsetHeight ?? 0)
+    setPanelHeight(panel?.offsetHeight ?? 0)
     if (!side) {
       setSideSize(undefined)
       return
@@ -328,8 +331,8 @@ export function CanvasRowFrame(
       props.sideTop,
       props.sideMaxHeight,
       props.side,
-      props.list,
-      props.listPlace,
+      props.panel,
+      props.panelPlace,
     ]
     measure()
   })
@@ -337,18 +340,18 @@ export function CanvasRowFrame(
     const observer = new ResizeObserver(measure)
     observer.observe(root)
     if (side) observer.observe(side)
-    if (list) observer.observe(list)
+    if (panel) observer.observe(panel)
     onCleanup(() => observer.disconnect())
   })
   const outline = () =>
     canvasFieldOutline(
-      { width: props.rowWidth, height: rowHeight() + listHeight() },
+      { width: props.rowWidth, height: rowHeight() + panelHeight() },
       sideSize(),
       props.place,
       props.sideTop ?? 0,
       4,
       1,
-      props.listPlace === 'above' ? -listHeight() : 0,
+      props.panelPlace === 'above' ? -panelHeight() : 0,
     )
   return (
     <div
@@ -362,7 +365,7 @@ export function CanvasRowFrame(
       data-look={props.look ?? 'original'}
       data-focus={props.focus === true}
       data-zoomed={props.zoomed === true}
-      data-list={props.list === undefined ? undefined : (props.listPlace ?? 'below')}
+      data-panel={props.panel === undefined ? undefined : (props.panelPlace ?? 'below')}
       data-testid={props.focus === true ? 'canvas-row-focus' : 'canvas-row-field'}
     >
       <div
@@ -372,13 +375,13 @@ export function CanvasRowFrame(
       >
         {content}
       </div>
-      <Show when={props.list}>
+      <Show when={props.panel}>
         <div
-          ref={(element) => (list = element)}
-          class="dinkster-canvas-field-list"
-          data-place={props.listPlace ?? 'below'}
+          ref={(element) => (panel = element)}
+          class="dinkster-canvas-field-panel"
+          data-place={props.panelPlace ?? 'below'}
         >
-          {props.list}
+          {props.panel}
         </div>
       </Show>
       <Show when={props.side}>
@@ -442,6 +445,8 @@ export function CanvasRowField(
       {...(props.ref === undefined ? {} : { ref: props.ref })}
       {...(props.look === undefined ? {} : { look: props.look })}
       {...(props.zoomed === undefined ? {} : { zoomed: props.zoomed })}
+      {...(props.panel === undefined ? {} : { panel: props.panel })}
+      {...(props.panelPlace === undefined ? {} : { panelPlace: props.panelPlace })}
       steppers={props.onStep !== undefined}
     >
       <Show when={props.fill !== undefined}>

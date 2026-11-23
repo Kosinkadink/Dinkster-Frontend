@@ -124,7 +124,7 @@ export function canvasListLayout(
  * one entry does not fit the whole list scrolls as one.
  */
 export function CanvasRowList(
-  props: Omit<CanvasRowFrameProps, 'list'> & {
+  props: Omit<CanvasRowFrameProps, 'panel' | 'panelPlace'> & {
     label: string
     query: string
     onQuery: (text: string) => void
@@ -147,6 +147,7 @@ export function CanvasRowList(
     actions?: readonly CanvasListAction[]
     /** The action the keyboard is on, by id; the list's own actions only. */
     focusedAction?: string
+    listPlace?: 'below' | 'above'
     /** The list's height limit, from `canvasListLayout`. */
     listMaxHeight?: number
     /** The list's height without a limit, at normal size. */
@@ -333,8 +334,8 @@ export function CanvasRowList(
       {...(props.ref === undefined ? {} : { ref: props.ref })}
       {...(props.look === undefined ? {} : { look: props.look })}
       {...(props.zoomed === undefined ? {} : { zoomed: props.zoomed })}
-      list={listBody}
-      listPlace={props.listPlace ?? 'below'}
+      panel={listBody}
+      panelPlace={props.listPlace ?? 'below'}
     >
       <span class="dinkster-canvas-field-label">{props.label}</span>
       <input
