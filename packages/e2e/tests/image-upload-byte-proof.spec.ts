@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { deflateSync } from 'node:zlib'
 import type { Request } from '@playwright/test'
 import type { WorkflowDocument } from '@dinkster/core'
-import { expect, nativeTest as test, selectProductOption, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, selectProductOption, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 interface AssetRef {
   digest: string
@@ -201,7 +201,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   const missing = await page.evaluate(() => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
     return ['dinkster.image.load_image', 'dinkster.image.save_image'].filter((id) => !schemas?.has(id))

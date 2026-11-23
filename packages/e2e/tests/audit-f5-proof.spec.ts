@@ -10,7 +10,7 @@ const catalog = {
 }
 
 async function prepare(page: Page): Promise<void> {
-  await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$))).*/, (route) => { throw new Error(`unexpected unmocked API request: ${route.request().url()}`) })
+  await page.route(/\/api\/.*/, (route) => { throw new Error(`unexpected unmocked API request: ${route.request().url()}`) })
   await mockProjectPacks(page)
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.route('/api/settings', (route) => route.fulfill({ json: { categories: { granted: [], available: [] }, settings: {} } }))
@@ -20,6 +20,9 @@ async function prepare(page: Page): Promise<void> {
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.route('/api/composition', (route) => route.fulfill({ json: { packs: {} } }))
   await page.route('/api/mounts', (route) => route.fulfill({ json: { mounts: [] } }))
+  await page.route('/api/assets/catalog?*', (route) => route.fulfill({ json: { assets: [] } }))
+  await page.route('/api/principals', (route) => route.fulfill({ json: [] }))
+  await page.route('/api/mounts/locations', (route) => route.fulfill({ json: { version: 1, downloadLocation: null, locations: [] } }))
   await page.route('/api/docs?kind=guide&limit=1', (route) => route.fulfill({ json: { docs: [] } }))
   await page.goto('/')
   await expect(page.getByTestId('settings-button')).toBeVisible()
@@ -56,10 +59,11 @@ test('checkboxes and radios preserve keyboard, disabled, focus, and mutation bou
       id: 'proof.blocked.setting', name: 'Blocked setting', type: 'boolean', defaultValue: false,
     }))
   })
+  await page.getByTestId('extensions-toggle').click()
   const pack = page.locator('[data-pack="proof.blocked"]')
   await expect(pack.getByTestId('extension-pack-toggle')).toBeDisabled()
   await expect(pack.getByTestId('extension-contribution-toggle')).toBeDisabled()
-  await expect(pack.getByTestId('extension-pack-toggle')).toHaveAttribute('aria-checked', 'true')
+  await expect(pack.getByTestId('extension-pack-toggle')).toBeChecked()
 
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as any

@@ -9,7 +9,7 @@
  */
 import { mkdirSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { expect, openRailPanel, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 const editorProofDir = process.env['DINKSTER_EXTENSION_EDITOR_PROOF_DIR']
@@ -201,7 +201,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await registerExtensionSchema(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
@@ -218,7 +218,8 @@ test.beforeEach(async ({ page }) => {
   })
   await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
   await registerExtensionSchema(page)
-  await openRailPanel(page, 'Extensions')
+  await page.getByTestId('extensions-toggle').click()
+  await expect(page.getByTestId('extensions-panel')).toBeVisible()
 })
 
 test('pack doors render a center editor and right panel through host UI', async ({ page }) => {
@@ -336,6 +337,7 @@ test('fixture WidgetView opens a bounded host-rendered editor and dispatches dec
   await expect(page.getByTestId('graph-canvas')).toBeFocused()
 
   await page.getByRole('button', { name: 'Toggle right rail' }).click()
+  await page.getByTestId('extensions-toggle').click()
   await page.setViewportSize({ width: 360, height: 640 })
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: -120, y: 80, scale: 1 }))
   await page.mouse.click(...xy(await widgetPoint(page, 'n0', 'stars')))

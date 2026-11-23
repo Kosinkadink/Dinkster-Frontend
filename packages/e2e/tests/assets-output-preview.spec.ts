@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect } from '../visual.js'
-import { nativeTest as test, mockProjectPacks, waitForStartupOwnership, type Page } from './fixtures.js'
+import { nativeTest as test, mockProjectPacks, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = resolve(import.meta.dirname, '../../../.amp/in/artifacts/native-output-preview')
 const longIdentityName = `middle-${'complete-identity-'.repeat(6)}.png`
@@ -83,7 +83,7 @@ test.beforeEach(async ({ page }) => {
     const backend = window.__dinksterTest?.app.backends.get()[0]
     return backend?.connection.status.get() === 'connected' && backend.schemaState.get().status === 'ready'
   })).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await installExecution(page)
   await page.locator('.dock-zone').getByRole('tab', { name: 'Runs', exact: true }).click()
   await expect(page.locator('.output-thumbnail')).toHaveCount(3)
@@ -242,7 +242,7 @@ test('rail viewer and canvas paging remain ordered, accessible, ephemeral, and r
   await page.screenshot({ path: `${proofDir}/07-canvas-last-unavailable-1920.png`, animations: 'disabled' })
   await pager.getByRole('button', { name: /Open image 3 of 3/ }).click()
   await expect(page.getByTestId('output-viewer-position')).toHaveText('3 / 3')
-  await expect(page.getByTestId('output-viewer').getByRole('alert')).toContainText('Image asset is unavailable')
+  await expect(page.getByTestId('output-viewer').getByRole('alert')).toContainText('Image unavailable')
   await page.screenshot({ path: `${proofDir}/08-viewer-unavailable-1920.png`, animations: 'disabled' })
   await page.getByTestId('output-viewer').getByRole('button', { name: /Close/ }).click()
 

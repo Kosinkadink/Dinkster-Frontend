@@ -537,6 +537,8 @@ export interface DesignTokens {
   readonly colors: {
     readonly canvasBackground: string
     readonly gridDot: string
+    readonly pendingOutline: string
+    readonly skippedOutline: string
     readonly nodeBody: string
     readonly nodeHeader: string
     /** Structural and pseudo-node outline, stronger than inset chrome. */
@@ -675,13 +677,13 @@ export const defaultTokens: DesignTokens = {
   colors: canvasColorsForTheme('dark'),
   ...canvasTypePaintForTheme('dark'),
   stateColors: {
-    pending: '#5c5c5c',
+    pending: canvasSemanticTokens.border.pending,
     running: canvasSemanticTokens.meaning.info.border,
     cached: '#9575cd',
     done: canvasSemanticTokens.meaning.success.border,
     error: canvasSemanticTokens.meaning.danger.border,
     // Normal non-error state (first-class absence), visually calm - never red.
-    skipped: canvasSemanticTokens.text.muted,
+    skipped: canvasSemanticTokens.border.skipped,
   },
   progressBar: canvasSemanticTokens.meaning.info.border,
 }
@@ -709,6 +711,8 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
   return {
     canvasBackground: tokens.surface.canvas,
     gridDot: tokens.border.subtle,
+    pendingOutline: tokens.border.pending,
+    skippedOutline: tokens.border.skipped,
     nodeBody: tokens.surface.raised,
     nodeHeader: tokens.surface.panel,
     nodeOutline: tokens.border.strong,
@@ -719,7 +723,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     title: tokens.text.primary,
     label: tokens.text.secondary,
     value: tokens.text.primary,
-    widgetBackground: tokens.surface.inset,
+    widgetBackground: tokens.surface.field,
     widgetAffordance: tokens.text.disabled,
     widgetAffordanceActive: tokens.border.focus,
     widgetRangeFill: tokens.interaction.selectedOverlay,

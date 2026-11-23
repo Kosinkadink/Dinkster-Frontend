@@ -34,8 +34,32 @@ const boot = async (page: Page): Promise<void> => {
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest?.app !== undefined)
   await expect(page.getByTestId('status-bar')).toHaveText(/^connected\s*\d+ node schemas/)
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.problems.get()
-    .some((problem) => problem.code === 'workflow.startup.ownershipUnconfirmed'))).toBe(false)
+}
+
+for (const theme of ['dark', 'light'] as const) {
+  test(`side and bottom panel selected tabs in ${theme} theme`, async ({ page }) => {
+    await page.addInitScript((selected) => {
+      localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
+    }, theme)
+    await boot(page)
+    await closeGallery(page)
+    await page.getByTestId('bottom-panel-toggle').click()
+    await page.evaluate(() => window.__dinksterTest!.app.dock.dock('node-help', 'bottom'))
+    for (const zone of ['right', 'bottom'] as const) {
+      const panel = page.getByTestId(`dock-zone-${zone}`)
+      const selected = panel.getByRole('tab', { selected: true })
+      const inactive = panel.getByRole('tab', { selected: false }).filter({ visible: true }).first()
+      await expect(selected).toBeVisible()
+      await expect(inactive).toBeVisible()
+      const id = await inactive.getAttribute('data-tab-id')
+      await inactive.click()
+      await expect(panel.locator(`[data-tab-id="${id}"]`)).toHaveAttribute('aria-selected', 'true')
+      await inactive.blur()
+      await page.mouse.move(600, 400)
+      await expect(page.getByTestId('app-tooltip')).toBeHidden()
+      await expect(panel).toHaveScreenshot(`panel-tabs-${zone}-${theme}.png`, { animations: 'disabled' })
+    }
+  })
 }
 
 const closeGallery = async (page: Page): Promise<void> => {
@@ -82,7 +106,7 @@ for (const theme of ['dark', 'light'] as const) {
     expect(await trigger.boundingBox()).toEqual(triggerBefore)
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
     await expect(page.getByTestId('dinkster-menu-button').getByRole('img', { name: 'Dinkster' })).toBeVisible()
-    const expectedCanvas = theme === 'dark' ? 'rgb(17, 19, 22)' : 'rgb(247, 248, 250)'
+    const expectedCanvas = theme === 'dark' ? 'rgb(14, 20, 20)' : 'rgb(247, 248, 250)'
     await expect(page.locator('body')).toHaveCSS('background-color', expectedCanvas)
     const manifest = await (await page.request.get('/manifest.webmanifest')).json()
     expect(manifest.name).toBe('Dinkster')
@@ -106,7 +130,7 @@ for (const theme of ['dark', 'light'] as const) {
     await page.evaluate((selected) => {
       window.__dinksterTest!.app.settings.set('dinkster.theme', selected === 'dark' ? 'light' : 'dark')
     }, theme)
-    await expect(page.locator('body')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(247, 248, 250)' : 'rgb(17, 19, 22)')
+    await expect(page.locator('body')).toHaveCSS('background-color', theme === 'dark' ? 'rgb(247, 248, 250)' : 'rgb(14, 20, 20)')
     await expect(trigger.locator('img')).toHaveAttribute('src', new RegExp(`color-${theme === 'dark' ? 'light' : 'dark'}\\.svg`))
     await page.addStyleTag({ content: '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }' })
     const header = page.locator('.dinkster-window-toolbar-host')
@@ -128,9 +152,15 @@ for (const theme of ['dark', 'light'] as const) {
     const attention = rail.locator('.panel-indicator')
     await expect(attention).toBeVisible()
     await expect(attention).toHaveCSS('position', 'absolute')
-    const railBox = (await rail.boundingBox())!
-    const iconBox = (await rail.locator('svg').boundingBox())!
-    const badgeBox = (await attention.boundingBox())!
+    // The keyed badge can be replaced by a problem-list publication between protocol calls.
+    const { railBox, iconBox, badgeBox } = await page.evaluate(() => {
+      const element = document.querySelector('[data-testid="rail-toggle"]')!
+      return {
+        railBox: element.getBoundingClientRect().toJSON(),
+        iconBox: element.querySelector('svg')!.getBoundingClientRect().toJSON(),
+        badgeBox: element.querySelector('.panel-indicator')!.getBoundingClientRect().toJSON(),
+      }
+    })
     expect(iconBox.width).toBe(20)
     expect(iconBox.height).toBe(18)
     expect(badgeBox.y).toBeLessThan(railBox.y)
@@ -177,9 +207,7 @@ const openModal = async (page: Page, id: string): Promise<void> => {
 
 const emptyVisualBackend = async (route: Route): Promise<void> => {
   const path = new URL(route.request().url()).pathname
-  if (path.endsWith('/api/library/retention-clients')) {
-    await route.fulfill({ status: 404 })
-  } else if (path.endsWith('/api/nodes')) {
+  if (path.endsWith('/api/nodes')) {
     await route.fulfill({ json: {
       schemaVersion: 1, epoch: 1,
       dinkster: { version: 'visual-fixture', schemaWire: 1 },
@@ -216,8 +244,6 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     await route.fulfill({ json: { packs: [], installed: [], extra: [], unknown: [] } })
   } else if (path.endsWith('/api/workflows/plan')) {
     await route.fulfill({ json: { packs: [], assets: [], errors: [] } })
-  } else if (path.includes('/api/library/retentions/document/') || path.includes('/api/library/retentions/preview/')) {
-    await route.fallback()
   } else {
     await route.fulfill({ status: 502, body: 'visual fixture unavailable' })
   }
@@ -232,7 +258,11 @@ test('stored run outputs load only after selection and retain their original ide
   const jobs: string[] = []
   let release!: () => void
   const released = new Promise<void>((resolve) => { release = resolve })
-  await page.route('**/api/history?*', (route) => route.fulfill({ json: { records } }))
+  let historyPages = 0
+  await page.route('**/api/history?*', (route) => {
+    historyPages += 1
+    return route.fulfill({ json: { records } })
+  })
   await page.route('**/api/history/*', (route) => {
     const id = new URL(route.request().url()).pathname.split('/').at(-1)
     return route.fulfill({ json: records.find((record) => record.runId === id) })
@@ -278,6 +308,9 @@ test('stored run outputs load only after selection and retain their original ide
   await page.mouse.move(600, 400)
   await page.keyboard.press('Escape')
   await page.screenshot({ path: testInfo.outputPath('stored-run-loading.png'), animations: 'disabled' })
+  const previousPages = historyPages
+  await page.evaluate(() => window.__dinksterTest!.app.backendsTick.update((value) => value + 1))
+  await expect.poll(() => historyPages).toBeGreaterThan(previousPages)
   release()
   await expect(good.locator('.output-thumbnail img')).toHaveJSProperty('naturalWidth', 64)
   expect(jobs).toEqual(['stored-good'])
@@ -542,8 +575,6 @@ test('Boundary is hidden at root and shows definition empty states at desktop an
 test('HTTP metadata errors expose shell status and panel retries', async ({ page }) => {
   let recover = false
   await page.route('**/offline-visual/api/**', async (route) => {
-    if (new URL(route.request().url()).pathname.endsWith('/api/library/retention-clients'))
-      return route.fulfill({ status: 404 })
     if (!recover) return route.fulfill({ status: 503, body: 'Metadata fixture unavailable' })
     await emptyVisualBackend(route)
   })
@@ -1131,7 +1162,7 @@ test('Region iteration states keep unavailable, loading and retained refusal exp
   for (const [state, text] of [
     ['empty', 'No retained iteration activity is available for this region.'],
     ['no-outputs', 'This body node has no inspectable outputs.'],
-    ['unavailable', 'The execution owner is unavailable.'],
+    ['unavailable', 'The execution backend is unavailable.'],
     ['loading', 'Loading retained value...'],
     ['refused', 'This intermediate is no longer retained.'],
   ] as const) {
@@ -1194,7 +1225,7 @@ test('Workflow queue empty popover preserves disclosure and Escape focus', async
     const { WorkflowQueueControl } = await import(componentPath)
     const { render } = await import(rendererPath)
     const host = document.createElement('div')
-    host.style.cssText = 'position:absolute;top:64px;right:16px;width:440px;z-index:20'
+    host.style.cssText = 'position:absolute;top:128px;right:16px;width:440px;z-index:20'
     document.querySelector('.canvas-pane')!.append(host)
     const dispose = render(() => WorkflowQueueControl({
       owner: { id: 'queue-visual', title: 'Empty workflow', lineage: 'queue-visual' },
@@ -1208,6 +1239,9 @@ test('Workflow queue empty popover preserves disclosure and Escape focus', async
   await toggle.click()
   const popover = control.getByRole('region', { name: 'Queue for Empty workflow' })
   await expect(popover.getByText('No jobs for this workflow.', { exact: true })).toBeVisible()
+  await toggle.evaluate((element) => element.blur())
+  await page.mouse.move(0, 0)
+  await expect(page.getByTestId('app-tooltip')).toBeHidden()
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
     await page.mouse.move(0, 0)
@@ -1243,21 +1277,26 @@ test('Asset selection instructions stay readable for the rail and single or mult
         const componentPath = '/src/editors/AssetWidgetEditor.tsx'
         const { AssetWidgetEditor } = await import(componentPath)
         const singleType = { kind: 'concrete', name: 'ASSET' }
+        const tab = { store: { doc: {}, revision: 0 } }
+        const backend = { id: 'asset-visual', label: 'Visual fixture', baseUrl: '', protocol: 'dinkster', connection: {
+          status: { subscribe: () => () => {} },
+          listMounts: async () => [],
+          listLocalAssets: async () => ({ assets: [] }),
+          checkAssetAvailability: async () => [],
+          onMountsChanged: () => () => {},
+          fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false }),
+          fetchMountLocations: async () => ({ mounts: [], activeMounts: [] }),
+        } }
         dispose = render(() => AssetWidgetEditor({
           app: {
-            backendForTab: () => ({ id: 'asset-visual', label: 'Visual fixture', baseUrl: '', protocol: 'dinkster', connection: {
-              listMounts: async () => [],
-              listLocalAssets: async () => ({ assets: [] }),
-              checkAssetAvailability: async () => [],
-              onMountsChanged: () => () => {},
-              fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false }),
-              fetchMountLocations: async () => ({ mounts: [], activeMounts: [] }),
-            } }),
+            backendForTab: () => backend,
+            registryForTab: () => undefined,
+            tabs: { get: () => [tab] },
             dispatchTo: () => { host.dataset['committed'] = 'true' },
             widgetRegistry: { kind: () => undefined },
           },
           ed: {
-            tab: {}, graphId: 'g0', target: { kind: 'input', nodeId: 'asset', valueKey: 'file' },
+            tab, graphId: 'g0', target: { kind: 'input', nodeId: 'asset', valueKey: 'file' },
             label: 'Reference file', spec: { widgetType: 'ASSET', options: { accept: ['application/octet-stream'] } },
             declaredType: mode === 'multiple' ? { kind: 'list', element: singleType } : singleType,
             multiline: false, rect: { x: 20, y: 20, width: 180, height: 24 }, initial: mode === 'multiple' ? [] : null,

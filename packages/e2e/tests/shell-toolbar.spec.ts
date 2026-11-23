@@ -69,15 +69,24 @@ test('narrow shell preserves canvas space and keeps search clear of layout contr
   const canvas = page.locator('.canvas-pane')
   await expect(dock).toBeVisible()
   await expect(rail).toBeVisible()
+  const searchTrigger = page.getByTestId('topbar-search')
+  const shortcut = searchTrigger.locator('kbd')
+  await expect(shortcut).toBeVisible()
+  const expandedSearch = (await searchTrigger.boundingBox())!
+  const expandedControls = (await page.locator('.dinkster-window-toolbar-actions').boundingBox())!
+  const expandedShortcut = (await shortcut.boundingBox())!
+  expect(expandedSearch.x + expandedSearch.width).toBeLessThanOrEqual(expandedControls.x)
+  expect(expandedShortcut.x + expandedShortcut.width).toBeLessThanOrEqual(expandedSearch.x + expandedSearch.width)
   await page.setViewportSize({ width: 900, height: 700 })
   await expect(rail).toBeHidden()
   await expect(dock).toBeVisible()
   await expect.poll(async () => (await canvas.boundingBox())!.width).toBeGreaterThanOrEqual(320)
   const search = (await page.getByTestId('topbar-search').boundingBox())!
   const controls = (await page.locator('.dinkster-window-toolbar-actions').boundingBox())!
-  const shortcut = (await page.getByTestId('topbar-search').locator('kbd').boundingBox())!
   expect(search.x + search.width).toBeLessThanOrEqual(controls.x)
-  expect(shortcut.x + shortcut.width).toBeLessThanOrEqual(search.x + search.width)
+  await expect(shortcut).toBeHidden()
+  await expect(searchTrigger).toHaveAccessibleName('Search Dinkster')
+  await expect(searchTrigger.locator('svg')).toBeVisible()
 
   await page.getByTestId('rail-toggle').click()
   await expect(rail).toBeVisible()
@@ -108,10 +117,10 @@ test('narrow shell preserves canvas space and keeps search clear of layout contr
   await expect(dock).toBeVisible()
   await expect(rail).toBeVisible()
   await expect.poll(async () => (await canvas.boundingBox())!.width).toBeGreaterThanOrEqual(320)
-  await page.setViewportSize({ width: 1072, height: 700 })
+  await page.setViewportSize({ width: 1100, height: 700 })
   await expect(rail).toBeVisible()
   await expect.poll(async () => (await canvas.boundingBox())!.width).toBe(320)
-  await page.setViewportSize({ width: 1071, height: 700 })
+  await page.setViewportSize({ width: 1099, height: 700 })
   await expect(rail).toBeHidden()
   await expect(dock).toBeVisible()
   await page.setViewportSize({ width: 480, height: 800 })

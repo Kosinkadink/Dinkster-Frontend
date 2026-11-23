@@ -84,7 +84,7 @@ export function CollectionPanel(props: {
   /** Hosts with a row-only contract omit the grid switch and stored view preference. */
   readonly listOnly?: boolean
   /** Replace row contents while retaining selection, paging, keyboard navigation and guarded actions. */
-  readonly entryContent?: (entry: CollectionEntry, selected: () => boolean, actions: JSX.Element) => JSX.Element
+  readonly entryContent?: (entry: () => CollectionEntry, selected: () => boolean, actions: JSX.Element) => JSX.Element
   /**
    * localStorage key persisting the grid/list mode. Scope is the host's
    * decision: a shared key makes the same surface feel the same across
@@ -333,12 +333,8 @@ export function CollectionPanel(props: {
     void requestWithDeadline((signal) => src.page({ ...req, signal: AbortSignal.any([req.signal, signal]) }))
       .then((page) => {
         if (gen !== generation) return // a newer query/source superseded us
-        // A fresh page replaces every row object, so <For> unmounts the
-        // focused row even when the same id comes back (refresh ticks
-        // re-page a live panel). If keyboard focus was ON a row - not
-        // inside a nested control - carry it to the replacement row with
-        // the same id, else to the roving stop; never steal focus from
-        // anywhere else.
+        // Preserve row focus across refreshed pages. If the row disappears,
+        // use the roving stop; never steal focus from a nested control.
         const active = document.activeElement
         const focusedRowId = !append && active instanceof HTMLElement
           && rootEl?.contains(active) === true && active.dataset['entry'] !== undefined
@@ -598,7 +594,7 @@ export function CollectionPanel(props: {
         </Show>
       </div>
       </>}>
-        {(render) => render()(p.entry, () => p.entry.id === selectedId(), <Actions entry={p.entry} />)}
+        {(render) => render()(() => p.entry, () => p.entry.id === selectedId(), <Actions entry={p.entry} />)}
       </Show>
       <Show when={(p.entry.children ?? []).length > 0}>
         <button
@@ -861,21 +857,23 @@ export function CollectionPanel(props: {
             aria-label={message('collection.result.ariaLabel', { source: source()?.label ?? message('collection.result.collectionFallback') })}
             aria-multiselectable={props.pick?.multi === true ? 'true' : undefined}
           >
-            <For each={visibleItems()}>
-              {(entry) => (
-                <Show when={pickGroupChildren(entry)} fallback={
+            <For each={visibleItems().map((entry) => JSON.stringify([sourceId(), entry.owner, entry.id]))}>
+              {(key) => {
+                const [, owner, id] = JSON.parse(key) as [string, string | null, string]
+                const entry = () => visibleItems().find((candidate) => candidate.id === id && (candidate.owner ?? null) === owner)!
+                return <Show when={pickGroupChildren(entry())} fallback={
                   <>
-                    <Entry entry={entry} />
-                    <Show when={expandedIds().has(entry.id)}>
-                      <div id={`${resultsId}-group-${entry.id}`} class="collection-children" role="group" aria-label={message('collection.group.runsIn', { title: entry.title })}>
-                        <For each={visibleChildren(entry)}>{(child) => <Entry entry={child} child />}</For>
+                    <Entry entry={entry()} />
+                    <Show when={expandedIds().has(id)}>
+                      <div id={`${resultsId}-group-${id}`} class="collection-children" role="group" aria-label={message('collection.group.runsIn', { title: entry().title })}>
+                        <For each={visibleChildren(entry())}>{(child) => <Entry entry={child} child />}</For>
                       </div>
                     </Show>
                   </>
                 }>
-                  {(children) => <Group entry={entry} children={children()} />}
+                  {(children) => <Group entry={entry()} children={children()} />}
                 </Show>
-              )}
+              }}
             </For>
           </div>
         </Show>

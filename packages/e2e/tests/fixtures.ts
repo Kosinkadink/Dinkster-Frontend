@@ -1,4 +1,4 @@
-/** Shared browser settings and isolated ownership acknowledgments. */
+/** Shared browser settings and startup readiness checks. */
 import {
   test as base,
   expect,
@@ -27,12 +27,10 @@ export async function mockProjectPacks(page: Page, packs: readonly string[] = []
   } }))
 }
 
-export async function waitForStartupOwnership(page: Page): Promise<void> {
+export async function waitForWorkspaceReady(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app !== undefined &&
     window.__dinksterTest.app.backends.get()[0]?.registry.get() !== undefined &&
-    window.__dinksterTest.app.tabs.get().every((tab) => tab.execution !== undefined || 'status' in tab.store) &&
-    !window.__dinksterTest.app.problems.get().some((problem) =>
-      problem.code === 'workflow.startup.ownershipUnconfirmed'))).toBe(true)
+    window.__dinksterTest.app.tabs.get().every((tab) => tab.execution !== undefined || 'status' in tab.store))).toBe(true)
 }
 
 export async function skipWithoutNativeCatalog(request: APIRequestContext, testInfo: TestInfo): Promise<void> {
@@ -57,6 +55,14 @@ export async function selectProductOption(page: Page, control: Locator, optionId
   await control.click()
   await (await productOption(page, optionId)).click()
   await expect(control).toHaveAttribute('data-selected-id', selectedId)
+}
+
+export async function executionDetails(row: Locator): Promise<Locator> {
+  const details = row.locator('details.runs-details')
+  if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) {
+    await details.locator('summary').click()
+  }
+  return details.getByTestId('run-details')
 }
 
 export async function openRailPanel(page: Page, title: string): Promise<void> {
@@ -94,7 +100,7 @@ export async function openRailPanel(page: Page, title: string): Promise<void> {
   await expect(tab).toHaveAttribute('aria-selected', 'true')
 }
 
-export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean; seedWorkflows: boolean }>({
+export const nativeTest = base.extend<{ appView: boolean; seedWorkflows: boolean }>({
   appView: [false, { option: true }],
   seedWorkflows: [false, { option: true }],
   page: async ({ page, seedWorkflows }, use) => {
@@ -114,54 +120,11 @@ export const nativeTest = base.extend<{ appView: boolean; retentionApi: boolean;
     }
     await use(page)
   },
-  // Live retention proofs opt out; ordinary browser fixtures model document
-  // declarations while source-bound result claims use the live backend.
-  retentionApi: [true, { option: true }],
-  context: async ({ context, appView, retentionApi }, use) => {
+  context: async ({ context, appView }, use) => {
     // Historical-schema fixtures do not import identities from the live pack
     // directory. Import integration tests override this with explicit metadata.
     await context.route('**/replacements/index.json', (route) =>
       route.fulfill({ json: { schemaVersion: 1, items: [] } }))
-    if (retentionApi) {
-      // Per-owner fixture receipts do not implement a server-owned client census.
-      await context.route('**/api/library/retention-clients', (route) =>
-        route.fulfill({ status: 404 }))
-      const owners = new Map<string, { scope: string; ownerKind: string; ownerId: string;
-        revision: number; complete: boolean; digests: string[] }>()
-      const sourceOwners = new Set<string>()
-      await context.route('**/api/library/retentions/*/*?scope=*', async (route) => {
-        const request = route.request()
-        const url = new URL(request.url())
-        const parts = url.pathname.split('/')
-        const scope = url.searchParams.get('scope')!
-        const ownerKind = parts.at(-2)!
-        const ownerId = decodeURIComponent(parts.at(-1)!)
-        const key = JSON.stringify([url.origin, scope, ownerKind, ownerId])
-        // Claims and later reads/releases share the server's sealed source roots.
-        if (sourceOwners.has(key) || (request.method() === 'PUT' &&
-          typeof request.postDataJSON()?.sourceToken === 'string')) {
-          sourceOwners.add(key)
-          return route.fallback()
-        }
-        const previous = owners.get(key)
-        if (request.method() === 'GET') {
-          return route.fulfill(previous === undefined ? { status: 404 } : { json: previous })
-        }
-        if (request.method() !== 'PUT' && request.method() !== 'DELETE') return route.fulfill({ status: 405 })
-        const declaration = request.method() === 'PUT' ? request.postDataJSON()
-          : { revision: Number(url.searchParams.get('revision')), complete: true, digests: [] }
-        if (declaration.revision !== (previous?.revision ?? 0)) return route.fulfill({ status: 409 })
-        if (typeof declaration.complete !== 'boolean' || !Array.isArray(declaration.digests) ||
-          declaration.digests.length > 4096 || !declaration.digests.every((digest: unknown) =>
-            typeof digest === 'string' && /^blake3:[0-9a-f]{64}$/.test(digest))) {
-          return route.fulfill({ status: 422 })
-        }
-        const acknowledged = { scope, ownerKind, ownerId, revision: declaration.revision + 1,
-          complete: declaration.complete, digests: [...new Set<string>(declaration.digests)].sort() }
-        owners.set(key, acknowledged)
-        return route.fulfill({ json: acknowledged })
-      })
-    }
     if (appView) await context.addInitScript(() => {
       const stored = JSON.parse(localStorage.getItem('dinkster.settings') ?? 'null')
       localStorage.setItem('dinkster.settings', JSON.stringify({

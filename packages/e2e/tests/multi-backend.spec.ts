@@ -10,7 +10,6 @@
  */
 import { expect, selectProductOption, test, type Page } from './fixtures.js'
 
-test.use({ retentionApi: false })
 
 const secondBackend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
 if (!secondBackend) throw new Error('DINKSTER_E2E_NATIVE_FRONTEND must identify the second native frontend')
@@ -94,7 +93,7 @@ test('tab targets are per tab; runs group by backend with distinct connections',
   // backend-wide queue depth as though it belonged to this workflow.
   const groups = page.getByTestId('backend-group')
   await expect(groups).toHaveCount(2)
-  await expect(page.getByTestId('queue-rail').locator('.queue-remaining')).toHaveCount(0)
+  await expect(page.getByTestId('runs-panel').locator('.queue-remaining')).toHaveCount(0)
 })
 
 test('frozen views route outputs through the run backend, surviving removal', async ({ page }) => {

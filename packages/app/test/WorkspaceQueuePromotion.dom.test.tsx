@@ -18,6 +18,7 @@ import type { SharedWorkerPortFactory } from '../src/shared-worker-connection.js
 import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
 import type { WorkspaceWorkerPortFactory } from '../src/workspace-worker-connection.js'
 import { WorkflowQueueControl } from '../src/WorkflowQueueControl.js'
+import { WidgetEditor, type WidgetEditorState } from '../src/WidgetEditor.js'
 
 class MemoryPort implements WorkerPortLike {
   peer: MemoryPort | undefined
@@ -106,8 +107,6 @@ const workspaceApp = async (startSharedWorkspace = true): Promise<{
   enableAuthority(): Promise<void>
 }> => {
   const app = prepareWorkflowApp(new AppState())
-  vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   const schemas = new Map([[outputSchema.type, outputSchema]])
   app.registry.set({
     connection: asConnectionId('local'),
@@ -139,6 +138,58 @@ const workspaceApp = async (startSharedWorkspace = true): Promise<{
 }
 
 describe('workspace promotion queueing', () => {
+  it.each(['promoted', 'edited', 'reopened'] as const)('applies a staged asset only to its unchanged continuation: %s', async (action) => {
+    const { app, enableAuthority } = await workspaceApp(false)
+    const schema: NodeSchema = { ...outputSchema, items: [{ kind: 'input', id: 'asset', optional: false,
+      type: { kind: 'concrete', name: 'ASSET' },
+      widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] } },
+    }] }
+    app.registry.set({ ...app.registry.get()!, schemas: new Map([[schema.type, schema]]), resolve: () => schema })
+    const doc = workflow()
+    expect(await app.openDocument(doc, 'Asset selection')).toEqual([])
+    const local = app.activeTab()!
+    const ref = { digest: `blake3:${'c'.repeat(64)}`, name: 'chosen.safetensors', size: 12,
+      mediaType: 'application/x-safetensors', virtualPath: 'models/chosen.safetensors' }
+    vi.spyOn(app.connection, 'listMounts').mockResolvedValue([{ id: 'models', mode: 'read', state: 'ready', kind: 'model/checkpoint' }])
+    vi.spyOn(app.connection, 'listMountEntries').mockResolvedValue({ entries: [{ ...ref, kind: 'model/checkpoint' }] })
+    vi.spyOn(app.connection, 'fetchAssetLocations').mockResolvedValue([])
+    const ed: WidgetEditorState = { tab: local, graphId: 'g0',
+      target: { kind: 'input', nodeId: 'output', valueKey: 'asset' }, label: 'Model',
+      spec: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] } },
+      declaredType: { kind: 'concrete', name: 'ASSET' }, initial: null, multiline: false,
+      rect: { x: 0, y: 0, width: 180, height: 24 },
+    }
+    const root = document.createElement('div'); document.body.append(root)
+    const close = vi.fn()
+    const unmount = render(() => <WidgetEditor app={app} ed={ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />, root)
+    try {
+      await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
+      root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name))
+      await enableAuthority()
+      await vi.waitFor(() => expect(app.activeTab()).not.toBe(local))
+      ed.tab = app.activeTab()!
+      if (action === 'edited') await app.dispatchTo(ed.tab, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'output', inputId: 'asset', value: null,
+      } })
+      if (action === 'reopened') {
+        app.closeTab(ed.tab.id)
+        expect(await app.openDocument(doc, 'Reopened selection')).toEqual([])
+        ed.tab = app.activeTab()!
+      }
+      root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+      if (action === 'promoted') {
+        await vi.waitFor(() => expect(ed.tab.store.doc.graphs.g0!.nodes.output!.values.asset).toEqual(ref))
+        await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
+      } else {
+        expect(root.querySelector('.asset-error')?.textContent).toContain('The edit was not accepted.')
+        expect(ed.tab.store.doc.graphs.g0!.nodes.output!.values.asset).not.toEqual(ref)
+        expect(close).not.toHaveBeenCalled()
+      }
+    } finally { unmount(); app.dispose() }
+  })
+
   it.each(['promoted', 'closed', 'replaced'] as const)('preserves only a continuing session when %s during source upload', async (action) => {
     const { app, enableAuthority } = await workspaceApp(false)
     await app.openDocument(workflow(), 'Late shared workspace')

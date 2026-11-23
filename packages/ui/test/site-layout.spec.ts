@@ -45,9 +45,9 @@ for (const width of [1280, 1440, 1920, 390]) {
       }
     })
     expect(geometry).toEqual({
-      topbar: 56,
+      topbar: 44,
       avatar: 32,
-      trigger: 40,
+      trigger: 32,
       wordmark: 30,
       panelRadius: '8px',
       rowButton: width < 768 ? 32 : 28,
@@ -125,7 +125,7 @@ test('site statuses and disclosure retain semantic colors and keyboard behavior'
       ['Active', 'rgb(50, 230, 165)'],
       ['Revoked', 'rgb(255, 116, 104)'],
       ['Expired', 'rgb(245, 191, 105)'],
-      ['Not published', 'rgb(170, 179, 188)'],
+      ['Not published', 'rgb(164, 181, 183)'],
     ] as const) {
       const pill = page
         .locator('.dinkster-status-pill')

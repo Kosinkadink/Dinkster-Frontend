@@ -3,6 +3,7 @@ import type { MenuActionItem, MenuItem, ResolvedMenuGroup } from '@dinkster/core
 import ChevronDown from 'lucide-solid/icons/chevron-down'
 import X from 'lucide-solid/icons/x'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
+import PanelLeft from 'lucide-solid/icons/panel-left'
 import { ProductIconButton } from '@dinkster/ui'
 import { ContextMenu } from './ContextMenu.js'
 import { Icon } from './Icon.js'
@@ -18,6 +19,74 @@ import { ProductTabs, type ProductTab } from './ProductTabs.js'
 import type { ShellRegion } from './shell-layout.js'
 import type { CommandRegistry } from './settings.js'
 import { useAppMessage } from './locale.js'
+import type { VisibleTooltip } from './tooltips.js'
+
+export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
+  const message = useAppMessage()
+  let element!: HTMLElement
+  let content!: HTMLDivElement
+  const position = (): void => {
+    const tip = props.tip
+    const rect = tip.element?.getBoundingClientRect()
+    const beside = rect !== undefined && Boolean(tip.element?.closest('.left-sidebar'))
+    element.style.setProperty('--tooltip-available-width', `${window.innerWidth - (beside ? rect.right + 16 : 16)}px`)
+    content.style.removeProperty('-webkit-line-clamp')
+    const naturalHeight = element.getBoundingClientRect().height
+    let available = window.innerHeight - 16
+    let above = false
+    if (rect !== undefined && !beside) {
+      const belowSpace = window.innerHeight - rect.bottom - 16
+      const aboveSpace = rect.top - 16
+      above = naturalHeight > belowSpace && aboveSpace > belowSpace
+      available = above ? aboveSpace : belowSpace
+    }
+    if (naturalHeight > available) {
+      const chromeHeight = naturalHeight - content.getBoundingClientRect().height
+      const lineHeight = Number.parseFloat(getComputedStyle(content).lineHeight)
+      let lines = Math.max(1, Math.floor((available - chromeHeight) / lineHeight))
+      content.style.webkitLineClamp = String(lines)
+      while (lines > 1 && element.getBoundingClientRect().height > available) {
+        content.style.webkitLineClamp = String(--lines)
+      }
+    }
+    const { width, height } = element.getBoundingClientRect()
+    element.style.visibility = height > available ? 'hidden' : ''
+    let left = tip.x
+    let top = tip.y
+    if (rect !== undefined) {
+      if (beside) {
+        left = rect.right + 8
+        top = rect.top + (rect.height - height) / 2
+      } else {
+        left = rect.left + (rect.width - width) / 2
+        top = above ? rect.top - height - 8 : rect.bottom + 8
+      }
+    }
+    element.style.left = `${Math.max(8, Math.min(left, window.innerWidth - width - 8))}px`
+    element.style.top = `${Math.max(8, Math.min(top, window.innerHeight - height - 8))}px`
+  }
+  createEffect(position)
+  onMount(() => {
+    const observer = new ResizeObserver(position)
+    observer.observe(element)
+    window.addEventListener('resize', position)
+    window.addEventListener('scroll', position, true)
+    onCleanup(() => {
+      observer.disconnect()
+      window.removeEventListener('resize', position)
+      window.removeEventListener('scroll', position, true)
+    })
+  })
+  return (
+    <aside ref={element} class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip">
+      <div ref={content} role="tooltip">
+        <Show when={props.tip.title}><div class="app-tooltip-title">{props.tip.title}</div></Show>
+        <For each={props.tip.lines}>{(line) => <div>{line}</div>}</For>
+        <Show when={props.tip.detailed}><For each={props.tip.detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
+      </div>
+    </aside>
+  )
+}
 
 export function TransientStatus(props: { readonly message: string | undefined }) {
   return (
@@ -75,21 +144,30 @@ export function ActivityBarButton(props: {
   readonly class?: string | undefined
   readonly onActivate: () => void
 }) {
+  let labelElement!: HTMLSpanElement
+  const [labelCut, setLabelCut] = createSignal(false)
+  // Native bubbling handlers measure before the shell captures tooltip content.
+  const measureLabel = (): void => {
+    setLabelCut(labelElement.scrollWidth > labelElement.clientWidth)
+  }
+  const tooltip = () => labelCut() && props.tooltip !== props.label
+    ? `${props.label}\n${props.tooltip}`
+    : props.tooltip
   return (
     <button
       class={`sidebar-button${props.class ? ` ${props.class}` : ''}`}
       data-testid={props.testId}
       data-panel-toggle={props.panelId}
-      data-tooltip-label={props.suppressTooltipWhenPressed && props.pressed ? undefined : props.tooltip}
+      data-tooltip-label={props.suppressTooltipWhenPressed && props.pressed ? undefined : tooltip()}
       data-tooltip-detail={props.tooltipDetail}
       aria-label={props.accessibleName === props.label ? props.label : `${props.label}: ${props.accessibleName}`}
       aria-pressed={props.pressed}
+      on:pointerover={measureLabel}
+      on:focusin={measureLabel}
       onClick={props.onActivate}
     >
-      <Show when={props.icon} keyed>{(icon) => (
-        <span class="sidebar-button-icon" aria-hidden="true"><Icon icon={icon} /></span>
-      )}</Show>
-      <span class="sidebar-button-label">{props.label}</span>
+      <span class="sidebar-button-icon" aria-hidden="true"><Icon icon={props.icon ?? PanelLeft} /></span>
+      <span class="sidebar-button-label" ref={labelElement}>{props.label}</span>
     </button>
   )
 }
@@ -263,6 +341,7 @@ function DockZoneSection(props: {
   /** This section's share of the zone axis; undefined when it is alone. */
   readonly share: number | undefined
   readonly showClose: boolean
+  readonly titleOnly: boolean
   readonly closeLabel: string
   readonly menuOpen: () => boolean
   readonly onActivate: (id: string) => void
@@ -333,6 +412,10 @@ function DockZoneSection(props: {
   let overflowRoot: HTMLDivElement | undefined
   let overflowButton: HTMLButtonElement | undefined
   const measureTabs = (): void => {
+    if (props.titleOnly) {
+      if (hiddenTabIds().size > 0) setHiddenTabIds(new Set<string>())
+      return
+    }
     const tablist = root.querySelector<HTMLElement>('[role="tablist"]')
     const tab = tablist?.querySelector<HTMLElement>('[role="tab"]')
     if (tablist === null || tab === null || tab === undefined) {
@@ -373,7 +456,7 @@ function DockZoneSection(props: {
   })
   // Panel and active-tab changes can alter complete-tab fit without resizing
   // the strip itself, which the observer cannot see.
-  createEffect(on([() => props.panels, () => props.activeId], () => queueMicrotask(measureTabs)))
+  createEffect(on([() => props.panels, () => props.activeId, () => props.titleOnly], () => queueMicrotask(measureTabs)))
   // When resizing clears clipping, the hidden menu must not stay logically
   // open, or the next clip would show it without user activation.
   createEffect(() => {
@@ -406,14 +489,20 @@ function DockZoneSection(props: {
       style={props.share === undefined ? undefined : { flex: `${props.share} 1 0%` }}
     >
       <ProductTabs
-        class="dock-zone-tabs"
+        class={`dock-zone-tabs${props.titleOnly ? ' dock-zone-title-only' : ''}`}
         ariaLabel={props.label}
         selectedId={props.activeId}
         onSelect={props.onActivate}
         tabs={tabs()}
         trailing={
           <div class="dock-zone-actions">
-            <Show when={tabsClipped()}>
+            <Show when={props.titleOnly}>
+              <h2 class="dock-title" tabindex="0" data-panel-title data-tab-id={props.activeId}>
+                {active()?.title}
+                <Show when={active() && activePanelIndicator(active()!)} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show>
+              </h2>
+            </Show>
+            <Show when={!props.titleOnly && tabsClipped()}>
               <div ref={overflowRoot} class="dock-zone-overflow">
                 <button
                   ref={overflowButton}
@@ -485,6 +574,7 @@ function DockZoneSection(props: {
 export function DockZoneHost(props: {
   readonly zone: DockZoneId
   readonly ariaLabel: string
+  readonly titleOnly?: boolean
   /** Rendered sections in visual order (caller filters visibility). */
   readonly sections: readonly DockZoneSectionView[]
   /** First section's share of the zone axis when two sections render. */
@@ -534,8 +624,8 @@ export function DockZoneHost(props: {
     // trailing header actions or all-tabs overflow entries keep the native
     // event rather than opening a menu for a panel the user did not click.
     if (event.target.closest('[role="tabpanel"]') !== null) return
-    const tab = event.target.closest('[role="tab"]')
-    if (tab === null || tab.closest('[role="tablist"]') === null) return
+    const tab = event.target.closest('[role="tab"], [data-panel-title]')
+    if (tab === null) return
     const panel = allPanels().find((candidate) => candidate.id === tab.getAttribute('data-tab-id'))
     if (panel === undefined) return
     const groups = placementMenuGroups(panel)
@@ -552,7 +642,8 @@ export function DockZoneHost(props: {
     })
   }
   const focusPanelTab = (panelId: string): void => {
-    zoneRoot.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(panelId)}"]`)?.focus()
+    const selector = props.titleOnly ? '[data-panel-title]' : '[role="tab"]'
+    zoneRoot.querySelector<HTMLElement>(`${selector}[data-tab-id="${CSS.escape(panelId)}"]`)?.focus()
   }
   const invokePlacementMenu = (panel: PanelDescriptor, item: MenuActionItem): void => {
     setPlacementMenu(undefined)
@@ -594,6 +685,7 @@ export function DockZoneHost(props: {
             activeId={slot()?.activeId}
             share={renderedCount() < 2 ? undefined : index === 0 ? props.split : 1 - props.split}
             showClose={firstRenderedSection() === index}
+            titleOnly={props.titleOnly === true}
             closeLabel={message('shell.chrome.closeZone', { zone: props.ariaLabel })}
             menuOpen={() => placementMenu() !== undefined}
             onActivate={props.onActivate}

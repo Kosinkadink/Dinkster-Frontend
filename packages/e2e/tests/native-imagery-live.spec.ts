@@ -16,9 +16,8 @@
  * primitive contracts.
  */
 import { deflateSync } from 'node:zlib'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
-test.use({ retentionApi: false })
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -152,7 +151,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await expect(page.getByTestId('status-bar')).toContainText('connected')
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 })
 
 test('a disjoint native partial run retains only the omitted numeric branch as last resolved', async ({ page }) => {

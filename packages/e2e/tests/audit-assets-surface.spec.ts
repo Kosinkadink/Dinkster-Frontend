@@ -92,7 +92,7 @@ test('uses the configured All assets source while preserving curated per-mount b
   await expect(description).toHaveCount(0)
   await page.getByTestId('library-toggle').click()
   await page.getByTestId('library-toggle').hover()
-  const libraryDescription = page.getByText('Browse packs, execution history, and saved workflows', { exact: true })
+  const libraryDescription = page.getByText('Browse packs, templates, and saved workflows', { exact: true })
   await expect(page.getByTestId('library-toggle')).toHaveAttribute('aria-pressed', 'true')
   await expect(libraryDescription).toHaveCount(0)
   await page.getByTestId('library-toggle').click()
