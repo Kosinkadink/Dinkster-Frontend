@@ -16,6 +16,16 @@ export const defaultProductStrings = {
   version: 'Version',
   copy: 'Copy',
   copyFailed: 'Could not copy. Select and copy the value instead.',
+  apply: 'Apply',
+  closeEditor: 'Close editor',
+  tryAgain: 'Try again',
+  editorLoading: 'Loading preview',
+  editorUnavailable: 'Could not load the preview.',
+  editorUnavailableStatus: 'Unavailable',
+  editorUnchanged: 'No changes',
+  editorChanged: 'Changes not applied',
+  editorInvalid: 'Fix the problem before applying',
+  editorApplying: 'Applying',
 }
 
 export type ProductStrings = Readonly<

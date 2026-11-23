@@ -44,6 +44,7 @@ import {
 } from '../src/index.js'
 import { NodeLookGallery } from './node-look.js'
 import { RowEditingGallery } from './row-editing.js'
+import { EditorFrameGallery } from './editor-frame.js'
 
 type Theme = 'dark' | 'light'
 
@@ -73,6 +74,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'row-editing',
         'collection-rows',
         'editor-rows',
+        'editor-frame',
         'widget-driven',
         'widget-offered',
         'widget-companions',
@@ -161,6 +163,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Multi-choice, list, colors and curve rows; After raises the rows that open an editor and draws the curve in its row.',
   'editor-rows':
     'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for.',
+  'editor-frame':
+    'Every full editor opens in one frame that fills the canvas area: a title with the close button, the editor\'s own body, and a footer with Cancel and one Apply. Shown with the crop editor and the asset browser as examples.',
   'widget-driven':
     'A row whose value comes from a wire is dimmed and its stored value is struck through.',
   'widget-offered':
@@ -568,7 +572,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'node-look') return
+    if (currentPage === 'row-editing' || currentPage === 'node-look' || currentPage === 'editor-frame') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -666,6 +670,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'row-editing'}>
           <RowEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'editor-frame'}>
+          <EditorFrameGallery theme={theme()} />
         </Show>
         <Show when={prepared()[0]}>
           {(first) => (

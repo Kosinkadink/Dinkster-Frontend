@@ -384,3 +384,33 @@
 .dinkster-canvas-comparison > h3 { margin: 0; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-body-size); font-weight: var(--dinkster-weight-bold); }
 .dinkster-canvas-example-stage { position: relative; overflow: hidden; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); }
 .dinkster-canvas-example-stage canvas { display: block; }
+/* The frame of every full editor: it fills the area given to it, with a fixed header and footer around the editor's own body. */
+.dinkster-editor-frame { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; container-type: inline-size; border: var(--dinkster-border-width) solid var(--dinkster-border-strong); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); }
+.dinkster-editor-frame-header { display: flex; align-items: center; gap: var(--dinkster-space-8); flex: none; height: var(--dinkster-editor-frame-header-height); padding: 0 var(--dinkster-space-4) 0 var(--dinkster-space-12); border-bottom: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+.dinkster-editor-frame-title { flex: 1; min-width: 0; margin: 0; overflow: hidden; font-size: var(--dinkster-type-body-size); font-weight: var(--dinkster-weight-bold); white-space: nowrap; text-overflow: ellipsis; }
+.dinkster-editor-frame-header > .dinkster-button[data-icon-only] { width: var(--dinkster-space-24); min-height: var(--dinkster-space-24); height: var(--dinkster-space-24); }
+.dinkster-editor-frame-banner { flex: none; padding: var(--dinkster-space-8) var(--dinkster-space-12) 0; }
+.dinkster-editor-frame-banner > .dinkster-message { padding: var(--dinkster-space-8) var(--dinkster-space-12); }
+.dinkster-editor-frame-body { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; }
+.dinkster-editor-frame-body[hidden] { display: none; }
+.dinkster-editor-frame-state { display: grid; flex: 1; place-content: center; justify-items: center; gap: var(--dinkster-space-12); padding: var(--dinkster-space-16); text-align: center; }
+.dinkster-editor-frame-state > .dinkster-description { margin: 0; }
+.dinkster-editor-frame-footer { display: flex; align-items: center; justify-content: flex-end; gap: var(--dinkster-space-8); flex: none; min-height: var(--dinkster-editor-frame-footer-height); padding: var(--dinkster-space-4) var(--dinkster-space-12); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+.dinkster-editor-frame-status { flex: 1; min-width: 0; overflow: hidden; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); white-space: nowrap; text-overflow: ellipsis; }
+/* A body laid out as tools, a work area and a settings panel; the panel moves under the work area when the frame is narrow. */
+.dinkster-editor-frame-toolbar { display: flex; align-items: center; gap: var(--dinkster-space-8); flex: none; padding: var(--dinkster-space-8) var(--dinkster-space-12); border-bottom: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+.dinkster-editor-frame-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(var(--dinkster-sidebar-width), auto); flex: 1; min-height: 0; }
+.dinkster-editor-frame-work { display: grid; place-items: center; align-content: center; gap: var(--dinkster-space-12); min-width: 0; min-height: 0; padding: var(--dinkster-space-12); overflow: auto; background: var(--dinkster-surface-canvas); }
+.dinkster-editor-frame-work[data-align='start'] { place-items: stretch; align-content: start; }
+.dinkster-editor-frame-panel { display: grid; align-content: start; gap: var(--dinkster-space-12); min-width: 0; padding: var(--dinkster-space-12); overflow: auto; border-left: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+@container (max-width: 560px) {
+  .dinkster-editor-frame-columns { display: flex; flex-direction: column; overflow: visible; }
+  .dinkster-editor-frame-work { flex: none; min-height: calc(var(--dinkster-sidebar-width) - var(--dinkster-space-24)); overflow: visible; }
+  .dinkster-editor-frame-panel { overflow: visible; border-left: 0; border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+}
+/* The gallery's stand-in for the canvas area a full editor fills, wide and at phone width. */
+.dinkster-editor-frame-stage { display: flex; width: 720px; height: 460px; max-width: 100%; background: var(--dinkster-surface-canvas); }
+.dinkster-editor-frame-stage[data-width='narrow'] { width: 390px; height: 640px; }
+.dinkster-frame-example-picture { position: relative; width: 256px; height: 192px; max-width: 100%; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); background: var(--dinkster-surface-raised); }
+.dinkster-frame-example-crop { position: absolute; inset: 0; border: var(--dinkster-border-width) solid var(--dinkster-border-focus); }
+.dinkster-frame-example-crop[data-crop='part'] { inset: 11% 11% 11% 11%; }

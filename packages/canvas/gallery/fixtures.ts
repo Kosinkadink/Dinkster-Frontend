@@ -68,6 +68,7 @@ export const canvasGalleryPages = [
   ['node-look', 'Original and new node look'],
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],
+  ['editor-frame', 'The full editor frame'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
   ['widget-companions', 'Propagated values'],
@@ -1316,6 +1317,36 @@ export function createRowFocusScene(
   return singleNodeScene(
     rowFocusSchema,
     {},
+    { position, size: { width, height: 0 } },
+    tokens,
+    measure,
+    widgetMeasure,
+  )
+}
+
+/** A node whose crop row opens the full editor, for the editor frame page. */
+export const editorFrameSchema: NodeSchema = schema('Crop image', [
+  { kind: 'input', id: 'image', type: concrete('IMAGE'), optional: false },
+  { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
+  {
+    ...widget('crop', 'BOUNDING_BOX', { x: 0, y: 0, width: 1024, height: 768 }),
+    displayName: 'Crop',
+    tooltip: 'The part of the image to keep.',
+  },
+])
+
+/** The editor frame page's node, holding the given crop. */
+export function createEditorFrameScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  position: { x: number; y: number },
+  crop: Json,
+  width = 280,
+): Scene {
+  return singleNodeScene(
+    editorFrameSchema,
+    { values: { crop } },
     { position, size: { width, height: 0 } },
     tokens,
     measure,

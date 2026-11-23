@@ -528,6 +528,8 @@ function StepGlyph(props: { path: string }) {
  * controls (such as a seed's modes), then labelled facts and help.
  */
 export function CanvasSidePart(props: {
+  /** What just happened to the row, such as an editor that closed; announced. */
+  notice?: string
   result?: string
   problem?: string
   /** Id of the problem line, so the field can name it as its error. */
@@ -538,6 +540,11 @@ export function CanvasSidePart(props: {
 }) {
   return (
     <>
+      <Show when={props.notice}>
+        <p class="dinkster-canvas-side-result" role="status">
+          {props.notice}
+        </p>
+      </Show>
       <Show when={props.result}>
         <p class="dinkster-canvas-side-result">{props.result}</p>
       </Show>

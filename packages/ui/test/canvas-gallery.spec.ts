@@ -236,6 +236,55 @@ test('The content column is centered beside the sidebar', async ({ page }) => {
   expect(Math.abs(gaps.left - gaps.right)).toBeLessThanOrEqual(1)
 })
 
+test('The full editor frame page draws every labeled state with one Cancel and one Apply', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await openPage(page, 'editor-frame')
+  await cardsReady(page, 'editor-frame', 'dark')
+  for (const id of ['opener', 'applied', 'conflict'])
+    await expect(page.getByTestId(`editor-frame-row-${id}`)).toBeVisible()
+  // Apply is available only for a valid, loaded change that is not already being applied.
+  const states = {
+    loading: 'unavailable',
+    unchanged: 'unavailable',
+    changed: 'available',
+    invalid: 'unavailable',
+    applying: 'pending',
+    failed: 'available',
+    unavailable: 'unavailable',
+    asset: 'available',
+    narrow: 'available',
+  } as const
+  await expect(page.locator('.dinkster-editor-frame')).toHaveCount(
+    Object.keys(states).length,
+  )
+  for (const [id, apply] of Object.entries(states)) {
+    const stage = page.getByTestId(`editor-frame-${id}`)
+    const footer = stage.locator('footer')
+    await expect(footer.getByRole('button')).toHaveText(['Cancel', 'Apply'])
+    await expect(stage.locator('[data-fill="solid"]')).toHaveCount(1)
+    const button = footer.getByRole('button', { name: 'Apply' })
+    if (apply === 'available') await expect(button).toBeEnabled()
+    else if (apply === 'pending') {
+      await expect(button).toHaveAttribute('aria-busy', 'true')
+      await expect(footer.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+      await expect(
+        stage.getByRole('button', { name: 'Close editor' }),
+      ).toBeDisabled()
+    } else await expect(button).toBeDisabled()
+  }
+  // At phone width the footer is still inside the frame, without scrolling the frame.
+  const narrow = page.getByTestId('editor-frame-narrow')
+  const frame = await narrow.boundingBox()
+  const apply = await narrow
+    .locator('footer')
+    .getByRole('button', { name: 'Apply' })
+    .boundingBox()
+  expect(apply!.y + apply!.height).toBeLessThanOrEqual(frame!.y + frame!.height)
+  expect(apply!.x + apply!.width).toBeLessThanOrEqual(frame!.x + frame!.width)
+})
+
 for (const theme of ['dark', 'light'] as const) {
   test(`Canvas text input preserves shared behavior at compact density, ${theme}`, async ({
     page,
