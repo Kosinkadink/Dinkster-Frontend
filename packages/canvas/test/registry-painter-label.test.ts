@@ -327,18 +327,18 @@ describe('registry painter label/value split', () => {
     expect(scrollbar!.y + scrollbar!.height).toBeLessThanOrEqual(72)
   })
 
-  it('draws the subgraph icon before a field\'s name across its whole 12 px box', () => {
+  it('draws the subgraph icon before a field\'s name across its whole 14 px box', () => {
     const painted = fakeCtx()
     const row = { ...rowWith(5), subgraphMark: { item: 'ctrl', label: LABEL } }
     createRegistryPainter(registry)({
       ctx: painted.ctx, row, value: 5, x: 10, y: 20, width: 200, rowHeight: 24, connected: false, tokens: defaultTokens,
     })
     const mark = subgraphMarkRect(row, 200, 24, defaultTokens, false, true)
-    expect(mark.size).toBe(12)
+    expect(mark.size).toBe(14)
     const at = painted.transforms.findIndex((call) =>
       call.method === 'translate' && call.x === 10 + mark.x && call.y === 20 + mark.y)
-    // Lucide's 24-unit box drawn at 12 px: half scale, starting at the box's corner.
-    expect(painted.transforms[at + 1]).toEqual({ method: 'scale', x: 0.5, y: 0.5 })
+    // Lucide's 24-unit box drawn at 14 px, starting at the box's corner.
+    expect(painted.transforms[at + 1]).toEqual({ method: 'scale', x: 14 / 24, y: 14 / 24 })
   })
 
   it('paints an empty multiline placeholder in muted italic type', () => {

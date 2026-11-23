@@ -2818,10 +2818,10 @@ describe('badge and toolbox paint on the live renderer', () => {
       const call = calls.find((candidate) => candidate.method === 'fillText' && candidate.args[0] === word)!
       expect(side === 'above' ? Number(call.args[2]) < header.top : Number(call.args[2]) > n.y + n.layout.height).toBe(true)
     }
-    // The mark: 2 px padding, a 12 px icon, a 3 px gap and "12" (6 px a character here), ending padX before the right edge.
-    const markX = n.x + n.layout.width - defaultTokens.padX - (2 + 12 + 3 + 12 + 2)
+    // The mark: 3 px padding, a 14 px icon, a 3 px gap and "12" (6 px a character here), ending padX before the right edge.
+    const markX = n.x + n.layout.width - defaultTokens.padX - (3 + 14 + 3 + 12 + 3)
     const count = calls.find((call) => call.method === 'fillText' && call.args[0] === '12')!
-    expect(count.args[1]).toBe(markX + 2 + 12 + 3)
+    expect(count.args[1]).toBe(markX + 3 + 14 + 3)
     expect(Number(count.args[2])).toBeGreaterThan(header.top)
     expect(Number(count.args[2])).toBeLessThan(header.bottom)
     const title = calls.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && call.args[2] === titleY)!
@@ -2833,19 +2833,19 @@ describe('badge and toolbox paint on the live renderer', () => {
     expect(String(fullWidth.args[0]).length).toBeGreaterThan(String(title.args[0]).length)
   })
 
-  it('draws a tab\'s and the title mark\'s icons 12 px, 2 px inside their 16 px boxes', () => {
+  it('draws a tab\'s icon 14 px in its 16 px tab and the title mark\'s 14 px in its 20 px box', () => {
     const n = nodeOf(fixtureScene('clean'), 'c1')
     const calls = paintWith(emptyScene({ nodes: [n] }), (renderer) => renderer.setBadges({ c1: [MUTED_BADGE, SUBGRAPH_BADGE] }))
     // An icon is drawn by moving to its corner, then scaling Lucide's 24-unit box.
     const scaleAfter = (x: number, y: number) =>
       calls[calls.findIndex((call) => call.method === 'translate' && call.args[0] === x && call.args[1] === y) + 1]
-    const markX = n.x + n.layout.width - defaultTokens.padX - 16
-    const markY = n.y + n.layout.headerHeight / 2 - 8
-    expect(scaleAfter(markX + 2, markY + 2)).toMatchObject({ method: 'scale', args: [0.5, 0.5] })
-    // The tab's words follow its 12 px icon and a 4 px gap; the tab's top is 8.5 above them.
+    const markX = n.x + n.layout.width - defaultTokens.padX - 20
+    const markY = n.y + n.layout.headerHeight / 2 - 10
+    expect(scaleAfter(markX + 3, markY + 3)).toMatchObject({ method: 'scale', args: [14 / 24, 14 / 24] })
+    // The tab's words follow its 14 px icon and a 4 px gap; the tab's top is 8.5 above them.
     const words = calls.find((call) => call.method === 'fillText' && call.args[0] === 'Muted')!
     const tabTop = Number(words.args[2]) - canvasPaintTokens.badge.baselineOffset - 8
-    expect(scaleAfter(Number(words.args[1]) - 4 - 12, tabTop + 2)).toMatchObject({ method: 'scale', args: [0.5, 0.5] })
+    expect(scaleAfter(Number(words.args[1]) - 4 - 14, tabTop + 1)).toMatchObject({ method: 'scale', args: [14 / 24, 14 / 24] })
   })
 
   it('paints the minimize arrow before the title, down when open and right when minimized', () => {

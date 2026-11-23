@@ -52,7 +52,7 @@ export const canvasPaintTokens = {
     radius: 3,
     baselineOffset: 0.5,
     /** The subgraph mark at the right end of the title bar. */
-    mark: { size: 16, hitSize: 20, iconSize: 12, padding: 2, gap: 3 },
+    mark: { size: 20, hitSize: 20, iconSize: 14, padding: 3, gap: 3 },
     tab: {
       height: 16,
       fontSize: 11,
@@ -62,7 +62,7 @@ export const canvasPaintTokens = {
       offset: 3,
       gap: 2,
       padding: 6,
-      iconSize: 12,
+      iconSize: 14,
       iconGap: 4,
       maxLabelWidth: 120,
       stroke: 1,
@@ -443,7 +443,7 @@ export const canvasPaintTokens = {
   widget: {
     opener: { iconSize: 20, iconInset: 2, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
     /** The subgraph icon before the name of a field shown on the subgraph node without a wire. */
-    subgraphMark: { size: 12, gap: canvasSemanticTokens.space[4] },
+    subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
     curve: { sourceRows: 2, inset: 4, insetX: 6, minSampleHeight: 1 },
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
     valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3 },

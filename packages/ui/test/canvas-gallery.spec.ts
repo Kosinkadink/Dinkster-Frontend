@@ -357,7 +357,7 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(canvas).toHaveScreenshot(`tabs-hover-${theme}.png`)
     await page.mouse.move(0, 0)
     await expect(canvas).not.toHaveAttribute('title', /.+/)
-    await canvas.click({ position: { x: 88, y: 152 } })
+    await canvas.click({ position: { x: 101, y: 152 } })
     const dialog = page.getByRole('dialog', { name: 'Node details' })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText('Detail 5', { exact: true })).toBeVisible()

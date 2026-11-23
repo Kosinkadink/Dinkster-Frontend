@@ -116,25 +116,26 @@ describe('badge layout', () => {
     const list = [MUTED_BADGE, DEPRECATED_BADGE, ERROR_BADGE, { id: 'pack.plain', glyph: 'Plain', placement: 'below' as const, color: '#345678' }]
     const entries = layoutNodeBadges(node, list, { tokens, outset: 2, measureLabel })
     const rects = Object.fromEntries(entries.map(({ badge, x, y, width, height }) => [badge.id, { x, y, width, height }]))
-    // Width: two 6 px paddings, a 12 px icon and a 4 px gap, and the words; no icon, no icon space.
-    expect(rects[MUTED_BADGE.id]).toEqual({ x: 340 - 53, y: 100 - 2 - 3 - 16, width: 53, height: 16 })
-    expect(rects[DEPRECATED_BADGE.id]).toEqual({ x: 340 - 53 - 2 - 78, y: 79, width: 78, height: 16 })
+    // Width: two 6 px paddings, a 14 px icon and a 4 px gap, and the words; no icon, no icon space.
+    expect(rects[MUTED_BADGE.id]).toEqual({ x: 340 - 55, y: 100 - 2 - 3 - 16, width: 55, height: 16 })
+    expect(rects[DEPRECATED_BADGE.id]).toEqual({ x: 340 - 55 - 2 - 80, y: 79, width: 80, height: 16 })
     const bottom = 100 + node.layout.height + 2 + 3
-    expect(rects[ERROR_BADGE.id]).toEqual({ x: 40, y: bottom, width: 53, height: 16 })
-    expect(rects['pack.plain']).toEqual({ x: 40 + 53 + 2, y: bottom, width: 37, height: 16 })
+    expect(rects[ERROR_BADGE.id]).toEqual({ x: 40, y: bottom, width: 55, height: 16 })
+    expect(rects['pack.plain']).toEqual({ x: 40 + 55 + 2, y: bottom, width: 37, height: 16 })
   })
 
   it('keeps only the subgraph mark in the title bar, at its right end, with its count after the icon', () => {
     const node = { ...original, x: 40, y: 100, layout: { ...original.layout, width: 300 } }
     const [mark] = layoutNodeBadges(node, [SUBGRAPH_BADGE, MUTED_BADGE], { tokens, measureLabel })
-    expect(mark).toMatchObject({ x: 340 - tokens.padX - 16, y: 100 + node.layout.headerHeight / 2 - 8, width: 16, height: 16 })
+    expect(mark).toMatchObject({ x: 340 - tokens.padX - 20, y: 100 + node.layout.headerHeight / 2 - 10, width: 20, height: 20 })
     const [counted] = layoutNodeBadges(node, [subgraphBadge(12)], { tokens, measureLabel })
-    // 2 px padding each side, the 12 px icon, a 3 px gap and "12".
-    expect(counted).toMatchObject({ x: 340 - tokens.padX - 29, width: 29 })
+    // 3 px padding each side, the 14 px icon, a 3 px gap and "12".
+    expect(counted).toMatchObject({ x: 340 - tokens.padX - 33, width: 33 })
   })
 
   it('keeps lanes bounded, retains every overflow entry and expands hovered strips on top', () => {
-    const node = { ...original, x: 41, y: 83, layout: { ...original.layout, width: 112 } }
+    // Room for three icon-only tabs of 26 px and the 34 px "+6" tab, with 2 px gaps.
+    const node = { ...original, x: 41, y: 83, layout: { ...original.layout, width: 118 } }
     const options = { tokens, outset: 4 }
     const entries = layoutNodeBadges(node, badges, options)
     expect(entries).toHaveLength(4)
@@ -144,14 +145,14 @@ describe('badge layout', () => {
     expect(entries[3]!.overflow).toEqual(badges.slice(3))
     for (const entry of entries) {
       expect(entry.x).toBeGreaterThanOrEqual(41)
-      expect(entry.x + entry.width).toBeLessThanOrEqual(153)
+      expect(entry.x + entry.width).toBeLessThanOrEqual(159)
       expect(entry.y).toBe(83 + node.layout.height + 7)
     }
     const hovered = layoutNodeBadges(node, badges, { ...options, hoveredId: 'detail.1' })
     expect(hovered.at(-1)!.badge.id).toBe('detail.1')
     expect(hovered.at(-1)!.compact).toBe(false)
     expect(hovered.at(-1)!.width).toBeGreaterThan(entries[1]!.width)
-    expect(hovered.at(-1)!.x + hovered.at(-1)!.width).toBeLessThanOrEqual(153)
+    expect(hovered.at(-1)!.x + hovered.at(-1)!.width).toBeLessThanOrEqual(159)
     const stacked = { ...scene, nodes: [node] }
     const expanded = hovered.at(-1)!
     const hit = hitTestBadge(stacked, { [node.id]: badges }, expanded.x + 1, expanded.y + 1, () => hovered)
@@ -188,7 +189,7 @@ describe('badge layout', () => {
   it('caps a tab\'s words at 120 px', () => {
     const node = { ...original, x: 0, y: 0, layout: { ...original.layout, width: 600 } }
     const [entry] = layoutNodeBadges(node, [{ id: 'long', glyph: 'A label much longer than any tab may show', icon: 'info', color: '#345678' }], { tokens, measureLabel })
-    expect(entry!.width).toBe(12 + 12 + 4 + 120)
+    expect(entry!.width).toBe(12 + 14 + 4 + 120)
     expect(entry!.compact).toBe(false)
   })
 })
