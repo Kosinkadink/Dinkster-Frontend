@@ -200,9 +200,10 @@ const cards: readonly NoticeCard[] = [
     id: 'dismissed',
     title: 'After the notice is dismissed',
     description:
-      'The count stays in the status bar until the workflow is saved or closed. Choosing it brings the notice back with Review open. Each open workflow has its own notice and count.',
+      'The count stays in the status bar until the workflow is saved or closed. Choosing it brings the notice back with Review open, and this example grows to show it. Each open workflow has its own notice and count.',
     changes: twelve,
     dismissed: true,
+    stage: 'wide',
   },
   {
     id: 'undone',
@@ -216,10 +217,10 @@ const cards: readonly NoticeCard[] = [
     id: 'undone-kept',
     title: 'After Undo, with your own edit kept',
     description:
-      'You changed a value on one of the adjusted nodes after the editor made it. Undo put back every other node and left that one as you edited it, and the notice says how many it kept. Redo adjustments puts back only what Undo took back.',
+      'You changed one of the adjusted values after the editor made it. Undo put back every other adjustment and left that one as you edited it, and the notice says how many it kept. Each adjustment is kept or put back whole: a replaced node with its values and wires, or one removed choice. Redo adjustments puts back only what Undo took back.',
     changes: twelve,
     state: 'undone',
-    undoneText: 'Adjustments undone. 1 node you changed since was kept.',
+    undoneText: 'Adjustments undone. 1 was kept because you changed it since.',
   },
   {
     id: 'refused',
@@ -258,6 +259,7 @@ function NodeCanvas(props: {
   let canvas!: HTMLCanvasElement
   createEffect(() => {
     const theme = props.theme
+    const stage = props.stage
     let disposed = false
     let renderer: CanvasRenderer | undefined
     void Promise.all([
@@ -298,8 +300,8 @@ function NodeCanvas(props: {
         NODE_WIDTH,
       )
       const node = fixture.scene.nodes[0]!
-      canvas.style.width = `${props.stage === 'wide' ? WIDE_STAGE_WIDTH : STAGE_WIDTH}px`
-      canvas.style.height = `${props.stage === 'node' ? node.y + node.layout.height + MARGIN * 2 : STAGE_HEIGHT}px`
+      canvas.style.width = `${stage === 'wide' ? WIDE_STAGE_WIDTH : STAGE_WIDTH}px`
+      canvas.style.height = `${stage === 'node' ? node.y + node.layout.height + MARGIN * 2 : STAGE_HEIGHT}px`
       renderer = new CanvasRenderer(
         canvas,
         tokens,
@@ -359,7 +361,9 @@ function NoticeExample(props: {
               theme={props.theme}
               registry={props.registry}
               id={props.card.id}
-              stage={props.card.stage}
+              stage={
+                props.card.dismissed && !shown() ? 'node' : props.card.stage
+              }
             />
             <div class="dinkster-fixes-example-corner">
               <Show when={shown()} keyed>
