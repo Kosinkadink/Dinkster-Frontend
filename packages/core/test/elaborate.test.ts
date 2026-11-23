@@ -1015,18 +1015,23 @@ describe('automatic values', () => {
     expect(warned).toBe(false)
   })
 
-  it('uses an answer and a stale answer, and refuses a decimal that is not whole for a whole-number field', () => {
-    expect(automaticOf(() => ({ state: 'ready', answer: 25 })).automatic?.value).toBe(25)
-    expect(automaticOf(() => ({ state: 'stale', answer: 30, reason: 'failed' })).automatic?.value).toBe(30)
+  it('uses an answer and a kept answer, and refuses a decimal that is not whole for a whole-number field', () => {
+    expect(automaticOf(() => ({ state: 'ready', answer: 25 })).automatic).toEqual({ value: 25, state: 'worked-out', call: { lookup: 'video.rate_of', args: [50] } })
+    expect(automaticOf(() => ({ state: 'loading', answer: 26 })).automatic).not.toHaveProperty('kept')
+    expect(automaticOf(() => ({ state: 'stale', answer: 30, reason: 'failed' }))).toMatchObject({ automatic: { value: 30, state: 'worked-out', kept: 'stale' }, warned: false })
+    expect(automaticOf(() => ({ state: 'paused', answer: 31 }))).toMatchObject({ automatic: { value: 31, state: 'worked-out', kept: 'paused' }, warned: false })
+    expect(automaticOf(() => ({ state: 'paused' })).automatic?.state).toBe('loading')
     expect(automaticOf(() => ({ state: 'ready', answer: 25.5 })).automatic).toMatchObject({ value: 24, state: 'default', reason: 'wrong-type' })
   })
 
-  it('uses the default with a warning when the lookup fails or runs out of time, and waits offline', () => {
+  it('uses the default with a warning when the lookup fails or runs out of time, and without one offline', () => {
     expect(automaticOf(() => ({ state: 'unavailable', reason: 'timeout' }))).toMatchObject({
       automatic: { value: 24, state: 'default', reason: 'lookup-timeout' }, warned: true,
     })
     expect(automaticOf(() => ({ state: 'unavailable', reason: 'wrong-shape' })).automatic?.reason).toBe('lookup-failed')
-    expect(automaticOf(() => ({ state: 'unavailable', reason: 'offline' }))).toMatchObject({ automatic: { state: 'loading' }, warned: false })
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'offline' }))).toMatchObject({
+      automatic: { value: 24, state: 'not-known', reason: 'offline' }, warned: false,
+    })
   })
 })
 

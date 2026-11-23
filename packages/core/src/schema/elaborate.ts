@@ -218,7 +218,7 @@ export interface ElaboratedInput {
 }
 
 /** Why an automatic value could not be worked out, so the default is used. */
-export type AutomaticReason = 'unknown' | 'failed' | 'wrong-type' | 'argument-unknown' | 'lookup-failed' | 'lookup-timeout'
+export type AutomaticReason = 'unknown' | 'failed' | 'wrong-type' | 'argument-unknown' | 'lookup-failed' | 'lookup-timeout' | 'offline'
 
 /** A declared lookup with arguments worked out from the node's values. */
 export interface AutomaticCall {
@@ -233,10 +233,21 @@ export interface AutomaticCall {
 export interface AutomaticState {
   /** The worked-out value, or the field's default. */
   readonly value: Json
-  /** 'loading' while a lookup's answer is to come; `value` is then the default. */
-  readonly state: 'worked-out' | 'default' | 'loading'
+  /**
+   * 'loading' while a lookup's answer is to come, and 'not-known' while
+   * nothing is under way and the field cannot fix it (the editor is
+   * offline): `value` is then the default, with no warning. 'default' is a
+   * value that cannot be worked out, with the warning.
+   */
+  readonly state: 'worked-out' | 'default' | 'loading' | 'not-known'
   readonly reason?: AutomaticReason
   readonly call?: AutomaticCall
+  /**
+   * A lookup's answer kept for these same arguments, shown because a newer
+   * one did not come: the newest call failed ('stale') or the editing
+   * budget is spent ('paused').
+   */
+  readonly kept?: 'stale' | 'paused'
 }
 
 /** Why the editor holds no fresh answer for a lookup call. */
@@ -718,6 +729,7 @@ function elaboratePass(
     if (kind === undefined) return standIn('wrong-type')
     let found: FormulaValue | Json
     let call: AutomaticCall | undefined
+    let kept: AutomaticState['kept']
     if (isLookupSpec(automatic)) {
       const args: Json[] = []
       for (const argument of automatic.args) {
@@ -730,12 +742,18 @@ function elaboratePass(
       }
       call = { lookup: automatic.lookup, args }
       const held = options.lookupAnswers?.(call.lookup, call.args)
-      // The last answer stands while a newer one loads or after a refresh
-      // failed. With none, the field waits on the call; it is not known
-      // offline, which is no failure of the lookup.
-      if (held !== undefined && 'answer' in held && held.answer !== undefined) found = held.answer
-      else if (held?.state === 'unavailable' && held.reason !== 'offline') return standIn(held.reason === 'timeout' ? 'lookup-timeout' : 'lookup-failed', call)
-      else return { value: fallback, state: 'loading', call }
+      // The last answer stands while a newer one loads, after a refresh
+      // failed or while the budget is spent. With none, the field waits on
+      // the call; offline nothing is under way, which is no failure of the
+      // lookup.
+      if (held !== undefined && 'answer' in held && held.answer !== undefined) {
+        found = held.answer
+        if (held.state === 'stale' || held.state === 'paused') kept = held.state
+      } else if (held?.state === 'unavailable' && held.reason === 'offline') {
+        return { value: fallback, state: 'not-known', reason: 'offline', call }
+      } else if (held?.state === 'unavailable') {
+        return standIn(held.reason === 'timeout' ? 'lookup-timeout' : 'lookup-failed', call)
+      } else return { value: fallback, state: 'loading', call }
     } else {
       const outcome = evaluate(automatic.formula, scope)
       if (outcome.kind === 'unknown') return standIn('unknown')
@@ -744,7 +762,7 @@ function elaboratePass(
     }
     const value = automaticValueOf(kind, found, row)
     if (value === undefined) return standIn('wrong-type', call)
-    return { value, state: 'worked-out', ...(call !== undefined ? { call } : {}) }
+    return { value, state: 'worked-out', ...(call !== undefined ? { call } : {}), ...(kept !== undefined ? { kept } : {}) }
   }
 
   /** Member keys a formula counts for a group: the stored ones, or a count group's own. */

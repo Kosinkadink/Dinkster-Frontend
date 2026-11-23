@@ -42,6 +42,11 @@ the field carries a warning, "Could not work out frame rate. Using the
 default, 24.", listed in Problems. While a lookup's answer is still to come
 the field shows the default without a warning.
 
+A lookup's answer kept for the same arguments is shown as worked out, with no
+warning, while a newer one loads, after a refresh failed, or while the editing
+budget is spent. Offline, with no answer kept, the field shows the default
+with no warning: nothing is under way and the field cannot fix it.
+
 A whole-number field takes a whole number or a decimal that is exactly whole;
 a decimal field takes either; a choice is checked against its options only
 when they are written in the declaration.
