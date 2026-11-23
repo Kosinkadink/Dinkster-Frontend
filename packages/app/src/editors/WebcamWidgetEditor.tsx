@@ -78,5 +78,5 @@ const WebcamImplementation: Component<WidgetEditorImplementationProps> = (props)
 export const WebcamWidgetEditor: Component<WidgetEditorProps> = (props) => {
   const message = useAppMessage()
   return <WidgetEditorController {...props} implementation={WebcamImplementation}
-    modal={{ type: 'WEBCAM', help: <>{message('webcam.help')}</> }} />
+    modal={{ form: true, type: 'WEBCAM', help: <>{message('webcam.help')}</> }} />
 }

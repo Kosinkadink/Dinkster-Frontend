@@ -87,5 +87,5 @@ const AudioRecordImplementation: Component<WidgetEditorImplementationProps> = (p
 export const AudioRecordWidgetEditor: Component<WidgetEditorProps> = (props) => {
   const message = useAppMessage()
   return <WidgetEditorController {...props} implementation={AudioRecordImplementation}
-    modal={{ type: 'AUDIO_RECORD', help: <>{message('audioRecordWidget.help')}</> }} />
+    modal={{ form: true, type: 'AUDIO_RECORD', help: <>{message('audioRecordWidget.help')}</> }} />
 }

@@ -254,6 +254,7 @@ test('The full editor frame page draws every labeled state with one Cancel and o
     failed: 'available',
     unavailable: 'unavailable',
     asset: 'available',
+    form: 'available',
     narrow: 'available',
   } as const
   await expect(page.locator('.dinkster-editor-frame')).toHaveCount(
@@ -263,6 +264,12 @@ test('The full editor frame page draws every labeled state with one Cancel and o
   const viewOnly = page.getByTestId('editor-frame-view-only').locator('footer')
   await expect(viewOnly.getByRole('button')).toHaveText(['Close'])
   await expect(viewOnly).toContainText('Nothing to apply here')
+  // A few controls keep their own width in one column; the frame still fills the stage.
+  const form = page.getByTestId('editor-frame-form')
+  const formStage = (await form.boundingBox())!
+  const column = (await form.locator('.dinkster-editor-frame-body > *').first().boundingBox())!
+  expect(column.width).toBeLessThan(formStage.width - 50)
+  expect(Math.abs(column.x - formStage.x - (formStage.width - column.width) / 2)).toBeLessThanOrEqual(2)
   for (const [id, apply] of Object.entries(states)) {
     const stage = page.getByTestId(`editor-frame-${id}`)
     const footer = stage.locator('footer')
@@ -419,7 +426,12 @@ for (const theme of ['dark', 'light'] as const) {
           ).toHaveAttribute('data-ready', `${id}-${theme}`)
         }
         // No comparison is behind a list: only the widget kind remains.
-        await expect(page.getByRole('combobox')).toHaveCount(
+        // An example editor's own fields inside a frame are not page controls.
+        await expect(
+          page.locator(
+            'select:not(.dinkster-editor-frame select), [role="combobox"]:not(.dinkster-editor-frame [role="combobox"])',
+          ),
+        ).toHaveCount(
           id === 'widget-states' ? 1 : 0,
         )
         const cards = await cardsReady(page, id, theme)

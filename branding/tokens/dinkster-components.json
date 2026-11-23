@@ -50,7 +50,8 @@
     "menuRowHeight": 28,
     "scrollbarSize": 8,
     "editorFrameHeaderHeight": 32,
-    "editorFrameFooterHeight": 44
+    "editorFrameFooterHeight": 44,
+    "editorFrameFormWidth": 620
   },
   "siteLayout": {
     "shellMaxWidth": 1040,

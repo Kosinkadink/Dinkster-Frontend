@@ -71,8 +71,9 @@ and an X named Close editor. The footer holds a status line, one Cancel and
 one Apply; no editor has a second confirming button such as Use asset or
 Apply crop. Each editor keeps its own tools, checks and writes inside the
 frame: an upload, a capture or a batch of writes still happens on Apply. An
-editor that is a picture or a scene fills the body; an editor that is a few
-controls keeps them in one column at the top of the body. The curve editor
+editor that is a picture or a scene fills the body. An editor that is a few
+controls (save target, colors, resolution, audio record, webcam) keeps them at
+their usual 620 px width in one centered column at the top of the body. The curve editor
 keeps its own route, the tab's center switching to it, inside the same frame.
 
 - Apply is available only when the draft differs from the stored value, is
@@ -97,7 +98,8 @@ keeps its own route, the tab's center switching to it, inside the same frame.
   write is accepted; an unchanged editor closes and runs; an invalid or
   pending one does neither.
 - An editor that can never store, today the image comparison, has one Close
-  button where Cancel and Apply would be.
+  button where Cancel and Apply would be. Close, the X and Escape close it;
+  Ctrl+Enter runs the workflow and leaves it open.
 
 A pack editor shown through a host UI provider keeps its own popover.
 

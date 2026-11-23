@@ -37,6 +37,11 @@ export function ProductEditorFrame(props: {
   unavailableLabel?: string
   onRetry?: () => void
   /**
+   * An editor that is a few controls keeps them at their own width in one
+   * centered column at the top of the body; a picture or scene fills it.
+   */
+  form?: boolean
+  /**
    * Stores the draft. An editor that can never store, such as a comparison
    * view, leaves it out: its footer has one Close button instead.
    */
@@ -118,6 +123,7 @@ export function ProductEditorFrame(props: {
       </Show>
       <div
         class="dinkster-editor-frame-body"
+        data-size={props.form === true ? 'form' : undefined}
         hidden={bodyHidden()}
         inert={applying()}
       >

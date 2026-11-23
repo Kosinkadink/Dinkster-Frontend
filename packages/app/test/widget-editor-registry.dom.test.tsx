@@ -185,7 +185,10 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
     read: async (_query: unknown, _descriptor: unknown, consume: () => Promise<void>) => consume(),
     rendition: async () => ({ available: true, mime: 'image/png', bytes: new ArrayBuffer(1) }),
   }) } }
+  const queue = { run: vi.fn(), enabled: () => true }
+  const onClose = vi.fn()
   const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
+    commands: { get: (id: string) => id === 'workflow.queue' ? queue : undefined },
     store: { executions: createSignal(new Map()) }, executionForTab: () => execution,
     compileTabCached: () => ({ ok: true, artifact }), backendForTab: () => backend,
   } as unknown as AppState
@@ -206,12 +209,18 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
       tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: inputId }, label: 'Preview',
       spec: inputsOf(schema)[1]!.widget, multiline: false, initial,
       rect: { x: 0, y: 0, width: 180, height: 24 },
-    }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+    }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={onClose} />, root)
     try {
       await vi.waitFor(() => expect(decode).toHaveBeenCalledOnce())
       // A comparison can never store, so its frame offers Close alone.
       const footer = [...root.querySelectorAll('footer button')].map((button) => button.textContent)
       expect(footer).toEqual(kind === 'IMAGECOMPARE' ? ['Close'] : ['Cancel', 'Apply'])
+      if (kind === 'IMAGECOMPARE' && width === 4096) {
+        // Ctrl+Enter runs the workflow and leaves a view-only editor open.
+        root.querySelector('dialog')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }))
+        expect(queue.run).toHaveBeenCalledOnce()
+        expect(onClose).not.toHaveBeenCalled()
+      }
       const canvas = root.querySelector('canvas')!
       const originalSize = [canvas.width, canvas.height]
       if (closed) dispose()

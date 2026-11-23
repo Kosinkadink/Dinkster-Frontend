@@ -242,6 +242,8 @@ export interface WidgetEditorImplementationProps {
 export interface WidgetEditorModalConfiguration {
   /** The editor's accessible description. */
   help?: JSX.Element
+  /** A few controls: one centered column at the top of the frame, not the whole body. */
+  form?: boolean
   dismissBlocked?: () => boolean
   onRequestClose?: (close: () => void) => void
   type: string
@@ -414,7 +416,8 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     else finish()
   }
   // Ctrl+Enter stores a valid change, then runs the workflow; an unchanged
-  // editor closes and runs. Nothing runs while the draft cannot be applied.
+  // editor closes and runs, and one that can never store stays open and runs.
+  // Nothing runs while the draft cannot be applied.
   const onFrameKeyDown = (event: KeyboardEvent): void => {
     if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey) || event.isComposing || event.defaultPrevented) return
     event.preventDefault()
@@ -423,7 +426,8 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     const queue = props.app.commands.get('workflow.queue')
     const run = (): void => { if (queue?.enabled?.() !== false) queue?.run() }
     const phase = binding.phase()
-    if (phase === 'unchanged') {
+    if (binding.apply === undefined) run()
+    else if (phase === 'unchanged') {
       cancelFrame()
       if (!live) run()
     } else if (phase === 'changed') void applyFrame().then((stored) => { if (stored) run() })
@@ -627,6 +631,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
                     title={frameTitle()}
                     phase={framePhase()}
                     applying={frameBusy()}
+                    form={props.modal?.form === true}
                     {...(frame()?.status?.() !== undefined ? { status: frame()!.status!()! } : {})}
                     {...(commitError() !== undefined ? { error: commitError()!, onDismissError: () => setCommitError(undefined) } : {})}
                     {...(frame()?.unavailable?.() !== undefined ? { unavailableLabel: frame()!.unavailable!()! } : {})}

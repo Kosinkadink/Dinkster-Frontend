@@ -24,6 +24,7 @@ import {
   ProductList,
   ProductListRow,
   ProductSection,
+  ProductSelect,
   ProductTextInput,
   canvasSideLayout,
   type ProductEditorFramePhase,
@@ -74,6 +75,33 @@ function CropBody(props: {
   )
 }
 
+/** The save target editor's body as an example: a few controls, not a picture. */
+function SaveTargetBody() {
+  return (
+    <>
+      <div class="dinkster-editor-frame-toolbar">
+        <ProductButton>Clear destination</ProductButton>
+      </div>
+      <div class="dinkster-frame-example-form">
+        <ProductField label="Writable mount">
+          {(attributes) => (
+            <ProductSelect {...attributes}>
+              <option>output</option>
+              <option selected>archive</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <ProductField
+          label="Relative filename prefix"
+          description="Subfolders and filename stem only. The writer adds numbering and .png."
+        >
+          {(attributes) => <ProductTextInput {...attributes} value="portraits/session" />}
+        </ProductField>
+      </div>
+    </>
+  )
+}
+
 /** The asset browser's body as an example: where it is, a filter, the list and the selection. */
 function AssetBody() {
   return (
@@ -114,6 +142,8 @@ interface FrameExample {
   /** An editor that can never store: its footer has one Close button. */
   readonly viewOnly?: boolean
   readonly status?: string
+  /** A few controls: one centered column at the top of the body. */
+  readonly form?: boolean
   readonly body: () => JSX.Element
 }
 
@@ -180,6 +210,15 @@ const frameExamples: readonly FrameExample[] = [
     body: () => <AssetBody />,
   },
   {
+    id: 'form',
+    caption:
+      'Editor that is a few controls. The frame still fills the canvas area, but save target keeps its controls at their usual width in one centered column at the top, instead of stretching them.',
+    title: 'Destination - Save Image',
+    phase: 'changed',
+    form: true,
+    body: () => <SaveTargetBody />,
+  },
+  {
     id: 'view-only',
     caption:
       'Editor that can never store. A comparison only shows run results, so one Close button stands where Cancel and Apply would be.',
@@ -228,6 +267,7 @@ function FrameCard(props: { example: FrameExample }) {
           {...(props.example.retry === true ? { onRetry: () => undefined } : {})}
           {...(props.example.status === undefined ? {} : { status: props.example.status })}
           {...(props.example.viewOnly === true ? {} : { onApply: () => undefined })}
+          form={props.example.form === true}
           onCancel={() => undefined}
         >
           {props.example.body()}

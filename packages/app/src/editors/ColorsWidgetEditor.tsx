@@ -59,5 +59,5 @@ const ColorsImplementation: Component<WidgetEditorImplementationProps> = (props)
 
 export const ColorsWidgetEditor: Component<WidgetEditorProps> = (props) => (
   <WidgetEditorController {...props} implementation={ColorsImplementation}
-    modal={{ type: 'COLORS' }} />
+    modal={{ form: true, type: 'COLORS' }} />
 )

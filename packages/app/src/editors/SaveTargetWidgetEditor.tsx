@@ -74,4 +74,4 @@ const SaveTargetImplementation: Component<WidgetEditorImplementationProps> = (pr
   </div>
 }
 
-export const SaveTargetWidgetEditor: Component<WidgetEditorProps> = (props) => <WidgetEditorController {...props} implementation={SaveTargetImplementation} modal={{ type: 'SAVE_TARGET' }} />
+export const SaveTargetWidgetEditor: Component<WidgetEditorProps> = (props) => <WidgetEditorController {...props} implementation={SaveTargetImplementation} modal={{ form: true, type: 'SAVE_TARGET' }} />

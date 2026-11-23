@@ -89,4 +89,4 @@ const ResolutionImplementation: Component<WidgetEditorImplementationProps> = (pr
   </div></div>
 }
 
-export const ResolutionWidgetEditor: Component<WidgetEditorProps> = (props) => <WidgetEditorController {...props} implementation={ResolutionImplementation} modal={{ type: 'RESOLUTION_PREVIEW' }} />
+export const ResolutionWidgetEditor: Component<WidgetEditorProps> = (props) => <WidgetEditorController {...props} implementation={ResolutionImplementation} modal={{ form: true, type: 'RESOLUTION_PREVIEW' }} />
