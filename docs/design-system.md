@@ -826,8 +826,8 @@ state, each painted from its own document at the top level or inside a subgraph
 entered through one subgraph node. The Switch cards show a pick known before the
 run with the branch not picked dimmed, a pick arriving on a wire, a picked
 branch with nothing plugged in, a stored branch that was removed, a position
-outside the branch list, a wired text picking a branch by name, a Choice
-primitive on Pick, a text that names no branch, renaming and random picks, and
+outside the branch list, a wired text picking a branch by name, a Custom Combo
+on Pick, a Choice primitive on Pick, a text that names no branch, renaming and random picks, and
 one subgraph row driving two Switches with and without matching branches. The
 Primitive cards show a range worked out from the fields it feeds, fields that
 share no value, typed and pinned limits, the typed Int, Float, Text, Boolean and
