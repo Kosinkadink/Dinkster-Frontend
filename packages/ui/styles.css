@@ -570,5 +570,6 @@
 .dinkster-fixes-review-foot { padding: var(--dinkster-space-4) var(--dinkster-space-12) var(--dinkster-space-8); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
 .dinkster-fixes-settings, .dinkster-fixes-count { padding: 0; border: 0; color: var(--dinkster-text-secondary); background: transparent; font: inherit; cursor: pointer; }
 .dinkster-fixes-settings:hover, .dinkster-fixes-count:hover { color: var(--dinkster-text-primary); text-decoration: underline; }
+.dinkster-fixes-count[data-size="compact"] { padding: 0 var(--dinkster-space-4); line-height: inherit; }
 .dinkster-fixes-example-corner { position: absolute; right: var(--dinkster-space-12); bottom: var(--dinkster-space-12); }
 .dinkster-fixes-example-status { display: flex; align-items: center; gap: var(--dinkster-space-16); padding: var(--dinkster-space-4) var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-frame); color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }

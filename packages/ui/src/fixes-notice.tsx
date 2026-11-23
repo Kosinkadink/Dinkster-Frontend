@@ -274,12 +274,15 @@ export function ProductFixesCount(props: {
   /** "12 adjusted" */
   label: string
   onOpen: () => void
+  /** `compact`: padded like the other items of a status bar. */
+  size?: 'compact'
 }): JSX.Element {
   return (
     <button
       type="button"
       class="dinkster-fixes-count"
       data-count={props.count}
+      data-size={props.size}
       onClick={() => props.onOpen()}
     >
       {props.label}

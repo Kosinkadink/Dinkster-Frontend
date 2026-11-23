@@ -37,6 +37,7 @@ const kinds: Record<string, string> = {
   wires: 'Wires kept, now empty',
   limits: 'Numbers corrected to limits',
   replaced: 'Nodes replaced by newer ones',
+  removedChoice: 'Removed choices replaced',
 }
 
 const strings: FixesNoticeStrings = {
@@ -46,7 +47,7 @@ const strings: FixesNoticeStrings = {
   undo: 'Undo',
   redo: 'Redo adjustments',
   dismiss: 'Dismiss',
-  refused: 'The workflow changed; these adjustments cannot be undone together.',
+  refused: 'Someone else has since changed one of the adjusted values.',
   heading: 'Adjusted in this workflow',
   summary: (changes, nodes) =>
     `${plural(changes, 'adjustment', 'adjustments')} across ${plural(nodes, 'node', 'nodes')}`,
@@ -90,6 +91,42 @@ const four: readonly FixesNoticeChange[] = [
   change('resize', 'replaced', 'resize', 'Resize image', 'replaced older node'),
 ]
 
+/** The two kinds the editor reports first: node replacement and replaced removed choices. */
+const firstKinds: readonly FixesNoticeChange[] = [
+  ...[
+    'Load image',
+    'Resize image',
+    'Sampler',
+    'Upscale image',
+    'Save image',
+  ].map((node, index) =>
+    change(`r${index}`, 'replaced', `r${index}`, node, 'replaced older node'),
+  ),
+  change(
+    'c0',
+    'removedChoice',
+    'c0',
+    'Sampler',
+    'sampler_name: dpm_fast was removed; euler is used',
+  ),
+  change(
+    'c1',
+    'removedChoice',
+    'c1',
+    'Video combine',
+    'format: gif was removed; webp is used',
+  ),
+  ...['Mask', 'Crop', 'Blend', 'Sharpen'].map((node, index) =>
+    change(
+      `c${index + 2}`,
+      'removedChoice',
+      `c${index + 2}`,
+      node,
+      'mode: legacy was removed; standard is used',
+    ),
+  ),
+]
+
 const arriving: readonly FixesNoticeChange[] = [
   change('scale', 'limits', 'upscale', 'Upscale image', 'scale: 16 to 8'),
 ]
@@ -109,6 +146,8 @@ interface NoticeCard {
   readonly arrives?: readonly FixesNoticeChange[]
   /** The notice's words after Undo, when they differ from the plain "Adjustments undone". */
   readonly undoneText?: string
+  /** `wide`: room for open Review beside the node; `node`: only as tall as the node. */
+  readonly stage?: 'wide' | 'node'
 }
 
 const cards: readonly NoticeCard[] = [
@@ -119,6 +158,7 @@ const cards: readonly NoticeCard[] = [
       'Opening a workflow that needed 12 changes shows one quiet line in the bottom right corner of the canvas. Review groups the changes by kind, each kind with its count; under a kind each node appears once. Choosing a row asks the canvas to go to that node. Undo takes back all 12 in one step; the cross dismisses the notice and Escape closes only Review.',
     changes: twelve,
     review: true,
+    stage: 'wide',
   },
   {
     id: 'per-node',
@@ -136,6 +176,16 @@ const cards: readonly NoticeCard[] = [
     changes: twelve,
     review: true,
     arrives: arriving,
+    stage: 'wide',
+  },
+  {
+    id: 'first-kinds',
+    title: 'The kinds this editor reports first',
+    description:
+      'The other examples use kinds that later fixes bring. Today the editor reports two: nodes replaced by newer ones, and removed choices replaced by the option the node now uses. Eleven changes, so Review groups them.',
+    changes: firstKinds,
+    review: true,
+    stage: 'wide',
   },
   {
     id: 'none',
@@ -144,6 +194,7 @@ const cards: readonly NoticeCard[] = [
       'A workflow that needed no changes shows no notice on the canvas and no count in the status bar.',
     changes: [],
     none: true,
+    stage: 'node',
   },
   {
     id: 'dismissed',
@@ -185,17 +236,24 @@ const cards: readonly NoticeCard[] = [
       'Saving or closing clears the notice and the count. The changed values are what was saved, and problems that are still true stay in Problems.',
     changes: [],
     none: true,
+    stage: 'node',
   },
 ]
 
 /** Room for the node and for Review opening above the notice line. */
 const STAGE_WIDTH = 640
 const STAGE_HEIGHT = 460
+/** Review's width, the fixesReviewWidth component token. */
+const REVIEW_WIDTH = 360
+/** The node, then Review beside it, so the open list never covers the node. */
+const WIDE_STAGE_WIDTH =
+  MARGIN * 2 + NODE_WIDTH + MARGIN + REVIEW_WIDTH + MARGIN
 
 function NodeCanvas(props: {
   theme: 'dark' | 'light'
   registry: WidgetRegistry
   id: string
+  stage?: 'wide' | 'node' | undefined
 }) {
   let canvas!: HTMLCanvasElement
   createEffect(() => {
@@ -239,8 +297,9 @@ function NodeCanvas(props: {
         { x: MARGIN * 2, y: MARGIN * 2 },
         NODE_WIDTH,
       )
-      canvas.style.width = `${STAGE_WIDTH}px`
-      canvas.style.height = `${STAGE_HEIGHT}px`
+      const node = fixture.scene.nodes[0]!
+      canvas.style.width = `${props.stage === 'wide' ? WIDE_STAGE_WIDTH : STAGE_WIDTH}px`
+      canvas.style.height = `${props.stage === 'node' ? node.y + node.layout.height + MARGIN * 2 : STAGE_HEIGHT}px`
       renderer = new CanvasRenderer(
         canvas,
         tokens,
@@ -300,6 +359,7 @@ function NoticeExample(props: {
               theme={props.theme}
               registry={props.registry}
               id={props.card.id}
+              stage={props.card.stage}
             />
             <div class="dinkster-fixes-example-corner">
               <Show when={shown()} keyed>
