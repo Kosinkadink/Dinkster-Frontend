@@ -45,6 +45,7 @@ import {
 import { NodeLookGallery } from './node-look.js'
 import { ColorEditingGallery } from './color-editing.js'
 import { RowEditingGallery } from './row-editing.js'
+import { RowListsGallery } from './row-lists.js'
 import { SaveTargetBoxGallery } from './save-target-box.js'
 
 type Theme = 'dark' | 'light'
@@ -73,6 +74,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'widgets',
         'core-rows',
         'row-editing',
+        'row-lists',
         'color-editing',
         'save-target-box',
         'collection-rows',
@@ -162,6 +164,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
+  'row-lists':
+    'A choice, and a list a pack fills from a lookup, open one filtered list in their own row: the value becomes the filter, a check marks the stored option and the grey highlight the candidate. Opening, filtering, refreshing or Tab never changes the stored value; only Enter or a click picks. Model and media fields are asset fields and keep their own editor; a list of plain names is what a pack\'s own dropdown shows.',
   'color-editing':
     'A color row becomes its own field when clicked, with a picker under it and what Enter stores beside it. Nothing is stored until the field is left. The saved color is a line in the side part beside the field, read here as the tooltip asked for, while the draft differs from it; nothing marks it by the name.',
   'save-target-box':
@@ -582,7 +586,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'color-editing' || currentPage === 'save-target-box' || currentPage === 'node-look') return
+    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'save-target-box' || currentPage === 'node-look') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -680,6 +684,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'row-editing'}>
           <RowEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'row-lists'}>
+          <RowListsGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'color-editing'}>
           <ColorEditingGallery theme={theme()} />
