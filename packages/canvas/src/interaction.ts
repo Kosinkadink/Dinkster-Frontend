@@ -445,6 +445,8 @@ export interface InteractionHost {
   ): void
   /** Click on a widget row; screen coords anchor an editor overlay. */
   onWidgetActivate?(hit: Extract<Hit, { kind: 'widget' }>, screenX: number, screenY: number): void
+  /** Click on a widget row a wire drives; nothing opens, but the host may explain the row. */
+  onWiredWidgetActivate?(hit: Extract<Hit, { kind: 'widget' }>): void
   /** Click on the active lens's registered widget-row affordance. */
   onWidgetRowAffordanceActivate?(hit: Extract<Hit, { kind: 'widget' }>): void
   /** Click on the active lens's preview-surface affordance. */
@@ -825,8 +827,9 @@ type Gesture =
       moved: boolean
     }
 
+/** A row drawn and stepped as a number; an integer color is drawn as a color. */
 const isNumberRow = (row: Extract<LayoutRow, { kind: 'widget' }>): boolean =>
-  row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
+  (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
 
 export class InteractionController {
   private selection = new Set<string>()
@@ -3680,7 +3683,10 @@ export class InteractionController {
             (link) => bindingOk(link) && link.to.kind === 'port' && link.to.node === g.hit.node.id && link.to.port === g.hit.row.inputId,
           )
           // The connected value wins; editing the dormant value invites confusion.
-          if (connected) return
+          if (connected) {
+            this.host.onWiredWidgetActivate?.(g.hit)
+            return
+          }
           const row = g.hit.row
           // Paint and interaction share the same row-local chip rectangle;
           // the rightmost numeric stepper remains outside it.

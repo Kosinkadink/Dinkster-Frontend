@@ -5,7 +5,7 @@ const test = base.extend<{ widgetDocument: boolean }>({ widgetDocument: [true, {
 
 const catalogTest = test.extend({ widgetDocument: false })
 
-catalogTest('mixed scalar COMBO keeps typed native choices through dropdown edits', async ({ page }, testInfo) => {
+catalogTest('mixed scalar COMBO keeps typed native choices through list picks', async ({ page }, testInfo) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'scalar-combo-fixture', schemaWire: 2 },
     nodes: { ScalarCombo: { displayName: 'Mixed scalar choices', outputNode: true, body: [
@@ -24,16 +24,16 @@ catalogTest('mixed scalar COMBO keeps typed native choices through dropdown edit
   })
   const point = await nodeRowPoint(page, 'n1', 'bit_depth')
   await page.mouse.click(point.x, point.y)
-  await expect(page.getByTestId('combo-option')).toHaveText(['auto', '8', '10'])
+  await expect(listOptions(page)).toHaveText(['auto', '8', '10'])
   await page.screenshot({ path: testInfo.outputPath('mixed-scalar-depth.png') })
-  await page.getByTestId('combo-option').nth(1).click()
+  await listOptions(page).nth(1).click()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.bit_depth)).toBe(8)
   for (const [index, value] of [8, '8', true, 1].entries()) {
     const identity = await nodeRowPoint(page, 'n1', 'identity')
     await page.mouse.click(identity.x, identity.y)
-    await expect(page.getByTestId('combo-option')).toHaveCount(4)
+    await expect(listOptions(page)).toHaveCount(4)
     if (index === 0) await page.screenshot({ path: testInfo.outputPath('mixed-scalar-identity.png') })
-    await page.getByTestId('combo-option').nth(index).click()
+    await listOptions(page).nth(index).click()
     expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.identity)).toBe(value)
   }
 })
@@ -55,20 +55,15 @@ catalogTest('native integer RGB color edits retain numeric values without catalo
   await page.mouse.click(point.x, point.y)
   await page.screenshot({ path: testInfo.outputPath('integer-color-open.png') })
   expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get().filter((problem) => problem.code === 'schema.dinkster.badNumberDisplay'))).toEqual([])
-  await expect(page.getByTestId('color-editor')).toBeVisible()
-  await expect(page.getByTestId('color-text')).toHaveValue('#010203')
-  await page.getByTestId('color-text').fill('#12345678')
-  await page.getByTestId('color-editor').getByRole('button', { name: 'Commit' }).click()
-  await expect(page.getByTestId('color-error')).toBeVisible()
-  await page.screenshot({ path: testInfo.outputPath('integer-color-invalid.png') })
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.color)).toBe(66051)
-  await page.getByTestId('color-text').fill('#ab1203')
+  const field = page.locator('.widget-in-row-field input')
+  await expect(field).toHaveValue('#010203')
+  await field.fill('#ab1203')
   await page.screenshot({ path: testInfo.outputPath('integer-color-editor.png') })
-  await page.getByTestId('color-editor').getByRole('button', { name: 'Commit' }).click()
-  await expect(page.getByTestId('color-editor')).not.toBeVisible()
+  await field.press('Enter')
+  await expect(field).toHaveCount(0)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.color)).toBe(11211267)
   await page.mouse.click(point.x, point.y)
-  await expect(page.getByTestId('color-text')).toHaveValue('#ab1203')
+  await expect(field).toHaveValue('#ab1203')
 })
 
 catalogTest('socketless native color keeps its editor and neighboring input socket', async ({ page }, testInfo) => {
@@ -99,16 +94,16 @@ catalogTest('socketless native color keeps its editor and neighboring input sock
   await page.screenshot({ path: testInfo.outputPath('socketless-row.png') })
   const point = await nodeRowPoint(page, 'n1', 'padding.color')
   await page.mouse.click(point.x, point.y)
-  await expect(page.getByTestId('color-editor')).toBeVisible()
-  await expect(page.getByTestId('color-text')).toHaveValue('#abcdef')
-  await page.getByTestId('color-text').fill('#123456')
-  await page.getByTestId('color-editor').getByRole('button', { name: 'Commit' }).click()
+  const field = page.locator('.widget-in-row-field input')
+  await expect(field).toHaveValue('#abcdef')
+  await field.fill('#123456')
+  await field.press('Enter')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values['padding.color'])).toBe('#123456')
   await page.setViewportSize({ width: 600, height: 700 })
   await page.getByRole('button', { name: /^Toggle right rail/ }).click()
   const narrow = await nodeRowPoint(page, 'n1', 'padding.color')
   await page.mouse.click(narrow.x, narrow.y)
-  await expect(page.getByTestId('color-text')).toHaveValue('#123456')
+  await expect(field).toHaveValue('#123456')
   await page.screenshot({ path: testInfo.outputPath('socketless-narrow-editor.png') })
 })
 
@@ -165,6 +160,9 @@ async function toolboxButtonPoint(page: Page, buttonId: string): Promise<{ x: nu
     }
   }, buttonId)
 }
+
+const listFilter = (page: Page) => page.locator('[data-editor-surface="in-row-list"] input')
+const listOptions = (page: Page) => page.locator('[data-editor-surface="in-row-list"] [role=option]')
 
 async function openEditor(page: Page, inputId: string) {
   // Synchronize the prior expanded surface before issuing another canvas hit.
@@ -450,7 +448,7 @@ test('COLORS stages exact ordered palettes with add, remove, reorder and one und
   await expect(editor.getByRole('button', { name: 'Add color' })).toBeEnabled()
   await page.keyboard.press('Escape')
   await openEditor(page, 'color')
-  await expect(page.getByTestId('color-text')).toHaveValue('#11223380')
+  await expect(page.locator('.widget-in-row-field input')).toHaveValue('#11223380')
   await page.screenshot({ path: testInfo.outputPath('colors-color-sibling.png'), animations: 'disabled' })
   await page.keyboard.press('Escape')
 })
@@ -928,15 +926,14 @@ test('FR15 a composing Enter never commits the COMBO, multiline, or COLOR editor
 
   // COMBO: a composing Enter selects the IME candidate, not the highlighted option.
   await openEditor(page, 'choice')
-  const search = page.getByTestId('combo-search')
+  const search = listFilter(page)
   await search.fill('be'); await search.press('ArrowDown')
   await search.evaluate((el) => {
     el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }))
   })
-  await expect(page.getByTestId('combo-dropdown')).toBeVisible()
+  await expect(search).toBeVisible()
   expect((await values()).choice).toBeUndefined()
   await search.press('Enter')
-  await expect(page.getByTestId('combo-dropdown')).not.toBeVisible()
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
   expect((await values()).choice).toBe('dinkster.beta')
 
@@ -953,18 +950,19 @@ test('FR15 a composing Enter never commits the COMBO, multiline, or COLOR editor
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
   expect((await values()).notes).toBe('composed text')
 
-  // COLOR: the hex-text Enter path carries the same guard.
+  // COLOR: the color field's Enter carries the same guard. The field has no
+  // opacity, so the stored code drops it.
   await openEditor(page, 'color')
-  const colorText = page.getByTestId('color-text')
+  const colorText = page.locator('.widget-in-row-field input')
   await colorText.fill('#00ff3380')
   await colorText.evaluate((el) => {
     el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }))
   })
-  await expect(page.getByTestId('color-editor')).toBeVisible()
+  await expect(colorText).toBeVisible()
   expect((await values()).color).toBeUndefined()
   await colorText.press('Enter')
-  await expect(page.getByTestId('color-editor')).toHaveCount(0)
-  expect((await values()).color).toBe('#00ff3380')
+  await expect(colorText).toHaveCount(0)
+  expect((await values()).color).toBe('#00ff33')
 })
 
 test('numeric compact stepping stays primary while the in-row field supports exact commit/cancel', async ({ page }) => {
@@ -1162,7 +1160,7 @@ test('a composing Escape does not close the STRING popover or write its draft', 
   await input.press('Escape')
 })
 
-test('Escape discards a STRING draft and Tab reaches popover Cancel so Enter discards a COLOR draft', async ({ page }) => {
+test('Escape discards a STRING draft and a COLOR draft', async ({ page }) => {
   await openEditor(page, 'title')
   await page.getByTestId('widget-editor').locator('input').fill('discarded text')
   await page.keyboard.press('Escape')
@@ -1170,23 +1168,34 @@ test('Escape discards a STRING draft and Tab reaches popover Cancel so Enter dis
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.title).toBeUndefined()
 
   await openEditor(page, 'color')
-  await page.getByTestId('color-text').fill('#abcdef')
-  await page.keyboard.press('Tab')
-  const closeColor = page.getByTestId('color-editor').getByRole('button', { name: 'Cancel' })
-  await expect(closeColor).toBeFocused()
-  await page.keyboard.press('Enter')
-  await expect(page.getByTestId('color-editor')).toHaveCount(0)
+  await page.locator('.widget-in-row-field input').fill('#abcdef')
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.widget-in-row-field')).toHaveCount(0)
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.color).toBeUndefined()
 })
 
 test('widget popover is anchored, non-draggable, Escape-restoring, and fits a sub-320px viewport', async ({ page }) => {
+  // Number and color rows edit in their row; COLORS keeps the shared popover frame.
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'ColorsWidgetTest', displayName: 'Palette', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'input', id: 'palette', type: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } }, optional: false,
+        widget: { widgetType: 'COLORS', default: ['#112233'], options: {} } }],
+    }])
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'colors-popover', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Palette', nodes: { widgets: { id: 'widgets', type: 'ColorsWidgetTest', values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { widgets: { position: { x: 100, y: 100 } } } } } },
+    }, 'Palette')
+  })
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'widgets' && node.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'palette')))
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 650, y: 0, scale: 1 }))
   await page.getByTestId('rail-toggle').click()
   await expect(page.getByTestId('rail-toggle')).toHaveAttribute('aria-pressed', 'false')
-  // Number rows edit in their row; COLOR keeps the shared popover frame.
-  await openEditor(page, 'color')
-  const dialog = page.getByRole('dialog', { name: 'Edit color COLOR' })
-  const editor = page.getByTestId('color-editor')
+  await openEditor(page, 'palette')
+  const dialog = page.getByRole('dialog', { name: 'Edit palette COLORS' })
+  const editor = page.getByTestId('colors-editor')
   await page.setViewportSize({ width: 1200, height: 900 })
   const moderate = await dialog.boundingBox()
   const canvas = await page.getByTestId('graph-canvas').boundingBox()
@@ -1673,83 +1682,39 @@ test('BOOLEAN toggles once per click and one undo restores it', async ({ page })
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.enabled).toBeUndefined()
 })
 
-test('COLOR commits exact string text without validation, undoes once, and cancels', async ({ page }) => {
+test('COLOR stores a normalized code, keeps the stored color for text that is not a color, undoes once, and cancels', async ({ page }) => {
   const value = async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values.color
+  const input = page.locator('.widget-in-row-field input')
   await openEditor(page, 'color')
-  let input = page.getByTestId('color-text')
   await expect(input).toHaveValue('#11223380')
-  await input.fill('#00ff3380')
+  await input.fill('#00FF33')
   await input.press('Enter')
-  await expect(page.getByTestId('color-editor')).toHaveCount(0)
-  expect(await value()).toBe('#00ff3380')
+  await expect(input).toHaveCount(0)
+  expect(await value()).toBe('#00ff33')
 
   await page.keyboard.press('Control+z')
   expect(await value()).toBeUndefined()
 
   await openEditor(page, 'color')
-  input = page.getByTestId('color-text')
   await input.fill('Not-A-Normalized-Color')
   await input.press('Enter')
-  await expect(page.getByTestId('color-editor')).toHaveCount(0)
-  expect(await value()).toBe('Not-A-Normalized-Color')
-
-  await page.keyboard.press('Control+z')
+  await expect(input).toHaveCount(0)
   expect(await value()).toBeUndefined()
 
   await openEditor(page, 'color')
-  input = page.getByTestId('color-text')
   await input.fill('#abcdef')
   await input.press('Escape')
-  await expect(page.getByTestId('color-editor')).toHaveCount(0)
+  await expect(input).toHaveCount(0)
   expect(await value()).toBeUndefined()
 })
 
-test('COLOR anchored popover is non-draggable and retains its specialized picker', async ({ page }) => {
-  await openEditor(page, 'color')
-  const dialog = page.getByRole('dialog', { name: 'Edit color COLOR' })
-  const editor = page.getByTestId('color-editor')
-  await expect(editor.getByTestId('widget-editor-label')).toHaveText('color')
-  await expect(editor.getByTestId('widget-editor-type')).toHaveText('COLOR')
-  const before = await dialog.boundingBox()
-  const header = editor.getByTestId('widget-editor-header')
-  const headerBox = await header.boundingBox()
-  await page.mouse.move(headerBox!.x + 20, headerBox!.y + headerBox!.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(headerBox!.x + 120, headerBox!.y + headerBox!.height / 2)
-  await page.mouse.up()
-  expect(await dialog.boundingBox()).toEqual(before)
-  await expect(editor.getByTestId('widget-editor-resize-handle')).toHaveCount(0)
-
-  const square = await page.getByTestId('color-saturation-value').boundingBox()
-  await page.mouse.move(square!.x + square!.width * 0.75, square!.y + square!.height * 0.25)
-  await page.mouse.down()
-  await page.mouse.move(square!.x + square!.width * 0.9, square!.y + square!.height * 0.4)
-  await page.mouse.up()
-  await expect(page.getByTestId('color-text')).not.toHaveValue('#11223380')
-  await expect(page.getByTestId('color-text')).toHaveValue(/^#[0-9a-f]{6}80$/)
-  await page.getByTestId('color-text').fill('#11223344')
-  await page.mouse.click(square!.x + square!.width * 0.5, square!.y + square!.height * 0.5)
-  await expect(page.getByTestId('color-text')).toHaveValue(/^#[0-9a-f]{6}44$/)
-  const picked = await page.getByTestId('color-text').inputValue()
-  await editor.getByRole('button', { name: 'Commit' }).click()
-  await expect(editor).toHaveCount(0)
-  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.color).toBe(picked)
-
-  await openEditor(page, 'color')
-  await page.mouse.click(900, 700)
-  await expect(editor).not.toBeVisible()
-})
-
-test('static COMBO popover filters, navigates folders, cancels, and handles no options', async ({ page }, testInfo) => {
+test('static COMBO list in the row filters, navigates folders, cancels, and handles no options', async ({ page }, testInfo) => {
   await openEditor(page, 'choice')
-  const combo = page.getByTestId('combo-dropdown')
-  await expect(page.getByRole('dialog', { name: 'Edit choice COMBO' })).toBeVisible()
-  await expect(combo.getByTestId('widget-editor-label')).toHaveText('choice')
-  await expect(combo.getByTestId('widget-editor-type')).toHaveText('COMBO')
-  let search = page.getByTestId('combo-search')
+  let search = listFilter(page)
+  await expect(search).toHaveAttribute('aria-label', 'choice')
   await search.fill('be')
-  await expect(page.getByTestId('combo-option')).toContainText('Detailed decoder')
-  await page.getByTestId('combo-option').dispatchEvent('click')
+  await expect(listOptions(page)).toContainText('Detailed decoder')
+  await listOptions(page).dispatchEvent('click')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.choice).toBe('dinkster.beta')
 
@@ -1770,27 +1735,27 @@ test('static COMBO popover filters, navigates folders, cancels, and handles no o
   await expect(page.getByTestId('context-menu')).not.toBeVisible()
 
   await openEditor(page, 'choice')
-  await expect(page.getByTestId('combo-dropdown')).toContainText('Detailed decoder')
+  await expect(listOptions(page).nth(1)).toContainText('Detailed decoder')
   const rootScreenshot = testInfo.outputPath('structured-combo-root.png')
   await page.screenshot({ path: rootScreenshot, animations: 'disabled' })
   await testInfo.attach('structured-combo-root', { path: rootScreenshot, contentType: 'image/png' })
-  await page.getByTestId('combo-folder').dispatchEvent('click')
-  await page.getByTestId('combo-folder').dispatchEvent('click')
-  await expect(page.getByTestId('combo-folder-navigation')).toContainText('Advanced / Diffusion')
-  await expect(page.getByTestId('combo-option')).toContainText('Advanced solver')
+  await listOptions(page).and(page.locator('[data-kind=folder]')).dispatchEvent('click')
+  await listOptions(page).and(page.locator('[data-kind=folder]')).dispatchEvent('click')
+  await expect(listOptions(page).and(page.locator('[data-kind=back]'))).toHaveCount(1)
+  await expect(listOptions(page).and(page.locator('[data-kind=option]'))).toContainText('Advanced solver')
   const screenshotPath = testInfo.outputPath('structured-combo-folder.png')
   await page.screenshot({ path: screenshotPath, animations: 'disabled' })
   await testInfo.attach('structured-combo-folder', { path: screenshotPath, contentType: 'image/png' })
-  await page.getByTestId('combo-option').dispatchEvent('click')
-  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.choice).toBe('dinkster.gamma')
+  await listOptions(page).and(page.locator('[data-kind=option]')).dispatchEvent('click')
+  await expect.poll(async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values.choice).toBe('dinkster.gamma')
   await page.mouse.click(point.x, point.y, { button: 'right' })
   await page.locator('[data-item-id="core.widget.reset"]').click()
 
-  await openEditor(page, 'choice'); search = page.getByTestId('combo-search'); await search.fill('gamma'); await search.press('Escape')
+  await openEditor(page, 'choice'); search = listFilter(page); await search.fill('gamma'); await search.press('Escape')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.choice).toBe('dinkster.alpha')
   await openEditor(page, 'empty')
-  await expect(page.getByTestId('combo-dropdown')).toContainText('No matching options')
+  await expect(page.locator('[data-editor-surface="in-row-list"] .dinkster-canvas-list-empty')).toHaveText('No options available')
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
 })
@@ -1822,30 +1787,28 @@ test('huge COMBO lists render a capped window with paging rows and still commit 
   await page.mouse.click(point.x, point.y)
 
   // The 1200-entry list renders a capped window around the deep default.
-  const combo = page.getByTestId('combo-dropdown')
-  await expect(combo).toBeVisible()
-  await expect(page.getByTestId('combo-option')).toHaveCount(300)
-  await expect(combo.locator('.combo-option.active')).toHaveText('option-600')
-  await expect(page.getByTestId('combo-earlier')).toHaveText('450 earlier options')
-  await expect(page.getByTestId('combo-more')).toHaveText('450 more options - type to narrow')
+  const active = page.locator('[data-editor-surface="in-row-list"] [role=option][data-active=true]')
+  const pages = page.locator('[data-editor-surface="in-row-list"] .dinkster-canvas-list-page')
+  await expect(listOptions(page)).toHaveCount(300)
+  await expect(active).toHaveText('option-600')
+  await expect(pages).toHaveText(['450 earlier options', '450 more options'])
   const screenshotPath = testInfo.outputPath('huge-combo-window.png')
   await page.screenshot({ path: screenshotPath, animations: 'disabled' })
   await testInfo.attach('huge-combo-window', { path: screenshotPath, contentType: 'image/png' })
 
   // Paging jumps the highlight across the window boundary.
-  await page.getByTestId('combo-more').dispatchEvent('click')
-  await expect(combo.locator('.combo-option.active')).toHaveText('option-750')
-  await expect(page.getByTestId('combo-option')).toHaveCount(300)
+  await pages.last().dispatchEvent('click')
+  await expect(active).toHaveText('option-750')
+  await expect(listOptions(page)).toHaveCount(300)
 
   // Narrowing below the cap renders every match without paging rows.
-  await page.getByTestId('combo-search').fill('option-99')
-  await expect(page.getByTestId('combo-option')).toHaveCount(11)
-  await expect(page.getByTestId('combo-earlier')).toHaveCount(0)
-  await expect(page.getByTestId('combo-more')).toHaveCount(0)
+  await listFilter(page).fill('option-99')
+  await expect(listOptions(page)).toHaveCount(11)
+  await expect(pages).toHaveCount(0)
 
   // Enter commits the highlighted option from the full filtered list.
-  await page.getByTestId('combo-search').press('ArrowDown')
-  await page.getByTestId('combo-search').press('Enter')
+  await listFilter(page).press('ArrowDown')
+  await listFilter(page).press('Enter')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
-  expect((await activeDoc(page)).graphs.g0!.nodes.huge!.values.choice).toBe('option-990')
+  await expect.poll(async () => (await activeDoc(page)).graphs.g0!.nodes.huge!.values.choice).toBe('option-990')
 })

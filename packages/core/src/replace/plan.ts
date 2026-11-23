@@ -412,12 +412,17 @@ const sourceDynamicSelectionProblem = (
   node: Pick<NodeData, 'values' | 'dynamic'>,
 ): string | undefined => {
   const census = elaborateInterface(schema, node, EMPTY_CONNECTIVITY, { promoteGhosts: false, includeDormant: true })
+  // A shared choice is censused once per option that uses it, each place
+  // offering its own `only` subset; a key any place offers is declared.
   const declared = new Map<string, readonly string[]>()
+  const declare = (construct: string, keys: readonly string[]): void => {
+    declared.set(construct, [...new Set([...(declared.get(construct) ?? []), ...keys])])
+  }
   for (const input of elabInputsOf(census)) {
     if (input.origin.kind === 'selector' && input.spec.widget !== undefined) {
-      declared.set(input.origin.construct, normalizedComboOptions(input.spec.widget).map((option) => String(option.value)))
+      declare(input.origin.construct, normalizedComboOptions(input.spec.widget).map((option) => String(option.value)))
     } else if (input.origin.kind === 'slot' && input.origin.variants !== undefined) {
-      declared.set(input.origin.construct, input.origin.variants.map((variant) => variant.key))
+      declare(input.origin.construct, input.origin.variants.map((variant) => variant.key))
     }
   }
   for (const [path, stored] of Object.entries(node.dynamic ?? {})) {

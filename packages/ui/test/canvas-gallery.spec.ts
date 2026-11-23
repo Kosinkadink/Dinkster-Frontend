@@ -237,6 +237,68 @@ test('The content column is centered beside the sidebar', async ({ page }) => {
   expect(Math.abs(gaps.left - gaps.right)).toBeLessThanOrEqual(1)
 })
 
+test('Color picker handles stay wholly inside every control', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await openPage(page, 'color-editing')
+  await cardsReady(page, 'color-editing', 'dark')
+  const handlesOf = (id: string) =>
+    page
+      .locator('figure.dinkster-canvas-example', {
+        has: page.getByTestId(`color-editing-${id}`),
+      })
+      .locator('svg:has(> .dinkster-canvas-color-handle)')
+      .evaluateAll((controls) =>
+        controls.map((svg) => {
+          const handle = svg.querySelector<SVGGElement>('.dinkster-canvas-color-handle')!
+          const box = handle.getBBox()
+          const at = (value: number) => Math.round(value * 100) / 100
+          return {
+            shape: handle.getAttribute('data-shape'),
+            x: Number(handle.getAttribute('data-x')),
+            y: Number(handle.getAttribute('data-y')),
+            box: { left: at(box.x), top: at(box.y), right: at(box.x + box.width), bottom: at(box.y + box.height) },
+            width: Number(svg.getAttribute('width')),
+            height: Number(svg.getAttribute('height')),
+          }
+        }),
+      )
+  // Every open example draws a ring on the square and an upright bar on the
+  // hue strip, and on the opacity strip when the field has one. Each stays
+  // inside its control; a bar spans its strip's full height.
+  for (const id of ['open', 'pick', 'invalid', 'empty', 'alpha', 'clear', 'black', 'white']) {
+    const handles = await handlesOf(id)
+    expect(handles.map((handle) => handle.shape), id).toEqual(
+      id === 'alpha' || id === 'clear' ? ['ring', 'bar', 'bar'] : ['ring', 'bar'],
+    )
+    for (const handle of handles) {
+      expect(handle.width, id).toBeGreaterThan(12)
+      expect(handle.box.left, id).toBeGreaterThanOrEqual(0)
+      expect(handle.box.top, id).toBeGreaterThanOrEqual(0)
+      expect(handle.box.right, id).toBeLessThanOrEqual(handle.width)
+      expect(handle.box.bottom, id).toBeLessThanOrEqual(handle.height)
+      if (handle.shape === 'bar') {
+        expect([handle.box.top, handle.box.bottom], id).toEqual([0, handle.height])
+        expect(handle.box.right - handle.box.left, id).toBeCloseTo(6, 2)
+      }
+    }
+  }
+  // Black sits in the bottom-left corner, white in the top-left with the hue
+  // at the red end, and full transparency at the clear end.
+  const [blackSquare] = await handlesOf('black')
+  expect([blackSquare!.x, blackSquare!.y]).toEqual([6, blackSquare!.height - 6])
+  const [whiteSquare, whiteHue] = await handlesOf('white')
+  expect([whiteSquare!.x, whiteSquare!.y, whiteHue!.x]).toEqual([6, 6, 3])
+  const clear = await handlesOf('clear')
+  expect(clear[2]!.x).toBe(3)
+  // Just opened, the handles already mark the stored color.
+  const [square, hue] = await handlesOf('open')
+  expect(square!.x).toBeCloseTo(0.75 * square!.width, 0)
+  expect(square!.y).toBeCloseTo(0.2 * square!.height, 0)
+  expect(hue!.x).toBeCloseTo((220 / 360) * hue!.width, 0)
+})
+
 test('An open row\'s side part draws its rules and keys in the node\'s divider and label colors', async ({
   page,
 }) => {
@@ -391,9 +453,14 @@ for (const theme of ['dark', 'light'] as const) {
             page.locator('figure.dinkster-canvas-example canvas').first(),
           ).toHaveAttribute('data-ready', `${id}-${theme}`)
         }
-        // No comparison is behind a list: only the widget kind remains.
+        // No comparison is behind a list: only the widget kind remains,
+        // besides the filters of the lists drawn open on the lists page.
+        const filters = page.locator(
+          'input.dinkster-canvas-field-input[role="combobox"]',
+        )
+        await expect(filters).toHaveCount(id === 'row-lists' ? 23 : 0)
         await expect(page.getByRole('combobox')).toHaveCount(
-          id === 'widget-states' ? 1 : 0,
+          (id === 'widget-states' ? 1 : 0) + (await filters.count()),
         )
         const cards = await cardsReady(page, id, theme)
         const comparisons = page.locator('.dinkster-canvas-comparison')
