@@ -1321,6 +1321,7 @@ export function App(props: {
     }))
   }
   const executionLogFocus = useSignal(app.executionLogFocus)
+  const [resourcesBackend, setResourcesBackend] = createSolidSignal<{ readonly id: string }>()
   const [appLogRequest, setAppLogRequest] = createSolidSignal<number>()
   const LogsBody = () => (
     <LogPanel
@@ -1594,7 +1595,7 @@ export function App(props: {
       id: 'memory', get title() { return message('shell.panel.memory.title') }, icon: Database,
       get description() { return message('shell.panel.memory.description') }, get ariaLabel() { return message('shell.panel.memory.ariaLabel') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 35,
-      toggleTestId: 'memory-sidebar-toggle', component: () => <ResourcesPanel backends={backends()} activeBackendId={activeBackend().id} />,
+      toggleTestId: 'memory-sidebar-toggle', component: () => <ResourcesPanel backends={backends()} activeBackendId={activeBackend().id} focusBackend={resourcesBackend()} />,
     }),
     registerBuiltinPanel({
       id: 'runs', get title() { return message('shell.panel.runs.title') },
@@ -3106,7 +3107,10 @@ export function App(props: {
           if (tab === undefined || (tab.editorKind !== undefined && tab.editorKind !== GRAPH_EDITOR_KIND) || view === undefined) return undefined
           return message('shell.status.workflowContext', { count: Object.keys(view.doc.graphs[view.graphId]?.nodes ?? {}).length, selected: selected.nodes.length })
         }}
-        openPanel={(id) => setPanelOpen(app.panels, app.dock, id, id === 'problems' ? 'right' : 'left', true)}
+        openPanel={(id) => {
+          if (id === 'memory') setResourcesBackend({ id: activeBackend().id })
+          setPanelOpen(app.panels, app.dock, id, id === 'problems' ? 'right' : 'left', true)
+        }}
         openRuns={() => {
           setRunScope('workflow')
           setPanelOpen(app.panels, app.dock, 'runs', 'right', true)

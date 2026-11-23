@@ -25,6 +25,7 @@ test('Resources isolates card residency, preserves refresh focus and confirms ac
   await page.route(`${BACKEND}/supervisor/status`, (route) => route.fulfill({ status: 404 }))
   await page.route(`${BACKEND}/system_stats`, (route) => route.fulfill({ status: 404 }))
   await page.route(`${BACKEND}/api/nodes*`, (route) => route.fulfill({ json: { schemaVersion: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {} } }))
+  await page.route(`${BACKEND}/api/mounts`, (route) => route.fulfill({ json: { mounts: [] } }))
   await page.route(`${BACKEND}/api/settings`, (route) => route.fulfill({ json: settings }))
   await page.route(`${BACKEND}/api/settings/*`, (route) => {
     const category = new URL(route.request().url()).pathname.split('/').at(-1)!
@@ -48,8 +49,17 @@ test('Resources isolates card residency, preserves refresh focus and confirms ac
   await page.getByTestId('memory-sidebar-toggle').click()
   const backendId = await page.evaluate((address) => window.__dinksterTest!.app.backends.get().find((backend) => backend.baseUrl === address)!.id, BACKEND)
   const backend = page.locator(`[data-testid="resources-panel"] [data-backend="${backendId}"]`)
-  await backend.locator(':scope > .dinkster-resource-backend-toggle button').click()
+  await page.evaluate((id) => {
+    const app = window.__dinksterTest!.app
+    app.setTabTarget(app.activeTab()!.id, id)
+  }, backendId)
+  await page.getByTestId('status-memory').click()
   await expect(backend).toContainText('7.0 GB of 12.0 GB')
+  const backendToggle = backend.locator(':scope > .dinkster-resource-backend-toggle button')
+  await backendToggle.click()
+  await expect(backendToggle).toHaveAttribute('aria-expanded', 'false')
+  await page.getByTestId('status-memory').click()
+  await expect(backendToggle).toHaveAttribute('aria-expanded', 'true')
   const model = backend.locator('.dinkster-resource-model')
   await expect(model).toContainText('3.0 GB')
   await expect(backend.locator('.dinkster-resource-bar')).toHaveAttribute('aria-label', 'Models: 3.0 GB, Held, unused: 0.5 GB, Other memory: 3.5 GB')
