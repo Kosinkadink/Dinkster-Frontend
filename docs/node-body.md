@@ -251,7 +251,9 @@ values and pin positions are the same with or without it.
 - A choice's dropdown reaches its box's outline and has its own outline; the
   chosen option's rows sit in a box joined to its underside. An option with
   no rows draws no box, and neither does a choice led by a formula.
-- Outputs pair only with rows inside the same boxes. A top-level section with
+- Outputs pair only with rows inside the same boxes. A node's own outputs
+  left without a row get rows of their own after every row, but before the
+  boxes that end the node and hold only outputs. A top-level section with
   id `advanced` stays below every other row.
 
 ## Run submission

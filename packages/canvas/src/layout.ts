@@ -1174,6 +1174,8 @@ export function layoutNode(
   }
 
   let outputIndex = 0
+  /** Top-level boxes that hold a row other than an output. */
+  const holdsMoreThanOutputs = new Set<string>()
   for (const item of items) {
     if (item.kind === 'section' || item.kind === 'box') {
       const decl = decls.get(item.kind === 'section' ? item.spec.id : item.id)!
@@ -1185,6 +1187,8 @@ export function layoutNode(
       continue
     }
     const chain = chainOf(item)
+    if (chain.length > 0 && item.kind !== 'output' && !(item.kind === 'input' && item.spec.hidden === true))
+      holdsMoreThanOutputs.add(chain[0]!)
     if (item.kind === 'growth') {
       // Grow-family affordance: hides with its box like the family's own
       // rows would; no pin, so a closed box needs no anchor.
@@ -1357,8 +1361,15 @@ export function layoutNode(
     const chain = rest[0]!.boxes
     const extra = rest.map((output): PendingRow => ({ kind: 'ports', boxes: chain, output: output.slot }))
     if (chain.length === 0) {
-      // A node's own outputs beyond its pin rows get rows of their own last.
-      pending.push(...extra)
+      // A node's own outputs beyond its pin rows get rows of their own after
+      // every row, but before the boxes ending the node that hold only outputs.
+      const outputsOnly = (row: PendingRow): boolean => {
+        const top = row.boxes[0] ?? (row.header !== undefined ? row.header.id : undefined)
+        return top !== undefined && !holdsMoreThanOutputs.has(top)
+      }
+      let at = pending.length
+      while (at > 0 && outputsOnly(pending[at - 1]!)) at -= 1
+      pending.splice(at, 0, ...extra)
     } else {
       // Inside a box: after the last row the box holds.
       let at = -1
