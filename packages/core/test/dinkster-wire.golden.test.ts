@@ -97,6 +97,33 @@ describe('Dinkster schema wire', () => {
     expect(other.diagnostics.map((d) => d.message).join()).toContain('knownValue must name an input')
   })
 
+  it('reads the inputs that hold a known value\'s limits, and refuses a limit no optional same-typed input can hold', () => {
+    const limit = (id: string, type = 'INT', extra: Record<string, unknown> = {}) => ({ kind: 'input', id, type: concrete(type), required: false, ...extra })
+    const parse = (limits: unknown, valueType = 'INT', rows: unknown[] = [limit('minimum', valueType), limit('fallback', valueType)]) =>
+      parseDinksterSchema('Limited', { body: [
+        { kind: 'input', id: 'value', type: concrete(valueType) },
+        ...rows,
+        { kind: 'output', id: 'out', type: concrete(valueType), knownValue: { input: 'value', limits } },
+      ] } as never)
+    const ok = parse({ min: 'minimum', default: 'fallback' })
+    expect(ok.diagnostics).toEqual([])
+    expect(ok.schema!.body[3]).toMatchObject({ knownValue: { input: 'value', limits: { min: 'minimum', default: 'fallback' } } })
+    expect(parse({ default: 'fallback' }, 'STRING').diagnostics).toEqual([])
+    for (const [limits, valueType, rows] of [
+      [{}, 'INT', undefined],
+      [{ floor: 'minimum' }, 'INT', undefined],
+      [{ min: '' }, 'INT', undefined],
+      [{ min: 'missing' }, 'INT', undefined],
+      [{ min: 'value' }, 'INT', undefined],
+      [{ min: 'minimum', max: 'minimum' }, 'INT', undefined],
+      [{ min: 'minimum' }, 'STRING', undefined],
+      [{ min: 'minimum' }, 'INT', [limit('minimum', 'FLOAT'), limit('fallback')]],
+      [{ min: 'minimum' }, 'INT', [limit('minimum', 'INT', { required: true }), limit('fallback')]],
+    ] as const) {
+      expect(parse(limits, valueType, rows as unknown[] | undefined).schema, JSON.stringify([limits, valueType])).toBeUndefined()
+    }
+  })
+
   it('keeps an editor row and the rows a widget writes and reads, apart from its params', () => {
     const { schema, diagnostics } = parseDinksterSchema('Viewport', { body: [
       { kind: 'input', id: 'model_file', type: concrete('STRING'),
