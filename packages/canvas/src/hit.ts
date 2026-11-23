@@ -296,6 +296,8 @@ export function gripAt(node: SceneNode, wx: number, wy: number): MemberGrip | un
     if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports') || row.reorder === undefined) continue
     const ry = node.y + row.y
     if (wy < ry || wy > ry + row.height) continue
+    // The target stops at a field's edge, so the field keeps its own end.
+    if (row.kind === 'widget' && wx <= node.x + row.inset + (row.width ?? node.layout.width - row.inset * 2)) continue
     if (Math.abs(wx - node.x - row.reorder.gripX) <= half) return row.reorder
   }
   return undefined

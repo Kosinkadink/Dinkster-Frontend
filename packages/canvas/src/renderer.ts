@@ -3680,7 +3680,9 @@ export class CanvasRenderer {
       const rowsAlpha = ctx.globalAlpha
       for (const row of l.rows) {
         const rowY = node.y + row.y
-        ctx.globalAlpha = dragged !== undefined && row.y >= dragged.top && row.y < dragged.bottom
+        // A member box's header starts where its outline does.
+        const rowTop = row.kind === 'member' ? row.top : row.y
+        ctx.globalAlpha = dragged !== undefined && rowTop >= dragged.top && rowTop < dragged.bottom
           ? rowsAlpha * canvasPaintTokens.widget.inactiveOpacity
           : rowsAlpha
         if ((row.kind === 'widget' || row.kind === 'ports') && row.crossInset !== undefined) {
@@ -3761,7 +3763,7 @@ export class CanvasRenderer {
           const textX = left + boxPaint.textInset + boxPaint.gripWidth + boxPaint.labelGap
           if (row.reorder !== undefined) paintGrip(row.reorder, node.x + row.reorder.gripX, cy)
           // The cross's right edge lines up with the fields inside the box.
-          paintCross(right - boxPaint.stroke - boxPaint.fieldGap, cy)
+          if (t.memberRemoveCross) paintCross(right - boxPaint.stroke - boxPaint.fieldGap, cy)
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
           ctx.fillText(fitText(ctx, row.label, Math.max(0, right - boxPaint.cross.reserve - textX)), textX, cy)

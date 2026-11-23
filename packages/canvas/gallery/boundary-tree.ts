@@ -235,7 +235,7 @@ export function boundaryTreeGallery(
       minMembers: 0,
       maxMembers: 6,
       addLabel: 'Add image',
-      interiorNote: '2 members inside the definition come first',
+      interiorMembers: 2,
     },
     out('result', 'IMAGE'),
   ])
