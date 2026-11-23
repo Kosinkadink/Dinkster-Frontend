@@ -8,7 +8,7 @@ import { liveExactnessFor } from '../companion-display.js'
 import { ProductButton, ProductTextInput } from '../ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from '../ProductForm.js'
 import { useAppMessage } from '../locale.js'
-import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
+import { partRow, WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import './bounding-box-widget-editor.css'
 
 const fields = ['x', 'y', 'width', 'height'] as const
@@ -38,7 +38,10 @@ const BoundingBoxImplementation: Component<WidgetEditorImplementationProps> = (p
       const graphId = target.familyOwner?.graphId ?? ed.graphId
       const nodeId = target.familyOwner?.nodeId ?? target.nodeId
       const graph = ed.tab.store.doc.graphs[graphId]
-      const source = graph && companionSourcesOf(graph, undefined, undefined, app.registryForTab?.(ed.tab)?.resolve).get(nodeId)?.get('image')
+      const imageRow = partRow(target, 'image')
+      const source = graph && imageRow !== undefined
+        ? companionSourcesOf(graph, undefined, undefined, app.registryForTab?.(ed.tab)?.resolve).get(nodeId)?.get(imageRow)
+        : undefined
       const execution = app.executionForTab?.(ed.tab)
       const compiled = app.compileTabCached?.(ed.tab)
       const backend = app.backendForTab?.(ed.tab)

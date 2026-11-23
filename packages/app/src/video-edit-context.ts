@@ -1,4 +1,4 @@
-import { asNodeId, companionSourcesOf, inputsOf, occurrencesForView, type Json } from '@dinkster/core'
+import { asNodeId, companionSourcesOf, inputsOf, occurrencesForView } from '@dinkster/core'
 import type { DinksterValuesClient, ValueQuery } from '@dinkster/client'
 import type { AppState, Tab } from './app-state.js'
 import { previewRuntimeMapping } from './app-view-rows.js'
@@ -9,10 +9,14 @@ export interface VideoEditSource {
   readonly query: ValueQuery
 }
 
-/** Resolve the input, never the edited node's output or an arbitrary adjacent video. */
+/**
+ * Resolve the input, never the edited node's output or an arbitrary adjacent
+ * video. `strictRow` is the row the widget writes as its `strict_duration`
+ * part; without one the editor offers no strict duration.
+ */
 export function videoEditContext(
-  app: AppState, tab: Tab, graphId: string, nodeId: string, instancePath?: readonly string[],
-): { readonly source?: VideoEditSource; readonly strictDuration?: boolean; readonly strictDisabledReason?: string; readonly sourceReason?: string; readonly initial?: Json; readonly editDisabledReason?: string } {
+  app: AppState, tab: Tab, graphId: string, nodeId: string, instancePath?: readonly string[], strictRow?: string,
+): { readonly source?: VideoEditSource; readonly strictDuration?: boolean; readonly strictDisabledReason?: string; readonly sourceReason?: string } {
   const graph = tab.store.doc.graphs[graphId]
   const node = graph?.nodes[nodeId]
   const resolve = app.registryForTab(tab)?.resolve
@@ -20,18 +24,12 @@ export function videoEditContext(
   if (!graph || !node || !schema) return { sourceReason: 'Video node schema is unavailable.' }
   const inputs = inputsOf(schema)
   const sources = companionSourcesOf(graph, undefined, undefined, resolve)
-  const section = schema.editorRole === 'video-trim' ? 'trim' : schema.editorRole === 'video-crop' ? 'crop' : undefined
-  const fields = section === 'trim' ? ['start_time', 'duration'] : ['x', 'y', 'width', 'height']
-  const scalarFallback = node.values['video_edit'] === undefined && section !== undefined ? {
-    initial: { [section]: Object.fromEntries(fields.map((field) => [field, node.values[field] ?? inputs.find((input) => input.id === field)?.widget?.default ?? 0])) } as Json,
-    ...(fields.some((field) => sources.get(nodeId)?.has(field))
-      ? { editDisabledReason: 'Scalar edit inputs are linked. Disconnect them before authoring a VIDEO_EDIT override.' } : {}),
-  } : {}
-  const strict = inputs.find((input) => input.id === 'strict_duration' && input.type.kind === 'concrete' && input.type.name === 'BOOLEAN')
-  const strictState = { ...scalarFallback, ...(strict === undefined ? {} : {
-    strictDuration: (node.values['strict_duration'] ?? strict.widget?.default ?? false) === true,
-    ...(sources.get(nodeId)?.has('strict_duration') ? { strictDisabledReason: 'Strict duration is driven by a link.' } : {}),
-  }) }
+  const strict = strictRow === undefined ? undefined
+    : inputs.find((input) => input.id === strictRow && input.type.kind === 'concrete' && input.type.name === 'BOOLEAN')
+  const strictState = strict === undefined ? {} : {
+    strictDuration: (node.values[strict.id] ?? strict.widget?.default ?? false) === true,
+    ...(sources.get(nodeId)?.has(strict.id) ? { strictDisabledReason: 'Strict duration is driven by a link.' } : {}),
+  }
   const videos = inputs.filter((input) => input.type.kind === 'concrete' && input.type.name === 'VIDEO')
   const source = videos.length === 1 ? sources.get(nodeId)?.get(videos[0]!.id) : undefined
   if (source?.kind !== 'producer') return { ...strictState, sourceReason: 'Connect one VIDEO source and run it to enable lazy previews.' }

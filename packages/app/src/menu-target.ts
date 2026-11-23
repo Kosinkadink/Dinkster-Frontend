@@ -277,8 +277,10 @@ export function menuTargetOf(hit: Hit): MenuTarget {
       }
     case 'widget':
       // A field on a subgraph's Inputs panel belongs to the panel, which has
-      // no menu of its own.
-      return hit.bnode !== undefined ? { kind: 'canvas' } : widgetMenuTarget(hit.node.id, hit.row)
+      // no menu of its own. An editor row stores nothing of its own: it opens
+      // the node's menu.
+      if (hit.bnode !== undefined) return { kind: 'canvas' }
+      return hit.row.editor === true ? { kind: 'node', nodeId: hit.node.id } : widgetMenuTarget(hit.node.id, hit.row)
     case 'section':
       return {
         kind: 'section',

@@ -8960,10 +8960,12 @@ export class AppState {
     const captures: { owner: { graphId: string; nodeId: string; valueKey: string }; width: number; height: number }[] = []
     const capturedOwners = new Map<string, { width: number; height: number }>()
     for (const [runtimeId, node] of Object.entries(artifact.prompt)) {
-      if (node.inputs['capture_on_queue'] !== true) continue
       const schema = registry.resolve(node.class_type)
       const input = schema && inputsOf(schema).find((item) => item.widget?.widgetType === webcamKind.type)
       if (input === undefined || Array.isArray(node.inputs[input.id])) continue
+      // Capture on queue is the row the webcam widget reads under that part; without one, it never captures.
+      const captureRow = input.widget?.reads?.['capture_on_queue']
+      if (captureRow === undefined || node.inputs[captureRow] !== true) continue
       const occurrence = parseOccurrenceKey(artifact.provenance.toSource[runtimeId]!)
       const location = resolveNodeOccurrence(document, occurrence)!
       const graph = document.graphs[location.graphId]!
@@ -8984,10 +8986,13 @@ export class AppState {
         graphId: location.graphId, nodeId: occurrence.node, valueKey: input.id,
       }
       const key = JSON.stringify(owner)
-      const dimensions = {
-        width: typeof node.inputs['width'] === 'number' ? node.inputs['width'] : 0,
-        height: typeof node.inputs['height'] === 'number' ? node.inputs['height'] : 0,
+      // The capture size comes from the rows the webcam widget reads; a part it does not name is absent.
+      const dimension = (part: 'width' | 'height'): number => {
+        const row = input.widget?.reads?.[part]
+        const value = row === undefined ? undefined : node.inputs[row]
+        return typeof value === 'number' ? value : 0
       }
+      const dimensions = { width: dimension('width'), height: dimension('height') }
       const previous = capturedOwners.get(key)
       if (previous !== undefined) {
         if (previous.width !== dimensions.width || (dimensions.width !== 0 && previous.height !== dimensions.height)) {
