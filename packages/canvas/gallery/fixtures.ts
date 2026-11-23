@@ -241,10 +241,12 @@ export interface CanvasGalleryFixture {
 /**
  * One node with an input that accepts a list beside an ordinary input of the
  * same type variable, shown open, matched by one image and matched by a list
- * of images, a node whose input that accepts a list has the fixed type INT,
- * and a node whose input that accepts a list is the union IMAGE or MASK, fed
- * a list of images and one mask, built and solved the way the app builds a
- * graph.
+ * of images; a node whose input that accepts a list has the fixed type INT;
+ * an input that accepts a list with the union type IMAGE or MASK, open, fed
+ * one image and fed a list of images; and a growing group of inputs that
+ * accept a list and share one type variable, fed a list of images and one
+ * image, then limited to IMAGE or MASK and left open. Built and solved the
+ * way the app builds a graph.
  */
 function acceptsListScene(
   tokens: DesignTokens,
@@ -253,6 +255,20 @@ function acceptsListScene(
 ): Scene {
   const variable: TypeExpr = { kind: 'variable', templateId: 'T' }
   const image = concrete('IMAGE')
+  const group = (type: TypeExpr): NodeSchema['items'] => [
+    {
+      kind: 'input',
+      id: 'items',
+      type,
+      optional: false,
+      dynamic: {
+        kind: 'autogrow',
+        template: [{ kind: 'input', id: 'item', type, optional: true, acceptsList: true }],
+        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 8 },
+      },
+    },
+    { kind: 'output', id: 'list', type: { kind: 'list', element: type } },
+  ]
   const schemas = new Map<string, NodeSchema>([
     ['Join', schema('Join', [
       { kind: 'input', id: 'items', type: variable, optional: false, acceptsList: true },
@@ -266,22 +282,29 @@ function acceptsListScene(
     ['Either', schema('Either', [
       { kind: 'input', id: 'items', type: { kind: 'union', names: ['IMAGE', 'MASK'] }, optional: false, acceptsList: true },
     ])],
+    ['Group', schema('Group', group(variable))],
+    ['Limited', schema('Limited', group({ kind: 'variable', templateId: 'T', allowedTypes: [image, concrete('MASK')] }))],
     ['Image', schema('Image', [{ kind: 'output', id: 'IMAGE', type: image }])],
     ['Images', schema('Images', [{ kind: 'output', id: 'IMAGE', displayName: 'list of IMAGE', type: { kind: 'list', element: image } }])],
-    ['Mask', schema('Mask', [{ kind: 'output', id: 'MASK', type: concrete('MASK') }])],
   ])
-  const nodes: Record<string, { type: string; title?: string; x: number; y: number }> = {
+  const nodes: Record<string, { type: string; title?: string; x: number; y: number; members?: number }> = {
     open: { type: 'Join', title: 'Open', x: 240, y: 0 },
     image: { type: 'Image', x: 0, y: 130 },
     one: { type: 'Join', title: 'One image', x: 240, y: 130 },
     images: { type: 'Images', x: 0, y: 260 },
     list: { type: 'Join', title: 'A list of images', x: 240, y: 260 },
     fixed: { type: 'Count', title: 'Fixed type', x: 240, y: 390 },
-    unionImages: { type: 'Images', x: 0, y: 520 },
-    unionList: { type: 'Either', title: 'Union, a list of images', x: 240, y: 520 },
-    mask: { type: 'Mask', x: 0, y: 620 },
-    unionOne: { type: 'Either', title: 'Union, one mask', x: 240, y: 620 },
+    unionOpen: { type: 'Either', title: 'Union, open', x: 240, y: 500 },
+    unionImage: { type: 'Image', x: 0, y: 590 },
+    unionOne: { type: 'Either', title: 'Union, one image', x: 240, y: 590 },
+    unionImages: { type: 'Images', x: 0, y: 680 },
+    unionList: { type: 'Either', title: 'Union, a list of images', x: 240, y: 680 },
+    groupImages: { type: 'Images', x: 0, y: 790 },
+    groupImage: { type: 'Image', x: 0, y: 880 },
+    group: { type: 'Group', title: 'Group, a list and one image', x: 240, y: 790, members: 2 },
+    limited: { type: 'Limited', title: 'Group, IMAGE or MASK, open', x: 240, y: 960, members: 1 },
   }
+  const member = (node: string, index: number) => ({ node, port: 'items.item', members: [`m${index}`] })
   const loaded = loadDocument({
     format: 'dinkster-workflow',
     formatVersion: 1,
@@ -291,18 +314,28 @@ function acceptsListScene(
       root: {
         id: 'root',
         name: 'Root',
-        nextOrdinal: 10,
+        nextOrdinal: 20,
         nets: {},
         reroutes: {},
         nodes: Object.fromEntries(Object.entries(nodes).map(([id, node]) => [
           id,
-          { id, type: node.type, values: {}, ...(node.title ? { title: node.title } : {}) },
+          {
+            id,
+            type: node.type,
+            values: {},
+            ...(node.title ? { title: node.title } : {}),
+            ...(node.members
+              ? { dynamic: { items: { members: Array.from({ length: node.members }, (_, i) => `m${i}`), seq: node.members } } }
+              : {}),
+          },
         ])),
         links: {
           'one image': { id: 'one image', from: { node: 'image', port: 'IMAGE' }, to: { node: 'one', port: 'items' } },
           'list of images': { id: 'list of images', from: { node: 'images', port: 'IMAGE' }, to: { node: 'list', port: 'items' } },
+          'union one': { id: 'union one', from: { node: 'unionImage', port: 'IMAGE' }, to: { node: 'unionOne', port: 'items' } },
           'union list': { id: 'union list', from: { node: 'unionImages', port: 'IMAGE' }, to: { node: 'unionList', port: 'items' } },
-          'union one': { id: 'union one', from: { node: 'mask', port: 'MASK' }, to: { node: 'unionOne', port: 'items' } },
+          'group list': { id: 'group list', from: { node: 'groupImages', port: 'IMAGE' }, to: member('group', 0) },
+          'group one': { id: 'group one', from: { node: 'groupImage', port: 'IMAGE' }, to: member('group', 1) },
         },
       },
     },
@@ -1178,7 +1211,7 @@ export function createCanvasGalleryFixture(
       })
     examples.push({
       caption:
-        'An input that accepts a list keeps the one-value-or-list pin while its type is open, after one image matches it, after a list of images matches it, when its type is the fixed type INT, and when its type is the union IMAGE or MASK, with a list of images or one mask wired in. Value, an ordinary input of the same type, is a plain circle once its type is known.',
+        'An input that accepts a list keeps the one-value-or-list pin while its type is open, after one image matches it, after a list of images matches it, when its type is the fixed type INT, and when its type is the union IMAGE or MASK, open, with one image and with a list of images. In a growing group whose members share one type, a list of images and one image are both accepted, and a group limited to IMAGE or MASK shows both colors while open. Value, an ordinary input of the same type, is a plain circle once its type is known.',
       scene: acceptsListScene(tokens, measure, widgetMeasure),
     })
     const subgraph = subgraphAcceptsListScenes(tokens, measure, widgetMeasure)
