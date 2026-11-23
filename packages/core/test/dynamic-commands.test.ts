@@ -669,6 +669,62 @@ describe('dynamic.compact', () => {
 
 })
 
+describe('dynamic.moveMember', () => {
+  const ordered = (extra: Partial<GroupSpec> = {}) => schemaOf([{ ...group('items', { max: 8, prefix: 'item' }), reorderable: true, ...extra } as GroupSpec])
+  const storeWith = (schema: NodeSchema, dynamic: Record<string, unknown>, values: Record<string, unknown> = {}) =>
+    new DocumentStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', { dynamic, values }) } }) }), coreCommandRegistry(),
+      200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => () => schema }))
+  const move = (store: DocumentStore, member: string, index: number, construct = 'items') =>
+    store.dispatch({ command: 'dynamic.moveMember', params: { graphId: 'g0', nodeId: 'n1', construct, member, index } })
+  const codes = (out: ReturnType<DocumentStore['dispatch']>) => out.diagnostics.map((diagnostic) => diagnostic.code)
+
+  it('moves a member to a position and keeps every key, value, label and seq', () => {
+    const dynamic = { items: { members: ['item0', 'item1', 'item2', 'item3'], seq: 6, memberLabels: { item3: 'Last' } } }
+    const store = storeWith(ordered(), dynamic, { 'items.item3': 4 })
+    expect(move(store, 'item3', 1).ok).toBe(true)
+    expect(dynOf(store, 'n1')).toEqual({ items: { members: ['item0', 'item3', 'item1', 'item2'], seq: 6, memberLabels: { item3: 'Last' } } })
+    expect(move(store, 'item0', 3).ok).toBe(true)
+    expect(dynOf(store, 'n1')!['items']!.members).toEqual(['item3', 'item1', 'item2', 'item0'])
+    expect(store.doc.graphs['g0']!.nodes['n1']!.values).toEqual({ 'items.item3': 4 })
+    // The shown number follows position; the key does not change.
+    const inputs = elabInputsOf(elaborateInterface(ordered(), store.doc.graphs['g0']!.nodes['n1']!))
+      .filter((input) => input.origin.kind === 'member' && input.origin.ghost !== true)
+    expect(inputs.map((input) => [input.spec.id, input.spec.displayName])).toEqual([
+      ['items.item3', 'Last'], ['items.item1', 'item 2'], ['items.item2', 'item 3'], ['items.item0', 'item 4'],
+    ])
+    // Each move is one undo step.
+    store.undo()
+    expect(dynOf(store, 'n1')!['items']!.members).toEqual(['item0', 'item3', 'item1', 'item2'])
+  })
+
+  it('records nothing when the member stays where it is', () => {
+    const store = storeWith(ordered(), { items: { members: ['item0', 'item1'], seq: 2 } })
+    const revision = store.revision
+    expect(move(store, 'item1', 1).ok).toBe(true)
+    expect(store.revision).toBe(revision)
+  })
+
+  it('refuses a group that is not reorderable, a count group, a missing member and a position outside the list', () => {
+    const stored = { items: { members: ['item0', 'item1'], seq: 2 } }
+    expect(codes(move(storeWith(schemaOf([group('items', { prefix: 'item' })]), stored), 'item1', 0))).toEqual(['dynamic.notReorderable'])
+    expect(codes(move(storeWith(ordered({ grows: { count: '2' } }), stored), 'item1', 0))).toEqual(['dynamic.notReorderable'])
+    expect(codes(move(storeWith(ordered(), stored), 'item1', 0, 'missing'))).toEqual(['dynamic.notReorderable'])
+    expect(codes(move(storeWith(ordered(), stored), 'item7', 0))).toEqual(['dynamic.memberMissing'])
+    expect(codes(move(storeWith(ordered(), stored), 'item1', 2))).toEqual(['params.invalid'])
+    expect(codes(move(storeWith(ordered(), stored), 'item1', -1))).toEqual(['params.invalid'])
+    // Without the node's schema the command cannot tell, so it refuses.
+    const blind = new DocumentStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', { dynamic: stored }) } }) }), coreCommandRegistry())
+    expect(codes(move(blind, 'item1', 0))).toEqual(['dynamic.notReorderable'])
+  })
+
+  it('moves a member of a group nested in a member, by the nested group\'s flattened id', () => {
+    const schema = schemaOf([{ ...group('outer', { prefix: 'o', member: [{ ...group('inner', { prefix: 'i' }), reorderable: true } as GroupSpec] }) }])
+    const store = storeWith(schema, { outer: { members: ['o0'], seq: 1 }, 'outer.o0.inner': { members: ['i0', 'i1'], seq: 2 } })
+    expect(move(store, 'i1', 0, 'outer.o0.inner').ok).toBe(true)
+    expect(dynOf(store, 'n1')!['outer.o0.inner']!.members).toEqual(['i1', 'i0'])
+  })
+})
+
 describe('stored state that follows the schema', () => {
   // Each member holds a required choice that starts on 'a' and a group of its own.
   const schema = (minMembers: number): NodeSchema => schemaOf([{

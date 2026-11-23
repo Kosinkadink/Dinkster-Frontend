@@ -123,6 +123,14 @@ Member labels come from the group's `memberLabel`, else the name, else the
 prefix and the member's position counted from 1. Rows of a record member are
 labelled with the member label first.
 
+The members of a `reorderable` group that grows by link, filled field or
+button can be moved (`dynamic.moveMember`, one undo step). A move changes
+only the stored order: keys, values, labels a user typed, wires and boundary
+bindings stay with their member, while the shown number and the order a run
+receives follow the new position. A count group, a group that is not
+`reorderable`, and a node whose schema is not loaded refuse the move
+(`dynamic.notReorderable`). The canvas has no gesture for it yet.
+
 ## Choices
 
 A choice holds a list of options, each with its own rows, and rows several
