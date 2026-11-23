@@ -465,6 +465,9 @@ export const canvasPaintTokens = {
     fallback: { opacity: 0.75, textInset: 4, labelRatio: 0.45, valueRatio: 0.5 },
     growth: { stroke: 1, verticalInset: 3, textPadding: canvasSemanticTokens.space[8] },
     button: {
+      edgeStroke: 1,
+      textPadding: canvasSemanticTokens.space[8],
+      widthPadding: 18,
       iconSize: 12,
       iconGap: canvasSemanticTokens.space[4],
       spinnerRadius: 5,

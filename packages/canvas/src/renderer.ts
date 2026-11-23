@@ -4068,11 +4068,11 @@ export class CanvasRenderer {
     ctx.roundRect(x, top, width, height, widget.radius)
     ctx.fill()
     ctx.strokeStyle = t.colors.buttonEdge
-    ctx.lineWidth = widget.growth.stroke
+    ctx.lineWidth = button.edgeStroke
     ctx.beginPath()
     ctx.roundRect(x + 0.5, top + 0.5, width - 1, height - 1, widget.radius)
     ctx.stroke()
-    const pad = widget.growth.textPadding / 2
+    const pad = button.textPadding / 2
     if (paint?.kind === 'busy') {
       const radius = button.spinnerRadius
       const cx = x + pad + radius

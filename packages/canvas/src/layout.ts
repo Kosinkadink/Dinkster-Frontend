@@ -1204,7 +1204,7 @@ export function layoutNode(
     } else if (row.kind === 'note') {
       content = measure(row.text, 'label') + row.inset * 2
     } else if (row.kind === 'button') {
-      content = measure(row.label, 'label') + canvasPaintTokens.node.growthWidthPadding
+      content = measure(row.label, 'label') + canvasPaintTokens.widget.button.widthPadding
     } else {
       // Label + a value area floor; widget content depth lives in the
       // expanded editor, so rows never force extreme widths.
