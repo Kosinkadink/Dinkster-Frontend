@@ -480,6 +480,11 @@ export interface Model3dViewerHandle {
   setAnimation(index: number, time: number, playing: boolean, speed: number): void
   recordingStream(width: number, height: number): { stream: MediaStream; stop(): void }
   capture(width: number, height: number): Promise<{ image: Blob; mask: Blob; normal: Blob }>
+  /**
+   * Calls `listener` each time the user has moved the camera and it has come
+   * to rest, after the drag's easing; returns the function that stops it.
+   */
+  onViewSettled(listener: () => void): () => void
 }
 
 type Vector3State = { x: number; y: number; z: number }
@@ -523,6 +528,13 @@ export async function mountModel3dViewer(
   let useCustomUp = false
   let cancelCapture: ((reason: Error) => void) | undefined
   let activeCamera: import('three').PerspectiveCamera | import('three').OrthographicCamera = framed.camera
+  const settledListeners = new Set<() => void>()
+  // A drag that ended, while its easing still moves the camera.
+  let settling = false
+  const watchControls = (orbit: InstanceType<ThreeModules['OrbitControls']>): void => {
+    orbit.addEventListener('start', () => { settling = false })
+    orbit.addEventListener('end', () => { settling = true })
+  }
   const updateProjection = (width: number, height: number): void => {
     fitCameraAspect(modules.THREE, activeCamera, width / height)
   }
@@ -601,6 +613,7 @@ export async function mountModel3dViewer(
 
     const orbit = new modules.OrbitControls(framed.camera, gl.domElement)
     controls = orbit
+    watchControls(orbit)
     orbit.target.copy(framed.center)
     orbit.enableDamping = true
     orbit.update()
@@ -610,7 +623,10 @@ export async function mountModel3dViewer(
       const now = performance.now()
       if (!capturing) {
         if (playing) mixer?.update((now - lastFrame) / 1000 * animationSpeed)
-        controls!.update()
+        if (!controls!.update() && settling) {
+          settling = false
+          for (const listener of settledListeners) listener()
+        }
         gl.render(framed.scene, activeCamera)
       }
       lastFrame = now
@@ -656,6 +672,8 @@ export async function mountModel3dViewer(
       controls!.dispose()
       controls = new modules.OrbitControls(activeCamera, renderer!.domElement)
       controls.enableDamping = true
+      settling = false
+      watchControls(controls)
       controls!.target.copy(state.target)
       activeCamera.lookAt(controls!.target)
       const size = renderer!.getSize(new modules.THREE.Vector2())
@@ -782,6 +800,10 @@ export async function mountModel3dViewer(
         normalMaterial.dispose()
         capturing = false
       }
+    },
+    onViewSettled(listener) {
+      settledListeners.add(listener)
+      return () => { settledListeners.delete(listener) }
     },
   }
   try {
