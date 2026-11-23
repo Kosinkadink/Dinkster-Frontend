@@ -7,7 +7,7 @@
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, openRailPanel, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_BOUNDARY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -29,32 +29,24 @@ const activeDoc = (page: Page) =>
 const boundaryTab = (page: Page) =>
   page.getByTestId('dock-zone-right').locator('[role="tab"][data-tab-id="boundary"]')
 
-const queueTab = (page: Page) =>
-  page.getByTestId('dock-zone-right').locator('[role="tab"][data-tab-id="queue"]')
+const runsTab = (page: Page) =>
+  page.getByTestId('dock-zone-right').locator('[role="tab"][data-tab-id="runs"]')
 
 async function widenRail(page: Page): Promise<void> {
   await page.getByTestId('rail-resize').focus()
   await page.keyboard.press('End')
-  await expect(boundaryTab(page)).toBeVisible()
 }
 
 async function drillIntoOccurrence(page: Page): Promise<void> {
   await identityViewport(page)
+  await runsTab(page).click()
   const activeRailTabId = await page.getByTestId('dock-zone-right')
     .locator('[role="tab"][aria-selected="true"]')
     .getAttribute('data-tab-id')
   const previousRailTab = page.getByTestId('dock-zone-right')
     .locator(`[role="tab"][data-tab-id="${activeRailTabId}"]`)
-  const header = await page.evaluate(() => {
-    const r = window.__dinksterTest!.renderer!
-    const node = r.getScene().nodes.find((candidate) => candidate.id === 'i0')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return {
-      x: rect.left + node.x + node.layout.width / 2,
-      y: rect.top + node.y + node.layout.headerHeight / 2,
-    }
-  })
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, 'i0')
+  await page.mouse.dblclick(mark.x, mark.y)
   await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
   await expect(previousRailTab).toHaveAttribute('aria-selected', 'true')
   const indicator = boundaryTab(page).getByTestId('panel-indicator')
@@ -69,7 +61,6 @@ async function drillIntoOccurrence(page: Page): Promise<void> {
 }
 
 async function openBoundaryWorkflow(page: Page): Promise<void> {
-  await waitForStartupOwnership(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([
@@ -162,9 +153,9 @@ async function openBoundaryWorkflow(page: Page): Promise<void> {
   })
   await page.setViewportSize({ width: 1440, height: 900 })
   await widenRail(page)
-  await queueTab(page).click()
-  await expect(queueTab(page)).toHaveAttribute('aria-selected', 'true')
-  await expect(boundaryTab(page).getByTestId('panel-indicator')).toHaveCount(0)
+  await runsTab(page).click()
+  await expect(runsTab(page)).toHaveAttribute('aria-selected', 'true')
+  await expect(boundaryTab(page)).toHaveCount(0)
   await capture(page, 'boundary-tab-normal-root')
   // Drill into the definition: the panel edits definitions, not instances.
   await drillIntoOccurrence(page)
@@ -179,14 +170,14 @@ async function blurControls(page: Page): Promise<void> {
 
 test.beforeEach(async ({ page }, testInfo) => {
   if (testInfo.annotations.some((annotation) => annotation.type === 'mock-boundary-dispatch')) {
-    await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$))).*/, (route) => route.fulfill({ status: 503, json: {} }))
+    await page.route(/\/api\/.*/, (route) => route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'boundary-fixture', schemaWire: 2 }, nodes: {},
     } }))
     await page.routeWebSocket('**/api/events?*', () => {})
   }
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await openBoundaryWorkflow(page)
 })
 
@@ -200,7 +191,7 @@ test('boundary edits await acceptance and preserve refused drafts for retry', {
     app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
       ;(window as any).__boundaryPending.push((accepted: boolean) => resolve(accepted
         ? dispatch(tab, invocation)
-        : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Boundary edit refused for test' }] }))
+        : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.rejected', message: 'Boundary edit refused for test' }] }))
     })
   })
   const panel = page.getByTestId('boundary-panel')
@@ -274,12 +265,10 @@ test('root prompt reopens definitions and the panel follows the drilled tab', as
 
   // The root offers navigation, not definition-editing controls.
   await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
-  await expect(page.getByTestId('boundary-prompt')).toBeVisible()
+  await expect(boundaryTab(page)).toHaveCount(0)
   await expect(page.getByTestId('boundary-item')).toHaveCount(0)
-  await expect(boundaryTab(page).getByTestId('panel-indicator')).toHaveCount(0)
-  await capture(page, 'boundary-root-prompt')
-  await page.getByTestId('boundary-prompt').getByRole('button', { name: 'Open Grower', exact: true }).click()
-  await expect(page.getByTestId('boundary-prompt')).toHaveCount(0)
+  await capture(page, 'boundary-root-hidden')
+  await drillIntoOccurrence(page)
   await expect(boundaryTab(page).getByTestId('panel-indicator')).toBeVisible()
   await expect(page.locator('[data-testid=boundary-item][data-boundary-id=image]')).toBeVisible()
 })
@@ -371,7 +360,7 @@ test('empty and frozen states preserve inspection semantics', async ({ page }) =
   await capture(page, 'after-boundary-frozen-wide')
 
   await page.reload()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await openBoundaryWorkflow(page)
   await page.evaluate(() => {
     type BoundItem = {

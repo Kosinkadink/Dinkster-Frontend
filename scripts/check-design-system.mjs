@@ -9,6 +9,8 @@ const stylesheet = resolve(repository, 'packages/ui/styles.css')
 const primitiveTags = new Map(
   [
     ['controls.tsx', new Set(['button', 'input', 'textarea', 'select'])],
+    ['canvas-field.tsx', new Set(['button', 'input'])],
+    ['canvas-list.tsx', new Set(['button', 'input'])],
     ['layout.tsx', new Set(['button'])],
     ['menu.tsx', new Set(['button'])],
     ['messages.tsx', new Set(['dialog'])],

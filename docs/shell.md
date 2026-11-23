@@ -2,11 +2,15 @@
 
 ## Brand assets
 
-The product menu uses the outlined color wordmark, dark or light according
-to the document theme. Boot discovery uses the same wordmark and the D
-symbol; Desktop preparation and shared empty/loading cards use the symbol.
-All reference the accepted SVGs at `/branding/svg/`. Vite serves and emits
-the canonical files directly, without editable copies in the app package.
+The product menu uses `ProductWindowAction` with a theme-aware
+`ProductWordmark` expanded label and the shared compact menu icon. The
+shared toolbar's available-content breakpoint accounts for native caption
+reservations; the grouped menu controller retains command and focus ownership.
+Detached workflow redocking is the first action in the toolbar action group.
+Boot discovery uses the same wordmark and the D symbol; Desktop preparation
+and shared empty/loading cards use the symbol. Shared components import the
+canonical branding assets; the app also serves them at `/branding/svg/`.
+Vite emits the canonical files without editable copies in the app package.
 The wordmark reserves its canonical aspect ratio before the SVG loads so
 header geometry and restored editor scroll positions do not shift.
 The HTML head references the accepted ICO, 32px PNG, SVG and 256px touch
@@ -21,9 +25,10 @@ do not accrete ad hoc. The center region itself hosts EDITORS resolved
 through the editor registry - a separate vocabulary pinned in
 docs/editors.md (today's only editor kind is the graph canvas).
 
-Shell-owned actions use `ProductButton`: compact ghost controls in the
-topbar and status bar, secondary actions for redocking and output inspection,
-and a danger action for discarding a dirty tab. Menu refs, autofocus,
+The topbar uses `ProductWindowToolbar`, `ProductWindowAction` and
+`ProductIconButton`. Other shell actions use `ProductButton`: compact ghost
+controls in the status bar and secondary output-inspection actions. Discarding
+dirty tabs uses the shared `@dinkster/ui` solid-remove button. Menu refs, autofocus,
 disabled state, keyboard handling, and native button activation remain on the
 underlying button. Surface CSS supplies layout, not a separate control skin.
 
@@ -48,11 +53,42 @@ an environment.
 |bar |  library /    | (views, lenses, queue)       | jobs,    |
 |    |  backends)    +------------------------------+ problems)|
 |    |               | bottom panel (exclusive:     |          |
-|    |               |  Activity)                   |          |
+|    |               |  Log)                        |          |
 +----+---------------+------------------------------+----------+
-| status bar (optional: connection, schemas, Backends, review) |
+| status bar (connection, runs, problems, background, memory) |
 +--------------------------------------------------------------+
 ```
+
+The window uses a dark frame behind the top bar, left bar and 22 px status
+bar. Filled dock sections and canvas editor groups have 8 px corners, with
+6 px frame gaps between them. There are no region outlines or divider lines.
+The gaps are pointer- and keyboard-operable splitters; their resize cursor
+and hover/focus highlight expose the handle. Closing a region removes its
+gap. Panels end directly at the status bar without a gap above it.
+
+Selected region and minimap switches use cyan icons without a box or fill.
+The selected left bar item uses the panel fill and a 3 px cyan outer mark;
+the bar is 48 px wide with 40 px square icon-only items and name-first
+tooltips. Dock tabs
+use primary text and a 2 px underline without a box. Each split editor group
+is rounded; its selected tab uses primary text only in the focused group,
+secondary text otherwise. An unfocused group's canvas controls and notices
+are dimmed to half strength, not its nodes or wires. Hover brightens the
+control under the pointer; clicking it focuses the group and acts in one
+click. Queue and jobs are hidden without moving the other controls until
+the group is focused. A single group's controls remain at full strength.
+Search keeps its outline with no fill. The workflow tab strip is frame-colored;
+the selected workflow tab joins the canvas-colored surface without a border.
+
+The Minimap size setting chooses small (160 x 96 px, the default for new and
+existing users), medium (196 x 118 px), or large (256 x 150 px). The minimap
+and its control bar share one fixed width, with buttons spread evenly and no
+groups. Medium and large show minimap, view options, minus, zoom level, plus,
+and fit to view, in that order. Small omits minus and plus; the wheel and
+keyboard shortcuts still zoom. Future controls belong in view options, not a
+wider minimap. The panel-colored minimap has no outline; the current view has
+a quiet secondary-text rectangle with a 1 px half-strength line, 6 percent
+fill, and 3 px corners.
 
 The tab strip belongs to the center workspace column. It starts after both
 the icon sidebar and an open left dock, so those left-side regions own their
@@ -118,22 +154,32 @@ tabbed panel host with a single open/closed switch. The top-right controls
 `left-panel-toggle`, `bottom-panel-toggle`, and `rail-toggle` explicitly
 toggle the three regions in that visual order after Customize Layout and
 expose their current state through `aria-pressed`. Their custom panel icons
-outline the whole shell and fill only the active region in white; active state
-does not use a blue button background. Opening a closed exclusive region selects its first
-registered panel (Library on the left, Activity on the bottom). Existing
+outline the whole shell and fill only the active region; active switches
+use cyan without a button background. Opening a closed exclusive region selects its first
+registered panel (Library on the left, Log on the bottom). Existing
 panel-specific sidebar and status-bar toggles continue to select or close
-their named panel through the same `ShellLayout` signals.
+their named panel through the same `ShellLayout` signals. Closing the bottom
+panel from its header returns keyboard focus to the bottom-region toggle.
 All three are pointer- and keyboard-resizable and all layout state persists per-browser (see
 "Layout persistence"). The status bar is a separate thin strip - it is NOT
 the bottom panel and never toggles with it.
 
 Above the 520 px sheet breakpoint, side regions share space with a canvas
-budget of at least 320 px. When both saved side widths do not fit, opening
+budget of at least 320 px after subtracting the visible activity rail, frame
+padding, and each visible region's splitter gap. One open side needs one
+panel-to-canvas gap; two open sides need two. When both saved side widths do not fit, opening
 one side closes the other; narrowing the window closes the right rail first.
 A single side is temporarily capped to the available space without changing
 its saved width. Widening the window restores that width, not a closed side.
-The topbar search shrinks between its control groups on intermediate widths
-instead of letting its shortcut badge overlap the layout controls.
+The application header uses ProductWindowToolbar with shared window actions
+and icon buttons. Its 56px height and native reservations come from the shared
+stylesheet; the host owns platform, theme and QA/development markings. At the
+768px available-content boundary, action labels and search shortcut hints
+compact to icons while service/identity text occupies the metadata row.
+The command menu retains its grouped commands, live invalidation and focus
+restoration. The existing small-screen visibility of left/bottom/customize
+controls is unchanged; other controls and detached-workflow redocking remain
+available. Non-toolbar cancellation controls retain their original presentation.
 
 At 520 px and below, the activity rail compacts to icons and each open side
 surface becomes a full-width sheet below the workflow tabs and beside the
@@ -196,6 +242,31 @@ qualifiers, context actions, and live-preview choices follow the active locale
 while mounted. An open context menu and preview submenu update in place without
 changing the active workflow, tab identity, focus, scroll position, preview
 override, or caller-owned workflow title.
+
+Each tab keeps its kind icon: workflow, app, curve, shader source, or a
+file for an extension-defined editor. A running job breathes that same icon
+in cyan rather than replacing it with a spinner; reduced motion keeps it
+still. Queued work is cyan without motion. The run that ended most recently
+puts a cyan dot at the icon's lower right on completion, or a coral dot on
+failure or interruption; user cancellation has no dot. An edit or a new run
+clears the result.
+Run ownership follows the document lineage, independently of canvas overlay
+pins, and frozen tabs show only their own run. The unsaved marker is secondary
+text gray in the close button's place; hover or keyboard focus reveals Close.
+
+The tab context menu groups document actions, placement and sharing, preview
+and queue target settings, and close actions. Rename edits the title inline:
+Enter, Tab or blur stores a trimmed nonempty name; Escape or an empty name
+cancels. Double-clicking a title starts the same edit. The new name stays
+unsaved until Save writes it to the library and is used by Export. Rename is
+not offered for frozen snapshots or non-document editors. Titles follow the
+existing local workspace/window authority; they are not remote collaboration
+document edits.
+Duplicate creates an independent unsaved workflow on the same backend, without
+library links or run history, immediately after its source in the same group.
+It uses "<title> copy", then "copy 2" and so on; a frozen snapshot becomes an
+editable graph. Close others affects only the current split group. If any
+others are dirty, one confirmation names them; Cancel closes none.
 
 A workflow tab is as wide as its title and its close button, up to 220 px; a
 longer title ends in an ellipsis and shows in full in a tooltip on hover or
@@ -314,6 +385,30 @@ A structural boundary that cannot be represented without dropping an endpoint
 refuses the import with `import.subgraphs.boundaryUnsupported`; it never returns
 an empty, flattened, or otherwise lossy document as a successful import.
 
+The status bar contains changing state, not shortcuts. Connection opens Backends;
+run state opens Runs; the active workflow's problem count opens Problems;
+background work opens Log on App; graphics-memory use opens Memory. Connection
+and memory follow the open tab's backend. Run state counts only the focused
+workflow and always opens Runs at This workflow. One running job shows the
+workflow name and progress; several running jobs show the name without a
+single-job percentage. Queued-only work shows the name when its backend queue
+position is unknown. Frozen tabs show only their job's activity or elapsed
+completion time, and other editor kinds omit the run item. Background work
+covers every connected backend.
+Graphics memory shows the fullest measured card, with every card in its tooltip;
+CPU-only, missing and disconnected measurements are omitted. Stale readings use
+the Memory panel's existing threshold and are marked stale.
+
+Workflow tabs show node and selection counts at the right. Other editor kinds
+have no context count. Catalog counts are not shown after loading. Optional
+frame-rate diagnostics and pack-contributed status items remain. Review upgrades
+is in Settings > Execution and is saved with the other settings.
+
+The bar measures available space and removes context/FPS first, then the running
+workflow title, backend name, background description, extension items and memory.
+Connection warnings, run progress/counts and Problems remain. Shortened items keep
+their full accessible names and tooltips.
+
 The status bar has a polite live region for transient operation feedback. A
 successful library save reports `Saved to <backend> library`; a failed save
 keeps its `library.saveFailed` Problem and also reports there. Ctrl+S on an
@@ -326,17 +421,50 @@ status bar even when the user's layout setting hides it.
 
 ## The left dock
 
-A tabbed dock zone between the icon sidebar and the canvas. Multiple panels
-remain available in its tab row while exactly one body per section is
-visible (see "Dock zone sections"). In wide
+A dock zone between the icon sidebar and the canvas. Each section shows
+its active panel's title and keeps inactive bodies mounted. The title is
+keyboard-focusable and supports the same drag and placement context menu as
+a panel tab. The first section keeps the zone close button. Panels are
+selected through the left bar, including pack panels and panels moved here;
+a panel without an icon gets a default panel icon. When the left bar is
+hidden, each section restores its tab row so every panel stays reachable.
+The bottom zone has no entries in the left bar; its top-bar switch opens it
+and its own tabs choose a panel. Side and bottom panel tab rows mark the
+selected tab with a filled rounded block and an inset 3 px cyan bar with
+rounded ends on its bottom edge, rather than a white underline. Workflow
+tabs and other tab controls keep their own selection styles. In wide
 mode, the dock shares the flex row with the canvas, so opening it shrinks the
 canvas rather than covering it. In narrow mode it uses the contained sheet
 behavior described above.
 
 Panels:
 
+- **Runs**: the right-side execution list defaults to **This workflow**. Each
+  run shows up to three output thumbnails; the overflow opens all images in
+  the output viewer. **Details** holds metadata, saved files and typed values.
+  Selecting a loop box shows the selected run's retained iterations below the
+  workflow's runs. **All workflows** places this browser's pending runs above
+  the backend's searchable, paged finished runs, preserving open, resubmit,
+  delete and clear actions. An empty stored list says no finished runs are
+  stored; search misses do not fall back to finished runs in browser memory.
+  A backend without durable history uses this browser's execution history.
+  Finished image/video runs show a retained thumbnail before selection,
+  including stored runs this browser has not seen; absent or unavailable
+  media leaves no thumbnail. Stored runs fetch full outputs only after selection. Fetch failures stay on
+  the selectable row. Refreshing the same backend's page preserves the row's
+  disclosure and in-flight output read; switching owners does not reuse them.
+  Stored-run inspection never registers a new live run or records temporary file lists.
+- **Log**: the bottom panel combines **This run** execution records and **App**
+  activity. Selecting another run switches to that run's records.
+- **Problems**: **Selection only** filters to selected widgets, nodes, links or
+  groups. An empty selection shows "Nothing selected", not document or subgraph
+  problems; the tab badge still counts all problems. **Show on canvas** remains
+  the row navigation action.
+- **Extensions**: available from the left bar. Backends and Memory keep their
+  existing contents; Boundary is available while editing a subgraph definition.
 - **Library** (`library-toggle`, Ctrl+O): the collection browser over Packs,
-  Templates, Workflows, History, and Runs. Its body names the active backend,
+  Templates, and Workflows. Runs and browser history live in the right-side
+  Runs panel. Its body names the active backend,
   protocol, and connection state; see [Library](library.md). Activating an entry
   that opens a document closes the dock, matching the previous overlay
   behavior.
@@ -348,8 +476,8 @@ Panels:
   retaining its own live connection object for backends present in both tabs;
   event application does not write the list back to storage.
 
-`DockZoneHost` owns the tab row, active-panel actions, close button, and scroll
-body. A named separator on the right edge resizes the zone from 280-640 px.
+`DockZoneHost` owns the title or tab row, active-panel actions, close button,
+and scroll body. A named separator on the right edge resizes the zone from 280-640 px.
 Arrow Left/Right changes the size by 16 px, while Home/End selects the
 minimum/maximum. Pointer resizing previews continuously and commits once on
 release. Test IDs: `dock-panel` (`data-active-panel` names the visible body),
@@ -359,35 +487,45 @@ the `library-overlay` test ID even though it is not an overlay.
 The status-bar `Backends` button and the sidebar icon toggle the same dock
 panel; both reflect pressed state via `aria-pressed`.
 
-The 72 px activity rail stacks each centered label beneath its thin 20 px
-glyph in a full-width 72 px action. Labels may wrap to two lines without
-widening the rail, and every action
-participates in the rail's custom tooltip session so the full descriptor text
-remains available. Buttons retain normal document tab order, explicit
-accessible names, pressed state for panel toggles, hover feedback, and a
-visible keyboard focus ring. Its panel toggles occupy a scrolling
-placement-driven stack, while Settings is a separate labeled gear button
-pinned below that stack at the rail bottom and dispatches the existing
-`settings.open` command.
-Toggles whose descriptor's effective
-placement is `dock` stay at the top; toggles effectively placed in `bottom`
-anchor at the bottom. Runtime registrations and placement moves use the same
-registry queries, so their icons join the cluster for the region they open.
-Within either cluster there are no visual gaps or button boundaries between
-adjacent items. Once one delayed tooltip has appeared, pointer travel between
-targets in the same rail session replaces it immediately without a hidden
-frame. A visible tooltip may bridge empty rail space for 300 ms so crossing
-between clusters remains forgiving, then hides if no target is reached.
-Leaving the rail boundary hides immediately, so a later re-entry uses the
-configured delay again.
-Opening a dock panel dismisses its toggle's tooltip. While that panel is open,
-the pressed toggle suppresses its tooltip, including while keyboard focus
-remains there, so help does not obscure the panel toolbar.
+The 48 px activity rail holds 40 px square icon-only actions with centered
+20 px glyphs. No labels are drawn; every item retains its explicit accessible
+name. A panel without an icon uses the default panel icon. Hover and keyboard
+focus show each item's name immediately, with its description on the next
+line when present and different from the name. Selected items show the same
+help. The Tooltip delay (ms) setting still applies to other tooltips, not
+activity rail items. Buttons retain normal document tab order, pressed state
+for panel toggles, hover feedback, and a visible keyboard focus ring.
+Left-region panel toggles occupy a scrolling placement-driven stack. Settings
+is a separate gear button pinned below that stack and dispatches
+`settings.open`; its Alt tooltip detail retains the shortcut. Bottom-region
+panels have no activity rail items; their region switch and tab row provide
+access. Runtime registrations and placement moves use the same registry
+query, so every left-region panel has an item.
+
+Pointer travel between targets in the same rail session replaces help
+immediately without a hidden frame. A visible tooltip may bridge empty rail
+space for 300 ms, then hides if no target is reached. Leaving the rail boundary
+hides immediately. Clicking an item dismisses its tooltip, including while
+keyboard focus remains on its selected toggle; hovering it again or returning
+keyboard focus shows the help immediately.
+
+## Tooltip placement
+
+DOM tooltips use the element's current bounds and the tooltip's measured size.
+They sit centered 8 px below the element, or 8 px above when there is no room
+below. Horizontal placement shifts only enough to retain an 8 px window
+margin. Activity rail help sits to the right of the item, vertically centered.
+Canvas help keeps its producer's point anchor and uses the same measured
+window clamp. Placement updates when the content or window size changes;
+content, delay, focus and dismissal rules are unchanged. If long help fits on
+neither side, it uses the side with more room and cuts at a whole line with an
+ellipsis rather than covering the element or adding a scrollbar. Rail and
+canvas help use the same whole-line limit against the window height.
 
 ## The bottom panel
 
 A tabbed dock zone under the canvas column. Multiple panels, such as Problems
-and Activity, can coexist in its tab row while exactly one body per
+and Log, can coexist in its tab row while exactly one body per
 section is visible; its two sections sit side by side (see "Dock zone
 sections").
 It shares the canvas pane's column flex, so opening it shrinks the canvas. The
@@ -399,11 +537,12 @@ grows or shrinks it, and Home/End selects its minimum/maximum. Test IDs:
 
 Resident panel:
 
-- **Activity** (`logs-toggle`): structured UTC timestamp, severity,
-  source, and message rows with deterministic empty and tail-following states.
-  Its Clear header action requires a second activation within four seconds.
-  Bottom by default (a wide, short surface suits streaming rows); `dock`
-  remains an allowed placement. See `docs/activity-log.md`.
+- **Log** (`logs-toggle`): App shows structured UTC timestamp, severity,
+  source, and frontend message rows; This run and All runs show execution logs.
+  Each scope keeps its existing filtering and tail-following behavior.
+  App Clear requires a second activation within four seconds.
+  Bottom by default; left and right remain allowed placements.
+  See `docs/execution-log.md` and `docs/activity-log.md`.
 
 Panels with bottom-zone membership get their toggle in the bottom-anchored
 cluster of the same icon sidebar as left-zone panels. The toggle's cluster and
@@ -412,8 +551,8 @@ survives reload and moves the panel's icon and behavior together.
 
 ## The right zone
 
-A tabbed panel host (`queue`, `outputs`, `extensions`, `boundary`,
-`surfaces`, `problems`; some conditional via `when()`), toggled as one unit
+A tabbed panel host (`runs`, `boundary`, `surfaces`, `problems`, `help`;
+some conditional via `when()`), toggled as one unit
 by the topbar `rail-toggle` and drag-resizable via the grab handle on its
 left edge (`rail-resize`, clamped 240-560 px). `DockZoneHost`
 (`ShellChrome.tsx`) renders one tab row per section through the shared
@@ -500,9 +639,15 @@ it a whole visible tab. Arrow-key traversal covers the visible tab row,
 while the all-tabs button keeps every hidden tab reachable by keyboard and
 pointer.
 
-The queue tab is active-workflow scoped. It uses the same lineage-filtered
-entries as the center-region queue disclosure and never displays the
-backend-wide queue depth as though it belonged to one workflow.
+Runs defaults to This workflow. It uses the same lineage-filtered entries
+as the center-region queue disclosure, with output thumbnails and Details.
+All workflows combines pending browser runs and stored backend history.
+The scope's active work uses the shared ProductRunActivity presentation: a
+turning accent ring with the running count and a still gray clock with the
+queued count. Both include 1; zero-count marks disappear, and an idle scope
+has no activity marks. The accessible summary is localized. Counts follow
+execution updates and the selected scope; finished history never contributes.
+Backend-wide queue depth is never presented as one workflow's queue.
 
 Every move between a zone, floating, and a separate window goes through one
 boundary: `movePanel` / `returnPanelToZone` (`panel-location.ts`). It
@@ -843,7 +988,9 @@ AP8-idempotent disposer).
 
 ## Universal search
 
-The always-visible centered topbar control reads "Search Dinkster (Ctrl+K)".
+The always-visible shared header action reads "Search Dinkster" and shows the
+effective shortcut when expanded. Compact mode retains both its action name
+and shortcut description while displaying the search icon.
 It and the rebindable `search.open` command open one modal search overlay,
 including when no document tab exists. Results are grouped by provider and
 support Arrow Up/Down, Enter, Escape, and a five-result group cap with Show

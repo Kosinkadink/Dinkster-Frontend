@@ -1,5 +1,5 @@
 import { For, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
-import type { NodeProgress } from '@dinkster/core'
+import { formatWidgetValue, type NodeProgress } from '@dinkster/core'
 import {
   boundarySceneId,
   defaultTokens,
@@ -20,7 +20,10 @@ export const CANVAS_SEMANTIC_WINDOW_SIZE = 5
 
 export type CanvasSemanticTarget =
   | { readonly kind: 'node'; readonly id: string }
+  /** The title bar's minimize arrow of one node. */
+  | { readonly kind: 'minimize'; readonly nodeId: string }
   | { readonly kind: 'port'; readonly nodeId: string; readonly id: string; readonly direction: 'in' | 'out'; readonly widgetTap?: true }
+  | { readonly kind: 'widget'; readonly nodeId: string; readonly valueKey: string }
   | { readonly kind: 'boundary'; readonly id: string }
   | { readonly kind: 'link'; readonly id: string }
   | { readonly kind: 'reroute'; readonly id: string }
@@ -158,6 +161,16 @@ const endpointConnectionKey = (end: SceneLinkEnd, direction: 'in' | 'out'): stri
   return undefined
 }
 
+const WIDGET_VALUE_TEXT_LIMIT = 80
+
+/** A row's value on one line, cut short when long. */
+const widgetValueText = (value: unknown, spec: Parameters<typeof formatWidgetValue>[1]): string => {
+  if (value === undefined || value === null) return 'no value'
+  const text = formatWidgetValue(value, spec).replace(/\s+/g, ' ').trim()
+  if (text === '') return 'empty'
+  return text.length > WIDGET_VALUE_TEXT_LIMIT ? `${text.slice(0, WIDGET_VALUE_TEXT_LIMIT)}...` : text
+}
+
 export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly CanvasSemanticItem[] {
   const { scene } = source
   const items: CanvasSemanticItem[] = []
@@ -238,6 +251,12 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
       label: `Node: ${node.layout.title}, ${details.join(', ')}`,
       target: { kind: 'node', id: node.id },
     })
+    items.push({
+      key: `minimize:${node.id}`,
+      category: 'minimize',
+      label: `Button: ${node.layout.minimized ? 'Restore' : 'Minimize'} ${node.layout.title}`,
+      target: { kind: 'minimize', nodeId: node.id },
+    })
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {
       const name = pinName(node, pin)
@@ -263,6 +282,16 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
         },
       })
     }
+    for (const row of node.layout.rows) {
+      if (row.kind !== 'widget') continue
+      const connected = (connections.get(pinConnectionKey(node.id, 'in', row.address.port)) ?? 0) > 0
+      items.push({
+        key: `widget:${node.id}:${row.valueKey}`,
+        category: 'widget',
+        label: `Row: ${row.label} of ${node.layout.title}, ${widgetValueText(node.node.values[row.valueKey], row.spec)}${connected ? ', connected' : ''}`,
+        target: { kind: 'widget', nodeId: node.id, valueKey: row.valueKey },
+      })
+    }
   }
 
   for (const boundary of scene.boundaryNodes) {
@@ -282,6 +311,16 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
         category: 'port',
         label: `${pin.direction === 'in' ? 'Input' : 'Output'}: ${name} of ${boundary.side} boundary, ${presentedType(defaultTokens, pin.type).label}, ${count === 0 ? 'not connected' : `${count} connection${count === 1 ? '' : 's'}`}`,
         target: { kind: 'port', nodeId: id, id: pin.portId, direction: pin.direction },
+      })
+    }
+    for (const row of boundary.fields === undefined ? [] : boundary.layout.rows) {
+      if (row.kind !== 'widget') continue
+      const connected = Object.hasOwn(boundary.fields!.wired, row.valueKey)
+      items.push({
+        key: `widget:${id}:${row.valueKey}`,
+        category: 'widget',
+        label: `Row: ${row.label} of Inputs, ${widgetValueText(boundary.fields!.node.values[row.valueKey], row.spec)}${connected ? ', connected' : ''}`,
+        target: { kind: 'widget', nodeId: id, valueKey: row.valueKey },
       })
     }
   }

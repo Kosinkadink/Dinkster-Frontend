@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './fixtures.js'
 /**
  * Native catalog presentation proofs. This spec intentionally imports the
  * Playwright base directly: the shared legacy fixture disables same-origin
@@ -35,8 +36,8 @@ test.beforeEach(async ({ page, request }) => {
   expect(payload.nodes?.['dinkster.image.save_image']).toBeDefined()
 
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await expect(page.getByTestId('status-bar')).toContainText('connected')
+  await waitForWorkspaceReady(page)
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected')
   expect(await page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.protocol)).toBe('dinkster')
 })
 

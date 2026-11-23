@@ -248,8 +248,9 @@ describe('UniversalSearch palette', () => {
     </>, root)
 
     const trigger = root.querySelector('[data-testid="topbar-search"]') as HTMLButtonElement
-    expect(trigger.textContent).toBe('Search Dinkster alt+k')
-    expect(trigger.getAttribute('aria-label')).toBeNull()
+    expect(trigger.querySelector('kbd')?.textContent).toBe('alt+k')
+    expect(trigger.getAttribute('aria-label')).toBe('Search Dinkster')
+    expect(trigger.title).toBe('Search Dinkster (alt+k)')
     trigger.click()
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     expect(document.activeElement).toBe(input(root))

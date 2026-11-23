@@ -1,9 +1,8 @@
 /**
  * Native Dinkster graph wire (POST /api/jobs `graph`) with first-class regions.
  *
- * Grounded in Dinkster source (commit 6822752 "M6: add explicit graph regions",
- * node-id grammar closed at 95106fd). This module is the ONE place the
- * native graph wire shape is understood on our side - the same quarantine
+ * This module is the ONE place the native graph wire shape is understood
+ * on our side - the same quarantine
  * rule as schema/dinkster-wire.ts for the schema wire. It owns:
  *
  * - The wire TYPES: a graph is {nodes: {id: entry}} where an entry is either
@@ -62,12 +61,11 @@ export interface DinksterLinkWire {
 
 /**
  * A typed-literal input value: {$typed: {type, value}} - the second reserved
- * input marker beside $link (Dinkster ea6eca7). The stamp names the concrete
+ * input marker beside $link. The stamp names the concrete
  * runtime type id (same vocabulary workers wrap with: 'INT',
  * 'list<INT>', ...) the engine wraps "value" with, so a literal can
  * feed a destination whose declared type does not resolve to a runtime id.
- * EMISSION RULE (joint contract, pinned 6382cf1; AMENDED 2026-07-26 for
- * typed assets): emit into non-concrete destinations, AND into concrete
+ * EMISSION RULE: emit into non-concrete destinations, AND into concrete
  * destinations exactly when the value's runtime type is an asset source
  * (asset<T> / list<asset<T>>) that DIFFERS from the declared type - the
  * stamp is what routes the literal through the backend's coercion planner

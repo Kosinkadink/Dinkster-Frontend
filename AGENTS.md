@@ -4,17 +4,17 @@
 
 Keep docs concise. No delegation ledgers, promise ledgers, handoff records,
 or coordination narratives in this repo: GitHub issues and PRs are the record
-of work, decisions, and deferred items. Every user-facing feature or system
-(including a lens, panel, interaction mode, or shortcut) must be documented
-under `docs/` in the same commit that ships it. Update the active document
-that owns current behavior; archived audits are historical and are not update
-targets. Undocumented features are unfinished.
+of work, decisions, and deferred items.
+
+A change edits a document only when a fact a reader relies on changes, and it edits the existing sentence instead of adding a bullet.
+
+Update the active document that owns current behavior.
 
 # Locale catalogs
 
 The only application locale catalogs are `en.json` and `zh.json`; adding any other locale file requires an explicit user ruling.
 
-# Screenshot validation (user directive, 2026-08-12)
+# Screenshot validation (user directive)
 
 Screenshots are part of the development cycle, not just PR paperwork.
 While developing any user-visible change, capture screenshots of the
@@ -35,7 +35,7 @@ allowlisted exception linked to an issue. `pnpm check:raw-controls` must pass.
 Compare a changed surface with a sibling in the same dock region and name the
 primitives used in the PR body.
 
-# Self-serve testing (user directive, 2026-08-12)
+# Self-serve testing (user directive)
 
 Standing authorization: stand up whatever is needed to test - dev servers,
 backend processes, mock backends, fixture data - without asking permission.
@@ -57,9 +57,9 @@ progress.
 
 # Standing push authorization
 
-The user granted standing push permission on 2026-07-27: completed,
-validated work on this repo's main branch is pushed to origin as it lands,
-without per-slice authorization, so local commits are never the only copy.
+The user grants standing push permission: completed, validated work on this
+repo's main branch is pushed to origin as it lands, without per-change
+authorization, so local commits are never the only copy.
 This does not extend to force-pushes, history rewrites, or other repos.
 
 # Reset the dev server before E2E runs
@@ -158,10 +158,3 @@ Every slice or big change gets a code review (oracle or equivalent reviewer)
 after it ships, before the next slice starts. Review findings are fixed or
 explicitly deferred to a GitHub issue - never silently dropped. When a group
 of slices completes, review the affected area as a whole.
-
-# Performance record
-
-`docs/perf.md` holds measured baselines from
-`packages/e2e/tests/perf.spec.ts`. Any change expected to move those numbers
-(renderer, scene build, CanvasHost structure, document pipeline) must append
-a new dated row with before/after numbers rather than overwriting history.

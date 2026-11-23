@@ -8,6 +8,8 @@ import xml.etree.ElementTree as ET
 from copy import deepcopy
 from pathlib import Path
 
+from palette import PALETTE
+
 import numpy as np
 from build_brand import REGULAR_WORDMARK_POSITIONS
 from fontTools.pens.boundsPen import BoundsPen
@@ -78,23 +80,29 @@ def main():
     image = Image.open(output / "selected-d-color-8x.png").convert("RGBA")
     font = ImageFont.truetype("DejaVuSans.ttf", 19)
     title = ImageFont.truetype("DejaVuSans.ttf", 24)
-    sheet = Image.new("RGB", (1640, 940), "#E4E8EC")
+    sheet = Image.new("RGB", (1640, 940), PALETTE["light"]["bg"]["hover"])
     draw = ImageDraw.Draw(sheet)
     draw.text(
         (24, 18),
         "CORRECTED D - round 10 coral band; round 11 yellow and rounded tip",
-        fill="#1F242A",
+        fill=PALETTE["light"]["text"]["primary"],
         font=title,
     )
     draw.text(
         (24, 54),
         "No yellow on the body. Coral geometry restored unchanged; see marked 12x endpoints.",
-        fill="#1F242A",
+        fill=PALETTE["light"]["text"]["primary"],
         font=font,
     )
-    for column, background in enumerate(("#111316", "#F7F8FA")):
+    for column, background in enumerate(
+        (PALETTE["dark"]["bg"]["canvas"], PALETTE["light"]["bg"]["canvas"])
+    ):
         x = 20 + column * 810
-        foreground = "#F2F4F5" if column == 0 else "#1F242A"
+        foreground = (
+            PALETTE["dark"]["text"]["primary"]
+            if column == 0
+            else PALETTE["light"]["text"]["primary"]
+        )
         draw.rectangle((x, 96, x + 789, 919), fill=background)
         draw.text(
             (x + 20, 112),
@@ -127,17 +135,23 @@ def main():
         (float(np.flatnonzero(coral[y]).mean()) / 8, float(y) / 8)
         for y in (rows[0], rows[-1])
     )
-    ends = Image.new("RGB", (1640, 1500), "#E4E8EC")
+    ends = Image.new("RGB", (1640, 1500), PALETTE["light"]["bg"]["hover"])
     annotations = ImageDraw.Draw(ends)
     annotations.text(
         (24, 18),
         "ROUND 10 CORAL BAND - top and bottom ends marked at 12x native size",
-        fill="#1F242A",
+        fill=PALETTE["light"]["text"]["primary"],
         font=title,
     )
-    for column, background in enumerate(("#111316", "#F7F8FA")):
+    for column, background in enumerate(
+        (PALETTE["dark"]["bg"]["canvas"], PALETTE["light"]["bg"]["canvas"])
+    ):
         x = 20 + column * 810
-        foreground = "#F2F4F5" if column == 0 else "#1F242A"
+        foreground = (
+            PALETTE["dark"]["text"]["primary"]
+            if column == 0
+            else PALETTE["light"]["text"]["primary"]
+        )
         annotations.rectangle((x, 60, x + 789, 1480), fill=background)
         band = image.crop((88 * 8, 88 * 8, 148 * 8, 196 * 8)).resize(
             (720, 1296), Image.Resampling.LANCZOS
@@ -212,7 +226,9 @@ def main():
                 check=True,
             )
         column_width = NATIVE_WIDTH * 2 + 20
-        combined = Image.new("RGB", (column_width * 5 + 20, 1670), "#E4E8EC")
+        combined = Image.new(
+            "RGB", (column_width * 5 + 20, 1670), PALETTE["light"]["bg"]["hover"]
+        )
         labels = ImageDraw.Draw(combined)
         for index, (name, label, scale, dy) in enumerate(variants):
             comparison = Image.open(
@@ -229,11 +245,13 @@ def main():
                 comparison.crop((double_x, 624, double_x + NATIVE_WIDTH * 2, 1660)),
                 (x, 624),
             )
-            labels.text((x + 8, 14), label, fill="#1F242A", font=font)
+            labels.text(
+                (x + 8, 14), label, fill=PALETTE["light"]["text"]["primary"], font=font
+            )
             labels.text(
                 (x + 8, 584),
                 f"2x - scale {scale:.2f}; baseline shift {dy:+.2f}px native",
-                fill="#1F242A",
+                fill=PALETTE["light"]["text"]["primary"],
                 font=font,
             )
             if index == 0:
@@ -247,13 +265,13 @@ def main():
         labels.text(
             (24, 14),
             "Dark-on-light reference (upper inverted)",
-            fill="#1F242A",
+            fill=PALETTE["light"]["text"]["primary"],
             font=font,
         )
         labels.text(
             (24, 584),
             "Reference - 2x",
-            fill="#1F242A",
+            fill=PALETTE["light"]["text"]["primary"],
             font=font,
         )
         combined.save(ROOT / "previews/wordmark-size-comparison.png")
