@@ -3992,6 +3992,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     let scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
     let sceneKey = ''
+    const transferredFrozenViews = new Set<string>()
     let sceneBuildContext: {
       readonly document: WorkflowDocument
       readonly sourceDocument: WorkflowDocument
@@ -4125,7 +4126,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // in-flight link drag and hiding tooltips for no observable change -
       // so the identical scene stays installed. Everything downstream that
       // rebinds to the live Tab wrapper still runs.
-      const continuesFrozenView = tab.replacesFrozenTabId !== undefined && sceneKey === `${tab.replacesFrozenTabId}:${graphId}`
+      const continuesFrozenView = tab.replacesFrozenTabId !== undefined && !transferredFrozenViews.has(tab.id) &&
+        sceneKey === `${tab.replacesFrozenTabId}:${graphId}`
+      if (tab.replacesFrozenTabId !== undefined) transferredFrozenViews.add(tab.id)
       const keptSelection = continuesFrozenView ? [
         controller.getSelection(), controller.getLinkSelection(), controller.getRerouteSelection(),
         controller.getValueSourceSelection(), controller.getSelectorSelection(), controller.getGroupSelection(),
