@@ -179,8 +179,9 @@ const plainPrimitive = (
   outputType: string,
   value: Json,
   options: Record<string, Json> = {},
+  title = 'Primitive',
 ) =>
-  schema(type, 'Primitive', [
+  schema(type, title, [
     field('value', label, widgetType, value, options),
     {
       kind: 'section',
@@ -867,7 +868,7 @@ export function switchPrimitiveGallery(
   // 14. Dropdown, text and yes or no.
   cards.push({
     caption:
-      "One kind of node holds a value of any field: a dropdown, a text and a yes or no, each with the field's own widget. A dropdown Primitive offers the options the fields it feeds share, compared by value.",
+      "A Primitive holds a text or a yes or no with the field's own widget; Text and Boolean have only a Default limit. A dropdown value is its own node, Choice, whose value and output are COMBO: it offers the options the fields it feeds share, compared by value, and is a text field when it feeds none. Custom Combo stays the dropdown whose options the author types.",
     scene: scene({
       root: {
         nodes: {
@@ -881,6 +882,7 @@ export function switchPrimitiveGallery(
               {
                 options: ['euler', 'dpmpp_2m'],
               },
+              'Choice',
             ),
             x: 0,
             y: 0,
