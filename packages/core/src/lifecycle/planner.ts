@@ -18,7 +18,7 @@ import { isNodeBoundaryBinding } from '../format/document.js'
 import { validateGraphDefShape, validateGraphViewShape } from '../format/validate.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import type { CommandInvocation } from '../commands/contract.js'
-import { asGraphDefId, asNodeId } from '../ids.js'
+import { asGraphDefId, asNodeId, asPortId } from '../ids.js'
 import {
   isPortEndpoint,
   isRerouteRef,
@@ -33,12 +33,12 @@ import {
 } from '../ids.js'
 import { canonicalJson, sha256Hex } from '../compile/hash.js'
 import { subgraphDefIdOf } from '../invariants.js'
-import { deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
+import { constructRowOf, deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
 import type { NodeSchema } from '../schema/model.js'
 import { DEFAULT_ELAB_BUDGET, elaborateInterface, EMPTY_CONNECTIVITY, valueKeyOf } from '../schema/elaborate.js'
 import { effectiveWidgetDefault } from '../schema/widget-defaults.js'
 import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.js'
-import { matchBoundaryItem } from '../compile/crossing.js'
+import { innerConstructAddress, matchBoundaryItem, projectConstructs } from '../compile/crossing.js'
 import { rerouteInputTargets } from '../reroute.js'
 
 export const LIFECYCLE_PLAN_VERSION = 'subgraph-lifecycle-plan-v2'
@@ -216,7 +216,8 @@ function occurrencePortEvidence(parent: GraphDef, nodeId: string): FlattenStored
     for (const item of items) {
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (binding.node !== nodeId) continue
-        if (binding.kind === 'widgetTap') continue
+        // A construct shown whole is checked by its enclosing rewrite, not as one port.
+        if (binding.kind === 'widgetTap' || binding.kind === 'construct') continue
         add({ node: binding.node, port: binding.port }, side, 'enclosing')
       }
     }
@@ -225,8 +226,9 @@ function occurrencePortEvidence(parent: GraphDef, nodeId: string): FlattenStored
 }
 
 /**
- * How one boundary binding flattens. A binding that forwards a whole group,
- * choice or type choice is not supported and stays unresolved.
+ * How one boundary binding flattens. A binding that shows a whole group,
+ * choice, type choice or described row flattens to that construct, which
+ * takes the subgraph node's own members, pick and values.
  */
 export function classifyFlattenBindingRoute(
   binding: BoundaryBinding,
@@ -235,6 +237,10 @@ export function classifyFlattenBindingRoute(
   node?: Pick<NodeData, 'values' | 'dynamic'>,
 ): FlattenRouteKind {
   if (binding.kind === 'widgetTap') return expectedSide === 'output' ? 'widgetTap' : 'unresolved'
+  if (binding.kind === 'construct' && schema !== undefined) {
+    const resolved = resolveBoundaryRoute(schema, binding, expectedSide, node?.values, node?.dynamic)
+    return resolved.ok && constructRowOf(resolved.route) !== undefined ? 'plain' : 'unresolved'
+  }
   if (binding.kind !== 'port' || schema === undefined) return 'unresolved'
   const resolved = resolveBoundaryRoute(schema, binding, expectedSide, node?.values, node?.dynamic)
   if (!resolved.ok || resolved.route.terminal.kind !== 'port') return 'unresolved'
@@ -387,19 +393,38 @@ function planFlattenState(
   }
 
   const inputItems = new Map((body.boundary?.inputs ?? []).map((item) => [item.id, item]))
+  // State the subgraph node keeps under a construct it shows whole moves
+  // onto that construct's inner nodes.
+  const constructItems = new Set([...(body.boundary?.inputs ?? []), ...(body.boundary?.outputs ?? [])]
+    .filter((item) => item.binds.kind === 'construct').map((item) => item.id))
+  const underConstruct = (key: string): boolean => constructItems.has(key.split('.', 1)[0]!)
   if (occurrenceSchema.schema !== undefined) {
     const walked = walkFlattenStoredState(occurrence, occurrenceSchema.schema, occurrencePorts, boundaryPlan)
     if (!walked.ok) {
       fail(walked.code, walked.message)
     } else {
       for (const path of walked.inventory.dynamicPaths) {
+        if (underConstruct(path)) continue
         fail('subgraph.flatten.stateUnresolved', `occurrence dynamic state '${path}' has no eligible flattened owner`)
       }
     }
   } else fail('subgraph.lifecycle.boundaryUnresolved', 'body boundary cannot be derived into one occurrence schema')
 
+  if (constructItems.size > 0) {
+    const projected = projectConstructs(body, occurrence, (node) => resolveSchema(node.type))
+    for (const [id, dynamic] of projected.dynamic) {
+      const target = nodes.get(id as string)
+      if (target !== undefined) target.dynamic = structuredClone({ ...dynamic })
+    }
+    for (const [id, values] of projected.values) {
+      const target = nodes.get(id as string)
+      if (target !== undefined) target.values = structuredClone({ ...values })
+    }
+  }
+
   const stateKeys = new Set([...Object.keys(occurrence.values), ...Object.keys(occurrence.controllers ?? {})])
   for (const key of stateKeys) {
+    if (underConstruct(key) && !Object.hasOwn(occurrence.controllers ?? {}, key)) continue
     const item = inputItems.get(key)
     if (item === undefined || item.promoted !== true) {
       fail(item !== undefined && item.promoted !== true
@@ -473,8 +498,15 @@ function planFlattenState(
         }
         const childItem = childMatch.item
         const route = boundaryPlan.find((entry) => entry.side === side && entry.id === childItem.id)
-        const after: BoundaryBinding[] = route === undefined ? [] : [childItem.binds, ...(childItem.alsoBinds ?? [])]
-        if (after.length === 0 || side === 'output' && after.length !== 1) {
+        const childBindings = route === undefined ? [] : [childItem.binds, ...(childItem.alsoBinds ?? [])]
+        // Under a construct shown whole, the enclosing row binds the matching inner row.
+        const after = childBindings.flatMap((child): BoundaryBinding[] => {
+          if (child.kind !== 'construct') return [child]
+          const port = innerConstructAddress(body, child, childItem.id, binding.port as string, (node) => resolveSchema(node.type))
+          if (port === undefined) return []
+          return [binding.kind === 'construct' ? { ...child, port: asPortId(port) } : { kind: 'port', node: child.node, port: asPortId(port) }]
+        })
+        if (after.length === 0 || after.length !== childBindings.length || side === 'output' && after.length !== 1) {
           fail('subgraph.lifecycle.boundaryUnresolved', `enclosing ${side} '${parentItem.id}' has no unique representable descendant`, side, childItem.id)
           continue
         }
@@ -957,6 +989,7 @@ export type ExtractRefusalCode =
   | 'subgraph.extract.specializedSlotUnsupported'
   | 'subgraph.lifecycle.boundaryUnresolved'
   | 'subgraph.lifecycle.multiDriver'
+  | 'boundary.constructOwned'
 
 export interface CutRefusal {
   readonly code: ExtractRefusalCode
@@ -1303,6 +1336,27 @@ export function auditExtractionCuts(
     }
   }
 
+  // A wire that crosses into a construct the definition shows whole would
+  // become a second owner of a row the moved construct already owns.
+  const crossingPorts = [
+    ...links.filter((link) => link.kind === 'in-cut').map((link) => link.to),
+    ...links.filter((link) => link.kind === 'out-cut').map((link) => link.from),
+    ...nets.flatMap((net) => net.kind === 'in-cut' ? net.insideSinks : net.kind === 'out-cut' ? [graph.nets[net.id]!.source] : []),
+  ].filter(isPortEndpoint)
+  for (const [index, boundary] of boundaries.entries()) {
+    if (boundary.kind !== 'in-cut' && boundary.kind !== 'out-cut') continue
+    const owned = boundary.movedBindings.flatMap((binding) => {
+      if (binding.kind !== 'construct') return []
+      const port = crossingPorts.find((crossing) => crossing.node === binding.node && crossing.port.startsWith(`${binding.port}.`))
+      return port === undefined ? [] : [port]
+    })[0]
+    if (owned === undefined) continue
+    const refusal: CutRefusal = { code: 'boundary.constructOwned', source: 'boundary', id: boundary.itemId, endpoint: owned }
+    refusals.push(refusal)
+    const { nestedItem: _nestedItem, ...rest } = boundary
+    boundaries[index] = { ...rest, kind: 'unrepresentable', refusal }
+  }
+
   const inputs = [
     ...[...linkInputGroups.values()].map((group) => ({
       source: group.source,
@@ -1502,7 +1556,8 @@ export type FlattenShellRefusal =
 
 export function flattenShellRefusal(node: Pick<NodeData, 'mode' | 'region'>): FlattenShellRefusal | undefined {
   if (node.region !== undefined) return 'subgraph.flatten.regionUnsupported'
-  if (node.mode === 'muted' || node.mode === 'bypassed') return 'subgraph.flatten.modeUnsupported'
+  // A muted subgraph node flattens to muted nodes; a bypassed one has no plain equivalent.
+  if (node.mode === 'bypassed') return 'subgraph.flatten.modeUnsupported'
   return undefined
 }
 
