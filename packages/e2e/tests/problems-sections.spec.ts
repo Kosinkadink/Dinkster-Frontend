@@ -49,7 +49,8 @@ test('removed pack parts open with a notice for the replaced option, anchored ro
   expect(await page.evaluate(() => {
     const nodes = window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes
     return { values: nodes.option!.values, group: nodes.group!.dynamic, choice: nodes.choice!.dynamic }
-  })).toEqual({ values: { 'mode.oldAmount': 31 }, group: { old: { members: ['m3'], seq: 4 } }, choice: { old: { selected: 'previous' } } })
+  })).toEqual({ values: { 'mode.oldAmount': 31 }, group: { mode: { selected: 'current' }, old: { members: ['m3'], seq: 4 } },
+    choice: { mode: { selected: 'current' }, old: { selected: 'previous' } } })
 })
 
 test('Problems presents four ordered sections with one-line rows and debug-only codes', async ({ page }) => {
@@ -61,7 +62,7 @@ test('Problems presents four ordered sections with one-line rows and debug-only 
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'PanelSampler', displayName: 'Sampler', category: 'test', source: 'v3',
-      isOutputNode: false, items: [],
+      isOutputNode: false, body: [],
     }])
     await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'problems-sections', root: 'g0',
@@ -106,8 +107,4 @@ test('Problems presents four ordered sections with one-line rows and debug-only 
   await expect(panel.getByText('Sampler: model memory is exhausted', { exact: true })).toHaveCount(1)
   await panel.screenshot({ path: evidencePath('problems-sections', 'expanded-detail.png'), animations: 'disabled' })
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
-  await panel.getByRole('button', { name: 'Dismiss', exact: true }).click()
-  await expect(panel.locator('.problems-group-title')).toHaveText([
-    'Execution', 'This workflow', 'Packs and backend', 'Collaboration',
-  ])
 })

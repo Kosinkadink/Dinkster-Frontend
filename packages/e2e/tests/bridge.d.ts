@@ -137,6 +137,7 @@ interface DinksterBridgeTab {
     /** Undo one revision; false when there is nothing to undo. */
     undo(): boolean
     redo(): boolean
+    historySnapshot(): { undo: readonly unknown[]; redo: readonly unknown[] }
     /** Dispatch a command invocation (perf specs drive the full loop). */
     dispatch(invocation: { command: string; params: unknown }): {
       ok: boolean
