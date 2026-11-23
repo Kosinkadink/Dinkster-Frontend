@@ -159,7 +159,7 @@ test('account values copy exactly, history expands by keyboard and signed-out sh
   await expect(
     page.getByRole('button', { name: 'Toggle navigation' }),
   ).toHaveCount(0)
-  const frame = (await page.locator('.dinkster-shell-body').boundingBox())!
+  const frame = (await page.locator('.dinkster-shell').boundingBox())!
   const content = (await page.getByRole('main').boundingBox())!
   expect(content.x).toBe(frame.x)
   expect(content.width).toBe(frame.width)
@@ -232,6 +232,9 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   page,
 }) => {
   await page.goto('/#controls')
+  await expect(
+    page.getByRole('button', { name: 'Add item', exact: true }),
+  ).toHaveAttribute('title', 'Add item')
   const samples = page.getByRole('region', {
     name: 'Button roles and fills',
     exact: true,

@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
@@ -44,6 +44,20 @@ async function toolboxPoint(page: Page, id: string) {
       y: canvas.top + (button.y + button.size / 2) * viewport.scale + viewport.y,
     }
   }, id)
+}
+
+/** The middle of a node's title-bar minimize arrow: an 18 px target 5 px in from its left edge. */
+async function minimizeArrowPoint(page: Page, nodeId: string) {
+  return page.evaluate((nodeId) => {
+    const renderer = window.__dinksterTest!.renderer!
+    const viewport = renderer.getViewport()
+    const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)!
+    const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    return {
+      x: canvas.left + (node.x + 5 + 9) * viewport.scale + viewport.x,
+      y: canvas.top + (node.y + node.layout.headerHeight / 2) * viewport.scale + viewport.y,
+    }
+  }, nodeId)
 }
 
 async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }) {
@@ -118,9 +132,7 @@ async function openProof(page: Page) {
 
 test.beforeEach(async ({ context, page }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-  await page.route('/api/**', (route) => /^\/api\/library\/retention(?:s\/|-clients$)/.test(new URL(route.request().url()).pathname)
-    ? route.fallback()
-    : route.fulfill({ status: 503, body: 'Frontend contract fixture' }))
+  await page.route('/api/**', (route) => route.fulfill({ status: 503, body: 'Frontend contract fixture' }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'minimized-import-contract', schemaWire: 2 },
@@ -133,13 +145,13 @@ test.beforeEach(async ({ context, page }) => {
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   if (await page.getByTestId('dock-zone-right').isVisible()) {
     await page.getByRole('button', { name: /^Toggle right rail/ }).click()
   }
 })
 
-test('toolbar, title, shortcut, context menu, save, and clipboard preserve minimized state', async ({ page }, testInfo) => {
+test('title-bar arrow, title, shortcut, context menu, save, and clipboard preserve minimized state', async ({ page }, testInfo) => {
   await openProof(page)
   await capture(page, 'expanded', testInfo.project.name, testInfo.outputPath('expanded.png'), async (path) => {
     await testInfo.attach('expanded nodes', { path, contentType: 'image/png' })
@@ -154,7 +166,14 @@ test('toolbar, title, shortcut, context menu, save, and clipboard preserve minim
     await testInfo.attach('toolbar mode selector', { path, contentType: 'image/png' })
   })
   await page.locator('[data-item-id="core.node.mode.muted"]').click()
-  await page.mouse.click(...xy(await toolboxPoint(page, 'core.minimize')))
+  // The selection toolbar no longer offers minimize; the title bar's arrow does.
+  expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getToolboxLayout()!.buttons.map((entry) => entry.button.id)))
+    .not.toContain('core.minimize')
+  await page.mouse.click(...xy(await minimizeArrowPoint(page, 'target')))
+  expect((await activeDoc(page)).view.graphs.g0!.nodes.target!.collapsed).toBe(true)
+  await page.mouse.click(...xy(await minimizeArrowPoint(page, 'target')))
+  expect((await activeDoc(page)).view.graphs.g0!.nodes.target!.collapsed).not.toBe(true)
+  await page.mouse.click(...xy(await minimizeArrowPoint(page, 'target')))
 
   const minimized = await page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
@@ -173,16 +192,18 @@ test('toolbar, title, shortcut, context menu, save, and clipboard preserve minim
     context.fillRect(0, 0, 120, 60)
     renderer.setNodePreviews({ target: { image, width: 120, height: 60, state: 'cached' } })
     return {
-      layout: node.layout,
+      bare: node.layout,
+      layout: renderer.getScene().nodes.find((candidate) => candidate.id === 'target')!.layout,
       incoming: { x: incoming.x2, y: incoming.y2 },
       outgoing: { x: outgoing.x1, y: outgoing.y1 },
       expectedInput: { x: node.x, y: node.y + node.layout.headerHeight / 2 },
       expectedOutput: { x: node.x + node.layout.width, y: node.y + node.layout.headerHeight / 2 },
     }
   })
-  expect(minimized.layout).toMatchObject({ minimized: true, rows: [], preview: { compact: true } })
-  expect(minimized.layout.width).toBeGreaterThanOrEqual(80)
-  expect(minimized.layout.minWidth).toBeGreaterThanOrEqual(80)
+  // The node keeps its open width and has no strip until a picture arrives.
+  expect(minimized.bare).toMatchObject({ minimized: true, rows: [], width: 360 })
+  expect(minimized.bare.preview).toBeUndefined()
+  expect(minimized.layout).toMatchObject({ minimized: true, rows: [], width: 360, preview: { compact: true } })
   expect(minimized.incoming).toEqual(minimized.expectedInput)
   expect(minimized.outgoing).toEqual(minimized.expectedOutput)
   expect((await activeDoc(page)).view.graphs.g0!.nodes.target).toMatchObject({

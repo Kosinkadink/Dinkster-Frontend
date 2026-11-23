@@ -106,8 +106,6 @@ const workspaceApp = async (startSharedWorkspace = true): Promise<{
   enableAuthority(): Promise<void>
 }> => {
   const app = prepareWorkflowApp(new AppState())
-  vi.spyOn(app.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   const schemas = new Map([[outputSchema.type, outputSchema]])
   app.registry.set({
     connection: asConnectionId('local'),

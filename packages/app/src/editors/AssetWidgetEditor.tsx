@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal as createSolidSignal, For, on, onCleanup, Show, type Component } from 'solid-js'
+import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component } from 'solid-js'
 import { assetMultiSelect, type CollectionEntry, type JsonObject } from '@dinkster/core'
 import type { AssetGuessCandidate } from '@dinkster/client'
 import { Check, RotateCw, Upload, X } from 'lucide-solid'
@@ -31,7 +31,6 @@ import { activeProjectId } from '../projects.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
 import { AssetFileLocation } from '../AssetFileLocation.js'
 import { resolveDroppedAsset } from '../desktop-bridge.js'
-import type { PreviewSource } from '../node-previews.js'
 import { useAppMessage } from '../locale.js'
 
 interface AssetRef extends JsonObject {
@@ -47,7 +46,6 @@ interface AssetPreview {
   readonly src: string
   readonly name: string
   readonly mime?: string
-  readonly assetReader?: PreviewSource['assetReader']
 }
 
 function AssetVideoPreview(props: {
@@ -56,44 +54,11 @@ function AssetVideoPreview(props: {
   readonly onDimensions: (dimensions: { width: number; height: number }) => void
 }) {
   let video!: HTMLVideoElement
-  let detached = Promise.resolve()
-  const [src, setSrc] = createSolidSignal<string>()
-  createEffect(on(createMemo(() => [props.preview.src, props.preview.assetReader] as const,
-    undefined, { equals: (a, b) => a[0] === b[0] && a[1] === b[1] }), ([url, reader]) => {
-    let current = true
-    let detach: (() => void) | undefined
-    onCleanup(() => { current = false; detach?.() })
-    const consume = async (): Promise<void> => {
-      await detached
-      if (!current || reader?.current() === false) return
-      if (reader === undefined) { setSrc(url); return }
-      await new Promise<void>((resolve) => {
-        detach = () => {
-          const empty = video.networkState === HTMLMediaElement.NETWORK_EMPTY
-          detached = new Promise<void>((done) => {
-            const reset = () => { video.removeEventListener('emptied', reset); done(); resolve() }
-            if (!empty) video.addEventListener('emptied', reset, { once: true })
-            // Removing the element alone does not settle native resource selection.
-            video.pause()
-            setSrc(undefined)
-            video.removeAttribute('src')
-            video.load()
-            if (empty) reset()
-          })
-        }
-        setSrc(url)
-      })
-    }
-    void (reader === undefined ? consume() : reader.read(consume)).catch((error: unknown) => {
-      if (current) props.onError(error)
-    })
-  }))
-  return <video ref={video} class="asset-preview" data-testid="asset-video-preview" src={src()}
+  onCleanup(() => { video.pause(); video.removeAttribute('src'); video.load() })
+  return <video ref={video} class="asset-preview" data-testid="asset-video-preview" src={props.preview.src}
     controls playsinline preload="metadata"
-    onPlay={() => { if (props.preview.assetReader?.current() === false) video.pause() }}
     onError={() => props.onError()}
     onLoadedMetadata={() => {
-      if (props.preview.assetReader?.current() === false) return
       if (video.videoWidth > 0 && video.videoHeight > 0) props.onDimensions({ width: video.videoWidth, height: video.videoHeight })
     }}>
     <a href={props.preview.src} download={props.preview.name}>Download video</a>
@@ -179,6 +144,19 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const [assetUploading, setAssetUploading] = createSolidSignal(false)
   const uploadBackend = props.app.backendForTab(ed.tab)
   const project = activeProjectId()
+  const openedTab = ed.tab
+  const openedStore = openedTab.store
+  const openedDocument = openedStore.doc
+  const openedRevision = openedStore.revision
+  const openedRegistry = props.app.registryForTab(openedTab)
+  let connectionChanged = false
+  const unsubscribeConnection = uploadBackend.connection.status.subscribe(() => { connectionChanged = true })
+  onCleanup(unsubscribeConnection)
+  const pickerContextCurrent = (): boolean =>
+    live && !connectionChanged && ed.tab === openedTab && openedTab.store === openedStore &&
+    openedStore.doc === openedDocument && openedStore.revision === openedRevision &&
+    props.app.tabs.get().includes(openedTab) && props.app.backendForTab(openedTab) === uploadBackend &&
+    props.app.registryForTab(openedTab) === openedRegistry && activeProjectId() === project
   const [destination, setDestination] = createSolidSignal(readUploadDestination(String(uploadBackend.id), project))
   const [uploadedLocation, setUploadedLocation] = createSolidSignal('')
   let assetUploadInput: HTMLInputElement | undefined
@@ -266,45 +244,15 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const [assetSelection, setAssetSelection] = createSolidSignal<readonly AssetRef[]>(
     isAssetRefArray(ed.initial) ? ed.initial : isAssetRef(ed.initial) ? [ed.initial] : [],
   )
-  let selectionReader: PreviewSource['assetReader']
-  const [selectionAdmitted, setSelectionAdmitted] = createSolidSignal(uploadBackend.protocol !== 'dinkster' || assetSelection().length === 0)
-  const [pendingSelections, setPendingSelections] = createSolidSignal(0)
-  let selectionQueue = Promise.resolve()
-  const stageAssetSelection = (
+  const stageAssetSelection = async (
     change: (current: readonly AssetRef[]) => readonly AssetRef[],
     published: () => void = () => {},
   ): Promise<boolean> => {
-    setPendingSelections((count) => count + 1)
-    const operation = selectionQueue.then(async () => {
-      if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
-      if (selectionReader?.current() === false) throw new Error('Picker selection changed; reopen the asset picker')
-      const current = assetSelection()
-      const candidate = change(current)
-      let reader = selectionReader
-      if ((!selectionAdmitted() && candidate.length > 0) ||
-        candidate.some((ref) => !current.some((held) => held.digest === ref.digest)) ||
-        current.some((ref) => !candidate.some((held) => held.digest === ref.digest))) {
-        reader = await props.app.retainPickerAssets(ed.tab, uploadBackend, candidate)
-      }
-      if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
-      if (reader?.current() === false) throw new Error('Picker selection changed; reopen the asset picker')
-      const publish = (): boolean => {
-        if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
-        selectionReader = reader
-        setAssetSelection(candidate)
-        setSelectionAdmitted(true)
-        setAssetError(undefined)
-        published()
-        return true
-      }
-      return selectionReader && reader && selectionReader !== reader
-        ? props.app.replacePickerAssets(selectionReader, reader, publish) : publish()
-    }).catch((error: unknown) => {
-      if (live) setAssetError(error instanceof Error ? error.message : String(error))
-      return false
-    }).finally(() => { if (live) setPendingSelections((count) => count - 1) })
-    selectionQueue = operation.then(() => {})
-    return operation
+    if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
+    setAssetSelection(change(assetSelection()))
+    setAssetError(undefined)
+    published()
+    return true
   }
   const sameAssetRef = (a: AssetRef, b: AssetRef): boolean =>
     a.digest === b.digest && a.virtualPath === b.virtualPath
@@ -382,18 +330,12 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     assetPreviewAbort?.abort()
     const abort = new AbortController()
     assetPreviewAbort = abort
-    const reader = selectionReader
     try {
-      if (reader === undefined) throw new Error('Picker preview ownership is unavailable')
-      const bytes = await reader.read(async () => {
-        if (!live || request !== assetPreviewRequest || !reader.current()) return undefined
-        return backend.connection.fetchAssetBytes(ref.digest, abort.signal)
-      })
-      if (!live || request !== assetPreviewRequest || !reader.current() || bytes === undefined ||
+      const bytes = await backend.connection.fetchAssetBytes(ref.digest, abort.signal)
+      if (!live || request !== assetPreviewRequest || abort.signal.aborted || bytes === undefined ||
         props.app.backendForTab(ed.tab) !== backend || activeProjectId() !== project) return
       const url = URL.createObjectURL(new Blob([bytes], { type: ref.mediaType }))
       replaceAssetPreview({ kind, src: url, name: ref.name,
-        ...(kind === 'image' ? {} : { assetReader: reader }),
         ...(kind === 'model3d' ? { mime: ref.mediaType } : {}),
       }, url)
     } catch (error) {
@@ -685,10 +627,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const assetPanelSources = createMemo(() => {
     const adapters = assetSources() ?? []
     const assetUrl = assetUrlOf()
-    const backend = props.app.backendForTab(ed.tab)
-    const ownership = backend.protocol === 'dinkster'
-      ? { previewOwner: { connection: backend.connection, current: () => live && props.app.backendForTab(ed.tab) === backend && activeProjectId() === project } }
-      : {}
+
     const fixedKind = assetBrowseKind()
     if (usesLogicalModelSource()) {
       return logicalModels() === undefined ? [] : [logicalModelCollectionSource(() => logicalModels() ?? [])]
@@ -697,15 +636,14 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       const imported = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'input')
       const generated = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'output')
       return [
-        allAssetsCollectionSource(adapters, [], assetUrl, { ...ownership, fixedKind, failWhenAllSourcesFail: true }),
-        ...(imported.length > 0 ? [allAssetsCollectionSource(imported, [], assetUrl, { ...ownership, id: 'imported-assets', label: 'Imported', fixedKind, failWhenAllSourcesFail: true })] : []),
-        ...(generated.length > 0 ? [allAssetsCollectionSource(generated, [], assetUrl, { ...ownership, id: 'generated-assets', label: 'Generated', fixedKind, failWhenAllSourcesFail: true })] : []),
+        allAssetsCollectionSource(adapters, [], assetUrl, { fixedKind, failWhenAllSourcesFail: true }),
+        ...(imported.length > 0 ? [allAssetsCollectionSource(imported, [], assetUrl, { id: 'imported-assets', label: 'Imported', fixedKind, failWhenAllSourcesFail: true })] : []),
+        ...(generated.length > 0 ? [allAssetsCollectionSource(generated, [], assetUrl, { id: 'generated-assets', label: 'Generated', fixedKind, failWhenAllSourcesFail: true })] : []),
       ]
     }
     return [
       ...adapters.map((adapter) =>
       assetCollectionSource(adapter, {
-        ...ownership,
         ...(assetUrl !== undefined ? { assetUrl } : {}),
         ...(fixedKind !== undefined ? { fixedKind } : {}),
       }
@@ -891,7 +829,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               <Show when={assetPreview()}>
                 {(preview) => (
                   <Show when={preview().kind !== 'model3d'} fallback={
-                    <Model3dPosterImage src={preview().src} name={preview().name} mime={preview().mime} assetReader={preview().assetReader} />
+                    <Model3dPosterImage src={preview().src} name={preview().name} mime={preview().mime} />
                   }>
                   <Show when={preview().kind === 'video'} fallback={
                     <Show when={!assetPreviewFailed()} fallback={
@@ -1066,11 +1004,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 type="button"
                 class="primary"
                 data-testid="asset-apply"
-                disabled={!selectionAdmitted() || assetUploading() || pendingSelections() > 0 || (!assetMulti && selectedUncommittableModel() !== undefined)}
+                disabled={assetUploading() || (!assetMulti && selectedUncommittableModel() !== undefined)}
                 onClick={() => {
-                  if (!selectionAdmitted()) return
-                  if (selectionReader?.current() === false) {
-                    setAssetError('Picker selection changed; reopen the asset picker')
+                  if (!pickerContextCurrent()) {
+                    setAssetError(message('widgetEditor.commitRefused'))
                     return
                   }
                   const selection = assetSelection()

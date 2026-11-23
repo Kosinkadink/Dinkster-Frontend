@@ -1240,14 +1240,16 @@ describe('dynamic interfaces', () => {
     expect(result.artifact.prompt['target']!.slotVariants).toEqual({ mode: 'Flux.2 [pro]' })
   })
 
-  it('rejects an invalid stored choice without falling back', () => {
+  it('submits the start option when a stored choice names an option the pack no longer has', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
       type: 'NestedChoice',
       dynamic: { mode: { selected: 'gone' } },
     } } }))
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('prompt.bad_dynamic_choice')
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt.target).toEqual({
+      class_type: 'NestedChoice', inputs: {}, slotVariants: { mode: 'none' }, outputIds: [],
+    })
   })
 
   it('submits an explicitly stored first option rather than the declared default', () => {
@@ -1445,9 +1447,9 @@ describe('dynamic interfaces', () => {
     })
   })
 
-  it('rejects a connected type choice storing an unknown variant key', () => {
-    // Unknown or stale keys are refused by the engine; surface them before
-    // submitting.
+  it('rejects a connected type choice whose stored variant the pack no longer has', () => {
+    // A removed variant is no pick, so a connected type choice still needs
+    // one before a run, as with no stored key.
     const result = dynCompile(dynDoc({
       nodes: {
         source: { type: 'ImageSrc' },
@@ -1457,9 +1459,8 @@ describe('dynamic interfaces', () => {
     }))
     expect(result.ok).toBe(false)
     if (result.ok) return
-    const d = result.diagnostics.find((c) => c.code === 'prompt.bad_dynamic_choice')
-    expect(d?.severity).toBe('error')
-    expect(d?.message).toContain("type choice 'slot' has unknown variant 'gone'")
+    expect(result.diagnostics.find((c) => c.code === 'elab.slot.removedVariant')?.severity).toBe('warning')
+    expect(result.diagnostics.some((d) => d.code === 'compile.slot.missingVariant')).toBe(true)
   })
 
   it('rejects a connected type choice with variants and no stored key', () => {

@@ -230,8 +230,6 @@ const CHAIN_DOC = {
 async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'dinkster' }>; tab: Tab }> {
   const added = app.addBackend('http://native:8000', 'Native', false, 'dinkster')
   if (!added || added.protocol !== 'dinkster') throw new Error('addBackend rejected')
-  vi.spyOn(added.connection, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   added.registry.set(buildDinksterRegistry(added.id, nodesPayload))
   expect((await app.openDocument(CHAIN_DOC, 'Chain'))).toEqual([])
   const tab = app.activeTab()!

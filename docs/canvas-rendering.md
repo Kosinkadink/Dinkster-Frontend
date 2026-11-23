@@ -1,5 +1,19 @@
 # Canvas rendering
 
+Canvas surfaces and text project the shared dark/light palette from
+`branding/tokens/dinkster-colors.json` through the semantic tokens. The dark
+theme uses cyan-tinted greys for its background, node body, header, inset
+fields and outlines; wire/type colors and status hues are unchanged.
+Node value fields use the dedicated `bg.field` palette entry (`#0B1111` in
+dark, the unchanged light canvas color in light), leaving other inset
+surfaces on `bg.canvas`. Queued and skipped outlines use `border.pending`
+and `border.skipped`, preserving light values `#5C5C5C` and `#7D8792`.
+Data heatmaps keep their data colors. Muted text on a dark panel has 4.64:1
+contrast. Canvas layers receive the current background and grid colors in
+their draw context. Grid patterns repaint when the theme changes; light grid
+dots use the light `border.default` (`#D3D9DE`), not the dark constructor
+palette.
+
 The canvas keeps the graph scene separate from the camera. On browsers with
 transferable offscreen bitmaps, graph paint is retained in device-pixel tiles.
 A camera-only move reuses visible tiles when the scale and backing density
@@ -50,15 +64,83 @@ This affects comparison setup only, not production rendering. Frame-time tools
 and measured results are documented in [Performance baselines](perf.md);
 timings are reports, not CI assertions.
 
+## Node look
+
+Nodes use the flat-title look. A row is 26px: a 24px field and a 2px gap.
+Fields sit 7px inside the node's 1px border, and pin rows are also 26px, with
+their 16px line of text centered. The space under the title rule and above the
+bottom edge depends on the row at that end: 5px next to a boxed row (a field,
+section header, growth row or stored value) and 1px next to a pin row, so 6px
+stays clear between the rule or border and the first or last thing seen. At
+the bottom the 1px border, drawn inside the node's box, comes on top of that
+space. A preview or text output after the rows ends the node as a boxed row
+does. In the
+dark theme the body and the 26px title bar share the darker surface
+(`bg.surface`), a 1px `border.divider` rule closes the title bar, and fields
+use `bg.field`. Raised opener rows take the lighter surface. The light theme takes
+the same sizes and keeps its original colors.
+
+At 100 percent zoom, with a node at whole-number coordinates, every edge falls
+on whole pixels. The idle outline is 1px wide and drawn inside the node's box.
+The title rule and every field's box fill whole pixel rows. Stepper glyphs are
+1px lines centered on pixel rows and columns, 9px inside the field's ends.
+A pin on a node's or boundary panel's side is 11px across and centered on the
+1px border line: 5px outside it and 5px inside, and half a pixel below its
+row's center so it covers whole pixel rows. Wires and hit targets keep the
+box's edge and the row's center, which the pin covers. A pointed, focused or
+matched pin grows by 1px of radius on the same center, from 11px to 13px across,
+so it stays on whole pixels and 1px clear of a field's end. The `crispEdges` token
+holds this behavior. `nodeLookTokens('original', theme)` restores the earlier
+look for the gallery's side-by-side page.
+
+## Badges
+
+The title bar starts with the minimize arrow: the section rows' disclosure
+triangle, centered in an 18px square target 5px in from the node's left edge,
+in the label color, and under the pointer in the title color over a rounded
+raised-surface square (`canvasPaintTokens.node.minimizeArrow`). The name
+starts where that target ends, and a node's automatic width reserves the
+space. See [node minimization](node-minimization.md) for what it does.
+
+The title bar holds the node's name and suffix and, for a subgraph node, one
+mark at its right end: a 20px square with a 14px boxes icon, followed by the
+linked count when two or more occurrences share the definition. The name is
+cut with an ellipsis before the mark. Every other badge is a tab outside the
+node. Tabs above say what the node is and how it is set: Deprecated, Muted,
+Bypassed, and a pack's badge, which goes above unless it asks for below. Tabs
+below say what happened and what is wrong: the run state, Error, Unavailable,
+Warning, Blocked, child counts, Log, media conversion warnings and a region's
+iteration. Top tabs start at the node's right edge, the first one furthest
+right; bottom tabs start at its left edge. Both lanes sit 3px outside the
+node's painted outline, flush with its left and right edges.
+
+A tab is 20px high with 11px words and 3px rounded corners. Its fill is 16
+percent of its color over the canvas background, its 1px line 65 percent, and
+its icon and words 70 percent of its color over the title color, so the words
+stay readable in either theme; under the pointer the fill rises to 30 percent
+and the line takes the words' color. A tab is as wide as its padding, 14px
+icon, 4px gap and measured words, the words capped at 120px. When a lane is
+full, tabs narrow to their icons and the last becomes a "+N" tab listing the
+rest; hovering a narrowed tab shows it whole. Paint, pointer targets and the
+scene's bounds share one layout (`layoutNodeBadges`). The tab tokens are in
+`canvasPaintTokens.badge`, with the gap from the node as one number (`offset`)
+and the distance from its corners as another (`inset`, 0).
+
+Every tab the product adds has an icon, from the Lucide set the canvas
+paints, and no two meanings share one: Queued `clock`, Running `play`,
+Finished `check`, Cached `database`, Skipped `ban`, Failed and Error
+`circle-x`, Unavailable `unplug`, Warning and media warnings `triangle-alert`,
+Blocked `lock`, child counts `list-tree`, Log `scroll-text`, iteration
+`repeat`, Muted `volume-x`, Bypassed `forward`, Deprecated `archive`, and the
+subgraph mark `boxes`. A pack's badge has an icon when the pack names one.
+
 ## Numeric edits and comparison diagnostics
 
 Static numeric widget edits reuse scene geometry when the effective interface
 is unchanged. Dynamic interfaces, subgraphs, conditional rows, sections and
 layout changes retain the full scene-build path. Each increment still commits
-its own document command and history entry. Existing finite numeric literals
-in static, concretely typed graphs also avoid repeating the asset-identity
-census. Dynamic or unresolved interfaces, value sources, subgraphs and asset
-changes keep the full ownership/admission path.
+its own document command and history entry. Document edits do not enumerate
+cleanup file lists or wait for cleanup acknowledgments.
 
 Canvas-only compilation for resident availability and preview recipe comparison
 waits until after a painted frame and a 100 ms editing pause. New edits replace

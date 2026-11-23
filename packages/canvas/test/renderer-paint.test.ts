@@ -8,11 +8,18 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, compile, documentResolver, loadDocument, type InputSpec, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, selectorBadgeRect, valueSourceBadgeRect, VS_BADGE_SIZE, type Scene, type SceneNode } from '../src/scene.js'
-import { canvasGridLayer, CanvasRenderer, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
-import { BADGE_SIZE, badgeRect, BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE } from '../src/badges.js'
+import { paintToolboxIcon } from '../src/icons.js'
+import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
+import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
-import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
-import { projectNodeLayoutHeight, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasPaintTokens, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
+import { projectNodeLayoutHeight, TITLE_START, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import type { NodePreview } from '../src/previews.js'
+
+// Crisp edges center a side pin on the node's 1 px border, half a pixel
+// inside the box's edge, and half a pixel below its row's center.
+const PIN_INSET = 0.5
+const PIN_DROP = 0.5
 
 // The renderer's rAF loop is irrelevant here: renderNow() paints
 // synchronously. Stub the scheduler so construction works under node.
@@ -52,6 +59,12 @@ interface PaintCall {
  * paths that scope their changes (groups, boundary dashes) - without it a
  * scoped globalAlpha would leak into every later snapshot.
  */
+/** The text, or its start cut with three dots to fit a narrow node. */
+function fitted(painted: unknown, text: string): boolean {
+  const value = String(painted)
+  return value === text || (value.endsWith('...') && value.length > 3 && text.startsWith(value.slice(0, -3)))
+}
+
 function recordingCtx(): { ctx: CanvasRenderingContext2D; calls: PaintCall[] } {
   const calls: PaintCall[] = []
   let state: Record<string, unknown> = {
@@ -265,6 +278,14 @@ function paintWithTokens(scene: Scene, tokens: DesignTokens, setup?: (r: CanvasR
   renderer.renderNow()
   renderer.dispose()
   return calls
+}
+
+/** `amount` of the way from `base` to `toward`, per channel: a mix written apart from the renderer's. */
+const mixHex = (base: string, toward: string, amount: number): string => {
+  const channels = (hex: string) => [1, 3, 5].map((start) => Number.parseInt(hex.slice(start, start + 2), 16))
+  const from = channels(base)
+  const to = channels(toward)
+  return `#${from.map((value, index) => Math.round(value + (to[index]! - value) * amount).toString(16).padStart(2, '0')).join('')}`
 }
 
 const paintWith = (scene: Scene, setup?: (r: CanvasRenderer) => void): PaintCall[] =>
@@ -523,17 +544,42 @@ describe('canvas hover affordance paint', () => {
     } as unknown as SceneNode],
   })
 
-  it('enlarges only the hovered node pin to 1.35 times its base radius', () => {
+  it('leaves only the row whose field is open unpainted', () => {
+    const scene = hoverScene()
+    const node = scene.nodes[0]!
+    const row = node.layout.rows[0]!
+    const twoRows: Scene = {
+      ...scene,
+      nodes: [{
+        ...node,
+        node: { ...node.node, values: { amount: 1, other: 2 } },
+        layout: { ...node.layout, rows: [row, { ...row, inputId: 'other', valueKey: 'other', label: 'other', y: 44 }] },
+      } as SceneNode],
+    }
+    // Anything drawn inside a row's band, in canvas coordinates.
+    const inBand = (calls: readonly PaintCall[], top: number) => calls.filter((call) => {
+      if (!['moveTo', 'lineTo', 'fillText', 'roundRect', 'fillRect'].includes(call.method)) return false
+      const y = call.args[call.method === 'fillText' ? 2 : 1]
+      return typeof y === 'number' && y > top && y < top + 24
+    })
+    const closed = paintWith(twoRows)
+    const open = paintWith(twoRows, (renderer) => renderer.setOpenRow({ nodeId: 'hover-node', valueKey: 'amount' }))
+    expect(inBand(closed, 120).length).toBeGreaterThan(0)
+    expect(inBand(open, 120)).toEqual([])
+    expect(inBand(open, 144)).toEqual(inBand(closed, 144))
+  })
+
+  it('grows only the hovered node pin, from 11 px to 13 px across', () => {
     const scene = hoverScene()
     const calls = paintWith(scene, (renderer) => renderer.setOverlay({
       hoveredPin: { nodeId: 'hover-node', portId: 'in', direction: 'in' },
     }))
     const hovered = calls.find((call) =>
-      call.method === 'arc' && call.args[0] === 100 && call.args[1] === 156 &&
-      call.args[2] === defaultTokens.pinRadius * 1.35,
+      call.method === 'arc' && call.args[0] === 100 + PIN_INSET && call.args[1] === 156 + PIN_DROP &&
+      call.args[2] === 13 / 2,
     )
     const ordinary = calls.find((call) =>
-      call.method === 'arc' && call.args[0] === 240 && call.args[1] === 156 &&
+      call.method === 'arc' && call.args[0] === 240 - PIN_INSET && call.args[1] === 156 + PIN_DROP &&
       call.args[2] === defaultTokens.pinRadius,
     )
     expect(hovered).toBeDefined()
@@ -555,10 +601,10 @@ describe('canvas hover affordance paint', () => {
     }
     const assertAssociated = (calls: readonly PaintCall[]) => {
       expect(calls).toContainEqual(expect.objectContaining({
-        method: 'arc', args: [100, 156, defaultTokens.pinRadius * 1.35, 0, Math.PI * 2],
+        method: 'arc', args: [100 + PIN_INSET, 156 + PIN_DROP, 13 / 2, 0, Math.PI * 2],
       }))
       expect(calls).toContainEqual(expect.objectContaining({
-        method: 'arc', args: [240, 156, defaultTokens.pinRadius * 1.35, 0, Math.PI * 2],
+        method: 'arc', args: [240 - PIN_INSET, 156 + PIN_DROP, 13 / 2, 0, Math.PI * 2],
       }))
     }
     assertAssociated(paintWith(matchScene, (renderer) => renderer.setOverlay({
@@ -569,6 +615,50 @@ describe('canvas hover affordance paint', () => {
     })))
   })
 
+})
+
+describe('drop target paint for a held wire', () => {
+  // One FLOAT field with its input pin on the left and its output pin
+  // (widget tap) on the right, both level with its row.
+  const fieldScene = (): Scene => emptyScene({
+    nodes: [{
+      id: 'field-node', x: 100, y: 100,
+      node: { id: 'field-node', type: 'Field', values: { amount: 1 } },
+      layout: {
+        width: 140, height: 52, headerHeight: 20, title: 'Field',
+        rows: [{
+          kind: 'widget', inputId: 'amount', valueKey: 'amount', label: 'amount',
+          y: 20, height: 24, inset: 9.5, spec: { widgetType: 'FLOAT', options: {} },
+        }],
+        pins: [
+          { portId: 'amount', address: { port: 'amount' }, direction: 'in', y: 32, type: typed('FLOAT'), widgetBacked: true },
+          { portId: 'amount', address: { port: 'amount' }, direction: 'out', y: 32, type: typed('FLOAT'), widgetTap: true },
+        ],
+      },
+    } as unknown as SceneNode],
+  })
+  /** The shape of each path stroked in the drop-target color: 'arc' rings a pin, 'roundRect' outlines a row. */
+  const dropStrokes = (calls: readonly PaintCall[]): string[] => {
+    const shapes: string[] = []
+    let shape = ''
+    for (const call of calls) {
+      if (call.method === 'beginPath') shape = ''
+      else if ((call.method === 'arc' || call.method === 'roundRect') && shape === '') shape = call.method
+      else if (call.method === 'stroke' && call.strokeStyle === defaultTokens.colors.dropTarget) shapes.push(shape)
+    }
+    return shapes
+  }
+
+  it("outlines only the row, with no ring around the field's pin, when the row takes the wire", () => {
+    for (const [direction, widgetTap] of [['in', false], ['out', true]] as const) {
+      const dropTargets = new Set([dropTargetKey('field-node', 'amount', direction, widgetTap)])
+      expect(dropStrokes(paintWith(fieldScene(), (renderer) => renderer.setOverlay({ dropTargets }))), direction)
+        .toEqual(['arc'])
+      expect(dropStrokes(paintWith(fieldScene(), (renderer) => renderer.setOverlay({
+        dropTargets, dropRow: { nodeId: 'field-node', valueKey: 'amount' },
+      }))), direction).toEqual(['roundRect'])
+    }
+  })
 })
 
 describe('link midpoint affordance', () => {
@@ -838,16 +928,9 @@ describe('scene visual bounds and fitting', () => {
     expect(bounds).toEqual({ minX: -204, minY: 96, maxX: 604, maxY: 304 })
   })
 
-  it('includes above-node badge lanes in scene visual bounds', () => {
-    const badge = { id: 'test.arm', glyph: 'COMFYUI', variant: 'label' as const, placement: 'above' as const, color: '#6a4fa3' }
-    const rect = badgeRect(node, 0, [badge])
-
-    expect(sceneVisualBounds(emptyScene({ nodes: [node] }), {}, { [node.id]: [badge] })!.minY).toBe(rect.y)
-  })
-
-  it('attaches tab lanes outside state and selection outlines and includes them in camera bounds', () => {
+  it('floats tab lanes 3 px outside state and selection outlines and includes them in camera bounds', () => {
     const { ctx } = recordingCtx()
-    const renderer = new CanvasRenderer(fakeCanvas(ctx), { ...defaultTokens, badgeLayout: 'tabs' })
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
     const list = [{ ...ERROR_BADGE, placement: 'above' as const }, { ...ERROR_BADGE, id: 'below', placement: 'below' as const }]
     renderer.setScene(emptyScene({ nodes: [node] }))
     renderer.setBadges({ [node.id]: list })
@@ -863,11 +946,11 @@ describe('scene visual bounds and fitting', () => {
           const strong = state === 'running' || state === 'done' || state === 'error'
           const outset = selected ? (scale === 0.5 ? 5 : 4)
             : strong ? (scale === 0.5 ? 2 : 1.25) : (scale === 0.5 ? 1 : 0.625)
-          expect(top.y + top.height).toBe(node.y - outset + 1)
-          expect(bottom.y).toBe(node.y + node.layout.height + outset - 1)
-          const bounds = sceneVisualBounds(renderer.getScene(), {}, renderer.getBadges(), (current) => renderer.getNodeBadgeBounds(current))!
-          expect(bounds.minY).toBe(top.y - 0.5)
-          expect(bounds.maxY).toBe(bottom.y + bottom.height + 0.5)
+          expect(top.y + top.height).toBe(node.y - outset - 3)
+          expect(bottom.y).toBe(node.y + node.layout.height + outset + 3)
+          const bounds = sceneVisualBounds(renderer.getScene(), {}, (current) => renderer.getNodeBadgeBounds(current))!
+          expect(bounds.minY).toBe(top.y)
+          expect(bounds.maxY).toBe(bottom.y + bottom.height)
         }
       }
     }
@@ -878,36 +961,36 @@ describe('scene visual bounds and fitting', () => {
       renderer.setOverlay({ bodyDropNode: node.id })
       const drop = renderer.getNodeBadgeLayout(node)
       const dropOutset = scale === 0.5 ? 3.5 : 2.75
-      expect(drop[0]!.y + drop[0]!.height).toBe(node.y - dropOutset + 1)
+      expect(drop[0]!.y + drop[0]!.height).toBe(node.y - dropOutset - 3)
       renderer.setScopeHighlight({ nodes: new Set([node.id]), reroutes: new Set(), selectors: new Set(), selectorCandidates: new Set(), valueSources: new Set() })
       const scoped = renderer.getNodeBadgeLayout(node)
       const scopeOutset = scale === 0.5 ? 7 : 6.25
-      expect(scoped[0]!.y + scoped[0]!.height).toBe(node.y - scopeOutset + 1)
+      expect(scoped[0]!.y + scoped[0]!.height).toBe(node.y - scopeOutset - 3)
     }
     renderer.dispose()
   })
 
-  it('keeps tab labels readable on bright and dark fills in either theme, including hover', () => {
+  it('paints a tab as a tint of its color over the canvas, with its line and words in that color, in either theme', () => {
     for (const theme of ['dark', 'light'] as const) {
+      const colors = canvasColorsForTheme(theme)
       for (const hovered of [false, true]) {
-        const calls = paintWithTokens(emptyScene({ nodes: [node] }), {
-          ...defaultTokens, badgeLayout: 'tabs', colors: canvasColorsForTheme(theme),
-        }, (renderer) => {
-          renderer.setBadges({ [node.id]: [
-            { id: 'bright', glyph: 'Finished', color: '#00e6a0', placement: 'below', variant: 'label' },
-            { id: 'dark', glyph: 'Dark', color: '#243342', placement: 'above', variant: 'label' },
-          ] })
+        const calls = paintWithTokens(emptyScene({ nodes: [node] }), { ...defaultTokens, colors }, (renderer) => {
+          renderer.setBadges({ [node.id]: [{ id: 'bright', glyph: 'Finished', color: '#00e6a0', placement: 'below' }] })
           if (hovered) renderer.setOverlay({ hoveredBadge: { nodeId: node.id, badgeId: 'bright' } })
         })
-        expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Finished')?.fillStyle).toBe('#000000')
-        expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Dark')?.fillStyle).toBe('#ffffff')
+        const words = mixHex(colors.title, '#00e6a0', 0.7)
+        expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Finished')?.fillStyle).toBe(words)
+        // The first bottom tab starts at the node's left edge; its 1 px line is drawn inside the tab.
+        const tab = calls.findIndex((call) => call.method === 'roundRect' && call.args[0] === node.x + 0.5 && Number(call.args[1]) > node.y + node.layout.height)
+        expect(paintedAfter(calls, tab, 'fill')?.fillStyle).toBe(mixHex(colors.canvasBackground, '#00e6a0', hovered ? 0.3 : 0.16))
+        expect(paintedAfter(calls, tab, 'stroke')?.strokeStyle).toBe(hovered ? words : mixHex(colors.canvasBackground, '#00e6a0', 0.65))
       }
     }
   })
 
   it('paints external tabs when the body is culled, including drag and resize projections', () => {
     const { ctx, calls } = recordingCtx()
-    const renderer = new CanvasRenderer(fakeCanvas(ctx), { ...defaultTokens, badgeLayout: 'tabs' })
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
     const badge = { ...ERROR_BADGE, glyph: 'External', placement: 'above' as const }
     const edge = { ...node, x: 30, y: 1215 }
     renderer.setScene(emptyScene({ nodes: [edge] }))
@@ -1108,14 +1191,17 @@ const nodeOf = (scene: Scene, id: string): SceneNode => {
 const paintedAfter = (calls: PaintCall[], index: number, method: 'stroke' | 'fill'): PaintCall | undefined =>
   calls.slice(index + 1).find((c) => c.method === method)
 
+/** The node's outline stroke, drawn inside its box by half its line width. */
 const nodeBorder = (calls: PaintCall[], node: SceneNode): PaintCall | undefined => {
-  const path = calls.findIndex((call, index) =>
-    call.method === 'roundRect' &&
-    call.args[0] === node.x &&
-    call.args[1] === node.y &&
-    call.args[2] === node.layout.width &&
-    call.args[3] === node.layout.height &&
-    calls[index + 1]?.method === 'stroke')
+  const path = calls.findIndex((call, index) => {
+    const stroke = calls[index + 1]
+    if (call.method !== 'roundRect' || stroke?.method !== 'stroke') return false
+    const inset = (stroke.lineWidth ?? 0) / 2
+    return call.args[0] === node.x + inset &&
+      call.args[1] === node.y + inset &&
+      call.args[2] === node.layout.width - inset * 2 &&
+      call.args[3] === node.layout.height - inset * 2
+  })
   return path < 0 ? undefined : calls[path + 1]
 }
 
@@ -1180,8 +1266,8 @@ describe('diagnostic paint on the live renderer', () => {
     const scene = fixtureScene('clean')
     const sink = nodeOf(scene, 'c2')
     const pin = sink.layout.pins.find((candidate) => candidate.direction === 'in' && candidate.portId === 'in')!
-    const px = sink.x
-    const py = sink.y + pin.y
+    const px = sink.x + PIN_INSET
+    const py = sink.y + pin.y + PIN_DROP
     const calls = paintWith(scene, (renderer) => renderer.setPortProblems({ c2: { in: kind } }))
     const ring = calls.findIndex((call) =>
       call.method === 'arc' && call.args[0] === px && call.args[1] === py &&
@@ -1231,8 +1317,10 @@ describe('diagnostic paint on the live renderer', () => {
     renderer.renderNow()
     expect(lookupPasses).toBe(0)
     expect(calls.filter((c) => c.method === 'createPattern')).toHaveLength(0)
-    // The fixed fixtures allow a small drawing margin, not another per-dot grid path.
-    const callLimit = count === 66 ? 1250 : count === 300 ? 5600 : 21000
+    // The fixed fixtures allow a small drawing margin, the title bar's rule
+    // and the six path calls of its minimize arrow on each node, not another
+    // per-dot grid path.
+    const callLimit = (count === 66 ? 1250 : count === 300 ? 5600 : 21000) + count * 7
     expect(calls.length).toBeLessThanOrEqual(callLimit)
     renderer.dispose()
   })
@@ -1289,6 +1377,14 @@ describe('diagnostic paint on the live renderer', () => {
     expect(calls.filter((c) => c.method === 'createPattern')).toHaveLength(0)
     expect(dotXs(calls)).toHaveLength(0)
     expect(calls.filter((c) => c.method === 'fillRect' && c.fillStyle === 'checkerboard')).toHaveLength(1)
+    for (const [theme, color] of [['light', '#D3D9DE'], ['dark', '#324143']] as const) {
+      calls.length = 0
+      renderer.setColors(canvasColorsForTheme(theme))
+      renderer.renderNow()
+      const tileCalls = calls.filter((call) => call.method === 'createPattern').flatMap((call) =>
+        (call.args[0] as { recording: { calls: PaintCall[] } }).recording.calls)
+      expect(tileCalls.some((call) => call.method === 'fill' && call.fillStyle === color)).toBe(true)
+    }
     renderer.dispose()
 
     // Preference off: no grid paint at all.
@@ -1476,7 +1572,7 @@ const FLOATC = typeColor(defaultTokens, 'FLOAT')
 const SEL = defaultTokens.colors.selection
 
 describe('node chrome paint on the live renderer', () => {
-  it('projects minimized nodes with one connected proxy per side and an always-visible compact preview', () => {
+  it('projects minimized nodes with one connected proxy per side and a strip only for a picture or text result', () => {
     const base = fixtureScene('clean')
     const source = nodeOf(base, 'img')
     const output = source.layout.pins.find((pin) => pin.direction === 'out')!
@@ -1484,7 +1580,7 @@ describe('node chrome paint on the live renderer', () => {
       ...source,
       layout: {
         ...source.layout,
-        width: 100,
+        width: 160,
         height: source.layout.headerHeight + defaultTokens.padBottom,
         minWidth: 80,
         minHeight: source.layout.headerHeight + defaultTokens.padBottom,
@@ -1518,21 +1614,57 @@ describe('node chrome paint on the live renderer', () => {
     })
     const { ctx, calls } = recordingCtx()
     const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
-    renderer.setScene(scene)
+    renderer.setScene({
+      ...scene,
+      nodes: scene.nodes.map((node) => node.id === minimizedSource.id ? { ...node, previewCapable: true as const } : node),
+    })
+    const minimizedHeight = source.layout.headerHeight + defaultTokens.padBottom
+    // Nothing to show and a pending preview leave the minimized node as a
+    // bare title bar with no status label.
+    for (const update of [
+      () => undefined,
+      () => renderer.setNodePreviews({ [minimizedSource.id]: { status: 'loading' } }),
+    ]) {
+      update()
+      const bare = nodeOf(renderer.getScene(), minimizedSource.id)
+      expect(bare.layout).toMatchObject({ width: 160, height: minimizedHeight })
+      expect(bare.layout.preview).toBeUndefined()
+      expect(bare.layout.textOutput).toBeUndefined()
+    }
+    calls.length = 0
+    renderer.renderNow()
+    expect(calls.some((call) => call.method === 'fillText' &&
+      ['Preview', 'No preview', 'Loading', 'loading preview...'].includes(String(call.args[0])))).toBe(false)
+    // A recorded text result is content: its folded caption row shows the
+    // start of its first line, upright and in the caption's quieter color.
+    renderer.setNodeOutputTexts({ [minimizedSource.id]: { text: 'first line\nsecond line' } })
+    const withText = nodeOf(renderer.getScene(), minimizedSource.id)
+    expect(withText.layout.width).toBe(160)
+    expect(withText.layout.textOutput).toMatchObject({ height: defaultTokens.previewCaptionHeight })
+    calls.length = 0
+    renderer.renderNow()
+    expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'Preview'))).toBe(true)
+    expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'first line') &&
+      call.font === `${defaultTokens.fontSize}px ${defaultTokens.fontFamily}` && call.fillStyle === defaultTokens.colors.valueMark)).toBe(true)
+    expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'second line'))).toBe(false)
+    // The same preview entry turning into a decoded picture shows the folded caption.
+    renderer.setNodePreviews({ [minimizedSource.id]: { image: {} as CanvasImageSource, width: 320, height: 240 } })
     const projected = nodeOf(renderer.getScene(), minimizedSource.id)
-    expect(projected.layout.preview).toMatchObject({ compact: true, height: defaultTokens.rowHeight })
+    expect(projected.layout.width).toBe(160)
+    expect(projected.layout.preview).toMatchObject({ compact: true, folded: true, height: defaultTokens.previewCaptionHeight })
+    expect(projected.layout.textOutput).toBeUndefined()
     expect(renderer.getScene().links.every((link) =>
       link.x1 === projected.x + projected.layout.width &&
       link.y1 === projected.y + projected.layout.headerHeight / 2)).toBe(true)
+    calls.length = 0
     renderer.renderNow()
     const proxyArcs = calls.filter((call) =>
       call.method === 'arc' &&
-      call.args[0] === projected.x + projected.layout.width &&
-      call.args[1] === projected.y + projected.layout.headerHeight / 2 &&
+      call.args[0] === projected.x + projected.layout.width - PIN_INSET &&
+      call.args[1] === projected.y + projected.layout.headerHeight / 2 + PIN_DROP &&
       call.args[2] === defaultTokens.pinRadius)
     // One circular proxy contributes one fill path and one outline path.
     expect(proxyArcs).toHaveLength(2)
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'Preview')).toBe(true)
     renderer.dispose()
   })
 
@@ -1546,6 +1678,8 @@ describe('node chrome paint on the live renderer', () => {
       ['light', '#4F8EC1', '#B770B2'],
     ] as const) {
       renderer.setColors(canvasColorsForTheme(theme), canvasTypePaintForTheme(theme))
+      expect(renderer.getTokens().stateColors.pending).toBe(theme === 'light' ? '#5C5C5C' : '#4F6265')
+      expect(renderer.getTokens().stateColors.skipped).toBe(theme === 'light' ? '#7D8792' : '#74888B')
       calls.length = 0
       renderer.renderNow()
       expect(calls.some((call) => call.method === 'fill' && call.fillStyle === imageColor)).toBe(true)
@@ -1566,9 +1700,9 @@ describe('node chrome paint on the live renderer', () => {
       ...source,
       layout: {
         ...source.layout,
-        width: 80,
+        width: 200,
         height: source.layout.headerHeight + defaultTokens.padBottom,
-        minWidth: 80,
+        minWidth: 200,
         minHeight: source.layout.headerHeight + defaultTokens.padBottom,
         rows: [],
         minimized: true as const,
@@ -1586,11 +1720,13 @@ describe('node chrome paint on the live renderer', () => {
     renderer.setBadges({ [minimized.id]: [MUTED_BADGE] })
     renderer.setNodePreviews({ [minimized.id]: { image, width: 320, height: 240 } })
     const projected = nodeOf(renderer.getScene(), minimized.id)
-    expect(projected.layout.width).toBeGreaterThan(80)
-    expect(projected.layout.preview).toMatchObject({ compact: true, height: defaultTokens.rowHeight })
+    // Header badges sit in the title bar as on the open node; they do not widen it.
+    expect(projected.layout.width).toBe(200)
+    expect(projected.layout.preview).toMatchObject({ compact: true, folded: true, height: defaultTokens.previewCaptionHeight })
     renderer.renderNow()
-    expect(calls.some((call) => call.method === 'drawImage' && call.args[0] === image)).toBe(true)
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === '320 x 240')).toBe(false)
+    // Folded, the picture is the caption row's small picture.
+    expect(calls.some((call) => call.method === 'drawImage' && call.args[0] === image &&
+      Number(call.args[4]) <= canvasPaintTokens.preview.caption.thumbHeight)).toBe(true)
     const checkerColors = () => {
       const pattern = calls.filter((call) => call.method === 'createPattern').at(-1)!
       const tile = pattern.args[0] as { recording: { calls: PaintCall[] } }
@@ -1607,6 +1743,19 @@ describe('node chrome paint on the live renderer', () => {
     renderer.dispose()
   })
 
+  it("counts a text result's own lines in its caption, not the rows it wraps to", () => {
+    const scene = fixtureScene('withMismatch')
+    const node = nodeOf(scene, 'img')
+    const long = 'a long first line that wraps over several rows in this node'
+    const caption = (text: string) => paintWith(scene, (renderer) => renderer.setNodeOutputTexts({ [node.id]: { text } }))
+      .filter((call) => call.method === 'fillText' && /^(\d+ lines?|empty)$/.test(String(call.args[0])))
+      .map((call) => call.args[0])
+    expect(caption(`${long}\n${long}\nend`)).toEqual(['3 lines'])
+    expect(caption('one\r\ntwo\n')).toEqual(['2 lines'])
+    expect(caption(long)).toEqual(['1 line'])
+    expect(caption('')).toEqual(['empty'])
+  })
+
   it('paints capped wrapped output text and a token-driven stale mark', () => {
     const scene = fixtureScene('withMismatch')
     const node = nodeOf(scene, 'img')
@@ -1619,6 +1768,32 @@ describe('node chrome paint on the live renderer', () => {
     expect(calls.some((call) => call.method === 'setLineDash' && JSON.stringify(call.args[0]) === '[1,2]')).toBe(true)
   })
 
+  it('gives a node that can show a preview its caption row before, with and folded over a picture', () => {
+    const scene = fixtureScene('withMismatch')
+    const source = { ...nodeOf(scene, 'img'), layout: { ...nodeOf(scene, 'img').layout, width: 260 }, previewCapable: true as const }
+    const image = {} as CanvasImageSource
+    const regionOf = (node: SceneNode, preview?: NodePreview) => {
+      const { ctx, calls } = recordingCtx()
+      const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+      renderer.setScene({ ...scene, nodes: scene.nodes.map((candidate) => candidate.id === node.id ? node : candidate) })
+      if (preview !== undefined) renderer.setNodePreviews({ [node.id]: preview })
+      renderer.renderNow()
+      const layout = nodeOf(renderer.getScene(), node.id).layout
+      renderer.dispose()
+      return { layout, texts: calls.filter((call) => call.method === 'fillText').map((call) => String(call.args[0])) }
+    }
+    const before = regionOf(source)
+    expect(before.layout.preview).toMatchObject({ compact: true, height: defaultTokens.previewCaptionHeight })
+    expect(before.texts).toEqual(expect.arrayContaining(['Preview', 'no picture yet']))
+    const open = regionOf(source, { image, width: 320, height: 240 })
+    expect(open.layout.preview?.compact).toBeUndefined()
+    expect(open.texts).toEqual(expect.arrayContaining(['Preview', '320 x 240']))
+    const folded = regionOf({ ...source, previewFolded: true }, { image, width: 320, height: 240 })
+    expect(folded.layout.preview).toMatchObject({ compact: true, folded: true, height: defaultTokens.previewCaptionHeight })
+    expect(folded.layout.height).toBe(before.layout.height)
+    expect(folded.texts).toEqual(expect.arrayContaining(['Preview', '320 x 240']))
+  })
+
   it('suppresses the text region when an image preview is active', () => {
     const scene = fixtureScene('withMismatch')
     const node = nodeOf(scene, 'img')
@@ -1626,7 +1801,7 @@ describe('node chrome paint on the live renderer', () => {
       renderer.setNodeOutputTexts({ [node.id]: { text: 'hidden by image' } })
       renderer.setNodePreviews({ [node.id]: { status: 'loading' } })
     })
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'loading preview...')).toBe(true)
+    expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'loading...'))).toBe(true)
     expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'hidden by image')).toBe(false)
     const projectedLayout = nodeOf((() => {
       const { ctx } = recordingCtx()
@@ -1642,18 +1817,60 @@ describe('node chrome paint on the live renderer', () => {
     expect(projectedLayout).not.toHaveProperty('textOutput')
   })
 
-  it('paints in-body loading/unavailable placeholders and the actual list page', () => {
+  it('keeps the checker under a preview picture one device pixel inside the picture', () => {
+    // At 1.5 device pixels per screen pixel and zoom 2, a device pixel is a third of a world unit.
+    // A checker reaching the picture's edges shows through their partly covered pixels as dashes.
     const scene = fixtureScene('withMismatch')
     const node = nodeOf(scene, 'img')
-    const loading = paintWith(scene, (renderer) => renderer.setNodePreviews({
-      [node.id]: { status: 'loading', count: 3, index: 1 },
+    const image = {} as CanvasImageSource
+    Object.assign(globalThis, { devicePixelRatio: 1.5 })
+    try {
+      const calls = paintWith(scene, (renderer) => {
+        renderer.setViewport({ x: 0, y: 0, scale: 2 })
+        renderer.setNodePreviews({ [node.id]: { image, width: 320, height: 240 } })
+      })
+      const at = calls.findIndex((call) => call.method === 'drawImage' && call.args[0] === image)
+      const [x, y, width, height] = calls[at]!.args.slice(1).map(Number) as [number, number, number, number]
+      const checker = calls[at - 1]!
+      expect(checker).toMatchObject({ method: 'fillRect', fillStyle: 'checkerboard' })
+      const [cx, cy, cw, ch] = checker.args.map(Number) as [number, number, number, number]
+      expect(cx).toBeCloseTo(x + 1 / 3)
+      expect(cy).toBeCloseTo(y + 1 / 3)
+      expect(cx + cw).toBeCloseTo(x + width - 1 / 3)
+      expect(cy + ch).toBeCloseTo(y + height - 1 / 3)
+    } finally {
+      delete (globalThis as { devicePixelRatio?: number }).devicePixelRatio
+    }
+  })
+
+  it('says loading, failed or unavailable in the caption row and keeps a list page\'s panel', () => {
+    const scene = fixtureScene('withMismatch')
+    const node = nodeOf(scene, 'img')
+    for (const [status, word] of [['loading', 'loading...'], ['failed', 'failed'], ['unavailable', 'unavailable']] as const) {
+      const calls = paintWith(scene, (renderer) => renderer.setNodePreviews({ [node.id]: { status } }))
+      expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], word))).toBe(true)
+      // A page of a list output keeps its panel, so its paging controls stay.
+      const page = paintWith(scene, (renderer) => renderer.setNodePreviews({ [node.id]: { status, count: 3, index: 1 } }))
+      expect(page.some((call) => call.method === 'fillText' && fitted(call.args[0], '2/3'))).toBe(true)
+      expect(page.some((call) => call.method === 'fillText' && fitted(call.args[0], word))).toBe(true)
+    }
+    // A single executed output loading its picture keeps its panel too, so
+    // its pager and an open output viewer stay; a bare loading preview folds.
+    const projected = (preview: NodePreview) => {
+      const { ctx } = recordingCtx()
+      const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+      renderer.setScene(scene)
+      renderer.setNodePreviews({ [node.id]: preview })
+      const layout = nodeOf(renderer.getScene(), node.id).layout
+      renderer.dispose()
+      return layout
+    }
+    expect(projected({ status: 'loading', count: 1, index: 0 }).preview?.compact).not.toBe(true)
+    expect(projected({ status: 'loading' }).preview?.compact).toBe(true)
+    const page = paintWith(scene, (renderer) => renderer.setNodePreviews({
+      [node.id]: { image: {} as CanvasImageSource, width: 320, height: 240, count: 3, index: 1 },
     }))
-    expect(loading.some((call) => call.method === 'fillText' && call.args[0] === 'loading preview...')).toBe(true)
-    expect(loading.some((call) => call.method === 'fillText' && call.args[0] === '2/3')).toBe(true)
-    const unavailable = paintWith(scene, (renderer) => renderer.setNodePreviews({
-      [node.id]: { status: 'unavailable' },
-    }))
-    expect(unavailable.some((call) => call.method === 'fillText' && call.args[0] === 'preview unavailable')).toBe(true)
+    expect(page.some((call) => call.method === 'fillText' && fitted(call.args[0], '2/3 | 320 x 240'))).toBe(true)
   })
 
   it('projects preview geometry into scene hit testing', () => {
@@ -1735,7 +1952,7 @@ describe('node chrome paint on the live renderer', () => {
     const outputPin = node.layout.pins.find((pin) => pin.direction === 'out')!
     expect(calls.some((call) =>
       call.method === 'arc' &&
-      call.args[0] === preview.x + preview.width && call.args[1] === preview.y + outputPin.y,
+      call.args[0] === preview.x + preview.width - PIN_INSET && call.args[1] === preview.y + outputPin.y + PIN_DROP,
     )).toBe(true)
     const link = scene.links.find((candidate) => candidate.from.kind === 'port' && candidate.from.node === node.id)!
     const linkCurveIndex = calls.findIndex((call) =>
@@ -1751,10 +1968,12 @@ describe('node chrome paint on the live renderer', () => {
     )).toBe(false)
     const projectedLayout = projectNodeLayoutHeight(withPreviewRegion(node.layout, defaultTokens), preview.height, defaultTokens)
     const panel = { ...projectedLayout.preview!, width: preview.width - defaultTokens.padX * 2 }
+    // The picture's box sits under the caption row.
+    const caption = defaultTokens.previewCaptionHeight
     expect(calls.some((call) =>
       call.method === 'roundRect' &&
-      call.args[0] === preview.x + panel.x && call.args[1] === preview.y + panel.y &&
-      call.args[2] === panel.width && call.args[3] === panel.height,
+      call.args[0] === preview.x + panel.x && call.args[1] === preview.y + panel.y + caption &&
+      call.args[2] === panel.width && call.args[3] === panel.height - caption,
     )).toBe(true)
     expect(calls.some((call) =>
       call.method === 'setLineDash' && JSON.stringify(call.args[0]) === '[6,4]',
@@ -1791,7 +2010,7 @@ describe('node chrome paint on the live renderer', () => {
     const fs = nodeOf(scene, 'fs')
     const row = fs.layout.rows.find((candidate) => candidate.kind === 'widget')!
     const calls = paint(scene)
-    const connectedText = calls.find((c) => c.method === 'fillText' && c.args[1] === fs.x + row.inset + 6)
+    const connectedText = calls.find((c) => c.method === 'fillText' && c.args[0] === row.label && c.args[1] === fs.x + row.inset + 6)
     expect(connectedText?.globalAlpha).toBeCloseTo(0.45)
     const valueText = calls.find((c) => c.method === 'fillText' && c.args[0] === '3.5')!
     const strike = calls.slice(calls.indexOf(valueText) + 1).find((c) => c.method === 'stroke')!
@@ -1864,10 +2083,7 @@ describe('node chrome paint on the live renderer', () => {
     const regionScene = { ...scene, nodes: scene.nodes.map((node) => node.id === region.id ? region : node) }
     const regionCalls = paint(regionScene)
     expect(regionCalls.some((call) => call.method === 'fillText' && call.args[0] === 'map')).toBe(true)
-    expect(regionCalls.filter((call) =>
-      call.method === 'roundRect' && call.args[0] === region.x && call.args[1] === region.y &&
-      call.args[2] === region.layout.width && call.args[3] === region.layout.height
-    ).length).toBeGreaterThanOrEqual(2)
+    expect(nodeBorder(regionCalls, region)).toBeDefined()
     expect(regionCalls.some((call) =>
       call.method === 'roundRect' && call.args[0] === region.x + 3 && call.args[1] === region.y + 3 &&
       call.args[2] === region.layout.width - 6 && call.args[3] === region.layout.height - 6
@@ -1943,8 +2159,8 @@ describe('node chrome paint on the live renderer', () => {
     const bodyIdx = calls.findIndex(
       (c) => c.method === 'roundRect' && c.args[0] === n.x && c.args[1] === n.y && c.args[3] === n.layout.height,
     )
-    expect(paintedAfter(calls, bodyIdx, 'fill')?.fillStyle).toBe('#533a3c')
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#6b3d3b')).toBe(true)
+    expect(paintedAfter(calls, bodyIdx, 'fill')?.fillStyle).toBe('#432e2c')
+    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#663b37')).toBe(true)
     expect(nodeBorder(calls, n)).toMatchObject({
       strokeStyle: defaultTokens.colors.error,
       lineWidth: 3.75,
@@ -1952,13 +2168,13 @@ describe('node chrome paint on the live renderer', () => {
   })
 
   it.each([
-    ['dark', '#3B4148'],
+    ['dark', '#324143'],
     ['light', '#D3D9DE'],
   ] as const)('a recognized idle node uses the quiet %s outline without error paint', (theme, outline) => {
     const scene = fixtureScene('clean')
     const node = nodeOf(scene, 'c1')
     const calls = paintWithTokens(scene, { ...defaultTokens, colors: canvasColorsForTheme(theme) })
-    expect(calls.some((call) => call.method === 'fill' && (call.fillStyle === '#533a3c' || call.fillStyle === '#6b3d3b'))).toBe(false)
+    expect(calls.some((call) => call.method === 'fill' && (call.fillStyle === '#493031' || call.fillStyle === '#6b3d3b'))).toBe(false)
     expect(nodeBorder(calls, node)?.strokeStyle).toBe(outline)
   })
 
@@ -1987,10 +2203,8 @@ describe('node chrome paint on the live renderer', () => {
     expect(PROBLEM_BLOCKING_WARNING_BADGE.color).toBe(defaultTokens.colors.blockingWarning)
     expect(nodeBorder(calls, node)?.strokeStyle).toBe(tokens.colors.blockingWarning)
     expect(nodeBorder(calls, node)?.lineWidth).toBe(2.5)
-    const rect = badgeRect(node, 0)
-    const chip = calls.findIndex((call) =>
-      call.method === 'roundRect' && call.args[0] === rect.x && call.args[1] === rect.y)
-    expect(paintedAfter(calls, chip, 'fill')?.fillStyle).toBe(tokens.colors.blockingWarning)
+    expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Warning')?.fillStyle)
+      .toBe(mixHex(tokens.colors.title, tokens.colors.blockingWarning, 0.7))
   })
 
   it('running state wins over a blocking-warning outline', () => {
@@ -2040,6 +2254,7 @@ describe('node chrome paint on the live renderer', () => {
       free.y + row.y,
       free.layout.width - row.inset * 2,
       row.height,
+      defaultTokens.rowGeometry.fieldInsetY,
     )
     const outline = marked.find(
       (c) =>
@@ -2145,8 +2360,8 @@ describe('node chrome paint on the live renderer', () => {
     const scene = constructsScene()
     const n = nodeOf(scene, 'opt2')
     const pin = n.layout.pins.find((p) => p.direction === 'in')!
-    const px = n.x
-    const py = n.y + pin.y
+    const px = n.x + PIN_INSET
+    const py = n.y + pin.y + PIN_DROP
     const calls = paint(scene)
     // Outer disc: FILLED with the type color (not a stroked ring).
     const discIdx = calls.findIndex(
@@ -2167,8 +2382,8 @@ describe('node chrome paint on the live renderer', () => {
     const scene = constructsScene()
     const n = nodeOf(scene, 'c1')
     const pin = n.layout.pins.find((p) => p.direction === 'in')!
-    const px = n.x
-    const py = n.y + pin.y
+    const px = n.x + PIN_INSET
+    const py = n.y + pin.y + PIN_DROP
     const calls = paint(scene)
     const outerIdx = calls.findIndex(
       (c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === defaultTokens.pinRadius,
@@ -2196,12 +2411,12 @@ describe('node chrome paint on the live renderer', () => {
     }
     const maybeNode = nodeOf(scene, 'lat')
     const maybePin = maybeNode.layout.pins.find((pin) => pin.direction === 'out')!
-    const maybeX = maybeNode.x + maybeNode.layout.width
-    const maybeY = maybeNode.y + maybePin.y
+    const maybeX = maybeNode.x + maybeNode.layout.width - PIN_INSET
+    const maybeY = maybeNode.y + maybePin.y + PIN_DROP
     const ordinaryNode = nodeOf(scene, 'img')
     const ordinaryPin = ordinaryNode.layout.pins.find((pin) => pin.direction === 'out')!
-    const ordinaryX = ordinaryNode.x + ordinaryNode.layout.width
-    const ordinaryY = ordinaryNode.y + ordinaryPin.y
+    const ordinaryX = ordinaryNode.x + ordinaryNode.layout.width - PIN_INSET
+    const ordinaryY = ordinaryNode.y + ordinaryPin.y + PIN_DROP
     const calls = paint(scene)
     const dotR = Math.max(1.5, defaultTokens.pinRadius * 0.32)
 
@@ -2228,8 +2443,8 @@ describe('node chrome paint on the live renderer', () => {
     }
     const n = nodeOf(scene, 'c1')
     const pin = n.layout.pins.find((p) => p.direction === 'in')!
-    const px = n.x
-    const py = n.y + pin.y
+    const px = n.x + PIN_INSET
+    const py = n.y + pin.y + PIN_DROP
     const calls = paint(scene)
     const sliceFills = calls.filter((c) => c.method === 'fill' && [
       typeColor(defaultTokens, 'IMAGE'),
@@ -2264,8 +2479,8 @@ describe('node chrome paint on the live renderer', () => {
     }
     const n = nodeOf(scene, 'c1')
     const pin = n.layout.pins.find((p) => p.direction === 'in')!
-    const px = n.x
-    const py = n.y + pin.y
+    const px = n.x + PIN_INSET
+    const py = n.y + pin.y + PIN_DROP
     const calls = paint(scene)
     const r = defaultTokens.pinRadius * PIN_DIAMOND_SCALE
     // Diamond outline: top vertex moveTo, then the three remaining vertices.
@@ -2282,6 +2497,65 @@ describe('node chrome paint on the live renderer', () => {
     )).toBe(false)
   })
 
+  it('a pin name starts where a text or choice field\'s label starts and centers its capitals on the pin', () => {
+    const scene = constructsScene()
+    const calls = paint(scene)
+    // Noto Sans capitals are 0.714 em tall; their middle is half that above the baseline.
+    const capitalsMiddle = defaultTokens.fontSize * 0.714 / 2
+    // A text or choice field's box sits 8 px inside the node and its label 6 px inside the box.
+    const fieldLabelInset = 8 + 6
+    const sink = nodeOf(scene, 'c1')
+    const input = sink.layout.pins.find((p) => p.direction === 'in')!
+    const inputLabel = calls.find((c) => c.method === 'fillText' && c.args[0] === 'in')
+    expect(inputLabel?.args[1]).toBe(sink.x + fieldLabelInset)
+    expect(inputLabel?.args[2]).toBeCloseTo(sink.y + input.y + PIN_DROP + capitalsMiddle, 9)
+    const source = nodeOf(scene, 'lat')
+    const output = source.layout.pins.find((p) => p.direction === 'out')!
+    const outputLabel = calls.find((c) => c.method === 'fillText' && c.args[0] === 'out')
+    expect(outputLabel?.args[1]).toBe(source.x + source.layout.width - fieldLabelInset)
+    expect(outputLabel?.args[2]).toBeCloseTo(source.y + output.y + PIN_DROP + capitalsMiddle, 9)
+  })
+
+  it('an input that takes one value or a list paints the list diamond behind a smaller ringed circle', () => {
+    const base = constructsScene()
+    const variable = { kind: 'variable' as const, templateId: 'T' }
+    const scene: Scene = {
+      ...base,
+      nodes: base.nodes.map((n) => n.id === 'c1'
+        ? { ...n, layout: { ...n.layout, pins: n.layout.pins.map((p) => ({ ...p, type: variable })) } }
+        : n),
+    }
+    const n = nodeOf(scene, 'c1')
+    const pin = n.layout.pins.find((p) => p.direction === 'in')!
+    const px = n.x + PIN_INSET
+    const py = n.y + pin.y + PIN_DROP
+    const calls = paint(scene)
+    // Sizes picked on 2026-11-19 as multiples of an ordinary pin's radius.
+    const diamond = defaultTokens.pinRadius * 1.65
+    const top = calls.findIndex((c) => c.method === 'moveTo' && c.args[0] === px && c.args[1] === py - diamond)
+    expect(top).toBeGreaterThanOrEqual(0)
+    expect(calls[top + 1]).toMatchObject({ method: 'lineTo', args: [px + diamond, py] })
+    expect(calls[top + 2]).toMatchObject({ method: 'lineTo', args: [px, py + diamond] })
+    expect(calls[top + 3]).toMatchObject({ method: 'lineTo', args: [px - diamond, py] })
+    const diamondFill = paintedAfter(calls, top, 'fill')!
+    const circle = calls.findIndex((c, index) => index > top &&
+      c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === defaultTokens.pinRadius * 0.75)
+    expect(circle).toBeGreaterThan(top)
+    expect(paintedAfter(calls, circle, 'fill')?.fillStyle).toBe(diamondFill.fillStyle)
+    const ring = paintedAfter(calls, calls.indexOf(paintedAfter(calls, circle, 'fill')!), 'stroke')
+    expect(ring?.strokeStyle).toBe(defaultTokens.colors.canvasBackground)
+    expect(ring?.lineWidth).toBeCloseTo(defaultTokens.pinRadius * 0.22, 9)
+    // No square: no path corner sits diagonally off the pin center.
+    expect(calls.some((c) => (c.method === 'moveTo' || c.method === 'lineTo') &&
+      c.args[0] !== px && c.args[1] !== py &&
+      Math.abs(Math.abs(Number(c.args[0]) - px) - Math.abs(Number(c.args[1]) - py)) < 1e-9 &&
+      Math.abs(Number(c.args[0]) - px) <= diamond)).toBe(false)
+    // As a drop target its ring clears the diamond's corners by the ring gap every pin gets.
+    const target = paintWith(scene, (renderer) => renderer.setOverlay({ dropTargets: new Set([dropTargetKey('c1', pin.portId, 'in')]) }))
+    expect(target.some((c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py &&
+      Math.abs(Number(c.args[2]) - (diamond + canvasPaintTokens.pin.statusRingGap)) < 1e-9)).toBe(true)
+  })
+
   it('Any input and output pins use a neutral fill and dashed outer ring', () => {
     const base = constructsScene()
     const scene: Scene = {
@@ -2293,8 +2567,8 @@ describe('node chrome paint on the live renderer', () => {
     const n = nodeOf(scene, 'c1')
     const calls = paint(scene)
     for (const pin of n.layout.pins) {
-      const px = pin.direction === 'in' ? n.x : n.x + n.layout.width
-      const py = n.y + pin.y
+      const px = pin.direction === 'in' ? n.x + PIN_INSET : n.x + n.layout.width - PIN_INSET
+      const py = n.y + pin.y + PIN_DROP
       const arc = calls.findIndex((c) =>
         c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === defaultTokens.pinRadius)
       expect(arc).toBeGreaterThanOrEqual(0)
@@ -2317,8 +2591,8 @@ describe('node chrome paint on the live renderer', () => {
     }
     const n = nodeOf(scene, 'c2')
     const pin = n.layout.pins[0]!
-    const px = n.x
-    const py = n.y + pin.y
+    const px = n.x + PIN_INSET
+    const py = n.y + pin.y + PIN_DROP
     const calls = paint(scene)
     const arcIdx = calls.findIndex(
       (c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === defaultTokens.pinRadius,
@@ -2394,7 +2668,7 @@ describe('node chrome paint on the live renderer', () => {
     const hPin = hidden.layout.pins.find((p) => p.widgetBacked === true)!
     const sPin = shown.layout.pins.find((p) => p.widgetBacked === true)!
     const at = (calls: PaintCall[], n: SceneNode, pinY: number) =>
-      calls.some((c) => c.method === 'arc' && c.args[0] === n.x && c.args[1] === n.y + pinY)
+      calls.some((c) => c.method === 'arc' && c.args[0] === n.x + PIN_INSET && c.args[1] === n.y + pinY + PIN_DROP)
     const calls = paint(scene)
     expect(at(calls, shown, sPin.y)).toBe(true)
     expect(at(calls, hidden, hPin.y)).toBe(false)
@@ -2468,7 +2742,7 @@ describe('badge and toolbox paint on the live renderer', () => {
     }))
 
     expect(decorated.some((call) =>
-      call.method === 'fillText' && call.args[0] === 'Sink decorated (...' && call.args.length === 3,
+      call.method === 'fillText' && call.args[0] === 'Sink decorated...' && call.args.length === 3,
     )).toBe(true)
     const spacious = {
       ...scene,
@@ -2539,46 +2813,85 @@ describe('badge and toolbox paint on the live renderer', () => {
     )).toBe(false)
   })
 
-  it('centers the subgraph fallback glyph when vector painting fails', () => {
-    const original = globalThis.Path2D
-    vi.stubGlobal('Path2D', class Path2D { constructor() { throw new Error('paint failed') } })
-    const scene = fixtureScene('clean')
-    const node = nodeOf(scene, 'c1')
-    const rect = badgeRect(node, 0, [SUBGRAPH_BADGE])
-    const calls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [SUBGRAPH_BADGE] }))
-    vi.stubGlobal('Path2D', original)
-    expect(calls.some((call) =>
-      call.method === 'fillText' && call.args[0] === 'S' && call.args[1] === rect.x + rect.width / 2,
-    )).toBe(true)
+  it('keeps only the subgraph mark in the title bar and cuts the title before it', () => {
+    const plain = nodeOf(fixtureScene('clean'), 'c1')
+    const n = { ...plain, layout: { ...plain.layout, title: 'A title long enough to run under the subgraph mark' } }
+    const scene = emptyScene({ nodes: [n] })
+    const header = { top: n.y, bottom: n.y + n.layout.headerHeight }
+    const titleY = n.y + n.layout.headerHeight / 2
+    const calls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [ERROR_BADGE, MUTED_BADGE, BYPASSED_BADGE, subgraphBadge(12)] }))
+    for (const [word, side] of [['Error', 'below'], ['Muted', 'above'], ['Bypassed', 'above']] as const) {
+      const call = calls.find((candidate) => candidate.method === 'fillText' && candidate.args[0] === word)!
+      expect(side === 'above' ? Number(call.args[2]) < header.top : Number(call.args[2]) > n.y + n.layout.height).toBe(true)
+    }
+    // The mark: 3 px padding, a 14 px icon, a 3 px gap and "12" (6 px a character here), ending padX before the right edge.
+    const markX = n.x + n.layout.width - defaultTokens.padX - (3 + 14 + 3 + 12 + 3)
+    const count = calls.find((call) => call.method === 'fillText' && call.args[0] === '12')!
+    expect(count.args[1]).toBe(markX + 3 + 14 + 3)
+    expect(Number(count.args[2])).toBeGreaterThan(header.top)
+    expect(Number(count.args[2])).toBeLessThan(header.bottom)
+    const title = calls.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && call.args[2] === titleY)!
+    expect(title.args[0]).not.toBe(n.layout.title)
+    expect(String(title.args[0]).length * 6).toBeLessThanOrEqual(markX - n.x - TITLE_START - canvasPaintTokens.node.titleBadgeGap)
+
+    const unmarked = paintWith(scene, (renderer) => renderer.setBadges({ c1: [MUTED_BADGE, ERROR_BADGE] }))
+    const fullWidth = unmarked.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && call.args[2] === titleY)!
+    expect(String(fullWidth.args[0]).length).toBeGreaterThan(String(title.args[0]).length)
   })
 
-  it('paints explicit mode and error words in readable header chips', () => {
-    const scene = fixtureScene('clean')
-    const n = nodeOf(scene, 'c1')
-    const badges = [ERROR_BADGE, MUTED_BADGE, BYPASSED_BADGE]
-    const calls = paintWith(scene, (renderer) => renderer.setBadges({ c1: badges }))
-
-    for (const [index, badge] of badges.entries()) {
-      const rect = badgeRect(n, index, badges)
-      expect(rect.width).toBeGreaterThan(BADGE_SIZE)
-      expect(calls.some((call) =>
-        call.method === 'fillText' &&
-        call.args[0] === badge.glyph &&
-        call.args[1] === rect.x + rect.width / 2
-      )).toBe(true)
+  it('paints an icon at exactly the size it is given; a toolbox button sets its own icon inside it', () => {
+    // Lucide's 24-unit box, moved to the given corner and scaled to the given size, with nothing kept clear.
+    for (const size of [7, 14, 20]) {
+      const { ctx, calls } = recordingCtx()
+      paintToolboxIcon(ctx, 'boxes', 3, 5, size, '#fff')
+      const at = calls.findIndex((call) => call.method === 'translate')
+      expect(calls[at]!.args).toEqual([3, 5])
+      expect(calls[at + 1]).toMatchObject({ method: 'scale', args: [size / 24, size / 24] })
     }
+    // A 28 px toolbox button draws its icon 16.8 px, centered: 5.6 px clear on each side.
+    const calls = paintWith(fixtureScene('clean'), (r) => {
+      r.setOverlay({ selection: new Set(['c1']) })
+      r.setToolbox([[{ kind: 'button' as const, button: { id: 'core.delete', icon: 'trash-2' as const, label: 'Delete' } }]])
+    })
+    const button = [...calls].reverse().find((call) => call.method === 'roundRect' && call.args[2] === 28)!
+    const at = calls.findIndex((call) => call.method === 'translate' &&
+      Math.abs(Number(call.args[0]) - (Number(button.args[0]) + 5.6)) < 1e-9 &&
+      Math.abs(Number(call.args[1]) - (Number(button.args[1]) + 5.6)) < 1e-9)
+    expect(calls[at + 1]).toMatchObject({ method: 'scale', args: [16.8 / 24, 16.8 / 24] })
+  })
 
-    const leftmost = badgeRect(n, badges.length - 1, badges)
-    expect(leftmost.x).toBeLessThan(n.x + defaultTokens.padX)
-    const title = calls.find((call) => call.method === 'fillText' &&
-      call.args[1] === n.x + defaultTokens.padX && call.args[2] === n.y + n.layout.headerHeight / 2)
-    expect(title?.args).toEqual(['', n.x + defaultTokens.padX, n.y + n.layout.headerHeight / 2])
+  it('draws a tab\'s icon 14 px in its 20 px tab and the title mark\'s 14 px in its 20 px box', () => {
+    const n = nodeOf(fixtureScene('clean'), 'c1')
+    const calls = paintWith(emptyScene({ nodes: [n] }), (renderer) => renderer.setBadges({ c1: [MUTED_BADGE, SUBGRAPH_BADGE] }))
+    // An icon is drawn by moving to its corner, then scaling Lucide's 24-unit box.
+    const scaleAfter = (x: number, y: number) =>
+      calls[calls.findIndex((call) => call.method === 'translate' && call.args[0] === x && call.args[1] === y) + 1]
+    const markX = n.x + n.layout.width - defaultTokens.padX - 20
+    const markY = n.y + n.layout.headerHeight / 2 - 10
+    expect(scaleAfter(markX + 3, markY + 3)).toMatchObject({ method: 'scale', args: [14 / 24, 14 / 24] })
+    // The tab's words follow its 14 px icon and a 4 px gap; the tab's top is 10.5 above them.
+    const words = calls.find((call) => call.method === 'fillText' && call.args[0] === 'Muted')!
+    const tabTop = Number(words.args[2]) - canvasPaintTokens.badge.baselineOffset - 10
+    expect(scaleAfter(Number(words.args[1]) - 4 - 14, tabTop + 3)).toMatchObject({ method: 'scale', args: [14 / 24, 14 / 24] })
+  })
 
-    const singleCalls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [MUTED_BADGE] }))
-    const singleRect = badgeRect(n, 0, [MUTED_BADGE])
-    const singleTitle = singleCalls.find((call) => call.method === 'fillText' && call.args[0] === n.layout.title)
-    expect(singleTitle?.args).toEqual([n.layout.title, n.x + defaultTokens.padX, n.y + n.layout.headerHeight / 2])
-    expect(n.layout.title.length * 6).toBeLessThan(singleRect.x - n.x - defaultTokens.padX - 4)
+  it('paints the minimize arrow before the title, down when open and right when minimized', () => {
+    const plain = nodeOf(fixtureScene('clean'), 'c1')
+    const cx = plain.x + 14
+    const cy = plain.y + plain.layout.headerHeight / 2
+    const arrow = (calls: readonly PaintCall[]) => {
+      const start = calls.findIndex((call) => call.method === 'moveTo' && Math.abs(Number(call.args[0]) - cx) <= 4 && Math.abs(Number(call.args[1]) - cy) <= 4)
+      return calls.slice(start, start + 3).map((call) => call.args)
+    }
+    const open = paint(emptyScene({ nodes: [plain] }))
+    expect(arrow(open)).toEqual([[cx - 4, cy - 2.5], [cx + 4, cy - 2.5], [cx, cy + 3.5]])
+    expect(open.find((call) => call.method === 'fillText' && call.args[0] === plain.layout.title)?.args[1]).toBe(plain.x + 23)
+
+    const minimized = { ...plain, layout: { ...plain.layout, minimized: true as const } }
+    expect(arrow(paint(emptyScene({ nodes: [minimized] })))).toEqual([[cx - 2.5, cy - 4], [cx + 3.5, cy], [cx - 2.5, cy + 4]])
+
+    const hovered = paintWith(emptyScene({ nodes: [plain] }), (renderer) => renderer.setOverlay({ hoveredMinimize: plain.id }))
+    expect(hovered.some((call) => call.method === 'roundRect' && call.args[0] === plain.x + 5 && call.args[2] === 18)).toBe(true)
   })
 
   it('paints mode badges with the active theme tokens', () => {
@@ -2594,8 +2907,8 @@ describe('badge and toolbox paint on the live renderer', () => {
     const calls = paintWithTokens(scene, tokens, (renderer) =>
       renderer.setBadges({ c1: [MUTED_BADGE, BYPASSED_BADGE] }))
 
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#123456')).toBe(true)
-    expect(calls.some((call) => call.method === 'fill' && call.fillStyle === '#654321')).toBe(true)
+    expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Muted')?.fillStyle).toBe(mixHex(tokens.colors.title, '#123456', 0.7))
+    expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Bypassed')?.fillStyle).toBe(mixHex(tokens.colors.title, '#654321', 0.7))
   })
 
   it('the selection toolbox draws above the selection; active buttons fill, plain ones stay flat', () => {
@@ -3018,8 +3331,8 @@ describe('boundary pseudo-node paint on the live renderer', () => {
     for (const bn of scene.boundaryNodes) {
       const ghost = bn.layout.pins.find((p) => p.ghost === true)
       expect(ghost, `${bn.side} expose pin`).toBeDefined()
-      const px = ghost!.direction === 'in' ? bn.x : bn.x + bn.layout.width
-      const py = bn.y + ghost!.y
+      const px = ghost!.direction === 'in' ? bn.x + PIN_INSET : bn.x + bn.layout.width - PIN_INSET
+      const py = bn.y + ghost!.y + PIN_DROP
       const arcIdx = calls.findIndex(
         (c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === defaultTokens.pinRadius,
       )

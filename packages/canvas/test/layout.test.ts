@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import type { InputSpec, NodeData, NodeSchema, OutputSpec } from '@dinkster/core'
 import { asNodeId, elaborateInterface, EMPTY_CONNECTIVITY } from '@dinkster/core'
-import { layoutNode, projectNodeLayoutHeight, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import { layoutNode, TITLE_START, projectNodeLayoutHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import { defaultTokens } from '../src/tokens.js'
 
 const measure: TextMeasurer = (text) => text.length * 6
@@ -394,9 +394,37 @@ describe('sizing', () => {
     const single = doLayout([widget('s', { widget: { widgetType: 'STRING', options: {} } })])
     const multi = doLayout([widget('s', { widget: { widgetType: 'STRING', options: { multiline: true } } })])
     expect(multi.height - single.height).toBe(
-      4 + defaultTokens.multilineText.labelHeight - defaultTokens.rowHeight +
+      defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight - defaultTokens.rowHeight +
       2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding,
     )
+  })
+
+  it('keeps 6 px clear above the first and below the last thing seen, a field edge or pin text', () => {
+    // A field's box starts at its edge; a pin's 16 px line of text is centered in its row.
+    // The node's 1 px border is drawn inside its box, so the bottom edge's clear space ends one pixel up.
+    const border = 1
+    const fieldTop = (row: { y: number }) => row.y + defaultTokens.rowGeometry.fieldInsetY
+    const fieldBottom = (row: { y: number; height: number }) => row.y + row.height - defaultTokens.rowGeometry.fieldInsetY
+    const textTop = (row: { y: number; height: number }) => row.y + row.height / 2 - 8
+    const textBottom = (row: { y: number; height: number }) => row.y + row.height / 2 + 8
+
+    const fields = doLayout([widget('a'), widget('b')])
+    expect(fieldTop(fields.rows[0]!) - fields.headerHeight).toBe(6)
+    expect(fields.height - border - fieldBottom(fields.rows.at(-1)!)).toBe(6)
+
+    const pins = doLayout([input('a'), input('b'), output('c')])
+    expect(textTop(pins.rows[0]!) - pins.headerHeight).toBe(6)
+    expect(pins.height - border - textBottom(pins.rows.at(-1)!)).toBe(6)
+
+    const pinThenField = doLayout([input('a'), widget('b')])
+    expect(textTop(pinThenField.rows[0]!) - pinThenField.headerHeight).toBe(6)
+    expect(pinThenField.height - border - fieldBottom(pinThenField.rows.at(-1)!)).toBe(6)
+
+    // A preview after a last row of pins ends the node like any boxed region.
+    const withPanel = withPreviewRegion(pins, defaultTokens)
+    const preview = withPanel.preview!
+    expect(preview.y - (pins.rows.at(-1)!.y + pins.rows.at(-1)!.height)).toBe(defaultTokens.previewGap)
+    expect(withPanel.height - (preview.y + preview.height)).toBe(defaultTokens.padBottom)
   })
 
   it('FR7 malformed widget row counts normalize to whole positive rows', () => {
@@ -424,11 +452,11 @@ describe('sizing', () => {
     const ordinaryLayout = layoutNode(ordinary, nodeData, defaultTokens, measure, widgetMeasure)
     const armedLayout = layoutNode(armed, nodeData, defaultTokens, measure, widgetMeasure)
 
-    expect(ordinaryLayout.width).toBe(6 * title.length + defaultTokens.padX * 2 + 8)
+    expect(ordinaryLayout.width).toBe(6 * title.length + TITLE_START + defaultTokens.padX + 8)
     expect(armedLayout.width).toBe(ordinaryLayout.width)
   })
 
-  it('minimizes to title width with an 80px floor while retaining every endpoint', () => {
+  it('minimizes at its open width while retaining every endpoint', () => {
     const schema = schemaOf([
       input('required', { type: { kind: 'list', element: { kind: 'concrete', name: 'IMAGE' } } }),
       widget('value'),
@@ -441,8 +469,9 @@ describe('sizing', () => {
     })
     expect(layout).toMatchObject({
       minimized: true,
-      width: 80,
-      minWidth: 80,
+      width: 400,
+      minWidth: defaultTokens.nodeMinWidth,
+      height: defaultTokens.headerHeight + defaultTokens.padBottom,
       rows: [],
     })
     expect(layout.pins.map((pin) => `${pin.direction}:${pin.portId}`).sort()).toEqual([
@@ -455,17 +484,33 @@ describe('sizing', () => {
     expect(layout.pins.every((pin) => pin.minimized === true && pin.y === defaultTokens.headerHeight / 2)).toBe(true)
     expect(layout.pins.some((pin) => pin.type.kind === 'list')).toBe(true)
     expect(layout.pins.some((pin) => pin.type.kind === 'union')).toBe(true)
+    // Folded, a minimized node's preview is its caption row under the title.
     const compact = withCompactPreviewRegion(layout, defaultTokens)
     expect(compact.preview).toMatchObject({
       compact: true,
       y: defaultTokens.headerHeight + defaultTokens.previewGap,
-      height: defaultTokens.rowHeight,
+      height: defaultTokens.previewCaptionHeight,
     })
-    expect(withPreviewRegion(compact, defaultTokens)).toEqual(compact)
-    expect(withTextOutputRegion(compact, defaultTokens, 6).textOutput).toMatchObject({
-      y: defaultTokens.headerHeight + defaultTokens.previewGap,
-      height: defaultTokens.rowHeight,
-    })
+    // Opened by its caption, the picture takes its height on the open node.
+    const openPreview = withPreviewRegion(
+      layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, { size: { width: 400, height: 300 } }),
+      defaultTokens,
+    ).preview!
+    const opened = withPreviewRegion(layout, defaultTokens)
+    expect(opened.preview).toEqual({ ...compact.preview, compact: undefined, height: openPreview.height })
+    expect(opened.height).toBe(compact.height - defaultTokens.previewCaptionHeight + openPreview.height)
+
+    // Rows the open node hides are laid out while minimized only for their
+    // pins; a long label in the collapsed Advanced section must not widen it.
+    const hiddenWide = schemaOf([
+      output('result'),
+      { kind: 'section', id: 'advanced', displayName: 'Advanced', collapsedByDefault: true, rows: [widget('a deliberately long advanced setting label')] },
+    ], 'A')
+    const open = layoutNode(hiddenWide, nodeData, defaultTokens, measure, widgetMeasure)
+    expect(open.rows.some((row) => row.kind === 'widget')).toBe(false)
+    expect(open.width).toBe(defaultTokens.nodeMinWidth)
+    expect(layoutNode(hiddenWide, nodeData, defaultTokens, measure, widgetMeasure, { minimized: true }).width)
+      .toBe(defaultTokens.nodeMinWidth)
 
     const familySchema = schemaOf([{
       kind: 'group',
@@ -511,7 +556,7 @@ describe('sizing', () => {
       widgetMeasure,
       { minimized: true },
     )
-    expect(zeroPortLayout).toMatchObject({ minimized: true, rows: [], pins: [], minWidth: 80 })
+    expect(zeroPortLayout).toMatchObject({ minimized: true, rows: [], pins: [], width: defaultTokens.nodeMinWidth })
   })
 })
 
@@ -564,7 +609,7 @@ describe('manual size override', () => {
     const grown = layoutNode(schemaOf(items), nodeData, defaultTokens, measure, widgetMeasure, {
       size: { width: natural.width, height: natural.height + 61 },
     })
-    const multilineHeight = 4 + defaultTokens.multilineText.labelHeight +
+    const multilineHeight = defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight +
       2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding
     expect(natural.rows[0]).toMatchObject({ kind: 'widget', height: multilineHeight })
     expect(grown.rows[0]).toMatchObject({ kind: 'widget', height: multilineHeight + 61 })
@@ -573,25 +618,58 @@ describe('manual size override', () => {
     expect(grown.minHeight).toBe(natural.height)
   })
 
-  it('shares extra height across active core.text rows in schema order with remainder on the final row', () => {
+  it('keeps each text box at its own height in lines and gives extra height only to the last one', () => {
     const text = (id: string) => widget(id, {
       type: { kind: 'concrete', name: 'STRING' },
       widget: { widgetType: 'STRING', options: { multiline: true } },
     })
     const items = [text('first'), widget('number'), text('second'), input('after')]
-    const natural = doLayout(items)
+    const box = (lines: number) => defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight +
+      lines * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding
+    const sized = layoutNode(schemaOf(items), nodeData, defaultTokens, measure, widgetMeasure, {
+      textBoxLines: { first: 5, second: 3 },
+    })
+    expect(sized.rows.map((row) => row.height)).toEqual([
+      box(5), defaultTokens.rowHeight, box(3), defaultTokens.rowGeometry.portRowHeight,
+    ])
     const grown = layoutNode(schemaOf(items), nodeData, defaultTokens, measure, widgetMeasure, {
-      size: { width: natural.width, height: natural.height + 61 },
+      textBoxLines: { first: 5, second: 3 },
+      size: { width: sized.width, height: sized.height + 61 },
     })
     expect(grown.rows.map((row) => row.height)).toEqual([
-      4 + defaultTokens.multilineText.labelHeight + 2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding + 30,
-      defaultTokens.rowHeight,
-      4 + defaultTokens.multilineText.labelHeight + 2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding + 31,
-      defaultTokens.rowHeight,
+      box(5), defaultTokens.rowHeight, box(3) + 61, defaultTokens.rowGeometry.portRowHeight,
     ])
-    expect(grown.rows[1]!.y - natural.rows[1]!.y).toBe(30)
-    expect(grown.rows[2]!.y - natural.rows[2]!.y).toBe(30)
-    expect(grown.rows[3]!.y - natural.rows[3]!.y).toBe(61)
+    expect(grown.rows[3]!.y - sized.rows[3]!.y).toBe(61)
+    expect(grown.minHeight).toBe(sized.height)
+    // Stored heights outside the limits clamp to 2 and 16 lines.
+    const clamped = layoutNode(schemaOf(items), nodeData, defaultTokens, measure, widgetMeasure, {
+      textBoxLines: { first: 1, second: 40 },
+    })
+    expect(clamped.rows.map((row) => row.kind === 'widget' ? row.rows : undefined)).toEqual([2, 1, 16, undefined])
+  })
+
+  it('projects one text box to a new line count while the rows below and the surplus row follow', () => {
+    const text = (id: string) => widget(id, {
+      type: { kind: 'concrete', name: 'STRING' },
+      widget: { widgetType: 'STRING', options: { multiline: true } },
+    })
+    const items = [text('first'), text('second'), input('after')]
+    const natural = doLayout(items)
+    const grown = layoutNode(schemaOf(items), nodeData, defaultTokens, measure, widgetMeasure, {
+      size: { width: natural.width, height: natural.height + 50 },
+    })
+    // The first box grows by three lines; the second keeps its 50 px surplus.
+    const first = projectTextBoxLines(grown, 'first', 5, defaultTokens)
+    const lines = defaultTokens.multilineText.lineHeight
+    expect(first.rows[0]).toMatchObject({ rows: 5, height: natural.rows[0]!.height + 3 * lines })
+    expect(first.rows[1]!.height).toBe(grown.rows[1]!.height)
+    expect(first.height).toBe(grown.height + 3 * lines)
+    expect(first.pins.find((pin) => pin.portId === 'after')!.y - grown.pins.find((pin) => pin.portId === 'after')!.y).toBe(3 * lines)
+    // Sizing the surplus row itself replaces the surplus with whole lines.
+    const second = projectTextBoxLines(grown, 'second', 4, defaultTokens)
+    expect(second.rows[1]).toMatchObject({ rows: 4, height: natural.rows[1]!.height + 2 * lines })
+    expect(second.height).toBe(natural.height + 2 * lines)
+    expect(second.minHeight).toBe(natural.height + 2 * lines)
   })
 
   it('does not give manual height surplus to an inactive core.text branch', () => {
@@ -617,7 +695,7 @@ describe('manual size override', () => {
     const grown = layoutNode(schema, selected, defaultTokens, measure, widgetMeasure, {
       size: { width: natural.width, height: natural.height + 61 },
     })
-    const multilineHeight = 4 + defaultTokens.multilineText.labelHeight +
+    const multilineHeight = defaultTokens.rowGeometry.fieldInsetY * 2 + defaultTokens.multilineText.labelHeight +
       2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding
     expect(grown.rows[1]).toMatchObject({ kind: 'widget', inputId: 'active', height: multilineHeight + 61 })
     expect(grown.rows[2]).toMatchObject({ kind: 'widget', inputId: 'inactive', height: multilineHeight, inactive: true })
@@ -667,7 +745,7 @@ describe('manual size override', () => {
 
 describe('in-node preview region', () => {
 
-  it('expands and clears without changing a manually sized multiline row', () => {
+  it('gives the resize surplus to the preview while a text box keeps its own height', () => {
     const items = [widget('text', {
       type: { kind: 'concrete', name: 'STRING' },
       widget: { widgetType: 'STRING', options: { multiline: true } },
@@ -682,50 +760,53 @@ describe('in-node preview region', () => {
     })
     const compact = withCompactPreviewRegion(base, defaultTokens)
     const active = withPreviewRegion(compact, defaultTokens)
-    expect(compact.rows[0]!.height).toBe(natural.rows[0]!.height + 90)
+    expect(compact.rows[0]!.height).toBe(natural.rows[0]!.height)
     expect(active.rows).toEqual(compact.rows)
-    expect(active.height - compact.height).toBe(
-      defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight - defaultTokens.rowHeight,
-    )
-    expect(compact.resizeHeightOffset).toBe(compact.height - active.height)
+    expect(active.preview?.height).toBe(defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight + 90)
+    expect(active.height).toBe(base.height)
+    expect(withPreviewRegion(base, defaultTokens)).toMatchObject({ rows: active.rows, height: active.height, preview: active.preview })
     expect(active.resizeHeightOffset).toBeUndefined()
     expect(withCompactPreviewRegion(base, defaultTokens)).toEqual(compact)
-  })
-
-  it('gives resize surplus to preview only when no active core.text row exists', () => {
-    const plain = doLayout([widget('w')])
-    const plainRequested = {
-      ...plain,
-      height: plain.minHeight + defaultTokens.previewGap + defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight + 40,
-    }
-    expect(withPreviewRegion(plainRequested, defaultTokens).preview?.height).toBe(
-      defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight + 40,
-    )
-
-    const textItems = [widget('text', {
-      type: { kind: 'concrete', name: 'STRING' },
-      widget: { widgetType: 'STRING', options: { multiline: true } },
-    })]
-    const text = doLayout(textItems)
-    const textRequested = {
-      ...text,
-      height: text.minHeight + defaultTokens.previewGap + defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight + 40,
-    }
-    const grown = withPreviewRegion(textRequested, defaultTokens)
-    expect(grown.preview?.height).toBe(defaultTokens.previewDefaultHeight + defaultTokens.previewCaptionHeight)
-    expect(grown.rows[0]!.height).toBe(
-      4 + defaultTokens.multilineText.labelHeight + 2 * defaultTokens.multilineText.lineHeight +
-      2 * defaultTokens.multilineText.padding + 40,
-    )
+    // Resizing the node sizes the picture, never the text box.
+    const resized = projectNodeLayoutHeight(active, active.height + 30, defaultTokens)
+    expect(resized.rows).toEqual(active.rows)
+    expect(resized.preview!.height).toBe(active.preview!.height + 30)
   })
 })
 
 describe('in-node text output region', () => {
 
-  it('uses one row for a one-line result and caps long results at six rows', () => {
+  it('shows at least two rows and at most six by default, and folds to the caption', () => {
     const base = doLayout([widget('w')])
-    expect(withTextOutputRegion(base, defaultTokens, 1).textOutput?.height).toBe(defaultTokens.rowHeight)
-    expect(withTextOutputRegion(base, defaultTokens, 20).textOutput?.height).toBe(defaultTokens.rowHeight * 6)
+    const caption = defaultTokens.previewCaptionHeight
+    const row = defaultTokens.rowHeight
+    expect(withTextOutputRegion(base, defaultTokens, 1).textOutput?.height).toBe(caption + row * 2)
+    expect(withTextOutputRegion(base, defaultTokens, 4).textOutput?.height).toBe(caption + row * 4)
+    expect(withTextOutputRegion(base, defaultTokens, 20).textOutput?.height).toBe(caption + row * 6)
+    const folded = withTextOutputRegion(base, defaultTokens, 20, true)
+    expect(folded.textOutput).toMatchObject({ height: caption, folded: true })
+    expect(folded.height).toBe(withTextOutputRegion(base, defaultTokens, 20).height - row * 6)
+  })
+
+  it('takes the node height in whole rows, at least two, and keeps the text boxes', () => {
+    const base = doLayout([widget('prompt', { type: { kind: 'concrete', name: 'STRING' }, widget: { widgetType: 'STRING', options: { multiline: true } } }), widget('w')])
+    const caption = defaultTokens.previewCaptionHeight
+    const row = defaultTokens.rowHeight
+    const two = withTextOutputRegion(base, defaultTokens, 1)
+    // A node made two and a half rows taller shows two more whole rows.
+    const taller = withTextOutputRegion({ ...base, height: two.height + row * 2.5 }, defaultTokens, 1)
+    expect(taller.textOutput?.height).toBe(caption + row * 4)
+    expect(taller.height).toBe(two.height + row * 2)
+    expect(taller.rows).toEqual(two.rows)
+    // Sized shorter than two rows, it keeps two.
+    expect(withTextOutputRegion({ ...base, height: base.minHeight + 1 }, defaultTokens, 6).textOutput?.height).toBe(caption + row * 2)
+    expect(two.minHeight).toBe(two.height)
+    // Dragging the bar moves the edge by whole rows.
+    const dragged = projectNodeLayoutHeight(two, two.height + row * 1.5, defaultTokens)
+    expect(dragged.textOutput?.height).toBe(caption + row * 3)
+    expect(dragged.height).toBe(two.height + row)
+    expect(dragged.rows).toEqual(two.rows)
+    expect(projectNodeLayoutHeight(two, 0, defaultTokens).textOutput?.height).toBe(caption + row * 2)
   })
 
 })

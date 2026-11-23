@@ -4,7 +4,7 @@
  */
 import { deflateSync } from 'node:zlib'
 import type { NodeSchema, OutputSpec } from '@dinkster/core'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 
@@ -73,11 +73,10 @@ async function openMidgraphDoc(page: Page, asset: { digest: string; size: number
     return tab !== undefined
   }, { ...asset, contract })
   expect(opened).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   return contract
 }
 
-test.use({ retentionApi: false })
 
 test.beforeEach(async ({ page }) => {
   let served: Record<string, unknown> | null = null
@@ -99,7 +98,7 @@ test.beforeEach(async ({ page }) => {
 
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 })
 
 test('a preferred IMAGE is retried after a running-job refusal crosses terminal publication', async ({ page, request }, testInfo) => {

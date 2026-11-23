@@ -400,7 +400,7 @@ test('output inspection distinguishes lifecycle, asset identity, errors, and una
 
   await installState('disconnected-owner')
   await expect(page.getByTestId('outputs-panel')).toContainText('Configured disconnected owner')
-  await expect(page.getByTestId('outputs-panel')).toContainText('Output owner unavailable')
+  await expect(page.getByTestId('outputs-panel')).toContainText('Output backend unavailable')
   await expect(page.getByTestId('outputs-panel')).toContainText('removed or disconnected')
   await page.screenshot({ path: `${proofDir}/26-state-disconnected-owner.png`, animations: 'disabled' })
   await page.getByTestId('outputs-panel').screenshot({ path: `${proofDir}/26a-state-disconnected-owner-panel.png`, animations: 'disabled' })

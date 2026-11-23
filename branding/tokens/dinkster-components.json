@@ -16,7 +16,8 @@
     "primaryInputHeight": 40,
     "canvasInputHeight": 24,
     "focusRingWidth": 2,
-    "disabledOpacity": 0.45
+    "disabledOpacity": 0.45,
+    "unfocusedOpacity": 0.5
   },
   "motion": {
     "fast": 120,
@@ -39,6 +40,8 @@
     "menuWidth": 240,
     "emptyStateMaxWidth": 480,
     "aboutWordmarkMaxWidth": 360,
+    "wordmarkWidth": 99,
+    "wordmarkHeight": 30,
     "macWindowControlsInset": 80,
     "macWindowControlsX": 14,
     "macWindowControlsY": 16,
@@ -56,8 +59,6 @@
     "tabletPageMargin": 24,
     "mobilePageMargin": 16,
     "mobileTopBarPadding": 8,
-    "wordmarkWidth": 99,
-    "wordmarkHeight": 30,
     "avatarSize": 32,
     "accountButtonSize": 40,
     "menuGap": 4,

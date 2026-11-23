@@ -242,32 +242,38 @@ dark-theme values coincide. No light-mode cyan substitution is made.
 `@dinkster/branding/palette` by this private workspace package. Core declares
 that dependency and projects it into both injected CSS custom properties
 and typed canvas tokens. There is no separate hand-maintained theme CSS.
+The dark frame is `#090D0D`; the light frame uses the existing raised shade,
+`#EDEFF2`. Node value fields have their own `bg.field` role, dark `#0B1111`
+and light `#F7F8FA`; an open field uses `bg.fieldOpen`, dark `#060A0A`. A
+node's title rule uses `border.divider`, dark `#222E2F`, and a group's
+outline `border.group`, dark `#435557`; in light both keep `border.default`. Queued and skipped node outlines have dedicated
+`border.pending` and `border.skipped` entries; their light values remain
+`#5C5C5C` and `#7D8792`.
+
+The `sources/compare_*.py` scripts read their backgrounds and text from the
+palette; their fixed artwork colors do not change. Stored comparison sheets
+remain records of the approved artwork. The opaque Apple touch icon uses the
+palette's dark canvas background through `sources/export_favicons.py`;
+its artwork, bounds-derived crop and inset are unchanged.
 
 Run `python sources/check_tokens.py` to recompute WCAG 2 sRGB
 relative-luminance contrast ratios directly from the JSON:
 
 | Theme | Text | Canvas | Surface | Raised |
 | --- | --- | --- | --- | --- |
-| dark | primary | 16.87:1 | 14.99:1 | 12.73:1 |
-| dark | secondary | 8.76:1 | 7.78:1 | 6.61:1 |
-| dark | muted | 5.10:1 | 4.53:1 | 3.85:1 |
+| dark | primary | 16.91:1 | 15.73:1 | 13.58:1 |
+| dark | secondary | 8.75:1 | 8.13:1 | 7.02:1 |
+| dark | muted | 4.99:1 | 4.64:1 | 4.01:1 |
 | light | primary | 14.54:1 | 15.45:1 | 13.41:1 |
 | light | secondary | 5.78:1 | 6.14:1 | 5.33:1 |
 | light | muted | 4.54:1 | 4.82:1 | 4.19:1 |
 
 Primary and secondary body text meet 4.5:1 on all three backgrounds in
-both themes. Exceptions: muted text on dark raised (3.85:1) and light
+both themes. Exceptions: muted text on dark raised (4.01:1) and light
 raised (4.19:1) does not meet 4.5:1 for normal body text. Do not use these
-pairings for normal-size body text; use secondary text instead. Palette
-values are preserved, not silently retuned. These ratios do not certify
+pairings for normal-size body text; use secondary text instead. Muted text
+on a dark panel meets 4.5:1 at 4.64:1. These ratios do not certify
 components, focus rings or status-only communication.
 
-Hovered danger text is a second exception. Dark-theme danger text
-(`#FF7468`) on the hover background (`#343940`) is 4.40:1, which the script
-prints after the table. It appears only while a danger item is hovered or
-holds keyboard focus, such as a Remove outline button or Sign out in a menu;
-at rest the same text is 7.04:1 on canvas, 6.26:1 on surface and 5.32:1 on
-raised. The palette and the shared hover background stay as they are (user
-ruling 2026-11-16,
-https://github.com/Kosinkadink/comfy-vibe-station/issues/1026#issuecomment-6937938102).
-Do not use this pairing for text that is shown at rest.
+Dark-theme danger text on the hover background meets 4.5:1 at 4.80:1,
+which the script prints after the table.

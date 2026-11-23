@@ -125,7 +125,7 @@ test('moving the last tab out of a section collapses the zone to one section', a
 })
 
 test('a bottom-zone panel docks into the right zone', async ({ page }) => {
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   const logs = zoneTab(page, 'bottom', 'logs')
   await expect(logs).toBeVisible()
   const from = await center(logs)
@@ -144,7 +144,7 @@ test('a bottom-zone panel docks into the right zone', async ({ page }) => {
 })
 
 test('the bottom zone splits into side-by-side sections', async ({ page }) => {
-  await page.getByTestId('logs-toggle').click()
+  await page.getByTestId('bottom-panel-toggle').click()
   await expect(zoneTab(page, 'bottom', 'logs')).toBeVisible()
 
   // Give the bottom zone a second tab so the far half offers a split.

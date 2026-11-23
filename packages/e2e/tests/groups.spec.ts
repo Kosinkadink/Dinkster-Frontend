@@ -5,7 +5,7 @@
  * fall-through to panning, graph-definition scoping, and the invariant that
  * group operations never touch semantic state.
  */
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const xy = (p: { x: number; y: number }): [number, number] => [p.x, p.y]
 
@@ -101,7 +101,7 @@ test.beforeEach(async ({ page }) => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
   })).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await identityViewport(page)
 })
 
@@ -297,8 +297,8 @@ test('groups are graph-definition scoped: invisible inside a subgraph drill-in',
   await menuItem(page, 'core.canvas.addGroup').click()
   expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().groups)).toHaveLength(1)
 
-  const header = await headerPoint(page, 'n0')
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, 'n0')
+  await page.mouse.dblclick(mark.x, mark.y)
   expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().graphId)).toBe('g1')
   expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().groups)).toHaveLength(0)
 

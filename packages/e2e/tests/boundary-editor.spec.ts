@@ -7,7 +7,7 @@
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, openRailPanel, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_BOUNDARY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -45,16 +45,8 @@ async function drillIntoOccurrence(page: Page): Promise<void> {
     .getAttribute('data-tab-id')
   const previousRailTab = page.getByTestId('dock-zone-right')
     .locator(`[role="tab"][data-tab-id="${activeRailTabId}"]`)
-  const header = await page.evaluate(() => {
-    const r = window.__dinksterTest!.renderer!
-    const node = r.getScene().nodes.find((candidate) => candidate.id === 'i0')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return {
-      x: rect.left + node.x + node.layout.width / 2,
-      y: rect.top + node.y + node.layout.headerHeight / 2,
-    }
-  })
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, 'i0')
+  await page.mouse.dblclick(mark.x, mark.y)
   await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
   await expect(previousRailTab).toHaveAttribute('aria-selected', 'true')
   const indicator = boundaryTab(page).getByTestId('panel-indicator')
@@ -69,7 +61,7 @@ async function drillIntoOccurrence(page: Page): Promise<void> {
 }
 
 async function openBoundaryWorkflow(page: Page): Promise<void> {
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([
@@ -179,7 +171,7 @@ async function blurControls(page: Page): Promise<void> {
 
 test.beforeEach(async ({ page }, testInfo) => {
   if (testInfo.annotations.some((annotation) => annotation.type === 'mock-boundary-dispatch')) {
-    await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$))).*/, (route) => route.fulfill({ status: 503, json: {} }))
+    await page.route(/\/api\/.*/, (route) => route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'boundary-fixture', schemaWire: 2 }, nodes: {},
     } }))
@@ -200,7 +192,7 @@ test('boundary edits await acceptance and preserve refused drafts for retry', {
     app.dispatchTo = (tab: any, invocation: any) => new Promise((resolve) => {
       ;(window as any).__boundaryPending.push((accepted: boolean) => resolve(accepted
         ? dispatch(tab, invocation)
-        : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.retention.refused', message: 'Boundary edit refused for test' }] }))
+        : { ok: false, diagnostics: [{ severity: 'error', origin: 'command', code: 'command.rejected', message: 'Boundary edit refused for test' }] }))
     })
   })
   const panel = page.getByTestId('boundary-panel')

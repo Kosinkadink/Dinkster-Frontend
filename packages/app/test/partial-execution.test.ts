@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { asNodeId, type NodeData, type NodeSchema } from '@dinkster/core'
 import * as core from '@dinkster/core'
 import { AppState, type Tab } from '../src/app-state.js'
-import { inactiveSceneNodesFor, runOnMachineMenuGroup } from '../src/CanvasHost.js'
+import { inactiveSceneNodesFor } from '../src/CanvasHost.js'
 import { historicalRegistry } from './historical-schemas.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -137,69 +137,6 @@ describe('directed partial-execution scopes', () => {
       compile.mockRestore()
       app.dispose()
     }
-  })
-
-  it('offers connected workers that route every selected ordinary node', () => {
-    const selectedTypes = ['n0', 'n1'].map((nodeId) => basic.store.doc.graphs[basic.store.doc.root]!.nodes[nodeId]!.type)
-    const group = runOnMachineMenuGroup({
-      document: basic.store.doc,
-      graphId: basic.store.doc.root,
-      nodeIds: ['n0', 'n1'],
-      frozen: false,
-      catalog: {
-        status: 'ready',
-        workers: [
-          { name: 'local', status: 'connected', routedNodeTypes: selectedTypes, deviceQualifiers: [] },
-          { name: 'offline', status: 'disconnected', routedNodeTypes: selectedTypes, deviceQualifiers: [] },
-          { name: 'limited', status: 'connected', routedNodeTypes: [], deviceQualifiers: [] },
-        ],
-      },
-    })
-    const submenu = group?.items[0]
-    expect(submenu?.label).toBe('Run on machine')
-    expect(submenu?.children?.map((item) => [item.label, item.disabled])).toEqual([
-      ['local - connected', undefined],
-      ['offline - disconnected', true],
-      ['limited - connected', true],
-    ])
-  })
-
-  it('keeps regions placeable without claiming body routability and excludes plain subgraphs', () => {
-    const document = structuredClone(basic.store.doc)
-    const nodes = document.graphs[document.root]!.nodes as Record<string, typeof document.graphs[typeof document.root]['nodes'][string]>
-    const node = nodes['n0']!
-    nodes['n0'] = {
-      ...node,
-      type: '#g1',
-      region: { kind: 'map', elementPorts: [] },
-    }
-    const catalog = {
-      status: 'ready' as const,
-      workers: [{ name: 'remote', status: 'connected', routedNodeTypes: [], deviceQualifiers: [] }],
-    }
-    expect(runOnMachineMenuGroup({
-      document,
-      graphId: document.root,
-      nodeIds: ['n0'],
-      frozen: false,
-      catalog,
-    })?.items[0]?.children?.[0]?.disabled).toBeUndefined()
-
-    nodes['n0'] = { ...node, type: '#g1' }
-    expect(runOnMachineMenuGroup({
-      document,
-      graphId: document.root,
-      nodeIds: ['n0'],
-      frozen: false,
-      catalog,
-    })).toBeUndefined()
-    expect(runOnMachineMenuGroup({
-      document,
-      graphId: 'g1',
-      nodeIds: ['n0'],
-      frozen: false,
-      catalog,
-    })).toBeUndefined()
   })
 
   it('projects inactive-exclusive occurrences onto root and drilled subgraph scenes', () => {

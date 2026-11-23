@@ -271,18 +271,16 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
     const connection = props.connection
     const assetUrl = (digest: string): string => connection.assetUrl(digest)
     const healthGeneration = discoveryGeneration
-    const previewOwner = { connection, current: () => live && props.connection === connection && healthGeneration === discoveryGeneration }
     const reportFailures = (failures: readonly AssetSourceFailure[]): void => {
       if (!live || healthGeneration !== discoveryGeneration) return
       setSourceFailures(Object.fromEntries(failures.map((failure) => [failure.sourceId, { label: failure.label, message: failure.message }])))
     }
     const local = allAssetsCollectionSource(browsable, unavailable(), assetUrl, {
-      previewOwner,
       onSourceFailures: reportFailures,
     })
     return [
       local,
-      ...browsable.map((adapter) => assetCollectionSource(adapter, { assetUrl, previewOwner })),
+      ...browsable.map((adapter) => assetCollectionSource(adapter, { assetUrl })),
     ]
   })
 

@@ -22,6 +22,12 @@ for (const width of [1280, 1440, 1920, 390]) {
         getComputedStyle(document.querySelector(selector)!)
       return {
         topbar: rect('.dinkster-topbar').height,
+        // The top bar's contents span the window at the page margin.
+        topbarEdges: [
+          rect('.dinkster-brand').left,
+          window.innerWidth -
+            rect('.dinkster-menu-trigger[data-account]').right,
+        ],
         avatar: rect('.dinkster-avatar').width,
         trigger: rect('.dinkster-menu-trigger[data-account]').width,
         wordmark: rect('.dinkster-brand .dinkster-wordmark').height,
@@ -42,10 +48,22 @@ for (const width of [1280, 1440, 1920, 390]) {
           rect('.dinkster-list').top - rect('section .dinkster-heading').bottom,
         horizontalOverflow:
           document.documentElement.scrollWidth > window.innerWidth,
+        // Space between the content column and the page area's padding
+        // edges, left then right.
+        columnGaps: (() => {
+          const page = rect('.dinkster-page')
+          const padding = style('.dinkster-page')
+          const column = rect('.dinkster-content')
+          return [
+            column.left - page.left - parseFloat(padding.paddingLeft),
+            page.right - parseFloat(padding.paddingRight) - column.right,
+          ].map(Math.round)
+        })(),
       }
     })
     expect(geometry).toEqual({
       topbar: 56,
+      topbarEdges: width < 768 ? [8, 8] : [24, 24],
       avatar: 32,
       trigger: 40,
       wordmark: 30,
@@ -58,6 +76,9 @@ for (const width of [1280, 1440, 1920, 390]) {
       titleToHeading: 32,
       headingToPanel: 12,
       horizontalOverflow: false,
+      // The 1040 px frame less 220 px navigation and a 32 px gap leaves
+      // 788 px for the 720 px column; a phone's column fills its width.
+      columnGaps: width < 768 ? [0, 0] : [34, 34],
     })
     await page.screenshot({
       path: `test-results/captures/site-security-${width}.png`,
@@ -125,7 +146,7 @@ test('site statuses and disclosure retain semantic colors and keyboard behavior'
       ['Active', 'rgb(50, 230, 165)'],
       ['Revoked', 'rgb(255, 116, 104)'],
       ['Expired', 'rgb(245, 191, 105)'],
-      ['Not published', 'rgb(170, 179, 188)'],
+      ['Not published', 'rgb(164, 181, 183)'],
     ] as const) {
       const pill = page
         .locator('.dinkster-status-pill')

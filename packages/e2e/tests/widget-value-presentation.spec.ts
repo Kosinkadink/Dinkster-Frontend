@@ -1,6 +1,6 @@
 // Native discovery loads the live CheckpointLoaderSimple schema without
 // seeded editing documents; ownership acknowledgments use the shared fixture.
-import { expect, nativeTest as test, skipWithoutNativeCatalog, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, skipWithoutNativeCatalog, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function paintNode(page: Page, width?: number): Promise<{
   calls: string[]
@@ -53,7 +53,7 @@ test.beforeEach(async ({ page, request }, testInfo) => {
   await skipWithoutNativeCatalog(request, testInfo)
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'widget-value-presentation', root: 'g0',
@@ -66,7 +66,7 @@ test.beforeEach(async ({ page, request }, testInfo) => {
     }, 'Widget Value Presentation')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((candidate) => candidate.id === 'loader')
     return node?.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'ckpt_name') ?? false
@@ -75,16 +75,22 @@ test.beforeEach(async ({ page, request }, testInfo) => {
 
 test('ASSET values preserve the placeholder before the label and ellipsize long names', async ({ page }) => {
   const natural = await paintNode(page)
-  expect(natural.calls).toContain('no asset')
+  // A checkpoint asks for a model when the catalog declares its kind, else for a file.
+  const emptyText = /^Choose (model|file)$/
+  expect(natural.calls.some((call) => emptyText.test(call))).toBe(true)
   await test.info().attach('asset-placeholder-default-width', {
     body: await page.screenshot({ clip: natural.clip, animations: 'disabled' }),
     contentType: 'image/png',
   })
 
-  const narrow = await paintNode(page, 140)
-  expect(narrow.nodeWidth).toBe(140)
-  expect(narrow.calls).toContain('no asset')
-  expect(narrow.calls).not.toContain('no...')
+  // Narrower than its label and value together, the row gives the empty
+  // text its whole width before any of the label. At 160 px the field
+  // between the opener's icon and chevron holds "Choose model" whole; at
+  // 140 px it cannot.
+  const narrow = await paintNode(page, 160)
+  expect(narrow.nodeWidth).toBe(160)
+  expect(narrow.calls.some((call) => emptyText.test(call))).toBe(true)
+  expect(narrow.calls.some((call) => call.startsWith('Choose') && call.endsWith('...'))).toBe(false)
   await test.info().attach('asset-placeholder-narrow-width', {
     body: await page.screenshot({ clip: narrow.clip, animations: 'disabled' }),
     contentType: 'image/png',

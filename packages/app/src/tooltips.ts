@@ -230,6 +230,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     const button = t.button.button
     return { lines: [button.label, ...(button.reason ? [button.reason] : [])] }
   }
+  if (t.kind === 'subgraphMark') return { lines: [`On the subgraph node as ${t.mark.label}`] }
   if (t.kind === 'controller') {
     const mode = t.hit.row.controllerMode as 'fixed' | 'increment' | 'decrement' | 'randomize'
     const afterRefresh = t.hit.row.spec.controller === 'after_refresh'

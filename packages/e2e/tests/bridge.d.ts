@@ -28,6 +28,10 @@ interface DinksterBridgeSceneNode {
       inputId?: string
       viewId?: string
       representationId?: string
+      /** Field rows: the input port (and members) the row edits. */
+      address?: { port: string; members?: readonly string[] }
+      /** Field rows shown on the subgraph node without a wire. */
+      subgraphMark?: { item: string; label: string }
       input?: { portId: string }
       output?: { portId: string }
       sectionId?: string
@@ -534,6 +538,8 @@ interface DinksterTestBridge {
       hoveredWidget?: { nodeId: string; valueKey: string }
     }
     getBadges(): Readonly<Record<string, ReadonlyArray<{ id: string }>>>
+    /** Where each badge of a node is painted and hit, in world units. */
+    getNodeBadgeLayout(node: unknown): ReadonlyArray<{ badge: { id: string; placement?: string }; x: number; y: number; width: number; height: number }>
     getNodeOutputTexts(): Readonly<Record<string, { text: string; stale?: true; estimate?: true }>>
     /** Selection toolbox placement (undefined = hidden). */
     getToolboxLayout():
@@ -608,6 +614,7 @@ interface DinksterTestBridge {
         ReadonlyArray<{ label: string; text: string; tone?: string }> | null
     }
     getBadges(): Readonly<Record<string, readonly { id: string }[]>>
+    getDesignTokens(): { rowHeight: number; rowGeometry: { stepperZone: number; stepperLabelInset: number } }
     getScene(): {
       graphId: string
       nodes: readonly DinksterBridgeSceneNode[]
@@ -629,6 +636,7 @@ interface DinksterTestBridge {
         netId?: string
         netName?: string
         hidden?: true
+        boundary?: true
         mismatch?: true
       }>
       reroutes: ReadonlyArray<{

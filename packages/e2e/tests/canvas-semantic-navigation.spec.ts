@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TestInfo } from '@playwright/test'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_CANVAS_SEMANTIC_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -18,7 +18,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 })
 
 test('semantic scene navigation stays virtual until focused and pans only on activation', async ({ page }, testInfo) => {
@@ -92,6 +92,52 @@ test('semantic scene navigation stays virtual until focused and pans only on act
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())).not.toEqual(before.viewport)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(before.revision)
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(before.document)
+
+  // Rows join the list, each with its value; Enter selects and centers the
+  // row's node and changes nothing.
+  const active = navigator.locator('[data-active="true"]')
+  for (let step = 0; step < 12 && await active.getAttribute('data-kind') !== 'widget'; step += 1) {
+    await page.keyboard.press('ArrowDown')
+  }
+  await expect(active).toHaveAttribute('data-kind', 'widget')
+  await expect(active).toHaveText(/^Row: width of .+, 64$/)
+  await page.keyboard.press('Enter')
+  await expect(active).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
+  expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(before.document)
+
+  // The list stays while a row is open in place. Once the camera has stopped
+  // on the node Enter centered, show that node at 100 percent so its rows
+  // take clicks, and open its width row.
+  const viewportNow = () => page.evaluate(() => JSON.stringify(window.__dinksterTest!.renderer!.getViewport()))
+  let settled = ''
+  await expect.poll(async () => {
+    const previous = settled
+    settled = await viewportNow()
+    return settled === previous
+  }).toBe(true)
+  const widthRow = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const viewport = renderer.getViewport()
+    const centerX = (canvas.width / 2 - viewport.x) / viewport.scale
+    const centerY = (canvas.height / 2 - viewport.y) / viewport.scale
+    const node = renderer.getScene().nodes
+      .filter((candidate) => candidate.layout.rows.some((row) => row.kind === 'widget' && row.inputId === 'width'))
+      .sort((a, b) =>
+        Math.hypot(a.x + a.layout.width / 2 - centerX, a.y + a.layout.height / 2 - centerY) -
+        Math.hypot(b.x + b.layout.width / 2 - centerX, b.y + b.layout.height / 2 - centerY))[0]!
+    const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === 'width')!
+    const x = canvas.width / 2 - (node.x + node.layout.width / 2)
+    const y = canvas.height / 2 - (node.y + row.y + row.height / 2)
+    renderer.setViewport({ x, y, scale: 1 })
+    return { x: canvas.left + canvas.width / 2, y: canvas.top + canvas.height / 2 }
+  })
+  await page.mouse.click(widthRow.x, widthRow.y)
+  await expect(page.locator('.widget-in-row-field input')).toBeFocused()
+  await expect(navigator).toHaveCount(1)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.widget-in-row-field')).toHaveCount(0)
 
   await page.setViewportSize({ width: 390, height: 844 })
   const railToggle = page.getByRole('button', { name: 'Toggle right rail' })

@@ -10,6 +10,7 @@ import {
   type JSX,
 } from 'solid-js'
 import { render } from 'solid-js/web'
+import components from '@dinkster/branding/components' with { type: 'json' }
 import {
   Bell,
   CircleAlert,
@@ -28,6 +29,7 @@ import {
   ProductWindowChrome,
   ProductWindowToolbar,
   ProductWindowAction,
+  ProductWordmark,
   ProductAccountMenu,
   ProductCodeBlock,
   ProductCopyValue,
@@ -43,6 +45,7 @@ import {
   ProductField,
   ProductForm,
   ProductIcon,
+  ProductRunIcon,
   ProductIconButton,
   ProductLink,
   ProductList,
@@ -65,7 +68,13 @@ import {
   type ProductRole,
 } from '../src/index.js'
 import '../dist/dinkster.css'
-import { CanvasGallery } from './canvas.js'
+import {
+  CanvasGallery,
+  canvasNavigationGroups,
+  canvasPage,
+  canvasPageHref,
+  selectCanvasPage,
+} from './canvas.js'
 import { SiteGallery } from './site.js'
 
 const navigation = [
@@ -75,7 +84,12 @@ const navigation = [
   { label: 'Menus and messages', href: '#messages', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
-  { label: 'Canvas', href: '#canvas', icon: LayoutList },
+  {
+    label: 'Canvas',
+    href: '#canvas',
+    icon: LayoutList,
+    groups: canvasNavigationGroups,
+  },
   { label: 'Desktop information', href: '#desktop-about', icon: User },
 ]
 
@@ -107,6 +121,11 @@ function Gallery() {
   let navigationTimer: number | undefined
   onCleanup(() => window.clearTimeout(navigationTimer))
   const navigate = (href: string) => {
+    if (href.startsWith('?page=')) {
+      selectCanvasPage(href)
+      if (route() === '#canvas') return
+      href = '#canvas'
+    }
     window.clearTimeout(navigationTimer)
     window.location.hash = href
     setRoute(href)
@@ -127,8 +146,11 @@ function Gallery() {
     <ProductShell
       title="Component gallery"
       navigation={route() === '#signed-out' ? [] : navigation}
-      currentHref={route()}
+      currentHref={
+        route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
+      }
       onNavigate={navigate}
+      contentDensity={route() === '#canvas' ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -146,7 +168,11 @@ function Gallery() {
             : (navigation.find((item) => item.href === route())?.label ??
               'Buttons and fields')
         }
-        description="The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states."
+        description={
+          route() === '#canvas'
+            ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
+            : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
+        }
         table={route() === '#lists' || route() === '#canvas'}
       >
         <Show
@@ -304,6 +330,15 @@ function Gallery() {
                   A sentence can carry a{' '}
                   <ProductLink href="#lists">link to another page</ProductLink>.
                 </p>
+              </Section>
+              <Section title="Run icons" components="ProductRunIcon">
+                <div class="dinkster-actions">
+                  <span>Idle <ProductRunIcon icon={Settings} /></span>
+                  <span>Queued <ProductRunIcon icon={Settings} queued /></span>
+                  <span>Running <ProductRunIcon icon={Settings} running /></span>
+                  <span>Finished <ProductRunIcon icon={Settings} result="finished" /></span>
+                  <span>Failed <ProductRunIcon icon={Settings} result="failed" /></span>
+                </div>
               </Section>
               <Section
                 title="Text fields"
@@ -854,9 +889,11 @@ function Gallery() {
             </Match>
           </Switch>
         </Show>
-        <p class="dinkster-metadata" role="status">
-          {activity()}
-        </p>
+        <Show when={route() !== '#canvas'}>
+          <p class="dinkster-metadata" role="status">
+            {activity()}
+          </p>
+        </Show>
       </ProductPage>
       <ProductToast
         notification={toast()}
@@ -888,9 +925,15 @@ function Gallery() {
   )
 }
 
+// The same width at which the stylesheet switches to the narrow layout.
+const narrowQuery = matchMedia(
+  `(max-width: ${components.layout.sidebarBreakpoint}px)`,
+)
+
 function WindowToolbarGallery() {
   const [state, setState] = createSignal('idle')
   const [shortcut, setShortcut] = createSignal('Ctrl+K')
+  const [brand, setBrand] = createSignal('menu')
   const [activity, setActivity] = createSignal('No action yet')
   return (
     <main class="dinkster-stack">
@@ -911,6 +954,18 @@ function WindowToolbarGallery() {
               <For each={['idle', 'running', 'pending']}>
                 {(value) => <option value={value}>{value}</option>}
               </For>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <ProductField label="Brand presentation">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={brand()}
+              onChange={(event) => setBrand(event.currentTarget.value)}
+            >
+              <option value="menu">Plain menu</option>
+              <option value="wordmark">Wordmark action</option>
             </ProductSelect>
           )}
         </ProductField>
@@ -956,16 +1011,30 @@ function WindowToolbarGallery() {
                       qa={service === 'qa'}
                       development={service !== 'production'}
                       brand={
-                        <ProductMenu
-                          label="Dinkster"
-                          icon={Menu}
-                          items={[
-                            {
-                              label: 'Projects',
-                              onSelect: () => setActivity('Projects opened'),
-                            },
-                          ]}
-                        />
+                        <Show
+                          when={brand() === 'wordmark'}
+                          fallback={
+                            <ProductMenu
+                              label="Dinkster"
+                              icon={Menu}
+                              items={[
+                                {
+                                  label: 'Projects',
+                                  onSelect: () =>
+                                    setActivity('Projects opened'),
+                                },
+                              ]}
+                            />
+                          }
+                        >
+                          <ProductWindowAction
+                            label="Dinkster"
+                            labelContent={<ProductWordmark theme={theme} />}
+                            icon={Menu}
+                            pending={state() === 'pending'}
+                            onClick={() => setActivity('Dinkster opened')}
+                          />
+                        </Show>
                       }
                       search={
                         <ProductWindowAction
@@ -1020,9 +1089,21 @@ function WindowToolbarGallery() {
 
 function GalleryRoot() {
   const [route, setRoute] = createSignal(window.location.hash)
+  const [narrow, setNarrow] = createSignal(narrowQuery.matches)
+  // The site pages use the site form throughout. The gallery uses the Canvas
+  // page's frame, except that below the breakpoint its other pages keep the
+  // site form's narrow frame; their content always uses the site form.
   createEffect(() => {
-    document.documentElement.dataset.density =
-      route() === '#canvas' || route() === '#window-toolbar' ? 'app' : 'site'
+    document.documentElement.dataset.density = route().startsWith('#site-')
+      ? 'site'
+      : route() !== '#canvas' && route() !== '#window-toolbar' && narrow()
+        ? 'site'
+        : 'app'
+  })
+  onMount(() => {
+    const change = () => setNarrow(narrowQuery.matches)
+    narrowQuery.addEventListener('change', change)
+    onCleanup(() => narrowQuery.removeEventListener('change', change))
   })
   onMount(() => {
     const update = () => setRoute(window.location.hash)

@@ -151,21 +151,23 @@ describe('menuTargetOf', () => {
         kind: 'widget',
         node: { id: 'inst' },
         row: {
-          inputId: 'lora.m1#strength',
-          familyOwner: { graphId: 'sub', nodeId: 'owner', construct: 'b0', valueKey: 'b0.m1#strength' },
+          inputId: 'lora.m1.strength',
+          address: { port: 'lora.m1.strength' },
+          familyOwner: { graphId: 'sub', nodeId: 'owner', construct: 'b0', valueKey: 'b0.m1.strength' },
         },
       })),
     ).toEqual({
       kind: 'widget',
       nodeId: 'inst',
-      inputId: 'lora.m1#strength',
-      owner: { graphId: 'sub', nodeId: 'owner', inputId: 'b0.m1#strength' },
+      inputId: 'lora.m1.strength',
+      address: { port: 'lora.m1.strength' },
+      owner: { graphId: 'sub', nodeId: 'owner', inputId: 'b0.m1.strength' },
     })
   })
 
   it('flags unpersisted widget rows and taps synthetic (ghost, materialize)', () => {
-    const flagged = (row: unknown) =>
-      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row })) as { synthetic?: true }).synthetic
+    const flagged = (row: object) =>
+      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row: { address: { port: 'x' }, ...row } })) as { synthetic?: true }).synthetic
     expect(flagged({ inputId: 'x', ghost: true })).toBe(true)
     expect(flagged({ inputId: 'x', materialize: [{ construct: 'c', member: 'm' }] })).toBe(true)
     expect(flagged({ inputId: 'x' })).toBeUndefined()

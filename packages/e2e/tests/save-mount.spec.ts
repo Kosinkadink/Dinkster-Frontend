@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function mountPoint(page: Page, inputId = 'destination', nodeId = 'save') {
   return page.evaluate(({ inputId, nodeId }) => {
@@ -26,7 +26,7 @@ test('native SaveImage and SaveVideo keep imported prefixes beside independent m
   expect(catalog.nodes).not.toHaveProperty('Set Save Target Prefix')
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   const imported = await page.evaluate(async () => {
     const workflow = { version: 0.4, nodes: [
       { id: 1, type: 'SaveImage', pos: [60, 60], size: [350, 180], inputs: [{ name: 'images', type: 'IMAGE', link: null }], outputs: [], widgets_values: ['images/first'], properties: { ver: '0.3.68' } },
@@ -49,7 +49,7 @@ test('native SaveImage and SaveVideo keep imported prefixes beside independent m
     expect(mount.y).toBe(prefix.y)
     expect(mount.x).toBeGreaterThan(prefix.x)
     await page.mouse.click(prefix.x, prefix.y)
-    await expect(page.getByTestId('widget-editor')).toBeVisible()
+    await expect(page.getByTestId('widget-editor').locator('input')).toBeVisible()
     await page.keyboard.press('Escape')
     await page.mouse.click(mount.x, mount.y)
     await expect(page.getByTestId('mount-widget-editor')).toHaveAttribute('data-mounts', 'ready')
@@ -101,7 +101,7 @@ test('schema adjacency keeps separate prefix and mount controls through selectio
   expect(point.y).toBe(prefixPoint.y)
   expect(point.x).toBeGreaterThan(prefixPoint.x)
   await page.mouse.click(prefixPoint.x, prefixPoint.y)
-  await expect(page.locator('[data-testid="widget-editor"]')).toBeVisible()
+  await expect(page.locator('[data-testid="widget-editor"][data-editor-surface="in-row"] input')).toBeVisible()
   await page.keyboard.press('Escape')
   await page.screenshot({ path: testInfo.outputPath('mount-row-default.png') })
   await page.mouse.click(point.x, point.y)

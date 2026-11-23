@@ -13,6 +13,67 @@ export interface EditorViewport {
 
 export const CANVAS_MEDIA_DOM_LIMIT = 24
 
+/**
+ * The shift that puts an element's offset parent on the device pixel grid.
+ * The canvas paints into a bitmap the browser places on whole device pixels,
+ * while DOM text over it lays out from the parent's fractional page position;
+ * an editor laid over painted text adds this shift so its text lands on the
+ * same pixels.
+ */
+export function devicePixelSnap(element: HTMLElement): { readonly x: number; readonly y: number } {
+  const parent = element.offsetParent?.getBoundingClientRect()
+  if (parent === undefined) return { x: 0, y: 0 }
+  const ratio = window.devicePixelRatio || 1
+  return {
+    x: Math.round(parent.left * ratio) / ratio - parent.left,
+    y: Math.round(parent.top * ratio) / ratio - parent.top,
+  }
+}
+
+let metricsContext: CanvasRenderingContext2D | null | undefined
+
+/**
+ * The row, in CSS pixels from the canvas origin, on which the canvas paints
+ * the baseline of a line of `px` text in `family` centered at `center`. The
+ * canvas centers the line with `textBaseline = 'middle'` at the unscaled
+ * font size, scales it, and puts the baseline on the nearest device pixel.
+ */
+export function canvasBaselineRow(px: number, family: string, scale: number, center: number): number {
+  metricsContext ??= document.createElement('canvas').getContext('2d')
+  const context = metricsContext
+  if (context === null) return center
+  context.font = `${px}px ${family}`
+  context.textBaseline = 'alphabetic'
+  const alphabetic = context.measureText('H').actualBoundingBoxAscent
+  context.textBaseline = 'middle'
+  const below = alphabetic - context.measureText('H').actualBoundingBoxAscent
+  context.textBaseline = 'alphabetic'
+  const ratio = window.devicePixelRatio || 1
+  return Math.round((center + below * scale) * ratio) / ratio
+}
+
+/**
+ * The page position, in CSS pixels, of the first baseline the browser lays
+ * out in `element`, read from a hidden copy of its box at the same place.
+ * Layout rounds font metrics and centering in ways a formula does not
+ * reproduce at every zoom, so the baseline is measured instead.
+ */
+export function domFirstBaseline(element: HTMLElement): number {
+  const style = getComputedStyle(element)
+  const box = element.getBoundingClientRect()
+  const copy = document.createElement('div')
+  copy.style.cssText = `position:fixed;visibility:hidden;margin:0;white-space:nowrap;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;box-sizing:${style.boxSizing};display:${style.display === 'flex' ? 'flex' : 'block'};align-items:${style.alignItems};font-family:${style.fontFamily};font-size:${style.fontSize};font-weight:${style.fontWeight};font-style:${style.fontStyle};line-height:${style.lineHeight};padding-top:${style.paddingTop};border-top:${style.borderTopWidth} solid transparent`
+  const line = document.createElement('div')
+  const marker = document.createElement('span')
+  marker.style.cssText = 'display:inline-block;width:0;height:0'
+  line.append('H', marker)
+  copy.append(line)
+  document.body.append(copy)
+  const baseline = marker.getBoundingClientRect().top
+  copy.remove()
+  return baseline
+}
+
 /** Project once when a popover opens; later canvas movement does not chase it. */
 export function editorScreenAnchor(rect: EditorWorldRect, viewport: EditorViewport): EditorWorldRect {
   return {

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, nativeTest, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest, openRailPanel, test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const readJson = (path: string): any => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
 // Import results stay independent of the current backend catalog; see the
@@ -19,13 +19,12 @@ const subgraphChildren = (doc: any): Record<string, string[]> => Object.fromEntr
 ]))
 
 async function enterInstance(page: Page, id: string): Promise<void> {
-  const point = await page.evaluate((id) => {
+  await page.evaluate((id) => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === id)!
     renderer.setViewport({ x: 300 - node.x, y: 200 - node.y, scale: 1 })
-    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: canvas.left + 300 + node.layout.width / 2, y: canvas.top + 200 + node.layout.headerHeight / 2 }
   }, id)
+  const point = await subgraphMarkPoint(page, id)
   await page.mouse.dblclick(point.x, point.y)
 }
 
@@ -36,7 +35,7 @@ async function expectSchemasReady(page: Page): Promise<void> {
   const schemaCount = Object.keys(catalog.nodes).length
   expect(schemaCount).toBeGreaterThan(0)
   await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`(?<!\\d)${schemaCount} node schemas`))
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 }
 
 nativeTest('retains unattached typed boundary slots without phantom destinations', async ({ page }, testInfo) => {
@@ -274,7 +273,7 @@ for (const name of templates) test(`imports and drills into official nested subg
 
 nativeTest.describe('native structural output boundaries', () => {
   nativeTest.beforeEach(async ({ page }) => {
-    await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) =>
+    await page.route(/\/api\//, (route) =>
       route.fulfill({ status: 503, body: 'Frontend contract fixture' }),
     )
     await page.route('/supervisor/status', (route) =>

@@ -49,40 +49,31 @@ export const canvasPaintTokens = {
   viewport: { initialOffset: 40, fitMargin: 60, minFitScale: 0.1, maxFitScale: 2 },
   graphCache: { tilePixels: 512, bleedPixels: 2 },
   badge: {
-    size: 14,
-    stride: 18,
-    rightInset: 22,
-    characterWidth: 5.5,
-    labelPadding: 10,
-    iconWidth: 10,
     radius: 3,
-    iconInset: 1,
-    fontSize: 9,
-    textIconOffset: 5,
     baselineOffset: 0.5,
+    /** The subgraph mark at the right end of the title bar. */
+    /** `iconSize` is the drawn size of the mark's icon. */
+    mark: { size: 20, hitSize: 20, iconSize: 14, padding: 3, gap: 3 },
     tab: {
-      height: 16,
+      height: 20,
       fontSize: 11,
-      inset: 12,
+      /** Distance from the node's left and right outer edges to the first tab. */
+      inset: 0,
+      /** Gap between the node's painted outer edge and its tabs. */
+      offset: 3,
       gap: 2,
       padding: 6,
-      iconSize: 10,
+      /** Drawn size of a tab's icon. */
+      iconSize: 14,
       iconGap: 4,
       maxLabelWidth: 120,
-      overlap: 1,
-      hoverStroke: 1,
-      hoverTint: 0.22,
-      foreground(background: string): string {
-        if (!/^#[0-9a-f]{6}$/i.test(background)) return canvasSemanticTokens.text.primary
-        const channels = background.replace('#', '').match(/.{2}/g)!.map((channel) => {
-          const value = parseInt(channel, 16) / 255
-          return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
-        })
-        const luminance = channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
-        return luminance > 0.179 ? '#000000' : '#ffffff'
-      },
+      stroke: 1,
+      /** Shares of the tab's color: its fill over the canvas, its line over the canvas, its words over the title color. */
+      fillMix: 0.16,
+      hoverFillMix: 0.3,
+      lineMix: 0.65,
+      textMix: 0.7,
     },
-    roomierTab: { height: 20, fontSize: 12, inset: 16 },
     colors: {
       subgraph: '#4a4a5e',
       executionError: '#b3402f',
@@ -93,6 +84,8 @@ export const canvasPaintTokens = {
     },
   },
   controller: {
+    /** Drawn size of the mode icon as a share of its square chip, centered in it. */
+    chipIconRatio: 0.6,
     edgeWidth: 12,
     glyphHalf: 3,
     verticalInset: canvasSemanticTokens.space[4],
@@ -123,7 +116,6 @@ export const canvasPaintTokens = {
     bypassed: { world: [8, 3], screen: [5, 3] },
   },
   node: {
-    minimizedMinWidth: 80,
     titleWidthPadding: canvasSemanticTokens.space[8],
     portLabelPadding: 6,
     labelPinGap: canvasSemanticTokens.space[4],
@@ -133,17 +125,37 @@ export const canvasPaintTokens = {
     widgetLabelPadding: canvasSemanticTokens.space[12],
     widgetValueMinWidth: 90,
     widgetColumnGap: 20,
+    /** Rows an open text result shows by default at most; the node's bottom edge sizes it past that. */
     textOutputMaxRows: 6,
+    /** Rows an open text result shows at least. */
+    textOutputMinRows: 2,
+    /**
+     * The bar on the bottom edge of a node whose preview is open: the text
+     * box's bar (`widget.textBoxEdge`), its top `barRise` above the node's
+     * edge so it sits on the edge, and a band around the edge that drags it.
+     * Arrow keys on a pressed bar step a picture's height by `keyStep`; a text
+     * result steps one row.
+     */
+    previewEdge: { barRise: 1, hitAbove: 5, hitBelow: 5, keyStep: 10 },
     missing: { portLabelPadding: 4, pairedPortGap: 16, tapLabelPadding: 20 },
     widgetPinGap: canvasSemanticTokens.space[4],
     pinOverhang: canvasSemanticTokens.space[12],
     modeOpacity: canvasSemanticTokens.interaction.disabledOpacity,
-    outline: { idle: 1.25, strong: 2.5, unrecognizedFactor: 3, screen: 1, strongScreen: 2 },
+    /** `crisp` is the idle outline of a node look with crisp edges. */
+    outline: { idle: 1.25, crisp: 1, strong: 2.5, unrecognizedFactor: 3, screen: 1, strongScreen: 2 },
     identityBodyTint: 0.18,
     identityHeaderTint: 0.72,
     errorBodyTint: 0.2,
     errorHeaderTint: 0.35,
+    /** The flat-title look's rule under the title, inside the title bar. */
+    headerRuleStroke: 1,
     titleBadgeGap: canvasSemanticTokens.space[4],
+    /**
+     * The minimize arrow at the left end of the title bar: its square target
+     * starts `left` in from the node's edge, and the title starts where the
+     * target ends. The arrow itself is the section disclosure triangle.
+     */
+    minimizeArrow: { left: 5, target: 18, hoverRadius: 3 },
     drop: { outset: 2, opacity: 0.65, stroke: 1.5 },
     scope: { outset: 5, stroke: 2.5, minScreenStroke: 2 },
     progress: { height: 3, minScreenHeight: 1.5 },
@@ -180,7 +192,17 @@ export const canvasPaintTokens = {
     dividerMinWorld: 0.75,
     dividerMaxWorld: canvasSemanticTokens.space[4],
     diamondScale: 1.25,
-    hoverScale: 1.35,
+    /**
+     * The pin for an input that takes one value or a list: the list diamond
+     * behind a smaller circle with a dark ring around the circle. Multiples of
+     * an ordinary pin's radius: the diamond's corner, the circle's radius and
+     * the ring's width.
+     */
+    eitherDiamond: 1.65,
+    eitherCircle: 0.75,
+    eitherRing: 0.22,
+    /** A pointed pin's radius grows by this many pixels, so an 11px disc becomes 13px on the same whole-pixel center. */
+    hoverGrowth: 1,
     statusRingGap: 3.5,
     statusRingStroke: canvasSemanticTokens.interaction.focusRingWidth,
     outlineStroke: 1,
@@ -206,6 +228,8 @@ export const canvasPaintTokens = {
   },
   toolbox: {
     buttonSize: 28,
+    /** Drawn size of a button's icon, centered in the button. */
+    iconSize: 16.8,
     gap: 5,
     padding: 6,
     selectionGap: canvasSemanticTokens.space[16],
@@ -241,6 +265,8 @@ export const canvasPaintTokens = {
     dropOutset: 2,
     dropStroke: 2,
     labelPinGap: canvasSemanticTokens.space[4],
+    /** Space between the panel title and the quieter text naming whose values its fields carry. */
+    subtitleGap: canvasSemanticTokens.space[4],
   },
   valueSource: {
     heightPadding: 8,
@@ -327,6 +353,8 @@ export const canvasPaintTokens = {
     multilineLeadingNumerator: 4,
     multilineLeadingDenominator: 3,
     semiboldWeight: 600,
+    /** Noto Sans capital height in ems; a pin's name centers its capitals on the pin. */
+    capHeight: 0.714,
     smallMinSize: 9,
     smallReduction: 1,
     adornmentMinSize: 8,
@@ -339,7 +367,8 @@ export const canvasPaintTokens = {
     outputPinGap: canvasSemanticTokens.space[4],
     outputOffsetY: 10,
   },
-  icon: { circleRadiusRatio: 0.22, paddingRatio: 0.2, viewBoxSize: 24, stroke: 2 },
+  /** The filled circle icon's radius is a share of the icon's drawn size. */
+  icon: { circleRadiusRatio: 11 / 30, viewBoxSize: 24, stroke: 2 },
   virtualNote: {
     verticalPadding: canvasSemanticTokens.space[8],
     bodyTint: 0.28,
@@ -367,9 +396,17 @@ export const canvasPaintTokens = {
     provenancePosition: 0.25,
     metadataPosition: 0.75,
     outputPadding: canvasSemanticTokens.space[4],
-    outputMaxLines: 6,
     staleStroke: 1,
     staleUnderlineOffset: 1,
+    /** The "Preview" caption row over a preview or text result. */
+    caption: {
+      padLeft: 6,
+      padRight: canvasSemanticTokens.space[8],
+      gap: 6,
+      thumbHeight: canvasSemanticTokens.space[16],
+      thumbMaxWidth: 28,
+      radius: canvasSemanticTokens.space[4],
+    },
   },
   lensAffordance: {
     rowMinSize: 10,
@@ -422,8 +459,17 @@ export const canvasPaintTokens = {
     nameOffset: 3,
   },
   widget: {
-    opener: { iconSize: 20, iconInset: 2, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
-    curve: { sourceRows: 2, inset: 2, minSampleHeight: 1 },
+    /**
+     * A row that opens an editor: `iconSize` is the drawn size of its kind icon
+     * and chevron, `iconInset` the kind icon's distance from the row's left
+     * edge and `trailingInset` the chevron's from its right edge.
+     */
+    opener: { iconSize: 12, iconInset: 6, trailingInset: 8, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
+    /** The subgraph icon before the name of a field shown on the subgraph node without a wire; `size` is drawn. */
+    subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
+    curve: { sourceRows: 2, inset: 4, insetX: 6, minSampleHeight: 1 },
+    /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
+    valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3 },
     minLabelWidth: 44,
     minValueWidth: 56,
     labelValueGap: 5,
@@ -452,13 +498,41 @@ export const canvasPaintTokens = {
     },
     chevron: { stroke: 1.5, topOffset: -2, bottomOffset: 1 },
     scrollbarMinThumbRatio: 2,
+    /**
+     * The short bar on a text box's bottom edge, measured from the row's
+     * bottom. The bar widens under the pointer, while dragged and with
+     * keyboard focus; the hit band spans the box's full width.
+     */
+    textBoxEdge: {
+      width: 22,
+      hotWidth: 34,
+      height: 3,
+      radius: 1.5,
+      bottomOffset: 5,
+      hitAbove: 7,
+      hitBelow: 3,
+      /** A box is 2 to 16 lines tall; an arrow key steps one line. */
+      minLines: 2,
+      maxLines: 16,
+      keyStepLines: 1,
+    },
     inactiveOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     connectedOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     hoverOpacity: 0.12,
     diagnosticStroke: 1.5,
+    /** Outline of the field a held wire would take. */
+    dropStroke: 2,
     connectedControllerOpacity: 0.5,
     connectedGlyphOpacity: 0.35,
     stepperStroke: 1.5,
+    /** Moves a 1 px line onto a pixel row's center. */
+    pixelCenter: 0.5,
+    rangeFillAccentOpacity: 0.2,
+    dragLineStroke: 2,
+    /** A seed's mode icon before its value: drawn size, room kept before it, gap to the value. */
+    modeIconSize: canvasSemanticTokens.space[12],
+    modeIconLead: canvasSemanticTokens.space[4],
+    modeIconGap: canvasSemanticTokens.space[8],
     staleValueStroke: 1.5,
     companion: { stroke: 1, underlineOffset: canvasSemanticTokens.space[4] },
     fallbackValueWidthPadding: canvasSemanticTokens.space[8],
@@ -499,6 +573,38 @@ export function canvasDetailLevel(scale: number, mediaControlMinScale: number): 
   return scale >= CANVAS_DETAIL_MIN_SCALE ? 'content' : 'overview'
 }
 
+export type NodeLook = 'original' | 'flat-title'
+
+export interface RowGeometry {
+  /** Height of a row that holds only pins. */
+  readonly portRowHeight: number
+  /** A widget field's inset from the top and bottom of its row. */
+  readonly fieldInsetY: number
+  /** A widget field's inset from the node's edge. */
+  readonly fieldInsetX: number
+  /** Width of the stepper zone at each end of a number field. */
+  readonly stepperZone: number
+  /** Distance from a field's end to its stepper glyph's center. */
+  readonly stepperCenter: number
+  readonly stepperStroke: number
+  /** A number field's label, after the minus stepper's zone. */
+  readonly stepperLabelInset: number
+  /** Extra inset of a text field's value from the field's right end. */
+  readonly textEndInset: number
+  /** A pin's name, from the node's edge. */
+  readonly portLabelInset: number
+  /** Space from the title line to a first row that is boxed (a field, section or growth row). */
+  readonly boxedTopInset: number
+  /** Space from the title line to a first row of pins, whose text carries its own space. */
+  readonly pinTopInset: number
+  /**
+   * Space from a last row of pins to the node's bottom edge; after a boxed row
+   * it is padBottom. Both bottom insets include the 1px border, which is drawn
+   * inside the node's box.
+   */
+  readonly pinBottomInset: number
+}
+
 export interface DesignTokens {
   readonly rowHeight: number
   readonly headerHeight: number
@@ -519,8 +625,38 @@ export interface DesignTokens {
   readonly fontFamily: string
   readonly fontSize: number
   readonly titleFontSize: number
-  readonly widgetRowLook: 'inset' | 'inset-raised' | 'inset-raised-collections'
-  readonly badgeLayout: 'chips' | 'tabs'
+  /**
+   * Which rows are raised and what a closed row shows. `raised-editors`:
+   * a row that opens an editor is raised, a value typed in its row is an
+   * inset field, a color's square sits directly before its code over a
+   * checker pattern, a curve is drawn in its row, and a value passed down a
+   * wire shows the same summary as its own row. `inset-raised` is the
+   * earlier look: color and asset rows raised, the square by the name, a
+   * curve described in text and a passed structured value shown as code.
+   */
+  readonly widgetRowLook: 'inset-raised' | 'raised-editors'
+  /**
+   * How number, single-line text and seed rows are edited: in a card under
+   * the row, or in the row itself. In-row editing tints a slider's fill with
+   * the accent at rest and names a seed's mode before its value instead of
+   * drawing the mode chip.
+   */
+  readonly widgetEditing: 'card' | 'in-row'
+  /**
+   * The node look: the original, or `flat-title` with taller fields,
+   * tighter gaps, a dark body and a title bar in the body's own color over
+   * a thin rule. `nodeLookTokens` gives the geometry and colors of each.
+   */
+  readonly nodeLook: NodeLook
+  /**
+   * At 100 percent, put the node's idle outline, its title bar's rule,
+   * its row boxes and the steppers' lines on whole pixels: the outline is
+   * 1 px drawn inside the node's box, and stepper lines sit on pixel
+   * centers.
+   */
+  readonly crispEdges: boolean
+  /** Placement inside widget and pin rows; the node look sets it. */
+  readonly rowGeometry: RowGeometry
   readonly badgeTab: { readonly height: number; readonly fontSize: number; readonly inset: number }
   readonly titleOverflow: 'squeeze' | 'ellipsis'
   /** Spacious prompt typography; compact row metrics remain independent. */
@@ -528,6 +664,8 @@ export interface DesignTokens {
     readonly fontSize: number
     readonly lineHeight: number
     readonly padding: number
+    /** Left inset of the text: the label's inset, so text and label start at one x. */
+    readonly textInset: number
     /** Compact floating-label band, independent of the shared row height. */
     readonly labelHeight: number
     readonly scrollbarWidth: number
@@ -537,8 +675,14 @@ export interface DesignTokens {
   readonly colors: {
     readonly canvasBackground: string
     readonly gridDot: string
+    readonly pendingOutline: string
+    readonly skippedOutline: string
     readonly nodeBody: string
     readonly nodeHeader: string
+    /** Face of a raised opener row, lighter than the node body. */
+    readonly widgetRaised: string
+    /** Rule under a title bar drawn in the body's own color. */
+    readonly nodeHeaderRule: string
     /** Structural and pseudo-node outline, stronger than inset chrome. */
     readonly nodeOutline: string
     readonly nodeIdleOutline: string
@@ -548,6 +692,10 @@ export interface DesignTokens {
     readonly groupDefault: string
     readonly title: string
     readonly label: string
+    readonly valueMark: string
+    /** The two squares of the pattern under a color square with opacity. */
+    readonly swatchChecker: string
+    readonly swatchCheckerAlt: string
     readonly value: string
     readonly widgetBackground: string
     /** Muted compact-control tracks and glyphs. */
@@ -556,6 +704,8 @@ export interface DesignTokens {
     readonly widgetAffordanceActive: string
     /** Low-contrast bounded-numeric value-zone fill. */
     readonly widgetRangeFill: string
+    /** Slider fill under in-row editing: the accent, tinted into the field. */
+    readonly widgetRangeFillAccent: string
     readonly linkDefault: string
     readonly selection: string
     /**
@@ -566,6 +716,8 @@ export interface DesignTokens {
     readonly dropTarget: string
     /** Subtle dot marking non-default values hidden by a collapsed section. */
     readonly modifiedIndicator: string
+    /** The cyan subgraph icon on a field shown on the subgraph node without a wire. */
+    readonly subgraphMark: string
     /**
      * Companion (propagated) value text: what a link-driven input WOULD
      * execute with, rendered read-only in neutral italic text in place of
@@ -639,11 +791,14 @@ export const previousCanvasTypePaint: Pick<DesignTokens, 'typeColors' | 'typeFal
   typeFallbackLightness: 62,
 }
 
+/** A field's box inset from the node's edge in the default look; a pin's name lines up with the field's label inside it. */
+const defaultFieldInsetX = 8
+
 export const defaultTokens: DesignTokens = {
-  rowHeight: 24,
-  headerHeight: 28,
+  rowHeight: 26,
+  headerHeight: 26,
   padX: 10,
-  padBottom: 8,
+  padBottom: 6,
   previewDefaultHeight: 180,
   previewMinHeight: 40,
   previewCaptionHeight: 22,
@@ -657,8 +812,25 @@ export const defaultTokens: DesignTokens = {
   fontFamily: canvasSemanticTokens.type.fontFamily,
   fontSize: 12,
   titleFontSize: 13,
-  widgetRowLook: 'inset-raised',
-  badgeLayout: 'chips',
+  widgetRowLook: 'raised-editors',
+  widgetEditing: 'in-row',
+  nodeLook: 'flat-title',
+  crispEdges: true,
+  rowGeometry: {
+    portRowHeight: 26,
+    fieldInsetY: 1,
+    fieldInsetX: defaultFieldInsetX,
+    stepperZone: 22,
+    stepperCenter: 12.5,
+    stepperStroke: 1,
+    stepperLabelInset: 2,
+    textEndInset: 4,
+    // A pin's name starts where a text or choice field's label does.
+    portLabelInset: defaultFieldInsetX + canvasPaintTokens.widget.labelInset,
+    boxedTopInset: 5,
+    pinTopInset: 1,
+    pinBottomInset: 2,
+  },
   badgeTab: canvasPaintTokens.badge.tab,
   titleOverflow: 'ellipsis',
   // Comfy-style prompt fields use 14px type with readable 20px leading and
@@ -668,6 +840,7 @@ export const defaultTokens: DesignTokens = {
     fontSize: 14,
     lineHeight: 20,
     padding: 6,
+    textInset: 6,
     labelHeight: 18,
     scrollbarWidth: 6,
     scrollbarInset: 2,
@@ -675,13 +848,13 @@ export const defaultTokens: DesignTokens = {
   colors: canvasColorsForTheme('dark'),
   ...canvasTypePaintForTheme('dark'),
   stateColors: {
-    pending: '#5c5c5c',
+    pending: canvasSemanticTokens.border.pending,
     running: canvasSemanticTokens.meaning.info.border,
     cached: '#9575cd',
     done: canvasSemanticTokens.meaning.success.border,
     error: canvasSemanticTokens.meaning.danger.border,
     // Normal non-error state (first-class absence), visually calm - never red.
-    skipped: canvasSemanticTokens.text.muted,
+    skipped: canvasSemanticTokens.border.skipped,
   },
   progressBar: canvasSemanticTokens.meaning.info.border,
 }
@@ -692,7 +865,7 @@ export function canvasTypePaintForTheme(theme: 'dark' | 'light'): Pick<DesignTok
     typeColors: {
       ...previousCanvasTypePaint.typeColors,
       ...(theme === 'dark' ? {
-        STRING: '#3A853E', INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A', AUDIO: '#3077C7',
+        INT: '#9D59BA', BOOLEAN: '#CC4077', COMBO: '#86716A',
       } : {
         CLIP: '#A18600', CLIP_VISION: '#6E8E90', CONDITIONING: '#BA7B24', CONTROL_NET: '#489778',
         IMAGE: '#4F8EC1', LATENT: '#B770B2', MASK: '#609563', MODEL: '#9280B3',
@@ -704,13 +877,27 @@ export function canvasTypePaintForTheme(theme: 'dark' | 'light'): Pick<DesignTok
   }
 }
 
+/** `#rrggbb` at an opacity, as an rgba() paint value. */
+function accentTint(color: string, opacity: number): string {
+  const hex = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(color)
+  if (!hex) return color
+  return `rgba(${Number.parseInt(hex[1]!, 16)}, ${Number.parseInt(hex[2]!, 16)}, ${Number.parseInt(hex[3]!, 16)}, ${opacity})`
+}
+
 export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['colors'] {
   const tokens = semanticTokensForTheme(theme)
   return {
     canvasBackground: tokens.surface.canvas,
     gridDot: tokens.border.subtle,
-    nodeBody: tokens.surface.raised,
+    pendingOutline: tokens.border.pending,
+    skippedOutline: tokens.border.skipped,
+    // The dark theme's flat-title look: the darker surface is the body and
+    // the title bar, raised rows take the lighter one. The light theme
+    // keeps its original surfaces.
+    nodeBody: theme === 'dark' ? tokens.surface.panel : tokens.surface.raised,
     nodeHeader: tokens.surface.panel,
+    widgetRaised: theme === 'dark' ? tokens.surface.raised : tokens.surface.panel,
+    nodeHeaderRule: tokens.border.divider,
     nodeOutline: tokens.border.strong,
     nodeIdleOutline: tokens.border.subtle,
     nodeBorder: tokens.border.subtle,
@@ -718,11 +905,16 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     groupDefault: tokens.border.strong,
     title: tokens.text.primary,
     label: tokens.text.secondary,
+    // A word or icon before a value that describes it, such as a seed's mode.
+    valueMark: tokens.text.muted,
+    swatchChecker: tokens.checker.dark,
+    swatchCheckerAlt: tokens.checker.light,
     value: tokens.text.primary,
-    widgetBackground: tokens.surface.inset,
+    widgetBackground: tokens.surface.field,
     widgetAffordance: tokens.text.disabled,
     widgetAffordanceActive: tokens.border.focus,
     widgetRangeFill: tokens.interaction.selectedOverlay,
+    widgetRangeFillAccent: accentTint(tokens.border.focus, canvasPaintTokens.widget.rangeFillAccentOpacity),
     // Link and execution-mode semantics do not change with shell themes.
     linkDefault: '#8d9aa5',
     mutedBadge: '#4a4a5e',
@@ -730,7 +922,10 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     bypassWash: 'rgba(147, 88, 220, 0.28)',
     selection: tokens.border.focus,
     dropTarget: tokens.border.selected,
-    modifiedIndicator: tokens.meaning.warning.border,
+    // The dot on a closed section that hides changed values. Yellow is kept
+    // for problems.
+    modifiedIndicator: tokens.meaning.accent.foreground,
+    subgraphMark: tokens.meaning.accent.foreground,
     companionValue: tokens.text.secondary,
     companionUnproven: tokens.meaning.info.foreground,
     companionEstimate: tokens.meaning.success.foreground,
@@ -871,5 +1066,46 @@ export function presentedType(
     tooltip: canonicalName !== undefined && typeDisplayAliases[canonicalName] !== undefined
       ? `${label} (${canonicalName})`
       : label,
+  }
+}
+
+/**
+ * The tokens a node look changes, to spread over a theme's tokens. The
+ * defaults are the flat-title look; `original` restores the earlier sizes
+ * in both themes and the earlier dark colors, for side-by-side review.
+ */
+export function nodeLookTokens(look: NodeLook, theme: 'dark' | 'light'): Partial<DesignTokens> {
+  if (look === 'flat-title') return { nodeLook: look }
+  const colors = canvasColorsForTheme(theme)
+  const original = semanticTokensForTheme(theme)
+  return {
+    nodeLook: look,
+    crispEdges: false,
+    rowHeight: 24,
+    headerHeight: 28,
+    padBottom: 8,
+    rowGeometry: {
+      portRowHeight: 24,
+      fieldInsetY: 2,
+      fieldInsetX: 5.5 + canvasSemanticTokens.space[4],
+      stepperZone: 12,
+      stepperCenter: 6,
+      stepperStroke: 1.5,
+      stepperLabelInset: 6,
+      textEndInset: 0,
+      portLabelInset: 10 + 5.5 + canvasSemanticTokens.space[4],
+      boxedTopInset: 0,
+      pinTopInset: 0,
+      pinBottomInset: 8,
+    },
+    colors: {
+      ...colors,
+      nodeBody: original.surface.raised,
+      nodeHeader: original.surface.panel,
+      widgetRaised: original.surface.panel,
+      nodeHeaderRule: original.border.subtle,
+      valueMark: colors.label,
+      widgetBackground: original.surface.inset,
+    },
   }
 }

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, nativeTest as base, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as base, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const test = base.extend<{ widgetDocument: boolean }>({ widgetDocument: [true, { option: true }] })
 
@@ -203,7 +203,7 @@ test.beforeEach(async ({ page, widgetDocument }) => {
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,
@@ -526,7 +526,7 @@ test('MARKDOWN previews safely and edits one undoable source string', async ({ p
   await page.screenshot({ path: testInfo.outputPath('markdown-readonly-desktop.png'), animations: 'disabled' })
   await page.keyboard.press('Escape')
   await openEditor(page, 'title')
-  await expect(page.getByRole('dialog', { name: 'Edit title STRING' }).locator('input')).toHaveValue('Unchanged text')
+  await expect(page.getByRole('textbox', { name: 'title', exact: true })).toHaveValue('Unchanged text')
   await page.screenshot({ path: testInfo.outputPath('markdown-string-sibling.png'), animations: 'disabled' })
   await page.keyboard.press('Escape')
 })
@@ -608,29 +608,41 @@ test('FLOAT slider drafts support pointer, keyboard, Cancel and one undoable Com
     await page.setViewportSize({ width: width!, height: height! })
     await openEditor(page, 'amount')
     const editor = page.getByTestId('widget-editor')
-    const slider = editor.getByRole('slider')
-    await expect(slider).toHaveAttribute('aria-valuenow', '0.5')
-    await slider.focus()
-    await slider.press('ArrowRight')
-    await expect(editor.locator('input')).toHaveValue('0.75')
+    const input = editor.locator('input')
+    const fill = editor.locator('.dinkster-canvas-field-fill')
+    const fillWidth = () => fill.evaluate((element) => element.getBoundingClientRect().width)
+    await expect(input).toHaveValue('0.5')
+    const opened = await fillWidth()
+    await editor.getByRole('button', { name: 'Increase' }).click()
+    await expect(input).toHaveValue('0.75')
+    await expect.poll(fillWidth).toBeGreaterThan(opened)
+    // Up and Down step what is typed; Shift is ten steps, held at the limit.
+    await input.press('ArrowUp')
+    await expect(input).toHaveValue('1')
+    await input.press('Shift+ArrowDown')
+    await expect(input).toHaveValue('-0.5')
     expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBeUndefined()
-    const bounds = await slider.boundingBox()
-    await page.mouse.click(bounds!.x + bounds!.width * 0.8, bounds!.y + bounds!.height / 2)
-    await expect(editor.locator('input')).toHaveValue('2')
+    const stepped = await fillWidth()
+    await input.press('Control+a')
+    await input.pressSequentially('2')
+    await expect(input).toHaveValue('2')
+    await expect.poll(fillWidth).toBeGreaterThan(stepped)
     await page.screenshot({ path: testInfo.outputPath(`float-slider-${width}.png`), animations: 'disabled' })
-    await editor.getByTestId('widget-editor-cancel').click()
+    await input.press('Escape')
+    await expect(editor).toHaveCount(0)
     expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBeUndefined()
   }
   await openEditor(page, 'amount')
   await page.getByTestId('widget-editor').locator('input').fill('1.2346')
-  await page.getByTestId('widget-editor-commit').click()
+  await page.getByTestId('widget-editor').locator('input').press('Enter')
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBe(1.23)
   await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBeUndefined()
   await openEditor(page, 'ordinary')
-  await expect(page.getByTestId('widget-editor').getByRole('slider')).toHaveCount(0)
+  await expect(page.getByTestId('widget-editor').locator('input')).toBeVisible()
+  await expect(page.getByTestId('widget-editor').locator('.dinkster-canvas-field-fill')).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('float-number-sibling.png'), animations: 'disabled' })
-  await page.getByTestId('widget-editor-cancel').click()
+  await page.getByTestId('widget-editor').locator('input').press('Escape')
   await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())
   for (const representationId of ['number', 'slider']) {
     const point = await rowPoint(page, 'amount')
@@ -644,8 +656,8 @@ test('FLOAT slider drafts support pointer, keyboard, Cancel and one undoable Com
     expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.amount).toBe(1.23)
     await openEditor(page, 'amount')
     await expect(page.getByTestId('widget-editor').locator('input')).toHaveValue('1.23')
-    await expect(page.getByTestId('widget-editor').getByRole('slider')).toHaveCount(representationId === 'slider' ? 1 : 0)
-    await page.getByTestId('widget-editor-cancel').click()
+    await expect(page.getByTestId('widget-editor').locator('.dinkster-canvas-field-fill')).toHaveCount(representationId === 'slider' ? 1 : 0)
+    await page.getByTestId('widget-editor').locator('input').press('Escape')
   }
 })
 
@@ -737,44 +749,47 @@ test('primitive list edits preserve arrays in canvas and exposed AppView control
   await testInfo.attach('primitive-list-app-view', { path: appPath, contentType: 'image/png' })
 })
 
-test('INT commits exact integers, rejects malformed text, and does not clamp or step', async ({ page }) => {
+test('INT corrects typed whole numbers to their limit and step and keeps the stored value for malformed text', async ({ page }) => {
   const value = async () => (await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count
+  const problem = page.getByTestId('widget-editor').locator('.dinkster-canvas-side-problem')
   await openEditor(page, 'count')
   let input = page.getByTestId('widget-editor').locator('input')
-  await input.fill('42'); await input.press('Enter')
+  await input.fill('42')
+  await expect(problem).toHaveText('Not a multiple of 5. Enter uses 40.')
+  await input.press('Enter')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
-  expect(await value()).toBe(42)
+  expect(await value()).toBe(40)
 
-  // Fractional text cannot silently change the entered value through rounding.
+  // Fractional text is not rounded silently: the side part says what Enter stores.
   await openEditor(page, 'count'); input = page.getByTestId('widget-editor').locator('input')
-  await input.fill('2.7'); await input.press('Enter')
-  await expect(page.getByTestId('widget-editor')).toBeVisible()
-  await expect(page.getByTestId('widget-editor-error')).toContainText('exact integer')
-  expect(await value()).toBe(42)
-  await input.press('Escape')
+  await input.fill('2.7')
+  await expect(problem).toHaveText('Not a multiple of 5. Enter uses 5.')
+  await input.press('Enter')
+  await expect(page.getByTestId('widget-editor')).toHaveCount(0)
+  expect(await value()).toBe(5)
 
   // Non-numeric text never commits: the stored value is retained verbatim
-  // and the editor STAYS OPEN (nothing closed it), so Escape then discards.
+  // and Enter closes the field without a write.
   await openEditor(page, 'count'); input = page.getByTestId('widget-editor').locator('input')
-  await input.fill('not a number'); await input.press('Enter')
-  await expect(page.getByTestId('widget-editor')).toBeVisible()
-  await expect(page.getByTestId('widget-editor-error')).toContainText('exact integer')
-  await input.press('Escape')
+  await input.fill('not a number')
+  await expect(problem).toHaveText('Not a number. Enter keeps 5.')
+  await expect(input).toHaveAttribute('aria-invalid', 'true')
+  await input.press('Enter')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
-  expect(await value()).toBe(42)
+  expect(await value()).toBe(5)
 
   // Escape cancels a pending edit outright.
   await openEditor(page, 'count'); input = page.getByTestId('widget-editor').locator('input')
   await input.fill('77'); await input.press('Escape')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
-  expect(await value()).toBe(42)
+  expect(await value()).toBe(5)
 
-  // Current behavior intentionally asserted: min/max metadata does not clamp
-  // (out-of-range commits verbatim; validation surfaces warnings instead)
-  // and `step` metadata has no editor behavior.
+  // A typed whole number past a limit is corrected to that limit.
   await openEditor(page, 'count'); input = page.getByTestId('widget-editor').locator('input')
-  await input.fill('999'); await input.press('Enter')
-  expect(await value()).toBe(999)
+  await input.fill('999')
+  await expect(problem).toHaveText('Above 100. Enter uses 100.')
+  await input.press('Enter')
+  await expect.poll(value).toBe(100)
 })
 
 test('uint64 INT values edit, step, reload, and compile without precision loss', async ({ page }, testInfo) => {
@@ -814,7 +829,8 @@ test('uint64 INT values edit, step, reload, and compile without precision loss',
   await openEditor(page, 'seed')
   const editor = page.getByTestId('widget-editor')
   await expect(editor.locator('input')).toHaveValue('18446744073709551615')
-  await expect(page.getByTestId('widget-numeric-constraints')).toContainText('18446744073709551615')
+  // The type's own maximum counts as no limit, so the range has one side.
+  await expect(editor.locator('.dinkster-canvas-side-facts')).toContainText('range0 or more')
   const screenshotPath = testInfo.outputPath('uint64-exact-integer-editor.png')
   await page.screenshot({ path: screenshotPath, animations: 'disabled' })
   await testInfo.attach('uint64-exact-integer-editor', { path: screenshotPath, contentType: 'image/png' })
@@ -875,17 +891,16 @@ test('FR15 an empty numeric commit never writes zero', async ({ page }) => {
   let input = page.getByTestId('widget-editor').locator('input')
   await input.fill('42'); await input.press('Enter')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
-  expect(await value()).toBe(42)
+  expect(await value()).toBe(40)
 
-  // Number('') is 0 - an empty or whitespace commit must error, not write 0.
+  // Number('') is 0 - an empty or whitespace commit keeps the stored value, not 0.
   for (const raw of ['', '   ']) {
     await openEditor(page, 'count'); input = page.getByTestId('widget-editor').locator('input')
-    await input.fill(raw); await input.press('Enter')
-    await expect(page.getByTestId('widget-editor')).toBeVisible()
-    await expect(page.getByTestId('widget-editor-error')).toContainText('finite number')
-    await input.press('Escape')
+    await input.fill(raw)
+    await expect(page.getByTestId('widget-editor').locator('.dinkster-canvas-side-problem')).toHaveText('Not a number. Enter keeps 40.')
+    await input.press('Enter')
     await expect(page.getByTestId('widget-editor')).toHaveCount(0)
-    expect(await value()).toBe(42)
+    expect(await value()).toBe(40)
   }
 })
 
@@ -899,7 +914,7 @@ test('FR15 Enter during an IME composition never commits an editor', async ({ pa
   await input.evaluate((el) => {
     el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }))
   })
-  await expect(page.getByTestId('widget-editor')).toBeVisible()
+  await expect(input).toBeVisible()
   expect(await value()).toBeUndefined()
   // A real Enter after composition commits normally.
   await input.press('Enter')
@@ -953,31 +968,30 @@ test('FR15 a composing Enter never commits the COMBO, multiline, or COLOR editor
   expect((await values()).color).toBe('#00ff3380')
 })
 
-test('numeric compact stepping stays primary while the optional popover supports exact commit/cancel', async ({ page }) => {
+test('numeric compact stepping stays primary while the in-row field supports exact commit/cancel', async ({ page }) => {
   await openEditor(page, 'count')
   const editor = page.getByTestId('widget-editor')
-  const dialog = page.getByRole('dialog', { name: 'Edit count INT' })
-  await expect(dialog).toBeVisible()
-  await expect(editor).toHaveAttribute('data-editor-surface', 'popover')
+  const field = page.getByRole('textbox', { name: 'count', exact: true })
+  await expect(field).toBeVisible()
+  await expect(field).toHaveAttribute('aria-description', 'INT')
+  await expect(editor).toHaveAttribute('data-editor-surface', 'in-row')
   await expect(page.getByTestId('widget-modal-surface')).toHaveCount(0)
-  await expect(page.getByTestId('widget-editor-step-controls')).toHaveCount(0)
-  await expect(page.getByTestId('widget-editor-label')).toHaveText('count')
-  await expect(page.getByTestId('widget-editor-type')).toHaveText('INT')
-  await expect(page.getByTestId('widget-editor-type')).toHaveCSS('background-color', 'rgb(157, 89, 186)')
-  await expect(page.getByTestId('widget-editor-type')).toHaveCSS('color', 'rgb(255, 255, 255)')
-  await expect(page.getByTestId('widget-numeric-constraints')).toContainText('Minimum0')
-  await expect(page.getByTestId('widget-numeric-constraints')).toContainText('Maximum100')
-  await expect(page.getByTestId('widget-numeric-constraints')).toContainText('Step5')
+  await expect(editor.getByRole('button', { name: 'Decrease' })).toBeVisible()
+  await expect(editor.getByRole('button', { name: 'Increase' })).toBeVisible()
+  const facts = editor.locator('.dinkster-canvas-side-facts')
+  await expect(facts).toContainText('range0 to 100')
+  await expect(facts).toContainText('step5')
+  await expect(facts).toContainText('default5')
 
   await editor.locator('input').fill('44')
-  await page.getByTestId('widget-editor-cancel').click()
+  await editor.locator('input').press('Escape')
   await expect(editor).toHaveCount(0)
   await expect(page.getByTestId('graph-canvas')).toBeFocused()
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBeUndefined()
 
   await openEditor(page, 'count')
   await editor.locator('input').fill('45')
-  await page.getByTestId('widget-editor-commit').click()
+  await editor.locator('input').press('Enter')
   await expect(editor).toHaveCount(0)
   await expect(page.getByTestId('graph-canvas')).toBeFocused()
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBe(45)
@@ -1002,33 +1016,32 @@ test('numeric compact stepping stays primary while the optional popover supports
 test('numeric editors select all while native arrows collapse the selection', async ({ page }) => {
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   await openEditor(page, 'count')
-  const dialog = page.getByRole('dialog', { name: 'Edit count INT' })
-  const numeric = dialog.locator('input')
-  await expect(dialog).toHaveAttribute('aria-label', 'Edit count INT')
+  const numeric = page.getByRole('textbox', { name: 'count', exact: true })
+  await expect(numeric).toHaveAttribute('aria-description', 'INT')
   await expect(numeric).toBeFocused()
   expect(await numeric.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd, el.value.length])).toEqual([0, 1, 1])
   await numeric.pressSequentially('42')
   await expect(numeric).toHaveValue('42')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
   await numeric.press('Escape')
-  await expect(dialog).toHaveCount(0)
+  await expect(numeric).toHaveCount(0)
   await expect(page.getByTestId('graph-canvas')).toBeFocused()
 
   await openEditor(page, 'count')
-  const left = page.getByRole('dialog', { name: 'Edit count INT' }).locator('input')
+  const left = page.getByRole('textbox', { name: 'count', exact: true })
   await left.press('ArrowLeft')
   expect(await left.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, 0])
   await left.press('Escape')
 
   await openEditor(page, 'count')
-  const right = page.getByRole('dialog', { name: 'Edit count INT' }).locator('input')
+  const right = page.getByRole('textbox', { name: 'count', exact: true })
   const length = await right.evaluate((el: HTMLInputElement) => el.value.length)
   await right.press('ArrowRight')
   expect(await right.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([length, length])
   await right.press('Escape')
 
   await openEditor(page, 'title')
-  const text = page.getByRole('dialog', { name: 'Edit title STRING' }).locator('input')
+  const text = page.getByRole('textbox', { name: 'title', exact: true })
   await expect(text).toBeFocused()
   const textSelection = await text.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd, el.value.length])
   expect(textSelection[0]).toBe(textSelection[1])
@@ -1037,23 +1050,23 @@ test('numeric editors select all while native arrows collapse the selection', as
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
 
   await openEditor(page, 'count')
-  const committed = page.getByRole('dialog', { name: 'Edit count INT' }).locator('input')
+  const committed = page.getByRole('textbox', { name: 'count', exact: true })
   await committed.pressSequentially('77')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
   await committed.press('Enter')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision + 1)
-  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBe(77)
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBe(75)
 })
 
 test('widget popover keeps interior chrome open, Cancel and Escape discard, and canvas click-away commits', async ({ page }) => {
   await openEditor(page, 'count')
   const editor = page.getByTestId('widget-editor')
   await editor.locator('input').fill('73')
-  await page.getByTestId('widget-editor-meta').click()
-  await expect(editor).toBeVisible()
+  await editor.locator('.dinkster-canvas-side-facts dt').first().click()
+  await expect(editor.locator('input')).toBeVisible()
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBeUndefined()
 
-  await page.getByTestId('widget-editor-cancel').click()
+  await editor.locator('input').press('Escape')
   await expect(editor).toHaveCount(0)
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBeUndefined()
 
@@ -1093,15 +1106,15 @@ test('one outside click commits the first editor and opens a second widget on th
   await page.getByTestId('widget-editor').locator('input').fill('first title')
   const sameNode = await rowPoint(page, 'count')
   await page.mouse.click(sameNode.x, sameNode.y)
-  await expect(page.getByRole('dialog', { name: 'Edit count INT' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'count', exact: true })).toBeVisible()
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.title).toBe('first title')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision + 1)
 
   await page.getByTestId('widget-editor').locator('input').fill('61')
   const otherNode = await nodeRowPoint(page, 'other', 'amount')
   await page.mouse.click(otherNode.x, otherNode.y)
-  await expect(page.getByRole('dialog', { name: 'Edit amount FLOAT' })).toBeVisible()
-  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBe(61)
+  await expect(page.getByRole('textbox', { name: 'amount', exact: true })).toBeVisible()
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBe(60)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision + 2)
   await page.keyboard.press('Escape')
 })
@@ -1127,7 +1140,7 @@ test('the initiating click-away press still selects a node or activates its tool
   const more = await toolboxButtonPoint(page, 'core.more')
   await page.mouse.click(more.x, more.y)
   await expect(page.getByTestId('context-menu')).toBeVisible()
-  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBe(62)
+  expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBe(60)
   await page.keyboard.press('Escape')
 
   await openEditor(page, 'title')
@@ -1145,18 +1158,15 @@ test('a composing Escape does not close the STRING popover or write its draft', 
   const input = page.getByTestId('widget-editor').locator('input')
   await input.fill('composing draft')
   await input.dispatchEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true })
-  await expect(page.getByTestId('widget-editor')).toBeVisible()
+  await expect(input).toBeVisible()
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.title).toBeUndefined()
   await input.press('Escape')
 })
 
-test('Tab reaches popover Cancel and Enter discards STRING and COLOR drafts', async ({ page }) => {
+test('Escape discards a STRING draft and Tab reaches popover Cancel so Enter discards a COLOR draft', async ({ page }) => {
   await openEditor(page, 'title')
   await page.getByTestId('widget-editor').locator('input').fill('discarded text')
-  await page.keyboard.press('Tab')
-  const closeString = page.getByTestId('widget-editor-cancel')
-  await expect(closeString).toBeFocused()
-  await page.keyboard.press('Enter')
+  await page.keyboard.press('Escape')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.title).toBeUndefined()
 
@@ -1174,9 +1184,10 @@ test('widget popover is anchored, non-draggable, Escape-restoring, and fits a su
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 650, y: 0, scale: 1 }))
   await page.getByTestId('rail-toggle').click()
   await expect(page.getByTestId('rail-toggle')).toHaveAttribute('aria-pressed', 'false')
-  await openEditor(page, 'count')
-  const dialog = page.getByRole('dialog', { name: 'Edit count INT' })
-  const editor = page.getByTestId('widget-editor')
+  // Number rows edit in their row; COLOR keeps the shared popover frame.
+  await openEditor(page, 'color')
+  const dialog = page.getByRole('dialog', { name: 'Edit color COLOR' })
+  const editor = page.getByTestId('color-editor')
   await page.setViewportSize({ width: 1200, height: 900 })
   const moderate = await dialog.boundingBox()
   const canvas = await page.getByTestId('graph-canvas').boundingBox()
@@ -1223,15 +1234,17 @@ test('INT and single-line STRING popover blur does not commit while in-node mult
   const int = page.getByTestId('widget-editor').locator('input')
   await int.fill('12'); await int.blur()
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.count).toBeUndefined()
-  await expect(page.getByTestId('widget-editor')).toBeVisible()
-  await page.getByTestId('widget-editor-cancel').click()
+  // The field stays open with what was typed; Escape discards it.
+  await expect(int).toHaveValue('12')
+  await int.press('Escape')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
 
   await openEditor(page, 'title')
   const str = page.getByTestId('widget-editor').locator('input')
   await str.fill('not committed by blur'); await str.blur()
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.title).toBeUndefined()
-  await page.getByTestId('widget-editor-cancel').click()
+  await expect(str).toHaveValue('not committed by blur')
+  await str.press('Escape')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
 
   // The in-node multiline textarea keeps its established blur-commit path.
@@ -1250,7 +1263,7 @@ test('FLOAT rejects non-finite input and preserves precision including scientifi
     await openEditor(page, 'amount')
     const input = page.getByTestId('widget-editor').locator('input')
     await input.fill(bad); await input.press('Enter')
-    await input.press('Escape')
+    await page.keyboard.press('Escape')
     await expect(page.getByTestId('widget-editor')).toHaveCount(0)
     expect(await value(), bad).toBeUndefined()
   }
@@ -1318,7 +1331,7 @@ test('numeric row edge steppers use schema defaults and bounds; each click is on
 
   // A center click retains the text editor behavior.
   await openEditor(page, 'count')
-  await expect(page.getByTestId('widget-editor')).toBeVisible()
+  await expect(page.getByTestId('widget-editor').locator('input')).toBeVisible()
   await page.getByTestId('widget-editor').locator('input').fill('100')
   await page.getByTestId('widget-editor').locator('input').press('Enter')
   await expect(page.getByTestId('widget-editor')).toHaveCount(0)
@@ -1349,10 +1362,9 @@ test('numeric edge controls step an intrinsic default while body activation rema
   expect((await activeDoc(page)).graphs.g0!.nodes.widgets!.values.value).toBe(2)
   await expect(page.getByTestId('widget-popover-layer')).toHaveCount(0)
   await openEditor(page, 'value')
-  await expect(page.getByTestId('widget-editor')).toBeVisible()
-  await expect(page.getByTestId('widget-numeric-constraints')).toContainText('Minimum2')
-  await expect(page.getByTestId('widget-numeric-constraints')).toContainText('Maximum4')
-  await expect(page.getByTestId('widget-numeric-constraints')).toContainText('Step0.5')
+  await expect(page.getByTestId('widget-editor').locator('input')).toBeVisible()
+  await expect(page.getByTestId('widget-editor').locator('.dinkster-canvas-side-facts')).toContainText('range2 to 4')
+  await expect(page.getByTestId('widget-editor').locator('.dinkster-canvas-side-facts')).toContainText('step0.5')
 })
 
 test('tap companions keep INT and STRING defaults, edits, and dormant sink values in the same neutral presentation', async ({ page }) => {
@@ -1424,8 +1436,9 @@ test('tap companions keep INT and STRING defaults, edits, and dormant sink value
     return { x: canvas.left + node.x + node.layout.width / 2, y: canvas.top + node.y + row.y + row.height / 2 }
   })
   await page.mouse.click(sourcePoint.x, sourcePoint.y)
-  await expect(page.getByTestId('widget-editor')).toBeVisible()
-  await expect(page.getByTestId('canvas-widget-a11y')).toHaveCount(0)
+  await expect(page.getByTestId('widget-editor').locator('input')).toBeVisible()
+  // The keyboard list stays available while a row is edited in place.
+  await expect(proxy).toHaveCount(1)
   await page.getByTestId('widget-editor').locator('input').press('Escape')
   await page.keyboard.press('Control+,')
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
