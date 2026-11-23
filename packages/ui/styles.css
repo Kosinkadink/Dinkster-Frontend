@@ -486,8 +486,6 @@
 .dinkster-canvas-field[data-side-past='true'][data-place='left'] .dinkster-canvas-field-panel[data-place='below'] { border-bottom-left-radius: 0; }
 .dinkster-canvas-field[data-panel='below'][data-side='true'][data-place='below-field'] .dinkster-canvas-field-panel { border-radius: 0; }
 .dinkster-canvas-field[data-panel='above'][data-side='true'][data-place='above-field'] .dinkster-canvas-field-panel { border-radius: 0; }
-.dinkster-canvas-field-label-mark { position: relative; display: grid; place-items: center; flex: none; padding-left: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); }
-.dinkster-canvas-field-row .dinkster-canvas-field-label-mark + .dinkster-canvas-field-label { padding-left: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); }
 .dinkster-canvas-list { position: relative; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; background: var(--dinkster-surface-panel); }
 .dinkster-canvas-list[data-scroll='whole'] { overflow-y: auto; }
 .dinkster-canvas-list-entries { position: relative; flex: 0 1 auto; overflow-y: auto; padding: var(--dinkster-space-4) 0; }

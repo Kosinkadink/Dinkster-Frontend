@@ -435,8 +435,6 @@ export function CanvasRowField(
     fill?: number
     /** A mark about the value, such as a seed's mode icon, shown before it. */
     mark?: JSX.Element
-    /** A mark about the stored value, such as a color's square, shown before the label. */
-    labelMark?: JSX.Element
   },
 ) {
   let fill: HTMLDivElement | undefined
@@ -498,9 +496,6 @@ export function CanvasRowField(
             </Show>
           </button>
         )}
-      </Show>
-      <Show when={props.labelMark}>
-        <span class="dinkster-canvas-field-label-mark">{props.labelMark}</span>
       </Show>
       <span class="dinkster-canvas-field-label">{props.label}</span>
       <Show when={props.mark}>
