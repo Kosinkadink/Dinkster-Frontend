@@ -419,9 +419,13 @@ for (const scenario of persistenceCases) {
     const before = await persistedState(page)
     await openEditor(page)
     const featureSubset = scenario.kind === 'both' ? ['trim', 'crop'] : [scenario.kind]
-    for (const feature of ['trim', 'crop']) await expect(page.getByRole('region', { name: `${feature === 'trim' ? 'Trim' : 'Crop'} video` })).toHaveCount(featureSubset.includes(feature) ? 1 : 0)
+    for (const feature of ['trim', 'crop']) await expect(page.getByRole('region', { name: `${feature === 'trim' ? 'Trim' : 'Crop'} video`, exact: true })).toHaveCount(featureSubset.includes(feature) ? 1 : 0)
     for (const [field, value] of Object.entries(scenario.fields)) await page.getByTestId(field).fill(value)
-    await page.getByTestId('editor-frame-apply').click()
+    // An untouched editor has nothing to apply; closing it must leave the stored JSON as it was.
+    if (Object.keys(scenario.fields).length === 0) {
+      await expect(page.getByTestId('editor-frame-apply')).toBeDisabled()
+      await page.getByTestId('editor-frame-cancel').click()
+    } else await page.getByTestId('editor-frame-apply').click()
     await retainRoundTrip(page, info, scenario.name, before, scenario.expected, featureSubset)
   })
 }
@@ -453,7 +457,8 @@ test('malformed numeric edits visibly refuse Apply and can be corrected without 
   await expect(page.getByTestId('editor-frame-apply')).toBeDisabled()
   expect(await valuesOf(page)).toEqual(before)
   await page.getByTestId('widget-modal-surface').screenshot({ path: info.outputPath('trim-invalid-number.png') })
-  await field.fill('3.5')
+  // Apply is available only for a change, so the correction is a different valid duration.
+  await field.fill('4')
   await field.press('Tab')
   await expect(page.getByTestId('video-edit-numeric-error')).toHaveCount(0)
   await expect(page.getByTestId('editor-frame-apply')).toBeEnabled()
@@ -461,11 +466,11 @@ test('malformed numeric edits visibly refuse Apply and can be corrected without 
   await field.press('Enter')
   await expect(page.getByTestId('editor-frame-apply')).toBeDisabled()
   await field.press('Escape')
-  await expect(field).toHaveValue('3.5')
+  await expect(field).toHaveValue('4')
   await expect(page.getByTestId('video-edit-numeric-error')).toHaveCount(0)
   await expect(page.getByTestId('editor-frame-apply')).toBeEnabled()
   await page.getByTestId('editor-frame-apply').click()
-  expect(await valuesOf(page)).toEqual(before)
+  expect(await valuesOf(page)).toEqual({ ...before, video_edit: { ...imported, trim: { ...imported.trim, duration: 4 } } })
 })
 
 test('VIDEO_EDIT value-source pills apply, undo and reopen without sibling writes', async ({ page }, info) => {

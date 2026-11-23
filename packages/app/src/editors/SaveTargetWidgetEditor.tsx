@@ -43,11 +43,12 @@ const SaveTargetImplementation: Component<WidgetEditorImplementationProps> = (pr
     if (mount() !== '' && !entries.some((entry) => entry.id === mount())) entries.unshift({ id: mount(), value: mount(), label: message('mountWidget.unavailable', { id: mount() }), disabled: true })
     return entries
   }
-  // Clearing is a draft like any other: Apply stores the empty destination.
+  // Clearing is a draft like any other: Apply stores the empty destination,
+  // which differs from an unset one.
   const [cleared, setCleared] = createSignal(false)
   const validPrefix = () => isSaveTarget({ mount: 'output', prefix: prefix() })
   const canApply = () => validPrefix() && writable().some((entry) => entry.id === mount())
-  const changed = () => cleared() ? initial !== null && initial !== undefined
+  const changed = () => cleared() ? initial !== null
     : !isSaveTarget(initial) || initial.mount !== mount() || initial.prefix !== prefix()
   props.bindFrame({
     phase: () => error() !== undefined ? 'unavailable' : !settings() ? 'loading'

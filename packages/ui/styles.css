@@ -397,6 +397,8 @@
 .dinkster-editor-frame-state { display: grid; flex: 1; place-content: center; justify-items: center; gap: var(--dinkster-space-12); padding: var(--dinkster-space-16); text-align: center; }
 .dinkster-editor-frame-state > .dinkster-description { margin: 0; }
 .dinkster-editor-frame-footer { display: flex; align-items: center; justify-content: flex-end; gap: var(--dinkster-space-8); flex: none; min-height: var(--dinkster-editor-frame-footer-height); padding: var(--dinkster-space-4) var(--dinkster-space-12); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+/* An unavailable Apply stays legible: a raised neutral button instead of a faded accent one. */
+.dinkster-editor-frame-footer > .dinkster-button[data-fill='solid']:disabled { border-color: var(--dinkster-border-strong); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); opacity: 1; }
 .dinkster-editor-frame-status { flex: 1; min-width: 0; overflow: hidden; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); white-space: nowrap; text-overflow: ellipsis; }
 /* A body laid out as tools, a work area and a settings panel; the panel moves under the work area when the frame is narrow. */
 .dinkster-editor-frame-toolbar { display: flex; align-items: center; gap: var(--dinkster-space-8); flex: none; padding: var(--dinkster-space-8) var(--dinkster-space-12); border-bottom: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }

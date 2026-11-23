@@ -371,7 +371,8 @@ const Load3dImplementation: Component<WidgetEditorImplementationProps> = (props)
     unavailable: () => camera() ? undefined : error(),
     apply,
   })
-  return <div class="widget-frame-body" data-testid="load3d-widget-editor" data-editor-surface="frame">
+  // Typing in a setting counts as soon as it starts, before the field commits on blur.
+  return <div class="widget-frame-body" data-testid="load3d-widget-editor" data-editor-surface="frame" onInput={touch}>
     <Show when={!metadataOnly}><div class="dinkster-editor-frame-toolbar">
       <ProductButton type="button" disabled={!camera() || busy()} onClick={record}>{message(recording() ? 'load3dWidget.stopRecording' : 'load3dWidget.record')}</ProductButton>
     </div></Show>

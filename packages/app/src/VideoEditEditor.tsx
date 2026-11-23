@@ -189,9 +189,13 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
   }
 
   const blocked = () => editError() !== undefined || numericError() !== undefined
+  // Number fields hold typed text until they lose focus; while one does, Apply
+  // stays available so pressing it commits the text and applies it.
+  const [typed, setTyped] = createSignal(0)
+  const typing = (active: boolean): void => { setTyped((count) => count + (active ? 1 : -1)) }
   props.bindFrame({
     phase: () => blocked() ? 'invalid'
-      : !jsonSameValue(draft(), initial) || strictDuration() !== (props.strictDuration ?? false) ? 'changed' : 'unchanged',
+      : typed() > 0 || !jsonSameValue(draft(), initial) || strictDuration() !== (props.strictDuration ?? false) ? 'changed' : 'unchanged',
     apply: () => props.onCommit(draft(), strictDuration()),
   })
 
@@ -246,10 +250,10 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
             />
           </div>
           <div class="video-edit-fields">
-            <label>Start seconds<ProductNumberInput testId="video-trim-start-seconds" step="0.001" value={number(trim().start_time)} commitUnchanged ariaInvalid={numericErrors()['Start seconds'] !== undefined} onRevert={() => clearNumericError('Start seconds')} onCommit={(raw) => commitNumber('Start seconds', raw, (value) => updateTrim({ start_time: value }))} /></label>
-            <label>Duration seconds<ProductNumberInput testId="video-trim-duration-seconds" min="0" step="0.001" value={number(trim().duration)} commitUnchanged ariaInvalid={numericErrors()['Duration seconds'] !== undefined} onRevert={() => clearNumericError('Duration seconds')} onCommit={(raw) => commitNumber('Duration seconds', raw, (value) => updateTrim({ duration: Math.max(0, value) }))} /></label>
-            <label>Start frame<ProductNumberInput testId="video-trim-start-frame" integer disabled={trimFrames() === undefined} value={trimFrames()?.start ?? 0} commitUnchanged ariaInvalid={numericErrors()['Start frame'] !== undefined} onRevert={() => clearNumericError('Start frame')} onCommit={(raw) => commitNumber('Start frame', raw, (value) => setTrimFrame('start', value), true)} /></label>
-            <label>End frame<ProductNumberInput testId="video-trim-end-frame" integer disabled={trimFrames() === undefined} value={trimFrames()?.end ?? 0} commitUnchanged ariaInvalid={numericErrors()['End frame'] !== undefined} onRevert={() => clearNumericError('End frame')} onCommit={(raw) => commitNumber('End frame', raw, (value) => setTrimFrame('end', value), true)} /></label>
+            <label>Start seconds<ProductNumberInput onDraftActive={typing} testId="video-trim-start-seconds" step="0.001" value={number(trim().start_time)} commitUnchanged ariaInvalid={numericErrors()['Start seconds'] !== undefined} onRevert={() => clearNumericError('Start seconds')} onCommit={(raw) => commitNumber('Start seconds', raw, (value) => updateTrim({ start_time: value }))} /></label>
+            <label>Duration seconds<ProductNumberInput onDraftActive={typing} testId="video-trim-duration-seconds" min="0" step="0.001" value={number(trim().duration)} commitUnchanged ariaInvalid={numericErrors()['Duration seconds'] !== undefined} onRevert={() => clearNumericError('Duration seconds')} onCommit={(raw) => commitNumber('Duration seconds', raw, (value) => updateTrim({ duration: Math.max(0, value) }))} /></label>
+            <label>Start frame<ProductNumberInput onDraftActive={typing} testId="video-trim-start-frame" integer disabled={trimFrames() === undefined} value={trimFrames()?.start ?? 0} commitUnchanged ariaInvalid={numericErrors()['Start frame'] !== undefined} onRevert={() => clearNumericError('Start frame')} onCommit={(raw) => commitNumber('Start frame', raw, (value) => setTrimFrame('start', value), true)} /></label>
+            <label>End frame<ProductNumberInput onDraftActive={typing} testId="video-trim-end-frame" integer disabled={trimFrames() === undefined} value={trimFrames()?.end ?? 0} commitUnchanged ariaInvalid={numericErrors()['End frame'] !== undefined} onRevert={() => clearNumericError('End frame')} onCommit={(raw) => commitNumber('End frame', raw, (value) => setTrimFrame('end', value), true)} /></label>
             <Show when={props.strictDuration !== undefined}><label class="video-edit-check"><ProductCheckbox testId="video-trim-strict" ariaLabel="Strict duration" disabled={props.strictDisabledReason !== undefined} checked={strictDuration()} onChange={setStrictDuration} /> Strict duration</label></Show>
             <Show when={props.strictDisabledReason}><span>{props.strictDisabledReason}</span></Show>
           </div>
@@ -288,7 +292,7 @@ export function VideoEditEditor(props: VideoEditEditorProps) {
           </div>
           <div class="video-edit-fields crop">
             <For each={['x', 'y', 'width', 'height'] as const}>{(field) => (
-              <label>{field}<ProductNumberInput testId={`video-crop-${field}`} integer step="1" value={number(crop()[field])} commitUnchanged ariaInvalid={numericErrors()[`Crop ${field}`] !== undefined} onRevert={() => clearNumericError(`Crop ${field}`)} onCommit={(raw) => commitNumber(`Crop ${field}`, raw, (value) => updateCrop({ [field]: value }), true)} /></label>
+              <label>{field}<ProductNumberInput onDraftActive={typing} testId={`video-crop-${field}`} integer step="1" value={number(crop()[field])} commitUnchanged ariaInvalid={numericErrors()[`Crop ${field}`] !== undefined} onRevert={() => clearNumericError(`Crop ${field}`)} onCommit={(raw) => commitNumber(`Crop ${field}`, raw, (value) => updateCrop({ [field]: value }), true)} /></label>
             )}</For>
           </div>
           <div class="video-crop-ratios" aria-label="Crop ratio presets">
