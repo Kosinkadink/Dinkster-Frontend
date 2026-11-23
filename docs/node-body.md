@@ -159,6 +159,15 @@ refused when opening the file. Problems lists one warning per adjusted node
 under "Upgraded on open"; selecting it moves the canvas to the node, and
 undoing the edit restores the old key without dismissing the warning.
 
+A shared choice has one stored key, and each `Use` of it may offer fewer of
+its options with `only`. When retention, flattening or a replacement reads an
+option that is not chosen, a stored key that place leaves out is not a
+problem. The place reads as its start key: its default when it offers it,
+otherwise its first offered option. Nothing is stored or changed. A stored key
+that no option of the shared choice declares, or that the chosen option leaves
+out, is treated as an option the pack no longer has, and is reported once for
+the choice.
+
 ## Type choices
 
 A type choice is led by the type plugged into its pin. Connecting a producer
