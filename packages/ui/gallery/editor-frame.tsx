@@ -26,6 +26,7 @@ import {
   ProductSection,
   ProductSelect,
   ProductTextInput,
+  ProductToast,
   canvasSideLayout,
   type ProductEditorFramePhase,
 } from '../src/index.js'
@@ -124,6 +125,29 @@ function AssetBody() {
           <span class="dinkster-metadata">Selection</span>
           <span>portrait.png</span>
           <span class="dinkster-metadata">1024 x 1024</span>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/** The 3D viewer's body as an example: the viewport and its camera and placement settings. */
+function ViewerBody() {
+  return (
+    <>
+      <div class="dinkster-editor-frame-toolbar">
+        <ProductButton>Record viewport</ProductButton>
+      </div>
+      <div class="dinkster-editor-frame-columns">
+        <div class="dinkster-editor-frame-work">
+          <div class="dinkster-frame-example-picture" role="img" aria-label="3D viewport" />
+        </div>
+        <div class="dinkster-editor-frame-panel">
+          {([['Field of view', '40'], ['Model position X', '0'], ['Model scale X', '1']] as const).map(([label, value]) => (
+            <ProductField label={label}>
+              {(attributes) => <ProductTextInput {...attributes} inputMode="numeric" value={value} />}
+            </ProductField>
+          ))}
         </div>
       </div>
     </>
@@ -242,6 +266,15 @@ const frameExamples: readonly FrameExample[] = [
         </div>
       </div>
     ),
+  },
+  {
+    id: 'viewer-untouched',
+    caption:
+      'Viewer not touched yet. Load 3D stores new captures and an undo step when applied, so Apply waits for the first pointer action or key in the viewport, or the first use of a setting, after it opened.',
+    title: 'Viewport - Load 3D',
+    phase: 'unchanged',
+    status: 'Nothing changed yet',
+    body: () => <ViewerBody />,
   },
   crop(
     'narrow',
@@ -451,6 +484,17 @@ export function EditorFrameGallery(props: { theme: 'dark' | 'light' }) {
       <ProductSection title="In the frame">
         <div class="dinkster-canvas-examples">
           <For each={frameExamples}>{(example) => <FrameCard example={example} />}</For>
+          <figure class="dinkster-canvas-example">
+            <div class="dinkster-editor-frame-stage" data-closed="true" data-testid="editor-frame-removed">
+              <ProductToast
+                notification={{ message: 'The field this editor was editing was removed. Nothing was stored.' }}
+                onDismiss={() => undefined}
+              />
+            </div>
+            <figcaption class="dinkster-metadata">
+              Editor target removed. The node was removed while its editor was open, by Undo or by someone else, so the frame closed without writing. With no row left to hold the notice, the app's notice says so.
+            </figcaption>
+          </figure>
         </div>
       </ProductSection>
     </>

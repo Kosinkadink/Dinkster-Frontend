@@ -474,7 +474,7 @@ export function App(props: {
   const searchOpen = useSignal(app.searchOpen)
   const nodeInstallRequest = useSignal(app.nodeInstallRequest)
   const projectNeedsReview = useSignal(app.projectNeedsReview)
-  const projectPackNotification = useSignal(app.projectPackNotification)
+  const notification = useSignal(app.notification)
   const placementStatus = useSignal(app.placementStatus)
   const transientStatus = useSignal(app.transientStatus)
   const detachedWorkflowIds = (): ReadonlySet<string> => new Set(managedLayout().windows.flatMap((entry) =>
@@ -2737,7 +2737,7 @@ export function App(props: {
           <ProductIconButton label={message('shell.panel.workspace.title')} icon={Users} data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} onClick={() => app.modalPanel.set('collab')} />
         </>}
       />
-      <ProductToast notification={projectPackNotification()} onDismiss={() => app.projectPackNotification.set(undefined)} />
+      <ProductToast notification={notification()} onDismiss={() => app.notification.set(undefined)} />
       <Show when={searchOpen()}><UniversalSearch app={app} /></Show>
       <Show when={nodeInstallRequest()} keyed>{(request) => <NodeInstallPrompt app={app} request={request} />}</Show>
       <Show when={nodeInstallRequest() === undefined && modalPanel() === '' ? projectNeedsReview() : undefined} keyed>{(review) => <ProjectNeedsPrompt app={app} review={review} />}</Show>

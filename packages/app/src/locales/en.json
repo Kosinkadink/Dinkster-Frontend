@@ -1503,6 +1503,7 @@
   "load3dWidget.record": "Record viewport",
   "load3dWidget.stopRecording": "Stop recording",
   "load3dWidget.recordingStatus": "Stop recording before applying",
+  "load3dWidget.nothingChanged": "Nothing changed yet",
   "load3dWidget.help": "Orbit the selected model and edit its placement. Image slots capture scene, alpha mask and normals at the node's width and height; viewport state slots store metadata without captures. Cancel leaves the document unchanged.",
   "editorFrame.closeEditor": "Close editor",
   "editorFrame.tryAgain": "Try again",
@@ -1518,5 +1519,6 @@
   "editorFrame.dismissError": "Dismiss error",
   "editorFrame.applied": "Applied. Undo takes it back in one step.",
   "editorFrame.targetChanged": "The stored value changed, so the editor closed without applying. Open it again to edit the new value.",
+  "editorFrame.targetRemoved": "The field this editor was editing was removed. Nothing was stored.",
   "editorFrame.nothingToApply": "Nothing to apply here"
 }

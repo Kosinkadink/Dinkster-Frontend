@@ -255,6 +255,7 @@ test('The full editor frame page draws every labeled state with one Cancel and o
     unavailable: 'unavailable',
     asset: 'available',
     form: 'available',
+    'viewer-untouched': 'unavailable',
     narrow: 'available',
   } as const
   await expect(page.locator('.dinkster-editor-frame')).toHaveCount(
@@ -264,6 +265,9 @@ test('The full editor frame page draws every labeled state with one Cancel and o
   const viewOnly = page.getByTestId('editor-frame-view-only').locator('footer')
   await expect(viewOnly.getByRole('button')).toHaveText(['Close'])
   await expect(viewOnly).toContainText('Nothing to apply here')
+  await expect(page.getByTestId('editor-frame-viewer-untouched').locator('footer')).toContainText('Nothing changed yet')
+  // A removed target leaves no row for the notice, so the app's notice carries it.
+  await expect(page.getByTestId('editor-frame-removed').getByRole('status')).toContainText('Nothing was stored.')
   // A few controls keep their own width in one column; the frame still fills the stage.
   const form = page.getByTestId('editor-frame-form')
   const formStage = (await form.boundingBox())!

@@ -2484,7 +2484,8 @@ export class AppState {
   readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
   readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
-  readonly projectPackNotification = createSignal<{ readonly message: string } | undefined>(undefined)
+  /** The app's one short-lived notice, shown as a toast. */
+  readonly notification = createSignal<{ readonly message: string } | undefined>(undefined)
   private readonly projectNeedsChecks = new WeakMap<Backend, object>()
   private readonly projectPackReviews = new WeakMap<ProjectPackInstallationReview, {
     readonly review: ProjectNeedsReview
@@ -6727,7 +6728,7 @@ export class AppState {
     await review.backend.connection.setProjectExtraPacks(project.id, [...new Set([...needs.extra, ...review.enable])].sort(), project.revision)
     if (!review.current()) return
     this.projectNeedsReview.set(undefined)
-    this.projectPackNotification.set({ message: t('projectNeeds.enabled') })
+    this.notification.set({ message: t('projectNeeds.enabled') })
     await this.refreshBackendSchemas(review.backend)
   }
 
@@ -6877,7 +6878,7 @@ export class AppState {
       await backend.connection.setProjectExtraPacks(project.id, [...new Set([...needs.extra, ...selected])].sort(), latest.revision)
       if (!review.owned()) return
       if (this.projectNeedsReview.get() === review) this.projectNeedsReview.set(undefined)
-      this.projectPackNotification.set({ message: t('projectNeeds.enabled') })
+      this.notification.set({ message: t('projectNeeds.enabled') })
     } catch (error) {
       const rejected = error instanceof PackInstallError && ([400, 401, 403, 404].includes(error.status) ||
         error.status === 409 && ['invalid-confirmation', 'plan-stale', 'install-in-progress', 'composition-in-progress'].includes(String(error.body?.['error'])))

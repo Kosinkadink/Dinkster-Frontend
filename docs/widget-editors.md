@@ -90,7 +90,9 @@ keeps its own route, the tab's center switching to it, inside the same frame.
 - An accepted Apply closes the frame, returns the keyboard to the row and the
   row's side part says "Applied. Undo takes it back in one step." When the
   stored value changes elsewhere while the editor is open, the frame closes
-  without writing and the side part says so.
+  without writing and the side part says so. When the node it was editing is
+  removed, the frame closes without writing and the app's notice says "The
+  field this editor was editing was removed. Nothing was stored."
 - Cancel, the X and Escape discard the draft without writing. A press outside
   the frame does nothing and never reaches the canvas under it.
 - Tab stays inside the frame and the keyboard starts on the editor's first
@@ -274,6 +276,10 @@ document, project or backend never replace the stored reference.
 
 LOAD_3D edits the selected model file through an orbit viewport. Projection,
 field of view, position, rotation quaternion and scale remain drafts until Apply.
+Apply stays unavailable, with the status "Nothing changed yet", until the first
+pointer action or key in the viewport or the first use of a control after the
+editor opened, so opening and applying does not store new captures and an undo
+step for nothing.
 Quaternion components are normalized to a unit rotation. Apply uploads
 scene, mask and normal PNG captures at the node's width and height and writes
 their granted file references with camera and model-transform metadata in one

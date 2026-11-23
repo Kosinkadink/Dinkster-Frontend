@@ -412,6 +412,7 @@
 /* The gallery's stand-in for the canvas area a full editor fills, wide and at phone width. */
 .dinkster-editor-frame-stage { display: flex; width: 720px; height: 460px; max-width: 100%; background: var(--dinkster-surface-canvas); }
 .dinkster-editor-frame-stage[data-width='narrow'] { width: 390px; height: 640px; }
+.dinkster-editor-frame-stage[data-closed='true'] { contain: layout paint; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
 .dinkster-frame-example-picture { position: relative; width: 256px; height: 192px; max-width: 100%; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); background: var(--dinkster-surface-raised); }
 .dinkster-frame-example-form { display: grid; align-content: start; gap: var(--dinkster-space-12); padding: var(--dinkster-space-12); }
 .dinkster-frame-example-crop { position: absolute; inset: 0; border: var(--dinkster-border-width) solid var(--dinkster-border-focus); }

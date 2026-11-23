@@ -385,10 +385,11 @@ it('gives a full editor one frame: Apply only for a valid change, outside presse
     return refuse ? { ok: false, diagnostics: [{ severity: 'error', message: 'crop refused' }] } : store.dispatch(command)
   })
   const queue = { run: vi.fn(), enabled: () => true }
+  const notification = { set: vi.fn() }
   const app = {
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     commands: { get: (id: string) => id === 'workflow.queue' ? queue : undefined },
-    dispatchTo: dispatch,
+    dispatchTo: dispatch, notification,
   } as unknown as AppState
   const focusRow = vi.fn()
   const closed = vi.fn()
@@ -462,6 +463,17 @@ it('gives a full editor one frame: Apply only for a valid change, outside presse
   input('y', '1')
   root.querySelector<HTMLButtonElement>('[data-testid="editor-frame-cancel"]')!.click()
   expect(closed).toHaveBeenCalledOnce()
+  expect(stored()).toEqual({ ...initial, height: 5, x: 18 })
+  dispose()
+
+  closed.mockClear()
+  dispose = open()
+  input('y', '2')
+  expect(notification.set).not.toHaveBeenCalled()
+  expect(store.dispatch({ command: 'node.remove', params: { graphId: 'g0', nodeIds: ['n1'] } }).ok).toBe(true)
+  expect(closed).toHaveBeenCalledOnce()
+  expect(notification.set).toHaveBeenCalledWith({ message: 'The field this editor was editing was removed. Nothing was stored.' })
+  expect(store.undo()).toBe(true)
   expect(stored()).toEqual({ ...initial, height: 5, x: 18 })
   dispose()
 })

@@ -1503,6 +1503,7 @@
   "load3dWidget.record": "录制视口",
   "load3dWidget.stopRecording": "停止录制",
   "load3dWidget.recordingStatus": "应用前请停止录制",
+  "load3dWidget.nothingChanged": "尚未更改",
   "load3dWidget.help": "旋转查看所选模型并编辑其位置。图像输入按节点宽高捕获场景、透明度遮罩和法线；视口状态输入仅保存元数据，不捕获图像。取消不会更改文档。",
   "editorFrame.closeEditor": "关闭编辑器",
   "editorFrame.tryAgain": "重试",
@@ -1518,5 +1519,6 @@
   "editorFrame.dismissError": "关闭错误",
   "editorFrame.applied": "已应用。撤销一步即可恢复。",
   "editorFrame.targetChanged": "存储的值已更改，编辑器已关闭且未应用。请重新打开以编辑新值。",
+  "editorFrame.targetRemoved": "此编辑器正在编辑的字段已被移除。未存储任何内容。",
   "editorFrame.nothingToApply": "此处没有可应用的内容"
 }

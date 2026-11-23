@@ -446,12 +446,16 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
   if (framed) {
     // A draft never overwrites a value someone else stored meanwhile: the
     // editor closes without writing when its value changes or its node goes.
+    // A removed field has no row to carry the notice, so the app shows it.
     const atOpen = storedTarget()
     const store = ed.tab.store
     const unsubscribe = store.document.subscribe(() => {
       if (!live || frameBusy() || ed.tab.store !== store) return
       const now = storedTarget()
-      if (!now.exists) close()
+      if (!now.exists) {
+        close()
+        props.app.notification.set({ message: message('editorFrame.targetRemoved') })
+      }
       else if (!jsonSameValue(now.value as never, atOpen.value as never)) finish(message('editorFrame.targetChanged'))
     })
     onCleanup(unsubscribe)
