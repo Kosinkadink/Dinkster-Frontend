@@ -162,9 +162,9 @@ test('queued and running jobs open frozen and follow only their submitted snapsh
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app, run = [...app.store.executions.get().values()][0]!
     app.store.apply({ kind: 'started', execution: run.ref, timestamp: Date.now() })
-    app.store.apply({ kind: 'nodeStates', execution: run.ref, timestamp: Date.now(), snapshot: false,
+    app.store.apply({ kind: 'nodeStates', execution: run.ref, timestamp: Date.now(),
       nodes: { n0: { state: 'running', value: 0.42 } },
-    } as never)
+    })
   })
   await openRun(page)
   await expect(page.getByTestId('frozen-banner')).toContainText('Running 21%. Live changed.')

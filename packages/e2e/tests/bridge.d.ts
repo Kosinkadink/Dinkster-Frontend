@@ -103,6 +103,14 @@ interface DinksterBridgeLifecycleEvent {
   timestamp: number
 }
 
+interface DinksterBridgeNodeStatesEvent {
+  kind: 'nodeStates'
+  execution: DinksterBridgeExecutionRef
+  timestamp: number
+  nodes: Readonly<Record<string, import('@dinkster/core').NodeProgress>>
+  snapshot?: true
+}
+
 /** Injectable preview frame: the same NormalizedEvent shape the metadata
  * preview protocol produces, used to create deterministic live frames. */
 interface DinksterBridgePreviewEvent {
@@ -303,7 +311,7 @@ interface DinksterTestBridge {
           }
         >
       }
-      apply(event: DinksterBridgeErrorEvent | DinksterBridgePreviewEvent | DinksterBridgeLifecycleEvent): void
+      apply(event: DinksterBridgeErrorEvent | DinksterBridgePreviewEvent | DinksterBridgeLifecycleEvent | DinksterBridgeNodeStatesEvent): void
       /** Register a run directly (AP5 spec bypasses the compile path). */
       register(ref: DinksterBridgeExecutionRef, artifact: DinksterBridgeCompileArtifact, timestamp?: number): void
     }

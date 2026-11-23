@@ -2945,7 +2945,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       dispatchOccurrenceMutation: (intention) => {
         const tab = activeTab()
         const reg = tab ? props.app.registryForTab(tab) : undefined
-        if (!tab || !reg) return { ok: false }
+        if (!tab || refuseFrozenEdit() || !reg) return { ok: false }
         return dispatchOccurrenceIntention({
           document: tab.store.doc,
           resolver: documentResolver(tab.store.doc, reg.resolve),
@@ -2957,11 +2957,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onOccurrenceMutationRefused: (code, message) => {
         const tab = activeTab()
-        if (tab) reportGestureRefusal(tab.id, [diag('warning', 'command', code, message)])
+        if (tab && !refuseFrozenEdit()) reportGestureRefusal(tab.id, [diag('warning', 'command', code, message)])
       },
       resolveWidgetDefault: effectiveWidgetDefault,
       onBoundaryExposureRefused: (_code, source, side) => {
         const tab = activeTab()
+        if (refuseFrozenEdit()) return
         reportBoundaryExposureRefusal({
           tabId: tab?.id,
           reportProblems: (tabId, diagnostics) => reportGestureRefusal(tabId, diagnostics),
