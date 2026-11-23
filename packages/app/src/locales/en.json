@@ -528,7 +528,6 @@
   "inNodeAudio.microphone": "Microphone",
   "inNodeAudio.defaultMicrophone": "Default microphone",
   "inNodeAudio.microphoneNumber": "Microphone {number}",
-  "inNodeAudio.findMicrophones": "Find microphones",
   "inNodeAudio.limit": "Limit (s)",
   "inNodeAudio.stored": "Stored: {name}",
   "inNodeAudio.nothingStored": "Nothing stored",

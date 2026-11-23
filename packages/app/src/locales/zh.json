@@ -530,7 +530,6 @@
   "inNodeAudio.microphone": "麦克风",
   "inNodeAudio.defaultMicrophone": "默认麦克风",
   "inNodeAudio.microphoneNumber": "麦克风 {number}",
-  "inNodeAudio.findMicrophones": "查找麦克风",
   "inNodeAudio.limit": "时长上限 (秒)",
   "inNodeAudio.stored": "已存储: {name}",
   "inNodeAudio.nothingStored": "未存储内容",

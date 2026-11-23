@@ -297,6 +297,8 @@ export function CanvasEditorChoice(props: {
   value: string
   options: readonly string[]
   onChange?: (value: string) => void
+  /** Called as the list opens, so a host can refresh the entries it lists. */
+  onOpen?: () => void
 }) {
   const [open, setOpen] = createSignal(false)
   const [query, setQuery] = createSignal('')
@@ -314,6 +316,7 @@ export function CanvasEditorChoice(props: {
     setQuery('')
     setHighlight(Math.max(0, props.options.indexOf(props.value)))
     setOpen(true)
+    props.onOpen?.()
   }
   return (
     <div class="dinkster-canvas-editor-field-slot" ref={slot}

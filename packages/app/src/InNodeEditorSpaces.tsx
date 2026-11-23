@@ -2,7 +2,6 @@ import type { AssetRef, Json, JsonObject } from '@dinkster/core'
 import { defaultTokens, type LayoutRow } from '@dinkster/canvas'
 import { audioRecordKind } from '@dinkster/widgets'
 import {
-  CanvasEditorButtons,
   CanvasEditorChoice,
   CanvasEditorLine,
   CanvasEditorNote,
@@ -184,6 +183,12 @@ export class AudioRecordController {
     ;[this.limit, this.setLimit] = createSignal(60)
     ;[this.clipSeconds, this.setClipSeconds] = createSignal<number>()
     ;[this.playing, this.setPlaying] = createSignal(false)
+    navigator.mediaDevices?.addEventListener?.('devicechange', this.onDeviceChange)
+  }
+
+  /** The microphone list follows the devices the browser reports, with no button to look for them. */
+  private readonly onDeviceChange = (): void => {
+    void this.findMicrophones()
   }
 
   /** The host's latest ports: the node's value is written where it is now. */
@@ -199,6 +204,8 @@ export class AudioRecordController {
     if (!navigator.mediaDevices?.enumerateDevices) return
     const found = (await navigator.mediaDevices.enumerateDevices()).filter((device) => device.kind === 'audioinput')
     this.setDevices(found.map((device) => ({ deviceId: device.deviceId, label: device.label })))
+    // A device that went away is no longer the chosen one.
+    if (!found.some((device) => device.deviceId === this.device())) this.setDevice('')
     if (found.length === 0) this.setStatus('noMicrophone')
     else if (this.status() === 'noMicrophone') this.setStatus('idle')
   }
@@ -375,6 +382,7 @@ export class AudioRecordController {
   }
 
   dispose(): void {
+    navigator.mediaDevices?.removeEventListener?.('devicechange', this.onDeviceChange)
     this.discard()
     this.stopPlaying()
   }
@@ -453,12 +461,11 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
       />
       <CanvasEditorLine dimmed={recording() || busy()}>
         <CanvasEditorChoice label={message('inNodeAudio.microphone')} value={chosen()} options={choices()}
+          onOpen={() => void recorder.findMicrophones()}
           onChange={(label) => {
             const index = recorder.devices().findIndex((device, at) => deviceLabel(device, at) === label)
             recorder.setDevice(index < 0 ? '' : recorder.devices()[index]!.deviceId)
           }} />
-        <CanvasEditorButtons buttons={[{ label: message('inNodeAudio.findMicrophones'), icon: canvasEditorIcons.retry, iconOnly: true,
-          onClick: () => void recorder.findMicrophones() }]} />
       </CanvasEditorLine>
       <CanvasEditorLine dimmed={recording() || busy()}>
         <CanvasEditorNumber label={message('inNodeAudio.limit')} value={recorder.limit()} min={1} max={300}

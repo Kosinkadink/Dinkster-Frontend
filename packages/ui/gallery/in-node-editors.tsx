@@ -355,7 +355,6 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
           />
           <CanvasEditorLine dimmed={recording()}>
             <GalleryChoice label="Microphone" value="Default microphone" options={['Default microphone', 'USB microphone']} />
-            <CanvasEditorButtons buttons={[{ label: 'Find microphones', icon: canvasEditorIcons.retry, iconOnly: true }]} />
           </CanvasEditorLine>
           <CanvasEditorLine dimmed={recording()}>
             <GalleryNumber label="Limit (s)" value={60} min={1} max={300} />
@@ -501,11 +500,13 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
           </CanvasEditorLine>
           <CanvasEditorLine dimmed={selected === undefined}>
             <GalleryNumber label="Position" value={selected === undefined ? undefined : points[selected]!.position} min={0} max={1} step={0.01} precision={2} />
-            <CanvasEditorButtons buttons={[{ label: 'Delete point', icon: canvasEditorIcons.remove, iconOnly: true, intent: 'remove', disabled: selected === undefined }]} />
           </CanvasEditorLine>
           <CanvasEditorLine dimmed={selected === undefined}>
             <GalleryNumber label="Value" value={selected === undefined ? undefined : points[selected]!.value} min={0} max={1} step={0.01} precision={2} />
           </CanvasEditorLine>
+          {/* The Delete key on a selected point does the same; a curve keeps at least one point. */}
+          <CanvasEditorButtons buttons={[{ label: 'Delete point', icon: canvasEditorIcons.remove, intent: 'remove',
+            disabled: selected === undefined || points.length < 2 }]} />
           <CanvasEditorNote tone="muted">
             {state()['histogram'] === true ? 'Histogram from the selected run' : 'Drag a point to move it. Double-click to add one.'}
           </CanvasEditorNote>
