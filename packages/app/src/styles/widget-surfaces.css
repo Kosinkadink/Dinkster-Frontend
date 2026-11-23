@@ -414,8 +414,11 @@
   flex-wrap: nowrap;
 }
 
-.frozen-banner > svg {
+.frozen-banner > svg,
+.frozen-banner .frozen-label,
+.frozen-banner .banner-button {
   flex: none;
+  white-space: nowrap;
 }
 
 .frozen-label {
