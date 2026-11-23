@@ -33,6 +33,7 @@ const schemas: Record<string, NodeSchema> = {
   ] as NodeSchema['body'], { isOutputNode: false }),
   Steps: schemaOf('Steps', [input('steps', INT, intWidget({ min: 0, max: 8 }, { default: 4 }), { displayName: 'Steps' })]),
   Count: schemaOf('Count', [input('count', INT, intWidget({ min: 4, max: 12, step: 2 }, { default: 4 }), { displayName: 'Count' })]),
+  Counter: schemaOf('Counter', [{ kind: 'output', id: 'INT', type: INT }] as NodeSchema['body'], { isOutputNode: false }),
   Far: schemaOf('Far', [input('far', INT, intWidget({ min: 20, max: 30 }))]),
   Sampler: schemaOf('Sampler', [input('sampler', COMBO, { widgetType: 'COMBO', options: { options: ['euler', 'dpm', 'ddim'] } })]),
   Scheduler: schemaOf('Scheduler', [input('sampler', COMBO, { widgetType: 'COMBO', options: { options: ['ddim', 'dpm', 'lms'] } })]),
@@ -87,6 +88,21 @@ describe('a primitive works out its value widget', () => {
     const limit = (id: string) => inputsOf(drawn).find((row) => row.id === id)!.widget
     expect(limit('maximum')).toMatchObject({ default: 8, automatic: true })
     expect(limit('minimum')?.automatic).toBeUndefined()
+  })
+
+  it('takes a limit arriving over a wire when its value is known before the run, and derives it otherwise', () => {
+    // Minimum wired from another Int holding 5: an explicit limit of 5, not the fed field's 0.
+    const known = docOf({ prim: { type: 'Int', values: { value: 6 } }, low: { type: 'Int', values: { value: 5 } }, a: { type: 'Steps' } },
+      [['prim', 'INT', 'a', 'steps'], ['low', 'INT', 'prim', 'minimum']])
+    const fromPrimitive = effectiveOf(known, 'prim')!
+    expect(fromPrimitive.spec?.options).toMatchObject({ min: 5, max: 8 })
+    expect([...fromPrimitive.derived]).toEqual(['max'])
+    // Minimum wired from a node that produces it while running: not set, so the fed field's 0 applies.
+    const runtime = docOf({ prim: { type: 'Int', values: { value: 6, minimum: 3 } }, count: { type: 'Counter' }, a: { type: 'Steps' } },
+      [['prim', 'INT', 'a', 'steps'], ['count', 'INT', 'prim', 'minimum']])
+    const fromRun = effectiveOf(runtime, 'prim')!
+    expect(fromRun.spec?.options).toMatchObject({ min: 0, max: 8 })
+    expect([...fromRun.derived].sort()).toEqual(['max', 'min'])
   })
 
   it('reports fields that share no range and keeps the value and the wires', () => {

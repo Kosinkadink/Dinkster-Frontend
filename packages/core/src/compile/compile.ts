@@ -68,6 +68,7 @@ import {
   type PortRef,
   type SelectorCandidateId,
 } from '../ids.js'
+import { companionSourcesOf } from '../companion.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { buildRerouteIndex, rerouteDriverOf, rerouteInputTargets, selectorDriverOf, type RerouteIndex, type SelectorResolution, type TraceVia } from '../reroute.js'
 import { effectiveValueSourceSpec, resolvedValueSourceSpec, valueSourceWidgetSpec, type EffectiveValueSourceSpec } from '../value-source.js'
@@ -232,12 +233,20 @@ export function documentPrimitiveResolver(doc: WorkflowDocument, base: SchemaRes
       fed.set(JSON.stringify([consumer.terminal.graph, occurrenceKey(consumer.terminal.occurrence), consumer.terminal.valueKey]),
         { name: `${consumer.ref.node}.${consumer.input.displayName ?? consumer.input.id}`, input: consumer.input })
     }
+    // A limit field holds its typed-in value, or the one its wire brings
+    // when that is known before the run, such as another primitive's.
     const def = doc.graphs[graphId]
+    const arriving = def === undefined ? undefined : companionSourcesOf(def, undefined, undefined, resolve).get(node.id)
     const wired = (inputId: string): boolean => def !== undefined && Object.values(def.links).some((link) =>
       isPortEndpoint(link.to) && link.to.node === node.id && link.to.port === inputId)
+    const limitValue = (inputId: string): Json | undefined => {
+      const source = arriving?.get(inputId)
+      if (source !== undefined) return source.kind === 'literal' ? source.value : undefined
+      return wired(inputId) ? undefined : node.values[inputId]
+    }
     const effective = effectivePrimitiveSpec(node.id, shape,
       [...fed.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, field]) => field),
-      explicitPrimitiveLimits(shape, node, wired), explicitPrimitiveDefault(shape, node, wired))
+      explicitPrimitiveLimits(shape, limitValue), explicitPrimitiveDefault(shape, limitValue))
     cache.set(key, effective)
     return effective
   }

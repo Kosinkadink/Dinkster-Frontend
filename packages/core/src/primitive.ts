@@ -9,7 +9,7 @@
  */
 
 import { diag, type Diagnostic } from './diagnostics.js'
-import type { Json, NodeData } from './format/document.js'
+import type { Json } from './format/document.js'
 import { specMergeFor } from './value-source.js'
 import {
   inputsOf,
@@ -92,34 +92,32 @@ export function withPrimitiveValue(schema: NodeSchema, shape: PrimitiveShape, ef
 const NUMERIC_LIMITS: readonly (readonly [KnownValueLimit, string])[] = [['min', 'min'], ['max', 'max'], ['step', 'step']]
 
 /**
- * The limits a primitive holds itself: each named limit field whose stored
- * value is a number. An empty field, or one fed by a wire, counts as not
- * set, so that limit is derived from the fed fields.
+ * The limits a primitive holds itself: each named limit field whose value
+ * is a number known before the run. `limitValue` gives a field's typed-in
+ * value, or the value arriving over its wire when that is known; an empty
+ * field, or one whose wire brings a value known only during the run, counts
+ * as not set, so that limit is derived from the fed fields.
  */
 export function explicitPrimitiveLimits(
   shape: PrimitiveShape,
-  node: NodeData,
-  wired: (inputId: string) => boolean,
+  limitValue: (inputId: string) => Json | undefined,
 ): Readonly<Record<string, number>> {
   const options: Record<string, number> = {}
   for (const [limit, option] of NUMERIC_LIMITS) {
     const inputId = shape.limits[limit]
-    if (inputId === undefined || wired(inputId)) continue
-    const value = node.values[inputId]
+    const value = inputId === undefined ? undefined : limitValue(inputId)
     if (typeof value === 'number' && Number.isFinite(value)) options[option] = value
   }
   return options
 }
 
-/** The primitive's own Default, when it holds one and no wire feeds it. */
+/** The primitive's own Default, when it holds one known before the run. */
 export function explicitPrimitiveDefault(
   shape: PrimitiveShape,
-  node: NodeData,
-  wired: (inputId: string) => boolean,
+  limitValue: (inputId: string) => Json | undefined,
 ): Json | undefined {
   const inputId = shape.limits.default
-  if (inputId === undefined || wired(inputId)) return undefined
-  const value = node.values[inputId]
+  const value = inputId === undefined ? undefined : limitValue(inputId)
   return value === null || value === '' ? undefined : value
 }
 
