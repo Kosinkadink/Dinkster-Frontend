@@ -107,6 +107,8 @@ function SaveTargetExampleCard(props: {
         renderer.setGridVisible(false)
         renderer.setScene(built)
         if (current.arriving !== undefined) renderer.setCompanions(wiredTargetCompanions(node.id, current.arriving))
+        if ((current.mounts ?? 'ready') === 'ready')
+          renderer.setWidgetFacts({ SAVE_TARGET: { ready: [...galleryMounts], projectMount: galleryMounts[0] } })
         renderer.setOpenRow(current.open === undefined ? undefined : { nodeId: node.id, valueKey: 'target' })
         renderer.setViewport({ x: 0, y: 0, scale: 1 })
         renderer.renderNow()

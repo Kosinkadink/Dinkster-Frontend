@@ -159,7 +159,8 @@ export const saveTargetGroups: readonly {
   {
     title: 'Opening, picking a mount and leaving',
     examples: [
-      { id: 'closed', caption: 'Closed, on a named mount: the row shows mount and prefix together, as stored.', stored: onOutput },
+      { id: 'closed-default', caption: 'Closed, on Project default: the row names the mount it means here in italics, then the name.', stored: portrait },
+      { id: 'closed', caption: 'Closed, on a named mount: the mount is upright, as stored.', stored: onOutput },
       { id: 'open', caption: 'Open on Project default, where a new target starts: the dropdown says Project default and stores no mount; the row and the side part name the mount it means here. The default is a link.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' } },
       { id: 'list', caption: 'The dropdown open: Project default first, naming the mount it means here, then this machine\'s writable mounts. The list lies over the box and past its lower edge.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, listOn: '' },
       { id: 'changed', caption: 'archive picked and a new name typed: the row and the side part show what leaving would store. Escape would keep the stored target.', stored: portrait, open: { mount: 'archive', prefix: 'renders/final' } },
@@ -172,6 +173,7 @@ export const saveTargetGroups: readonly {
       { id: 'loading', caption: 'The mounts are still being read: the prefix can already be typed, and the row reads Project default until the mount it means is known.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'loading' },
       { id: 'none', caption: 'No writable mount is ready: no mount can be picked.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'none' },
       { id: 'failed', caption: 'The mounts could not be read: the dropdown says Could not load and the error\'s own sentence leads the side part.', stored: portrait, open: { mount: null, prefix: 'renders/portrait' }, mounts: 'failed' },
+      { id: 'not-here-closed', caption: 'Closed, with a stored mount this machine lacks: it is struck through, followed by the mount the run uses in italics. Nothing has to be changed.', stored: onUsb },
       { id: 'not-here', caption: 'The stored mount is not on this machine: the run saves to the project default and the stored mount stays. The side part says so and offers Use project default.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' } },
       { id: 'not-here-list', caption: 'The same mount in the list: dimmed, marked not on this machine, and it cannot be picked.', stored: onUsb, open: { mount: 'usb1', prefix: 'renders/portrait' }, listOn: '' },
     ],

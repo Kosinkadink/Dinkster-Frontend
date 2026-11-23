@@ -67,6 +67,11 @@ export interface CompactState {
   readonly readonly: boolean
   /** Content is truncated: view MUST render the truncation affordance. */
   readonly truncated?: boolean
+  /**
+   * What the host knows about this machine, keyed by widget kind, such as
+   * the mounts a SAVE_TARGET row reads to name the mount a run would use.
+   */
+  readonly hostFacts?: Readonly<Record<string, Json>>
 }
 
 export interface EditorSizing {

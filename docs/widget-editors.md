@@ -15,9 +15,12 @@ outside store mount and prefix as one value; Escape stores nothing. The
 writer adds the descriptor's suffix and numbering; no host path is stored in
 the graph. Empty, absolute, dot-segment and backslash prefixes cannot be
 stored, nor can a named mount while the mounts load, when none is ready or
-when they cannot be read. A stored mount this machine lacks stays visible
-and stored until another entry or Use project default is picked. Mount
-grants are checked again by the backend when it writes.
+when they cannot be read. The closed row names the mount Project default
+means here, the project's active output mount, in italics. A stored mount
+this machine lacks is struck through on the closed row, followed by that
+mount in italics, and stays stored until another entry or Use project
+default is picked. Mount grants are checked again by the backend when it
+writes.
 
 RESOLUTION_PREVIEW opens a proportional rectangle and exact pixel dimensions
 from the node's aspect ratio, megapixels and rounding multiple. The named

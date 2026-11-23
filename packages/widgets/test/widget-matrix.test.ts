@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { effectiveWidgetDefault, type CompactState, type Json, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
+import { effectiveWidgetDefault, t, type CompactState, type Json, type SceneBuilder, type WidgetSpec } from '@dinkster/core'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '../src/index.js'
 
 const asset = { digest: `blake3:${'a'.repeat(64)}`, name: 'cat.png', size: 12, mediaType: 'image/png', virtualPath: 'input/cat.png' }
@@ -61,6 +61,31 @@ describe('registered widget disposition inventory', () => {
       { ...initial, prefix: 'a//b' }, { ...initial, prefix: 'a/../b' }, { ...initial, prefix: 'a\\b' },
       { mount: null, prefix: 'nested/frame' }, { mount: '', prefix: 'nested/frame' }, { prefix: '' }, { prefix: 'a/../b' },
     ]) expect(kind.valueSchema.validate(value)).toBe(false)
+  })
+
+  it('draws a closed save target with the mount Project default means here and a missing mount struck through', () => {
+    const view = registry.viewsFor('SAVE_TARGET').find((entry) => entry.id === 'core.saveTarget')!
+    const spec: WidgetSpec = { widgetType: 'SAVE_TARGET', options: {}, default: { prefix: 'ComfyUI' } }
+    const drawn = (value: Json, hostFacts?: Readonly<Record<string, Json>>) => {
+      let style: Readonly<Record<string, unknown>> | undefined
+      let run: string | undefined
+      view.drawCompact({ rect: () => {}, hitRegion: () => {}, text: (_x, _y, text, textStyle) => {
+        if (textStyle['role'] === 'widgetValue') { run = text; style = textStyle }
+      } }, value, spec, { focused: false, connected: false, readonly: false, ...(hostFacts === undefined ? {} : { hostFacts }) })
+      return { run, parts: style?.['parts'] }
+    }
+    const facts = { SAVE_TARGET: { projectMount: 'output', ready: ['output', 'archive'] } }
+    expect(drawn({ prefix: 'renders/portrait' }, facts)).toEqual({ run: 'output/renders/portrait', parts: [{ text: 'output', look: 'resolved' }, { text: '/renders/portrait' }] })
+    expect(drawn({ mount: 'archive', prefix: 'renders/portrait' }, facts)).toEqual({ run: 'archive/renders/portrait', parts: undefined })
+    expect(drawn({ mount: 'usb1', prefix: 'renders/portrait' }, facts)).toEqual({
+      run: 'usb1/renders/portrait',
+      parts: [{ text: 'usb1', look: 'gone' }, { text: 'output', look: 'resolved' }, { text: '/renders/portrait' }],
+    })
+    // Without the mounts nothing is struck through and Project default is named as such.
+    expect(drawn({ mount: 'usb1', prefix: 'renders/portrait' })).toEqual({ run: 'usb1/renders/portrait', parts: undefined })
+    expect(drawn({ prefix: 'renders/portrait' }).parts).toEqual([{ text: t('saveTargetWidget.projectDefault'), look: 'resolved' }, { text: '/renders/portrait' }])
+    // An empty target reads as Project default with the declared name.
+    expect(drawn(null, facts).run).toBe('output/ComfyUI')
   })
 
   it('copies COLORS defaults without truncation or normalization and asks for every swatch in order', () => {

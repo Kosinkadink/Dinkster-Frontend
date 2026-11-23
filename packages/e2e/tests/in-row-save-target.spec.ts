@@ -2,6 +2,7 @@ import { expect, nativeTest as test, waitForWorkspaceReady, type Page, type Rout
 
 const READY = {
   outputMount: 'output',
+  activeOutputMount: 'output',
   mounts: [
     { id: 'output', mode: 'readwrite', state: 'ready' },
     { id: 'archive', mode: 'readwrite', state: 'ready' },

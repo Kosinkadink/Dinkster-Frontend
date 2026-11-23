@@ -29,6 +29,23 @@ function compactBooleanValue(value: Json, options: Readonly<Record<string, unkno
 const stringList = (value: unknown): readonly string[] | undefined =>
   Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : undefined
 
+/**
+ * One piece of a value drawn in several looks, such as a save target's
+ * mounts: 'resolved' is a value the host worked out, drawn in italics;
+ * 'gone' is a stored value this machine lacks, struck through.
+ */
+interface ValuePart {
+  readonly text: string
+  readonly look?: 'resolved' | 'gone'
+}
+
+const valueParts = (value: unknown): readonly ValuePart[] | undefined =>
+  Array.isArray(value) && value.length > 0 && value.every((part) =>
+    typeof part === 'object' && part !== null && typeof (part as ValuePart).text === 'string'
+    && ((part as ValuePart).look === undefined || (part as ValuePart).look === 'resolved' || (part as ValuePart).look === 'gone'))
+    ? value as readonly ValuePart[]
+    : undefined
+
 /** A row's value text, whether it is the row's empty-state message, and any color square before it. */
 interface RowSummary extends CompanionSummary {
   readonly placeholder: boolean
@@ -406,6 +423,14 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             const text = swatches !== undefined ? ''
               : items !== undefined ? fitItems(ctx, items, fitWidth)
               : ellipsize(ctx, run.split('\n')[0] ?? '', fitWidth)
+            // Parts in their own looks, right to left, when they fit whole; otherwise the plain run.
+            const baseFont = ctx.font
+            const partFont = (part: ValuePart): string => (part.look === 'resolved' ? `italic ${baseFont}` : baseFont)
+            const parts = alignRight && swatches === undefined && items === undefined ? valueParts(style['parts']) : undefined
+            const gap = measureWidth(ctx, ' ')
+            const partWidths = parts?.map((part) => { ctx.font = partFont(part); const width = measureWidth(ctx, part.text); ctx.font = baseFont; return width })
+            const partsFit = partWidths !== undefined && parts !== undefined
+              && partWidths.reduce((sum, width) => sum + width, 0) + parts.filter((part) => part.look === 'gone').length * gap <= fitWidth
             const lineTop = y + ty * rowHeight + geometry.fieldInsetY
             const lineBottom = y + (ty + 1) * rowHeight - geometry.fieldInsetY
             const clipTop = Math.max(y, lineTop)
@@ -423,7 +448,21 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               ctx.clip()
               const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD
               const textY = y + (ty + 0.5) * rowHeight
-              ctx.fillText(text, textX, textY)
+              if (partsFit) {
+                const valueColor = ctx.fillStyle as string
+                let right = textX
+                for (let index = parts.length - 1; index >= 0; index--) {
+                  const part = parts[index]!
+                  if (part.look === 'gone') right -= gap
+                  ctx.font = partFont(part)
+                  ctx.fillStyle = part.look === 'gone' ? tokens.colors.label : valueColor
+                  ctx.fillText(part.text, right, textY)
+                  if (part.look === 'gone') paintStaleValueStrikethrough(ctx, part.text, right, textY, 'right', tokens.colors.label)
+                  right -= partWidths[index]!
+                }
+                ctx.font = baseFont
+                ctx.fillStyle = valueColor
+              } else ctx.fillText(text, textX, textY)
               if (swatches !== undefined) paintSwatchRow(ctx, swatches, textX, textY, fitWidth, tokens, ctx.fillStyle as string)
               if (modeIcon !== undefined && role === 'widgetValue' && alignRight) {
                 // Marks about a value come before it, so values line up at the right.
@@ -484,7 +523,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       },
       resolved,
       row.spec,
-      { focused: false, connected: args.connected, readonly: true },
+      { focused: false, connected: args.connected, readonly: true, ...(args.facts === undefined ? {} : { hostFacts: args.facts }) },
     )
     if (declaredSlider) paintLabel()
     const visibleHeight = Math.max(0, multilineBottom - multilineTop - multilinePadding * 2)

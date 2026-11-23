@@ -63,7 +63,7 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
   }
   /** The mount Project default means here, or its name while that is not known. */
   const projectMount = (): string =>
-    settings()?.activeOutputMount ?? settings()?.outputMount ?? message('saveTargetWidget.projectDefault')
+    settings()?.activeOutputMount ?? message('saveTargetWidget.projectDefault')
   const textOf = (value: Json): string => saveTargetText(value, projectMount()) ?? message('saveTargetWidget.default')
   // Project default comes first. A picked mount that is not on this machine
   // stays listed, dimmed, so it is never replaced for the person.

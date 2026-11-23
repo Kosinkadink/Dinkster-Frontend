@@ -2591,6 +2591,33 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const onReducedMotionChange = (event: MediaQueryListEvent) => renderer.setReducedMotion(event.matches)
     renderer.setReducedMotion(reducedMotionQuery?.matches ?? false)
     reducedMotionQuery?.addEventListener('change', onReducedMotionChange)
+    // Closed save target rows name this machine's mounts: the project's
+    // default output mount and the ready writable ones.
+    const factsBackend = createMemo(() => {
+      const tab = activeTab()
+      return tab === undefined ? undefined : props.app.backendForTab(tab)
+    })
+    createEffect(() => {
+      const backend = factsBackend()
+      renderer.setWidgetFacts({})
+      if (backend?.protocol !== 'dinkster') return
+      const connection = backend.connection
+      let live = true
+      const read = (): void => {
+        void connection.fetchMountSettings().then((settings) => {
+          if (!live) return
+          // A run saves to the project's output mount and never falls back to the machine's.
+          const projectMount = settings.activeOutputMount
+          renderer.setWidgetFacts({ SAVE_TARGET: {
+            ready: settings.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready').map((mount) => mount.id),
+            ...(projectMount === undefined ? {} : { projectMount }),
+          } })
+        }).catch(() => { if (live) renderer.setWidgetFacts({}) })
+      }
+      read()
+      const stop = connection.onMountsChanged(read)
+      onCleanup(() => { live = false; stop() })
+    })
     const zoomTo = (target: number) => {
       const vp = renderer.getViewport()
       const cx = canvasEl.clientWidth / 2
