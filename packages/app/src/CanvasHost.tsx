@@ -5078,7 +5078,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
      */
     function editsInRow(tab: Tab, node: SceneNode, row: Extract<Hit, { kind: 'widget' }>['row']): boolean {
       if (renderer.getDesignTokens().widgetEditing !== 'in-row') return false
-      if (row.viewId !== 'core.number' && row.viewId !== 'core.slider' && row.viewId !== 'core.line') return false
+      if (!['core.number', 'core.slider', 'core.line', 'core.color', 'core.integerColor'].includes(row.viewId)) return false
       if (widgetRegistry().kind(row.spec.widgetType) === undefined) return false
       if (widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi !== undefined) return false
       // Single-line text that holds a line break opens in the multiline editor,

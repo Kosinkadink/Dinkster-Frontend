@@ -39,6 +39,7 @@ import {
 } from '../../canvas/gallery/color-editing.js'
 import {
   CanvasColorCode,
+  CanvasColorKeys,
   CanvasColorLine,
   CanvasColorPicker,
   CanvasColorSide,
@@ -234,20 +235,6 @@ function ColorEditingExampleCard(props: {
     stage.style.height = `${Math.max(canvas.clientHeight, current.screen.y + bottom + MARGIN)}px`
   })
 
-  const keyboardLines = () =>
-    example().keyboard === 'square' ? (
-      <>
-        <CanvasColorLine>
-          Saturation {Math.round(point().s * 100)}%, value {Math.round(point().v * 100)}%
-        </CanvasColorLine>
-        <CanvasColorLine>Arrows change the square. Enter goes back to the text.</CanvasColorLine>
-      </>
-    ) : example().keyboard === 'swatches' ? (
-      <CanvasColorLine>
-        Left and Right choose a swatch. Enter puts it in the field.
-      </CanvasColorLine>
-    ) : undefined
-
   const side = createMemo(() => {
     const current = example()
     const result = draft()
@@ -265,7 +252,9 @@ function ColorEditingExampleCard(props: {
         {...(defaultColor() === undefined ? {} : { defaultColor: defaultColor()! })}
         {...(help === undefined ? {} : { help })}
       >
-        {keyboardLines()}
+        <Show when={example().keyboard}>
+          {(control) => <CanvasColorKeys control={control()} point={point()} />}
+        </Show>
       </CanvasColorSide>
     )
   })

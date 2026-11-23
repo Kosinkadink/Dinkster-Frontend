@@ -492,6 +492,46 @@ each widget row with its value, and it and the wired-row buttons stay
 available while a row is edited in place. The `widgetEditing` design token
 selects this (`in-row`, the default) or the earlier card (`card`).
 
+## Color rows edited in their row
+
+COLOR rows and integer color rows (INT with `display: color`) are edited in
+the row the same way, as a draft. The closed row draws a square of the stored
+color directly before its code. Open, the field holds the code, selected, with
+a live square of the draft before it; the square by the label keeps showing
+the stored color. A picker hangs under the field inside the same outline: a
+saturation and value square, a hue strip, an opacity strip on a field that
+has opacity, and up to eight swatches. Each control always shows a 10 px ring
+at the chosen point, kept wholly inside the control. When there is not room
+below, the picker goes above the field; when neither side holds it, it takes
+the larger room and scrolls with the field in view.
+
+- Typed text may be hex with or without `#` in three, six or eight digits, a
+  CSS named color, `rgb(r, g, b)`, `rgba(r, g, b, a)` or a bare `r, g, b`.
+  Leaving stores the lower-case `#rrggbb` code, or `#rrggbbaa` on a field with
+  opacity that is not fully opaque. An integer color stores the whole number.
+  Another spelling of the stored color stores nothing.
+- Text that is not a color shows "Not a color." first in the side part. The
+  live square and the rings hold the last valid color of the edit, and
+  leaving keeps the stored color.
+- A field without opacity that is given a color with opacity takes the color,
+  drops the opacity and says so in the side part.
+- The picker, the swatches and the side part's `default` link change only the
+  draft. Enter, Tab, Ctrl+Enter and a click elsewhere store it as one undo
+  step, as for a number; Escape keeps the stored color.
+- The swatches are the field's default, then the colors stored in the
+  workflow's color fields, most used first and ties in code order. They are
+  read when the field opens and do not move during the edit.
+- Alt+Down moves the keyboard from the text to the square, then the hue, the
+  opacity, the swatches and the `default` link, and back to the text; Alt+Up
+  goes the other way. Arrows change the focused control by one step and Shift
+  by ten; in the swatches Left and Right choose one. Enter on a picker control
+  returns to the text without storing; on a swatch or the `default` link it
+  first puts that color in the field. Tab always moves between the node's rows.
+
+A field has opacity only when its declaration says so (`alpha: true` in the
+widget's options); no engine declaration provides it yet. The fixed states
+are on the gallery's "Color in the row" page.
+
 ## Product number, slider, and color controls
 
 ProductNumberInput renders a text-entry spinbutton with product-owned minus

@@ -237,3 +237,12 @@ export function colorFieldDraft(text: string, stored: string, lastValid: string,
   if (result.kind === 'invalid') return { invalid: true, enter: stored, droppedOpacity: false, live: lastValid }
   return { invalid: false, enter: result.code, droppedOpacity: result.droppedOpacity, live: result.code }
 }
+
+/**
+ * A COLOR field keeps opacity only when it declares it; any other COLOR
+ * field is opaque and drops opacity it is given. An integer color has no
+ * opacity whatever its options say.
+ */
+export function colorFieldHasOpacity(options: Readonly<Record<string, unknown>>): boolean {
+  return options['alpha'] === true
+}

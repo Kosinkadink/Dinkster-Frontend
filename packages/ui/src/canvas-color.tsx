@@ -1,6 +1,8 @@
 import {
   For,
+  Match,
   Show,
+  Switch,
   createSignal,
   createUniqueId,
   onCleanup,
@@ -168,6 +170,8 @@ export function CanvasColorPicker(props: {
   hex: (h: number, s: number, v: number) => string
   /** Swatch codes, the default first. */
   swatches: readonly string[]
+  /** The field has no default, so the first swatch is a used color. */
+  noDefault?: boolean
   /** The swatch matching the draft, if one does. */
   chosen?: string
   /** The swatch the keyboard is on while the swatch row has focus. */
@@ -392,16 +396,16 @@ export function CanvasColorPicker(props: {
                 id={`${id}-swatch-${index()}`}
                 class="dinkster-canvas-color-swatch"
                 role="option"
-                aria-label={index() === 0 ? `${code}, default` : code}
+                aria-label={index() === 0 && !props.noDefault ? `${code}, default` : code}
                 aria-selected={code === props.chosen}
                 data-candidate={index() === props.candidate}
-                data-default={index() === 0}
+                data-default={index() === 0 && !props.noDefault}
                 onPointerDown={(event) => {
                   event.preventDefault()
                   if (!props.disabled) props.onSwatch?.(code)
                 }}
               >
-                <CanvasColorSquare color={code} size={20} />
+                <CanvasColorSquare color={code} size={22} />
               </div>
             )}
           </For>
@@ -414,6 +418,34 @@ export function CanvasColorPicker(props: {
 /** One line of a color field's side part, such as "Enter stores" and a color. */
 export function CanvasColorLine(props: { children: JSX.Element }) {
   return <p class="dinkster-canvas-color-line">{props.children}</p>
+}
+
+/** What the keyboard does on the picker control it is on, for the side part. */
+export function CanvasColorKeys(props: { control: CanvasColorControl; point: CanvasColorPoint }) {
+  const percent = (value: number) => Math.round(value * 100)
+  return (
+    <Switch>
+      <Match when={props.control === 'square'}>
+        <CanvasColorLine>
+          Saturation {percent(props.point.s)}%, value {percent(props.point.v)}%
+        </CanvasColorLine>
+        <CanvasColorLine>Arrows change the square. Enter goes back to the text.</CanvasColorLine>
+      </Match>
+      <Match when={props.control === 'hue'}>
+        <CanvasColorLine>Hue {Math.round(props.point.h)} degrees</CanvasColorLine>
+        <CanvasColorLine>Arrows change the hue. Enter goes back to the text.</CanvasColorLine>
+      </Match>
+      <Match when={props.control === 'opacity'}>
+        <CanvasColorLine>Opacity {percent(props.point.a / 255)}%</CanvasColorLine>
+        <CanvasColorLine>Arrows change the opacity. Enter goes back to the text.</CanvasColorLine>
+      </Match>
+      <Match when={props.control === 'swatches'}>
+        <CanvasColorLine>
+          Left and Right choose a swatch. Enter puts it in the field.
+        </CanvasColorLine>
+      </Match>
+    </Switch>
+  )
 }
 
 /**
