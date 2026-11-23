@@ -49,6 +49,20 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('accepts a known value from an input typed by the output\'s type variable, and no other variable', () => {
+    const variable = (templateId: string) => ({ kind: 'variable', templateId })
+    const parse = (outputVariable: string) => parseDinksterSchema('KnownVariable', { body: [
+      { kind: 'input', id: 'value', type: variable('value') },
+      { kind: 'output', id: 'out', type: variable(outputVariable), knownValue: { input: 'value' } },
+    ] } as never)
+    const same = parse('value')
+    expect(same.diagnostics).toEqual([])
+    expect(same.schema!.body[1]).toMatchObject({ knownValue: { input: 'value' } })
+    const other = parse('other')
+    expect(other.schema).toBeUndefined()
+    expect(other.diagnostics.map((d) => d.message).join()).toContain('knownValue must name an input')
+  })
+
   it('keeps an editor row and the rows a widget writes and reads, apart from its params', () => {
     const { schema, diagnostics } = parseDinksterSchema('Viewport', { body: [
       { kind: 'input', id: 'model_file', type: concrete('STRING'),
