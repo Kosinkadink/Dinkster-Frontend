@@ -5,6 +5,7 @@
  * lineage id, NEVER "the active tab".
  */
 
+import { desktopSaveBridge } from './desktop-bridge.js'
 import {
   CORE_VIRTUAL_NODE_KINDS,
   activeLocale,
@@ -7120,7 +7121,20 @@ export class AppState {
     try {
       const snapshot = await this.documentWithAssetLocations(tab)
       if (this.disposed || !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return false
-      const blob = new Blob([`${JSON.stringify(snapshot, null, 2)}\n`], {
+      const text = `${JSON.stringify(snapshot, null, 2)}\n`
+      const native = desktopSaveBridge()
+      if (native) {
+        const result = await native.saveFile(new TextEncoder().encode(text), filename)
+        if (result.status === 'closed') {
+          this.showTransientStatus(`Save closed: ${filename}`)
+          return false
+        }
+        this.dismissMigrationNotice(tab.id)
+        this.dismissImportProblems(tabId)
+        this.showTransientStatus(`Saved: ${result.name}`)
+        return true
+      }
+      const blob = new Blob([text], {
         type: WORKFLOW_MEDIA_TYPE,
       })
       url = URL.createObjectURL(blob)
