@@ -44,6 +44,7 @@ import {
 } from '../src/index.js'
 import { NodeLookGallery } from './node-look.js'
 import { RowEditingGallery } from './row-editing.js'
+import { RowAutomaticGallery } from './row-automatic.js'
 
 type Theme = 'dark' | 'light'
 
@@ -71,6 +72,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'widgets',
         'core-rows',
         'row-editing',
+        'row-automatic',
         'collection-rows',
         'editor-rows',
         'widget-driven',
@@ -157,6 +159,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
+  'row-automatic':
+    'A number whose value is automatic: closed, opened, stepped, while a lookup loads, and when it cannot be worked out.',
   'collection-rows':
     'Multi-choice, list, colors and curve rows; After raises the rows that open an editor and draws the curve in its row.',
   'editor-rows':
@@ -568,7 +572,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'node-look') return
+    if (currentPage === 'row-editing' || currentPage === 'row-automatic' || currentPage === 'node-look') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -666,6 +670,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'row-editing'}>
           <RowEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'row-automatic'}>
+          <RowAutomaticGallery theme={theme()} />
         </Show>
         <Show when={prepared()[0]}>
           {(first) => (
