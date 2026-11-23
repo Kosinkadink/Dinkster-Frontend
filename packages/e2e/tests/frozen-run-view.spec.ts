@@ -10,7 +10,7 @@ const pointOn = (page: Page, nodeId: string, part: 'header' | 'section' | 'widge
       const row = node.layout.rows.find((item) => item.kind === part)!
       y = node.y + row.y + row.height / 2
     } else if (part === 'input' || part === 'output') {
-      const pin = node.layout.pins.find((item) => item.direction === (part === 'input' ? 'in' : 'out'))!
+      const pin = node.layout.pins.find((item) => !item.widgetTap && item.direction === (part === 'input' ? 'in' : 'out'))!
       x = node.x + (part === 'input' ? 0 : node.layout.width); y = node.y + pin.y
     }
     return { x: rect.left + x * viewport.scale + viewport.x, y: rect.top + y * viewport.scale + viewport.y }
