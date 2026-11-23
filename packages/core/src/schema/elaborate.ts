@@ -821,6 +821,9 @@ function elaboratePass(
   const outerFrames = (outer: OuterScope): readonly FormulaFrame[] =>
     outer.frames.map((frame) => ({ prefix: '', rows: frame.rows, outer: frame.names }))
 
+  /** Inside a construct a subgraph node shows whole, whose defaults are the definition's values. */
+  const shownWhole = (scope: Scope): boolean => scope.formulaFrames.some((frame) => frame.outer !== undefined)
+
   const one = (row: BodyRow, raw: Scope): void => {
     const scope = 'outer' in row && row.outer !== undefined ? { ...raw, formulaFrames: outerFrames(row.outer) } : raw
     switch (row.kind) {
@@ -1144,14 +1147,14 @@ function elaboratePass(
         return
       }
       key = storedKey
-    } else if (row.required && row.default === undefined && !view && !scope.ghost && !scope.dormant) {
+    } else if (row.required && !(shownWhole(scope) && row.default !== undefined) && !view && !scope.ghost && !scope.dormant) {
       // The editor stores a required choice's start key on every command
       // (storeStartState); a run never makes one up.
       report('prompt.missing_dynamic_choice', `required choice '${path}' has no stored option`, path)
       return
     } else {
-      // A choice has a default only on a subgraph node, where it is the definition's pick.
-      key = row.required ? row.default ?? keys[0] : row.default
+      // On a subgraph node that shows the choice whole, the default is the definition's pick.
+      key = row.required ? row.default ?? keys[0] : shownWhole(scope) ? row.default : undefined
     }
     chosen.set(path, key ?? null)
     const inRun = !scope.ghost && !scope.dormant
@@ -1313,7 +1316,7 @@ function elaboratePass(
         report('elab.outputDescriptors.linkedSource', `described '${path}': the description is a stored value, not a wire`, path)
         return
       }
-      const raw = Object.hasOwn(node.values, path) ? node.values[path] : row.default
+      const raw = Object.hasOwn(node.values, path) ? node.values[path] : shownWhole(scope) ? row.default : undefined
       const parsed = describedEntries(row, raw === undefined || raw === null ? undefined : raw, path)
       if (typeof parsed === 'string') {
         report('elab.outputDescriptors.invalid', parsed, path)

@@ -418,6 +418,20 @@ describe('whole constructs shown on a subgraph node', () => {
         { key: 'text', rows: [input('words', { type: STRING, widget: { widgetType: 'STRING', options: {}, default: '' } })] },
       ],
     }, output('out')]),
+    // A type choice: what is plugged in picks the variant, each with its own field.
+    Feather: schemaOf('Feather', [{
+      kind: 'typeChoice', id: 'src', required: false, rows: [],
+      variants: [
+        { key: 'image', type: IMAGE, rows: [input('sharpen', { type: FLOAT, optional: true, ...floatWidget(1) })] },
+        { key: 'mask', type: { kind: 'concrete', name: 'MASK' }, rows: [input('feather', { type: FLOAT, optional: true, ...floatWidget(2) })] },
+      ],
+    }, output('out')]),
+    MaskSrc: schemaOf('MaskSrc', [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'MASK' } }]),
+    // A described row: its stored description lists the fields it has.
+    Mixer: schemaOf('Mixer', [{
+      kind: 'described', id: 'layers', minEntries: 0, maxEntries: 8, fixedIds: false,
+      kinds: [input('amount', { type: FLOAT, optional: true, ...floatWidget(0.5) })],
+    }, output('out')]),
     CountSplit: schemaOf('CountSplit', [
       input('n', { type: INT, socketless: true, widget: { widgetType: 'INT', options: {}, default: 1 } }),
       { kind: 'group', id: 'outs', value: output('o'), keys: { kind: 'numbered', prefix: 'o', start: 0, pad: 0 }, grows: { count: 'n' }, minMembers: 0, maxMembers: 8 },
@@ -546,6 +560,60 @@ describe('whole constructs shown on a subgraph node', () => {
     const prompt = okConstructPrompt(doc)
     expect(prompt['s.n']!.inputs).toEqual({ n: 3 })
     expect(prompt['k']!.inputs).toEqual({ in: ['s.n', 2] })
+  })
+
+  it('a whole type choice keeps each instance\'s variant and field through two boundaries', () => {
+    const doc = docOf({
+      g0: {
+        nodes: {
+          a: { type: 'MaskSrc' },
+          b: { type: 'Src' },
+          first: { type: '#outer', dynamic: { pick: { selected: 'mask' } }, values: { 'pick.feather': 4 } },
+          second: { type: '#outer', dynamic: { pick: { selected: 'image' } } },
+        },
+        links: [[['a', 'out'], ['first', 'pick']], [['b', 'out'], ['second', 'pick']]],
+      },
+      outer: {
+        nodes: { d: { type: '#inner', dynamic: { src: { selected: 'image' } }, values: { 'src.sharpen': 3 } } },
+        boundary: { inputs: [{ id: 'pick', binds: { kind: 'construct', node: 'd', port: 'src' } }] },
+      },
+      inner: {
+        nodes: { n: { type: 'Feather', dynamic: { src: { selected: 'image' } }, values: { 'src.feather': 9 } } },
+        boundary: { inputs: [{ id: 'src', binds: { kind: 'construct', node: 'n', port: 'src' } }] },
+      },
+    })
+    const prompt = okConstructPrompt(doc)
+    expect(prompt['first.d.n']!.inputs).toEqual({ src: ['a', 0], 'src.feather': 4 })
+    expect(prompt['first.d.n']!.slotVariants).toEqual({ src: 'mask' })
+    // Nothing stored outside: the middle definition's value is used.
+    expect(prompt['second.d.n']!.inputs).toEqual({ src: ['b', 0], 'src.sharpen': 3 })
+    expect(prompt['second.d.n']!.slotVariants).toEqual({ src: 'image' })
+  })
+
+  it('a whole described row keeps each instance\'s description and values through two boundaries', () => {
+    const description = (...ids: string[]) => JSON.stringify({ entries: ids.map((id) => ({ id, label: id.toUpperCase(), kind: 'amount' })) })
+    const doc = docOf({
+      g0: {
+        nodes: {
+          first: { type: '#outer', values: { mix: description('base', 'glow'), 'mix.glow': 0.7 } },
+          second: { type: '#outer' },
+        },
+      },
+      outer: {
+        nodes: { d: { type: '#inner', values: { layers: description('base'), 'layers.base': 0.25 } } },
+        boundary: { inputs: [{ id: 'mix', binds: { kind: 'construct', node: 'd', port: 'layers' } }] },
+      },
+      inner: {
+        nodes: { n: { type: 'Mixer', values: { layers: description('rim'), 'layers.rim': 0.9 } } },
+        boundary: { inputs: [{ id: 'layers', binds: { kind: 'construct', node: 'n', port: 'layers' } }] },
+      },
+    })
+    const prompt = okConstructPrompt(doc)
+    // The description travels with the run, as on a plain node; base has no
+    // outer value, so the middle definition's is used.
+    expect(prompt['first.d.n']!.inputs).toEqual({ layers: description('base', 'glow'), 'layers.base': 0.25, 'layers.glow': 0.7 })
+    // Nothing stored outside: the middle definition's description and value.
+    expect(prompt['second.d.n']!.inputs).toEqual({ layers: description('base'), 'layers.base': 0.25 })
   })
 
   it('a wire to a counted output past the outer count fails as it does on the plain node', () => {
