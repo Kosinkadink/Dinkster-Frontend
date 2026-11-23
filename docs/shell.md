@@ -398,7 +398,10 @@ selected through the left bar, including pack panels and panels moved here;
 a panel without an icon gets a default panel icon. When the left bar is
 hidden, each section restores its tab row so every panel stays reachable.
 The bottom zone has no entries in the left bar; its top-bar switch opens it
-and its own tabs choose a panel. In wide
+and its own tabs choose a panel. Side and bottom panel tab rows mark the
+selected tab with a filled rounded block and an inset 3 px cyan bar with
+rounded ends on its bottom edge, rather than a white underline. Workflow
+tabs and other tab controls keep their own selection styles. In wide
 mode, the dock shares the flex row with the canvas, so opening it shrinks the
 canvas rather than covering it. In narrow mode it uses the contained sheet
 behavior described above.

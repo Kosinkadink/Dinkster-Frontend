@@ -612,8 +612,9 @@
   overflow: hidden;
   border-bottom: 0;
 }
-.dock-zone-tabs .product-tab { min-width: 64px; background: transparent; border-color: transparent; }
-.dock-zone-tabs .product-tab[aria-selected='true'] { color: var(--dinkster-text-primary); background: transparent; box-shadow: inset 0 -2px 0 currentColor; }
+.dock-zone-tabs .product-tab { position: relative; min-width: 64px; border-radius: var(--dinkster-radius-control); background: transparent; border-color: transparent; }
+.dock-zone-tabs .product-tab[aria-selected='true'] { color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); }
+.dock-zone-tabs .product-tab[aria-selected='true']::after { content: ''; position: absolute; right: 10px; bottom: -2px; left: 10px; height: 3px; border-radius: 3px; background: var(--dinkster-accent-foreground); pointer-events: none; }
 .dock-zone-tabs .product-tab:disabled { display: none; }
 /* Truncate the title text, never the attention badge beside it. */
 .dock-zone-tabs .tab-title { display: flex; align-items: center; }
