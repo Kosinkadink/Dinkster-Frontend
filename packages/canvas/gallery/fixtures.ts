@@ -317,6 +317,92 @@ function acceptsListScene(
   })
 }
 
+/**
+ * A subgraph with two inputs: `lists` feeds only an input that accepts a
+ * list, and `mixed` also feeds an input that takes one image. Drawn from
+ * outside, with a list of images wired to `lists`, and from inside, where
+ * the Inputs panel shows the same two pins.
+ */
+function subgraphAcceptsListScenes(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+): { readonly outside: Scene; readonly inside: Scene } {
+  const image = concrete('IMAGE')
+  const schemas = new Map<string, NodeSchema>([
+    ['Join', schema('Join', [
+      { kind: 'input', id: 'items', type: image, optional: false, acceptsList: true },
+      { kind: 'output', id: 'list', type: { kind: 'list', element: image } },
+    ])],
+    ['Single', schema('Single', [{ kind: 'input', id: 'image', type: image, optional: false }])],
+    ['Image', schema('Image', [{ kind: 'output', id: 'IMAGE', type: image }])],
+    ['Images', schema('Images', [{ kind: 'output', id: 'IMAGE', displayName: 'list of IMAGE', type: { kind: 'list', element: image } }])],
+  ])
+  const nodes = (entries: Record<string, { type: string; title?: string }>) =>
+    Object.fromEntries(Object.entries(entries).map(([id, node]) => [
+      id,
+      { id, type: node.type, values: {}, ...(node.title ? { title: node.title } : {}) },
+    ]))
+  const positions = (entries: Record<string, readonly [number, number]>) =>
+    Object.fromEntries(Object.entries(entries).map(([id, [x, y]]) => [id, { position: { x, y } }]))
+  const loaded = loadDocument({
+    format: 'dinkster-workflow',
+    formatVersion: 1,
+    lineage: 'canvas-gallery-subgraph-accepts-list',
+    root: 'root',
+    graphs: {
+      root: {
+        id: 'root',
+        name: 'Root',
+        nextOrdinal: 10,
+        nets: {},
+        reroutes: {},
+        nodes: nodes({ images: { type: 'Images' }, image: { type: 'Image' }, sub: { type: '#body', title: 'Subgraph' } }),
+        links: {
+          'list in': { id: 'list in', from: { node: 'images', port: 'IMAGE' }, to: { node: 'sub', port: 'lists' } },
+          'image in': { id: 'image in', from: { node: 'image', port: 'IMAGE' }, to: { node: 'sub', port: 'mixed' } },
+        },
+      },
+      body: {
+        id: 'body',
+        name: 'Subgraph',
+        nextOrdinal: 10,
+        nets: {},
+        reroutes: {},
+        links: {},
+        nodes: nodes({
+          lists: { type: 'Join', title: 'Join lists' },
+          mixed: { type: 'Join', title: 'Join mixed' },
+          single: { type: 'Single', title: 'One image' },
+        }),
+        boundary: {
+          inputs: [
+            { id: 'lists', displayName: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
+            { id: 'mixed', displayName: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
+          ],
+          outputs: [],
+        },
+      },
+    },
+    view: {
+      graphs: {
+        root: { nodes: positions({ images: [0, 0], image: [0, 130], sub: [260, 40] }) },
+        body: {
+          nodes: positions({ lists: [260, 0], mixed: [260, 110], single: [260, 220] }),
+          boundary: { inputs: { position: { x: 0, y: 40 } }, outputs: { position: { x: 520, y: 40 } } },
+        },
+      },
+    },
+  })
+  const document = loaded.document
+  if (!document) throw new Error(`Invalid subgraph accepts-list gallery document: ${JSON.stringify(loaded)}`)
+  const base = { document, resolve: documentResolver(document, (type) => schemas.get(type)), tokens, measure, widgetMeasure }
+  return {
+    outside: buildScene({ ...base, graphId: 'root' }),
+    inside: buildScene({ ...base, graphId: 'body' }),
+  }
+}
+
 /** Fixed public renderer inputs, also reusable for frame-equivalence checks. */
 export function createCanvasGalleryFixture(
   page: CanvasGalleryPage,
@@ -1083,6 +1169,18 @@ export function createCanvasGalleryFixture(
         'An input that accepts a list keeps the one-value-or-list pin while its type is open, after one image matches it, after a list of images matches it, and when its type is the fixed type INT. Value, an ordinary input of the same type, is a plain circle once its type is known.',
       scene: acceptsListScene(tokens, measure, widgetMeasure),
     })
+    const subgraph = subgraphAcceptsListScenes(tokens, measure, widgetMeasure)
+    examples.push(
+      {
+        caption:
+          'A subgraph input keeps the one-value-or-list pin when every input it feeds inside accepts a list, so a list of images wires to lists. Mixed also feeds an input that takes one image, so it keeps the plain pin.',
+        scene: subgraph.outside,
+      },
+      {
+        caption: 'Inside the same subgraph, the Inputs panel draws the same two pins.',
+        scene: subgraph.inside,
+      },
+    )
     fixture.height = 850
   } else if (page === 'badges') {
     const badges: NodeBadge[] = [
