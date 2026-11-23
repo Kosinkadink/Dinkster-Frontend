@@ -239,10 +239,16 @@ export interface AutomaticState {
   readonly call?: AutomaticCall
 }
 
-/** A lookup's answer as the editor holds it, keyed by `automaticCallKey`. */
-export type AutomaticAnswer = { readonly value: Json } | { readonly failed: 'lookup-failed' | 'lookup-timeout' }
+/** Why the editor holds no fresh answer for a lookup call. */
+export type LookupFailure = 'failed' | 'timeout' | 'wrong-shape' | 'invalid-arguments' | 'unknown' | 'file-unchecked' | 'offline'
 
-export const automaticCallKey = (call: AutomaticCall): string => JSON.stringify([call.lookup, call.args])
+/** What the editor holds for one lookup call, as the lookup client reports it. */
+export type LookupAnswerState =
+  | { readonly state: 'loading'; readonly answer?: Json }
+  | { readonly state: 'ready'; readonly answer: Json }
+  | { readonly state: 'stale'; readonly answer: Json; readonly reason: LookupFailure }
+  | { readonly state: 'unavailable'; readonly reason: LookupFailure }
+  | { readonly state: 'paused'; readonly answer?: Json }
 
 export interface ElaboratedOutput {
   readonly kind: 'output'
@@ -362,8 +368,11 @@ export interface ElaborateOptions {
   readonly includeDormant?: boolean
   /** Node identity for diagnostic anchors. */
   readonly nodeId?: NodeId
-  /** Answers of the lookups automatic fields call; a call with no answer is loading. */
-  readonly automaticAnswers?: ReadonlyMap<string, AutomaticAnswer>
+  /**
+   * What the editor holds for a lookup call, by the lookup's wire name and
+   * its arguments. A call it holds nothing for is loading.
+   */
+  readonly lookupAnswers?: (lookup: string, args: readonly Json[]) => LookupAnswerState | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -720,10 +729,13 @@ function elaboratePass(
           : typeof value === 'bigint' ? Number(value) : value as Json)
       }
       call = { lookup: automatic.lookup, args }
-      const answer = options.automaticAnswers?.get(automaticCallKey(call))
-      if (answer === undefined) return { value: fallback, state: 'loading', call }
-      if ('failed' in answer) return standIn(answer.failed, call)
-      found = answer.value
+      const held = options.lookupAnswers?.(call.lookup, call.args)
+      // The last answer stands while a newer one loads or after a refresh
+      // failed. With none, the field waits on the call; it is not known
+      // offline, which is no failure of the lookup.
+      if (held !== undefined && 'answer' in held && held.answer !== undefined) found = held.answer
+      else if (held?.state === 'unavailable' && held.reason !== 'offline') return standIn(held.reason === 'timeout' ? 'lookup-timeout' : 'lookup-failed', call)
+      else return { value: fallback, state: 'loading', call }
     } else {
       const outcome = evaluate(automatic.formula, scope)
       if (outcome.kind === 'unknown') return standIn('unknown')

@@ -992,6 +992,44 @@ describe('formulas', () => {
   })
 })
 
+describe('automatic values', () => {
+  const rate = intInput('rate', { widget: { widgetType: 'INT', options: {}, default: 48 } })
+  const fps = intInput('fps', {
+    automatic: { lookup: 'video.rate_of', args: ['rate'] },
+    widget: { widgetType: 'INT', options: {}, default: 24 },
+  })
+  const automaticOf = (lookupAnswers?: (lookup: string, args: readonly unknown[]) => unknown) => {
+    const elaborated = elaborateInterface(schemaOf([rate, fps]), { values: { rate: 50 } }, EMPTY_CONNECTIVITY,
+      lookupAnswers === undefined ? {} : { lookupAnswers: lookupAnswers as never })
+    return {
+      automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'fps')!.automatic,
+      warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default'),
+    }
+  }
+
+  it('asks for the lookup with arguments worked out from the values and waits on it with the default', () => {
+    const asked: unknown[] = []
+    const { automatic, warned } = automaticOf((lookup, args) => { asked.push([lookup, args]); return undefined })
+    expect(asked).toContainEqual(['video.rate_of', [50]])
+    expect(automatic).toEqual({ value: 24, state: 'loading', call: { lookup: 'video.rate_of', args: [50] } })
+    expect(warned).toBe(false)
+  })
+
+  it('uses an answer and a stale answer, and refuses a decimal that is not whole for a whole-number field', () => {
+    expect(automaticOf(() => ({ state: 'ready', answer: 25 })).automatic?.value).toBe(25)
+    expect(automaticOf(() => ({ state: 'stale', answer: 30, reason: 'failed' })).automatic?.value).toBe(30)
+    expect(automaticOf(() => ({ state: 'ready', answer: 25.5 })).automatic).toMatchObject({ value: 24, state: 'default', reason: 'wrong-type' })
+  })
+
+  it('uses the default with a warning when the lookup fails or runs out of time, and waits offline', () => {
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'timeout' }))).toMatchObject({
+      automatic: { value: 24, state: 'default', reason: 'lookup-timeout' }, warned: true,
+    })
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'wrong-shape' })).automatic?.reason).toBe('lookup-failed')
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'offline' }))).toMatchObject({ automatic: { state: 'loading' }, warned: false })
+  })
+})
+
 describe('buildGraphConnectivity', () => {
 
   it('indexes links and nets once by flattened id, ignoring reroute endpoints', () => {
