@@ -482,7 +482,7 @@ export const historyRunOfEntry = (entry: CollectionEntry): HistoryRunRecord | un
 
 /** Resolve the durable run id carried through a synthetic grouped row. */
 export const runIdOfEntry = (entry: CollectionEntry): string =>
-  historyRunOfEntry(entry)?.runId ?? (typeof entry.ref === 'string' ? entry.ref : entry.id)
+  historyRunOfEntry(entry)?.runId ?? entry.id
 
 const noOpIdentity = (record: HistoryRunRecord): string | undefined =>
   record.state === 'completed' && record.executed === 0 && record.cached > 0

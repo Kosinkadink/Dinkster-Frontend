@@ -6,6 +6,7 @@ export function RunThumbnail(props: { readonly url: string; readonly mediaType: 
   const [ready, setReady] = createSignal(false)
   createEffect(() => {
     props.url
+    props.mediaType
     setFailed(false)
     setReady(false)
   })

@@ -220,6 +220,53 @@ test('unseen stored image/video rows show thumbnails without loading jobs, absen
   await expect(row('Image output').getByTestId('collection-action').filter({ hasText: 'Delete record' })).toBeVisible()
   await expect.poll(() => hydrated.length).toBe(1)
   await expect(row('Image output').getByTestId('run-thumbnail')).toBeVisible()
+
+  await page.evaluate(async ({ doc, image, video }) => {
+    const app = window.__dinksterTest!.app
+    await app.openDocument(doc, 'Retained outputs')
+    const tab = app.activeTab()!, compiled = app.compileTab(tab)
+    if (!compiled?.ok) throw new Error('Thumbnail workflow did not compile')
+    const store = app.store as unknown as Pick<import('@dinkster/client').ExecutionStore, 'hydrateArtifacts'>
+    for (const [index, asset] of [image, video, undefined].entries()) {
+      const ref = { connection: compiled.artifact.connection, prompt: `thumbnail-live-${index}` }
+      app.registerRun(tab, ref, compiled.artifact)
+      store.hydrateArtifacts(ref as never, asset === undefined ? [] : [{ ...asset, nodeId: 'sink' }])
+      app.store.apply({ kind: 'completed', execution: ref, timestamp: index + 10 })
+    }
+  }, { doc: producingDoc, image, video })
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  const live = page.getByTestId('execution-row')
+  await expect(live).toHaveCount(3)
+  await expect(live.locator('.runs-row-heading img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
+  await expect(live.locator('.runs-row-heading video.run-thumbnail')).toHaveAttribute('data-ready', 'true')
+  await expect(live.locator('.runs-row-heading .execution-open')).toHaveCount(3)
+  if (proof) await page.screenshot({ path: join(proof, 'workflow-thumbnails-1440.png'), animations: 'disabled' })
+  await live.filter({ has: page.locator('video.run-thumbnail') }).locator('.execution-open').click()
+  await expect(page.getByTestId('frozen-banner')).toBeVisible()
+
+  await page.route('**/thumbnail-owner/api/**', (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/api/nodes')) return route.fulfill({ json: nativeTable })
+    if (path.endsWith('/api/history')) return route.fulfill({ json: { records } })
+    if (path.endsWith(`/api/assets/${encodeURIComponent(image.digest)}`)) return route.fulfill({
+      path: join(import.meta.dirname, '../fixtures/media-overlay/with_metadata.png'), contentType: 'image/png',
+    })
+    if (path.endsWith(`/api/assets/${encodeURIComponent(video.digest)}`)) return route.fulfill({
+      path: join(import.meta.dirname, '../fixtures/media-overlay/visible-2s.webm'), contentType: 'video/webm',
+    })
+    return route.fulfill({ status: 404 })
+  })
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const owner = app.addBackend('/thumbnail-owner', 'Thumbnail owner', false, 'dinkster')!
+    const tab = app.createWorkflow()
+    app.setTabTarget(tab.id, owner.id)
+  })
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
+  await expect(row('Image output').locator('img.run-thumbnail')).toHaveAttribute('src', /\/thumbnail-owner\/api\/assets\//)
+  await expect(row('Image output').locator('img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
+  await expect(row('Video output').locator('video.run-thumbnail')).toHaveAttribute('src', /\/thumbnail-owner\/api\/assets\//)
+  await expect(row('Video output').locator('video.run-thumbnail')).toHaveAttribute('data-ready', 'true')
 })
 
 test('Resubmit reopens the producing document and queues a FRESH submission', async ({ page }) => {
