@@ -4,7 +4,7 @@ import { evidencePath } from './evidence-output.js'
 
 const BACKENDS_SURFACE = '.product-tabpanel:has(> [data-testid="backends-panel"])'
 
-test.use({ hasTouch: true })
+test.use({ hasTouch: true, deviceScaleFactor: 2 })
 
 const runtimeSettings = {
   categories: {
@@ -130,23 +130,30 @@ test('backend and runtime management remains truthful and usable across wide, na
   await page.touchscreen.tap(serverToggleBox!.x + serverToggleBox!.width / 2, serverToggleBox!.y + serverToggleBox!.height / 2)
   await expect(local.locator('details').first()).not.toHaveAttribute('open', '')
 
-  await page.setViewportSize({ width: 720, height: 720 })
-  await page.evaluate(() => { document.documentElement.style.zoom = '2' })
+  // Model the CSS viewport and pixel density of 200% zoom on a 720px display.
+  // CSS zoom alone leaves window.innerWidth and media queries unchanged.
+  await page.setViewportSize({ width: 360, height: 360 })
+  expect(await page.evaluate(() => ({ width: innerWidth, height: innerHeight, scale: devicePixelRatio }))).toEqual({ width: 360, height: 360, scale: 2 })
   await surface.evaluate((element) => { element.scrollTop = 0 })
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(720)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360)
+  expect(await auditLayout(page, BACKENDS_SURFACE)).toEqual([])
   await panel.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').focus()
   await expect(page.getByTestId('backend-url-input')).toBeFocused()
   await page.getByTestId('backend-url-input').fill('http://touch.example.test:7777')
+  expect(await auditLayout(page, BACKENDS_SURFACE)).toEqual([])
+  expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
   const add = page.getByTestId('backend-add')
   const box = await add.boundingBox()
   expect(box).not.toBeNull()
-  expect(box!.height).toBeGreaterThanOrEqual(40)
+  expect(box!.height).toBeGreaterThanOrEqual(44)
   await page.keyboard.press('Tab')
   await expect(panel.getByRole('textbox', { name: 'Name (optional)', exact: true })).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(add).toBeFocused()
   await page.screenshot({ path: evidencePath('issue-37', 'after-backends-200-percent.png') })
+  await surface.evaluate((element) => { element.scrollTop = 0 })
+  await page.screenshot({ path: evidencePath('issue-37', 'after-backends-200-percent-top.png') })
 })
 
 test('mounted agent permission chrome relabels without refetching or changing authority', async ({ page, request }) => {

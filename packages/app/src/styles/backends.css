@@ -16,6 +16,7 @@
 .backend-group { display: grid; gap: var(--dinkster-space-8); }
 
 @media (pointer: coarse) {
+  .backends-panel :is(.dinkster-button, .product-text-input, summary),
   .workflow-queue-submit,
   .workflow-queue-toggle,
   .execution-open,

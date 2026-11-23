@@ -53,7 +53,9 @@ for (const theme of ['dark', 'light'] as const) {
       const id = await inactive.getAttribute('data-tab-id')
       await inactive.click()
       await expect(panel.locator(`[data-tab-id="${id}"]`)).toHaveAttribute('aria-selected', 'true')
+      await inactive.blur()
       await page.mouse.move(600, 400)
+      await expect(page.getByRole('tooltip')).toBeHidden()
       await expect(panel).toHaveScreenshot(`panel-tabs-${zone}-${theme}.png`, { animations: 'disabled' })
     }
   })
