@@ -98,10 +98,10 @@ at the end of the inputs and in one undo step, and the subgraph node
 outside shows it as a field with a pin, starting from the inner field's
 value. No wire is drawn inside: the Inputs panel row is a field without a
 pin, and the inner field has no pin and shows the entered node's value dimmed, as a wired
-one does. The entry is not offered in the top-level workflow or on a field
-a wire or another input already drives, and it is refused with a message on a
-field the subgraph node cannot show (a group, a choice or another construct,
-a row with no stored value).
+one does. The entry is not offered in the top-level workflow, on a field
+a wire or another input already drives, or on a choice's or type choice's own
+row, and it is refused with a message on any other field the subgraph node
+cannot show (a group or another construct, a row with no stored value).
 
 On a field already on the subgraph node the entry reads **Remove from
 subgraph node** and removes that input. A field whose wire is drawn also

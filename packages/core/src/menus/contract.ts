@@ -83,6 +83,11 @@ export type MenuTarget =
        * not offer themselves.
        */
       readonly synthetic?: true
+      /**
+       * The row picks a choice's option or a type choice's variant: it
+       * controls a construct rather than holding a stored field.
+       */
+      readonly construct?: true
     }
   | { readonly kind: 'group'; readonly groupId: string }
   | {

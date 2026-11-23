@@ -171,6 +171,11 @@ describe('menuTargetOf', () => {
     expect(flagged({ inputId: 'x', ghost: true })).toBe(true)
     expect(flagged({ inputId: 'x', materialize: [{ construct: 'c', member: 'm' }] })).toBe(true)
     expect(flagged({ inputId: 'x' })).toBeUndefined()
+    const construct = (row: object) =>
+      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row: { address: { port: 'x' }, inputId: 'x', ...row } })) as { construct?: true }).construct
+    expect(construct({ selector: { construct: 'mode' } })).toBe(true)
+    expect(construct({ dynamicSlot: { construct: 'value', variants: [] } })).toBe(true)
+    expect(construct({})).toBeUndefined()
     const tapFlagged = (pin: unknown) =>
       (menuTargetOf(hit({ kind: 'widgetTap', node: { id: 'n1' }, input: 'x', pin })) as { synthetic?: true }).synthetic
     expect(tapFlagged({ ghost: true })).toBe(true)

@@ -210,6 +210,7 @@ export function widgetMenuTarget(
     address: { port: row.address.port },
     ...owner,
     ...(synthetic ? { synthetic: true as const } : {}),
+    ...(row.selector !== undefined || row.dynamicSlot !== undefined ? { construct: true as const } : {}),
   }
 }
 

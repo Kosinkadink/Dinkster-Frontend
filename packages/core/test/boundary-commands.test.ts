@@ -447,9 +447,9 @@ describe('showing a field on the subgraph node', () => {
   it('offers the entries on a field inside a subgraph and runs them', () => {
     const registry = createMenuRegistry()
     for (const contribution of coreMenuContributions()) registry.register(contribution)
-    const entries = (store: DocumentStore, graphId: string, nodeId: string, port: string) => registry.resolve({
+    const entries = (store: DocumentStore, graphId: string, nodeId: string, port: string, construct?: true) => registry.resolve({
       doc: store.doc, graphId,
-      target: { kind: 'widget', nodeId, inputId: port, address: { port } },
+      target: { kind: 'widget', nodeId, inputId: port, address: { port }, ...(construct ? { construct } : {}) },
       selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] }, worldX: 0, worldY: 0,
     }).flatMap((group) => group.items).filter((item) => item.id.startsWith('core.widget.subgraphNode')) as MenuActionItem[]
     const run = (store: DocumentStore, item: MenuActionItem) => {
@@ -458,6 +458,7 @@ describe('showing a field on the subgraph node', () => {
     }
     const store = schemaStore(fieldDoc())
     expect(entries(store, 'g0', 'top', 'radius')).toEqual([])
+    expect(entries(store, 'sub', 'blur', 'radius', true)).toEqual([])
     const [showEntry] = entries(store, 'sub', 'blur', 'radius')
     expect(showEntry!.label).toBe('Show on subgraph node')
     expect(run(store, showEntry!).ok).toBe(true)

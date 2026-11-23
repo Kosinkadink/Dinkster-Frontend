@@ -1178,8 +1178,9 @@ const widgetSubgraphNode: MenuContribution = {
   resolve(ctx) {
     if (ctx.target.kind !== 'widget') return []
     const t = ctx.target
-    // Synthetic and forwarded rows have no field of this node to bind.
-    if (t.synthetic === true || t.owner !== undefined || t.address === undefined || ctx.graphId === ctx.doc.root) return []
+    // Synthetic and forwarded rows have no field of this node to bind, and a
+    // choice's or type choice's own row is refused by the command.
+    if (t.synthetic === true || t.construct === true || t.owner !== undefined || t.address === undefined || ctx.graphId === ctx.doc.root) return []
     const def = ctx.doc.graphs[ctx.graphId]
     if (def?.nodes[t.nodeId] === undefined) return []
     const target = portParams({ node: t.nodeId, port: t.address.port })
