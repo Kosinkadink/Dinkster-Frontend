@@ -1563,6 +1563,10 @@ export function layoutNode(
     let flexibleIndex = 0
     let y = tokens.headerHeight + stackInsets.top
     let slack = 0
+    // Room under the last thing placed before the outline closing below it:
+    // as much as at a box's sides, so a field's inset under a field and a
+    // box's step under an outline (an inner box or an add row).
+    let under: number = box.bottomGap
     const push = (row: LayoutRow, depth: number): void => {
       rows.push(row)
       rowDepth.push(depth)
@@ -1570,7 +1574,7 @@ export function layoutNode(
     const close = (depth: number): void => {
       while (open.length > depth) {
         const done = open.pop()!
-        const bottom = y + box.bottomGap - slack + box.stroke
+        const bottom = y + under - slack + box.stroke
         boxes.push({
           id: done.decl.id,
           kind: done.decl.kind,
@@ -1585,6 +1589,7 @@ export function layoutNode(
         })
         y = bottom
         slack = 0
+        under = box.step
       }
     }
     /** Close the boxes the row is not in and open the option boxes it is in. */
@@ -1621,6 +1626,7 @@ export function layoutNode(
           }, depth)
           open.push({ decl, top, first: index })
           y += height
+          under = box.bottomGap
           slack = 0
           continue
         }
@@ -1646,6 +1652,9 @@ export function layoutNode(
           })
           anchorY.set(decl.id, top + closedHeight / 2)
           y = top + closedHeight
+          under = box.step
+          slack = 0
+          continue
         } else if (decl.tab) {
           const top = y + box.tabGap - slack
           push({ ...header, y, height: top + box.stroke + box.tabPad - y, top, tab: true }, depth)
@@ -1657,6 +1666,7 @@ export function layoutNode(
           open.push({ decl, top, first: index })
           y = top + box.stroke + headerHeight
         }
+        under = box.bottomGap
         slack = 0
         continue
       }
@@ -1735,13 +1745,15 @@ export function layoutNode(
         if (line.at(-1) === row) y = lineBottoms.get(line)!
       }
       slack = verticalInset
+      under = row.kind === 'growth' ? box.step : box.bottomGap
     }
+    const endsInBox = open.length > 0
     close(0)
-    return { rows, pins, boxes, rowDepth, anchorY, rowIndex, bottom: y }
+    return { rows, pins, boxes, rowDepth, anchorY, rowIndex, bottom: y, endsInBox }
   }
 
   const natural = place(0, 0)
-  const naturalHeight = natural.bottom + stackInsets.bottom
+  const naturalHeight = natural.bottom + (natural.endsInBox ? boxEndInset(tokens) : stackInsets.bottom)
   const requestedExtra = options.size === undefined
     ? 0
     : Math.max(0, options.size.height - naturalHeight)
@@ -1988,7 +2000,14 @@ export function insetRowStack(
  * preview or text output placed after the rows keeps the boxed bottom inset.
  */
 function boxedMinHeight(layout: NodeLayout, tokens: DesignTokens): number {
-  return layout.minHeight - rowStackInsets(undefined, layout.rows.at(-1)?.kind, tokens).bottom + tokens.padBottom
+  const endsInBox = layout.boxes?.some((b) => b.depth === 1 && b.last === layout.rows.length - 1) === true
+  const bottom = endsInBox ? boxEndInset(tokens) : rowStackInsets(undefined, layout.rows.at(-1)?.kind, tokens).bottom
+  return layout.minHeight - bottom + tokens.padBottom
+}
+
+/** A box that ends a node stands as far above its bottom edge as from its side edges. */
+function boxEndInset(tokens: DesignTokens): number {
+  return tokens.rowGeometry.fieldInsetX - canvasPaintTokens.node.box.stroke
 }
 
 /** One boundary item rendered as a pseudo-node row (scene supplies these). */
