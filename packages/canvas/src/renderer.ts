@@ -3803,18 +3803,21 @@ export class CanvasRenderer {
           ctx.fillText(`+ ${row.label}`, node.x + l.width / 2, rowY + row.height / 2, chrome.width - canvasPaintTokens.widget.growth.textPadding)
           ctx.textAlign = 'left'
         } else if (row.kind === 'editorSpace') {
-          // The unfolded editor's outline, drawn as a box's, so its own rows
-          // sit on the node's body as the node's rows do. Its controls are the
+          // The unfolded editor and its row are one open box: one outline runs
+          // from the row's top around the space, so the editor's own rows sit
+          // on the node's body as the node's rows do. Its controls are the
           // host's, laid over it; the picture's place is drawn inset.
           const space = canvasPaintTokens.node.editorSpace
           const x = node.x + row.inset
-          const width = l.width - row.inset * 2
+          const width = row.width ?? l.width - row.inset * 2
           const stroke = canvasPaintTokens.node.box.stroke
+          const top = rowY - row.rowAbove + t.rowGeometry.fieldInsetY
           ctx.strokeStyle = t.colors.boxOutline
           ctx.lineWidth = stroke
           ctx.beginPath()
-          ctx.roundRect(x + stroke / 2, rowY + t.rowGeometry.fieldInsetY + stroke / 2, width - stroke,
-            row.height - t.rowGeometry.fieldInsetY * 2 - stroke, canvasPaintTokens.node.box.radius)
+          // The row's corners, so the outline meets the row's fill exactly.
+          ctx.roundRect(x + stroke / 2, top + stroke / 2, width - stroke,
+            rowY + row.height - t.rowGeometry.fieldInsetY - top - stroke, canvasPaintTokens.widget.radius)
           ctx.stroke()
           if (row.picture) {
             ctx.fillStyle = t.colors.canvasBackground

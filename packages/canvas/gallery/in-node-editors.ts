@@ -162,7 +162,8 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
     values: { second: clip }, view: unfold('first'), states: { first: { status: 'idle' } } },
   { id: 'group-member', summaries: { 'clips.clip0': { text: 'No clip', placeholder: true }, 'clips.clip1': { text: '0:07 clip' }, 'clips.clip2': { text: 'No clip', placeholder: true } }, card: 10, caption: 'A growing group: every member starts folded; the second is unfolded and the third moved down', type: 'Record clips',
     members: { clips: ['clip0', 'clip1', 'clip2'] }, values: { 'clips.clip1': clip }, view: unfold('clips.clip1'),
-    states: { 'clips.clip1': { status: 'ready' } } },
+    // As wide as the node grows for an editor unfolded in a group: its own width plus the group's insets, grip and cross.
+    width: 344, states: { 'clips.clip1': { status: 'ready' } } },
   { id: 'audio-idle', card: 12, caption: 'Idle: Record, Microphone off', type: 'Record Audio', states: { audio: { status: 'idle' } } },
   { id: 'audio-waiting', card: 12, caption: 'Waiting for permission', type: 'Record Audio', states: { audio: { status: 'waiting' } } },
   { id: 'audio-recording', summaries: { audio: { text: 'Recording 0:07' } }, card: 13, caption: 'Recording: Stop, time and size; Microphone and Limit dimmed', type: 'Record Audio',

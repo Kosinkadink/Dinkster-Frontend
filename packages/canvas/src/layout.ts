@@ -232,7 +232,12 @@ export type LayoutRow =
       readonly kind: 'editorSpace'
       readonly y: number
       readonly height: number
+      /** The editor row's left edge; the space is as wide as that row. */
       readonly inset: number
+      /** The editor row's width when it is narrower than the node less both insets. */
+      readonly width?: number
+      /** How far above the space its editor row starts: the row and the space are one box. */
+      readonly rowAbove: number
       readonly inputId: string
       readonly valueKey: string
       readonly viewId: string
@@ -1007,7 +1012,7 @@ export function layoutNode(
     growth?: { construct: string; label: string; frames: readonly MaterializeFrame[] }
     note?: { noteId: string; text: string; unknown?: true }
     button?: { buttonId: string; label: string }
-    editorSpace?: Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset'>
+    editorSpace?: Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset' | 'width' | 'rowAbove'>
   }
   /** A `Row` cell's text, which sets its share of the line's width. */
   const cellLabel = (row: PendingRow): string =>
@@ -1600,7 +1605,7 @@ export function layoutNode(
       const depth = open.length
       if (row.kind === 'editorSpace') {
         const editorSpace = row.editorSpace!
-        push({ kind: 'editorSpace', y, inset: fieldInset(depth), ...editorSpace }, depth)
+        push({ kind: 'editorSpace', y, inset: fieldInset(depth), rowAbove: 0, ...editorSpace }, depth)
         y += editorSpace.height
       } else if (row.kind === 'growth') {
         const g = row.growth!
@@ -1739,7 +1744,12 @@ export function layoutNode(
     } else if (row.kind === 'button') {
       content = measure(row.label, 'label') + canvasPaintTokens.node.growthWidthPadding + extra
     } else if (row.kind === 'editorSpace') {
-      content = canvasPaintTokens.node.editorSpace.minWidth
+      // The space is as wide as its row, which a member's grip and cross shorten.
+      const editorRow = rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === row.valueKey)
+      const room = editorRow?.kind !== 'widget' ? 0
+        : (editorRow.crossInset === undefined ? 0 : box.cross.size + box.cross.fieldGap) +
+          (editorRow.reorder === undefined ? 0 : box.gripWidth + box.cross.fieldGap)
+      content = canvasPaintTokens.node.editorSpace.minWidth + extra + room
     } else {
       // Label + a value area floor; widget content depth lives in the
       // expanded editor, so rows never force extreme widths.
@@ -1808,6 +1818,18 @@ export function layoutNode(
       rows[index] = { ...row, width: (row.width ?? width - row.inset * 2) - crossRoom - gripRoom, ...reorder }
     else if (row.reorder !== undefined)
       rows[index] = { ...row, ...reorder }
+  }
+  // An unfolded editor and its row are one box: the space takes the row's
+  // place and width, so a member's grip and cross stay beside both.
+  const editorRows = new Map<string, Extract<LayoutRow, { kind: 'widget' }>>()
+  for (const [index, row] of rows.entries()) {
+    if (row.kind === 'widget' && row.unfolded) editorRows.set(row.valueKey, row)
+    const editorRow = row.kind === 'editorSpace' ? editorRows.get(row.valueKey) : undefined
+    if (row.kind !== 'editorSpace' || editorRow === undefined) continue
+    rows[index] = {
+      ...row, inset: editorRow.inset, rowAbove: row.y - editorRow.y,
+      ...(editorRow.width !== undefined ? { width: editorRow.width } : {}),
+    }
   }
 
   if (options.minimized) {

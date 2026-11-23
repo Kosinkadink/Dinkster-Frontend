@@ -198,10 +198,13 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.strokeStyle = tokens.colors.nodeIdleOutline
       ctx.lineWidth = paint.opener.stroke
       ctx.beginPath()
+      // Unfolded, the row is the header of one box with the editor's space:
+      // the space draws the outline around both, so the row has none.
       ctx.roundRect(chrome.x + paint.opener.strokeInset, chrome.y + paint.opener.strokeInset,
-        chrome.width - paint.opener.stroke, chrome.height - paint.opener.stroke, chrome.radius)
+        chrome.width - paint.opener.stroke, chrome.height - paint.opener.stroke,
+        row.unfolded ? [chrome.radius, chrome.radius, 0, 0] : chrome.radius)
       ctx.fill()
-      ctx.stroke()
+      if (!row.unfolded) ctx.stroke()
       paintToolboxIcon(ctx, openerIcon, x + paint.opener.iconInset,
         y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.value)
       // An editor shown in the node points down while it is unfolded under this row.

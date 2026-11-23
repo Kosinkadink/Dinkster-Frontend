@@ -396,6 +396,8 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
         ...defaultTokens,
         widgetEditing: 'in-row',
         widgetRowLook: 'raised-editors',
+        // As the Node boxes page, the page shows the remove cross the editor leaves off until it works.
+        memberRemoveCross: true,
         ...canvasTypePaintForTheme(theme),
         colors: canvasColorsForTheme(theme),
       }
@@ -457,7 +459,7 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
             <CanvasEditorSpace ref={(element) => {
               element.style.left = `${node.x + row.inset}px`
               element.style.top = `${node.y + row.y}px`
-              element.style.width = `${node.layout.width - row.inset * 2}px`
+              element.style.width = `${row.width ?? node.layout.width - row.inset * 2}px`
               element.style.height = `${row.height}px`
             }}>
               <EditorBody row={row} example={props.example} />
