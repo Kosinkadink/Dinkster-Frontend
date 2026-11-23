@@ -995,14 +995,6 @@ function planReplacementForCase(
         ))
         continue
       }
-      if (takes.widget === undefined) {
-        errors.push(diag(
-          'error',
-          'replace.target.notWidget',
-          `replace: target family input '${targetFamilyId}.${takes.id}' has no widget; cannot write a value`,
-        ))
-        continue
-      }
       const stored = node.values[mapping.input]
       if (stored !== undefined && !Array.isArray(stored)) {
         errors.push(diag(
