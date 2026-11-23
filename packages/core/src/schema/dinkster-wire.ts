@@ -232,23 +232,36 @@ export interface DinksterWireSchema {
 function decodeWireSelector(
   wire: unknown,
   inputs: ReadonlyMap<string, InputSpec>,
-  rows: readonly OptionRow[],
+  body: readonly OptionRow[],
   outputs: readonly OutputSpec[],
 ): NodeSelectorSpec | undefined {
   if (wire === undefined) return undefined
   const selector = wireObject(wire, 'selector')
-  const selectorKeys = Object.keys(selector).sort()
-  if (selectorKeys.length !== 2 || selectorKeys[0] !== 'group' || selectorKeys[1] !== 'input') {
-    throw new Error('selector must contain exactly input and group')
+  const extra = Object.keys(selector).filter((key) => key !== 'input' && key !== 'group' && key !== 'names')
+  if (!('input' in selector) || !('group' in selector) || extra.length > 0) {
+    throw new Error('selector must contain input and group, and may contain names')
   }
   const input = selector['input']
   const group = selector['group']
+  const names = selector['names']
   if (typeof input !== 'string' || typeof group !== 'string') throw new Error('selector input and group must be strings')
+  if (names !== undefined && (typeof names !== 'string' || names === '' || names === input || names === group)) {
+    throw new Error('selector.names must be a non-empty string distinct from its input and group')
+  }
   const pick = inputs.get(input)
   if (pick === undefined) throw new Error(`selector.input names unknown input '${input}'`)
-  if (pick.type.kind !== 'union' || [...pick.type.names].sort().join() !== 'BOOLEAN,INT') {
-    throw new Error('selector.input must have type INT | BOOLEAN')
+  const pickTypes = names === undefined ? 'BOOLEAN,INT' : 'BOOLEAN,COMBO,INT,STRING'
+  if (pick.type.kind !== 'union' || [...pick.type.names].sort().join() !== pickTypes) {
+    throw new Error(`selector.input must have type ${pickTypes.split(',').join(' | ')}`)
   }
+  if (names !== undefined) {
+    const target = body.find((row): row is InputSpec => row.kind === 'input' && row.id === names)
+    const stringList = target?.type.kind === 'list' && target.type.element.kind === 'concrete' && target.type.element.name === 'STRING'
+    if (target === undefined || target.hidden !== true || !target.optional || target.widget !== undefined || !stringList) {
+      throw new Error(`selector.names '${names}' must name a top-level hidden, optional list<STRING> input with no widget`)
+    }
+  }
+  const rows = scopeRowsOf(body)
   const branches = rows.find((row): row is GroupSpec => row.kind === 'group' && row.id === group)
   if (branches?.value?.kind !== 'input' || branches.value.lazy !== true) {
     throw new Error(`selector.group must name a top-level group of lazy inputs, not '${group}'`)
@@ -257,7 +270,7 @@ function decodeWireSelector(
   if (JSON.stringify(branches.value.type) !== JSON.stringify(outputs[0]!.type)) {
     throw new Error('selector branches must share the sole output type')
   }
-  return { input, group }
+  return { input, group, ...(names !== undefined ? { names } : {}) }
 }
 
 export interface DinksterNodesPayload {
@@ -2048,7 +2061,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
         throw new Error(`output '${output.id}' knownValue must name an input of the node with the same concrete primitive type`)
       }
     }
-    const selector = decodeWireSelector(wire.selector, decodedInputs, scopeRowsOf(baseSchema.body), decodedOutputs)
+    const selector = decodeWireSelector(wire.selector, decodedInputs, baseSchema.body, decodedOutputs)
     if (wire.widgetGroups !== undefined) throw new Error('widgetGroups is not part of a body node; a Choice or a visible formula shows and hides rows')
     const mirror = decodeMirror(wire.mirror)
     const topChoices = new Map(scopeRowsOf(baseSchema.body).filter((row): row is ChoiceSpec => row.kind === 'choice').map((row) => [row.id, row]))

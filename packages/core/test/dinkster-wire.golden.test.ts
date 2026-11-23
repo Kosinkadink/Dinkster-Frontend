@@ -28,6 +28,25 @@ describe('Dinkster schema wire', () => {
     expect(old.schema).toBeUndefined()
   })
 
+  it('decodes a Switch that picks by name only with a text pick and a hidden names list', () => {
+    const textPick = { kind: 'input', id: 'pick', type: { kind: 'union', types: ['INT', 'BOOLEAN', 'STRING', 'COMBO'] }, required: false }
+    const names = { kind: 'input', id: 'names', type: { kind: 'list', element: { kind: 'concrete', types: ['STRING'] } }, required: false, hidden: true }
+    const rest = [
+      { kind: 'group', id: 'branch', value: { kind: 'input', id: 'branch', type: concrete('IMAGE'), required: false, lazy: true },
+        keys: { numbered: { prefix: 'branch', start: 1, pad: 0 } }, grows: 'button', minMembers: 1 },
+      { kind: 'output', id: 'out', type: concrete('IMAGE') },
+    ]
+    const decode = (body: unknown[], selector: Record<string, string>) => parseDinksterSchema('Switch', { body, selector } as never)
+    const named = decode([textPick, names, ...rest], { input: 'pick', group: 'branch', names: 'names' })
+    expect(named.diagnostics).toEqual([])
+    expect(named.schema!.selector).toEqual({ input: 'pick', group: 'branch', names: 'names' })
+    // Text needs names; names need text; the names input is hidden and not required.
+    expect(decode([textPick, names, ...rest], { input: 'pick', group: 'branch' }).schema).toBeUndefined()
+    expect(decode([{ ...textPick, type: { kind: 'union', types: ['INT', 'BOOLEAN'] } }, names, ...rest], { input: 'pick', group: 'branch', names: 'names' }).schema).toBeUndefined()
+    expect(decode([textPick, { ...names, hidden: false }, ...rest], { input: 'pick', group: 'branch', names: 'names' }).schema).toBeUndefined()
+    expect(decode([textPick, { ...names, required: true }, ...rest], { input: 'pick', group: 'branch', names: 'names' }).schema).toBeUndefined()
+  })
+
   it('keeps formula labels and visible on inputs and outputs as declared', () => {
     const { schema, diagnostics } = parseDinksterSchema('Labels', { body: [
       { kind: 'input', id: 'count', type: concrete('INT'), label: { formula: 'mode' }, visible: { formula: 'count > 1' } },
