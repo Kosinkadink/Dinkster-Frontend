@@ -63,6 +63,7 @@ export const canvasGalleryPages = [
   ['idle-outline', 'Idle outline'],
   ['titles', 'Node titles'],
   ['titles-content', 'Node titles at content zoom'],
+  ['title-suffix', 'Title suffix'],
   ['tabs', 'Tabs'],
   ['tabs-content', 'Tabs at content zoom'],
   ['states', 'Node states'],
@@ -541,7 +542,7 @@ export function createCanvasGalleryFixture(
               id,
               type: id === 'Missing type' ? 'Uninstalled' : definition.type,
               values: { ...defaultValuesOf(definition), ...values },
-              ...(id === 'Renamed' ? { title: 'Refine pass' } : {}),
+              ...(id === 'Renamed' || id === 'Suffix renamed' ? { title: 'Refine pass' } : {}),
               ...(id === 'Long renamed'
                 ? { title: 'A deliberately long custom refinement pass title' }
                 : {}),
@@ -588,7 +589,7 @@ export function createCanvasGalleryFixture(
                 : {}),
               [id]: {
                 position: { x, y },
-                size: { width: id === 'Narrow' ? 112 : 280, height: view.height ?? 0 },
+                size: { width: id === 'Narrow' ? 112 : id === 'Suffix narrow' ? 200 : 280, height: view.height ?? 0 },
                 ...(view.textLines !== undefined ? { textLines: view.textLines } : {}),
                 ...(id.startsWith('Minimized') || id === 'Long minimized'
                   ? { collapsed: true }
@@ -940,6 +941,13 @@ export function createCanvasGalleryFixture(
     fixture.scene.links = [...gallery.scene.links]
     fixture.companions = gallery.companions
     examples.push(...gallery.examples)
+  } else if (page === 'title-suffix') {
+    const suffixed: NodeSchema = { ...sample, titleSuffix: { formula: 'str(steps) + " steps, " + sampler_name' } }
+    add('Suffix', suffixed)
+    add('Suffix renamed', suffixed)
+    add('Suffix narrow', { ...sample, titleSuffix: { formula: 'str(steps) + " steps with the " + sampler_name + " sampler"' } })
+    add('Minimized suffix', suffixed)
+    fixture.height = 560
   } else if (page === 'titles' || page === 'titles-content') {
     const long = {
       ...sample,
@@ -1564,6 +1572,41 @@ export function createRowEditingScene(
   return singleNodeScene(
     rowEditingSchema,
     { values: { seed: 123456789, denoise: 0.65 } },
+    { position, size: { width, height: 0 } },
+    tokens,
+    measure,
+    widgetMeasure,
+  )
+}
+
+/** A node whose number declares 0 as a special value labelled "no limit", stored at 0. */
+export const rowSpecialSchema: NodeSchema = schema('Load frames', [
+  { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
+  {
+    ...widget('frame_load_cap', 'INT', 0, {
+      min: 1,
+      max: 10000,
+      special: [{ value: 0, label: 'no limit' }],
+    }),
+    tooltip: 'Most frames to load.',
+  },
+  {
+    ...widget('select_every_nth', 'INT', 1, { min: 1, max: 100 }),
+    tooltip: 'Load one frame of every this many.',
+  },
+])
+
+/** The node of the row-editing page's special value examples. */
+export function createRowSpecialScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  position: { x: number; y: number },
+  width = 280,
+): Scene {
+  return singleNodeScene(
+    rowSpecialSchema,
+    {},
     { position, size: { width, height: 0 } },
     tokens,
     measure,

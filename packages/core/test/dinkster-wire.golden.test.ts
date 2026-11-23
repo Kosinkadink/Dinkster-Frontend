@@ -286,6 +286,66 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('submits an editable choice\'s authored options to the input its optionsInput names', () => {
+    const optionsInput = { kind: 'input', id: 'options', type: { kind: 'list', element: concrete('STRING') }, required: false, hidden: true }
+    const result = parseDinksterSchema('AuthoredCombo', { outputNode: true, body: [
+      { kind: 'input', id: 'choice', type: concrete('COMBO'), widget: { type: 'COMBO', editableOptions: true, optionsInput: 'options' } },
+      optionsInput,
+    ] } as never)
+    expect(result.diagnostics).toEqual([])
+    const resolve = (type: string) => type === 'AuthoredCombo' ? result.schema : undefined
+    const imported = importLitegraph({ nodes: [{ id: 1, type: 'AuthoredCombo', widgets_values: ['Detailed'] }], links: [] }, resolve)
+    const graph = imported.document!.graphs.g0!
+    const node = graph.nodes.n1!
+    const compileWith = (dynamic: object | undefined, values: object = node.values) => {
+      const document = { ...imported.document!, graphs: { ...imported.document!.graphs, g0: { ...graph,
+        nodes: { n1: { ...node, values, ...(dynamic === undefined ? {} : { dynamic }) } } } } }
+      const compiled = compile({ document: document as never, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('authored'), schemaHash: 'authored' })
+      expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error('authored options compilation failed')
+      return compiled.artifact.prompt.n1!.inputs
+    }
+    expect(compileWith({ choice: { options: ['Quick', 'Detailed', 3] } })).toEqual({ choice: 'Detailed', options: ['Quick', 'Detailed', '3'] })
+    expect(compileWith({ choice: { options: ['Detailed', true, false] } }).options).toEqual(['Detailed', 'true', 'false'])
+    expect(compileWith(undefined)).toEqual({ choice: 'Detailed', options: [] })
+    // A stored value on the options input never stands in for the authored options.
+    expect(compileWith({ choice: { options: ['Only'] } }, { ...node.values, options: ['Stale'] }).options).toEqual(['Only'])
+
+    // Each subgraph node's own authored options reach its inner choice's options input.
+    const inner = { ...node, id: asNodeId('inner'), dynamic: { choice: { options: ['Inner'] } } }
+    const instance = (id: string, options: readonly string[]) =>
+      ({ id: asNodeId(id), type: '#soften', values: { choice: 'Detailed' }, dynamic: { choice: { options } } })
+    const nested = { ...imported.document!, graphs: {
+      g0: { ...graph, nodes: { a: instance('a', ['Detailed', 'Quick']), b: instance('b', ['Fine', 'Detailed']) } },
+      soften: { ...graph, id: asGraphDefId('soften'), name: 'soften', nodes: { inner }, boundary: {
+        inputs: [{ id: 'choice', binds: { kind: 'port', node: 'inner', port: 'choice' }, promoted: true }], outputs: [],
+      } },
+    } }
+    const compiledNested = compile({ document: nested as never, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('authored'), schemaHash: 'authored' })
+    expect(compiledNested.ok, compiledNested.ok ? undefined : JSON.stringify(compiledNested.diagnostics)).toBe(true)
+    if (!compiledNested.ok) throw new Error('nested authored options compilation failed')
+    expect(compiledNested.artifact.prompt['a.inner']!.inputs.options).toEqual(['Detailed', 'Quick'])
+    expect(compiledNested.artifact.prompt['b.inner']!.inputs.options).toEqual(['Fine', 'Detailed'])
+
+    for (const [widget, target, message] of [
+      [{ type: 'COMBO', options: ['a'], optionsInput: 'options' }, optionsInput, 'optionsInput requires editableOptions'],
+      [{ type: 'COMBO', editableOptions: true, optionsInput: 'options' }, { ...optionsInput, hidden: undefined }, "optionsInput 'options' must name"],
+      [{ type: 'COMBO', editableOptions: true, optionsInput: 'options' }, { ...optionsInput, required: true }, "optionsInput 'options' must name"],
+      [{ type: 'COMBO', editableOptions: true, optionsInput: 'options' }, { ...optionsInput, type: concrete('STRING') }, "optionsInput 'options' must name"],
+      [{ type: 'COMBO', editableOptions: true, optionsInput: 'options' }, { ...optionsInput, widget: { type: 'STRING', multiline: true } }, "optionsInput 'options' must name"],
+      [{ type: 'COMBO', editableOptions: true, optionsInput: 'missing' }, optionsInput, "optionsInput 'missing' must name"],
+      [{ type: 'COMBO', editableOptions: true, optionsInput: 'options' }, {
+        kind: 'group', id: 'extra', keys: { numbered: { prefix: '', start: 0, pad: 0 } }, value: optionsInput,
+      }, "optionsInput 'options' must name"],
+    ] as const) {
+      const refused = parseDinksterSchema('AuthoredCombo', { body: [
+        { kind: 'input', id: 'choice', type: concrete('COMBO'), widget }, target,
+      ] } as never)
+      expect(refused.schema).toBeUndefined()
+      expect(refused.diagnostics.map((d) => d.message).join()).toContain(message)
+    }
+  })
+
   it('keeps socketless widget values positional and compilable in direct and nested inputs', () => {
     const fields = [
       { kind: 'input', id: 'color', type: concrete('STRING'), default: '#123456', pin: false, widget: { type: 'COLOR' } },
@@ -418,6 +478,38 @@ describe('Dinkster schema wire', () => {
       const rejected = parseDinksterSchema('InvalidColor', {
         schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
         body: [{ kind: 'input', id: 'color', type, required: true, widget: { type: 'COLOR' } }],
+      })
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error' })])
+    }
+  })
+
+  it('carries a number field\'s step offset, special values and reason to the schema model', () => {
+    const decoded = parseDinksterSchema('Frames', {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      body: [
+        {
+          kind: 'input', id: 'frames', type: concrete('INT'), required: true, default: 0,
+          widget: { type: 'NUMBER', min: 1, step: 4, offset: 1, special: [[-1, 'all'], [0, 'off'], ['18446744073709551615', 'top']], reason: 'Up to 8' },
+        },
+        { kind: 'input', id: 'plain', type: concrete('INT'), required: true, default: 0, widget: { type: 'NUMBER', min: 0 } },
+      ],
+    })
+    expect(decoded.diagnostics).toEqual([])
+    const [frames, plain] = inputsOf(decoded.schema!)
+    expect(frames!.widget!.options).toEqual({
+      min: 1, step: 4, offset: 1, reason: 'Up to 8',
+      special: [{ value: -1, label: 'all' }, { value: 0, label: 'off' }, { value: '18446744073709551615', label: 'top' }],
+    })
+    expect(plain!.widget!.options).toEqual({ min: 0 })
+    for (const widget of [
+      { type: 'NUMBER', special: { 0: 'off' } },
+      { type: 'NUMBER', special: [[0, '']] },
+      { type: 'NUMBER', reason: 7 },
+    ]) {
+      const rejected = parseDinksterSchema('BadFrames', {
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+        body: [{ kind: 'input', id: 'frames', type: concrete('INT'), required: true, widget }],
       })
       expect(rejected.schema).toBeUndefined()
       expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error' })])
