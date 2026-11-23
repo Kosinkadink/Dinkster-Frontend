@@ -318,7 +318,7 @@ export const colorEditingGroups: readonly {
       },
       {
         id: 'integer-open',
-        caption: 'Opened, it is the same field and picker without opacity. Enter stores the whole number 3368652 for #3366cc.',
+        caption: 'Opened, it is the same field and picker without opacity. The field shows #3366cc; the stored value stays the whole number 3368652.',
         stored: '#3366cc',
         text: '#3366cc',
         integer: true,
