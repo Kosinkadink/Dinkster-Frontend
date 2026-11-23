@@ -1,4 +1,4 @@
-import { expect, openRailPanel, test } from './fixtures.js'
+import { expect, openRailPanel, test, waitForWorkspaceReady } from './fixtures.js'
 import { evidencePath } from './evidence-output.js'
 
 test.beforeEach(async ({ page }, testInfo) => {
@@ -12,7 +12,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   )
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([
       {

@@ -151,7 +151,7 @@ describe('native open-time replacement', () => {
 
   it('holds migrations only in opt-in review and applies through the existing command', async () => {
     loadSchemas(app)
-    app.reviewReplacements.set(true)
+    app.settings.set('execution.reviewUpgrades', true)
     expect((await app.openDocument(document(), 'Review'))).toEqual([])
     const tab = app.activeTab()!
     expect(tab.store.doc.graphs.g0!.nodes.first!.type).toBe('Previous')
@@ -214,7 +214,7 @@ describe('native open-time replacement', () => {
     expect(tab.store.doc.graphs.g0!.nodes.first!.type).toBe('Previous')
     if (completion === 'closed') app.closeTab(tab.id)
     if (completion === 'replaced') {
-      app.reviewReplacements.set(true)
+      app.settings.set('execution.reviewUpgrades', true)
       await app.openDocument(document(), 'Replacement')
     }
     await finish()

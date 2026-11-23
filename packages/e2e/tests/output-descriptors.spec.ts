@@ -26,8 +26,7 @@ async function setup(page: Page, mode: boolean | 'fixed' = false): Promise<void>
   })
   await page.goto('/')
   await page.waitForFunction(() => window.__dinksterTest !== undefined)
-  await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', { timeout: 15_000 })
-  await waitForWorkspaceReady(page)
+  await waitForWorkspaceReady(page, 0)
   const diagnostics = await page.evaluate(async (mode) => {
     const profile = mode === true
     const fixedIds = mode !== false

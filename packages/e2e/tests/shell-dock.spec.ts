@@ -221,8 +221,8 @@ test('left bar selects the panel title and each toggle activates or closes its p
   await expect(zone.getByRole('heading', { name: 'Backends', exact: true })).toBeVisible()
   await expect(page.getByTestId('library-overlay')).toHaveCount(1)
 
-  // The statusbar Backends button closes the active zone.
-  await page.getByTestId('backends-toggle').click()
+  // The status connection item closes the active Backends zone.
+  await page.getByTestId('status-connection').click()
   await expect(dock).not.toBeVisible()
 
   // Re-open and close via the zone header X.

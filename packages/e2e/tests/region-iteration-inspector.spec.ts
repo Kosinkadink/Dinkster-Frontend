@@ -32,7 +32,6 @@ test('inspects simple and nested region iterations by exact retained runtime ide
     } })
   })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
 
   await page.evaluate(async () => {
