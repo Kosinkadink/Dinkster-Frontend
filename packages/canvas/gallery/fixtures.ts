@@ -69,6 +69,7 @@ export const canvasGalleryPages = [
   ['widgets', 'Widget kinds'],
   ['core-rows', 'Core widget rows'],
   ['row-editing', 'Editing in the row proposal'],
+  ['save-target-box', 'Save target in the row'],
   ['node-look', 'Original and new node look'],
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],

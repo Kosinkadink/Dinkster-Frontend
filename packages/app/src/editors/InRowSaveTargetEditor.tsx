@@ -1,0 +1,292 @@
+import { createEffect, createMemo, createSignal, onCleanup, type Component } from 'solid-js'
+import type { MountSettings } from '@dinkster/client'
+import { effectiveWidgetDefault, inputsOf, type Json } from '@dinkster/core'
+import { isSaveTarget, saveTargetDraft } from '@dinkster/widgets'
+import {
+  CanvasRowField,
+  CanvasTargetBox,
+  CanvasTargetSide,
+  canvasTargetLayout,
+  type CanvasTargetMount,
+  type CanvasTargetMounts,
+  type CanvasTargetStop,
+} from '@dinkster/ui'
+import { useAppMessage } from '../locale.js'
+import type { WidgetEditorImplementationProps } from '../WidgetEditorController.js'
+import { placeRow, rowPlacement, visibleCanvas } from './row-placement.js'
+
+/**
+ * A save target edited in its own row on the canvas: a box under the row
+ * holds the mount dropdown and the filename prefix, and the row shows them
+ * together as they would be stored. Nothing is stored while the box is
+ * open; Enter, Tab, Ctrl+Enter or a press elsewhere store the mount and
+ * prefix as one value, or nothing after Clear destination, through the same
+ * controller path as every other field. Escape stores nothing.
+ */
+export const InRowSaveTargetImplementation: Component<WidgetEditorImplementationProps> = (props) => {
+  const message = useAppMessage()
+  const host = props.editor
+  const ed = host.ed
+  const spec = ed.spec!
+  const inRow = ed.inRow!
+  const initial = ed.initial ?? null
+  const stored = isSaveTarget(initial) ? initial : undefined
+  const textOf = (value: Json): string => (isSaveTarget(value) ? `${value.mount}/${value.prefix}` : message('saveTargetWidget.default'))
+  const target = ed.target.kind === 'input' ? ed.target : undefined
+  const node = target && ed.tab.store.doc.graphs[target.familyOwner?.graphId ?? ed.graphId]?.nodes[target.familyOwner?.nodeId ?? target.nodeId]
+  const schema = node && host.app.registryForTab(ed.tab)?.resolve(node.type)
+  const optional = schema !== undefined && inputsOf(schema).find((input) => input.id === (target?.familyOwner?.valueKey ?? target?.valueKey))?.optional === true
+  const suffix = typeof spec.options['suffix'] === 'string' ? spec.options['suffix'] : ''
+
+  const [mount, setMount] = createSignal(stored?.mount ?? '')
+  const [prefix, setPrefix] = createSignal(stored?.prefix ?? '')
+  const [cleared, setCleared] = createSignal(false)
+  const [settings, setSettings] = createSignal<MountSettings>()
+  const [error, setError] = createSignal<string>()
+  let live = true
+  onCleanup(() => { live = false })
+  const backend = host.app.backendForTab(ed.tab)
+  if (backend.protocol === 'dinkster') {
+    void backend.connection.fetchMountSettings().then((value) => {
+      if (!live) return
+      setSettings(value)
+      const output = value.activeOutputMount ?? value.outputMount
+      if (mount() === '' && output !== undefined) setMount(output)
+    }).catch((reason: unknown) => {
+      if (live) setError(reason instanceof Error ? reason.message : String(reason))
+    })
+  } else setError(message('mountWidget.error'))
+
+  const writable = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready') ?? []
+  const mounts = (): CanvasTargetMounts => {
+    const failure = error()
+    if (failure !== undefined) return { kind: 'failed', message: failure }
+    if (settings() === undefined) return { kind: 'loading' }
+    return writable().length === 0 ? { kind: 'none' } : { kind: 'ready' }
+  }
+  // A picked mount that is no longer ready stays listed, dimmed, so it is
+  // never replaced for the person.
+  const options = createMemo<readonly CanvasTargetMount[]>(() => {
+    const entries: CanvasTargetMount[] = writable().map((entry) => ({ id: entry.id, label: entry.id }))
+    if (mount() !== '' && !entries.some((entry) => entry.id === mount()))
+      entries.unshift({ id: mount(), label: message('mountWidget.unavailable', { id: mount() }), unavailable: true })
+    return entries
+  })
+  const draft = createMemo(() => saveTargetDraft({
+    stored: initial,
+    mount: mount(),
+    prefix: prefix(),
+    cleared: cleared(),
+    ready: mounts().kind === 'ready' ? writable().map((entry) => entry.id) : undefined,
+  }))
+
+  const change = (apply: () => void): void => {
+    apply()
+    setCleared(false)
+  }
+  const clear = (): void => {
+    setCleared(true)
+    setPrefix('')
+  }
+
+  /** Resolves true once the box is closed, false while it stays open. */
+  const commit = (): Promise<boolean> => {
+    if (!live || props.commitPending()) return Promise.resolve(false)
+    const value = draft().store
+    if (value === undefined) { props.close(); return Promise.resolve(true) }
+    return props.commitValue(value).then((closed) => closed || !live)
+  }
+  host.bindClickAway?.(() => {
+    if (props.commitPending()) return false
+    void commit()
+    return true
+  })
+  onCleanup(() => host.bindClickAway?.(undefined))
+
+  // The mount list: opened from the dropdown, it takes Up, Down, Enter and
+  // Escape until it closes; the box's own keys apply again after that.
+  const [listOpen, setListOpen] = createSignal(false)
+  const [highlight, setHighlight] = createSignal<number>()
+  const openList = (): void => {
+    if (mounts().kind !== 'ready' || props.commitPending()) return
+    const at = options().findIndex((entry) => entry.id === mount())
+    setHighlight(at >= 0 && options()[at]?.unavailable !== true ? at : options().findIndex((entry) => entry.unavailable !== true))
+    setListOpen(true)
+  }
+  const pick = (index: number): void => {
+    const entry = options()[index]
+    if (entry === undefined || entry.unavailable === true) return
+    change(() => setMount(entry.id))
+    setListOpen(false)
+    mountButton?.focus()
+  }
+  const step = (direction: 1 | -1): void => {
+    const all = options()
+    for (let at = (highlight() ?? -1) + direction; at >= 0 && at < all.length; at += direction) {
+      if (all[at]?.unavailable !== true) { setHighlight(at); return }
+    }
+  }
+
+  let mountButton: HTMLButtonElement | undefined
+  let prefixInput: HTMLInputElement | undefined
+  let clearButton: HTMLButtonElement | undefined
+  const [focused, setFocused] = createSignal<CanvasTargetStop>('prefix')
+  const stops = (): CanvasTargetStop[] => ['mount', 'prefix', ...(optional ? ['clear' as const] : [])]
+  const focusStop = (stop: CanvasTargetStop): void => {
+    ;(stop === 'mount' ? mountButton : stop === 'prefix' ? prefixInput : clearButton)?.focus()
+  }
+
+  const onKeyDown = (event: KeyboardEvent): void => {
+    if (event.isComposing) return
+    if (listOpen()) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); step(event.key === 'ArrowDown' ? 1 : -1); return }
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); const at = highlight(); if (at !== undefined) pick(at); return }
+      if (event.key === 'Escape') { event.preventDefault(); setListOpen(false); mountButton?.focus(); return }
+      setListOpen(false)
+    }
+    const at = focused()
+    if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault()
+      const order = stops()
+      const index = order.indexOf(at)
+      focusStop(order[(index + (event.key === 'ArrowDown' ? 1 : -1) + order.length) % order.length]!)
+    } else if (at === 'mount' && (event.key === ' ' || event.key === 'ArrowDown')) {
+      event.preventDefault()
+      openList()
+    } else if (at === 'clear' && event.key === ' ') {
+      event.preventDefault()
+      if (!props.commitPending()) clear()
+    } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault()
+      const queue = host.app.commands.get('workflow.queue')
+      void commit().then((closed) => { if (closed && queue?.enabled?.() !== false) queue?.run() })
+    } else if (event.key === 'Enter' && at === 'clear') {
+      // Enter on Clear destination clears; the next Enter stores.
+      event.preventDefault()
+      if (!props.commitPending()) clear()
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      void commit().then((closed) => {
+        if (closed && target !== undefined) host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
+      })
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      props.close()
+    } else if (event.key === 'Tab') {
+      event.preventDefault()
+      const direction = event.shiftKey ? -1 : 1
+      if (target === undefined) return
+      void commit().then((closed) => { if (closed) host.moveRow?.({ nodeId: target.nodeId, valueKey: target.valueKey }, direction) })
+    }
+  }
+
+  const declared = effectiveWidgetDefault(spec)
+  const side = createMemo(() => {
+    const value = draft().store
+    const failure = mounts().kind
+    const problem = props.commitError()
+      ?? (failure === 'none' ? message('saveTargetWidget.noMounts') : undefined)
+      ?? (draft().mountGone ? message('saveTargetWidget.mountGone') : undefined)
+    return (
+      <CanvasTargetSide
+        {...(problem === undefined ? {} : { problem })}
+        enter={value === undefined
+          ? { verb: message('saveTargetWidget.enterKeeps'), target: textOf(initial) }
+          : { verb: message('saveTargetWidget.enterStores'), target: textOf(value) }}
+        defaultLabel="default"
+        defaultText={textOf((declared ?? null) as Json)}
+        help={message('saveTargetWidget.naming', { suffix })}
+      />
+    )
+  })
+
+  const bounds = visibleCanvas(host.boundary)
+  const [sideSize, setSideSize] = createSignal({ width: 0, height: 0 })
+  const [boxHeight, setBoxHeight] = createSignal(0)
+  const placement = createMemo(() => {
+    const row = rowPlacement(
+      { rect: ed.rect, look: inRow.look, nodeTop: inRow.nodeTop, nodeBottom: inRow.nodeBottom },
+      host.viewport(),
+      bounds(),
+      sideSize(),
+    )
+    return { ...row, ...canvasTargetLayout(row.screen, bounds(), boxHeight(), sideSize(), row.scale) }
+  })
+  let frame!: HTMLDivElement
+  createEffect(() => placeRow(frame, placement()))
+
+  const box = (
+    <div ref={(element) => {
+      const observer = new ResizeObserver(() => setBoxHeight(element.offsetHeight))
+      observer.observe(element)
+      onCleanup(() => observer.disconnect())
+    }}>
+      <CanvasTargetBox
+        words={{
+          mount: message('saveTargetWidget.mount'),
+          prefix: message('saveTargetWidget.prefix'),
+          loading: message('saveTargetWidget.loading'),
+          none: message('saveTargetWidget.none'),
+          failed: message('saveTargetWidget.noMount'),
+          clear: message('saveTargetWidget.clear'),
+        }}
+        mounts={mounts()}
+        options={options()}
+        mount={mount()}
+        listOpen={listOpen()}
+        {...(highlight() === undefined ? {} : { highlight: highlight()! })}
+        onToggleList={() => (listOpen() ? setListOpen(false) : openList())}
+        onHighlight={setHighlight}
+        onPick={pick}
+        prefix={prefix()}
+        onPrefix={(text) => change(() => setPrefix(text))}
+        {...(draft().prefixInvalid ? { prefixProblem: message('saveTargetWidget.invalid') } : {})}
+        {...(optional ? { onClear: () => { clear(); clearButton?.focus() } } : {})}
+        onFocusStop={setFocused}
+        mountRef={(element) => { mountButton = element }}
+        prefixRef={(element) => {
+          prefixInput = element
+          queueMicrotask(() => { element.focus(); element.select() })
+        }}
+        clearRef={(element) => { clearButton = element }}
+        frozen={props.commitPending()}
+      />
+    </div>
+  )
+
+  return (
+    <div
+      ref={frame}
+      class="widget-in-row-field"
+      data-testid="widget-editor"
+      data-editor-target={ed.target.kind}
+      data-editor-mode={spec.widgetType}
+      data-editor-surface="in-row"
+      onKeyDown={onKeyDown}
+    >
+      <CanvasRowField
+        look={inRow.look}
+        rowWidth={placement().rowWidth}
+        label={ed.label}
+        value={draft().rowText}
+        placeholder={message('saveTargetWidget.default')}
+        onInput={() => undefined}
+        inputRef={(element) => {
+          // The row shows what would be stored; the box below is where it changes.
+          element.readOnly = true
+          element.tabIndex = -1
+          element.addEventListener('focus', () => prefixInput?.focus())
+        }}
+        inputLabel={ed.label}
+        zoomed={placement().scale > 1}
+        place={placement().place}
+        sideTop={placement().sideTop}
+        {...(placement().sideMaxHeight === undefined ? {} : { sideMaxHeight: placement().sideMaxHeight! })}
+        onSideSize={setSideSize}
+        side={side()}
+        panel={box}
+        panelPlace={placement().panelPlace}
+      />
+    </div>
+  )
+}

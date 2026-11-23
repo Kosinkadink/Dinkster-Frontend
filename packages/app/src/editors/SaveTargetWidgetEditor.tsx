@@ -7,6 +7,7 @@ import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } fro
 import { ProductSelect } from '../ProductSelect.js'
 import { useAppMessage } from '../locale.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
+import { InRowSaveTargetImplementation } from './InRowSaveTargetEditor.js'
 
 const SaveTargetImplementation: Component<WidgetEditorImplementationProps> = (props) => {
   const message = useAppMessage()
@@ -64,4 +65,4 @@ const SaveTargetImplementation: Component<WidgetEditorImplementationProps> = (pr
   </div>
 }
 
-export const SaveTargetWidgetEditor: Component<WidgetEditorProps> = (props) => <WidgetEditorController {...props} implementation={SaveTargetImplementation} />
+export const SaveTargetWidgetEditor: Component<WidgetEditorProps> = (props) => <WidgetEditorController {...props} implementation={props.ed.inRow === undefined ? SaveTargetImplementation : InRowSaveTargetImplementation} />
