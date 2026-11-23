@@ -569,6 +569,8 @@ export interface OverlayState {
   /** A box's header, closed row or tab under the idle pointer, by box key. */
   /** A box under the pointer; `target` names the field a held wire would reach in a closed box. */
   readonly hoveredBox?: { readonly nodeId: string; readonly boxId: string; readonly target?: string }
+  /** A line of fields under the pointer: an unfolded line's rail lights, a folded line shows its list. */
+  readonly hoveredLine?: { readonly nodeId: string; readonly key: string }
   readonly hoveredBadge?: { readonly nodeId: string; readonly badgeId: string }
   /** Live rubber-band selection rectangle (world coords, normalized). */
   readonly marquee?: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }
@@ -922,6 +924,68 @@ export class CanvasRenderer {
 
   getOverlay(): OverlayState {
     return this.overlay
+  }
+
+  /**
+   * The list a folded line shows under the pointer, beside the node's right
+   * edge: one entry per field with its pin, then "Unfold".
+   */
+  private drawLineList(ctx: CanvasRenderingContext2D, hovered: { readonly nodeId: string; readonly key: string }): void {
+    const t = this.tokens
+    const node = this.scene.nodes.find((candidate) => candidate.id === hovered.nodeId)
+    const line = node?.layout.lines?.find((candidate) => candidate.key === hovered.key)
+    if (node === undefined || line === undefined || !line.folded || node.layout.minimized) return
+    const list = canvasPaintTokens.node.line.list
+    const offset = this.overlay.dragOffsets?.get(node.id)
+    const nodeX = node.x + (offset?.dx ?? 0)
+    const nodeY = node.y + (offset?.dy ?? 0)
+    ctx.save()
+    ctx.font = `${list.fontSize}px ${t.fontFamily}`
+    ctx.textBaseline = 'middle'
+    const unfold = 'Unfold'
+    const labelWidth = Math.max(...[...line.fields.map((field) => field.label), unfold].map((text) => ctx.measureText(text).width))
+    const width = list.padX * 2 + list.pinSize + list.labelGap + labelWidth
+    const height = list.padY * 2 + (line.fields.length + 1) * list.rowHeight + list.actionGap
+    const x = nodeX + node.layout.width + list.gap
+    const row = node.layout.rows[line.first]!
+    const y = nodeY + row.y + row.height / 2 - list.padY - list.rowHeight * (line.fields.length / 2 + 0.5)
+    ctx.fillStyle = t.colors.boxHover
+    ctx.strokeStyle = t.colors.nodeOutline
+    ctx.lineWidth = canvasPaintTokens.node.box.stroke
+    ctx.beginPath()
+    ctx.roundRect(x, y, width, height, list.radius)
+    ctx.fill()
+    ctx.stroke()
+    ctx.textAlign = 'left'
+    for (const [index, field] of line.fields.entries()) {
+      const cy = y + list.padY + (index + 0.5) * list.rowHeight
+      const name = canonicalTypeIdOf(field.type)
+      ctx.fillStyle = name !== undefined ? typeColor(t, name) : t.colors.linkDefault
+      ctx.beginPath()
+      ctx.arc(x + list.padX + list.pinSize / 2, cy, list.pinSize / 2, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = t.colors.label
+      ctx.fillText(field.label, x + list.padX + list.pinSize + list.labelGap, cy)
+    }
+    const actionTop = y + list.padY + line.fields.length * list.rowHeight + list.actionGap
+    ctx.strokeStyle = t.colors.nodeOutline
+    ctx.beginPath()
+    ctx.moveTo(x, actionTop)
+    ctx.lineTo(x + width, actionTop)
+    ctx.stroke()
+    const cy = actionTop + list.rowHeight / 2
+    const chevron = canvasPaintTokens.node.line.chevron
+    const cx = x + list.padX + list.pinSize / 2
+    ctx.strokeStyle = t.colors.title
+    ctx.lineWidth = chevron.stroke
+    ctx.beginPath()
+    ctx.moveTo(cx - chevron.width / 2, cy - chevron.height / 2)
+    ctx.lineTo(cx, cy + chevron.height / 2)
+    ctx.lineTo(cx + chevron.width / 2, cy - chevron.height / 2)
+    ctx.stroke()
+    ctx.fillStyle = t.colors.title
+    ctx.fillText(unfold, x + list.padX + list.pinSize + list.labelGap, cy)
+    ctx.restore()
   }
 
   setOverlay(overlay: OverlayState): void {
@@ -2408,6 +2472,8 @@ export class CanvasRenderer {
       ctx.restore()
     }
 
+    if (this.overlay.hoveredLine) this.drawLineList(ctx, this.overlay.hoveredLine)
+
     if (this.overlay.ghostLinks) {
       ctx.save()
       ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.ghost.world, canvasPaintTokens.dash.ghost.screen, scale))
@@ -3319,6 +3385,38 @@ export class CanvasRenderer {
         }
         ctx.closePath()
         ctx.fill()
+      }
+      // The rail beside an unfolded line of fields: a chevron over a thin line.
+      const linePaint = canvasPaintTokens.node.line
+      for (const line of l.lines ?? []) {
+        if (line.folded || line.railInset === undefined) continue
+        const firstRow = l.rows[line.first]!
+        const lastRow = l.rows[line.last]!
+        const x = node.x + line.railInset
+        const top = node.y + firstRow.y + canvasPaintTokens.widget.verticalInset
+        const bottom = node.y + lastRow.y + lastRow.height - canvasPaintTokens.widget.verticalInset
+        const lit = this.overlay.hoveredLine?.nodeId === sceneNode.id && this.overlay.hoveredLine.key === line.key
+        if (lit) {
+          ctx.fillStyle = t.colors.boxHover
+          ctx.beginPath()
+          ctx.roundRect(x, top, linePaint.railWidth, bottom - top, linePaint.railRadius)
+          ctx.fill()
+        }
+        const cx = x + linePaint.railWidth / 2
+        const chevron = linePaint.chevron
+        ctx.strokeStyle = lit ? t.colors.boxChanged : t.colors.label
+        ctx.lineWidth = chevron.stroke
+        ctx.beginPath()
+        ctx.moveTo(cx - chevron.width / 2, top + chevron.top)
+        ctx.lineTo(cx, top + chevron.top + chevron.height)
+        ctx.lineTo(cx + chevron.width / 2, top + chevron.top)
+        ctx.stroke()
+        ctx.strokeStyle = lit ? t.colors.boxChanged : t.colors.nodeOutline
+        ctx.lineWidth = boxPaint.stroke
+        ctx.beginPath()
+        ctx.moveTo(cx, top + linePaint.railLineTop)
+        ctx.lineTo(cx, bottom - linePaint.railLineBottom)
+        ctx.stroke()
       }
       /** A remove cross centered on `cy`, its right edge at `right`. */
       const paintCross = (right: number, cy: number): void => {

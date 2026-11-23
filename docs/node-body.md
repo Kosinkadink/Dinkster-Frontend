@@ -19,7 +19,13 @@ non-empty legacy `interface` list.
   `collapsed`). Layout only; it adds nothing to row ids.
 - **Row**: two to four cells side by side: fields, notes and buttons.
   Layout only: each cell is drawn beside the one before it when both are in
-  the same section.
+  the same section. A line with a field folds. Folded, its start state, the
+  cells share one row and only a field with a wire keeps a pin: wires in
+  gather at the middle of the line's left end and wires out at its right,
+  in declared order. Unfolded, each cell has its own row and its ordinary
+  pins, with a rail beside them. The fold state is view state, saved per
+  node in `lines` under the flattened id of the line's first field, apart
+  from the sections' map because a section and a field may share an id.
 - **Note**: read-only text with no pin, on its own line or as a cell of a
   Row. It keeps its line while its text is empty. A note whose text is a
   formula or a lookup shows its `unknown` text dimmed (empty when it has

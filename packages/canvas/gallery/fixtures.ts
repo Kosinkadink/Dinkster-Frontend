@@ -50,6 +50,7 @@ import {
 export const canvasGalleryPages = [
   ['anatomy', 'Node anatomy'],
   ['boxes', 'Node boxes'],
+  ['lines', 'Lines of fields'],
   ['idle-outline', 'Idle outline'],
   ['titles', 'Node titles'],
   ['titles-content', 'Node titles at content zoom'],
@@ -199,6 +200,13 @@ interface BoxedNode {
     readonly ports: Readonly<Record<string, string>>
     readonly at: { readonly x: number; readonly y: number }
   }
+  /** Fields whose value a sink node reads, by field id, with the wire's type. */
+  readonly tapped?: {
+    readonly ports: Readonly<Record<string, string>>
+    readonly at: { readonly x: number; readonly y: number }
+  }
+  /** View fold state per line of fields: false unfolds it. */
+  readonly folds?: Readonly<Record<string, boolean>>
 }
 
 export interface CanvasGalleryFixture {
@@ -289,6 +297,16 @@ export function createCanvasGalleryFixture(
           ),
     )
     const sourced = driven || wired.length > 0
+    const tapped = Object.entries(extra.tapped?.ports ?? {})
+    const sink = schema(
+      'Sink',
+      tapped.map(([port, type]) => ({
+        kind: 'input' as const,
+        id: port,
+        type: concrete(type),
+        optional: false,
+      })),
+    )
     const loaded = loadDocument({
       format: 'dinkster-workflow',
       formatVersion: 1,
@@ -324,10 +342,19 @@ export function createCanvasGalleryFixture(
                   : {}),
               ...(extra.dynamic ? { dynamic: extra.dynamic } : {}),
             },
+            ...(tapped.length > 0
+              ? {
+                  [`${id} sink`]: {
+                    id: `${id} sink`,
+                    type: sink.type,
+                    values: {},
+                  },
+                }
+              : {}),
           },
-          links: wired.length > 0
-            ? Object.fromEntries(
-                wired.map(([port]) => [
+          links: wired.length > 0 || tapped.length > 0
+            ? Object.fromEntries([
+                ...wired.map(([port]) => [
                   `${id}-${port}`,
                   {
                     id: `${id}-${port}`,
@@ -335,7 +362,15 @@ export function createCanvasGalleryFixture(
                     to: { node: id, port },
                   },
                 ]),
-              )
+                ...tapped.map(([port]) => [
+                  `${id}-tap-${port}`,
+                  {
+                    id: `${id}-tap-${port}`,
+                    from: { node: id, tap: port },
+                    to: { node: `${id} sink`, port },
+                  },
+                ]),
+              ])
             : driven
             ? Object.fromEntries(
                 definition.body.flatMap((item, i) =>
@@ -370,11 +405,29 @@ export function createCanvasGalleryFixture(
                     },
                   }
                 : {}),
+              ...(tapped.length > 0
+                ? {
+                    [`${id} sink`]: {
+                      position: extra.tapped!.at,
+                      size: { width: 160, height: 0 },
+                    },
+                  }
+                : {}),
               [id]: {
                 position: { x, y },
                 size: { width: id === 'Narrow' ? 112 : 280, height: 0 },
                 ...(id === 'Minimized' || id === 'Long minimized'
                   ? { collapsed: true }
+                  : {}),
+                ...(extra.folds
+                  ? {
+                      lines: Object.fromEntries(
+                        Object.entries(extra.folds).map(([line, folded]) => [
+                          line,
+                          { folded },
+                        ]),
+                      ),
+                    }
                   : {}),
                 ...(extra.closed
                   ? {
@@ -405,7 +458,9 @@ export function createCanvasGalleryFixture(
           ? definition
           : type === producer.type
             ? producer
-            : undefined,
+            : type === sink.type
+              ? sink
+              : undefined,
       tokens,
       measure,
       widgetMeasure,
@@ -1229,6 +1284,65 @@ export function createCanvasGalleryFixture(
       Math.max(
         ...fixture.scene.nodes.map((node) => node.y + node.layout.height),
       ) + 40
+  } else if (page === 'lines') {
+    const field = (input: InputSpec, displayName: string): InputSpec => ({
+      ...input,
+      displayName,
+    })
+    const line = (n: number, name: string, strength: number) => ({
+      kind: 'row' as const,
+      rows: [
+        field(widget(`on_${n}`, 'BOOLEAN', true), 'on'),
+        field(
+          widget(`lora_${n}`, 'COMBO', name, {
+            options: ['detail_tweaker', 'film_grain', 'soft_light'],
+          }),
+          'lora',
+        ),
+        field(
+          widget(`strength_${n}`, 'FLOAT', strength, {
+            min: -4,
+            max: 4,
+            step: 0.05,
+          }),
+          'strength',
+        ),
+      ],
+    })
+    const loader = schema('LoRA loader', [
+      { kind: 'input', id: 'model', type: concrete('MODEL'), optional: false },
+      { kind: 'output', id: 'MODEL', type: concrete('MODEL') },
+      line(1, 'detail_tweaker', 0.8),
+      line(2, 'film_grain', 1),
+    ])
+    const wires = (y: number) => ({
+      wired: {
+        ports: { on_1: 'BOOLEAN', strength_1: 'FLOAT' },
+        at: { x: 24, y: y + 40 },
+      },
+      tapped: { ports: { lora_1: 'COMBO' }, at: { x: 760, y: y + 40 } },
+    })
+    add('Folded line, wired in and out', loader, {}, 0, false, {
+      at: { x: 232, y: 54 },
+      ...wires(54),
+    })
+    const below = (gap: number) =>
+      Math.max(
+        ...fixture.scene.nodes.map((node) => node.y + node.layout.height),
+      ) + gap
+    const unfoldedY = below(64)
+    add('Unfolded line, wired in and out', loader, {}, 1, false, {
+      at: { x: 232, y: unfoldedY },
+      folds: { on_1: false },
+      ...wires(unfoldedY),
+    })
+    add('Folded line, pointed at', loader, {}, 2, false, {
+      at: { x: 232, y: below(64) },
+    })
+    fixture.overlay = {
+      hoveredLine: { nodeId: 'Folded line, pointed at', key: 'on_1' },
+    }
+    fixture.height = below(40)
   } else if (page === 'previews') {
     for (const id of [
       'Image',

@@ -48,20 +48,65 @@ describe('pairing', () => {
     const layout = doLayout(items)
     expect(layout.rows.filter((row) => row.kind === 'widget').map((row) => row.inputId)).toEqual(['prefix', 'mount', 'quality', 'tail'])
     expect(JSON.stringify(items)).toBe(before)
-    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId)).toEqual(['prefix', 'mount', 'quality', 'tail'])
     const [prefix, mount, quality] = layout.rows
     expect(mount!.y).toBe(prefix!.y)
     expect(quality!.y).toBe(prefix!.y + prefix!.height)
     for (const projected of [layout, withPreviewRegion(layout, defaultTokens), withCompactPreviewRegion(layout, defaultTokens), withTextOutputRegion(layout, defaultTokens)]) {
       expect(projected.rows[1]!.y).toBe(projected.rows[0]!.y)
-      const inputs = projected.pins.filter((pin) => pin.direction === 'in')
-      expect(inputs[1]!.y - inputs[0]!.y).toBeGreaterThan(18)
-      expect(inputs[1]!.y).toBeLessThan(projected.rows[0]!.y + projected.rows[0]!.height)
     }
   })
 
+  describe('a line of fields', () => {
+    const line: NodeSchema['body'] = [
+      { kind: 'row', rows: [widget('on'), widget('name'), widget('strength')] },
+      widget('after'),
+    ]
+    const lay = (opts: Parameters<typeof layoutNode>[5] = {}) =>
+      layoutNode(schemaOf(line), nodeData, defaultTokens, measure, widgetMeasure, opts)
+    const wired = { connectedPorts: new Set(['in:on', 'in:strength', 'out:name']) }
+
+    it('starts folded: one row, and a pin only for each wired field, gathered at the middle of each end', () => {
+      const l = lay(wired)
+      const [on, name, strength, after] = l.rows
+      expect([name!.y, strength!.y]).toEqual([on!.y, on!.y])
+      expect(after!.y).toBe(on!.y + on!.height)
+      const center = on!.y + defaultTokens.rowHeight / 2
+      const pitch = canvasPaintTokens.node.box.clusterPitch
+      const own = l.pins.filter((pin) => pin.portId !== 'after').map((pin) => [pin.portId, pin.direction, pin.y])
+      expect(own).toEqual([
+        ['on', 'in', center - pitch.two / 2],
+        ['strength', 'in', center + pitch.two / 2],
+        ['name', 'out', center],
+      ])
+      expect(l.lines).toEqual([{
+        key: 'on', folded: true, first: 0, last: 2,
+        fields: ['on', 'name', 'strength'].map((id) => ({ portId: id, label: id, type: { kind: 'concrete', name: 'INT' } })),
+      }])
+    })
+
+    it('unfolds by its first field into one row per field beside a rail, each with its ordinary pins', () => {
+      const l = lay({ ...wired, lineFolds: { on: false } })
+      const [on, name, strength, after] = l.rows
+      expect([name!.y, strength!.y, after!.y]).toEqual([on!.y + on!.height, name!.y + name!.height, strength!.y + strength!.height])
+      const pinOf = (id: string, direction: 'in' | 'out') =>
+        l.pins.find((pin) => pin.portId === id && pin.direction === direction)!.y
+      expect(pinOf('strength', 'in')).toBe(strength!.y + defaultTokens.rowHeight / 2)
+      expect(pinOf('name', 'in')).toBe(name!.y + defaultTokens.rowHeight / 2)
+      const railReserve = canvasPaintTokens.node.line.railReserve
+      const insetOf = (row: (typeof l.rows)[number] | undefined) => (row as { inset: number }).inset
+      expect(insetOf(on)).toBe(insetOf(after) + railReserve)
+      const rightOf = (row: (typeof l.rows)[number] | undefined) =>
+        insetOf(row) + ((row as { width?: number }).width ?? l.width - insetOf(row) * 2)
+      expect(rightOf(on)).toBe(rightOf(after))
+      expect(l.lines).toMatchObject([{ key: 'on', folded: false, first: 0, last: 2, railInset: insetOf(after) - canvasPaintTokens.node.line.railOverhang }])
+      // Unwired, the line is still folded: wiring changes pins, never the fold.
+      expect(lay().lines![0]!.folded).toBe(true)
+    })
+  })
+
   it('keeps a same-id real output separate from the adjacent widget value output', () => {
-    const layout = doLayout([widget('prefix'), widget('mount', { adjacentTo: 'prefix' }), output('prefix')])
+    const layout = layoutNode(schemaOf([widget('prefix'), widget('mount', { adjacentTo: 'prefix' }), output('prefix')]),
+      nodeData, defaultTokens, measure, widgetMeasure, { connectedPorts: new Set(['out:prefix']) })
     const realOutput = layout.pins.find((pin) => pin.portId === 'prefix' && pin.direction === 'out' && !pin.widgetTap)!
     const valueOutput = layout.pins.find((pin) => pin.portId === 'prefix' && pin.widgetTap)!
     expect(realOutput.y).toBeGreaterThan(valueOutput.y)
@@ -127,8 +172,8 @@ describe('pairing', () => {
     expect(span(w)[1]).toBeLessThanOrEqual(span(size)[0]!)
     expect(span(size)[1]).toBeLessThanOrEqual(span(swap)[0]!)
     expect(after!.y).toBe(w!.y + w!.height)
-    // Neither kind is a pin target.
-    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId)).toEqual(['w', 'after'])
+    // Neither kind is a pin target; the folded line's field has no wire, so no pin.
+    expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId)).toEqual(['after'])
   })
 
   it('outputs pair with connection-input rows top-down', () => {

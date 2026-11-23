@@ -363,6 +363,16 @@ export function CanvasGallery() {
           neither its name nor any row above it.
         </p>
       </Show>
+      <Show when={page() === 'lines'}>
+        <p class="dinkster-description">
+          A line of fields declared side by side folds into one row, and
+          starts folded. Folded, only a field with a wire keeps a pin, wires
+          in gathered at the line's left end and wires out at its right.
+          Pointed at, a folded line lists its fields' pins and "Unfold".
+          Unfolded, each field has its own row and pins, and a rail beside
+          them folds the line again.
+        </p>
+      </Show>
       <Show when={page() === 'collection-rows'}>
         <ProductField label="Collection row look">
           {(attributes) => (
