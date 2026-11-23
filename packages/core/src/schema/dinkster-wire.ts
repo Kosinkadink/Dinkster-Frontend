@@ -2050,9 +2050,16 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       const knownValue = output.knownValue
       if (knownValue === undefined) continue
       const input = decodedInputs.get(knownValue.input)
-      const primitive = output.type.kind === 'concrete' && PRIMITIVE_WIDGETS[output.type.name] !== undefined
-      if (input === undefined || !primitive || input.type.kind !== 'concrete' || input.type.name !== output.type.name) {
-        throw new Error(`output '${output.id}' knownValue must name an input of the node with the same concrete primitive type`)
+      const inputType = input?.type.kind === 'concrete' ? input.type.name : undefined
+      const outputType = output.type.kind === 'concrete' ? output.type.name : undefined
+      const samePrimitive = outputType !== undefined && PRIMITIVE_WIDGETS[outputType] !== undefined && inputType === outputType
+      // A chosen option is its text, so a choice may also be known as a STRING.
+      const fromChoice = inputType === 'COMBO' && (outputType === 'COMBO' || outputType === 'STRING')
+      // A variable's known value applies once the variable is bound to a primitive or COMBO.
+      const sameVariable = input?.type.kind === 'variable' && output.type.kind === 'variable' &&
+        JSON.stringify(input.type) === JSON.stringify(output.type)
+      if (!samePrimitive && !fromChoice && !sameVariable) {
+        throw new Error(`output '${output.id}' knownValue must name an input of the node with the same concrete primitive type or type variable, or a COMBO input for a COMBO or STRING output`)
       }
     }
     const selector = decodeWireSelector(wire.selector, decodedInputs, scopeRowsOf(baseSchema.body), decodedOutputs)

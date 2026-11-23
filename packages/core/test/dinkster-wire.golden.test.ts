@@ -42,6 +42,42 @@ describe('Dinkster schema wire', () => {
     expect(out).toMatchObject({ labelFormula: { formula: 'mode' }, visible: false })
   })
 
+  it.each([
+    ['COMBO', 'COMBO', true],
+    ['COMBO', 'STRING', true],
+    ['INT', 'INT', true],
+    ['COMBO', 'INT', false],
+    ['STRING', 'COMBO', false],
+    ['INT', 'FLOAT', false],
+  ] as const)('accepts a known value from a %s input for a %s output: %s', (inputType, outputType, accepted) => {
+    const { schema, diagnostics } = parseDinksterSchema('Known', { body: [
+      { kind: 'input', id: 'value', type: concrete(inputType),
+        ...(inputType === 'COMBO' ? { widget: { type: 'COMBO', options: ['a', 'b'] } } : {}) },
+      { kind: 'output', id: 'out', type: concrete(outputType), knownValue: { input: 'value' } },
+    ] } as never)
+    if (accepted) {
+      expect(diagnostics).toEqual([])
+      expect(schema!.body[1]).toMatchObject({ knownValue: { input: 'value' } })
+    } else {
+      expect(schema).toBeUndefined()
+      expect(diagnostics.map((d) => d.message).join()).toContain('knownValue must name an input')
+    }
+  })
+
+  it('accepts a known value from an input typed by the output\'s type variable, and no other variable', () => {
+    const variable = (templateId: string) => ({ kind: 'variable', templateId })
+    const parse = (outputVariable: string) => parseDinksterSchema('KnownVariable', { body: [
+      { kind: 'input', id: 'value', type: variable('value') },
+      { kind: 'output', id: 'out', type: variable(outputVariable), knownValue: { input: 'value' } },
+    ] } as never)
+    const same = parse('value')
+    expect(same.diagnostics).toEqual([])
+    expect(same.schema!.body[1]).toMatchObject({ knownValue: { input: 'value' } })
+    const other = parse('other')
+    expect(other.schema).toBeUndefined()
+    expect(other.diagnostics.map((d) => d.message).join()).toContain('knownValue must name an input')
+  })
+
   it('keeps an editor row and the rows a widget writes and reads, apart from its params', () => {
     const { schema, diagnostics } = parseDinksterSchema('Viewport', { body: [
       { kind: 'input', id: 'model_file', type: concrete('STRING'),
