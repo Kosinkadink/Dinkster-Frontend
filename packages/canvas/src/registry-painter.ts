@@ -19,6 +19,8 @@ import { paintSeedModeIcon, paintToolboxIcon } from './icons.js'
 import type { ToolboxButton } from './toolbox.js'
 
 const paint = canvasPaintTokens.widget
+/** The word before the value of a row kept only for its wire. */
+const KEPT_WORD = 'kept'
 const TEXT_PAD = paint.textPadding
 
 function compactBooleanValue(value: Json, options: Readonly<Record<string, unknown>>): string {
@@ -177,6 +179,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       return
     }
     const resolved: Json = value !== undefined ? value : (kind.defaultValue(row.spec) as Json)
+    // A kept row shows "kept" before its value, unless the header of its kept box shows it.
+    const keptWord = row.kept !== undefined && row.inKeptBox !== true
+    const keptReserve = keptWord ? measureWidth(ctx, KEPT_WORD) + paint.valueWordGap : 0
     // Draw the shared row chrome (label) then let the view draw its content.
     const chrome = widgetChromeRect(x, y, width, row.height, tokens.rowGeometry.fieldInsetY)
     if (row.viewId !== 'core.compositor') {
@@ -236,7 +241,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ? measureWidth(ctx, '#ffffff') + paint.colorValueReserve
       : valuePreview === undefined
         ? usableWidth * paint.structuredValueRatio
-        : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding
+        : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding + keptReserve
         + (row.viewId === 'core.color' ? paint.swatchReserve : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
     const controller = row.controllerMode !== undefined && modeIcon === undefined
@@ -397,11 +402,14 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const zoneRight = alignRight ? px - reserveRight : px + reserveLeft + zoneWidth
           const availableWidth = Math.max(0, zoneWidth - TEXT_PAD * 2)
           if (!multiline) {
+            const role = style['role']
+            const marked = keptWord && (role === undefined || role === 'widgetValue')
             const swatch = typeof style['swatch'] === 'string' && alignRight ? style['swatch'] : undefined
             const items = stringList(style['items'])
             const swatches = alignRight ? stringList(style['swatches']) : undefined
-            const iconReserve = (modeIcon !== undefined && style['role'] === 'widgetValue' && alignRight ? modeIconReserve : 0)
+            const markReserve = (modeIcon !== undefined && role === 'widgetValue' && alignRight ? modeIconReserve : 0)
               + (swatch !== undefined ? paint.valueSwatch.size + paint.valueSwatch.gap : 0)
+            const iconReserve = markReserve + (marked ? keptReserve : 0)
             const fitWidth = Math.max(0, availableWidth - iconReserve)
             const text = swatches !== undefined ? ''
               : items !== undefined ? fitItems(ctx, items, fitWidth)
@@ -413,15 +421,16 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             if (clipBottom > clipTop) {
               ctx.save()
               const placeholder = style['placeholder'] === true
-              const role = style['role']
               // A dragged plain number shows its moving value in the accent; a slider shows its fill instead.
               const draggedValue = inRow && args.dragging === true && !declaredSlider && role === 'widgetValue'
-              ctx.fillStyle = placeholder ? tokens.colors.label : draggedValue ? tokens.colors.widgetAffordanceActive : tokens.colors.value
+              // A kept value and its word are dimmed, as a placeholder is.
+              ctx.fillStyle = placeholder ? tokens.colors.label : draggedValue ? tokens.colors.widgetAffordanceActive
+                : marked ? tokens.colors.label : tokens.colors.value
               if (placeholder) ctx.font = `italic ${ctx.font}`
               ctx.beginPath()
               ctx.rect(alignRight ? zoneRight - zoneWidth : px + reserveLeft, clipTop, zoneWidth, clipBottom - clipTop)
               ctx.clip()
-              const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD
+              const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD + (marked ? keptReserve : 0)
               const textY = y + (ty + 0.5) * rowHeight
               ctx.fillText(text, textX, textY)
               if (swatches !== undefined) paintSwatchRow(ctx, swatches, textX, textY, fitWidth, tokens, ctx.fillStyle as string)
@@ -433,6 +442,13 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               if (swatch !== undefined) {
                 paintValueSwatch(ctx, swatch, textX - measureWidth(ctx, text) - paint.valueSwatch.gap - paint.valueSwatch.size,
                   textY - paint.valueSwatch.size / 2, tokens)
+              }
+              if (marked) {
+                // Marks about a value come before it, so values line up at the right.
+                const wordRight = alignRight ? textX - measureWidth(ctx, text) - markReserve - paint.valueWordGap : textX - paint.valueWordGap
+                ctx.textAlign = 'right'
+                ctx.fillStyle = tokens.colors.label
+                ctx.fillText(KEPT_WORD, wordRight, textY)
               }
               if (args.connected && (role === undefined || role === 'widgetValue')) {
                 paintStaleValueStrikethrough(ctx, text, textX, textY, alignRight ? 'right' : 'left', tokens.colors.value)

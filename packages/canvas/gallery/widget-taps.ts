@@ -153,6 +153,29 @@ const grouped = schema('Weights in a group', [
     maxMembers: 4,
   },
 ])
+const boxedGroup = schema('Loras in a group', [
+  {
+    kind: 'group',
+    id: 'loras',
+    member: [
+      {
+        kind: 'section',
+        id: 'box',
+        displayName: { formula: '"lora " + str(index() + 1)' },
+        rows: [
+          field('name', 'name', 'COMBO', 'detail.safetensors', {
+            options: ['detail.safetensors', 'style.safetensors'],
+          }),
+          field('strength', 'strength', 'FLOAT', 1, { min: -10, max: 10, step: 0.05 }),
+        ],
+      },
+    ],
+    keys: { kind: 'numbered', prefix: 'lora', start: 0, pad: 0 },
+    grows: 'button',
+    minMembers: 0,
+    maxMembers: 4,
+  },
+])
 const chosen = schema('Strength under a choice', [
   { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
   {
@@ -218,6 +241,7 @@ const schemas = [
   foldedSampler,
   grouped,
   chosen,
+  boxedGroup,
 ]
 
 interface Placed {
@@ -408,7 +432,7 @@ export function widgetTapGallery(
       [0, 60],
     ),
     card(
-      "Kept row under an option not chosen: the wire stays on strength, dimmed, after the chosen option's rows. It cannot be edited and gives nothing until it is unplugged or 'fixed' is chosen again.",
+      "Kept row under an option not chosen: the wire stays on strength, dimmed and marked kept, after the chosen option's rows. It cannot be edited and gives nothing until it is unplugged or 'fixed' is chosen again.",
       [
         {
           id: 'kept option',
@@ -427,7 +451,7 @@ export function widgetTapGallery(
       [0, 60],
     ),
     card(
-      'Kept row under a type-led pin: the input now takes an IMAGE, and the LATENT row scale stays, dimmed, after the IMAGE rows, with its wire.',
+      'Kept row under a type-led pin: the input now takes an IMAGE, and the LATENT row scale stays, dimmed and marked kept, after the IMAGE rows, with its wire.',
       [
         {
           id: 'kept type',
@@ -446,7 +470,7 @@ export function widgetTapGallery(
       [0, 60],
     ),
     card(
-      'Kept member: a wire names the second weight, which the group does not store. The whole member stays, dimmed, as weight 2 at the end of the group, with its wire; the spare after it is weight 3 under a new key.',
+      'Kept member: a wire names the second weight, which the group does not store. The whole member stays, dimmed and marked kept, as weight 2 at the end of the group, with its wire. Weight 3 below it is the spare: the empty row every group that grows by filling offers after its last member.',
       [
         {
           id: 'kept member',
@@ -464,6 +488,26 @@ export function widgetTapGallery(
         },
       ],
       [0, 60],
+    ),
+    card(
+      'Kept member drawn as a box: a wire names the strength of the second lora, which the group does not store. Its box stays, dimmed, at the end of the group, and its header says kept once for every row inside.',
+      [
+        {
+          id: 'kept box',
+          schema: boxedGroup,
+          x: 0,
+          values: { 'loras.lora1.strength': 0.6 },
+          dynamic: { loras: { members: ['lora0'] } },
+        },
+        { id: 'kept box blend', schema: blend, x: right, ...small },
+      ],
+      [
+        {
+          from: tap('kept box', 'loras.lora1.strength'),
+          to: { node: 'kept box blend', port: 'factor' },
+        },
+      ],
+      [0, 90],
     ),
   ]
   const placed = cards.flatMap((card) => card.nodes)

@@ -97,6 +97,8 @@ export interface DynamicAnnotations {
    * or ends on it. The text says why.
    */
   readonly kept?: string
+  /** Kept inside a kept member's box: the box's header shows "kept", not this row. */
+  readonly inKeptBox?: true
   /** Input that takes one value or a whole list (InputSpec.acceptsList), whatever its matched type. */
   readonly acceptsList?: true
   /** Derived source for the immediate enclosing region's iteration index. */
@@ -264,6 +266,10 @@ export type LayoutRow =
        * collapsed and > 0; expanded sections show the widgets themselves.
        */
       readonly hiddenModified?: number
+      /** The box of a member kept whole for a wire: drawn dimmed. The text says why. */
+      readonly kept?: string
+      /** Nested in a kept box, whose header alone shows "kept". */
+      readonly inKeptBox?: true
     }
 
 export interface PinLayout extends DynamicAnnotations {
@@ -787,6 +793,7 @@ const annotationsOf = (a: DynamicAnnotations): DynamicAnnotations => ({
   ...(a.dynamicSlot !== undefined ? { dynamicSlot: a.dynamicSlot } : {}),
   ...(a.inactive ? { inactive: true } : {}),
   ...(a.kept !== undefined ? { kept: a.kept } : {}),
+  ...(a.inKeptBox ? { inKeptBox: true } : {}),
   ...(a.acceptsList ? { acceptsList: true } : {}),
 })
 
@@ -814,7 +821,7 @@ export function layoutNode(
     widget?: Extract<LayoutRow, { kind: 'widget' }> extends infer R
       ? Omit<R, 'kind' | 'y' | 'height' | 'inset'>
       : never
-    section?: { sectionId: string; label: string; collapsed: boolean; hiddenModified?: number }
+    section?: { sectionId: string; label: string; collapsed: boolean; hiddenModified?: number; kept?: string; inKeptBox?: true }
     growth?: { construct: string; label: string; frames: readonly MaterializeFrame[] }
     note?: { noteId: string; text: string; unknown?: true }
     button?: { buttonId: string; label: string }
@@ -831,6 +838,7 @@ export function layoutNode(
 
   const elaborated = options.elaborated ?? elaborateInterface(schema, node)
   const items = elaborated.items
+  const keptBoxes = new Set(items.flatMap((item) => item.kind === 'section' && item.kept !== undefined ? [item.spec.id] : []))
   const selectorDisplay = schema.selector === undefined
     ? undefined
     : selectorBranchDisplay(
@@ -890,6 +898,7 @@ export function layoutNode(
       ...(dynamicSlot !== undefined ? { dynamicSlot } : {}),
       ...(selectorDisplay?.[item.address.port] === 'inactive' || (item.kind === 'input' && item.kept !== undefined) ? { inactive: true } : {}),
       ...(item.kind === 'input' && item.kept !== undefined ? { kept: item.kept } : {}),
+      ...(item.kind === 'input' && item.kept !== undefined && keptBoxes.has(item.spec.section ?? '') ? { inKeptBox: true } : {}),
       ...(item.kind === 'input' && item.spec.acceptsList ? { acceptsList: true } : {}),
     }
   }
@@ -908,6 +917,8 @@ export function layoutNode(
           label: item.spec.displayName ?? item.spec.id,
           collapsed: collapsed.get(item.spec.id)!,
           ...(count !== undefined ? { hiddenModified: count } : {}),
+          ...(item.kept !== undefined ? { kept: item.kept } : {}),
+          ...(item.kept !== undefined && keptBoxes.has(item.section ?? '') ? { inKeptBox: true } : {}),
         },
       })
       continue
@@ -1187,6 +1198,8 @@ export function layoutNode(
         label: s.label,
         collapsed: s.collapsed,
         ...(s.hiddenModified !== undefined ? { hiddenModified: s.hiddenModified } : {}),
+        ...(s.kept !== undefined ? { kept: s.kept } : {}),
+        ...(s.inKeptBox ? { inKeptBox: true } : {}),
       })
       sectionRowY.set(s.sectionId, y + height / 2)
       if (!s.collapsed && s.sectionId === advancedSectionId) {

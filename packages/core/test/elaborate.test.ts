@@ -1293,6 +1293,16 @@ describe('rows kept for a wire on their output', () => {
       ['weights.weight2', 'weight 3', false],
     ])
 
+    // A member drawn as a box keeps its box, which says why it is kept.
+    const boxed = schemaOf([{
+      kind: 'group', id: 'items', displayName: 'Items',
+      member: [{ kind: 'section', id: 'box', displayName: 'Item', rows: [intInput('amount'), intInput('weight')] }],
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 }, grows: 'button', minMembers: 0, maxMembers: 8,
+    }])
+    const boxes = elaborateInterface(boxed, node as never, taps('items.item1.weight')).items
+      .flatMap((item) => item.kind === 'section' ? [[item.spec.id, item.kept]] : [])
+    expect(boxes).toEqual([['items.item0.box', undefined], ['items.item2.box', undefined], ['items.item1.box', reason]])
+
     // The run's view has no kept rows.
     expect(elabInputsOf(elaborateInterface(schema, node as never, taps('items.item1.weight'), { promoteGhosts: false }))
       .some((input) => input.kept !== undefined)).toBe(false)

@@ -3634,6 +3634,8 @@ export class CanvasRenderer {
         if (row.kind === 'section') {
           // Header strip + disclosure triangle; click toggles collapse.
           const paint = canvasPaintTokens.node.section
+          const rowAlpha = ctx.globalAlpha
+          if (row.kept !== undefined) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
           ctx.fillStyle = t.colors.widgetBackground
           ctx.fillRect(node.x + paint.horizontalInset, rowY + paint.verticalInset, l.width - paint.horizontalInset * 2, row.height - paint.verticalInset * 2)
           const cx = node.x + t.padX + paint.glyphInset
@@ -3641,14 +3643,25 @@ export class CanvasRenderer {
           ctx.fillStyle = t.colors.label
           paintDisclosureArrow(ctx, cx, cy, row.collapsed !== true)
           ctx.textAlign = 'left'
-          ctx.fillText(row.label, cx + paint.labelOffset, cy, l.width - t.padX * 2 - paint.labelReserve)
+          const keptWord = row.kept !== undefined && row.inKeptBox !== true
+          const wordWidth = keptWord ? measureWidth(ctx, 'kept') + canvasPaintTokens.widget.valueWordGap : 0
+          ctx.fillText(row.label, cx + paint.labelOffset, cy, l.width - t.padX * 2 - paint.labelReserve - wordWidth)
           // Subtle dot: this collapsed section hides non-default values.
-          if (row.collapsed && row.hiddenModified !== undefined) {
+          const dot = row.collapsed && row.hiddenModified !== undefined
+          if (dot) {
             ctx.fillStyle = t.colors.modifiedIndicator
             ctx.beginPath()
             ctx.arc(node.x + l.width - t.padX - paint.modifiedInset, cy, paint.modifiedRadius, 0, Math.PI * 2)
             ctx.fill()
           }
+          if (keptWord) {
+            // A member kept whole shows "kept" once, at the right of its box's header.
+            ctx.fillStyle = t.colors.label
+            ctx.textAlign = 'right'
+            ctx.fillText('kept', node.x + l.width - t.padX - (dot ? paint.modifiedInset * 2 : 0), cy)
+            ctx.textAlign = 'left'
+          }
+          ctx.globalAlpha = rowAlpha
         } else if (row.kind === 'growth') {
           // Grow-family affordance: dashed ghost-alpha capsule with '+ label'.
           // It reads as an offer (like ghost pins), but is click-to-add because

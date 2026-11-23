@@ -285,6 +285,8 @@ export interface ElaboratedSection {
   readonly spec: ElaboratedSectionSpec
   /** The section around this one, when nested. */
   readonly section?: string
+  /** A box of a member kept whole for a wire (see ElaboratedInput.kept): why it is kept. */
+  readonly kept?: string
 }
 
 /**
@@ -1164,8 +1166,8 @@ function elaboratePass(
   const section = (row: SectionSpec, scope: Scope): void => {
     const id = scope.prefix + row.id
     if (!enter(id)) return
-    if (scope.kept !== undefined) {
-      // A kept row is drawn in the box around its choice, member or pin.
+    if (scope.kept?.onlyWired === true) {
+      // A kept row is drawn in the box around its choice or pin.
       rows(row.rows, scope)
       depth--
       return
@@ -1180,6 +1182,7 @@ function elaboratePass(
         ...(row.collapsedByDefault ? { collapsedByDefault: true } : {}),
       },
       ...(scope.section !== undefined ? { section: scope.section } : {}),
+      ...(scope.kept !== undefined ? { kept: scope.kept.reason } : {}),
     })
     rows(row.rows, { ...scope, section: id })
     depth--
