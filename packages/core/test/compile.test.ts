@@ -702,6 +702,14 @@ const dynSchemas: Record<string, NodeSchema> = {
     ]),
     selector: { input: 'pick', group: 'branch' },
   },
+  ModeSwitch: {
+    ...dynSchemaOf('ModeSwitch', [
+      dynInput('pick', { type: PICK, optional: true, widget: { widgetType: 'COMBO', options: {}, controller: 'after_generate', controllerInitial: 'fixed' } }),
+      { kind: 'group', id: 'branch', value: dynInput('value', { optional: true, lazy: true }), keys: { kind: 'named', names: ['a', 'b'] }, grows: 'button', minMembers: 1 },
+      dynOutput('result'),
+    ]),
+    selector: { input: 'pick', group: 'branch' },
+  },
   'comfy.ResizeImageMaskNode': parseDinksterSchema(
     'comfy.ResizeImageMaskNode',
     { ...readJson('fixtures/dinkster-resize-image-mask-wire16.json') as DinksterWireSchema, schemaVersion: 2 },
@@ -2030,32 +2038,27 @@ describe('Primitive and Switch as ordinary nodes', () => {
     if (result.ok) expect(result.artifact.prompt['selector']!.inputs['pick']).toEqual({ $typed: { type: 'INT', value: 2 } })
   })
 
-  const randomDoc = (wired = false) => dynDoc({
+  const routeBody = (extra: { nodes?: Record<string, DynNode>; links?: [DynEnd, DynEnd][]; controllers?: Record<string, string>; boundary?: { inputs?: unknown[] } } = {}) => ({
     nodes: {
-      first: { type: '#route' },
-      second: { type: '#route' },
+      sourceA: { type: 'ImageSrc' },
+      sourceB: { type: 'ImageSrc' },
+      ...extra.nodes,
+      selector: { type: 'ModeSwitch', values: { pick: 'a' }, controllers: extra.controllers ?? { pick: 'randomize' }, dynamic: { branch: { members: ['a', 'b'] } } },
     },
-    subgraphs: {
-      route: {
-        nodes: {
-          sourceA: { type: 'ImageSrc' },
-          sourceB: { type: 'ImageSrc' },
-          ...(wired ? { index: { type: 'IntSrc' } } : {}),
-          selector: { type: 'Switch', values: { pick: 'a' }, controllers: { pick: 'randomize' }, dynamic: { branch: { members: ['a', 'b'] } } },
-        },
-        links: [
-          [['sourceA', 'out'], ['selector', 'branch.a']],
-          [['sourceB', 'out'], ['selector', 'branch.b']],
-          ...(wired ? [[['index', 'out'], ['selector', 'pick']] as [DynEnd, DynEnd]] : []),
-        ],
-        boundary: {},
-      },
-    },
+    links: [
+      [['sourceA', 'out'], ['selector', 'branch.a']],
+      [['sourceB', 'out'], ['selector', 'branch.b']],
+      ...(extra.links ?? []),
+    ] as [DynEnd, DynEnd][],
+    boundary: extra.boundary ?? {},
   })
+  const randomDoc = (route = routeBody(), outer: Record<string, DynNode> = { first: { type: '#route' }, second: { type: '#route' } }) =>
+    dynDoc({ nodes: outer, subgraphs: { route } })
+  const rollCompile = (doc: WorkflowDocument, rolls: number[], scope: ExecutionScope = { kind: 'full' }) =>
+    compile({ ...compileInput(doc, scope), resolve: dynResolve, graphFeatures: ['typedLiteral'], pickCandidate: () => rolls.shift()! })
 
   it('rolls a random pick once per occurrence, records it and replays the record', () => {
-    const rolls = [0, 1]
-    const rolled = compile({ ...compileInput(randomDoc(), { kind: 'full' }), resolve: dynResolve, pickCandidate: () => rolls.shift()! })
+    const rolled = rollCompile(randomDoc(), [0, 1])
     expect(rolled.ok, JSON.stringify(!rolled.ok && rolled.diagnostics)).toBe(true)
     if (!rolled.ok) return
     expect(rolled.artifact.prompt['first.selector']!.inputs['pick']).toBe('a')
@@ -2065,6 +2068,7 @@ describe('Primitive and Switch as ordinary nodes', () => {
       { graph: 'route', selector: 'first.selector', policy: 'random', candidate: 'a' },
       { graph: 'route', selector: 'second.selector', policy: 'random', candidate: 'b' },
     ])
+    expect((rolled.artifact.provenance.controllerInputs ?? []).filter((controller) => controller.terminal.valueKey === 'pick')).toEqual([])
     const replayed = compile({
       ...compileInput(randomDoc(), { kind: 'full' }),
       resolve: dynResolve,
@@ -2076,11 +2080,48 @@ describe('Primitive and Switch as ordinary nodes', () => {
     expect([...closure.included].sort()).toEqual(['first.selector', 'first.sourceA', 'first.sourceB'])
   })
 
-  it('lets a wired pick override the random mode', () => {
-    const result = compile({ ...compileInput(randomDoc(true), { kind: 'full' }), resolve: dynResolve, pickCandidate: () => 1 })
+  it('rolls only Switches that run, and needs no chooser when none does', () => {
+    const doc = randomDoc(routeBody(), { first: { type: '#route' }, other: { type: 'ImageSrc' } })
+    const result = compile({ ...compileInput(doc, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('other') }] }), resolve: dynResolve })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (result.ok) expect(result.artifact.choices).toBeUndefined()
+  })
+
+  it.each([
+    ['a wired pick', routeBody({ nodes: { index: { type: 'IntSrc' } }, links: [[['index', 'out'], ['selector', 'pick']]] }), ['first.index', 0]],
+    ['a pick a known Primitive feeds', routeBody({ nodes: { prim: { type: 'Primitive', values: { value: 1 } } }, links: [[['prim', 'INT'], ['selector', 'pick']]] }), { $typed: { type: 'INT', value: 1 } }],
+    ['the Fixed mode the pick declares when none is stored', routeBody({ controllers: {} }), 'a'],
+  ] as const)('does not roll %s', (_name, route, pick) => {
+    const result = rollCompile(randomDoc(route, { first: { type: '#route' } }), [1])
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
-    expect(result.artifact.prompt['first.selector']!.inputs['pick']).toEqual(['first.index', 0])
+    expect(result.artifact.prompt['first.selector']!.inputs['pick']).toEqual(pick)
     expect(result.artifact.choices).toBeUndefined()
+  })
+
+  it('takes Random mode from the subgraph node that promotes the pick', () => {
+    const route = routeBody({ boundary: { inputs: [{ id: 'which', promoted: true, binds: { kind: 'port', node: 'selector', port: 'pick' } }] } })
+    const result = rollCompile(randomDoc(route, {
+      fixed: { type: '#route', values: { which: 'b' }, controllers: { which: 'fixed' } },
+      random: { type: '#route', values: { which: 'a' }, controllers: { which: 'randomize' } },
+    }), [1])
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt['fixed.selector']!.inputs['pick']).toBe('b')
+    expect(result.artifact.prompt['random.selector']!.inputs['pick']).toBe('b')
+    expect(result.artifact.choices).toEqual([{ graph: 'route', selector: 'random.selector', policy: 'random', candidate: 'b' }])
+  })
+
+  it('drops a link into the Primitive from a muted node and passes the Primitive\'s own value on', () => {
+    const result = dynCompile(dynDoc({
+      nodes: {
+        counter: { type: 'IntSrc', mode: 'muted' },
+        prim: { type: 'Primitive', values: { value: 11 } },
+        sink: { type: 'IntSink', values: { steps: 3 } },
+      },
+      links: [[['counter', 'out'], ['prim', 'value']], [['prim', 'INT'], ['sink', 'steps']]],
+    }))
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (result.ok) expect(result.artifact.prompt['sink']!.inputs).toEqual({ steps: 11 })
   })
 })

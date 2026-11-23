@@ -1136,7 +1136,10 @@ function compileImpl(
       sink.push(diag('error', 'compile', 'compile.port.unwirable', `'${node.type}' output '${output.spec.id}' exists but never takes part in wiring (ghost/over-cap/unknown dynamic kind)`, { anchor: anchorOf(path, node.id) }))
       return undefined
     }
-    const known = output.spec.knownValue && elab.inputsByValueKey.get(output.spec.knownValue.input)
+    // Inside a region body the value can differ per element, so the node runs.
+    const inRegion = [...regions.values()].some((region) => path.length >= region.childPath.length &&
+      region.childPath.every((segment, index) => path[index] === segment))
+    const known = !inRegion && output.spec.knownValue && elab.inputsByValueKey.get(output.spec.knownValue.input)
     if (known) return { knownValue: { path, defId, node: node.id, input: known } }
     return { runtimeId: occurrenceKey({ instancePath: path, node: node.id }), outputIndex }
   }
@@ -1528,11 +1531,18 @@ function compileImpl(
           // otherwise the input's occurrence-effective value is baked into
           // the consumer, and an after-run control on it stays the node's own.
           const { path: knownPath, defId: knownDefId, node: knownNode, input } = at.known
+          // A link from a muted producer is dropped, as it would be if the
+          // node ran, and the node's own value is used.
           const driver = driverOfInput(knownPath, knownDefId, knownNode, input.address)
-          if (driver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: driver.path, defId: driver.defId, endpoint: driver.endpoint } }] }
+          const deadDriver = driver !== undefined && isPortEndpoint(driver.endpoint) &&
+            resolveOutputPort(driver.path, driver.defId, driver.endpoint, []) === 'muted'
+          if (driver && !deadDriver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: driver.path, defId: driver.defId, endpoint: driver.endpoint } }] }
           const tapped = tapValue(knownPath, knownDefId, knownNode, input.spec.id, sink)
           if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `'${knownNode}' is muted` } }] }
-          if (tapped === undefined) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `'${knownNode}.${input.spec.id}' has no value` } }] }
+          if (tapped === undefined) {
+            if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.knownValue.novalue', `${knownNode}.${input.spec.id}: the value it passes on is not set`, { anchor: anchorOf(knownPath, knownNode) }))
+            return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `'${knownNode}.${input.spec.id}' has no value` } }] }
+          }
           const runtimeId = occurrenceKey({ instancePath: knownPath, node: knownNode })
           const widget = input.spec.widget
           const sources: readonly ControllerInputSource[] = [
@@ -2283,32 +2293,24 @@ function compileImpl(
 
   // -- Scope: full = closure of output nodes; partial = closure of targets ---
 
-  // A Switch whose pick is in Random mode chooses one member per occurrence
-  // here, before the backend prunes the others; the choice is recorded so a
-  // frozen run and a re-run replay it. A wired pick overrides the mode.
+  // A Switch whose pick is in Random mode rolls one member per occurrence
+  // once the executed scope is known (below). The mode belongs to whoever
+  // owns the pick's value, as for an after-run control: the outermost
+  // subgraph node that promotes it, else the Switch. A pick fed by anything
+  // in the document, even a value baked into it, overrides the mode.
   // Would-run keeps every member of a random pick, since the roll is not
   // known until queueing.
   const randomPicks = new Set<string>()
   for (const fn of flat.values()) {
     if (!fn.selector || !fn.selectorInputKey || !fn.selectorMembers || fn.selectorMembers.length === 0) continue
-    if (fn.node.controllers?.[fn.selector.input] !== 'randomize' || fn.linkedInputs.has(fn.selectorInputKey)) continue
-    randomPicks.add(fn.runtimeId)
-    if (wouldRun) continue
-    const keys = fn.selectorMembers.map((member) => member.slice(fn.selector!.group.length + 1))
-    let key = options?.candidateOverride?.({ graph: fn.graphId, selector: fn.runtimeId, candidates: keys })
-    if (key === undefined || !keys.includes(key)) {
-      if (!options?.pickCandidate) {
-        diags.push(diag('error', 'compile', 'compile.switch.noChooser', `${fn.node.type}: the pick is random but no pickCandidate chooser was provided`, { anchor: { occurrence: fn.occ } }))
-        continue
-      }
-      const raw = options.pickCandidate({ graph: fn.graphId, selector: fn.runtimeId, count: keys.length })
-      key = keys[Number.isFinite(raw) ? Math.min(keys.length - 1, Math.max(0, Math.floor(raw))) : 0]!
-    }
     const input = fn.elab.inputsByValueKey.get(fn.selector.input)
-    const lowered = input && lowerWidgetLiteral(fn, input, key)
-    if (lowered === undefined) continue
-    fn.inputs[fn.selectorInputKey] = lowered
-    selectorChoices.push({ graph: fn.graphId, selector: fn.runtimeId, policy: 'random', candidate: key })
+    const widget = input?.spec.widget
+    if (!input || widget?.controller === undefined) continue
+    if (driverOfInput(fn.occ.instancePath, fn.graphId, fn.occ.node, input.address)) continue
+    const owner = controllerSources.get(fn.runtimeId)?.get(input.spec.id)?.[0]?.source
+    const ownerNode = owner ? graphOf(owner.graph)?.nodes[owner.occurrence.node] : fn.node
+    const mode = ownerNode?.controllers?.[owner ? owner.valueKey : valueKeyOf(input)] ?? widget.controllerInitial ?? 'randomize'
+    if (mode === 'randomize') randomPicks.add(fn.runtimeId)
   }
 
   // A Switch's pick may be document state, a known value baked into it, or
@@ -2446,6 +2448,27 @@ function compileImpl(
   // consumers all fall outside it demote to warnings, so a stray unresolved
   // node no longer blocks the runnable rest of the document.
   if (demoteOutOfScopeUnknownSchema) settleUnknownSchema(included)
+
+  // Roll each random pick that runs, before the backend prunes the members
+  // not picked; the choice is recorded so a frozen run and a re-run replay it.
+  if (!wouldRun) for (const runtimeId of randomPicks) {
+    const fn = flat.get(runtimeId)!
+    if (!included.has(runtimeId)) continue
+    const keys = fn.selectorMembers!.map((member) => member.slice(fn.selector!.group.length + 1))
+    let key = options?.candidateOverride?.({ graph: fn.graphId, selector: fn.runtimeId, candidates: keys })
+    if (key === undefined || !keys.includes(key)) {
+      if (!options?.pickCandidate) {
+        diags.push(diag('error', 'compile', 'compile.switch.noChooser', `${fn.node.type}: the pick is random but no pickCandidate chooser was provided`, { anchor: { occurrence: fn.occ } }))
+        continue
+      }
+      const raw = options.pickCandidate({ graph: fn.graphId, selector: fn.runtimeId, count: keys.length })
+      key = keys[Number.isFinite(raw) ? Math.min(keys.length - 1, Math.max(0, Math.floor(raw))) : 0]!
+    }
+    const lowered = lowerWidgetLiteral(fn, fn.elab.inputsByValueKey.get(fn.selector!.input)!, key)
+    if (lowered === undefined) continue
+    fn.inputs[fn.selectorInputKey!] = lowered
+    selectorChoices.push({ graph: fn.graphId, selector: fn.runtimeId, policy: 'random', candidate: key })
+  }
 
   // Several passes report the same unresolved occurrence (collection, link
   // lowering, per-destination routing), each with its own copy so severity
@@ -2663,7 +2686,9 @@ function compileImpl(
       if (input.apiName === undefined) continue
       const literal = literalControllers.get(fn.runtimeId)?.get(input.spec.id)
       const widget = literal?.widget ?? input.spec.widget
-      if (widget?.controller === 'after_generate') {
+      // A random pick was rolled before the run; nothing advances it after.
+      const rolledPick = randomPicks.has(fn.runtimeId) && input.spec.id === fn.selectorInputKey
+      if (widget?.controller === 'after_generate' && !rolledPick) {
         const sources = [...(controllerSources.get(fn.runtimeId)?.get(input.spec.id) ?? [])]
         const terminal: ControllerSource = {
           source: { graph: fn.graphId, occurrence: fn.occ, valueKey: valueKeyOf(input) },
