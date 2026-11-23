@@ -10,6 +10,7 @@ export function LogPanel(props: ExecutionLogPanelProps & {
   readonly entries: () => readonly AppLogEntry[]
   readonly clearArmed: () => boolean
   readonly onClear: () => void
+  readonly appScopeRequest?: () => number | undefined
 }) {
   const message = useAppMessage()
   const [scope, setScope] = createSignal(props.active() === undefined ? 'app' : 'run')
@@ -17,6 +18,9 @@ export function LogPanel(props: ExecutionLogPanelProps & {
   createEffect(() => setScope(selectedKey() === undefined ? 'app' : 'run'))
   createEffect(() => {
     if (props.filterRequest?.() !== undefined) setScope('run')
+  })
+  createEffect(() => {
+    if (props.appScopeRequest?.() !== undefined) setScope('app')
   })
 
   return (

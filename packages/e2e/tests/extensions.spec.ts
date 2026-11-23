@@ -24,7 +24,7 @@ async function expectStatusBarContained(page: Page): Promise<void> {
   const status = page.getByTestId('status-bar')
   expect(await status.evaluate((footer) => {
     const bounds = footer.getBoundingClientRect()
-    const entries = Array.from(footer.querySelectorAll('.host-ui-text, .host-ui-status, .statusbar-backend, .statusbar-toggle'), (element) => {
+    const entries = Array.from(footer.querySelectorAll('.host-ui-text, .host-ui-status, .status-item'), (element) => {
       const range = document.createRange()
       range.selectNodeContents(element)
       return { text: element.textContent, rects: Array.from(range.getClientRects()) }
@@ -200,7 +200,6 @@ test.beforeEach(async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   await registerExtensionSchema(page)
   await page.evaluate(async () => {
@@ -420,7 +419,7 @@ test('gate overrides persist across reload and apply before activation', async (
   expect(await hasWidgetKind(page)).toBe(false)
 
   await page.reload()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await installDemoPack(page) // packs re-activate per session; gates outlive them
   expect(await hasWidgetKind(page)).toBe(false)
   await expect(page.locator('[data-contribution="demo.widget.stars"]')).toHaveAttribute('data-active', 'false')

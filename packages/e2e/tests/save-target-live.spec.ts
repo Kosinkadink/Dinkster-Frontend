@@ -9,7 +9,7 @@ test('save destination writes the selected relative prefix through the real back
   expect(writable.length).toBeGreaterThan(0)
   const chosenMount = writable[writable.length - 1]!.id
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 20_000 })
   await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({

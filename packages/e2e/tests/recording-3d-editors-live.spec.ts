@@ -62,7 +62,6 @@ async function run(page: Page): Promise<{ clientId: string; jobId: string }> {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.connection.status.get())).toBe('connected')
   await waitForWorkspaceReady(page)
 })
