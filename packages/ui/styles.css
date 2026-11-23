@@ -552,3 +552,68 @@
 .dinkster-canvas-comparison > h3 { margin: 0; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-body-size); font-weight: var(--dinkster-weight-bold); }
 .dinkster-canvas-example-stage { position: relative; overflow: hidden; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); }
 .dinkster-canvas-example-stage canvas { display: block; }
+/* The Boundary panel's rows as one tree: 26 px rows, boxes for sections and whole constructs, nested 6 px. */
+.boundary-tree { display: grid; gap: var(--dinkster-border-width); min-width: 0; color: var(--dinkster-text-primary); user-select: none; }
+.boundary-tree-row { position: relative; display: flex; align-items: center; gap: var(--dinkster-space-4); min-width: 0; height: 26px; padding: 0 var(--dinkster-space-8) 0 var(--dinkster-space-4); border-radius: var(--dinkster-radius-control); cursor: pointer; }
+.boundary-tree-row:hover { background: var(--dinkster-interaction-hover); }
+.boundary-tree-row[aria-selected='true'] { background: var(--dinkster-surface-raised); }
+.boundary-tree-row[aria-selected='true']::before, .boundary-tree-cell[aria-selected='true']::before { content: ''; position: absolute; left: 0; top: 6px; width: 3px; height: 14px; border-top-right-radius: var(--dinkster-radius-small); border-bottom-right-radius: var(--dinkster-radius-small); background: var(--dinkster-accent-foreground); }
+.boundary-tree-row[data-side='output'] { justify-content: flex-end; padding: 0 var(--dinkster-space-4) 0 var(--dinkster-space-8); }
+.boundary-tree-row[data-inert] .boundary-tree-label, .boundary-tree-cell[data-inert] .boundary-tree-label { color: var(--dinkster-text-muted); }
+.boundary-tree-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.boundary-tree-name { font-weight: var(--dinkster-weight-bold); }
+.boundary-tree-target { flex: none; max-width: 45%; margin-left: auto; padding-left: var(--dinkster-space-8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); }
+.boundary-tree-target[data-align='start'] { margin-left: 0; margin-right: auto; padding-left: 0; padding-right: var(--dinkster-space-8); }
+.boundary-tree-note { flex: none; color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); white-space: nowrap; }
+.boundary-tree-dot { flex: none; width: 8px; height: 8px; }
+.boundary-tree-grip { display: inline-flex; flex: none; color: var(--dinkster-text-disabled); cursor: grab; }
+.boundary-tree-grip .dinkster-icon { width: 14px; height: 14px; }
+.boundary-tree-row:hover .boundary-tree-grip, .boundary-tree-line:hover .boundary-tree-grip, .boundary-tree-row[aria-selected='true'] .boundary-tree-grip { color: var(--dinkster-text-muted); }
+.boundary-tree-mark { display: inline-flex; flex: none; color: var(--dinkster-text-muted); }
+.boundary-tree-mark .dinkster-icon { width: 14px; height: 14px; }
+.boundary-tree-mark[data-mark='problem'] { color: var(--dinkster-warning-foreground); }
+.boundary-tree-chevron, .boundary-tree-tab { display: inline-flex; flex: none; color: var(--dinkster-text-secondary); cursor: pointer; }
+.boundary-tree-chevron .dinkster-icon, .boundary-tree-tab .dinkster-icon { width: 14px; height: 14px; }
+/* Fields that share one line on the node share one row here, each its own cell. */
+.boundary-tree-line { position: relative; display: flex; align-items: center; gap: var(--dinkster-border-width); min-width: 0; height: 26px; padding-left: var(--dinkster-space-4); border-radius: var(--dinkster-radius-control); }
+.boundary-tree-line-grip { display: inline-flex; flex: none; padding-right: var(--dinkster-space-4); }
+.boundary-tree-cell, .boundary-tree-pocket { position: relative; display: flex; flex: 1 1 0; align-items: center; gap: var(--dinkster-space-4); min-width: 0; height: 22px; padding: 0 var(--dinkster-space-8); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-inset); cursor: pointer; }
+.boundary-tree-cell:hover { background: var(--dinkster-interaction-hover); }
+.boundary-tree-cell[aria-selected='true'] { background: var(--dinkster-surface-raised); }
+.boundary-tree-pocket { border: var(--dinkster-border-width) dashed var(--dinkster-accent-border); background: var(--dinkster-accent-background); color: var(--dinkster-accent-foreground); }
+/* A section or a whole construct is a box; its rows sit 6 px inside it. */
+.boundary-tree-box { position: relative; display: grid; gap: var(--dinkster-border-width); min-width: 0; margin: 2px 0; padding: 0 0 var(--dinkster-space-4); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
+.boundary-tree-box:not([data-open]):not([data-construct]) { padding-bottom: 0; }
+.boundary-tree-box[aria-selected='true'] { border-color: var(--dinkster-border-strong); }
+.boundary-tree-box:not([data-named]) { padding-top: var(--dinkster-space-12); }
+.boundary-tree-tab { position: absolute; top: calc(-1 * var(--dinkster-border-width)); left: var(--dinkster-space-8); justify-content: center; width: 24px; height: 10px; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-top: 0; border-radius: 0 0 var(--dinkster-radius-small) var(--dinkster-radius-small); background: var(--dinkster-surface-panel); }
+.boundary-tree-tab .dinkster-icon { width: 10px; height: 10px; }
+.boundary-tree-children { display: grid; gap: var(--dinkster-border-width); min-width: 0; padding: 0 6px; }
+.boundary-tree-header { margin: 0 var(--dinkster-border-width); }
+.boundary-tree-interior { padding: 0 var(--dinkster-space-8) 0 calc(var(--dinkster-space-24) + var(--dinkster-space-4)); color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
+.boundary-tree-template { display: grid; gap: 0; margin: var(--dinkster-space-4) 6px 0 calc(var(--dinkster-space-24) + var(--dinkster-space-4)); padding-left: var(--dinkster-space-8); border-left: var(--dinkster-border-width) solid var(--dinkster-border-subtle); color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
+.boundary-tree-template-label { color: var(--dinkster-text-muted); }
+.boundary-tree-template-row { display: flex; align-items: center; gap: var(--dinkster-space-4); min-width: 0; height: 20px; }
+.boundary-tree-template-row[data-side='output'] { justify-content: flex-end; padding-right: var(--dinkster-space-8); }
+.boundary-tree-template-row[data-side='output'] .boundary-tree-dot { order: 1; }
+/* Dragging: the row lifts out and the rows open an empty slot where it would land; no insertion line. */
+.boundary-tree-slot { min-width: 0; height: 26px; border: var(--dinkster-border-width) dashed var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-inset); }
+.boundary-tree-lifted { height: 26px; border: var(--dinkster-border-width) solid var(--dinkster-border-strong); background: var(--dinkster-surface-raised); box-shadow: var(--dinkster-elevation-low); transform: translate(8px, -4px); cursor: grabbing; }
+/* The Boundary panel frame the tree sits in: head, rows, and the fixed settings area. */
+.boundary-tree-panel { display: flex; flex-direction: column; gap: var(--dinkster-space-4); width: 320px; min-height: 560px; padding: var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); }
+.boundary-tree-panel-head, .boundary-tree-settings-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--dinkster-space-4) var(--dinkster-space-8); min-width: 0; }
+.boundary-tree-panel-title { min-width: 0; font-weight: var(--dinkster-weight-bold); overflow-wrap: anywhere; }
+.boundary-tree-panel-heading { margin-top: var(--dinkster-space-8); padding: var(--dinkster-space-4) 0; color: var(--dinkster-text-secondary); }
+.boundary-tree-quiet { min-width: 0; color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
+.boundary-tree-settings { display: grid; gap: var(--dinkster-space-8); margin-top: auto; padding-top: var(--dinkster-space-8); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+.boundary-tree-settings > .dinkster-button { justify-self: start; }
+.boundary-tree-setting { display: flex; align-items: center; gap: var(--dinkster-space-8); min-width: 0; min-height: var(--dinkster-control-compact-height); }
+.boundary-tree-setting-label { flex: none; width: 64px; color: var(--dinkster-text-muted); }
+.boundary-tree-setting-value { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-4) var(--dinkster-space-8); min-width: 0; color: var(--dinkster-text-secondary); }
+.boundary-tree-setting-value > .dinkster-input { flex: 1 1 140px; min-width: 0; }
+.boundary-tree-problem { display: flex; align-items: flex-start; gap: var(--dinkster-space-8); padding: var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-warning-border); border-radius: var(--dinkster-radius-control); background: var(--dinkster-warning-background); color: var(--dinkster-warning-foreground); }
+.boundary-tree-empty { display: grid; justify-items: start; gap: var(--dinkster-space-12); padding: var(--dinkster-space-8) 0; color: var(--dinkster-text-secondary); }
+.boundary-tree-examples { display: flex; flex-wrap: wrap; align-items: start; gap: var(--dinkster-space-24); }
+.boundary-tree-example { display: grid; gap: var(--dinkster-space-8); width: 320px; margin: 0; }
+.boundary-tree-example figcaption { display: grid; gap: var(--dinkster-space-4); color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
+.boundary-tree-example figcaption strong { color: var(--dinkster-text-primary); font-size: var(--dinkster-type-body-size); }

@@ -46,6 +46,7 @@ import { NodeLookGallery } from './node-look.js'
 import { ColorEditingGallery } from './color-editing.js'
 import { RowEditingGallery } from './row-editing.js'
 import { RowListsGallery } from './row-lists.js'
+import { BoundaryTreeGallery } from './boundary-tree.js'
 
 type Theme = 'dark' | 'light'
 
@@ -87,7 +88,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
       ],
     ],
     ['Wires', ['types', 'structure']],
-    ['Subgraphs', ['boundary', 'boundary-names']],
+    ['Subgraphs', ['boundary', 'boundary-names', 'boundary-tree']],
     ['Flow nodes', ['switch-primitive']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
@@ -193,6 +194,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     "The panels at the edges of a subgraph entered through its node. The Inputs panel carries that node's fields, which it sends down their wires; strength, the edge dropdown and the grain value source are shown on the node without a wire and carry the subgraph icon, as does the grain pill.",
   'boundary-names':
     "The names on a subgraph's panels and on its collapsed node; After shows ids as written.",
+  'boundary-tree':
+    "The Boundary panel lists a subgraph node's rows as one ordered tree: rows, lines of fields, sections and whole groups and choices, in the order the node draws them, with the selected row's settings in the fixed area below. Click a row to select it, a section's arrow to open or close it.",
   zoom: 'Three nodes at 75 percent, the smallest zoom that still draws controls.',
   'zoom-content':
     'The same nodes at 50 percent, where text stays and controls are hidden.',
@@ -585,7 +588,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'node-look') return
+    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'node-look' || currentPage === 'boundary-tree') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -689,6 +692,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'color-editing'}>
           <ColorEditingGallery theme={theme()} />
+        </Show>
+        <Show when={page() === 'boundary-tree'}>
+          <BoundaryTreeGallery />
         </Show>
         <Show when={prepared()[0]}>
           {(first) => (
