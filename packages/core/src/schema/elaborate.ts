@@ -407,6 +407,12 @@ export interface ElaborateOptions {
   readonly includeDormant?: boolean
   /** Node identity for diagnostic anchors. */
   readonly nodeId?: NodeId
+  /**
+   * Flattened ids of rows that have a problem (an error or a warning) found
+   * outside elaboration. Such a row, and every box that holds it, shows even
+   * when its `visible` is false.
+   */
+  readonly problemRows?: ReadonlySet<string>
 }
 
 // ---------------------------------------------------------------------------
@@ -540,16 +546,35 @@ export function elaborateInterface(
   // choice declared later. Such a read takes the key the previous pass
   // settled, and the passes repeat until every key read is the key settled,
   // so declaration order does not change the result.
+  const first = settle(schema, node, connectivity, options)
+  // A problem elaboration itself finds on a hidden row shows that row: once
+  // more with it among the problem rows. Hidden rows are elaborated either
+  // way, so that pass finds the same problems.
+  const known = options.problemRows ?? new Set<string>()
+  const found = [...first.problems].filter((path) => !known.has(path))
+  if (!first.hid || found.length === 0) return first.elaborated
+  return settle(schema, node, connectivity, { ...options, problemRows: new Set([...known, ...found]) }).elaborated
+}
+
+function settle(
+  schema: NodeSchema,
+  node: Pick<NodeData, 'values' | 'dynamic' | 'additionalInputs'>,
+  connectivity: Connectivity,
+  options: ElaborateOptions,
+): { readonly elaborated: ElaboratedInterface; readonly problems: ReadonlySet<string>; readonly hid: boolean } {
   let settled: ReadonlyMap<string, string | null> = new Map()
   for (let pass = 1; ; pass++) {
     const result = elaboratePass(schema, node, connectivity, options, settled)
     const unsettled = [...result.early].filter((path) => (result.chosen.get(path) ?? null) !== (settled.get(path) ?? null))
-    if (unsettled.length === 0) return result.elaborated
+    if (unsettled.length === 0) return result
     if (pass === MAX_CHOICE_PASSES) {
       return {
-        ...result.elaborated,
-        diagnostics: [...result.elaborated.diagnostics, diag('error', 'schema', 'elab.choice.unsettled',
-          `${schema.type}: the keys of ${unsettled.map((path) => `'${path}'`).join(', ')} depend on each other and never settle`)],
+        ...result,
+        elaborated: {
+          ...result.elaborated,
+          diagnostics: [...result.elaborated.diagnostics, diag('error', 'schema', 'elab.choice.unsettled',
+            `${schema.type}: the keys of ${unsettled.map((path) => `'${path}'`).join(', ')} depend on each other and never settle`)],
+        },
       }
     }
     settled = result.chosen
@@ -562,7 +587,14 @@ function elaboratePass(
   connectivity: Connectivity,
   options: ElaborateOptions,
   settled: ReadonlyMap<string, string | null>,
-): { readonly elaborated: ElaboratedInterface; readonly chosen: ReadonlyMap<string, string | null>; readonly early: ReadonlySet<string> } {
+): {
+  readonly elaborated: ElaboratedInterface
+  readonly chosen: ReadonlyMap<string, string | null>
+  readonly early: ReadonlySet<string>
+  /** Rows this pass reported a problem on, and whether it hid any row. */
+  readonly problems: ReadonlySet<string>
+  readonly hid: boolean
+} {
   const budget: ElabBudget = { ...DEFAULT_ELAB_BUDGET, ...options.budget }
   const view = options.promoteGhosts ?? true
   const census = options.includeDormant ?? false
@@ -612,7 +644,11 @@ function elaboratePass(
   let membersVisited = 0
   let halted = false
 
+  /** Rows this pass reported a problem on. */
+  const problems = new Set<string>()
+  let hid = false
   const report = (code: string, message: string, port?: string, severity: 'error' | 'warning' = 'error', data?: Readonly<Record<string, unknown>>): void => {
+    if (port !== undefined) problems.add(port)
     diagnostics.push(diag(severity, 'schema', code, `${schema.type}: ${message}`, {
       ...(data !== undefined ? { data } : {}),
       ...(options.nodeId !== undefined && port !== undefined
@@ -833,12 +869,16 @@ function elaboratePass(
   }
 
   const connectedPorts = [...(connectivity.inputPorts?.() ?? []), ...(connectivity.outputPorts?.() ?? [])]
+  const problemRows = [...(options.problemRows ?? [])]
   /** Whether a wire reaches a row, or any row a box holds. */
-  const wiredUnder = (row: BodyRow | UseSpec, prefix: string): boolean => {
-    if (row.kind === 'section' || row.kind === 'row') return row.rows.some((inner) => wiredUnder(inner, prefix))
+  /** Whether the row, or a row the box holds at any depth, has a wire or a problem. */
+  const heldUnder = (row: BodyRow | UseSpec, prefix: string): boolean => {
+    if (row.kind === 'section' || row.kind === 'row') return row.rows.some((inner) => heldUnder(inner, prefix))
     if (row.kind === 'note' || row.kind === 'button' || row.kind === 'editor' || row.kind === 'state') return false
     const path = prefix + row.id
-    return linked(path) || connectivity.isOutputConnected(path) || connectedPorts.some((port) => port.startsWith(`${path}.`))
+    const under = (port: string): boolean => port === path || port.startsWith(`${path}.`)
+    return linked(path) || connectivity.isOutputConnected(path) || connectedPorts.some(under) ||
+      problemRows.some(under)
   }
 
   // -- Emission ---------------------------------------------------------------
@@ -939,10 +979,11 @@ function elaboratePass(
   const one = (row: BodyRow, raw: Scope): void => {
     const framed = 'outer' in row && row.outer !== undefined ? { ...raw, formulaFrames: outerFrames(row.outer) } : raw
     // A row hidden by its `visible` is still stored and sent to the run; a
-    // row with a wire, or a box that holds one, shows anyway.
+    // row with a wire or a problem, or a box that holds one, shows anyway.
     const visible = 'visible' in row ? row.visible : undefined
-    const scope = visible !== undefined && !framed.hidden && answer(visible, framed, 'boolean') === false &&
-      !wiredUnder(row, framed.prefix) ? { ...framed, hidden: true } : framed
+    const hides = visible !== undefined && !framed.hidden && answer(visible, framed, 'boolean') === false
+    if (hides) hid = true
+    const scope = hides && !heldUnder(row, framed.prefix) ? { ...framed, hidden: true } : framed
     switch (row.kind) {
       case 'input':
         emitInput(row, scope.prefix + row.id, scope)
@@ -1578,6 +1619,7 @@ function elaboratePass(
       const outcome = evaluate(rule.check.formula, topScope)
       if (outcome.kind !== 'value' || outcome.value !== false) continue
       const fields = fieldsRead(rule.check.formula)
+      if (fields.length === 1) problems.add(fields[0]!)
       diagnostics.push(diag(rule.fix.length > 0 ? 'warning' : 'error', 'schema', 'node.rule.failed', rule.message, {
         data: { rule: index, hasFix: rule.fix.length > 0, fields },
         ...(fields.length === 1 && options.nodeId !== undefined
@@ -1668,7 +1710,7 @@ function elaboratePass(
     ...(suffix ? { titleSuffix: suffix } : {}),
     diagnostics,
   }
-  return { elaborated, chosen, early }
+  return { elaborated, chosen, early, problems, hid }
 }
 
 // ---------------------------------------------------------------------------
