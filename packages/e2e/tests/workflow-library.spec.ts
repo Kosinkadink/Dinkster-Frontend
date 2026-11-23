@@ -149,6 +149,7 @@ test('peer engine publications refresh an open collection without replacing a di
   const peer = process.env['DINKSTER_SHARED_LIBRARY_PEER']
   test.skip(peer === undefined, 'requires a second real engine sharing the native library')
   const title = uniqueName('published-by-peer')
+  await page.evaluate(() => { window.__dinksterTest!.app.createWorkflow() })
   await targetNativeBackend(page)
   await openNamedCopy(page, uniqueName('unsaved-local-work'))
   await waitForDocumentToSettle(page)
