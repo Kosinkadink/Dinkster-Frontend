@@ -6674,7 +6674,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} />}
               </Show>
               <Show when={curve()}>
-                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram}
+                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wiredLine={item()?.row.wiredLine === true}
                   pictureHeight={item()?.row.picture?.height ?? 0} options={item()?.field.spec.options ?? {}} />}
               </Show>
             </NodeEditorSpaceOverlay>

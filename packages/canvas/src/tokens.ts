@@ -646,6 +646,12 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
    * node's sections, under `<value key>.<section id>`.
    */
   readonly sections?: readonly { readonly id: string; readonly rows: number }[]
+  /**
+   * An input of the node that, while it has a wire, gives the editor one more
+   * control row: a line about what comes through it. Without a wire there is
+   * no such row, so the height follows the wire and not a run.
+   */
+  readonly wiredLine?: string
 }>> = {
   // Record strip (two rows), Microphone, Limit, the stored clip's line.
   'core.audioRecord': { controlRows: 5 },
@@ -662,8 +668,9 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
   'core.imageCompare': { picture: 180, controlRows: 3 },
   // The camera position under the orbit and elevation pictures.
   'core.cameraAngle': { picture: 150, controlRows: 1 },
-  // Interpolation; Position; Value; Delete point; the help note, which wraps onto two lines.
-  'core.curve': { picture: 180, controlRows: 6 },
+  // Interpolation; Position; Value; Delete point; the help note, which wraps onto two lines;
+  // and, while the histogram input has a wire, the histogram's line above the note.
+  'core.curve': { picture: 180, controlRows: 6, wiredLine: 'histogram' },
 }
 
 /** Minimum zoom for text detail and transient media DOM. */

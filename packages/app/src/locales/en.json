@@ -540,6 +540,7 @@
   "inNodeCurve.deletePoint": "Delete point",
   "inNodeCurve.help": "Double-click to add a point. Drag to move it. Click to select it.",
   "inNodeCurve.histogram": "Histogram from the selected run",
+  "inNodeCurve.histogramUnknown": "Histogram: not known yet",
   "curveEditor.targetUnavailable": "This curve input is no longer available.",
   "appView.action.moveDown": "Move {label} down",
   "appView.action.moveUp": "Move {label} up",

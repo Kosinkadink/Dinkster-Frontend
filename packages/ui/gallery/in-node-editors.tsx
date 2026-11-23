@@ -273,14 +273,14 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
             <GalleryNumber label="Field of view" value={35} min={10} max={150} />
           </CanvasEditorLine>
           <CanvasEditorSection label="Model placement" open={open('placement')}>
-            <CanvasEditorLine><GalleryNumbers label="Model position X Y Z" value={[0, 0, 0]} /></CanvasEditorLine>
-            <CanvasEditorLine><GalleryNumbers label="Model rotation X Y Z W" value={[0, 0, 0, 1]} /></CanvasEditorLine>
-            <CanvasEditorLine><GalleryNumbers label="Model scale X Y Z" value={[1, 1, 1]} /></CanvasEditorLine>
+            <CanvasEditorLine><GalleryNumbers label="Position X Y Z" value={[0, 0, 0]} /></CanvasEditorLine>
+            <CanvasEditorLine><GalleryNumbers label="Rotation X Y Z W" value={[0, 0, 0, 1]} /></CanvasEditorLine>
+            <CanvasEditorLine><GalleryNumbers label="Scale X Y Z" value={[1, 1, 1]} /></CanvasEditorLine>
           </CanvasEditorSection>
           <CanvasEditorSection label="Animation" open={open('animation')}>
-            <CanvasEditorLine><GalleryChoice label="Animation clip" value="Walk" options={['Walk', 'Run', 'Idle']} /></CanvasEditorLine>
-            <CanvasEditorLine><GalleryNumber label="Animation time (s)" value={0.4} min={0} step={0.1} precision={2} /></CanvasEditorLine>
-            <CanvasEditorLine><GalleryNumber label="Animation speed" value={1} min={0} step={0.1} precision={1} /></CanvasEditorLine>
+            <CanvasEditorLine><GalleryChoice label="Clip" value="Walk" options={['Walk', 'Run', 'Idle']} /></CanvasEditorLine>
+            <CanvasEditorLine><GalleryNumber label="Time (s)" value={0.4} min={0} step={0.1} precision={2} /></CanvasEditorLine>
+            <CanvasEditorLine><GalleryNumber label="Speed" value={1} min={0} step={0.1} precision={1} /></CanvasEditorLine>
             <CanvasEditorButtons buttons={[{ label: 'Play animation', icon: canvasEditorIcons.play }]} />
           </CanvasEditorSection>
         </>
@@ -355,8 +355,11 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
           {/* The Delete key on a selected point does the same; a curve keeps at least one point. */}
           <CanvasEditorButtons buttons={[{ label: 'Delete point', icon: canvasEditorIcons.remove, intent: 'remove',
             disabled: selected === undefined || points.length < 2 }]} />
-          <Show when={state()['histogram'] === true}>
-            <CanvasEditorNote tone="muted">Histogram from the selected run</CanvasEditorNote>
+          {/* The line is there while the histogram input has a wire, whether or not a run sent one. */}
+          <Show when={props.row.wiredLine}>
+            <CanvasEditorNote tone={state()['histogram'] === true ? undefined : 'muted'}>
+              {state()['histogram'] === true ? 'Histogram from the selected run' : 'Histogram: not known yet'}
+            </CanvasEditorNote>
           </Show>
           <CanvasEditorNote tone="muted" wrap>Double-click to add a point. Drag to move it. Click to select it.</CanvasEditorNote>
         </>

@@ -254,6 +254,8 @@ export type LayoutRow =
       readonly picture?: { readonly top: number; readonly height: number }
       /** The editor's own sections that are open, by section id. */
       readonly openSections?: readonly string[]
+      /** The editor's input named by its `wiredLine` has a wire, and the editor has a row for it. */
+      readonly wiredLine?: true
     }
   | {
       /**
@@ -1508,8 +1510,9 @@ export function layoutNode(
           : editor.picture
       const openSections = (editor.sections ?? []).filter((section) =>
         options.sectionOverrides?.[`${w.valueKey}.${section.id}`] === false)
+      const wiredLine = editor.wiredLine !== undefined && isConnected('in', editor.wiredLine)
       const controls = editorControlHeights.get(w.valueKey) ??
-        (editor.controlRows + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
+        (editor.controlRows + (wiredLine ? 1 : 0) + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
       const spaceRow: PendingRow = {
         kind: 'editorSpace',
         boxes: cell.boxes,
@@ -1518,6 +1521,7 @@ export function layoutNode(
           valueKey: w.valueKey,
           viewId: w.viewId,
           ...(openSections.length > 0 ? { openSections: openSections.map((section) => section.id) } : {}),
+          ...(wiredLine ? { wiredLine: true as const } : {}),
           // The editor's outline stops `fieldInsetY` above the space's bottom,
           // as every row's box does; its controls fill the space above that.
           height: space.pad * 2 + controls + (pictureHeight === undefined ? 0 : pictureHeight + space.gap) + tokens.rowGeometry.fieldInsetY,

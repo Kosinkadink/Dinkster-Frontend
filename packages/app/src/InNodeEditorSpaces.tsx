@@ -545,6 +545,8 @@ export function CurveSpace(props: {
   readonly options: Readonly<Record<string, unknown>>
   /** The latest run's histogram bins, when it sent one. */
   readonly histogram: readonly number[] | undefined
+  /** The node's histogram input has a wire, and the editor has a row for its line. */
+  readonly wiredLine: boolean
   readonly commit: (value: CurveValue) => void
 }) {
   const message = useAppMessage()
@@ -565,7 +567,7 @@ export function CurveSpace(props: {
   const store = (next: readonly CurvePoint[], nextInterpolation = interpolation()) =>
     props.commit({ interpolation: nextInterpolation, points: next.map((item) => ({ position: item.position, value: item.value })) })
   const bars = () => {
-    const bins = props.histogram
+    const bins = props.wiredLine ? props.histogram : undefined
     const highest = bins === undefined ? 0 : Math.max(...bins)
     return bins === undefined || highest === 0 ? undefined : bins.map((count) => count / highest)
   }
@@ -635,8 +637,11 @@ export function CurveSpace(props: {
           const index = selected()
           if (index !== undefined) remove(index)
         } }]} />
-      <Show when={bars() !== undefined}>
-        <CanvasEditorNote tone="muted">{message('inNodeCurve.histogram')}</CanvasEditorNote>
+      {/* The line is there while the histogram input has a wire, whether or not a run sent one. */}
+      <Show when={props.wiredLine}>
+        <CanvasEditorNote tone={bars() === undefined ? 'muted' : undefined}>
+          {message(bars() === undefined ? 'inNodeCurve.histogramUnknown' : 'inNodeCurve.histogram')}
+        </CanvasEditorNote>
       </Show>
       {/* One note that wraps, never cut off; at the narrowest node it takes the two lines it is given. */}
       <CanvasEditorNote tone="muted" wrap>{message('inNodeCurve.help')}</CanvasEditorNote>

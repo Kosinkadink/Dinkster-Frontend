@@ -1448,6 +1448,27 @@ describe('editors shown in the node', () => {
       .toEqual(['frames.frame1', 'space frames.frame1', 'frames.frame2', 'frames.frame0'])
   })
 
+  it("gives the curve its histogram line only while the histogram input has a wire", () => {
+    const curveMeasure: WidgetMeasure = (spec) => spec.widgetType === 'CURVE' ? { viewId: 'core.curve', rows: 2 } : widgetMeasure(spec)
+    const schema = schemaOf([
+      input('histogram', { type: { kind: 'concrete', name: 'HISTOGRAM' } }),
+      input('gamma', { type: { kind: 'concrete', name: 'HISTOGRAM' } }),
+      editor('curve', 'CURVE', { unfolded: true }),
+    ])
+    const space = (connected: string[]) => {
+      const row = layoutNode(schema, nodeData, defaultTokens, measure, curveMeasure, { connectedPorts: new Set(connected) })
+        .rows.find((item) => item.kind === 'editorSpace')!
+      return row.kind === 'editorSpace' ? row : undefined
+    }
+    const unwired = space([])!
+    expect(unwired.wiredLine).toBeUndefined()
+    // A wire into another input changes nothing.
+    expect(space(['in:gamma'])!.height).toBe(unwired.height)
+    const wired = space(['in:histogram'])!
+    expect(wired.wiredLine).toBe(true)
+    expect(wired.height - unwired.height).toBe(defaultTokens.rowHeight)
+  })
+
   it('keeps a dragged picture height within its limits', () => {
     const picture = (stored: number) => {
       const space = lay({ editorUnfolded: { frame: true, clip: false }, pictureHeights: { frame: stored } })
