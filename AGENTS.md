@@ -14,7 +14,7 @@ Update the active document that owns current behavior.
 
 The only application locale catalogs are `en.json` and `zh.json`; adding any other locale file requires an explicit user ruling.
 
-# Screenshot validation (user directive, 2026-08-12)
+# Screenshot validation (user directive)
 
 Screenshots are part of the development cycle, not just PR paperwork.
 While developing any user-visible change, capture screenshots of the
@@ -35,7 +35,7 @@ allowlisted exception linked to an issue. `pnpm check:raw-controls` must pass.
 Compare a changed surface with a sibling in the same dock region and name the
 primitives used in the PR body.
 
-# Self-serve testing (user directive, 2026-08-12)
+# Self-serve testing (user directive)
 
 Standing authorization: stand up whatever is needed to test - dev servers,
 backend processes, mock backends, fixture data - without asking permission.
@@ -57,9 +57,9 @@ progress.
 
 # Standing push authorization
 
-The user granted standing push permission on 2026-07-27: completed,
-validated work on this repo's main branch is pushed to origin as it lands,
-without per-slice authorization, so local commits are never the only copy.
+The user grants standing push permission: completed, validated work on this
+repo's main branch is pushed to origin as it lands, without per-change
+authorization, so local commits are never the only copy.
 This does not extend to force-pushes, history rewrites, or other repos.
 
 # Reset the dev server before E2E runs
