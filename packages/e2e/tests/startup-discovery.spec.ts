@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './fixtures.js'
 /**
  * Clean-startup composition proof: a fresh load of the app against an
  * origin that fronts a NATIVE engine selects the native protocol for the
@@ -44,7 +45,7 @@ test('slow font startup shows the boot message before the native shell', async (
   } finally {
     await page.evaluate(() => Reflect.get(window, 'releaseStartupFonts')())
   }
-  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+  await waitForWorkspaceReady(page, 1)
   await expect(page.locator('.boot-indicator')).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('native-startup-ready.png') })
 })

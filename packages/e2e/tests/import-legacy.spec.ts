@@ -8,7 +8,7 @@
  */
 import { mkdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { expect, nativeTest as test, openRailPanel } from './fixtures.js'
+import { expect, nativeTest as test, openRailPanel, waitForWorkspaceReady } from './fixtures.js'
 
 const importEvidenceDir = fileURLToPath(new URL('../../../test-results/issue-381/', import.meta.url))
 const comboEvidenceDir = fileURLToPath(new URL('../../../test-results/issue-118/', import.meta.url))
@@ -231,7 +231,7 @@ const sd15Workflow = {
 
 test('translates a legacy litegraph workflow into the native format', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('7 node schemas')
+  await waitForWorkspaceReady(page, 7)
 
   const result = await page.evaluate(async (json) => {
     const app = window.__dinksterTest!.app

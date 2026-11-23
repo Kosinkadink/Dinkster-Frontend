@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DINKSTER_REF: 1888e116388b4f7f3e7ccbbe04e2a3aa7d1fc3e9
+  DINKSTER_REF: 4e3544eda89a76b2d49c0cf6f8d9844f8c4a9e9a
 
 jobs:
   fast:
@@ -75,7 +75,7 @@ jobs:
     name: native startup
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     runs-on: ${{ fromJSON(vars.CI_RUNNERS)[github.event.pull_request.head.repo.full_name != github.repository && 'forkLinux' || 'linux'] }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     env:
       CUDA_VISIBLE_DEVICES: ""
       DINKSTER_ACCELERATOR: cpu

@@ -29,17 +29,17 @@ const activeDoc = (page: Page) =>
 const boundaryTab = (page: Page) =>
   page.getByTestId('dock-zone-right').locator('[role="tab"][data-tab-id="boundary"]')
 
-const queueTab = (page: Page) =>
-  page.getByTestId('dock-zone-right').locator('[role="tab"][data-tab-id="queue"]')
+const runsTab = (page: Page) =>
+  page.getByTestId('dock-zone-right').locator('[role="tab"][data-tab-id="runs"]')
 
 async function widenRail(page: Page): Promise<void> {
   await page.getByTestId('rail-resize').focus()
   await page.keyboard.press('End')
-  await expect(boundaryTab(page)).toBeVisible()
 }
 
 async function drillIntoOccurrence(page: Page): Promise<void> {
   await identityViewport(page)
+  await runsTab(page).click()
   const activeRailTabId = await page.getByTestId('dock-zone-right')
     .locator('[role="tab"][aria-selected="true"]')
     .getAttribute('data-tab-id')
@@ -61,7 +61,6 @@ async function drillIntoOccurrence(page: Page): Promise<void> {
 }
 
 async function openBoundaryWorkflow(page: Page): Promise<void> {
-  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([
@@ -154,9 +153,9 @@ async function openBoundaryWorkflow(page: Page): Promise<void> {
   })
   await page.setViewportSize({ width: 1440, height: 900 })
   await widenRail(page)
-  await queueTab(page).click()
-  await expect(queueTab(page)).toHaveAttribute('aria-selected', 'true')
-  await expect(boundaryTab(page).getByTestId('panel-indicator')).toHaveCount(0)
+  await runsTab(page).click()
+  await expect(runsTab(page)).toHaveAttribute('aria-selected', 'true')
+  await expect(boundaryTab(page)).toHaveCount(0)
   await capture(page, 'boundary-tab-normal-root')
   // Drill into the definition: the panel edits definitions, not instances.
   await drillIntoOccurrence(page)
@@ -178,7 +177,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     await page.routeWebSocket('**/api/events?*', () => {})
   }
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await openBoundaryWorkflow(page)
 })
 
@@ -266,12 +265,10 @@ test('root prompt reopens definitions and the panel follows the drilled tab', as
 
   // The root offers navigation, not definition-editing controls.
   await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
-  await expect(page.getByTestId('boundary-prompt')).toBeVisible()
+  await expect(boundaryTab(page)).toHaveCount(0)
   await expect(page.getByTestId('boundary-item')).toHaveCount(0)
-  await expect(boundaryTab(page).getByTestId('panel-indicator')).toHaveCount(0)
-  await capture(page, 'boundary-root-prompt')
-  await page.getByTestId('boundary-prompt').getByRole('button', { name: 'Open Grower', exact: true }).click()
-  await expect(page.getByTestId('boundary-prompt')).toHaveCount(0)
+  await capture(page, 'boundary-root-hidden')
+  await drillIntoOccurrence(page)
   await expect(boundaryTab(page).getByTestId('panel-indicator')).toBeVisible()
   await expect(page.locator('[data-testid=boundary-item][data-boundary-id=image]')).toBeVisible()
 })
@@ -363,7 +360,7 @@ test('empty and frozen states preserve inspection semantics', async ({ page }) =
   await capture(page, 'after-boundary-frozen-wide')
 
   await page.reload()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await openBoundaryWorkflow(page)
   await page.evaluate(() => {
     type BoundItem = {

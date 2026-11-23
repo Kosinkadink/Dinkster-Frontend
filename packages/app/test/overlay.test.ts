@@ -20,6 +20,7 @@ import {
   type ExecutionRef,
 } from '@dinkster/core'
 import { AppState, type Tab } from '../src/app-state.js'
+import { layoutGroups, repairEditorLayout, splitGroup } from '../src/editor-layout.js'
 import { historicalRegistry, historicalSchemas } from './historical-schemas.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
@@ -163,6 +164,37 @@ describe('document tab actions', () => {
     expect(thawed.execution).toBeUndefined()
     expect(thawed.editorKind).toBe('graph')
     expect(app.isTabDirty(thawed.id)).toBe(true)
+    expect(app.tabs.get()).toContain(frozen)
+
+    const nodeId = Object.keys(frozen.store.doc.graphs[frozen.store.doc.root]!.nodes)[0]!
+    const graphId = frozen.store.doc.root
+    expect((await app.dispatchTo(frozen, { command: 'node.move', params: { graphId, positions: { [nodeId]: { x: 137, y: 249 } } } })).ok).toBe(true)
+    const arranged = frozen.store.doc
+    expect((await app.dispatchTo(frozen, { command: 'node.remove', params: { graphId, nodeIds: [nodeId] } })).ok).toBe(false)
+    expect(frozen.store.doc).toBe(arranged)
+    expect((await app.dispatchTo(frozen, { command: 'batch', params: { invocations: [
+      { command: 'node.move', params: { graphId, positions: { [nodeId]: { x: 999, y: 555 } } } },
+      { command: 'batch', params: { invocations: [{ command: 'node.remove', params: { graphId, nodeIds: [nodeId] } }] } },
+    ] } })).ok).toBe(false)
+    expect(frozen.store.doc).toBe(arranged)
+    expect(app.isTabDirty(frozen.id)).toBe(false)
+    const before = app.tabs.get().map((tab) => tab.id)
+    const layout = repairEditorLayout(app.editorSplits.layout.get(), before)
+    app.editorSplits.layout.set(splitGroup(layout, layout.focusedGroupId, 'column', frozen.id))
+    const groups = layoutGroups(app.editorSplits.layout.get().root)
+    const replacement = (await app.duplicateTab(frozen.id, true))!
+    expect(app.tabs.get().map((tab) => tab.id)).toEqual(before.map((id) => id === frozen.id ? replacement.id : id))
+    expect(layoutGroups(app.editorSplits.layout.get().root)).toEqual(groups.map((group) => ({
+      ...group,
+      tabIds: group.tabIds.map((id) => id === frozen.id ? replacement.id : id),
+      activeTabId: group.activeTabId === frozen.id ? replacement.id : group.activeTabId,
+    })))
+    expect(replacement.store.doc.view).toEqual(arranged.view)
+    expect(replacement.execution).toBeUndefined()
+    expect(replacement.title).toBe('basic copy 4')
+    expect(app.executionForTab(replacement)).toBeUndefined()
+    expect(await app.openExecutionView(ref)).toBe(true)
+    expect(app.activeTab()!.store.doc).toEqual(basic.store.doc)
   })
 })
 

@@ -1,5 +1,5 @@
 /**
- * Interrupted durable-history records through the production library panel,
+ * Interrupted durable-history records through the production Runs panel,
  * against a fully route-stubbed page-origin backend (no live server):
  *
  * - restart-swept records (state 'interrupted', Dinkster #556) render with the
@@ -11,7 +11,9 @@
  *   /api/jobs body carries a NEW job identity, never the interrupted one.
  *   Nothing auto-resumes, by contract.
  */
-import { expect, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { expect, mockProjectPacks, openRailPanel, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const DIGEST = `blake3:${'a'.repeat(64)}`
 
@@ -119,7 +121,7 @@ const unstampedRecord = {
 }
 
 /** Route-stub the page-origin backend: catalog, quiet library, history. */
-async function installFixture(page: Page): Promise<{ submitted(): Record<string, unknown> | undefined }> {
+async function installFixture(page: Page, records: readonly unknown[] = [stampedRecord, unstampedRecord]): Promise<{ submitted(): Record<string, unknown> | undefined }> {
   let submitted: Record<string, unknown> | undefined
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
@@ -131,7 +133,7 @@ async function installFixture(page: Page): Promise<{ submitted(): Record<string,
   await page.route('/api/templates*', (route) => route.fulfill({ json: { templates: [] } }))
   // Durable history list: path is exactly /api/history (query carries scope).
   await page.route((url) => url.pathname === '/api/history', (route) =>
-    route.fulfill({ json: { records: [stampedRecord, unstampedRecord] } }))
+    route.fulfill({ json: { records } }))
   await page.route((url) => url.pathname === `/api/history/${stampedRecord.runId}`, (route) =>
     route.fulfill({ json: stampedRecord }))
   // Content-addressed vault: GET serves the producing document's bytes;
@@ -159,16 +161,114 @@ async function bootAndOpenRuns(page: Page): Promise<void> {
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.has('test.ImageSink') ?? false,
   )).toBe(true)
   await waitForWorkspaceReady(page)
-  await page.getByTestId('library-toggle').click()
-  const library = page.getByTestId('library-overlay')
-  await expect(library).toBeVisible()
-  const runsTab = library.locator('[data-testid=collection-source][data-source=runs]')
-  if (await runsTab.isVisible()) await runsTab.click()
-  else await selectProductOption(page, library.getByTestId('library-source-select'), 'runs')
+  await openRailPanel(page, 'Runs')
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
 }
 
 const entryFor = (page: Page, jobId: string) =>
-  page.getByTestId('collection-entry').filter({ hasText: jobId })
+  page.getByTestId('runs-panel').getByTestId('collection-entry').filter({ hasText: jobId })
+
+test('unseen stored image/video rows show thumbnails without loading jobs, absent and unavailable media show none', async ({ page }) => {
+  const asset = (char: string, mediaType: string) => ({ digest: `blake3:${char.repeat(64)}`, name: '', size: 1, mediaType, virtualPath: '' })
+  const image = asset('b', 'image/png'), video = asset('c', 'video/webm'), missing = asset('d', 'image/png')
+  const records = [image, video, undefined, missing].map((thumbnail, index) => ({
+    ...unstampedRecord, runId: `stored-${index}`, jobRef: `stored-${index}`, jobId: ['Image output', 'Video output', 'No media output', 'Unavailable image'][index],
+    state: 'completed', executed: 1, finishedAt: 1_755_345_700 - index, ...(thumbnail === undefined ? {} : { thumbnail }),
+  }))
+  await mockProjectPacks(page)
+  await installFixture(page, records)
+  await page.route('/api/models/downloads*', (route) => route.fulfill({ json: { instance: 'thumbnail-fixture', jobs: [] } }))
+  await page.route((url) => url.pathname === `/api/assets/${encodeURIComponent(image.digest)}`, (route) =>
+    route.fulfill({ path: join(import.meta.dirname, '../fixtures/media-overlay/with_metadata.png'), contentType: 'image/png' }))
+  await page.route((url) => url.pathname === `/api/assets/${encodeURIComponent(video.digest)}`, (route) =>
+    route.fulfill({ path: join(import.meta.dirname, '../fixtures/media-overlay/visible-2s.webm'), contentType: 'video/webm' }))
+  let missingRequests = 0
+  await page.route((url) => url.pathname === `/api/assets/${encodeURIComponent(missing.digest)}`, (route) => {
+    missingRequests++
+    return route.fulfill({ status: 404 })
+  })
+  const hydrated: string[] = []
+  await page.route((url) => /^\/api\/(history\/stored-|jobs\/)/.test(url.pathname), (route) => {
+    hydrated.push(route.request().url())
+    return route.fulfill({ status: 404 })
+  })
+  await bootAndOpenRuns(page)
+  const panel = page.getByTestId('runs-panel')
+  const row = (label: string) => panel.getByTestId('collection-entry').filter({ hasText: label })
+  await expect(row('Image output').locator('img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
+  await expect(row('Video output').locator('video.run-thumbnail')).toHaveAttribute('data-ready', 'true')
+  expect(await row('Image output').locator('img').evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+  expect(await row('Video output').locator('video').evaluate((element) => (element as HTMLVideoElement).paused)).toBe(true)
+  await expect.poll(() => missingRequests).toBe(1)
+  await expect(row('Unavailable image').getByTestId('run-thumbnail')).toHaveCount(0)
+  await expect(row('No media output').getByTestId('run-thumbnail')).toHaveCount(0)
+  expect(hydrated).toEqual([])
+  expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
+  const proof = process.env['DINKSTER_THUMBNAIL_PROOF_DIR']
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await expect(row('Image output').getByTestId('run-thumbnail')).toBeVisible()
+    await expect(row('Video output').getByTestId('run-thumbnail')).toBeVisible()
+    if (proof) {
+      mkdirSync(proof, { recursive: true })
+      await page.mouse.move(10, 10)
+      await page.screenshot({ path: join(proof, `stored-thumbnails-${width}.png`), animations: 'disabled' })
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await row('Image output').click()
+  await expect(row('Image output').getByTestId('collection-action').filter({ hasText: 'Delete record' })).toBeVisible()
+  await expect.poll(() => hydrated.length).toBe(1)
+  await expect(row('Image output').getByTestId('run-thumbnail')).toBeVisible()
+
+  await page.evaluate(async ({ doc, image, video }) => {
+    const app = window.__dinksterTest!.app
+    await app.openDocument(doc, 'Retained outputs')
+    const tab = app.activeTab()!, compiled = app.compileTab(tab)
+    if (!compiled?.ok) throw new Error('Thumbnail workflow did not compile')
+    const store = app.store as unknown as Pick<import('@dinkster/client').ExecutionStore, 'hydrateArtifacts'>
+    for (const [index, asset] of [image, video, undefined].entries()) {
+      const ref = { connection: compiled.artifact.connection, prompt: `thumbnail-live-${index}` }
+      app.registerRun(tab, ref, compiled.artifact)
+      store.hydrateArtifacts(ref as never, asset === undefined ? [] : [{ ...asset, nodeId: 'sink' }])
+      app.store.apply({ kind: 'completed', execution: ref, timestamp: index + 10 })
+    }
+  }, { doc: producingDoc, image, video })
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  const live = page.getByTestId('execution-row')
+  await expect(live).toHaveCount(3)
+  await expect(live.locator('.runs-row-heading img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
+  await expect(live.locator('.runs-row-heading video.run-thumbnail')).toHaveAttribute('data-ready', 'true')
+  await expect(live.locator('.runs-row-heading .execution-open')).toHaveCount(3)
+  if (proof) await page.screenshot({ path: join(proof, 'workflow-thumbnails-1440.png'), animations: 'disabled' })
+  await live.filter({ has: page.locator('video.run-thumbnail') }).locator('.execution-open').click()
+  await expect(page.getByTestId('frozen-banner')).toBeVisible()
+
+  await page.route('**/thumbnail-owner/api/**', (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/api/nodes')) return route.fulfill({ json: nativeTable })
+    if (path.endsWith('/api/history')) return route.fulfill({ json: { records } })
+    if (path.endsWith(`/api/assets/${encodeURIComponent(image.digest)}`)) return route.fulfill({
+      path: join(import.meta.dirname, '../fixtures/media-overlay/with_metadata.png'), contentType: 'image/png',
+    })
+    if (path.endsWith(`/api/assets/${encodeURIComponent(video.digest)}`)) return route.fulfill({
+      path: join(import.meta.dirname, '../fixtures/media-overlay/visible-2s.webm'), contentType: 'video/webm',
+    })
+    return route.fulfill({ status: 404 })
+  })
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const owner = app.addBackend('/thumbnail-owner', 'Thumbnail owner', false, 'dinkster')!
+    const tab = app.createWorkflow()
+    app.setTabTarget(tab.id, owner.id)
+  })
+  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
+  await expect(row('Image output').locator('img.run-thumbnail')).toHaveAttribute('src', /\/thumbnail-owner\/api\/assets\//)
+  await expect(row('Image output').locator('img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
+  await expect(row('Video output').locator('video.run-thumbnail')).toHaveAttribute('src', /\/thumbnail-owner\/api\/assets\//)
+  await expect(row('Video output').locator('video.run-thumbnail')).toHaveAttribute('data-ready', 'true')
+  if (proof) await page.screenshot({ path: join(proof, 'owning-backend-thumbnails-1440.png'), animations: 'disabled' })
+})
 
 test('Resubmit reopens the producing document and queues a FRESH submission', async ({ page }) => {
   const fixture = await installFixture(page)
@@ -178,7 +278,8 @@ test('Resubmit reopens the producing document and queues a FRESH submission', as
   await stamped.click()
   await stamped.locator('[data-testid=collection-action][data-action=resubmit]').click()
 
-  // The producing document opened as the active tab and the panel closed.
+  // Runs stays available while the producing document opens in the active tab.
+  await expect(page.getByTestId('runs-panel')).toBeVisible()
   await expect(page.getByTestId('library-overlay')).not.toBeVisible()
   await expect.poll(() => page.evaluate(() => {
     const doc = window.__dinksterTest?.app.activeTab()?.store.doc

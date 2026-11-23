@@ -6,7 +6,7 @@
  * Asserted through the live renderer's scene - the same objects the paint
  * pass consumes; color mapping itself is pinned by canvas unit tests.
  */
-import { expect, openRailPanel, nativeTest as test, subgraphMarkPoint, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, subgraphMarkPoint, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function pinPoint(page: Page, nodeId: string, portId: string): Promise<{ x: number; y: number }> {
   return page.evaluate(({ nodeId, portId }) => {
@@ -56,7 +56,7 @@ test.beforeEach(async ({ page }) => {
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const concrete = (name: string) => ({ kind: 'concrete', name })
     // One template shared by two inputs and the output: resolving any one

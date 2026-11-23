@@ -107,6 +107,14 @@ interface DinksterBridgeLifecycleEvent {
   timestamp: number
 }
 
+interface DinksterBridgeNodeStatesEvent {
+  kind: 'nodeStates'
+  execution: DinksterBridgeExecutionRef
+  timestamp: number
+  nodes: Readonly<Record<string, import('@dinkster/core').NodeProgress>>
+  snapshot?: true
+}
+
 /** Injectable preview frame: the same NormalizedEvent shape the metadata
  * preview protocol produces, used to create deterministic live frames. */
 interface DinksterBridgePreviewEvent {
@@ -307,9 +315,9 @@ interface DinksterTestBridge {
           }
         >
       }
-      apply(event: DinksterBridgeErrorEvent | DinksterBridgePreviewEvent | DinksterBridgeLifecycleEvent): void
+      apply(event: DinksterBridgeErrorEvent | DinksterBridgePreviewEvent | DinksterBridgeLifecycleEvent | DinksterBridgeNodeStatesEvent): void
       /** Register a run directly (AP5 spec bypasses the compile path). */
-      register(ref: DinksterBridgeExecutionRef, artifact: DinksterBridgeCompileArtifact, timestamp?: number): void
+      register(ref: DinksterBridgeExecutionRef, artifact: DinksterBridgeCompileArtifact, timestamp?: number, identity?: { readonly jobRef?: string; readonly sourceDocument?: string }): void
     }
     connection: {
       readonly id: import('@dinkster/core').ConnectionId
@@ -318,11 +326,13 @@ interface DinksterTestBridge {
     }
     registry: { set(value: import('@dinkster/client').SchemaRegistry): void }
     tabs: { get(): readonly DinksterBridgeTab[] }
+    editorSplits: { readonly layout: { get(): unknown; set(value: unknown): void } }
     readonly appViewEnabled: boolean
     panels: {
       register(panel: {
         id: string; title: string; placement: string; allowedPlacements: readonly string[]
-        order: number; when(): boolean; component(): HTMLElement
+        description?: string; toggleTestId?: string
+        order: number; when?(): boolean; component(): HTMLElement
       }): void
       changed: { get(): number; set(value: number): void }
     }
@@ -342,10 +352,11 @@ interface DinksterTestBridge {
     confirmStartupOwnership(): Promise<void>
     activeTab(): DinksterBridgeTab | undefined
     createWorkflow(): DinksterBridgeTab
+    renameTab(id: string, title: string): void
+    executionsForTab(tab: DinksterBridgeTab): readonly import('@dinkster/client').ExecutionState[]
     createRegion(tab: DinksterBridgeTab, graphId: string, position: { x: number; y: number }, kind: 'map' | 'fold' | 'while'):
       Promise<{ ok: boolean; diagnostics: readonly unknown[] }>
     closeTab(id: string): void
-    reviewReplacements: { set(enabled: boolean): void }
     migrationNotices: { get(): ReadonlyMap<string, unknown> }
     dispatchTo(tab: DinksterBridgeTab, invocation: { command: string; params: unknown }):
       | { ok: boolean; diagnostics?: readonly unknown[] }
@@ -377,6 +388,7 @@ interface DinksterTestBridge {
     openTemplate(packId: string, templateId: string, title: string, owner: string): Promise<boolean>
     openEditorForBinding(tabId: string, context: { editorRole?: string; nodeId?: string; widgetType?: string; valueType?: string }): boolean
     dock: {
+      dock(panelId: string, zone: 'left' | 'right' | 'bottom'): void
       activate(zone: 'left' | 'right' | 'bottom', panelId: string): void
       setOpen(zone: 'left' | 'right' | 'bottom', open: boolean): void
     }
@@ -477,6 +489,7 @@ interface DinksterTestBridge {
       register(descriptor: { id: string; title: string; component: () => unknown }): () => void
       get(id: string): { id: string; title: string } | undefined
     }
+    backendsTick: { update(fn: (value: number) => number): void }
     /** Multi-backend surface: connected backends and per-tab targeting. */
     backends: {
       get(): ReadonlyArray<{
@@ -524,6 +537,7 @@ interface DinksterTestBridge {
     setViewport(viewport: { x: number; y: number; scale: number }): void
     /** Grid preference as the renderer holds it (canvas.grid.visible). */
     getGridVisible(): boolean
+    getInactiveNodes(): ReadonlySet<string> | undefined
     /** Ephemeral overlay state; specs assert ghost-noodle persistence. */
     getOverlay(): {
       /** Selected ordinary and boundary-node scene ids. */

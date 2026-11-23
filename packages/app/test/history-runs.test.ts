@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, asPromptId, diag, DINKSTER_SCHEMA_WIRE_VERSION, type DinksterNodesPayload, type ExecutionRef } from '@dinkster/core'
+import { asConnectionId, asNodeId, asPromptId, diag, DINKSTER_SCHEMA_WIRE_VERSION, type DinksterNodesPayload, type ExecutionRef } from '@dinkster/core'
 import { buildDinksterRegistry, type HistoryRunRecord } from '@dinkster/client'
 import { AppState, LIBRARY_SCOPE, type Backend, type Tab } from '../src/app-state.js'
 import { groupNoOpHistoryRuns, historySource, runIdOfEntry, runsFilterOf, runsSource } from '../src/collections.js'
@@ -418,13 +418,32 @@ describe('delete and clear', () => {
     expect(app.problems.get().some((d) => d.code === 'history.deleteFailed')).toBe(true)
   })
 
-  it('clearRunHistory clears the whole scope and returns the count', async () => {
-    const { backend } = (await nativeSetup())
+  it('clear hides only confirmed-absent finished runs while preserving canvas results and pending runs', async () => {
+    const { backend, tab } = (await nativeSetup())
+    const compiled = app.compileTab(tab, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('n0') }] })!
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) throw new Error('fixture did not compile')
+    const refs = ['gone', 'retained', 'unreadable', 'running', 'queued'].map((id) => ({ connection: backend.id, prompt: asPromptId(id) }))
+    for (const ref of refs) {
+      app.store.register(ref, compiled.artifact, 1, { jobRef: ref.prompt })
+      if (ref.prompt !== 'queued') app.store.apply({ kind: 'started', execution: ref, timestamp: 2 })
+      if (ref.prompt !== 'running' && ref.prompt !== 'queued') app.store.apply({ kind: 'completed', execution: ref, timestamp: 3 })
+    }
+    const other = { connection: app.connection.id, prompt: asPromptId('other-backend') }
+    app.store.register(other, compiled.artifact, 1, { jobRef: 'other-backend' })
+    app.store.apply({ kind: 'completed', execution: other, timestamp: 3 })
+    const executions = app.store.executions.get()
     const clear = vi.spyOn(backend.connection, 'clearHistory').mockResolvedValue(7)
+    vi.spyOn(backend.connection, 'getHistoryRun').mockImplementation(async (id) => {
+      if (id === 'unreadable') throw new Error('read unavailable')
+      return id === 'gone' ? undefined : run({ runId: id, jobId: id })
+    })
     const before = app.backendsTick.get()
     expect(await app.clearRunHistory(backend.id)).toBe(7)
     expect(clear).toHaveBeenCalledWith({ scope: LIBRARY_SCOPE })
     expect(app.backendsTick.get()).toBe(before + 1)
+    expect([...app.hiddenHistoryExecutions.get()]).toEqual([app.store.get(refs[0]!)!.key])
+    expect(app.store.executions.get()).toBe(executions)
   })
 
   it('clear failures land in Problems and report zero', async () => {

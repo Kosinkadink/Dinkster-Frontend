@@ -17,7 +17,7 @@ import {
   DinksterAppMenu,
   dispatchAppCommandKey,
 } from '../src/App.js'
-import { DockZoneHost, FloatingPanelHost, ShellResizeHandle } from '../src/ShellChrome.js'
+import { ActivityBarButton, DockZoneHost, FloatingPanelHost, ShellResizeHandle } from '../src/ShellChrome.js'
 import { CanvasViewControls } from '../src/CanvasHost.js'
 import { ContextMenu } from '../src/ContextMenu.js'
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from '../src/editors.js'
@@ -1618,6 +1618,44 @@ describe('left rail tooltip hover session', () => {
     expect(controller.visible).toBeUndefined()
     vi.advanceTimersByTime(1)
     expect(controller.visible?.lines).toEqual(['Backends'])
+  })
+
+  it('shows icon-only activity help immediately even when selected, without changing other hover delays', () => {
+    vi.useFakeTimers()
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <>
+      <ActivityBarButton label="Library" accessibleName="Library" tooltip="Browse saved workflows" pressed={true} onActivate={() => {}} />
+      <ActivityBarButton label="Pack" accessibleName="Pack" tooltip="Pack" pressed={false} onActivate={() => {}} />
+      <button data-tooltip-label="Delayed help">Other control</button>
+    </>, root)
+    const [library, pack, other] = [...root.querySelectorAll('button')]
+    const controller = new TooltipController(() => 900)
+    controller.register({ id: 'dom', resolve: (target) => ({ lines: [(target as { label: string }).label] }) })
+    const detach = attachDomTooltips(root, controller)
+
+    expect(library!.getAttribute('aria-label')).toBe('Library')
+    expect(library!.textContent).toBe('')
+    expect(pack!.querySelector('svg')).not.toBeNull()
+    library!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+    expect(controller.visible?.lines).toEqual(['Library\nBrowse saved workflows'])
+    library!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    expect(controller.visible).toBeUndefined()
+    library!.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }))
+    library!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+    expect(controller.visible?.lines).toEqual(['Library\nBrowse saved workflows'])
+    library!.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }))
+    pack!.focus()
+    expect(controller.visible?.lines).toEqual(['Pack'])
+    pack!.blur()
+    other!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }))
+    expect(controller.visible).toBeUndefined()
+    vi.advanceTimersByTime(899)
+    expect(controller.visible).toBeUndefined()
+    vi.advanceTimersByTime(1)
+    expect(controller.visible?.lines).toEqual(['Delayed help'])
+    detach()
+    dispose()
   })
 
   it('switches immediately without hiding after the first adjacent tooltip appears', () => {

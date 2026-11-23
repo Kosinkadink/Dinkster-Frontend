@@ -14,7 +14,7 @@ async function openComparison(page: Page): Promise<void> {
 
 test('compares real completed image batches with independent keyboard frame selection and local wipe state', async ({ page }, testInfo) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 20_000 })
   await waitForWorkspaceReady(page)
   const openDocument = async (single = false): Promise<void> => {
     await page.evaluate(async (single) => {

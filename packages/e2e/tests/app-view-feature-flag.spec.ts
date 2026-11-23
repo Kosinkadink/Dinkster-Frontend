@@ -1,4 +1,4 @@
-import { expect, nativeTest as test } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 import { mkdirSync } from 'node:fs'
 import { evidenceGroupDir, evidencePath } from './evidence-output.js'
 
@@ -31,7 +31,7 @@ test.beforeEach(async ({ page }) => {
   }, { workflow })
   await page.goto('/')
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'FlagInput', displayName: 'Flag input', category: 'test', source: 'v3', isOutputNode: false,

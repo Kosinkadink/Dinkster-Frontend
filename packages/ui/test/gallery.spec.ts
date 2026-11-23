@@ -18,6 +18,28 @@ const expectNoAxeViolations = async (page: Page) => {
     ),
   ).toEqual([])
 }
+test('run activity distinguishes concurrent running jobs from queued jobs and respects reduced motion', async ({ page }) => {
+  await page.goto('/#controls')
+  const one = page.getByRole('img', { name: '1 running', exact: true })
+  const many = page.getByRole('img', { name: '3 running', exact: true })
+  const queued = page.getByRole('img', { name: '2 queued', exact: true })
+  const mixed = page.getByRole('img', { name: '3 running, 1 queued', exact: true })
+  await expect(one).toBeVisible()
+  await expect(one).toHaveText('1')
+  await expect(many).toHaveText('3')
+  await expect(queued).toHaveText('2')
+  await expect(mixed).toHaveText('31')
+  const ring = one.locator('svg')
+  const clock = queued.locator('svg')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await expect.poll(() => ring.evaluate((element) => getComputedStyle(element).animationName)).toBe('dinkster-spin')
+  expect(await clock.evaluate((element) => getComputedStyle(element).animationName)).toBe('none')
+  expect(await ring.evaluate((element) => getComputedStyle(element).color))
+    .not.toBe(await clock.evaluate((element) => getComputedStyle(element).color))
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect.poll(() => ring.evaluate((element) => getComputedStyle(element).animationName)).toBe('none')
+})
+
 test('portable site geometry follows the site scale without changing app density', async ({
   page,
 }) => {
@@ -105,6 +127,20 @@ for (const width of [1280, 390]) {
       await page.goto(`/#${section}`)
       await page.evaluate(() => document.fonts.ready)
       await expect(page.getByRole('main')).toBeVisible()
+      if (section === 'lists') {
+        const heading = page.locator('.storage-folder-heading').first()
+        const name = await heading.locator('strong').boundingBox()
+        const actions = await heading.getByRole('button', { name: 'Folder actions' }).boundingBox()
+        expect(name!.x + name!.width).toBeLessThan(actions!.x)
+        expect(actions!.width).toBeLessThanOrEqual(40)
+        await expect(page.locator('.dinkster-empty img')).toHaveCount(0)
+        await expect(
+          page.getByText('No API keys yet.', { exact: true }),
+        ).toBeVisible()
+        await expect(
+          page.getByRole('button', { name: 'Create key', exact: true }),
+        ).toBeEnabled()
+      }
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= window.innerWidth,

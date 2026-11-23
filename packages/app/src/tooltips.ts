@@ -13,8 +13,8 @@ export interface TooltipProvider {
   readonly id: string
   resolve(target: unknown, opts: TooltipResolveOptions): TooltipContent | undefined
 }
-export interface TooltipAnchor { readonly x: number; readonly y: number }
-export interface VisibleTooltip extends TooltipContent { readonly x: number; readonly y: number; readonly detailed: boolean }
+export interface TooltipAnchor { readonly x: number; readonly y: number; readonly element?: HTMLElement }
+export interface VisibleTooltip extends TooltipContent, TooltipAnchor { readonly detailed: boolean }
 
 /** One tooltip policy boundary shared by DOM chrome and the painted canvas. */
 export class TooltipController {
@@ -110,7 +110,7 @@ export class TooltipController {
     const candidate = this.candidate
     if (!candidate) return
     const content = this.providers.map((p) => p.resolve(candidate.target, { detailed: this.detailed })).find(Boolean)
-    this.current = content ? { ...content, x: candidate.anchor.x, y: candidate.anchor.y, detailed: this.detailed } : undefined
+    this.current = content ? { ...content, ...candidate.anchor, detailed: this.detailed } : undefined
     this.currentTarget = content ? candidate.target : undefined
     this.currentOwner = content ? candidate.owner : undefined
     this.emit()
@@ -421,7 +421,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     const detail = element.dataset['tooltipDetail']?.split('|').filter(Boolean)
     return {
       target: { kind: 'dom', label: element.dataset['tooltipLabel']!, ...(detail ? { detail } : {}) },
-      anchor: { x: rect.left + rect.width / 2, y: rect.bottom + 8 },
+      anchor: { x: rect.left + rect.width / 2, y: rect.bottom + 8, element },
     }
   }
   const showForElement = (element: HTMLElement, detailed?: boolean, immediate = false): void => {
@@ -445,11 +445,12 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     const related = event.relatedTarget instanceof Element ? event.relatedTarget : undefined
     const session = sessionOf(element)
     const sharedSession = session !== undefined && session === sessionOf(related)
-    if (sharedSession) {
+    const immediate = element.dataset['tooltipImmediate'] === 'true'
+    if (sharedSession && !immediate) {
       const { target, anchor } = domTargetOf(element)
       observeShown(element)
       controller.showInSession(target, anchor, event.altKey)
-    } else showForElement(element, event.altKey)
+    } else showForElement(element, event.altKey, immediate)
   }
   const leave = (event: PointerEvent) => {
     const element = elementAt(event)

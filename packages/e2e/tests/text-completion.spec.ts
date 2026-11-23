@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './fixtures.js'
 import { expect, test, type Locator, type Page } from '../visual.js'
 import { mkdirSync } from 'node:fs'
 
@@ -95,7 +96,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ status: 502, body: 'no v1 backend' }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   // Ownership admission cannot cross a connection lifetime change.
   await page.waitForFunction(() =>
     window.__dinksterTest!.app.backends.get()[0]!.connection.status.get() === 'connected',

@@ -1,5 +1,5 @@
 /** Browser coverage for region occurrence state and a type choice's revealed rows. */
-import { expect, openRailPanel, test, subgraphMarkPoint, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, subgraphMarkPoint, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function identityViewport(page: Page): Promise<void> {
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
@@ -132,7 +132,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('/history*', (route) => route.fulfill({ json: {} }))
   await page.routeWebSocket('/ws*', () => {})
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await openConditionalWorkflow(page)
 })
 

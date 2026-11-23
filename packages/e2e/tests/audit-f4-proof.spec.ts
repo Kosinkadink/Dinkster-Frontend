@@ -49,6 +49,10 @@ async function openAsset(page: Page): Promise<void> {
 test('proves product upload control and hidden workflow picker lifecycle', async ({ page }) => {
   await page.route(/\/api\/.*/, (route) => { throw new Error(`unexpected unmocked API request: ${route.request().url()}`) })
   await mockProjectPacks(page)
+  await page.route('/api/models/downloads?scope=local', (route) => {
+    expect(route.request().method()).toBe('GET')
+    return route.fulfill({ json: { instance: 'audit-f4-proof', jobs: [] } })
+  })
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.route('/api/settings', (route) => route.fulfill({ json: { categories: { granted: [], available: [] }, settings: {} } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))

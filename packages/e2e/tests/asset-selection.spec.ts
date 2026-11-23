@@ -1,4 +1,4 @@
-import { expect, nativeTest as test } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 
 test('native source choices preserve names, cancel, unavailable values and backend failures', async ({ page }, testInfo) => {
   let fail = false
@@ -17,7 +17,7 @@ test('native source choices preserve names, cancel, unavailable values and backe
     ] } })
   })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+  await waitForWorkspaceReady(page, 1)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'source-choice', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { source: { id: 'source', type: 'SourceChoice', values: { source: 'old/source' } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
@@ -98,7 +98,7 @@ test('VAE source picker preserves file identity and rejects closed-editor and st
     if (requestMode === 'stale') staleFinished = true
   })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+  await waitForWorkspaceReady(page, 1)
   await page.evaluate(async (asset) => {
     await window.__dinksterTest!.app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'vae-source', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: { source: { id: 'source', type: 'VaeSource', values: { source: asset } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },

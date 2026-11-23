@@ -188,7 +188,8 @@ describe('Assets dock body', () => {
     })
     const root = document.createElement('div')
     document.body.append(root)
-    const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
+    let storageOpened = false
+    const dispose = render(() => <AssetsBody connection={connection} backendId="native" onOpenStorage={() => { storageOpened = true }} />, root)
     try {
       await vi.waitFor(() => expect(root.textContent).toContain('No output mount configured'))
       expect(root.querySelector('[data-testid="assets-error"]')).toBeNull()
@@ -196,9 +197,9 @@ describe('Assets dock body', () => {
       select.click()
       expect(document.querySelector('[data-option-id="mount:inputs"]')).not.toBeNull()
       root.querySelector<HTMLButtonElement>('[data-testid="assets-output-unconfigured"] button')!.click()
-      await vi.waitFor(() => expect(root.querySelector('[data-testid="output-mount-settings"]')).not.toBeNull())
-      expect(root.querySelector<HTMLDetailsElement>('.asset-project-folders')?.open).toBe(true)
-      await vi.waitFor(() => expect(root.textContent).not.toContain('Loading output mount'))
+      expect(storageOpened).toBe(true)
+      expect(root.querySelector('[data-testid="output-mount-settings"]')).toBeNull()
+      expect(root.querySelector('.asset-project-folders')).toBeNull()
     } finally { dispose() }
   })
 

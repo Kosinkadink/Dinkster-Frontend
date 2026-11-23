@@ -753,7 +753,7 @@ describe('presence lifecycle', () => {
 
     // A ends for everyone: B's membership must downgrade WITHOUT an explicit
     // leave - the tab survives as an ordinary local tab over the same
-    // document (found live 2026-07-27: only the channel was disposed).
+    // document.
     expect(await appA.endCollabSession(tabA.id)).toBeUndefined()
     await until(() => appB.collabFor(tabB.id) === undefined, "B's membership downgrade")
     const local = appB.tabs.get().find((t) => t.id === tabB.id)

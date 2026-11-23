@@ -25,7 +25,6 @@ test('native SaveImage and SaveVideo keep imported prefixes beside independent m
   expect(catalog.nodes['dinkster.video.save_video']).toBeDefined()
   expect(catalog.nodes).not.toHaveProperty('Set Save Target Prefix')
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
   await waitForWorkspaceReady(page)
   const imported = await page.evaluate(async () => {
     const workflow = { version: 0.4, nodes: [
@@ -81,7 +80,7 @@ test('schema adjacency keeps separate prefix and mount controls through selectio
     { id: 'offline', mode: 'readwrite', state: 'missing' },
   ] } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 30_000 })
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'mount-contract', root: 'g0',

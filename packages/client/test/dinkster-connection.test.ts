@@ -778,7 +778,7 @@ describe('mount listing decode', () => {
 
   it('keeps operator configured and active locations distinct across pending changes', async () => {
     const active = { id: 'plates', path: '/live/plates', mode: 'readwrite', state: 'ready' }
-    const payload = { mounts: [{ id: 'plates', path: '/configured/new-plates' }], activeMounts: [active], importMount: 'plates' }
+    const payload = { mounts: [{ id: 'plates', path: '/configured/new-plates', mode: 'read', state: 'restart-required', source: 'config', kind: 'image', entryCount: 17 }], activeMounts: [active], importMount: 'plates' }
     const { conn } = submitHarness(() => jsonResponse(200, payload))
     expect(await conn.fetchMountLocations()).toEqual(payload)
     const unconfigured = submitHarness(() => jsonResponse(200, { ...payload, importMount: null })).conn
@@ -3644,6 +3644,20 @@ describe('persistent history wire', () => {
     expect(records[0]?.error?.['phase']).toBe('running')
   })
 
+  it('keeps valid image/video thumbnails and omits malformed optional media without losing history', async () => {
+    const image = { digest: DIGEST, name: '', size: 0, mediaType: 'image/png', virtualPath: '' }
+    const video = { ...image, digest: 'blake3:' + 'c'.repeat(64), mediaType: 'video/webm' }
+    const thumbnails = [image, video, undefined, null, { ...image, digest: 'https://foreign/image' },
+      { ...image, size: -1 }, { ...image, mediaType: 'audio/wav' }, { ...image, virtualPath: 42 }]
+    const { conn } = submitHarness(() => jsonResponse(200, {
+      records: thumbnails.map((thumbnail, index) => ({ ...run, runId: `run-${index}`, thumbnail })),
+    }))
+    const records = (await conn.listHistory({ scope: 'local' })).records
+    expect(records).toHaveLength(thumbnails.length)
+    expect(records.map((record) => record.thumbnail)).toEqual([image, video, ...Array(6).fill(undefined)])
+    expect(records.slice(2).every((record) => !('thumbnail' in record))).toBe(true)
+  })
+
   it('listHistory throws on a rejected cursor (restart from page one)', async () => {
     const { conn } = submitHarness(() => jsonResponse(400, { error: 'cursor-query-mismatch' }))
     await expect(conn.listHistory({ scope: 'local', cursor: 'stale' })).rejects.toThrow('400')
@@ -3657,6 +3671,26 @@ describe('persistent history wire', () => {
     expect(requests[0]?.url).toBe('http://test/api/history/run-1?scope=local')
     const { conn: missing } = submitHarness(() => jsonResponse(404, {}))
     expect(await missing.getHistoryRun('run-1', 'local')).toBeUndefined()
+  })
+
+  it('inspects a stored job using its original client and global run identities', async () => {
+    const history = { ...run, clientId: 'another-browser', state: 'completed' as const }
+    const job = { state: 'completed', clientId: history.clientId, jobId: run.jobId,
+      jobRef: run.runId, sourceDocument: run.sourceDocument, outputs: { image: { text: 'result' } } }
+    let response = job
+    const { conn, requests } = submitHarness(() => jsonResponse(200, response))
+    expect((await conn.fetchHistoryJob(history))?.outputs).toEqual(job.outputs)
+    expect(requests[0]?.url).toBe('http://test/api/jobs/by-ref/run-1')
+    for (const mismatch of [
+      { clientId: 'other-client' }, { jobId: 'other-job' }, { jobRef: 'other-run' }, { sourceDocument: 'other-document' },
+    ]) {
+      response = { ...job, ...mismatch }
+      await expect(conn.fetchHistoryJob(history)).rejects.toThrow(/identity|clientId/)
+    }
+    response = job
+    await expect(conn.fetchJob(run.jobId)).rejects.toThrow('clientId mismatch')
+    const { conn: missing } = submitHarness(() => jsonResponse(404, {}))
+    expect(await missing.fetchHistoryJob(history)).toBeUndefined()
   })
 
   it('deleteHistoryRun: true on 204, false on 404, throws otherwise', async () => {

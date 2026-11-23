@@ -34,8 +34,7 @@ async function expectSchemasReady(page: Page): Promise<void> {
   const catalog = await response.json()
   const schemaCount = Object.keys(catalog.nodes).length
   expect(schemaCount).toBeGreaterThan(0)
-  await expect(page.getByTestId('status-bar')).toContainText(new RegExp(`(?<!\\d)${schemaCount} node schemas`))
-  await waitForWorkspaceReady(page)
+  await waitForWorkspaceReady(page, schemaCount)
 }
 
 nativeTest('retains unattached typed boundary slots without phantom destinations', async ({ page }, testInfo) => {
