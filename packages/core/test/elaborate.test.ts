@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GraphDef } from '../src/format/document.js'
 import { asNodeId } from '../src/ids.js'
-import { buildGraphConnectivity, elabInputsOf, elabOutputsOf, elaborateInterface, EMPTY_CONNECTIVITY, type Connectivity } from '../src/schema/elaborate.js'
+import { buildGraphConnectivity, elabInputsOf, elabOutputsOf, elaborateInterface, EMPTY_CONNECTIVITY, inGoneMember, type Connectivity } from '../src/schema/elaborate.js'
 import { checkBody, initialDynamicStateOf } from '../src/schema/body.js'
 import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeChoiceSpec } from '../src/schema/model.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
@@ -1219,4 +1219,78 @@ describe('buildGraphConnectivity', () => {
     expect(facts(asNodeId('a')).isOutputConnected('out0')).toBe(true)
   })
 
+})
+
+describe('rows kept for a wire on their output', () => {
+  const taps = (...ports: string[]): Connectivity => ({
+    isInputConnected: () => false,
+    isOutputConnected: (port) => ports.includes(port),
+    outputPorts: () => ports,
+  })
+  const shown = (schema: NodeSchema, node: object, connectivity: Connectivity) =>
+    elabInputsOf(elaborateInterface(schema, node as never, connectivity))
+      .map((input) => [input.spec.id, input.kept, input.apiName !== undefined] as const)
+
+  it('keeps a wired row of an option not chosen after the chosen rows, and only that row', () => {
+    const schema = schemaOf([{
+      kind: 'choice', id: 'mode', displayName: 'Mode', required: true, shared: [],
+      options: [
+        { key: 'fast', label: 'Fast', rows: [intInput('steps')] },
+        { key: 'fine', label: 'Fine', rows: [intInput('detail'), intInput('passes')] },
+      ],
+    }])
+    const node = { values: {}, dynamic: { mode: { selected: 'fast' } } }
+    expect(shown(schema, node, taps('mode.passes'))).toEqual([
+      ['mode', undefined, false],
+      ['mode.steps', undefined, true],
+      ['mode.passes', 'Not used while Mode is Fast. Its wire gives nothing.', false],
+    ])
+    // Chosen again, it is an ordinary row; with no wire, it is not drawn.
+    expect(shown(schema, { ...node, dynamic: { mode: { selected: 'fine' } } }, taps('mode.passes')).map(([id, kept]) => [id, kept]))
+      .toEqual([['mode', undefined], ['mode.detail', undefined], ['mode.passes', undefined]])
+    expect(shown(schema, node, taps()).map(([id]) => id)).toEqual(['mode', 'mode.steps'])
+    // The run's view has no kept rows.
+    expect(elabInputsOf(elaborateInterface(schema, node as never, taps('mode.passes'), { promoteGhosts: false }))
+      .some((input) => input.kept !== undefined)).toBe(false)
+  })
+
+  it('keeps a wired row of another type under its type-led pin', () => {
+    const schema = schemaOf([{
+      kind: 'typeChoice', id: 'model', displayName: 'Model', required: false, rows: [],
+      variants: [
+        { key: 'image', type: { kind: 'concrete', name: 'IMAGE' }, rows: [intInput('width')] },
+        { key: 'latent', type: { kind: 'concrete', name: 'LATENT' }, rows: [intInput('scale')] },
+      ],
+    }])
+    expect(shown(schema, { values: {}, dynamic: { model: { selected: 'image' } } }, taps('model.scale'))).toEqual([
+      ['model', undefined, true],
+      ['model.width', undefined, true],
+      ['model.scale', 'Not used while Model is image. Its wire gives nothing.', false],
+    ])
+  })
+
+  it('draws no member the group does not store, even with a wire on its field', () => {
+    const schema = schemaOf([{
+      kind: 'group', id: 'items', displayName: 'Items', member: [intInput('amount'), intInput('weight')],
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 }, grows: 'button', minMembers: 0, maxMembers: 8,
+    }])
+    const node = { values: {}, dynamic: { items: { members: ['item0', 'item2'], seq: 3 } } }
+    expect(shown(schema, node, taps('items.item1.weight'))).toEqual([
+      ['items.item0.amount', undefined, true],
+      ['items.item0.weight', undefined, true],
+      ['items.item2.amount', undefined, true],
+      ['items.item2.weight', undefined, true],
+    ])
+    expect(inGoneMember(elaborateInterface(schema, node as never, taps('items.item1.weight')), 'items.item1.weight')).toBe(true)
+    expect(inGoneMember(elaborateInterface(schema, node as never, taps()), 'items.item2.weight')).toBe(false)
+    // The spare offered under the same key is not a member the node has.
+    const valued = schemaOf([{
+      kind: 'group', id: 'weights', value: intInput('weight', { optional: true }),
+      keys: { kind: 'numbered', prefix: 'weight', start: 0, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 8,
+    }])
+    const spare = elaborateInterface(valued, { values: { 'weights.weight0': 2 }, dynamic: { weights: { members: ['weight0'] } } } as never, taps('weights.weight1'))
+    expect(elabInputsOf(spare).map((input) => input.address.port)).toEqual(['weights.weight0', 'weights.weight1'])
+    expect(inGoneMember(spare, 'weights.weight1')).toBe(true)
+    expect(inGoneMember(spare, 'weights.weight0')).toBe(false)
+  })
 })
