@@ -411,6 +411,9 @@
 .dinkster-canvas-list-actions { display: flex; flex: none; flex-wrap: wrap; gap: 0 var(--dinkster-space-12); padding: var(--dinkster-space-4) calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2 + var(--dinkster-border-width)); border-top: var(--dinkster-border-width) solid var(--dinkster-border-divider); }
 .dinkster-canvas-list-action { padding: calc(var(--dinkster-space-4) / 2) 0; border: 0; border-radius: var(--dinkster-radius-small); background: transparent; color: var(--dinkster-text-secondary); font: inherit; cursor: pointer; }
 .dinkster-canvas-list-status .dinkster-canvas-list-action { flex: none; color: var(--dinkster-text-primary); }
+.dinkster-canvas-list-actions { align-items: center; }
+.dinkster-canvas-list-actions .dinkster-canvas-list-status { flex: 0 1 auto; min-width: 0; padding: 0; }
+.dinkster-canvas-list-actions .dinkster-canvas-list-status-text { flex: 0 1 auto; }
 .dinkster-canvas-list-action { text-decoration: underline dotted; text-underline-offset: 3px; }
 .dinkster-canvas-list-action:hover:not(:disabled) { color: var(--dinkster-text-primary); }
 .dinkster-canvas-list-action:disabled { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }

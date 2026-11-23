@@ -40,7 +40,10 @@ export interface CanvasListAction {
   readonly onClick: () => void
 }
 
-/** The line above the entries that says what the list is doing. */
+/**
+ * The line that says what the list is doing: on the footer line before the
+ * actions while there are options, in the options' place while there are none.
+ */
 export interface CanvasListStatus {
   readonly tone: 'busy' | 'notice' | 'warning' | 'error'
   readonly text: string
@@ -255,27 +258,30 @@ export function CanvasRowList(
       {direction < 0 ? `${count} earlier options` : `${count} more options`}
     </button>
   )
+  const statusLine = (current: CanvasListStatus, onTop: boolean) => (
+    <p
+      ref={(element) => { if (onTop) status = element }}
+      class="dinkster-canvas-list-status"
+      data-tone={current.tone}
+      role="status"
+    >
+      <Show when={current.tone === 'busy'}>
+        <span class="dinkster-spinner dinkster-canvas-list-spinner" aria-hidden="true" />
+      </Show>
+      <Show when={current.tone === 'warning' || current.tone === 'error'}>
+        <CircleAlert class="dinkster-canvas-list-glyph" aria-hidden="true" />
+      </Show>
+      <span class="dinkster-canvas-list-status-text">{current.text}</span>
+      <Show when={current.action}>{(item) => action(item())}</Show>
+    </p>
+  )
+  // With options to show, the status sits on the footer line beside the
+  // actions, so the options never move when a refresh starts, fails or
+  // pauses; with none, it stands where the options would be.
+  const statusBelow = (): boolean => props.status !== undefined && props.options.length > 0
   const listBody = (
     <div ref={(element) => (body = element)} class="dinkster-canvas-list" data-frozen={props.frozen === true}>
-      <Show when={props.status}>
-        {(current) => (
-          <p
-            ref={(element) => (status = element)}
-            class="dinkster-canvas-list-status"
-            data-tone={current().tone}
-            role="status"
-          >
-            <Show when={current().tone === 'busy'}>
-              <span class="dinkster-spinner dinkster-canvas-list-spinner" aria-hidden="true" />
-            </Show>
-            <Show when={current().tone === 'warning' || current().tone === 'error'}>
-              <CircleAlert class="dinkster-canvas-list-glyph" aria-hidden="true" />
-            </Show>
-            <span class="dinkster-canvas-list-status-text">{current().text}</span>
-            <Show when={current().action}>{(item) => action(item())}</Show>
-          </p>
-        )}
-      </Show>
+      <Show when={!statusBelow() && props.status}>{(current) => statusLine(current(), true)}</Show>
       <div
         ref={(element) => (entries = element)}
         id={listboxId}
@@ -324,8 +330,9 @@ export function CanvasRowList(
           <p class="dinkster-canvas-list-empty">{props.empty}</p>
         </Show>
       </div>
-      <Show when={props.actions?.length}>
+      <Show when={(props.actions?.length ?? 0) > 0 || statusBelow()}>
         <div ref={(element) => (actions = element)} class="dinkster-canvas-list-actions">
+          <Show when={statusBelow() && props.status}>{(current) => statusLine(current(), false)}</Show>
           <For each={props.actions}>{(item) => action(item)}</For>
         </div>
       </Show>

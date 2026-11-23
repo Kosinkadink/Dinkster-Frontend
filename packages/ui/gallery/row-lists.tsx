@@ -75,15 +75,15 @@ const schema = (type: string, items: NodeSchema['items']): NodeSchema => ({
   items,
 })
 
-const LORAS = ['portrait.safetensors', 'landscape.safetensors', 'line-art.safetensors']
-const LORA_HELP = 'LoRA files for the chosen category. Refresh never changes the stored value.'
+const PRESETS = ['portrait', 'landscape', 'line-art']
+const PRESET_HELP = 'Presets for the chosen category. Refresh never changes the stored value.'
 
 /** A list fed by a declared lookup: its options depend on the category row. */
-const loraNode = schema('LoRA by category', [
-  widget('lora', 'COMBO', 'portrait.safetensors', { options: LORAS }, LORA_HELP),
-  widget('strength', 'FLOAT', 1, { min: -10, max: 10, step: 0.01 }, 'How strongly the LoRA applies.'),
-  widget('category', 'COMBO', 'sdxl', { options: ['sd', 'sdxl'] }, 'Which LoRA folder to list.'),
-  widget('enabled', 'BOOLEAN', true, {}, 'Turn the LoRA on or off.'),
+const presetNode = schema('Presets by category', [
+  widget('preset', 'COMBO', 'portrait', { options: PRESETS }, PRESET_HELP),
+  widget('strength', 'FLOAT', 1, { min: -10, max: 10, step: 0.01 }, 'How strongly the preset applies.'),
+  widget('category', 'COMBO', 'drawing', { options: ['photo', 'drawing'] }, 'Which presets to list.'),
+  widget('enabled', 'BOOLEAN', true, {}, 'Turn the preset on or off.'),
 ])
 const checkpointNode = schema('Load checkpoint', [
   {
@@ -122,10 +122,10 @@ const samplerNode = schema('Sampler settings', [
   widget('scheduler', 'COMBO', 'normal', { options: ['normal', 'karras'] }, 'How the noise steps are spaced.'),
   widget('steps', 'INT', 20, { min: 1, max: 10000 }, 'Number of denoising steps.'),
 ])
-const sourceNode = schema('LoRA source', [
-  { kind: 'output', id: 'lora', type: { kind: 'concrete', name: 'COMBO' } },
+const sourceNode = schema('Preset source', [
+  { kind: 'output', id: 'preset', type: { kind: 'concrete', name: 'COMBO' } },
 ])
-const nodes = { lora: loraNode, checkpoint: checkpointNode, image: imageNode, sampler: samplerNode }
+const nodes = { preset: presetNode, checkpoint: checkpointNode, image: imageNode, sampler: samplerNode }
 type NodeKind = keyof typeof nodes
 
 function listScene(
@@ -154,7 +154,7 @@ function listScene(
           ...(wired ? { source: { id: 'source', type: sourceNode.type, values: {} } } : {}),
         },
         links: wired
-          ? { wire: { id: 'wire', from: { node: 'source', port: 'lora' }, to: { node: id, port: 'lora' } } }
+          ? { wire: { id: 'wire', from: { node: 'source', port: 'preset' }, to: { node: id, port: 'preset' } } }
           : {},
         nets: {},
         reroutes: {},
@@ -221,14 +221,14 @@ export interface ListExample {
 }
 
 const option = (label: string, extra: Partial<CanvasListOption> = {}): CanvasListOption => ({ key: label, label, ...extra })
-const loras = (saved: string | null = 'portrait.safetensors') =>
-  LORAS.map((label) => option(label, label === saved ? { saved: true } : {}))
-const defaultLink = { key: 'default', value: 'portrait.safetensors', link: true }
-const loraSide: SideContent = { facts: [defaultLink], help: LORA_HELP }
+const presets = (saved: string | null = 'portrait') =>
+  PRESETS.map((label) => option(label, label === saved ? { saved: true } : {}))
+const defaultLink = { key: 'default', value: 'portrait', link: true }
+const presetSide: SideContent = { facts: [defaultLink], help: PRESET_HELP }
 const missingSide: SideContent = {
   problem: 'Not in the current list. Kept until you choose another.',
-  facts: [{ key: 'saved', value: 'portrait-old.safetensors' }, defaultLink],
-  help: LORA_HELP,
+  facts: [{ key: 'saved', value: 'portrait-old' }, defaultLink],
+  help: PRESET_HELP,
 }
 const refresh = ['Refresh']
 const refreshing = [{ label: 'Refresh', disabled: true }] as const
@@ -241,47 +241,47 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
         id: 'closed',
         title: 'Closed',
         caption: 'A choice at rest. A click or Tab opens the filter in the same row.',
-        node: 'lora',
+        node: 'preset',
       },
       {
         id: 'ready',
         title: 'Open and selected',
         caption: 'The filter starts empty. The saved option has the check and is highlighted. Picking stores once; opening does not.',
-        node: 'lora',
-        open: 'lora',
-        list: { options: loras(), highlight: 0, actions: refresh },
-        side: loraSide,
+        node: 'preset',
+        open: 'preset',
+        list: { options: presets(), highlight: 0, actions: refresh },
+        side: presetSide,
       },
       {
         id: 'filter',
         title: 'Filter with matches',
         caption: 'Case-insensitive substring matching over label, value, information and folder, in source order. Typing never asks the pack for options.',
-        node: 'lora',
-        open: 'lora',
+        node: 'preset',
+        open: 'preset',
         list: {
           query: 'land',
-          options: [option('landscape.safetensors', { detail: 'sdxl / landscapes - 144 MB' }), option('landmark-style.safetensors', { detail: 'sdxl / styles - 98 MB' })],
+          options: [option('landscape', { detail: 'drawing / landscapes' }), option('landmark-style', { detail: 'drawing / styles' })],
           highlight: 0,
           actions: refresh,
         },
-        side: loraSide,
+        side: presetSide,
       },
       {
         id: 'nomatch',
         title: 'No filter matches',
         caption: 'No matching options, with Clear filter. The loaded options, the saved value and Refresh stay; this is not a list that came back empty.',
-        node: 'lora',
-        open: 'lora',
+        node: 'preset',
+        open: 'preset',
         list: { query: 'zzzz', options: [], empty: 'No matching options', actions: ['Clear filter', 'Refresh'] },
-        side: loraSide,
+        side: presetSide,
       },
       {
         id: 'stored',
         title: 'Choice stored, keyboard stays',
         caption: 'The list closes after a pick. The keyboard stays on the row: Tab goes on from it, Enter opens it again.',
-        node: 'lora',
-        values: { lora: 'landscape.safetensors' },
-        focus: 'lora',
+        node: 'preset',
+        values: { preset: 'landscape' },
+        focus: 'preset',
       },
     ],
   },
@@ -292,9 +292,9 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
         id: 'empty',
         title: 'Loaded and empty',
         caption: 'The lookup answered with no options. Refresh stays, and the stored value stays, marked as not in the list.',
-        node: 'lora',
-        values: { lora: 'portrait-old.safetensors' },
-        open: 'lora',
+        node: 'preset',
+        values: { preset: 'portrait-old' },
+        open: 'preset',
         list: { options: [], empty: 'No options available', actions: refresh },
         side: missingSide,
       },
@@ -302,32 +302,31 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
         id: 'loading',
         title: 'First load',
         caption: 'Loading options. The stored value stays; nothing can be chosen until these arguments have an answer. Refresh waits for it.',
-        node: 'lora',
-        open: 'lora',
+        node: 'preset',
+        open: 'preset',
         list: { options: [], status: { tone: 'busy', text: 'Loading options' }, actions: refreshing },
-        side: loraSide,
+        side: presetSide,
       },
       {
         id: 'refresh',
         title: 'Refresh in progress',
-        caption: 'The earlier answer for these same arguments stays selectable while it refreshes, and filtering still works.',
-        node: 'lora',
-        open: 'lora',
-        list: { options: loras(), highlight: 0, status: { tone: 'busy', text: 'Refreshing options' }, actions: refreshing },
-        side: loraSide,
+        caption: 'The earlier answer for these same arguments stays selectable while it refreshes, and filtering still works. The message sits under the list beside Refresh, so the options do not move.',
+        node: 'preset',
+        open: 'preset',
+        list: { options: presets(), highlight: 0, status: { tone: 'busy', text: 'Refreshing options' }, actions: refreshing },
+        side: presetSide,
       },
       {
         id: 'stale',
         title: 'Failed refresh, missing saved value',
-        caption: 'Could not refresh: the earlier options stay selectable for these arguments. The saved value is missing from them and is never added as an option.',
-        node: 'lora',
-        values: { lora: 'portrait-old.safetensors' },
-        open: 'lora',
+        caption: 'Could not refresh, under the list with Try again where Refresh stood: the earlier options stay selectable for these arguments. The saved value is missing from them and is never added as an option.',
+        node: 'preset',
+        values: { preset: 'portrait-old' },
+        open: 'preset',
         list: {
-          options: loras(null),
+          options: presets(null),
           highlight: 0,
           status: { tone: 'warning', text: 'Could not refresh', action: 'Try again' },
-          actions: refresh,
         },
         side: missingSide,
       },
@@ -335,51 +334,51 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
         id: 'failed',
         title: 'Failed without an answer',
         caption: 'The pack could not provide this list; the error itself goes to the doctor. Try again, and no options from other arguments.',
-        node: 'lora',
-        open: 'lora',
+        node: 'preset',
+        open: 'preset',
         list: {
           options: [],
           status: { tone: 'error', text: 'The pack could not provide this list', action: 'Try again' },
           actions: refresh,
         },
-        side: loraSide,
+        side: presetSide,
       },
       {
         id: 'waiting',
         title: 'Waiting for an input',
         caption: 'The category is not known yet, so the lookup is not called and there is nothing to try again.',
-        node: 'lora',
+        node: 'preset',
         values: { category: '' },
-        open: 'lora',
+        open: 'preset',
         list: { options: [], status: { tone: 'notice', text: 'Waiting for category' } },
-        side: loraSide,
+        side: presetSide,
       },
       {
         id: 'changed',
         title: 'Changed category, late answer',
-        caption: 'Category changed from sd to sdxl while sd was loading. The late sd answer is kept for sd and not shown here.',
-        node: 'lora',
-        open: 'lora',
-        list: { options: [], status: { tone: 'busy', text: 'Loading options for sdxl' }, actions: refreshing },
-        side: { facts: [{ key: 'category', value: 'sdxl' }, defaultLink], help: 'Options for sd are not shown for sdxl.' },
+        caption: 'Category changed from photo to drawing while photo was loading. The late photo answer is kept for photo and not shown here.',
+        node: 'preset',
+        open: 'preset',
+        list: { options: [], status: { tone: 'busy', text: 'Loading options for drawing' }, actions: refreshing },
+        side: { facts: [{ key: 'category', value: 'drawing' }, defaultLink], help: 'Options for photo are not shown for drawing.' },
       },
       {
         id: 'paused',
         title: 'Rate limited',
-        caption: 'Paused: the list keeps what it shows and the filter. Refresh can be tried by hand; nothing retries on a timer.',
-        node: 'lora',
-        open: 'lora',
-        list: { options: loras(), highlight: 0, status: { tone: 'notice', text: 'Paused: asked too often' }, actions: refresh },
-        side: loraSide,
+        caption: 'Paused, under the list beside Refresh: the list keeps what it shows and the filter. Refresh can be tried by hand; nothing retries on a timer.',
+        node: 'preset',
+        open: 'preset',
+        list: { options: presets(), highlight: 0, status: { tone: 'notice', text: 'Paused: asked too often' }, actions: refresh },
+        side: presetSide,
       },
       {
         id: 'off',
         title: 'Lookup off in preview',
         caption: 'In node search and the registry, lookups are off and say so: no calls and no timers.',
-        node: 'lora',
-        open: 'lora',
+        node: 'preset',
+        open: 'preset',
         list: { options: [], status: { tone: 'notice', text: 'Lookups are off in this preview' } },
-        side: loraSide,
+        side: presetSide,
       },
     ],
   },
@@ -389,20 +388,20 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
       {
         id: 'folder',
         title: 'Folders',
-        caption: 'Inside the sdxl folder. Enter on a folder opens it without storing; Back, or Backspace in an empty filter, returns to its parent. A filter searches every leaf.',
-        node: 'lora',
-        open: 'lora',
+        caption: 'Inside the drawing folder. Enter on a folder opens it without storing; Back, or Backspace in an empty filter, returns to its parent. A filter searches every leaf.',
+        node: 'preset',
+        open: 'preset',
         list: {
           options: [
             option('Back to parent folder', { kind: 'back' }),
             option('portraits', { kind: 'folder' }),
             option('landscapes', { kind: 'folder' }),
-            option('base-style.safetensors'),
+            option('base-style'),
           ],
           highlight: 1,
           actions: refresh,
         },
-        side: { facts: [{ key: 'folder', value: 'sdxl' }, defaultLink], help: LORA_HELP },
+        side: { facts: [{ key: 'folder', value: 'drawing' }, defaultLink], help: PRESET_HELP },
       },
       {
         id: 'model',
@@ -477,51 +476,51 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
         id: 'up',
         title: 'Bottom edge, list above',
         caption: 'The canvas ends just under the node, so the list opens upward. The field stays where it is and the side part still touches it.',
-        node: 'lora',
-        open: 'lora',
+        node: 'preset',
+        open: 'preset',
         canvas: { height: 'fit', nodeY: 150 },
-        list: { options: loras(), highlight: 0, actions: refresh },
-        side: loraSide,
+        list: { options: presets(), highlight: 0, actions: refresh },
+        side: presetSide,
       },
       {
         id: 'narrow',
         title: 'No side room',
         caption: 'No room on either side of the node: the side part goes under the node with its own grey border, below the list.',
-        node: 'lora',
-        open: 'lora',
+        node: 'preset',
+        open: 'preset',
         place: 'narrow',
-        list: { options: loras(), highlight: 0, actions: refresh },
-        side: loraSide,
+        list: { options: presets(), highlight: 0, actions: refresh },
+        side: presetSide,
       },
       {
         id: 'zoom',
         title: '50 percent canvas zoom',
         caption: 'The node is small; the filter and the list keep their normal size, with the side part under the list. The canvas does not pan.',
-        node: 'lora',
-        open: 'lora',
+        node: 'preset',
+        open: 'preset',
         scale: 0.5,
-        list: { options: loras(), highlight: 0, actions: refresh },
-        side: loraSide,
+        list: { options: presets(), highlight: 0, actions: refresh },
+        side: presetSide,
       },
       {
         id: 'left',
         title: 'Side part on the left',
         caption: 'No room on the right: the same side part sits on the left. The list stays under its field.',
-        node: 'lora',
-        open: 'lora',
+        node: 'preset',
+        open: 'preset',
         place: 'left',
-        list: { options: loras(), highlight: 0, actions: refresh },
-        side: loraSide,
+        list: { options: presets(), highlight: 0, actions: refresh },
+        side: presetSide,
       },
       {
         id: 'short',
         title: 'Very short canvas',
         caption: 'The field stays visible. The list takes the height there is and scrolls inside; Refresh stays reachable and the canvas does not move.',
-        node: 'lora',
-        open: 'lora',
+        node: 'preset',
+        open: 'preset',
         canvas: { height: 160, nodeY: 18 },
         list: {
-          options: [...loras(), option('portrait-v2.safetensors'), option('watercolor.safetensors')],
+          options: [...presets(), option('portrait-v2'), option('watercolor')],
           highlight: 0,
           actions: refresh,
         },
@@ -535,13 +534,13 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
       {
         id: 'pending',
         title: 'Store pending',
-        caption: 'landscape.safetensors was picked and is being stored. The list and row navigation wait until it is acknowledged.',
-        node: 'lora',
-        open: 'lora',
+        caption: 'landscape was picked and is being stored. The list and row navigation wait until it is acknowledged.',
+        node: 'preset',
+        open: 'preset',
         list: {
-          options: loras(),
+          options: presets(),
           highlight: 1,
-          status: { tone: 'busy', text: 'Storing landscape.safetensors' },
+          status: { tone: 'busy', text: 'Storing landscape' },
           actions: refresh,
           frozen: true,
         },
@@ -551,16 +550,16 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
         id: 'refused',
         title: 'Store refused',
         caption: 'The list and the filter stay open. The first line of the side part says why; nothing else opens.',
-        node: 'lora',
-        open: 'lora',
-        list: { query: 'land', options: [option('landscape.safetensors', { detail: 'sdxl / landscapes - 144 MB' })], highlight: 0, actions: refresh },
-        side: { problem: 'landscape.safetensors is no longer available. Your saved value is unchanged.', facts: [defaultLink], help: LORA_HELP },
+        node: 'preset',
+        open: 'preset',
+        list: { query: 'land', options: [option('landscape', { detail: 'drawing / landscapes' })], highlight: 0, actions: refresh },
+        side: { problem: 'landscape is no longer available. Your saved value is unchanged.', facts: [defaultLink], help: PRESET_HELP },
       },
       {
         id: 'locked',
         title: 'Wired, read-only, disabled',
-        caption: 'lora takes its value from a wire, so it does not open and Tab skips it: the keyboard lands on strength. How wired, read-only and disabled rows look is set by the row looks change (comfy-vibe-station issue 1235), not by the list.',
-        node: 'lora',
+        caption: 'preset takes its value from a wire, so it does not open and Tab skips it: the keyboard lands on strength. How wired, read-only and disabled rows look is set by the row looks change (comfy-vibe-station issue 1235), not by the list.',
+        node: 'preset',
         wired: true,
         focus: 'strength',
       },
@@ -763,8 +762,8 @@ export function RowListExample(props: { example: ListExample; theme: 'dark' | 'l
               onSideSize={setSideSize}
               side={sidePart(
                 example().id === 'locked'
-                  ? { facts: [{ key: 'default', value: '1.00' }], help: 'Tab skipped lora: a wire drives it.' }
-                  : { facts: [{ key: 'default', value: 'portrait.safetensors' }], help: LORA_HELP },
+                  ? { facts: [{ key: 'default', value: '1.00' }], help: 'Tab skipped preset: a wire drives it.' }
+                  : { facts: [{ key: 'default', value: 'portrait' }], help: PRESET_HELP },
               )}
             />
           )}

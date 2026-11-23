@@ -160,7 +160,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
   'row-lists':
-    'Choice, asset and model rows open one filtered list in their own row: the value becomes the filter, a check marks the stored option and the grey highlight the candidate. Opening, filtering, refreshing or Tab never changes the stored value; only Enter or a click picks.',
+    'Choice, asset and model rows open one filtered list in their own row: the value becomes the filter, a check marks the stored option and the grey highlight the candidate. Opening, filtering, refreshing or Tab never changes the stored value; only Enter or a click picks. Model and media fields are asset fields; a list of plain names is what a pack\'s own dropdown shows.',
   'collection-rows':
     'Multi-choice, list, colors and curve rows; After raises the rows that open an editor and draws the curve in its row.',
   'editor-rows':

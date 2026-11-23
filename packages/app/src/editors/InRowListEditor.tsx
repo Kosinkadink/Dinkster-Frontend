@@ -230,7 +230,9 @@ export const createInRowList = (
     if (query().trim() !== '' && entries().length === 0 && options().length > 0)
       list.push({ id: 'clear', label: 'Clear filter', onClick: () => { setQuery(''); setHighlight(savedIndex() ?? 0) } })
     const state = lookupState()
-    if (lookup !== undefined && state?.kind !== 'waiting' && state?.kind !== 'off')
+    // After a failed refresh, Try again stands where Refresh stood.
+    const tryAgain = state?.kind === 'stale' && !state.refreshing
+    if (lookup !== undefined && state?.kind !== 'waiting' && state?.kind !== 'off' && !tryAgain)
       list.push({ id: 'refresh', label: 'Refresh', disabled: refreshing(), onClick: () => lookup.refresh() })
     if (source?.more !== undefined) {
       const more = source.more
