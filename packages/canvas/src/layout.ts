@@ -31,6 +31,7 @@ import {
   resettableWidgetsOf,
   resolveWidgetRepresentation,
   selectorBranchDisplay,
+  selectorMembersOf,
   valueKeyOf,
   type BoundaryRouteLeg,
   type ElaboratedInput,
@@ -749,7 +750,13 @@ export function layoutNode(
 
   const elaborated = options.elaborated ?? elaborateInterface(schema, node)
   const items = elaborated.items
-  const selectorDisplay = selectorBranchDisplay(schema, node.values)
+  const selectorDisplay = schema.selector === undefined
+    ? undefined
+    : selectorBranchDisplay(
+        schema,
+        node.values,
+        selectorMembersOf(schema.selector, items.filter((item): item is ElaboratedInput => item.kind === 'input')),
+      )
   const advancedSectionId = 'advanced'
   const inputSection = (spec: InputSpec): string | undefined => spec.section
 

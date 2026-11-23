@@ -50,6 +50,7 @@ import type {
   GroupSpec,
   InputSpec,
   NodeSchema,
+  NodeSelectorSpec,
   OptionRow,
   OutputSpec,
   SectionSpec,
@@ -326,6 +327,18 @@ export const elabOutputsOf = (e: Pick<ElaboratedInterface, 'items'>): readonly E
  */
 export const valueKeyOf = (i: ElaboratedInput): string => i.address.port
 
+/**
+ * A Switch's member inputs that take part in the run (not the offered add
+ * slot), by value key, in stored order.
+ */
+export const selectorMembersOf = (
+  selector: NodeSelectorSpec,
+  inputs: readonly ElaboratedInput[],
+): readonly string[] =>
+  inputs
+    .filter((input) => input.apiName !== undefined && valueKeyOf(input).startsWith(`${selector.group}.`))
+    .map(valueKeyOf)
+
 // ---------------------------------------------------------------------------
 // Options and budget
 // ---------------------------------------------------------------------------
@@ -554,6 +567,10 @@ function elaboratePass(
     early.add(path)
     return settled.get(path)
   }
+  /** Every key of the shared choice a Use narrowed with `only`, by the narrowed row. */
+  const declaredKeys = new WeakMap<ChoiceSpec, readonly string[]>()
+  /** Choices already reported for a stored key no option declares. */
+  const unknownChoices = new Set<string>()
   let depth = 0
   let membersVisited = 0
   let halted = false
@@ -832,6 +849,7 @@ function elaboratePass(
         const shared = scope.shared?.get(raw.id)
         if (shared === undefined) continue
         row = applyUse(shared, raw as UseSpec)
+        if (shared.kind === 'choice' && row.kind === 'choice') declaredKeys.set(row, shared.options.map((option) => option.key))
       } else {
         row = raw
       }
@@ -1157,6 +1175,9 @@ function elaboratePass(
     const keys = row.options.map((option) => option.key)
     const storedKey = row.leader === undefined ? stateOf(path)?.selected : undefined
     let key: string | undefined
+    // Set when an option that is not chosen narrows this shared choice past
+    // the stored key: that place reads as its start key and stores nothing.
+    let startOfPlace = false
     if (row.leader !== undefined) {
       const outcome = evaluate(row.leader, scope)
       if (outcome.kind === 'value' && typeof outcome.value === 'string' && keys.includes(outcome.value)) key = outcome.value
@@ -1168,11 +1189,18 @@ function elaboratePass(
         return
       }
     } else if (storedKey !== undefined) {
-      if (!keys.includes(storedKey)) {
-        report('prompt.bad_dynamic_choice', `choice '${path}' has unknown option '${storedKey}'`, path)
+      if (keys.includes(storedKey)) {
+        key = storedKey
+      } else if (scope.dormant && declaredKeys.get(row)?.includes(storedKey)) {
+        startOfPlace = true
+        key = row.required ? (row.default !== undefined && keys.includes(row.default) ? row.default : keys[0]) : undefined
+      } else {
+        if (!unknownChoices.has(path)) {
+          unknownChoices.add(path)
+          report('prompt.bad_dynamic_choice', `choice '${path}' has unknown option '${storedKey}'`, path)
+        }
         return
       }
-      key = storedKey
     } else if (row.required && !view && !scope.ghost && !scope.dormant) {
       // The editor stores a required choice's start key on every command
       // (storeStartState); a run never makes one up.
@@ -1181,7 +1209,7 @@ function elaboratePass(
     } else {
       key = row.required ? row.default ?? keys[0] : undefined
     }
-    chosen.set(path, key ?? null)
+    if (!startOfPlace) chosen.set(path, key ?? null)
     const inRun = !scope.ghost && !scope.dormant
     if (key !== undefined && inRun) choices[path] = key
     if (key !== undefined && inRun && row.required && row.leader === undefined && storedKey === undefined) unstoredChoices[path] = key

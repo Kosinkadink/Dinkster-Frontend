@@ -270,20 +270,19 @@ describe('wire-17 widget representations', () => {
 
 })
 
-describe('document-time selector branch display', () => {
+describe('Switch branch display', () => {
+  const pick = input('switch', { type: { kind: 'union', names: ['INT', 'BOOLEAN'] }, optional: true })
+  const branches = (value: InputSpec, names: readonly string[]): NodeSchema['body'][number] => ({
+    kind: 'group', id: 'branch', value, keys: { kind: 'named', names: [...names] }, grows: 'link', minMembers: 1,
+  })
   const selectorSchema = (): NodeSchema => ({
-    ...schemaOf([
-      widget('switch', { type: { kind: 'concrete', name: 'BOOLEAN' }, widget: { widgetType: 'BOOLEAN', options: {} } }),
-      input('on_false'),
-      input('on_true'),
-      output('result'),
-    ]),
-    selector: { input: 'switch', branches: { false: 'on_false', true: 'on_true' } },
+    ...schemaOf([pick, branches(input('value', { optional: true, lazy: true }), ['a', 'b', 'c']), output('result')]),
+    selector: { input: 'switch', group: 'branch' },
   })
   const branchState = (values: NodeData['values']) => {
     const rows = layoutNode(
       selectorSchema(),
-      { ...nodeData, values },
+      { ...nodeData, values, dynamic: { branch: { members: ['c', 'a', 'b'] } } },
       defaultTokens,
       measure,
       widgetMeasure,
@@ -295,33 +294,14 @@ describe('document-time selector branch display', () => {
     ))
   }
 
-  it('projects the stored boolean onto active and inactive branch rows, with absent state neutral', () => {
-    expect(branchState({ switch: false })).toMatchObject({ on_false: 'normal', on_true: 'inactive' })
-    expect(branchState({ switch: true })).toMatchObject({ on_false: 'inactive', on_true: 'normal' })
-    expect(branchState({})).toMatchObject({ on_false: 'normal', on_true: 'normal' })
-  })
-
-  it('projects selector branches by raw port identity for ids containing # and %', () => {
-    const schema: NodeSchema = {
-      ...schemaOf([input('branch#false'), input('branch%23false'), output('result')]),
-      selector: {
-        input: 'switch',
-        branches: { false: 'branch#false', true: 'branch%23false' },
-      },
-    }
-    const rows = layoutNode(
-      schema,
-      { ...nodeData, values: { switch: true } },
-      defaultTokens,
-      measure,
-      widgetMeasure,
-    ).rows
-    expect(rows.find((row) => row.kind === 'ports' && row.input?.address.port === 'branch#false')).toMatchObject({
-      input: { inactive: true },
-    })
-    expect(rows.find((row) => row.kind === 'ports' && row.input?.address.port === 'branch%23false')).not.toMatchObject({
-      input: { inactive: true },
-    })
+  it('dims every branch but the one the stored pick names', () => {
+    const only = (live: string) => Object.fromEntries(['a', 'b', 'c'].map((key) => [`branch.${key}`, key === live ? 'normal' : 'inactive']))
+    expect(branchState({ switch: 'a' })).toMatchObject(only('a'))
+    expect(branchState({ switch: 2 })).toMatchObject(only('b'))
+    expect(branchState({ switch: 'gone' })).toMatchObject(only('c'))
+    expect(branchState({})).toMatchObject(only('c'))
+    expect(branchState({ switch: 3 })).toMatchObject({ 'branch.a': 'normal', 'branch.b': 'normal', 'branch.c': 'normal' })
+    expect(branchState({ switch: true })).toMatchObject({ 'branch.a': 'normal', 'branch.b': 'normal', 'branch.c': 'normal' })
   })
 })
 
@@ -595,32 +575,32 @@ describe('manual size override', () => {
   })
 
   it('does not give manual height surplus to an inactive core.text branch', () => {
-    const text = (id: string) => widget(id, {
-      type: { kind: 'concrete', name: 'STRING' },
-      widget: { widgetType: 'STRING', options: { multiline: true } },
-    })
-    const items = [
-      widget('switch', {
-        type: { kind: 'concrete', name: 'BOOLEAN' },
-        widget: { widgetType: 'BOOLEAN', options: {} },
-      }),
-      text('active'),
-      text('inactive'),
+    const items: NodeSchema['body'] = [
+      input('switch', { type: { kind: 'union', names: ['INT', 'BOOLEAN'] }, optional: true }),
+      {
+        kind: 'group', id: 'branch', keys: { kind: 'named', names: ['active', 'inactive'] }, grows: 'link', minMembers: 1,
+        value: input('value', {
+          type: { kind: 'concrete', name: 'STRING' },
+          optional: true,
+          lazy: true,
+          widget: { widgetType: 'STRING', options: { multiline: true } },
+        }),
+      },
       input('after'),
     ]
     const schema: NodeSchema = {
       ...schemaOf(items),
-      selector: { input: 'switch', branches: { false: 'active', true: 'inactive' } },
+      selector: { input: 'switch', group: 'branch' },
     }
-    const selected = { ...nodeData, values: { switch: false } }
+    const selected = { ...nodeData, values: { switch: 'active' }, dynamic: { branch: { members: ['active', 'inactive'] } } }
     const natural = layoutNode(schema, selected, defaultTokens, measure, widgetMeasure)
     const grown = layoutNode(schema, selected, defaultTokens, measure, widgetMeasure, {
       size: { width: natural.width, height: natural.height + 61 },
     })
     const multilineHeight = 4 + defaultTokens.multilineText.labelHeight +
       2 * defaultTokens.multilineText.lineHeight + 2 * defaultTokens.multilineText.padding
-    expect(grown.rows[1]).toMatchObject({ kind: 'widget', inputId: 'active', height: multilineHeight + 61 })
-    expect(grown.rows[2]).toMatchObject({ kind: 'widget', inputId: 'inactive', height: multilineHeight, inactive: true })
+    expect(grown.rows[1]).toMatchObject({ kind: 'widget', inputId: 'branch.active', height: multilineHeight + 61 })
+    expect(grown.rows[2]).toMatchObject({ kind: 'widget', inputId: 'branch.inactive', height: multilineHeight, inactive: true })
     expect(grown.rows[3]!.y - natural.rows[3]!.y).toBe(61)
     expect(grown.pins.find((pin) => pin.portId === 'after')!.y - natural.pins.find((pin) => pin.portId === 'after')!.y).toBe(61)
   })
