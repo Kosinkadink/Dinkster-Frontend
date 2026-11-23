@@ -221,8 +221,12 @@ test('left bar uses square icon-only actions and each toggle activates or closes
   await expect(zone.getByRole('heading', { name: 'Backends', exact: true })).toBeVisible()
   await expect(page.getByTestId('library-overlay')).toHaveCount(1)
 
-  // The status connection item closes the active Backends zone.
+  // Status opens Backends idempotently; its sidebar toggle closes the zone.
   await page.getByTestId('status-connection').click()
+  await expect(dock).toBeVisible()
+  await expect(dock).toHaveAttribute('data-active-panel', 'backends')
+  await expect(page.getByTestId('backends-panel')).toBeVisible()
+  await page.getByTestId('backends-sidebar-toggle').click()
   await expect(dock).not.toBeVisible()
 
   // Re-open and close via the zone header X.
