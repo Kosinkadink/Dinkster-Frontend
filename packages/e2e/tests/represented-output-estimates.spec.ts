@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import type { Page } from '@playwright/test'
-import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const digest = `blake3:${'ab'.repeat(32)}`
@@ -114,7 +114,7 @@ test('an uploaded selected asset estimates its represented output before executi
     }, 'Represented output estimate')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
 
   expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getNodePreviews()['loader'])).toBeUndefined()
   await openImageEditor(page)

@@ -8,6 +8,8 @@ records the node-state map a completed job status would carry (the
 _NODE_STATE_FOR_KIND mapping from app.py, replicated here as data since
 app.py itself needs aiohttp).
 
+The test nodes declare their inputs and outputs as body rows.
+
 Scenarios:
 - success: linear m -> a -> b with progress + preview reports
 - skip-cascade: optional producer yields nothing; a, b skip with root origin
@@ -34,7 +36,8 @@ import types
 
 P = f"{os.environ.get('DINKSTER_SOURCE_ROOT', '/tmp/dinkster-src')}/packages"
 for pkg in ("dinkster-values", "dinkster-schema", "dinkster-graph", "dinkster-caches",
-            "dinkster-assets", "dinkster-memory", "dinkster-workers", "dinkster-engine"):
+            "dinkster-assets", "dinkster-library", "dinkster-memory", "dinkster-workers",
+            "dinkster-protocol", "dinkster-engine"):
     sys.path.insert(0, f"{P}/{pkg}/src")
 
 from collections.abc import Mapping  # noqa: E402
@@ -44,10 +47,10 @@ from dinkster_engine import Engine, ExecutionError  # noqa: E402
 from dinkster_graph import Graph, GraphNode, Link  # noqa: E402
 from dinkster_schema import (  # noqa: E402
     ABSENT,
-    InputSpec,
+    Input,
     Node,
     NodeSchema,
-    OutputSpec,
+    Output,
     TypeExpr,
     build_node_types,
     build_schemas,
@@ -85,8 +88,10 @@ class MaybeProduce(Node):
     def define_schema(cls) -> NodeSchema:
         return NodeSchema(
             node_type="test.maybe_produce",
-            inputs=(InputSpec("produce", TypeExpr.concrete(CORE_BOOLEAN)),),
-            outputs=(OutputSpec("value", INT, optional=True),),
+            body=(
+                Input("produce", TypeExpr.concrete(CORE_BOOLEAN)),
+                Output("value", INT, optional=True),
+            ),
         )
 
     @classmethod
@@ -99,8 +104,7 @@ class AddOne(Node):
     def define_schema(cls) -> NodeSchema:
         return NodeSchema(
             node_type="test.add_one",
-            inputs=(InputSpec("value", INT),),
-            outputs=(OutputSpec("out", INT),),
+            body=(Input("value", INT), Output("out", INT)),
         )
 
     @classmethod
@@ -115,8 +119,7 @@ class Previewer(Node):
     def define_schema(cls) -> NodeSchema:
         return NodeSchema(
             node_type="test.previewer",
-            inputs=(InputSpec("value", INT),),
-            outputs=(OutputSpec("out", INT),),
+            body=(Input("value", INT), Output("out", INT)),
         )
 
     @classmethod
@@ -133,8 +136,7 @@ class Repeat(Node):
     def define_schema(cls) -> NodeSchema:
         return NodeSchema(
             node_type="test.repeat",
-            inputs=(InputSpec("value", INT),),
-            outputs=(OutputSpec("items", TypeExpr.list_of(INT)),),
+            body=(Input("value", INT), Output("items", TypeExpr.list_of(INT))),
         )
 
     @classmethod
@@ -147,8 +149,7 @@ class Strict(Node):
     def define_schema(cls) -> NodeSchema:
         return NodeSchema(
             node_type="test.strict",
-            inputs=(InputSpec("value", INT, on_absent="fail"),),
-            outputs=(OutputSpec("out", INT),),
+            body=(Input("value", INT, on_absent="fail"), Output("out", INT)),
         )
 
     @classmethod

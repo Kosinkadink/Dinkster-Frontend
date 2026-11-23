@@ -586,6 +586,56 @@ function decodePositionalWidgets(
   }
 }
 
+/** Save Video's rows that ComfyUI's widget stream fills, found by id. */
+interface SaveVideoRows {
+  readonly prefix: PlacedRow
+  readonly format: ChoiceSpec
+  readonly mount?: PlacedRow
+}
+
+/**
+ * Save Video's rows when the served node has exactly the filename prefix,
+ * the format choice and an optional save mount taking positions; any other
+ * layout decodes in plain order.
+ */
+const saveVideoRowsOf = (schema: NodeSchema): SaveVideoRows | undefined => {
+  const rows = positionalRowsOf(schema).filter(takesPositions)
+  const prefix = rows.find((row) => row.id === 'filename_prefix')
+  const format = rows.find((row) => row.id === 'format')
+  const mount = rows.find((row) => row.id === 'mount')
+  if (prefix?.kind !== 'input' || prefix.type.kind !== 'concrete' || prefix.type.name !== 'STRING' ||
+    prefix.widget?.widgetType !== 'STRING' || prefix.widget.controller !== undefined) return undefined
+  if (format?.kind !== 'choice' || format.leader !== undefined) return undefined
+  if (mount !== undefined && (mount.kind !== 'input' || !mount.optional || mount.widget?.controller !== undefined)) return undefined
+  if (rows.length !== (mount === undefined ? 2 : 3)) return undefined
+  return { prefix, format, ...(mount !== undefined ? { mount } : {}) }
+}
+
+/**
+ * ComfyUI's Save Video stream holds the filename prefix, the format with its
+ * rows, and then a hidden top-level codec with its rows, which this node does
+ * not have. The hidden codec's values are read past and stored nowhere, so a
+ * save mount appended after them still takes the last position.
+ */
+function decodeSaveVideoWidgets(
+  rows: SaveVideoRows,
+  raw: readonly Json[],
+  state: PositionalWidgetDecode,
+  nodeLabel: string,
+  diags: Diagnostic[],
+): void {
+  decodePositionalWidgets([rows.prefix, rows.format], raw, state, '', nodeLabel, diags)
+  const codec = sharedRowsOf(rows.format).get('codec')
+  if (!state.stopped && codec?.kind === 'choice' && codec.options.some((option) => option.key === raw[state.index])) {
+    const skipped: PositionalWidgetDecode = { values: {}, controllers: {}, dynamic: {}, index: state.index, stopped: false }
+    decodePositionalWidgets([codec], raw, skipped, '', nodeLabel, [])
+    state.index = skipped.index
+  }
+  if (!state.stopped && rows.mount !== undefined && state.index < raw.length) {
+    decodePositionalWidgets([rows.mount], raw, state, '', nodeLabel, diags)
+  }
+}
+
 const inputPortForSchema = (node: LgNode, slot: number, schema: NodeSchema): string | undefined => {
   const foreignInput = node.inputs?.[slot]
   if (foreignInput === undefined) return undefined
@@ -1653,32 +1703,27 @@ function importLitegraphGraph(
       let raw = n.widgets_values
       const sourceVersion = n.properties?.['ver']
       const hasExactUpgrade = typeof sourceVersion === 'string' && upgrades.get(n.type)?.has(sourceVersion) === true
-      if (n.type === 'SaveVideo' && !hasExactUpgrade && raw.length === 3 &&
+      const saveVideo = n.type === 'SaveVideo' ? saveVideoRowsOf(schema) : undefined
+      if (saveVideo !== undefined && !hasExactUpgrade && raw.length === 3 &&
         typeof raw[0] === 'string' && typeof raw[1] === 'string' && typeof raw[2] === 'string') {
-        const [prefix, format, codec, mount, ...rest] = positionalRowsOf(schema).filter(takesPositions)
-        const layoutMatches = prefix?.kind === 'input' && prefix.id === 'filename_prefix' && prefix.type.kind === 'concrete' && prefix.type.name === 'STRING' &&
-          prefix.widget?.widgetType === 'STRING' && prefix.widget.controller === undefined &&
-          format?.kind === 'choice' && format.id === 'format' && codec?.id === 'codec' && rest.length === 0 &&
-          (mount === undefined || mount.kind === 'input' && mount.id === 'mount' && mount.optional && mount.widget?.controller === undefined)
-        const branch = layoutMatches && format?.kind === 'choice' && format.leader === undefined
-          ? format.options.find((option) => option.key === raw[1]) : undefined
-        const nestedCodec = branch === undefined || format?.kind !== 'choice'
+        const branch = saveVideo.format.options.find((option) => option.key === raw[1])
+        const codec = branch === undefined
           ? undefined
-          : placedRows(branch.rows, sharedRowsOf(format)).find((item) => item.id === 'codec')
-        if (codec?.kind === 'choice' && codec.leader === undefined &&
-          codec.options.some((option) => option.key === raw[2]) &&
-          nestedCodec?.kind === 'choice' && nestedCodec.leader === undefined &&
-          nestedCodec.options.some((option) => option.key === raw[2])) {
-          // The served layout, not an unlisted version, establishes the two
-          // codec choices. Preserve the authored version in the import record.
-          const encoding = raw[2] === 'auto' ? [] : ['auto']
-          raw = [...raw, ...encoding, raw[2], ...encoding]
+          : placedRows(branch.rows, sharedRowsOf(saveVideo.format)).find((item) => item.id === 'codec')
+        if (codec?.kind === 'choice' && codec.leader === undefined && codec.options.some((option) => option.key === raw[2])) {
+          // The served layout, not an unlisted version, establishes the
+          // three-widget stream, which predates the encoding mode: a codec
+          // other than auto then encoded automatically. Preserve the authored
+          // version in the import record.
+          raw = [...raw, ...(raw[2] === 'auto' ? [] : ['auto'])]
           ext['importer.inferredWidgetLayout'] = { layout: 'SaveVideo:filename_prefix,format,codec', sourceVersion: sourceVersion ?? null }
           diags.push(imp('info', 'import.widgets.layoutInferred', `node ${n.id} ('SaveVideo'): recognized the three-widget layout; stored version ${sourceVersion === undefined ? 'absent' : JSON.stringify(sourceVersion)}`))
         }
       }
       const state: PositionalWidgetDecode = { values, controllers, dynamic, index: 0, stopped: false }
-      decodePositionalWidgets(positionalRowsOf(schema), raw, state, '', `node ${n.id} ('${n.type}')`, diags)
+      const nodeLabel = `node ${n.id} ('${n.type}')`
+      if (saveVideo !== undefined) decodeSaveVideoWidgets(saveVideo, raw, state, nodeLabel, diags)
+      else decodePositionalWidgets(positionalRowsOf(schema), raw, state, '', nodeLabel, diags)
       if (state.index < raw.length) {
         diags.push(imp('warning', 'import.widgets.excess', `node ${n.id} ('${n.type}'): ${raw.length - state.index} positional widget value(s) beyond the current schema; kept raw for review`))
         ext['importer.excessWidgetValues'] = raw.slice(state.index) as Json
@@ -1691,6 +1736,10 @@ function importLitegraphGraph(
       const state: PositionalWidgetDecode = { values, controllers, dynamic, index: 0, stopped: false }
       const keyed = n.widgets_values as Readonly<Record<string, Json>>
       decodeKeyedWidgets(placedRows(schema.body), keyed, state, '', known)
+      if (n.type === 'SaveVideo' && saveVideoRowsOf(schema) !== undefined) {
+        // ComfyUI's hidden top-level codec has no row here; its values are stored nowhere.
+        for (const key of Object.keys(keyed)) if (key === 'codec' || key.startsWith('codec.')) known.add(key)
+      }
       const unknown: Record<string, Json> = {}
       for (const [k, v] of Object.entries(keyed)) {
         if (!known.has(k)) unknown[k] = v as Json

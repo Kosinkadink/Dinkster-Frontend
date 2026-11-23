@@ -24,7 +24,6 @@
  */
 
 import { credentialFetch, mintDelegation, type CollabCredentials, type Delegation, type MintDelegation } from './credentials.js'
-import type { RetentionClient, RetentionHolderClass } from './retention-client.js'
 import { requestWithDeadline } from './request-deadline.js'
 import { decodeModelProviderStatus, decodeModelProviderSignIn, decodeModelProviderPoll,
   type ModelProviderStatus, type ModelProviderSignIn, type ModelProviderPoll } from './model-provider.js'
@@ -90,7 +89,7 @@ import {
   type ScheduleFn,
   type WebSocketFactory,
 } from './reconnecting-socket.js'
-import { DinksterValuesClient, type ValuePeekAdmission } from './values.js'
+import { DinksterValuesClient } from './values.js'
 import { expandDynamicPrompt } from './dynamic-prompts.js'
 import { parseResultAssetOffer, type ResultAssetOffer } from './result-asset-offer.js'
 
@@ -737,13 +736,9 @@ export interface DinksterConnectionConfig extends CollabCredentials {
   /** WS endpoint override; defaults to baseUrl with ws(s) scheme + /api/events. */
   readonly wsUrl?: string
   readonly fetchFn?: FetchLike
-  /** Shared with discovery and collaboration for the same backend/principal. */
-  readonly retentionClient?: RetentionClient
   readonly webSocketFactory?: WebSocketFactory
   readonly scheduleFn?: ScheduleFn
   readonly cancelFn?: CancelFn
-  /** Application-owned asset admission before exposing a peek descriptor. */
-  readonly admitValuePeek?: ValuePeekAdmission
   /** Job id allocator; injectable so tests are deterministic. */
   readonly jobIdFactory?: () => string
 }
@@ -823,6 +818,7 @@ const decodeWorkers = (value: unknown): readonly WorkerInfo[] | undefined => {
 
 /** One job's wire record plus the identity it is keyed by. */
 export interface DinksterJobRecord extends DinksterJobWire {
+  readonly clientId?: unknown
   readonly jobId?: unknown
   readonly attemptId?: unknown
   readonly outputs?: unknown
@@ -968,6 +964,7 @@ export interface MountDescriptor {
    */
   readonly mode: 'read' | 'readwrite'
   readonly state: string
+  readonly source?: string
   readonly path?: string
   /** Optional semantic scope for homogeneous mounts (for example model/checkpoint). */
   readonly kind?: string
@@ -983,7 +980,7 @@ export interface MountGrantOptions {
 }
 
 export interface MountLocations {
-  readonly mounts: readonly { readonly id: string; readonly path: string }[]
+  readonly mounts: readonly ({ readonly id: string; readonly path: string } & Partial<MountDescriptor>)[]
   readonly activeMounts?: readonly (MountDescriptor & { readonly path: string })[]
   readonly importMount?: string | null
 }
@@ -1285,23 +1282,6 @@ export function parseAssetsMissingRejection(value: unknown): AssetsMissingReject
 // Workflow library wire (POST /api/assets + /api/library, additive d41fbd3)
 // ---------------------------------------------------------------------------
 
-export interface RetainedAssetOwner {
-  readonly scope: string
-  readonly ownerKind: 'document' | 'history' | 'shown-result' | 'preview'
-  readonly ownerId: string
-  /** Immutable membership chosen by the admitting lifetime, never inferred from owner kind. */
-  readonly holderClasses?: readonly RetentionHolderClass[]
-}
-
-export interface RetainedAssets extends RetainedAssetOwner {
-  readonly revision: number
-  readonly digests: readonly string[]
-  readonly complete: boolean
-  readonly sourceToken?: string
-}
-
-export type RetainedAssetDeclaration = Pick<RetainedAssets, 'revision' | 'digests' | 'complete'>
-
 export interface LibraryStorage {
   readonly temporaryBytes: number | null
   readonly vaultBytes: number | null
@@ -1330,43 +1310,6 @@ function libraryStorage(value: unknown): LibraryStorage {
     throw new Error('Library storage response is malformed')
   }
   return value as unknown as LibraryStorage
-}
-
-function retainedAssetRoute(owner: RetainedAssetOwner): string {
-  if (owner.ownerId.length === 0 || [...owner.ownerId].length > 512) {
-    throw new Error('Retained asset owner ID must contain 1 to 512 characters')
-  }
-  return `/api/library/retentions/${owner.ownerKind}/${encodeURIComponent(owner.ownerId)}?scope=${encodeURIComponent(owner.scope)}`
-}
-
-function retainedAssetHeaders(owner: RetainedAssetOwner): Record<string, string> {
-  const classes = owner.holderClasses
-  if (classes !== undefined && (classes.length === 0 || new Set(classes).size !== classes.length ||
-    classes.some((value) => !Number.isInteger(value) || value < 1 || value > 8))) {
-    throw new Error('Invalid retained asset holder classes')
-  }
-  return { 'Content-Type': 'application/json',
-    ...(classes === undefined ? {} : { 'X-Dinkster-Retention-Holder': [...classes].sort().join(',') }) }
-}
-
-export function retainedAssetAcknowledgment(value: unknown, owner: RetainedAssetOwner): RetainedAssets {
-  if (!record(value) || value['scope'] !== owner.scope || value['ownerKind'] !== owner.ownerKind ||
-    value['ownerId'] !== owner.ownerId || typeof value['revision'] !== 'number' ||
-    !Number.isSafeInteger(value['revision']) || value['revision'] < 1 ||
-    (value['sourceToken'] !== undefined &&
-      (typeof value['sourceToken'] !== 'string' || value['sourceToken'].length !== 32 || !/^[0-9a-f]{32}$/.test(value['sourceToken']))) ||
-    typeof value['complete'] !== 'boolean' || !Array.isArray(value['digests']) ||
-    value['digests'].length > 4096 || !value['digests'].every((digest: unknown, index: number, digests: unknown[]) =>
-      typeof digest === 'string' && JOB_ARTIFACT_DIGEST.test(digest) &&
-      (index === 0 || (digests[index - 1] as string) < digest))) {
-    throw new Error('Retained asset acknowledgment is malformed or belongs to another owner')
-  }
-  return {
-    scope: owner.scope, ownerKind: owner.ownerKind, ownerId: owner.ownerId,
-    ...(owner.holderClasses === undefined ? {} : { holderClasses: Object.freeze([...owner.holderClasses]) }),
-    revision: value['revision'], digests: value['digests'] as string[], complete: value['complete'],
-    ...(value['sourceToken'] === undefined ? {} : { sourceToken: value['sourceToken'] as string }),
-  }
 }
 
 export interface ProjectNeeds {
@@ -1810,6 +1753,7 @@ export interface HistoryRunRecord {
   readonly principalId?: string
   readonly principalKind?: 'human' | 'agent'
   readonly nodeReceipts?: readonly NodeExecutionReceipt[]
+  readonly thumbnail?: MediaAssetRef
   readonly error?: { readonly kind?: string; readonly message?: string } & Record<string, unknown>
 }
 
@@ -1866,10 +1810,22 @@ const decodeHistoryRun = (v: unknown): HistoryRunRecord | undefined => {
   const {
     principalId: _wirePrincipalId,
     principalKind: _wirePrincipalKind,
+    thumbnail: wireThumbnail,
     ...record
   } = r
+  let thumbnail: MediaAssetRef | undefined
+  if (typeof wireThumbnail === 'object' && wireThumbnail !== null && !Array.isArray(wireThumbnail)) {
+    const asset = wireThumbnail as Record<string, unknown>
+    if (typeof asset['digest'] === 'string' && /^blake3:[0-9a-f]{64}$/.test(asset['digest']) &&
+        typeof asset['name'] === 'string' && typeof asset['virtualPath'] === 'string' &&
+        typeof asset['size'] === 'number' && Number.isSafeInteger(asset['size']) && asset['size'] >= 0 &&
+        typeof asset['mediaType'] === 'string' && /^(image|video)\//.test(asset['mediaType'])) {
+      thumbnail = asset as MediaAssetRef
+    }
+  }
   return {
     ...record,
+    ...(thumbnail === undefined ? {} : { thumbnail }),
     ...(typeof r['principalId'] === 'string' ? { principalId: r['principalId'] } : {}),
     ...(r['principalKind'] === 'human' || r['principalKind'] === 'agent'
       ? { principalKind: r['principalKind'] }
@@ -1909,7 +1865,6 @@ export class DinksterConnection {
   private readonly fetchFn: FetchLike
   private readonly registryFetchFn: FetchLike
   private readonly registryStaticUrl: () => string
-  private readonly admitValuePeek: ValuePeekAdmission | undefined
   private readonly normalizer: DinksterNormalizer
   private readonly extensionSnapshots = new Map<string, EffectiveExtensionSnapshot>()
   private readonly listeners = new Set<(e: NormalizedEvent) => void>()
@@ -1918,9 +1873,8 @@ export class DinksterConnection {
   private readonly liveCompletionListeners = new Set<(execution: ExecutionRef) => void>()
   private readonly memoryListeners = new Set<(status: MemoryStatus) => void>()
   private readonly mountListeners = new Set<() => void>()
+  private readonly libraryListeners = new Set<() => void>()
   private readonly socket: ReconnectingSocket
-  private readonly retentionClient: RetentionClient | undefined
-  private unregisterRetentionStream: (() => void) | undefined
   private readonly jobIdFactory: () => string
   private protocolErrors = 0
   /**
@@ -1957,15 +1911,12 @@ export class DinksterConnection {
     this.baseUrl = config.baseUrl
     this.clientId = config.clientId
     this.project = config.project
-    this.admitValuePeek = config.admitValuePeek
     const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
     this.registryFetchFn = fetchFn
     this.registryStaticUrl = config.registryStaticUrl ?? (() => '')
-    this.retentionClient = config.retentionClient
-    const backendFetch = config.retentionClient?.fetch ?? fetchFn
     this.fetchFn = config.token !== undefined || config.actorKind !== undefined
-      ? credentialFetch(config, backendFetch)
-      : backendFetch
+      ? credentialFetch(config, fetchFn)
+      : fetchFn
     this.jobIdFactory = config.jobIdFactory ?? uuidv4
     // Malformed KNOWN events (recognized type, missing required fields) are
     // protocol errors, never silent drops; unknown kinds and uncorrelated
@@ -1979,10 +1930,9 @@ export class DinksterConnection {
     const eventsUrl = `${config.baseUrl}/api/events?clientId=${encodeURIComponent(config.clientId)}`
     this.socket = new ReconnectingSocket({
       url: wsUrl,
-      ...((config.retentionClient !== undefined || config.token !== undefined || config.actorKind === 'agent') && {
+      ...((config.token !== undefined || config.actorKind === 'agent') && {
         resolveUrl: async () => {
-          const url = config.retentionClient === undefined ? wsUrl : await config.retentionClient.socketUrl(wsUrl)
-          if (config.token === undefined && config.actorKind !== 'agent') return url
+          if (config.token === undefined && config.actorKind !== 'agent') return wsUrl
           const preflight = await this.fetchFn(eventsUrl)
           if (preflight.status === 401 || preflight.status === 403) {
             throw await this.failExecutionRequest(preflight, 'events')
@@ -1994,7 +1944,7 @@ export class DinksterConnection {
           if (!response.ok) throw new Error(`WebSocket authentication failed: HTTP ${response.status}`)
           const body = await response.json() as { ticket?: unknown }
           if (typeof body.ticket !== 'string') throw new Error('WebSocket authentication returned no ticket')
-          return `${url}${url.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(body.ticket)}`
+          return `${wsUrl}${wsUrl.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(body.ticket)}`
         },
       }),
       ...(config.webSocketFactory ? { webSocketFactory: config.webSocketFactory } : {}),
@@ -2004,6 +1954,7 @@ export class DinksterConnection {
       onResumed: () => { for (const listener of [...this.resumedListeners]) listener() },
     })
     this.status = this.socket.status
+    this.status.subscribe(() => { this.valuesClient = undefined })
   }
 
   /** Subscribe to normalized events. Returns unsubscribe. */
@@ -2056,13 +2007,20 @@ export class DinksterConnection {
     return () => this.mountListeners.delete(listener)
   }
 
+  /** Library pings carry no records; consumers refetch through authorized routes. */
+  onLibraryChanged(listener: () => void): () => void {
+    this.libraryListeners.add(listener)
+    return () => this.libraryListeners.delete(listener)
+  }
+
   private emit(events: readonly NormalizedEvent[]): void {
     for (const e of events) for (const l of [...this.listeners]) l(e)
   }
 
   private emitRaw(raw: DinksterRawMessage, live: boolean): void {
-    if (live && !(raw instanceof ArrayBuffer) && raw.type === 'mounts_changed') {
+    if (live && !(raw instanceof ArrayBuffer) && (raw.type === 'mounts_changed' || raw.type === 'library_changed')) {
       for (const listener of [...this.mountListeners]) listener()
+      if (raw.type === 'library_changed') for (const listener of [...this.libraryListeners]) listener()
       return
     }
     if (live && !(raw instanceof ArrayBuffer)) this.noteLiveJobEvent(raw)
@@ -2600,7 +2558,22 @@ export class DinksterConnection {
     return this.decodeJobRecord(await res.json(), jobId)
   }
 
-  private decodeJobRecord(payload: unknown, jobId: string): DinksterJobRecord {
+  /** Inspect a stored run without changing this connection's submission identity. */
+  async fetchHistoryJob(run: HistoryRunRecord): Promise<DinksterJobRecord | undefined> {
+    const jobRef = run.jobRef ?? run.runId
+    const res = await this.fetchFn(`${this.baseUrl}/api/jobs/by-ref/${encodeURIComponent(jobRef)}`)
+    if (res.status === 404 || res.status === 410) return undefined
+    if (!res.ok) throw await this.failExecutionRequest(res, 'inspect')
+    const job = this.decodeJobRecord(await res.json(), run.jobId, run.clientId)
+    if (job.clientId !== run.clientId || job.jobId !== run.jobId ||
+      job.jobRef !== jobRef || job.sourceDocument !== run.sourceDocument ||
+      (run.state !== 'interrupted' && job.state !== run.state)) {
+      throw new Error('GET stored job: response run identity mismatch')
+    }
+    return job
+  }
+
+  private decodeJobRecord(payload: unknown, jobId: string, clientId = this.clientId): DinksterJobRecord {
     const state = (payload as { state?: unknown } | null)?.state
     if (typeof payload !== 'object' || payload === null || Array.isArray(payload) ||
       typeof state !== 'string' ||
@@ -2618,7 +2591,7 @@ export class DinksterConnection {
     if (record.jobId !== undefined && record.jobId !== jobId) {
       throw new Error(`GET job: response identity mismatch (expected ${jobId})`)
     }
-    if (record.clientId !== undefined && record.clientId !== this.clientId) {
+    if (record.clientId !== undefined && record.clientId !== clientId) {
       throw new Error('GET job: response clientId mismatch')
     }
     const artifacts = decodeJobArtifacts(record.artifacts)
@@ -2804,7 +2777,7 @@ export class DinksterConnection {
       if (!res.ok) throw new Error(`GET library storage failed: ${res.status}`)
       return libraryStorage(await res.json())
     }
-    return this.retentionClient === undefined ? read(this.fetchFn) : this.retentionClient.collect(read)
+    return read(this.fetchFn)
   }
 
   async updateLibraryStorageLimit(limitBytes: number | null): Promise<void> {
@@ -2823,9 +2796,7 @@ export class DinksterConnection {
   }
 
   clearLibraryStorage(): Promise<LibraryStorageCleanup> {
-    return this.retentionClient === undefined
-      ? this.clearLibraryStorageUsing(this.fetchFn)
-      : this.retentionClient.collect((fetchFn) => this.clearLibraryStorageUsing(fetchFn))
+    return this.clearLibraryStorageUsing(this.fetchFn)
   }
 
   private async clearLibraryStorageUsing(fetchFn: FetchLike): Promise<LibraryStorageCleanup> {
@@ -2900,72 +2871,6 @@ export class DinksterConnection {
     if (value['complete'] && value['state'] !== 'completed') return invalid()
     return { scope, jobRef, attemptId: value['attemptId'] as number,
       state: value['state'] as TerminalResultAssets['state'], complete: value['complete'], offers }
-  }
-
-  async fetchRetainedAssets(owner: RetainedAssetOwner, signal?: AbortSignal): Promise<RetainedAssets | undefined> {
-    const res = await this.fetchFn(`${this.baseUrl}${retainedAssetRoute(owner)}`, {
-      method: 'GET', cache: 'no-store', ...(signal !== undefined ? { signal } : {}),
-    })
-    if (res.status === 404) return undefined
-    if (!res.ok) throw new Error(`GET retained assets failed: ${res.status}`)
-    return retainedAssetAcknowledgment(await res.json(), owner)
-  }
-
-  retainAssets(owner: RetainedAssetOwner, declaration: RetainedAssetDeclaration, signal?: AbortSignal): Promise<RetainedAssets> {
-    return this.mutateRetainedAssets(owner, 'PUT', declaration, signal)
-  }
-
-  async claimResultAssets(owner: RetainedAssetOwner, sourceToken: string, signal?: AbortSignal): Promise<RetainedAssets> {
-    if ((owner.ownerKind !== 'shown-result' && owner.ownerKind !== 'preview') || sourceToken.length !== 32 || !/^[0-9a-f]{32}$/.test(sourceToken)) {
-      throw new Error('Invalid result asset claim')
-    }
-    const res = await this.fetchFn(`${this.baseUrl}${retainedAssetRoute(owner)}`, {
-      method: 'PUT', headers: retainedAssetHeaders(owner),
-      body: JSON.stringify({ revision: 0, sourceToken }),
-      ...(signal !== undefined ? { signal } : {}),
-    })
-    // A source claim is never replayed: GET reconciles a lost response against
-    // the persisted offer before the owning caller exposes its value.
-    if (!res.ok) throw new Error(`PUT result asset claim failed: ${res.status}`)
-    const acknowledged = retainedAssetAcknowledgment(await res.json(), owner)
-    if (acknowledged.revision !== 1 || acknowledged.sourceToken !== sourceToken) {
-      throw new Error('Retained asset acknowledgment differs from the requested source')
-    }
-    return acknowledged
-  }
-
-  releaseRetainedAssets(owner: RetainedAssetOwner, revision: number, signal?: AbortSignal): Promise<RetainedAssets> {
-    return this.mutateRetainedAssets(owner, 'DELETE', { revision, digests: [], complete: true }, signal)
-  }
-
-  private async mutateRetainedAssets(
-    owner: RetainedAssetOwner,
-    method: 'PUT' | 'DELETE',
-    declaration: RetainedAssetDeclaration,
-    signal?: AbortSignal,
-  ): Promise<RetainedAssets> {
-    const { revision, complete } = declaration
-    const digests = [...new Set(declaration.digests)].sort()
-    if (!Number.isSafeInteger(revision) || revision < (method === 'DELETE' ? 1 : 0) ||
-      revision >= Number.MAX_SAFE_INTEGER || typeof complete !== 'boolean' || digests.length > 4096 ||
-      !digests.every((digest) => typeof digest === 'string' && JOB_ARTIFACT_DIGEST.test(digest))) {
-      throw new Error('Invalid retained asset declaration')
-    }
-    const route = `${retainedAssetRoute(owner)}${method === 'DELETE' ? `&revision=${revision}` : ''}`
-    const res = await this.fetchFn(`${this.baseUrl}${route}`, {
-      method, headers: retainedAssetHeaders(owner),
-      ...(method === 'PUT' ? { body: JSON.stringify({ revision, digests, complete }) } : {}),
-      ...(signal !== undefined ? { signal } : {}),
-    })
-    // A failed or lost response can still have committed. Reconciliation is
-    // an owner decision; never replay a write or adopt a conflict's revision.
-    if (!res.ok) throw new Error(`${method} retained assets failed: ${res.status}`)
-    const acknowledged = retainedAssetAcknowledgment(await res.json(), owner)
-    if (acknowledged.sourceToken !== undefined || acknowledged.revision !== revision + 1 || acknowledged.complete !== complete ||
-      acknowledged.digests.length !== digests.length || acknowledged.digests.some((digest, index) => digest !== digests[index])) {
-      throw new Error('Retained asset acknowledgment differs from the requested declaration')
-    }
-    return acknowledged
   }
 
   /**
@@ -3673,6 +3578,7 @@ export class DinksterConnection {
       return typeof row['id'] === 'string' && (row['mode'] === 'read' || row['mode'] === 'readwrite') &&
         typeof row['state'] === 'string' && (row['path'] === undefined || typeof row['path'] === 'string') &&
         (row['kind'] === undefined || typeof row['kind'] === 'string') &&
+        (row['source'] === undefined || typeof row['source'] === 'string') &&
         (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
     })
     if (payload.outputMount != null && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
@@ -3710,17 +3616,27 @@ export class DinksterConnection {
     if (!Array.isArray(payload.mounts)) throw new Error('GET /api/mounts/locations: malformed response')
     if (payload.importMount !== undefined && payload.importMount !== null &&
         (typeof payload.importMount !== 'string' || payload.importMount === '')) throw new Error('GET /api/mounts/locations: malformed import mount')
-    const location = (value: unknown) => {
+    const location = (value: unknown): MountLocations['mounts'][number] => {
       const row = value as Record<string, unknown> | null
       if (row === null || typeof row !== 'object' || typeof row['id'] !== 'string' || typeof row['path'] !== 'string') throw new Error('GET /api/mounts/locations: malformed location')
-      return { id: row['id'], path: row['path'] }
+      if ((row['mode'] !== undefined && row['mode'] !== 'read' && row['mode'] !== 'readwrite') ||
+        ['state', 'source', 'kind'].some((key) => row[key] !== undefined && typeof row[key] !== 'string') ||
+        (row['entryCount'] !== undefined && (typeof row['entryCount'] !== 'number' || !Number.isSafeInteger(row['entryCount']) || row['entryCount'] < 0))) {
+        throw new Error('GET /api/mounts/locations: malformed location facts')
+      }
+      return { id: row['id'], path: row['path'],
+        ...(row['mode'] === 'read' || row['mode'] === 'readwrite' ? { mode: row['mode'] } : {}),
+        ...(typeof row['state'] === 'string' ? { state: row['state'] } : {}),
+        ...(typeof row['source'] === 'string' ? { source: row['source'] } : {}),
+        ...(typeof row['kind'] === 'string' ? { kind: row['kind'] } : {}),
+        ...(typeof row['entryCount'] === 'number' ? { entryCount: row['entryCount'] } : {}),
+      }
     }
     if (payload.activeMounts !== undefined && !Array.isArray(payload.activeMounts)) throw new Error('GET /api/mounts/locations: malformed active mounts')
     const activeMounts = (payload.activeMounts as unknown[] | undefined)?.map((value): MountDescriptor & { readonly path: string } => {
-      const path = location(value)
-      const row = value as Record<string, unknown>
-      if ((row['mode'] !== 'read' && row['mode'] !== 'readwrite') || typeof row['state'] !== 'string') throw new Error('GET /api/mounts/locations: malformed active mount')
-      return { ...path, mode: row['mode'], state: row['state'] }
+      const row = value as Record<string, unknown> | null
+      if (row === null || typeof row !== 'object' || (row['mode'] !== 'read' && row['mode'] !== 'readwrite') || typeof row['state'] !== 'string') throw new Error('GET /api/mounts/locations: malformed active mount')
+      return { ...location(value), mode: row['mode'], state: row['state'] }
     })
     return { mounts: payload.mounts.map(location), ...(activeMounts !== undefined ? { activeMounts } : {}),
       ...(payload.importMount !== undefined ? { importMount: payload.importMount as string | null } : {}) }
@@ -4315,22 +4231,24 @@ export class DinksterConnection {
       baseUrl: this.baseUrl,
       clientId: this.clientId,
       fetchFn: this.fetchFn,
-      ...(this.admitValuePeek === undefined ? {} : { admitPeek: this.admitValuePeek }),
     })
     return this.valuesClient
+  }
+
+  /** Values keep the selected history record's original client identity. */
+  historyValues(run: HistoryRunRecord): DinksterValuesClient {
+    return new DinksterValuesClient({ baseUrl: this.baseUrl, clientId: run.clientId, fetchFn: this.fetchFn })
   }
 
   // -- WebSocket -----------------------------------------------------------------
 
   connect(): void {
-    this.unregisterRetentionStream ??= this.retentionClient?.registerStream(() => this.socket.suspend())
     this.socket.connect()
   }
 
   disconnect(): void {
+    this.valuesClient = undefined
     this.socket.disconnect()
-    this.unregisterRetentionStream?.()
-    this.unregisterRetentionStream = undefined
   }
 
   /** See ReconnectingSocket.simulateConnectionLoss. */

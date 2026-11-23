@@ -75,12 +75,19 @@ export type MenuTarget =
        * must use this triple; nodeId/inputId stay the displayed identity.
        */
       readonly owner?: { readonly graphId: string; readonly nodeId: string; readonly inputId: string }
+      /** The field's structural input address, for items that bind the input itself. */
+      readonly address?: { readonly port: string; readonly members?: readonly string[] }
       /**
        * Unpersisted presentation row (ghost/materialize affordance): there
        * is no document value to address, so identity-recording items must
        * not offer themselves.
        */
       readonly synthetic?: true
+      /**
+       * The row picks a choice's option or a type choice's variant: it
+       * controls a construct rather than holding a stored field.
+       */
+      readonly construct?: true
     }
   | { readonly kind: 'group'; readonly groupId: string }
   | {

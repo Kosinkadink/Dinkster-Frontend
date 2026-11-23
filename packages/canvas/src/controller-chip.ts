@@ -1,9 +1,6 @@
 /** Geometry shared by widget painting and interaction for after-generate chips. */
 
-import { canvasPaintTokens } from './tokens.js'
-
-/** Numeric steppers retain this zone at the right edge of a widget row. */
-export const WIDGET_EDGE_CONTROL_WIDTH = canvasPaintTokens.controller.edgeWidth
+import { canvasPaintTokens, type RowGeometry } from './tokens.js'
 
 /** Half-extent shared by the numeric and combo edge glyphs. */
 export const EDGE_ACTION_GLYPH_HALF = canvasPaintTokens.controller.glyphHalf
@@ -17,10 +14,9 @@ export const CONTROLLER_CHIP_TEXT_GAP = canvasPaintTokens.controller.textGap
 /** Clearance between trailing controls; intentionally matches the text gap. */
 export const TRAILING_ACTION_GAP = CONTROLLER_CHIP_TEXT_GAP
 
-/** Row-local center for an action glyph in either unchanged edge zone. */
-export function edgeActionCenterX(rowWidth: number, side: 'leading' | 'trailing'): number {
-  const inset = WIDGET_EDGE_CONTROL_WIDTH / 2
-  return side === 'leading' ? inset : rowWidth - inset
+/** Row-local center for an action glyph in either edge zone. */
+export function edgeActionCenterX(rowWidth: number, side: 'leading' | 'trailing', geometry: RowGeometry): number {
+  return side === 'leading' ? geometry.stepperCenter : rowWidth - geometry.stepperCenter
 }
 
 /**
@@ -37,8 +33,8 @@ export interface ControllerChipRect {
 }
 
 /** Normal right edge for numeric values, immediately left of their stepper. */
-export function controllerChipTextRight(rowWidth: number, rowHeight: number): number {
-  return controllerChipRect(rowWidth, rowHeight).x - CONTROLLER_CHIP_TEXT_GAP
+export function controllerChipTextRight(rowWidth: number, rowHeight: number, geometry: RowGeometry): number {
+  return controllerChipRect(rowWidth, rowHeight, geometry).x - CONTROLLER_CHIP_TEXT_GAP
 }
 
 /** Stable text rails shared by ordinary and companion widget painters. */
@@ -47,22 +43,23 @@ export function widgetFieldBounds(
   rowHeight: number,
   numeric: boolean,
   controller: boolean,
+  geometry: RowGeometry,
 ): { left: number; right: number } {
   return {
-    left: numeric ? WIDGET_EDGE_CONTROL_WIDTH : canvasPaintTokens.controller.fieldInset,
+    left: numeric ? geometry.stepperZone : canvasPaintTokens.controller.fieldInset,
     right: controller
-      ? controllerChipTextRight(rowWidth, rowHeight)
-      : numeric ? rowWidth - WIDGET_EDGE_CONTROL_WIDTH : rowWidth - canvasPaintTokens.controller.fieldInset,
+      ? controllerChipTextRight(rowWidth, rowHeight, geometry)
+      : numeric ? rowWidth - geometry.stepperZone : rowWidth - canvasPaintTokens.controller.fieldInset,
   }
 }
 
 /** Row-local rectangle used for both painting and pointer hit testing. */
-export function controllerChipRect(rowWidth: number, rowHeight: number): ControllerChipRect {
+export function controllerChipRect(rowWidth: number, rowHeight: number, geometry: RowGeometry): ControllerChipRect {
   const size = Math.max(0, rowHeight - CONTROLLER_CHIP_VERTICAL_INSET * 2)
   return {
     x: Math.max(
-      WIDGET_EDGE_CONTROL_WIDTH,
-      rowWidth - WIDGET_EDGE_CONTROL_WIDTH - TRAILING_ACTION_GAP - size,
+      geometry.stepperZone,
+      rowWidth - geometry.stepperZone - TRAILING_ACTION_GAP - size,
     ),
     y: CONTROLLER_CHIP_VERTICAL_INSET,
     width: size,
@@ -76,8 +73,9 @@ export function controllerChipContains(
   localY: number,
   rowWidth: number,
   rowHeight: number,
+  geometry: RowGeometry,
 ): boolean {
-  const rect = controllerChipRect(rowWidth, rowHeight)
+  const rect = controllerChipRect(rowWidth, rowHeight, geometry)
   return localX >= rect.x && localX <= rect.x + rect.width
     && localY >= rect.y && localY <= rect.y + rect.height
 }

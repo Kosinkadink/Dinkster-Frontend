@@ -101,15 +101,15 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
           toSource: execution.artifact.provenance.toSource }).own.get(asNodeId(source.node)) ?? []
         const runtimeId = runtimeIds.length === 1 ? runtimeIds[0] : undefined
         if (!runtimeId || liveExactnessFor(compiled.artifact, execution.artifact)?.(runtimeId) !== true) throw unavailable()
+        const values = backend.connection.values()
         sourceCurrent = () => {
           const navigation = viewInstancePath(ed.tab)
           const fresh = props.editor.app.compileTabCached(ed.tab)
-          return props.editor.app.executionForTab(ed.tab)?.key === execution.key && fresh?.ok === true
+          return backend.connection.values() === values && props.editor.app.executionForTab(ed.tab)?.key === execution.key && fresh?.ok === true
             && fresh.artifact.schemaHash === compiled.artifact.schemaHash && navigation?.length === path.length
             && navigation.every((id, index) => id === path[index])
         }
         const outputId = execution.artifact.provenance.outputAliases?.[runtimeId]?.[source.output] ?? source.output
-        const values = backend.connection.values()
         const query = { jobId: execution.ref.prompt, nodeId: runtimeId, outputId }
         const peek = await values.peek(query, { signal: abort.signal })
         if (!peek.available) throw unavailable()
@@ -130,7 +130,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
           if (!result?.available || result.mime !== 'image/png' || result.bytes.byteLength > 64 * 1024 * 1024) throw unavailable()
           const bitmap = await createImageBitmap(new Blob([result.bytes], { type: result.mime }))
           try {
-            // Native decode may outlive the connection; re-enter admission before drawing.
+            // Native decode may outlive the connection; check its lifetime before drawing.
             await values.read(query, peek.descriptor, async () => {
               requireCurrent()
               if (bitmap.width < 1 || bitmap.height < 1 || bitmap.width > 4096 || bitmap.height > 4096) throw unavailable()
@@ -164,14 +164,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
           if (!bytes) throw new Error(message('painterWidget.unavailable'))
           await drawImage(new Blob([bytes], { type: ref.mediaType as string }))
         }
-        if (local) await load()
-        else {
-          const reader = props.editor.app.workflowAssetReader(ed.tab, ref.digest as string, abort.signal)
-          if (!reader) throw new Error(message('painterWidget.unavailable'))
-          const connectedCurrent = sourceCurrent
-          sourceCurrent = () => connectedCurrent() && reader.current()
-          await reader.read(load)
-        }
+        await load()
       }
       ready = true
     })().catch((reason: unknown) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })

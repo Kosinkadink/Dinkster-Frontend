@@ -77,6 +77,7 @@ import {
   elabInputsOf,
   elabOutputsOf,
   elaborateInterface,
+  selectorMembersOf,
   valueKeyOf,
   EMPTY_CONNECTIVITY,
   type Connectivity,
@@ -86,7 +87,7 @@ import {
 } from '../schema/elaborate.js'
 import { solveGraphTypes } from '../schema/solve.js'
 import { boundaryOutputFanOutProblems, matchBoundaryItem, projectEditableOptions } from './crossing.js'
-import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
+import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
@@ -248,7 +249,9 @@ export interface CompileInput {
   readonly schemaHash: string
   /**
    * Exact candidate replay for an existing artifact. The returned id wins
-   * over both fixed and random live policies when it is still present.
+   * over both fixed and random live policies when it is still present. For
+   * a Switch node, `selector` is its occurrence's runtime id and the
+   * candidates are its member keys.
    */
   readonly candidateOverride?: (ctx: {
     readonly graph: string
@@ -256,9 +259,9 @@ export interface CompileInput {
     readonly candidates: readonly string[]
   }) => string | undefined
   /**
-   * Chooser for 'random' selector policies: returns a candidate index in
-   * [0, count). REQUIRED for compile() whenever the document contains a
-   * random-policy selector - compile has no ambient randomness; the caller
+   * Chooser for 'random' selector policies and random Switch picks: returns
+   * a candidate index in [0, count). REQUIRED for compile() whenever the
+   * document contains either - compile has no ambient randomness; the caller
    * injects the roll and the EXACT outcome is recorded in the artifact's
    * `choices`. scopeClosure() never needs one: its would-run closure covers
    * every candidate of a random selector (superset) instead of rolling.
@@ -290,13 +293,10 @@ interface FlatNode {
   readonly selector?: NodeSelectorSpec
   /** Elaborated identity of selector.input, when this is a selector node. */
   readonly selectorInputKey?: string
-  /** Elaborated identities of selector branch inputs. */
-  readonly selectorBranchKeys?: { readonly false: string; readonly true: string }
-  /** Stored, occurrence-effective boolean used only by would-run liveness. */
-  selectorProjection?: {
-    readonly choice: boolean
-    readonly branches: { readonly false: string; readonly true: string }
-  }
+  /** Elaborated identities of the selector's member inputs, in stored order. */
+  readonly selectorMembers?: readonly string[]
+  /** Members a stored, occurrence-effective pick leaves out; used only by would-run liveness. */
+  selectorProjection?: { readonly inactive: readonly string[] }
   /** Inputs whose final staged value came from a real graph link/net. */
   readonly linkedInputs: Set<string>
   /** Staging record, keyed by ELABORATED input id (remapped to apiName at assembly). */
@@ -370,6 +370,20 @@ interface ResolvedStructuralSource {
   }
 }
 /**
+ * An output whose value is known before running (the schema's knownValue):
+ * the node and the input whose resolved value the output passes on. The
+ * route continues at that input instead of invoking the node.
+ */
+interface KnownValueAt {
+  readonly path: readonly NodeId[]
+  readonly defId: string
+  readonly node: NodeId
+  readonly input: ElaboratedInput
+}
+interface ResolvedKnownValue {
+  readonly knownValue: KnownValueAt
+}
+/**
  * An output resolution that landed on a BYPASSED node: where it lives and
  * which of its outputs was asked for, so the passthrough trace can pick the
  * matching driven input and continue upstream from there.
@@ -441,9 +455,9 @@ function compileImpl(
   const isVirtualNode = (graphId: string, node: NodeData): boolean =>
     node.virtual === true && resolveNode(graphId, node)?.virtual === true
   /**
-   * Capability gate for the $typed graph wire form (joint contract, Dinkster
-   * ea6eca7): absent = the target server would pass the marker through as a
-   * plain literal dict, so HOLD the lowering and refuse loudly instead.
+   * Capability gate for the $typed graph wire form: absent = the target
+   * server would pass the marker through as a plain literal dict, so HOLD
+   * the lowering and refuse loudly instead.
    */
   const emitTypedLiterals = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_TYPED_LITERAL) ?? false
   const emitDecimalInts = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_DECIMAL_INT) ?? false
@@ -1015,7 +1029,7 @@ function compileImpl(
     delivery?: ParentDeliveryIdentity,
     boundaryRoute: readonly BoundaryRouteLeg[] = [],
     openRegion?: string,
-  ): ResolvedOutput | ResolvedStructuralSource | 'muted' | { readonly bypass: BypassAt } | undefined {
+  ): ResolvedOutput | ResolvedStructuralSource | ResolvedKnownValue | 'muted' | { readonly bypass: BypassAt } | undefined {
     const def = graphOf(defId)
     if (ref.node === DINKSTER_REGION_PSEUDO_NODE) {
       sink.push(diag('error', 'compile', 'compile.region.invalidIndex', `'$region.${ref.port}' is available only as the immediate region index source`))
@@ -1122,6 +1136,11 @@ function compileImpl(
       sink.push(diag('error', 'compile', 'compile.port.unwirable', `'${node.type}' output '${output.spec.id}' exists but never takes part in wiring (ghost/over-cap/unknown dynamic kind)`, { anchor: anchorOf(path, node.id) }))
       return undefined
     }
+    // Inside a region body the value can differ per element, so the node runs.
+    const inRegion = [...regions.values()].some((region) => path.length >= region.childPath.length &&
+      region.childPath.every((segment, index) => path[index] === segment))
+    const known = !inRegion && output.spec.knownValue && elab.inputsByValueKey.get(output.spec.knownValue.input)
+    if (known) return { knownValue: { path, defId, node: node.id, input: known } }
     return { runtimeId: occurrenceKey({ instancePath: path, node: node.id }), outputIndex }
   }
 
@@ -1342,6 +1361,7 @@ function compileImpl(
 
   type RouteAt =
     | { readonly kind: 'bypass'; readonly bypass: BypassAt }
+    | { readonly kind: 'known'; readonly known: KnownValueAt }
     | { readonly kind: 'endpoint'; readonly path: readonly NodeId[]; readonly defId: string; readonly endpoint: LinkEndpoint; readonly typeId?: string }
 
   interface SelectedBypassHop {
@@ -1403,8 +1423,14 @@ function compileImpl(
     const result = traverseRoutedProjection<RouteAt, SelectedBypassHop, BypassTrace>(start, projection, {
       key: (at) => at.kind === 'bypass'
         ? JSON.stringify(['bypass', occurrenceKey({ instancePath: at.bypass.path, node: at.bypass.ref.node }), portAddressKey(at.bypass.ref.port)])
-        : JSON.stringify(['endpoint', at.path, at.defId, at.endpoint]),
+        : at.kind === 'known'
+          ? JSON.stringify(['known', occurrenceKey({ instancePath: at.known.path, node: at.known.node }), at.known.input.spec.id])
+          : JSON.stringify(['endpoint', at.path, at.defId, at.endpoint]),
       cycle: (at) => {
+        if (at.kind === 'known') {
+          if (projection === 'exact') sink.push(diag('error', 'compile', 'compile.knownValue.cycle', `${at.known.node}.${at.known.input.spec.id}: the value passes through a cycle`, { anchor: anchorOf(at.known.path, at.known.node) }))
+          return [{ kind: 'dropped', reason: `known value cycle at '${at.known.node}'` }]
+        }
         if (projection === 'exact') {
           if (at.kind === 'bypass') sink.push(diag('error', 'compile', 'compile.bypass.cycle', `bypass passthrough through '${at.bypass.ref.node}' in graph '${at.bypass.defId}' forms a cycle`, { anchor: anchorOf(at.bypass.path, at.bypass.ref.node) }))
           else if (isRerouteRef(at.endpoint)) sink.push(diag('error', 'compile', 'compile.reroute.cycle', `Reroute ${at.endpoint.reroute}: connection chain forms a cycle`))
@@ -1496,7 +1522,35 @@ function compileImpl(
             ? { steps: [{ kind: 'recurse', at: { kind: 'bypass', bypass: resolved.bypass } }] }
             : 'structuralSource' in resolved
               ? { steps: [{ kind: 'recurse', at: { kind: 'endpoint', ...resolved.structuralSource } }] }
+            : 'knownValue' in resolved
+              ? { steps: [{ kind: 'recurse', at: { kind: 'known', known: resolved.knownValue } }] }
             : { steps: [{ kind: 'terminal', terminal: { kind: 'output', src: resolved } }] }
+        }
+        if (at.kind === 'known') {
+          // The node is not invoked. A wired input passes its producer on;
+          // otherwise the input's occurrence-effective value is baked into
+          // the consumer, and an after-run control on it stays the node's own.
+          const { path: knownPath, defId: knownDefId, node: knownNode, input } = at.known
+          // A link from a muted producer is dropped, as it would be if the
+          // node ran, and the node's own value is used.
+          const driver = driverOfInput(knownPath, knownDefId, knownNode, input.address)
+          const deadDriver = driver !== undefined && isPortEndpoint(driver.endpoint) &&
+            resolveOutputPort(driver.path, driver.defId, driver.endpoint, []) === 'muted'
+          if (driver && !deadDriver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: driver.path, defId: driver.defId, endpoint: driver.endpoint } }] }
+          const tapped = tapValue(knownPath, knownDefId, knownNode, input.spec.id, sink)
+          if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `'${knownNode}' is muted` } }] }
+          if (tapped === undefined) {
+            if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.knownValue.novalue', `${knownNode}.${input.spec.id}: the value it passes on is not set`, { anchor: anchorOf(knownPath, knownNode) }))
+            return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `'${knownNode}.${input.spec.id}' has no value` } }] }
+          }
+          const runtimeId = occurrenceKey({ instancePath: knownPath, node: knownNode })
+          const widget = input.spec.widget
+          const sources: readonly ControllerInputSource[] = [
+            ...(controllerSources.get(runtimeId)?.get(input.spec.id) ?? []).map((source) => source.source),
+            { graph: asGraphDefId(knownDefId), occurrence: { instancePath: knownPath, node: knownNode }, valueKey: valueKeyOf(input) },
+          ]
+          return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped.value, typeId: tapped.typeId,
+            ...(widget !== undefined ? { controllerSources: sources, controllerWidget: widget } : {}) } }] }
         }
         const bypass = at.bypass
         const selected = selectBypassHop(bypass, consumerType)
@@ -1677,12 +1731,9 @@ function compileImpl(
       const selectorInputKey = schema.selector === undefined
         ? undefined
         : elab.inputsByValueKey.get(schema.selector.input)?.spec.id
-      const selectorBranchKeys = schema.selector === undefined
+      const selectorMembers = schema.selector === undefined
         ? undefined
-        : {
-            false: elab.inputsByValueKey.get(schema.selector.branches.false)?.spec.id,
-            true: elab.inputsByValueKey.get(schema.selector.branches.true)?.spec.id,
-          }
+        : selectorMembersOf(schema.selector, elab.inputs)
       flat.set(runtimeId, {
         runtimeId,
         occ,
@@ -1691,9 +1742,7 @@ function compileImpl(
         elab,
         ...(schema.selector !== undefined ? { selector: schema.selector } : {}),
         ...(selectorInputKey !== undefined ? { selectorInputKey } : {}),
-        ...(selectorBranchKeys?.false !== undefined && selectorBranchKeys.true !== undefined
-          ? { selectorBranchKeys: { false: selectorBranchKeys.false, true: selectorBranchKeys.true } }
-          : {}),
+        ...(selectorMembers !== undefined ? { selectorMembers } : {}),
         linkedInputs: new Set(),
         inputs: {},
       })
@@ -2107,13 +2156,15 @@ function compileImpl(
         let src: ResolvedOutput | undefined
         let baked: { readonly value: Json; readonly typeId?: string } | undefined
         const routedRandomSelectors = new Set<string>()
-        if (structuralSrc && !('bypass' in structuralSrc) && !('structuralSource' in structuralSrc)) {
+        if (structuralSrc && !('bypass' in structuralSrc) && !('structuralSource' in structuralSrc) && !('knownValue' in structuralSrc)) {
           src = structuralSrc
         } else {
           const routeStart: RouteAt = structuralSrc
             ? 'bypass' in structuralSrc
               ? { kind: 'bypass', bypass: structuralSrc.bypass }
-              : { kind: 'endpoint', ...structuralSrc.structuralSource }
+              : 'knownValue' in structuralSrc
+                ? { kind: 'known', known: structuralSrc.knownValue }
+                : { kind: 'endpoint', ...structuralSrc.structuralSource }
             : { kind: 'endpoint', path, defId, endpoint: c.from }
           const viaFor = (routeDefId: string): TraceVia => ({
             reroutes: new Set(),
@@ -2242,22 +2293,41 @@ function compileImpl(
 
   // -- Scope: full = closure of output nodes; partial = closure of targets ---
 
-  // A lazy selector's decision may be document state or link-fed. Stored
-  // booleans project the inactive branch, with promoted occurrence values
-  // outranking definition-local values. Link-fed decisions stay neutral:
-  // The backend resolves them at runtime, and stale stored values must not prune
-  // either would-run branch. Defaults and non-booleans also remain neutral.
-  // This projection never mutates fn.inputs.
+  // A Switch whose pick is in Random mode rolls one member per occurrence
+  // once the executed scope is known (below). The mode belongs to whoever
+  // owns the pick's value, as for an after-run control: the outermost
+  // subgraph node that promotes it, else the Switch. A pick fed by anything
+  // in the document, even a value baked into it, overrides the mode.
+  // Would-run keeps every member of a random pick, since the roll is not
+  // known until queueing.
+  const randomPicks = new Set<string>()
+  for (const fn of flat.values()) {
+    if (!fn.selector || !fn.selectorInputKey || !fn.selectorMembers || fn.selectorMembers.length === 0) continue
+    const input = fn.elab.inputsByValueKey.get(fn.selector.input)
+    const widget = input?.spec.widget
+    if (!input || widget?.controller === undefined) continue
+    if (driverOfInput(fn.occ.instancePath, fn.graphId, fn.occ.node, input.address)) continue
+    const owner = controllerSources.get(fn.runtimeId)?.get(input.spec.id)?.[0]?.source
+    const ownerNode = owner ? graphOf(owner.graph)?.nodes[owner.occurrence.node] : fn.node
+    const mode = ownerNode?.controllers?.[owner ? owner.valueKey : valueKeyOf(input)] ?? widget.controllerInitial ?? 'randomize'
+    if (mode === 'randomize') randomPicks.add(fn.runtimeId)
+  }
+
+  // A Switch's pick may be document state, a known value baked into it, or
+  // link-fed. A known pick projects the members it leaves out, from the
+  // staged occurrence-effective value. Link-fed and random picks stay
+  // neutral: the backend resolves a link at runtime, and stale stored values
+  // must not prune any would-run branch. A pick the backend would refuse
+  // also stays neutral. This projection never mutates fn.inputs.
   if (wouldRun) {
     for (const fn of flat.values()) {
-      if (!fn.selector || !fn.selectorInputKey || !fn.selectorBranchKeys) continue
-      if (fn.linkedInputs.has(fn.selectorInputKey)) continue
-      const promoted = overrides.get(fn.runtimeId)
-      const choice = promoted?.has(fn.selectorInputKey)
-        ? promoted.get(fn.selectorInputKey)
-        : fn.node.values?.[fn.selector.input]
-      if (typeof choice !== 'boolean') continue
-      fn.selectorProjection = { choice, branches: fn.selectorBranchKeys }
+      if (!fn.selector || !fn.selectorInputKey || !fn.selectorMembers) continue
+      if (fn.linkedInputs.has(fn.selectorInputKey) || randomPicks.has(fn.runtimeId)) continue
+      const staged = fn.inputs[fn.selectorInputKey]
+      const pick = staged === undefined ? undefined : parseTypedLiteralWire(staged)?.value ?? staged
+      const picked = selectedMember(fn.selector, fn.selectorMembers, pick)
+      if (picked === undefined) continue
+      fn.selectorProjection = { inactive: fn.selectorMembers.filter((member) => member !== picked) }
     }
   }
 
@@ -2378,6 +2448,27 @@ function compileImpl(
   // consumers all fall outside it demote to warnings, so a stray unresolved
   // node no longer blocks the runnable rest of the document.
   if (demoteOutOfScopeUnknownSchema) settleUnknownSchema(included)
+
+  // Roll each random pick that runs, before the backend prunes the members
+  // not picked; the choice is recorded so a frozen run and a re-run replay it.
+  if (!wouldRun) for (const runtimeId of randomPicks) {
+    const fn = flat.get(runtimeId)!
+    if (!included.has(runtimeId)) continue
+    const keys = fn.selectorMembers!.map((member) => member.slice(fn.selector!.group.length + 1))
+    let key = options?.candidateOverride?.({ graph: fn.graphId, selector: fn.runtimeId, candidates: keys })
+    if (key === undefined || !keys.includes(key)) {
+      if (!options?.pickCandidate) {
+        diags.push(diag('error', 'compile', 'compile.switch.noChooser', `${fn.node.type}: the pick is random but no pickCandidate chooser was provided`, { anchor: { occurrence: fn.occ } }))
+        continue
+      }
+      const raw = options.pickCandidate({ graph: fn.graphId, selector: fn.runtimeId, count: keys.length })
+      key = keys[Number.isFinite(raw) ? Math.min(keys.length - 1, Math.max(0, Math.floor(raw))) : 0]!
+    }
+    const lowered = lowerWidgetLiteral(fn, fn.elab.inputsByValueKey.get(fn.selector!.input)!, key)
+    if (lowered === undefined) continue
+    fn.inputs[fn.selectorInputKey!] = lowered
+    selectorChoices.push({ graph: fn.graphId, selector: fn.runtimeId, policy: 'random', candidate: key })
+  }
 
   // Several passes report the same unresolved occurrence (collection, link
   // lowering, per-destination routing), each with its own copy so severity
@@ -2595,7 +2686,9 @@ function compileImpl(
       if (input.apiName === undefined) continue
       const literal = literalControllers.get(fn.runtimeId)?.get(input.spec.id)
       const widget = literal?.widget ?? input.spec.widget
-      if (widget?.controller === 'after_generate') {
+      // A random pick was rolled before the run; nothing advances it after.
+      const rolledPick = randomPicks.has(fn.runtimeId) && input.spec.id === fn.selectorInputKey
+      if (widget?.controller === 'after_generate' && !rolledPick) {
         const sources = [...(controllerSources.get(fn.runtimeId)?.get(input.spec.id) ?? [])]
         const terminal: ControllerSource = {
           source: { graph: fn.graphId, occurrence: fn.occ, valueKey: valueKeyOf(input) },
@@ -2719,7 +2812,9 @@ function compileImpl(
       ? projectRoute({ kind: 'bypass', bypass: source.bypass }, 'exact', diags)
       : 'structuralSource' in source
         ? projectRoute({ kind: 'endpoint', ...source.structuralSource }, 'exact', diags)
-        : [{ kind: 'output' as const, src: source }]
+        : 'knownValue' in source
+          ? projectRoute({ kind: 'known', known: source.knownValue }, 'exact', diags)
+          : [{ kind: 'output' as const, src: source }]
     const outputs = resolved.filter((terminal): terminal is Extract<BypassTrace, { readonly kind: 'output' }> => terminal.kind === 'output')
     if (outputs.length !== 1 || resolved.length !== 1) return fail('does not resolve to exactly one body output')
     const output = outputIdOf(outputs[0]!.src)
@@ -2801,21 +2896,19 @@ function compileImpl(
     }
     const outputTypes: Record<string, TypeExpr> = {}
     const outputPorts: Record<string, PortRef> = {}
-    const selectorBranchTypes = fn.selectorBranchKeys === undefined
+    const selectorBranchTypes = fn.selectorMembers === undefined
       ? undefined
-      : [fn.selectorBranchKeys.false, fn.selectorBranchKeys.true].map((key) => {
+      : fn.selectorMembers.map((key) => {
           const value = fn.inputs[key]
           if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== 'string' || typeof value[1] !== 'number') return undefined
           return flat.get(value[0])?.elab.outputs
             .filter((output) => output.wireable !== false)[value[1]]?.spec.type
         })
-    const falseBranchType = selectorBranchTypes?.[0]
-    const trueBranchType = selectorBranchTypes?.[1]
-    const selectorOutputType = falseBranchType !== undefined &&
-        trueBranchType !== undefined &&
-        canonicalTypeIdOf(falseBranchType) !== undefined &&
-        canonicalTypeIdOf(falseBranchType) === canonicalTypeIdOf(trueBranchType)
-      ? falseBranchType
+    const firstBranchType = selectorBranchTypes?.[0]
+    const selectorOutputType = firstBranchType !== undefined &&
+        canonicalTypeIdOf(firstBranchType) !== undefined &&
+        selectorBranchTypes!.every((type) => type !== undefined && canonicalTypeIdOf(type) === canonicalTypeIdOf(firstBranchType))
+      ? firstBranchType
       : undefined
     for (const output of fn.elab.outputs) {
       if (output.wireable === false) continue
@@ -2962,11 +3055,9 @@ function compileImpl(
     for (const [consumerId, connections] of wouldRunVia) {
       if (!included.has(consumerId)) continue
       const consumer = flat.get(consumerId)
-      const inactiveKey = consumer?.selectorProjection
-        ? consumer.selectorProjection.branches[String(!consumer.selectorProjection.choice) as 'false' | 'true']
-        : undefined
+      const inactive = consumer?.selectorProjection?.inactive ?? []
       for (const connection of connections) {
-        if (connection.inputKey === inactiveKey) continue
+        if (inactive.includes(connection.inputKey)) continue
         for (const { defId, via } of connection.entries) {
           let g = acc.get(defId)
           if (!g) acc.set(defId, (g = { reroutes: new Set(), selectors: new Map(), valueSources: new Set() }))

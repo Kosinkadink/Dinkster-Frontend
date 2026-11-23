@@ -4,11 +4,17 @@
  * modifier precedence covered through the pure decision used by pointerdown.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type InteractionHost } from '../src/interaction.js'
+import {
+  asNodeId, coreCommandRegistry, deriveBoundarySchema, documentResolver, DocumentStore, loadDocument, occurrenceDynamicView,
+  type CommandInvocation, type NodeSchema, type WorkflowDocument,
+} from '@dinkster/core'
+import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type CanvasHoverTarget, type InteractionHost } from '../src/interaction.js'
+import { subgraphMarkRect } from '../src/registry-painter.js'
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
-import { BOUNDARY_ADD_SLOT } from '../src/layout.js'
+import { BOUNDARY_ADD_SLOT, layoutNode, type LayoutRow } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
-import { REROUTE_SOCKET_OFFSET, type Scene } from '../src/scene.js'
+import { buildScene, REROUTE_SOCKET_OFFSET, scenesEqual, valueSourceMarkRect, type Scene, type SceneNode } from '../src/scene.js'
+import { layoutNodeBadges, SUBGRAPH_BADGE } from '../src/badges.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
 
@@ -57,8 +63,10 @@ function interactionHarness(
     },
     getToolboxLayout: () => typeof toolbox === 'function' ? toolbox() : toolbox,
     getBadges: () => badges,
+    getNodeBadgeLayout: (node: SceneNode) => layoutNodeBadges(node, badges[node.id] ?? [], { tokens: defaultTokens }),
     getLensCapabilities: () => lensCapabilities,
     getDesignTokens: () => defaultTokens,
+    showsArrivingValue: () => false,
     getOverlay: () => overlay,
     setOverlay: (next: Record<string, unknown>) => {
       overlay = next
@@ -117,6 +125,7 @@ describe('lens widget-row affordance', () => {
       scene.nodes[0]!.layout.width - row.inset * 2,
       defaultTokens.rowHeight,
       row,
+      defaultTokens.rowGeometry,
     )
     const harness = interactionHarness(
       scene,
@@ -169,6 +178,135 @@ describe('lens preview-surface affordance', () => {
   })
 })
 
+describe('preview caption row', () => {
+  const withRegion = (folded: boolean, minimized: boolean, region: 'panel' | 'pending') => {
+    const base = interactionScene()
+    const node = base.nodes[0]!
+    const previewNode = {
+      ...node,
+      ...(folded && !minimized ? { previewFolded: true as const } : {}),
+      ...(!folded && minimized ? { minimizedPreviewOpen: true as const } : {}),
+      layout: {
+        ...node.layout,
+        ...(minimized ? { minimized: true as const } : {}),
+        height: 140,
+        preview: region === 'panel'
+          ? { x: 10, y: 56, width: 80, height: 72 }
+          : { x: 10, y: 56, width: 80, height: 22, compact: true as const },
+      },
+    }
+    return { scene: { ...base, nodes: [previewNode, ...base.nodes.slice(1)] } as Scene, node: previewNode }
+  }
+
+  it('folds or opens the preview on a click, and leaves a drag and a pending caption alone', () => {
+    const open = withRegion(false, false, 'panel')
+    const harness = interactionHarness(open.scene)
+    const x = open.node.x + 50
+    const y = open.node.y + 56 + 11
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointerup', x, y)
+    expect(harness.dispatched).toEqual([{
+      command: 'view.setPreviewFolded',
+      params: { graphId: open.scene.graphId, nodeId: open.node.id, folded: true },
+    }])
+    // A minimized node starts folded: its caption opens it.
+    const minimized = withRegion(true, true, 'pending')
+    const folded = { ...minimized.node, layout: { ...minimized.node.layout, preview: { ...minimized.node.layout.preview!, folded: true as const } } }
+    const minimizedHarness = interactionHarness({ ...minimized.scene, nodes: [folded, ...minimized.scene.nodes.slice(1)] } as Scene)
+    minimizedHarness.fire('pointerdown', x, y)
+    minimizedHarness.fire('pointerup', x, y)
+    expect(minimizedHarness.dispatched).toEqual([{
+      command: 'view.setPreviewFolded',
+      params: { graphId: open.scene.graphId, nodeId: open.node.id, folded: false },
+    }])
+    const dragHarness = interactionHarness(open.scene)
+    dragHarness.fire('pointerdown', x, y)
+    dragHarness.fire('pointermove', x + 30, y + 30)
+    dragHarness.fire('pointerup', x + 30, y + 30)
+    expect(JSON.stringify(dragHarness.dispatched)).not.toContain('view.setPreviewFolded')
+    // "No picture yet", loading and failed captions have nothing to open.
+    const pending = withRegion(false, false, 'pending')
+    const pendingHarness = interactionHarness(pending.scene)
+    pendingHarness.fire('pointerdown', x, y)
+    pendingHarness.fire('pointerup', x, y)
+    expect(pendingHarness.dispatched).toEqual([])
+  })
+
+  it('sizes only the node height from the bottom edge of an open preview, and nothing when it is folded', () => {
+    const open = withRegion(false, false, 'panel')
+    const harness = interactionHarness(open.scene)
+    // Off center, so a corner or width change would show; 2 below the edge.
+    const x = open.node.x + 30
+    const bottom = open.node.y + open.node.layout.height
+    harness.fire('pointermove', x, bottom + 2)
+    expect(harness.overlays.at(-1)).toMatchObject({ previewEdge: open.node.id })
+    harness.fire('pointerdown', x, bottom + 2)
+    harness.fire('pointermove', x + 40, bottom + 32)
+    harness.fire('pointerup', x + 40, bottom + 32)
+    expect(harness.dispatched).toEqual([{
+      command: 'view.setNodeSize',
+      params: {
+        graphId: open.scene.graphId, nodeId: open.node.id,
+        size: { width: open.node.layout.width, height: open.node.layout.height + 30 },
+        position: { x: open.node.x, y: open.node.y },
+      },
+    }])
+    const pending = withRegion(false, false, 'pending')
+    const pendingHarness = interactionHarness(pending.scene)
+    pendingHarness.fire('pointermove', x, bottom + 2)
+    expect(pendingHarness.overlays.at(-1) ?? {}).not.toHaveProperty('previewEdge')
+    pendingHarness.fire('pointerdown', x, bottom + 2)
+    pendingHarness.fire('pointermove', x + 40, bottom + 32)
+    pendingHarness.fire('pointerup', x + 40, bottom + 32)
+    expect(JSON.stringify(pendingHarness.dispatched)).not.toContain('view.setNodeSize')
+  })
+
+  it('steps a pressed bar 10 for a picture and one row for an open text result, and gives a folded text result no bar', () => {
+    const open = withRegion(false, false, 'panel')
+    const x = open.node.x + 30
+    const bottom = open.node.y + open.node.layout.height
+    const size = (height: number) => ({
+      command: 'view.setNodeSize',
+      params: { graphId: open.scene.graphId, nodeId: open.node.id, size: { width: open.node.layout.width, height } },
+    })
+    const picture = interactionHarness(open.scene)
+    picture.fire('pointerdown', x, bottom + 2)
+    picture.fire('pointerup', x, bottom + 2)
+    expect(picture.dispatched).toEqual([])
+    picture.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    picture.fireWindow('keydown', { key: 'ArrowUp', code: 'ArrowUp' })
+    expect(picture.dispatched).toEqual([size(140 + 10), size(140 - 10)])
+    picture.fireWindow('keydown', { key: 'Escape', code: 'Escape' })
+    picture.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(picture.dispatched).toHaveLength(2)
+
+    const { preview: _preview, ...layout } = open.node.layout
+    const withText = (folded: boolean) => {
+      const node = {
+        ...open.node,
+        layout: { ...layout, minHeight: 100, textOutput: { x: 10, y: 56, width: 80, height: folded ? 22 : 72, ...(folded ? { folded: true as const } : {}) } },
+      }
+      return { ...open.scene, nodes: [node, ...open.scene.nodes.slice(1)] } as Scene
+    }
+    const text = interactionHarness(withText(false))
+    text.fire('pointermove', x, bottom + 2)
+    expect(text.overlays.at(-1)).toMatchObject({ previewEdge: open.node.id })
+    text.fire('pointerdown', x, bottom + 2)
+    text.fire('pointerup', x, bottom + 2)
+    text.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(text.dispatched).toEqual([size(140 + defaultTokens.rowHeight)])
+
+    const foldedText = interactionHarness(withText(true))
+    foldedText.fire('pointermove', x, bottom + 2)
+    expect(foldedText.overlays.at(-1) ?? {}).not.toHaveProperty('previewEdge')
+    foldedText.fire('pointerdown', x, bottom + 2)
+    foldedText.fire('pointermove', x + 40, bottom + 32)
+    foldedText.fire('pointerup', x + 40, bottom + 32)
+    foldedText.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(JSON.stringify(foldedText.dispatched)).not.toContain('view.setNodeSize')
+  })
+})
+
 function interactionScene(): Scene {
   const widget = (inputId: string, widgetType: 'INT' | 'FLOAT', value: number, options: Record<string, number> = {}) => ({
     kind: 'widget' as const,
@@ -211,6 +349,13 @@ describe('persistent host overlays', () => {
     controller.dispose()
   })
 })
+
+/** A harness on the card editing look, where a number row draws its mode as a chip. */
+function cardHarness(scene: Scene, hostOverrides: Partial<InteractionHost> = {}) {
+  const harness = interactionHarness(scene, hostOverrides)
+  Object.assign(harness.renderer, { getDesignTokens: () => ({ ...defaultTokens, widgetEditing: 'card' }) })
+  return harness
+}
 
 function controllerScene(mode: 'fixed' | 'increment' | 'decrement' | 'randomize', connected = false): Scene {
   const scene = interactionScene() as any
@@ -559,12 +704,18 @@ describe('canvas hover targets', () => {
     scene.nodes[0].layout.rows[0].spec = { widgetType: 'STRING', options: {}, multiline: true }
     const harness = interactionHarness(scene)
 
-    harness.fire('pointermove', 50, 99)
+    harness.fire('pointermove', 50, 92)
     expect(harness.overlays.at(-1)).toMatchObject({
       hoveredWidget: { nodeId: 'n1', valueKey: 'amount' },
     })
-    harness.fire('pointermove', 50, 103)
+    expect(harness.overlays.at(-1)).not.toHaveProperty('textBoxEdge')
+    // The band along the box's bottom edge belongs to its height bar.
+    harness.fire('pointermove', 50, 99)
+    expect(harness.overlays.at(-1)).toMatchObject({ textBoxEdge: { nodeId: 'n1', valueKey: 'amount' } })
     expect(harness.overlays.at(-1)).not.toHaveProperty('hoveredWidget')
+    harness.fire('pointermove', 50, 106)
+    expect(harness.overlays.at(-1)).not.toHaveProperty('hoveredWidget')
+    expect(harness.overlays.at(-1)).not.toHaveProperty('textBoxEdge')
   })
 
   it('idle hover over a visible widget tap sets tap identity on the second tap move and clears on leave and scene replacement', () => {
@@ -720,10 +871,10 @@ describe('canvas hover targets', () => {
 
   it('emits a badge before the underlying node header', () => {
     const hover = vi.fn()
-    const badge = { id: 'core.error', glyph: '!', color: '#f00' }
+    const badge = { id: 'core.subgraph', glyph: 'Subgraph', placement: 'title' as const, color: '#f00' }
     const harness = interactionHarness(interactionScene(), { onHoverTarget: hover }, { n1: [badge] })
 
-    // n1 badge rect: x=88..102, y=13..27. This is also inside the header.
+    // n1 mark rect: x=84..100, y=12..28. This is also inside the header.
     harness.fire('pointermove', 95, 20)
 
     expect(hover).toHaveBeenCalledWith(expect.objectContaining({
@@ -1165,6 +1316,135 @@ describe('node-body link drops', () => {
     expect(overlay.bodyDropNode).toBeUndefined()
     harness.fire('pointerup', 250, 35)
     expect(harness.dispatched).toEqual([])
+  })
+})
+
+describe('link drops on a field row', () => {
+  const FLOAT = { kind: 'concrete', name: 'FLOAT' }
+  const INT = { kind: 'concrete', name: 'INT' }
+  const row = (inputId: string, type: object, y: number, inset = 9.5, width?: number) => ({
+    kind: 'widget', inputId, valueKey: inputId, label: inputId, type, y, height: 24, inset,
+    ...(width !== undefined ? { width } : {}),
+    spec: { widgetType: (type as any).name, options: {}, default: 0 },
+  })
+  const pin = (portId: string, direction: 'in' | 'out', y: number, type: object, extra: object = {}) =>
+    ({ portId, address: { port: portId }, direction, y, type, ...extra })
+  // n2 (x 200..300, y 10..130): a plain FLOAT input declared first, then
+  // rows steps (INT), cfg (FLOAT), and one line holding seed (INT) beside
+  // denoise (FLOAT). n1 offers a FLOAT output at (110, 32) and a FLOAT
+  // input at (10, 48).
+  const fieldScene = (): Scene => {
+    const scene = interactionScene() as any
+    scene.reroutes = []
+    scene.valueSources = []
+    scene.selectors = []
+    scene.nodes[0].layout.pins = [pin('out', 'out', 22, FLOAT), pin('in', 'in', 38, FLOAT)]
+    scene.nodes[1].node.values = { steps: 20, cfg: 7, seed: 1, denoise: 1 }
+    scene.nodes[1].layout = {
+      ...scene.nodes[1].layout,
+      height: 120,
+      rows: [
+        row('steps', INT, 20),
+        row('cfg', FLOAT, 44),
+        row('seed', INT, 68, 9.5, 31),
+        row('denoise', FLOAT, 68, 59.5, 31),
+      ],
+      pins: [
+        pin('first', 'in', 24, FLOAT),
+        pin('steps', 'in', 32, INT, { widgetBacked: true }),
+        pin('cfg', 'in', 56, FLOAT, { widgetBacked: true }),
+        pin('seed', 'in', 74, INT, { widgetBacked: true }),
+        pin('denoise', 'in', 86, FLOAT, { widgetBacked: true }),
+        pin('steps', 'out', 32, INT, { widgetTap: true }),
+        pin('cfg', 'out', 56, FLOAT, { widgetTap: true }),
+        pin('result', 'out', 110, FLOAT),
+      ],
+    }
+    return scene
+  }
+  const CFG_ROW = { x: 250, y: 66 }
+
+  it('wires the fitting field under the pointer and outlines that row, not the node', () => {
+    const harness = interactionHarness(fieldScene())
+    harness.fire('pointerdown', 110, 32)
+    harness.fire('pointermove', CFG_ROW.x, CFG_ROW.y)
+    const overlay = harness.overlays.at(-1) as any
+    expect(overlay.dropRow).toEqual({ nodeId: 'n2', valueKey: 'cfg' })
+    expect(overlay.bodyDropNode).toBeUndefined()
+    expect([...overlay.dropTargets]).toEqual(['n2:cfg:in'])
+    expect(overlay.ghostLink).toMatchObject({ x2: 200, y2: 66 })
+    harness.fire('pointerup', CFG_ROW.x, CFG_ROW.y)
+    expect(harness.dispatched.at(-1)).toMatchObject({
+      command: 'link.connect', params: { to: { node: 'n2', port: 'cfg' } },
+    })
+  })
+
+  it('replaces the wire of a field that already has one, though a free input fits', () => {
+    const scene = fieldScene() as any
+    scene.links = [{
+      id: 'old', from: { kind: 'port', node: 'other', port: 'out' },
+      to: { kind: 'port', node: 'n2', port: 'cfg' }, x1: 0, y1: 0, x2: 0, y2: 0,
+    }]
+    const harness = interactionHarness(scene)
+    harness.fire('pointerdown', 110, 32)
+    harness.fire('pointermove', CFG_ROW.x, CFG_ROW.y)
+    expect((harness.overlays.at(-1) as any).dropRow).toEqual({ nodeId: 'n2', valueKey: 'cfg' })
+    harness.fire('pointerup', CFG_ROW.x, CFG_ROW.y)
+    expect(harness.dispatched.at(-1)).toMatchObject({
+      command: 'link.connect', params: { to: { node: 'n2', port: 'cfg' } },
+    })
+  })
+
+  it('sends a drop on a field that does not fit to the next free input that fits', () => {
+    const harness = interactionHarness(fieldScene())
+    harness.fire('pointerdown', 110, 32)
+    harness.fire('pointermove', 250, 42)
+    const overlay = harness.overlays.at(-1) as any
+    expect(overlay.dropRow).toBeUndefined()
+    expect(overlay.bodyDropNode).toBe('n2')
+    expect([...overlay.dropTargets]).toEqual(['n2:first:in'])
+    harness.fire('pointerup', 250, 42)
+    expect(harness.dispatched.at(-1)).toMatchObject({
+      command: 'link.connect', params: { to: { node: 'n2', port: 'first' } },
+    })
+  })
+
+  it('tries the fields on the same line before the rest of the node', () => {
+    const harness = interactionHarness(fieldScene())
+    harness.fire('pointerdown', 110, 32)
+    harness.fire('pointermove', 225, 90)
+    const overlay = harness.overlays.at(-1) as any
+    expect(overlay.dropRow).toBeUndefined()
+    expect(overlay.bodyDropNode).toBe('n2')
+    expect([...overlay.dropTargets]).toEqual(['n2:denoise:in'])
+    harness.fire('pointerup', 225, 90)
+    expect(harness.dispatched.at(-1)).toMatchObject({
+      command: 'link.connect', params: { to: { node: 'n2', port: 'denoise' } },
+    })
+  })
+
+  it('keeps the declared order for a drop on the title', () => {
+    const harness = interactionHarness(fieldScene())
+    harness.fire('pointerdown', 110, 32)
+    harness.fire('pointermove', 250, 20)
+    expect((harness.overlays.at(-1) as any).dropRow).toBeUndefined()
+    harness.fire('pointerup', 250, 20)
+    expect(harness.dispatched.at(-1)).toMatchObject({
+      command: 'link.connect', params: { to: { node: 'n2', port: 'first' } },
+    })
+  })
+
+  it("gives a wire dragged back from an input the field's own value, not the node's first output", () => {
+    const harness = interactionHarness(fieldScene())
+    harness.fire('pointerdown', 10, 48)
+    harness.fire('pointermove', CFG_ROW.x, CFG_ROW.y)
+    const overlay = harness.overlays.at(-1) as any
+    expect(overlay.dropRow).toEqual({ nodeId: 'n2', valueKey: 'cfg' })
+    expect([...overlay.dropTargets]).toEqual(['n2:cfg:out:tap'])
+    harness.fire('pointerup', CFG_ROW.x, CFG_ROW.y)
+    expect(harness.dispatched.at(-1)).toMatchObject({
+      command: 'link.connect', params: { from: { node: 'n2', tap: 'cfg' }, to: { node: 'n1', port: 'in' } },
+    })
   })
 })
 
@@ -2305,8 +2585,8 @@ describe('gesture ownership and cancellation', () => {
   it('a re-press after a dropped release commits the stale drag and starts fresh', () => {
     const harness = interactionHarness(interactionScene())
     harness.controller.enablePointerTrace()
-    harness.fire('pointerdown', 30, 15, { buttons: 1, pointerType: 'mouse' })
-    harness.fire('pointermove', 50, 35, { buttons: 1, pointerType: 'mouse' })
+    harness.fire('pointerdown', 60, 15, { buttons: 1, pointerType: 'mouse' })
+    harness.fire('pointermove', 80, 35, { buttons: 1, pointerType: 'mouse' })
     // The release was dropped while the pointer was stationary; the next
     // press of the same button arrives over empty canvas.
     harness.fire('pointerdown', 150, 15, { buttons: 1, pointerType: 'mouse' })
@@ -2325,8 +2605,8 @@ describe('gesture ownership and cancellation', () => {
   it('a re-press on a stuck motionless press cancels the stale gesture', () => {
     const harness = interactionHarness(interactionScene())
     harness.controller.enablePointerTrace()
-    harness.fire('pointerdown', 30, 15, { buttons: 1, pointerType: 'mouse' })
-    harness.fire('pointerdown', 30, 15, { buttons: 1, pointerType: 'mouse' })
+    harness.fire('pointerdown', 60, 15, { buttons: 1, pointerType: 'mouse' })
+    harness.fire('pointerdown', 60, 15, { buttons: 1, pointerType: 'mouse' })
     expect(harness.dispatched).toEqual([])
     expect(harness.controller.dumpPointerTrace()).toEqual(expect.arrayContaining([
       expect.objectContaining({ gestureKind: 'node', event: 'cancel', reason: 'pointerdown-repress' }),
@@ -2875,6 +3155,82 @@ describe('group resizing', () => {
   })
 })
 
+describe('dragging a number row', () => {
+  const inRowHarness = (scene: Scene, overrides: Partial<InteractionHost> = {}) => {
+    const harness = interactionHarness(scene, overrides)
+    const rowDrags: unknown[] = []
+    Object.assign(harness.renderer, {
+      getDesignTokens: () => ({ ...defaultTokens, widgetEditing: 'in-row' }),
+      setRowDrag: (drag: unknown) => rowDrags.push(drag),
+    })
+    return { ...harness, rowDrags }
+  }
+  const stepsScene = () => {
+    const scene = interactionScene() as any
+    scene.nodes[0].node.values.amount = 20
+    scene.nodes[0].layout.rows[0].spec = { widgetType: 'INT', options: { min: 1, max: 10000 }, default: 20 }
+    scene.nodes[0].layout.rows[0].viewId = 'core.number'
+    return scene as Scene
+  }
+
+  it('moves one step per 4 pixels, stores once on release, and opens nothing', () => {
+    const activate = vi.fn()
+    const harness = inRowHarness(stepsScene(), { onWidgetActivate: activate })
+    harness.fire('pointerdown', 60, 35)
+    harness.fire('pointermove', 80, 35)
+    harness.fire('pointermove', 100, 35)
+    expect(harness.rowDrags.at(-1)).toEqual({ nodeId: 'n1', valueKey: 'amount', value: 30 })
+    harness.fire('pointerup', 100, 35)
+    expect(harness.dispatched).toEqual([
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 30 } },
+    ])
+    expect(harness.rowDrags.at(-1)).toBeUndefined()
+    expect(activate).not.toHaveBeenCalled()
+  })
+
+  it('stores nothing when the pointer returns to the press point, and a short press still opens the field', () => {
+    const activate = vi.fn()
+    const harness = inRowHarness(stepsScene(), { onWidgetActivate: activate })
+    harness.fire('pointerdown', 60, 35)
+    harness.fire('pointermove', 140, 35)
+    harness.fire('pointermove', 60, 35)
+    harness.fire('pointerup', 60, 35)
+    harness.fire('pointerdown', 60, 35)
+    harness.fire('pointermove', 63, 35)
+    harness.fire('pointerup', 63, 35)
+    expect(harness.dispatched).toEqual([])
+    expect(activate).toHaveBeenCalledOnce()
+  })
+
+  it('puts a slider value under the pointer', () => {
+    const scene = interactionScene() as any
+    scene.nodes[0].node.values.amount = 0.2
+    scene.nodes[0].layout.rows[0].spec = { widgetType: 'FLOAT', options: { min: 0, max: 1, step: 0.01, display: 'slider' }, default: 0.5 }
+    scene.nodes[0].layout.rows[0].width = 81
+    scene.nodes[0].layout.rows[0].viewId = 'core.slider'
+    const harness = inRowHarness(scene)
+    // The row starts at world x 19.5 (node x 10 + inset 9.5) and is 81 wide.
+    harness.fire('pointerdown', 30, 35)
+    harness.fire('pointermove', 80, 35)
+    harness.fire('pointerup', 80, 35)
+    expect(harness.dispatched).toEqual([
+      { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 0.75 } },
+    ])
+  })
+
+  it('leaves a drag inert under card editing and on touch', () => {
+    const card = cardHarness(stepsScene())
+    card.fire('pointerdown', 60, 35)
+    card.fire('pointermove', 100, 35)
+    card.fire('pointerup', 100, 35)
+    const touch = inRowHarness(stepsScene())
+    touch.fire('pointerdown', 60, 35, { pointerType: 'touch' })
+    touch.fire('pointermove', 100, 35, { pointerType: 'touch' })
+    touch.fire('pointerup', 100, 35, { pointerType: 'touch' })
+    expect([...card.dispatched, ...touch.dispatched]).toEqual([])
+  })
+})
+
 describe('numeric widget steppers', () => {
   it('routes a forwarded suffix member value to its occurrence owner', () => {
     const scene = interactionScene() as any
@@ -3027,31 +3383,45 @@ describe('numeric widget steppers', () => {
 })
 
 describe('after-generate controller chip', () => {
+  it('opens the field, not the menu, from the chip\'s place on a number row edited in place', () => {
+    const activated: unknown[] = []
+    const opened: unknown[] = []
+    const harness = interactionHarness(controllerScene('increment'), {
+      onControllerActivate: (hit) => activated.push(hit),
+      onWidgetActivate: (hit) => opened.push(hit),
+    })
+    harness.fire('pointerdown', 65, 35)
+    harness.fire('pointerup', 65, 35)
+    expect(activated).toEqual([])
+    expect(opened).toHaveLength(1)
+    expect(harness.dispatched).toEqual([])
+  })
+
   it('reports the chip as its own tooltip target', () => {
     const targets: unknown[] = []
-    const harness = interactionHarness(controllerScene('fixed'), { onHoverTarget: (target) => targets.push(target) })
-    harness.fire('pointermove', 81, 35)
+    const harness = cardHarness(controllerScene('fixed'), { onHoverTarget: (target) => targets.push(target) })
+    harness.fire('pointermove', 65, 35)
     expect(targets.at(-1)).toMatchObject({ kind: 'controller' })
   })
 
   it.each(['fixed', 'increment', 'decrement', 'randomize'] as const)('opens the detail menu from the %s chip', (current) => {
     const activated: unknown[] = []
-    const harness = interactionHarness(controllerScene(current), { onControllerActivate: (hit) => activated.push(hit) })
-    harness.fire('pointerdown', 81, 35)
-    harness.fire('pointerup', 81, 35)
+    const harness = cardHarness(controllerScene(current), { onControllerActivate: (hit) => activated.push(hit) })
+    harness.fire('pointerdown', 65, 35)
+    harness.fire('pointerup', 65, 35)
     expect(activated).toHaveLength(1)
     expect(harness.dispatched).toEqual([])
   })
 
   it('keeps a link-driven controller chip inert because advancement skips linked values', () => {
-    const harness = interactionHarness(controllerScene('increment', true))
-    harness.fire('pointerdown', 81, 35)
-    harness.fire('pointerup', 81, 35)
+    const harness = cardHarness(controllerScene('increment', true))
+    harness.fire('pointerdown', 65, 35)
+    harness.fire('pointerup', 65, 35)
     expect(harness.dispatched).toEqual([])
   })
 
   it('keeps the right edge stepper distinct from the controller chip', () => {
-    const harness = interactionHarness(controllerScene('increment'))
+    const harness = cardHarness(controllerScene('increment'))
     harness.fire('pointerdown', 100, 35)
     harness.fire('pointerup', 100, 35)
     expect(harness.dispatched).toEqual([{
@@ -3103,15 +3473,93 @@ describe('node title double-click minimization', () => {
     })
   })
 
-  it('keeps subgraph opening ahead of minimization', () => {
+  it('minimizes a subgraph node from its title and enters it only from its mark', () => {
     const scene = interactionScene()
     const subgraph = { ...scene.nodes[0]!, isSubgraph: true }
     const open = vi.fn()
-    const harness = interactionHarness({ ...scene, nodes: [subgraph, ...scene.nodes.slice(1)] }, {
-      onOpenSubgraph: open,
-    })
+    const badgeClick = vi.fn()
+    const harness = interactionHarness(
+      { ...scene, nodes: [subgraph, ...scene.nodes.slice(1)] },
+      { onOpenSubgraph: open, onBadgeClick: badgeClick },
+      { n1: [SUBGRAPH_BADGE] },
+    )
     harness.fire('dblclick', 50, 15)
+    expect(open).not.toHaveBeenCalled()
+    expect(harness.dispatched).toEqual([{
+      command: 'view.setNodeCollapsed',
+      params: { graphId: 'g0', nodeIds: ['n1'], collapsed: true },
+    }])
+    harness.fire('dblclick', 50, 40)
+    expect(open).not.toHaveBeenCalled()
+
+    // The mark is drawn 20 px at x 80..100; its target is the same 20 px.
+    harness.fire('pointerdown', 81, 20)
+    expect(badgeClick).not.toHaveBeenCalled()
+    harness.fire('pointerup', 81, 20)
+    expect(badgeClick).toHaveBeenCalledWith(subgraph, SUBGRAPH_BADGE, { x: 80, y: 10, width: 20, height: 20 })
+    harness.fire('dblclick', 92, 20)
     expect(open).toHaveBeenCalledWith(subgraph)
+    expect(harness.dispatched).toHaveLength(1)
+  })
+
+  it('drags a node from its subgraph mark without opening the panel', () => {
+    const badgeClick = vi.fn()
+    const harness = interactionHarness(interactionScene(), { onBadgeClick: badgeClick }, { n1: [SUBGRAPH_BADGE] })
+    harness.fire('pointerdown', 92, 20, { buttons: 1 })
+    harness.fire('pointermove', 112, 40, { buttons: 1 })
+    harness.fire('pointerup', 112, 40)
+    expect(badgeClick).not.toHaveBeenCalled()
+    expect(harness.dispatched).toEqual([
+      { command: 'node.move', params: { graphId: 'g0', positions: { n1: { x: 30, y: 30 } } } },
+    ])
+  })
+
+  it('toggles from the title-bar arrow for the selection, or for an unselected node alone', () => {
+    const scene = interactionScene()
+    const harness = interactionHarness(scene)
+    const clickArrow = () => {
+      harness.fire('pointerdown', 24, 20, { buttons: 1 })
+      harness.fire('pointerup', 24, 20)
+    }
+    harness.controller.setSelection(['n2'])
+    clickArrow()
+    expect(harness.dispatched.at(-1)).toEqual({
+      command: 'view.setNodeCollapsed',
+      params: { graphId: 'g0', nodeIds: ['n1'], collapsed: true },
+    })
+    expect([...harness.controller.getSelection()]).toEqual(['n2'])
+
+    // Any open node in the selection minimizes all of them.
+    harness.swapScene({ ...scene, nodes: [{ ...scene.nodes[0]!, layout: { ...scene.nodes[0]!.layout, minimized: true as const } }, scene.nodes[1]!] })
+    harness.controller.setSelection(['n1', 'n2'])
+    clickArrow()
+    expect(harness.dispatched.at(-1)).toEqual({
+      command: 'view.setNodeCollapsed',
+      params: { graphId: 'g0', nodeIds: ['n1', 'n2'], collapsed: true },
+    })
+    expect([...harness.controller.getSelection()]).toEqual(['n1', 'n2'])
+
+    // Each click of a double-click already toggled; the double-click adds nothing.
+    harness.fire('dblclick', 24, 20)
+    expect(harness.dispatched).toHaveLength(2)
+  })
+
+  it('moves the node when the press on the arrow drags', () => {
+    const harness = interactionHarness(interactionScene())
+    harness.fire('pointerdown', 24, 20, { buttons: 1 })
+    harness.fire('pointermove', 44, 40, { buttons: 1 })
+    harness.fire('pointerup', 44, 40)
+    expect(harness.dispatched).toEqual([
+      { command: 'node.move', params: { graphId: 'g0', positions: { n1: { x: 30, y: 30 } } } },
+    ])
+  })
+
+  it('takes no arrow click at the overview zoom', () => {
+    const harness = interactionHarness(interactionScene())
+    harness.setViewportTransform(0, 0, 0.25)
+    // World (24, 20), the arrow's middle, at a quarter scale.
+    harness.fire('pointerdown', 6, 5, { buttons: 1 })
+    harness.fire('pointerup', 6, 5)
     expect(harness.dispatched).toEqual([])
   })
 
@@ -3553,12 +4001,12 @@ describe('two-finger touch navigation', () => {
   it('a second finger cancels a one-finger touch drag instead of committing it', () => {
     const harness = interactionHarness(interactionScene())
     harness.controller.enablePointerTrace()
-    harness.fire('pointerdown', 30, 15, { ...touch, pointerId: 1 })
-    harness.fire('pointermove', 50, 35, { ...touch, pointerId: 1 })
+    harness.fire('pointerdown', 60, 15, { ...touch, pointerId: 1 })
+    harness.fire('pointermove', 80, 35, { ...touch, pointerId: 1 })
     harness.fire('pointerdown', 300, 300, { ...touch, pointerId: 2 })
     harness.fire('pointermove', 320, 300, { ...touch, pointerId: 2 })
     expect(setViewportMock(harness)).toHaveBeenCalledTimes(1)
-    harness.fire('pointerup', 50, 35, { pointerType: 'touch', pointerId: 1 })
+    harness.fire('pointerup', 80, 35, { pointerType: 'touch', pointerId: 1 })
     harness.fire('pointerup', 320, 300, { pointerType: 'touch', pointerId: 2 })
     // The interrupted node drag never dispatches: cancelled, not committed.
     expect(harness.dispatched).toEqual([])
@@ -3684,5 +4132,477 @@ describe('two-finger touch navigation', () => {
     harness.fire('pointerdown', 200, 100, { ...touch, pointerId: 6 })
     harness.fire('pointermove', 300, 100, { ...touch, pointerId: 6 })
     expect(setViewportMock(harness)).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a wire dragged from the Inputs panel to a field', () => {
+  const int = { kind: 'concrete', name: 'INT' } as const
+  const image = { kind: 'concrete', name: 'IMAGE' } as const
+  const blur: NodeSchema = {
+    type: 'Blur', displayName: 'Blur', category: 'test', source: 'v3', isOutputNode: true,
+    body: [
+      { kind: 'input', id: 'image', type: image, optional: false },
+      { kind: 'input', id: 'radius', type: int, optional: false, widget: { widgetType: 'INT', options: {}, default: 4 } },
+      { kind: 'output', id: 'IMAGE', type: image },
+    ],
+  }
+  const document = (): WorkflowDocument => ({
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'inputs-panel-field', root: 'g0',
+    graphs: {
+      g0: { id: 'g0', name: 'Root', nextOrdinal: 5, nodes: { s: { id: 's', type: '#sub', values: {} } }, links: {}, nets: {}, reroutes: {} },
+      sub: {
+        id: 'sub', name: 'Soften', nextOrdinal: 5, links: {}, nets: {}, reroutes: {},
+        nodes: { blur: { id: 'blur', type: 'Blur', values: { radius: 6 } } },
+        boundary: { inputs: [], outputs: [] },
+      },
+    },
+    view: { graphs: { sub: { nodes: { blur: { position: { x: 300, y: 100 } } } } } },
+  } as unknown as WorkflowDocument)
+  const resolve = (type: string) => (type === 'Blur' ? blur : undefined)
+  const sceneOf = (doc: WorkflowDocument) => buildScene({
+    document: doc, graphId: 'sub', resolve: documentResolver(doc, resolve), tokens: defaultTokens,
+    measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+  })
+
+  it('gives the subgraph node a field, with the wire drawn', () => {
+    const store = new DocumentStore(document(), coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    const scene = sceneOf(store.doc)
+    const panel = scene.boundaryNodes.find((node) => node.side === 'inputs')!
+    const slot = panel.layout.pins.find((pin) => pin.portId === BOUNDARY_ADD_SLOT)!
+    const node = scene.nodes.find((candidate) => candidate.id === 'blur')!
+    const field = node.layout.pins.find((pin) => pin.direction === 'in' && pin.portId === 'radius')!
+    const harness = interactionHarness(scene, { dispatch: (invocation) => store.dispatch(invocation) })
+    harness.fire('pointerdown', panel.x + panel.layout.width, panel.y + slot.y)
+    harness.fire('pointermove', node.x + 40, node.y + field.y)
+    harness.fire('pointermove', node.x, node.y + field.y)
+    harness.fire('pointerup', node.x, node.y + field.y)
+
+    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true }])
+    const derived = deriveBoundarySchema(store.doc.graphs.sub!, documentResolver(store.doc, resolve)).schema
+    expect(derived?.body.find((item) => item.kind === 'input' && item.id === 'radius')).toMatchObject({ widget: { widgetType: 'INT', default: 6 } })
+    expect(sceneOf(store.doc).links.filter((link) => link.boundary === true).map((link) => link.to))
+      .toEqual([{ kind: 'port', node: 'blur', port: 'radius' }])
+  })
+
+  it('draws a field shown without its wire with no wire or pin and the subgraph mark, until a wire is dragged to it', () => {
+    const store = new DocumentStore(document(), coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    expect(store.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'blur', port: 'radius' } }).ok).toBe(true)
+    const hidden = sceneOf(store.doc)
+    const panel = hidden.boundaryNodes.find((node) => node.side === 'inputs')!
+    const markOf = (rows: readonly LayoutRow[]) => {
+      const row = rows.find((candidate) => candidate.kind === 'widget' && candidate.address.port === 'radius')
+      return row?.kind === 'widget' ? row.subgraphMark : undefined
+    }
+    const blurNode = (scene: Scene) => scene.nodes.find((candidate) => candidate.id === 'blur')!
+    expect(hidden.links.filter((link) => link.boundary === true).map((link) => [link.to, link.hidden]))
+      .toEqual([[{ kind: 'port', node: 'blur', port: 'radius' }, true]])
+    expect(panel.layout.pins.map((pin) => pin.portId)).toEqual([BOUNDARY_ADD_SLOT])
+    expect(markOf(panel.layout.rows)).toEqual({ item: 'radius', label: 'radius' })
+    expect(markOf(blurNode(hidden).layout.rows)).toEqual({ item: 'radius', label: 'radius' })
+
+    const slot = panel.layout.pins.find((pin) => pin.portId === BOUNDARY_ADD_SLOT)!
+    const node = blurNode(hidden)
+    const field = node.layout.pins.find((pin) => pin.direction === 'in' && pin.portId === 'radius')!
+    const harness = interactionHarness(hidden, { dispatch: (invocation) => store.dispatch(invocation) })
+    harness.fire('pointerdown', panel.x + panel.layout.width, panel.y + slot.y)
+    harness.fire('pointermove', node.x + 40, node.y + field.y)
+    harness.fire('pointermove', node.x, node.y + field.y)
+    harness.fire('pointerup', node.x, node.y + field.y)
+
+    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'radius', binds: { kind: 'port', node: 'blur', port: 'radius' }, promoted: true }])
+    const wired = sceneOf(store.doc)
+    expect(wired.links.filter((link) => link.boundary === true).map((link) => [link.to, link.hidden]))
+      .toEqual([[{ kind: 'port', node: 'blur', port: 'radius' }, undefined]])
+    expect(markOf(blurNode(wired).layout.rows)).toBeUndefined()
+  })
+
+  it('names the row when the mark is hovered and selects it when the mark is clicked', () => {
+    const store = new DocumentStore(document(), coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    store.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'blur', port: 'radius' } })
+    const scene = sceneOf(store.doc)
+    const panel = scene.boundaryNodes.find((node) => node.side === 'inputs')!
+    const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget')! as Extract<LayoutRow, { kind: 'widget' }>
+    const width = row.width ?? panel.layout.width - row.inset * 2
+    const mark = subgraphMarkRect(row, width, defaultTokens.rowHeight, defaultTokens, false, true)
+    const markX = panel.x + row.inset + mark.x + mark.size / 2
+    const rowY = panel.y + row.y + mark.y + mark.size / 2
+    const hovers: CanvasHoverTarget[] = []
+    const activated: string[] = []
+    const harness = interactionHarness(scene, {
+      onHoverTarget: (target) => { if (target !== undefined) hovers.push(target) },
+      onSubgraphMarkActivate: (item) => activated.push(item),
+    })
+
+    harness.fire('pointermove', markX, rowY)
+    expect(hovers.at(-1)?.kind).toBe('subgraphMark')
+    harness.fire('pointerdown', markX, rowY)
+    harness.fire('pointerup', markX, rowY)
+    expect(activated).toEqual(['radius'])
+    expect(harness.dispatched).toEqual([])
+
+    // The rest of the row stays the field: hovering its name is not the mark.
+    harness.fire('pointermove', markX + mark.size * 2, rowY)
+    expect(hovers.at(-1)?.kind).toBe('widget')
+  })
+})
+
+describe('Inputs panel fields', () => {
+  const blur: NodeSchema = {
+    type: 'Blur', displayName: 'Blur', category: 'test', source: 'v3', isOutputNode: false,
+    body: [
+      { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
+      { kind: 'input', id: 'radius', type: { kind: 'concrete', name: 'INT' }, optional: false,
+        widget: { widgetType: 'INT', options: { min: 0, max: 64 }, default: 4 } },
+      { kind: 'output', id: 'IMAGE', type: { kind: 'concrete', name: 'IMAGE' } },
+    ],
+  }
+  const workflow = (): WorkflowDocument => loadDocument({
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-fields', root: 'g0',
+    graphs: {
+      g0: {
+        id: 'g0', name: 'Root', nextOrdinal: 3, links: {}, nets: {}, reroutes: {},
+        nodes: {
+          soft: { id: 'soft', type: '#g1', values: { radius: 6 } },
+          strong: { id: 'strong', type: '#g1', values: { radius: 12 } },
+        },
+      },
+      g1: {
+        id: 'g1', name: 'Soften', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+        nodes: { inner: { id: 'inner', type: 'Blur', values: {} } },
+        boundary: {
+          inputs: [
+            { id: 'image', binds: { kind: 'port', node: 'inner', port: 'image' } },
+            { id: 'radius', binds: { kind: 'port', node: 'inner', port: 'radius' }, promoted: true },
+          ],
+          outputs: [{ id: 'image_out', binds: { kind: 'port', node: 'inner', port: 'IMAGE' } }],
+        },
+      },
+    },
+    view: { graphs: { g0: { nodes: {} }, g1: { nodes: { inner: { position: { x: 400, y: 100 } } } } } },
+  }).document as WorkflowDocument
+
+  /** The definition's canvas, entered through `node` or, without it, from no node. */
+  const panelScene = (doc: WorkflowDocument, node?: string): Scene => {
+    const resolve = documentResolver(doc, (type) => type === 'Blur' ? blur : undefined)
+    return buildScene({
+      document: doc, graphId: 'g1', resolve, tokens: defaultTokens,
+      measure: (text) => text.length * 6,
+      widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+      ...(node === undefined ? {} : {
+        occurrence: { owner: { instancePath: [], node: asNodeId(node) }, plannerAvailable: false },
+        occurrenceView: occurrenceDynamicView(doc, resolve, [node]),
+      }),
+    })
+  }
+
+  /** Press the plus stepper of the panel's radius field and commit what it dispatches. */
+  const pressPlus = (store: DocumentStore, node?: string): Scene => {
+    const scene = panelScene(store.doc, node)
+    const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+    const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'radius')
+    if (row?.kind !== 'widget') throw new Error('expected a radius field on the Inputs panel')
+    const width = row.width ?? panel.layout.width - row.inset * 2
+    const x = panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2
+    const y = panel.y + row.y + defaultTokens.rowHeight / 2
+    const harness = interactionHarness(scene)
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointerup', x, y)
+    expect(harness.dispatched).toHaveLength(1)
+    expect(store.dispatch(harness.dispatched[0] as CommandInvocation).ok).toBe(true)
+    return scene
+  }
+  const radiusOf = (store: DocumentStore, graph: string, node: string) => store.doc.graphs[graph]!.nodes[node]!.values['radius']
+
+  it('edits the entered node\'s value in one undo step', () => {
+    const store = new DocumentStore(workflow(), coreCommandRegistry())
+    const scene = pressPlus(store, 'soft')
+    expect(scene.boundaryNodes[0]!.layout.subtitle).toBe('of Soften')
+    expect(radiusOf(store, 'g0', 'soft')).toBe(7)
+    expect(radiusOf(store, 'g0', 'strong')).toBe(12)
+    expect(radiusOf(store, 'g1', 'inner')).toBeUndefined()
+    expect(store.undo()).toBe(true)
+    expect(radiusOf(store, 'g0', 'soft')).toBe(6)
+  })
+
+  it('keeps each subgraph node of one definition to its own value', () => {
+    const store = new DocumentStore(workflow(), coreCommandRegistry())
+    pressPlus(store, 'strong')
+    expect(radiusOf(store, 'g0', 'strong')).toBe(13)
+    expect(radiusOf(store, 'g0', 'soft')).toBe(6)
+    const panel = panelScene(store.doc, 'soft').boundaryNodes[0]!
+    expect(panel.fields?.node.values['radius']).toBe(6)
+  })
+
+  it('edits the defaults a new subgraph node starts with when entered from no node', () => {
+    const store = new DocumentStore(workflow(), coreCommandRegistry())
+    const scene = pressPlus(store)
+    expect(scene.boundaryNodes[0]!.layout.subtitle).toBe('defaults')
+    expect(radiusOf(store, 'g1', 'inner')).toBe(5)
+    expect(radiusOf(store, 'g0', 'soft')).toBe(6)
+    expect(radiusOf(store, 'g0', 'strong')).toBe(12)
+  })
+
+  it('shows a promoted value source as a field: the entered node\'s value, else the source\'s, edited where it is owned', () => {
+    const doc = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-sources', root: 'g0',
+      graphs: {
+        g0: {
+          id: 'g0', name: 'Root', nextOrdinal: 4, links: {}, nets: {}, reroutes: {},
+          nodes: {
+            set: { id: 'set', type: '#g1', values: { strength: 6 } },
+            unset: { id: 'unset', type: '#g1', values: {} },
+            outer: { id: 'outer', type: '#g2', values: { amount: 20 } },
+          },
+        },
+        g1: {
+          id: 'g1', name: 'Soften', nextOrdinal: 3, nets: {}, reroutes: {},
+          nodes: { inner: { id: 'inner', type: 'Blur', values: {} } },
+          valueSources: { s0: { id: 's0', value: 3 } },
+          links: { l0: { id: 'l0', from: { valueSource: 's0' }, to: { node: 'inner', port: 'radius' } } },
+          boundary: {
+            inputs: [{ id: 'strength', promoted: true, binds: { kind: 'valueSource', valueSource: 's0', type: { kind: 'concrete', name: 'INT' } } }],
+            outputs: [{ id: 'image_out', binds: { kind: 'port', node: 'inner', port: 'IMAGE' } }],
+          },
+        },
+        g2: {
+          id: 'g2', name: 'Wrap', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+          nodes: { mid: { id: 'mid', type: '#g1', values: { strength: 9 } } },
+          boundary: { inputs: [{ id: 'amount', promoted: true, binds: { kind: 'port', node: 'mid', port: 'strength' } }], outputs: [] },
+        },
+      },
+      view: { graphs: { g0: { nodes: {} }, g1: { nodes: { inner: { position: { x: 400, y: 100 } } }, valueSources: { s0: { position: { x: 200, y: 100 } } } }, g2: { nodes: {} } } },
+    }).document as WorkflowDocument
+    const store = new DocumentStore(doc, coreCommandRegistry())
+    /** Entered along `path` (none: from no node): the field's value and the value its pill shows arriving, after one plus press. */
+    const press = (path: readonly string[]): readonly [unknown, CommandInvocation, unknown] => {
+      const resolve = documentResolver(store.doc, (type) => type === 'Blur' ? blur : undefined)
+      const scene = buildScene({
+        document: store.doc, graphId: 'g1', resolve, tokens: defaultTokens,
+        measure: (text) => text.length * 6,
+        widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+        ...(path.length === 0 ? {} : {
+          occurrence: { owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!) }, plannerAvailable: false },
+          occurrenceView: occurrenceDynamicView(store.doc, resolve, path),
+        }),
+      })
+      const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+      const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'strength')
+      if (row?.kind !== 'widget') throw new Error('expected a strength field on the Inputs panel')
+      const width = row.width ?? panel.layout.width - row.inset * 2
+      const harness = interactionHarness(scene)
+      harness.fire('pointerdown', panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2, panel.y + row.y + defaultTokens.rowHeight / 2)
+      harness.fire('pointerup', panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2, panel.y + row.y + defaultTokens.rowHeight / 2)
+      expect(harness.dispatched).toHaveLength(1)
+      const invocation = harness.dispatched[0] as CommandInvocation
+      expect(store.dispatch(invocation).ok).toBe(true)
+      return [panel.fields!.node.values['strength'], invocation, scene.valueSources.find((vs) => vs.id === 's0')?.arriving?.value]
+    }
+    const source = () => store.doc.graphs['g1']!.valueSources!['s0']!.value
+    const value = (graph: string, node: string, key: string) => store.doc.graphs[graph]!.nodes[node]!.values[key]
+
+    // The pill shows the value the entered node sends, as an arriving value.
+    expect(press(['set'])).toEqual([6, expect.anything(), 6])
+    expect(value('g0', 'set', 'strength')).toBe(7)
+    expect(press(['unset'])).toEqual([3, expect.anything(), 3])
+    expect(value('g0', 'unset', 'strength')).toBe(4)
+    // One level down, the outer node that promotes the input owns its value.
+    expect(press(['outer', 'mid'])).toEqual([20, expect.anything(), 20])
+    expect(value('g0', 'outer', 'amount')).toBe(21)
+    expect(value('g2', 'mid', 'strength')).toBe(9)
+    expect(source()).toBe(3)
+    // From no node the field is the source's own value, its default.
+    const [shown, invocation, arriving] = press([])
+    expect(shown).toBe(3)
+    expect(arriving).toBeUndefined()
+    expect(invocation.command).toBe('valueSource.setValue')
+    expect(source()).toBe(4)
+    expect(store.undo()).toBe(true)
+    expect(source()).toBe(3)
+  })
+
+  it('marks a value source shown as a field: a pinless panel row, and its pill while a node is entered', () => {
+    const doc = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-source-mark', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'Root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: { set: { id: 'set', type: '#g1', values: { strength: 6 } } } },
+        g1: {
+          id: 'g1', name: 'Soften', nextOrdinal: 3, nets: {}, reroutes: {},
+          nodes: { inner: { id: 'inner', type: 'Blur', values: {} } },
+          valueSources: { s0: { id: 's0', value: 3 } },
+          links: { l0: { id: 'l0', from: { valueSource: 's0' }, to: { node: 'inner', port: 'radius' } } },
+          boundary: {
+            inputs: [{ id: 'strength', promoted: true, binds: { kind: 'valueSource', valueSource: 's0', type: { kind: 'concrete', name: 'INT' } } }],
+            outputs: [{ id: 'image_out', binds: { kind: 'port', node: 'inner', port: 'IMAGE' } }],
+          },
+        },
+      },
+      view: { graphs: { g0: { nodes: {} }, g1: { nodes: { inner: { position: { x: 400, y: 100 } } }, valueSources: { s0: { position: { x: 200, y: 100 } } } } } },
+    }).document as WorkflowDocument
+    const resolve = documentResolver(doc, (type) => type === 'Blur' ? blur : undefined)
+    const sceneOf = (entered: boolean) => buildScene({
+      document: doc, graphId: 'g1', resolve, tokens: defaultTokens,
+      measure: (text) => text.length * 6,
+      widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+      ...(entered ? {
+        occurrence: { owner: { instancePath: [], node: asNodeId('set') }, plannerAvailable: false },
+        occurrenceView: occurrenceDynamicView(doc, resolve, ['set']),
+      } : {}),
+    })
+    for (const entered of [true, false]) {
+      const scene = sceneOf(entered)
+      const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+      const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'strength') as Extract<LayoutRow, { kind: 'widget' }>
+      // The row's pin could start no wire, so the row has none either way.
+      expect(row.subgraphMark?.item).toBe('strength')
+      expect(panel.layout.pins.some((pin) => pin.portId === 'strength')).toBe(false)
+      expect(scene.valueSources.find((vs) => vs.id === 's0')!.subgraphMark).toEqual(entered ? row.subgraphMark : undefined)
+    }
+
+    const scene = sceneOf(true)
+    const pill = scene.valueSources.find((vs) => vs.id === 's0')!
+    const mark = valueSourceMarkRect(pill, defaultTokens.padX)
+    const hovers: CanvasHoverTarget[] = []
+    const activated: string[] = []
+    const opened: string[] = []
+    const harness = interactionHarness(scene, {
+      onHoverTarget: (target) => { if (target !== undefined) hovers.push(target) },
+      onSubgraphMarkActivate: (item) => activated.push(item),
+      onValueSourceActivate: (vs) => opened.push(vs.id),
+    })
+    const click = (x: number, y: number) => {
+      harness.fire('pointerdown', x, y)
+      harness.fire('pointerup', x, y)
+    }
+    harness.fire('pointermove', mark.x + mark.size / 2, mark.y + mark.size / 2)
+    expect(hovers.at(-1)).toMatchObject({ kind: 'subgraphMark', mark: { item: 'strength' } })
+    click(mark.x + mark.size / 2, mark.y + mark.size / 2)
+    expect(activated).toEqual(['strength'])
+    expect(opened).toEqual([])
+    // Off the mark the pill still opens as before.
+    click(pill.x + pill.width - 24, pill.y + pill.height / 2)
+    expect(activated).toEqual(['strength'])
+    expect(opened).toEqual(['s0'])
+  })
+
+  it('rebuilds to an equal scene, so an unrelated document change keeps a drag in progress', () => {
+    const doc = workflow()
+    expect(scenesEqual(panelScene(doc, 'soft'), panelScene(doc, 'soft'))).toBe(true)
+  })
+
+  it('keeps the subgraph mark of a field wired outside the subgraph clickable', () => {
+    const doc = structuredClone(workflow()) as any
+    doc.graphs.g1.boundary.inputs[1].wireHidden = true
+    doc.graphs.g0.links = { l: { id: 'l', from: { node: 'strong', port: 'image_out' }, to: { node: 'soft', port: 'radius' } } }
+    const scene = panelScene(doc as WorkflowDocument, 'soft')
+    const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+    expect(Object.hasOwn(panel.fields!.wired, 'radius')).toBe(true)
+    const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'radius') as Extract<LayoutRow, { kind: 'widget' }>
+    expect(row.subgraphMark?.item).toBe('radius')
+    const width = row.width ?? panel.layout.width - row.inset * 2
+    const mark = subgraphMarkRect(row, width, defaultTokens.rowHeight, defaultTokens, panel.fields!.wired['radius']!.value !== undefined, true)
+    const x = panel.x + row.inset + mark.x + mark.size / 2
+    const y = panel.y + row.y + mark.y + mark.size / 2
+    const hovers: CanvasHoverTarget[] = []
+    const activated: string[] = []
+    const harness = interactionHarness(scene, {
+      onHoverTarget: (target) => { if (target !== undefined) hovers.push(target) },
+      onSubgraphMarkActivate: (item) => activated.push(item),
+    })
+    harness.fire('pointermove', x, y)
+    expect(hovers.at(-1)?.kind).toBe('subgraphMark')
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointerup', x, y)
+    expect(activated).toEqual(['radius'])
+  })
+
+  it('shows a promoted input reached through a reroute as a field of the entered node', () => {
+    const base = workflow()
+    const sub = base.graphs['g1']!
+    const store = new DocumentStore({ ...base, graphs: { ...base.graphs, g1: {
+      ...sub,
+      reroutes: { r: { id: 'r' } },
+      links: { leg: { id: 'leg', from: { reroute: 'r' }, to: { node: 'inner', port: 'radius' } } },
+      boundary: { ...sub.boundary!, inputs: sub.boundary!.inputs.map((item) => item.id === 'radius'
+        ? { ...item, binds: { kind: 'port', node: 'inner', port: 'radius', viaReroute: 'r' } } : item) },
+    } } } as unknown as WorkflowDocument, coreCommandRegistry())
+    pressPlus(store, 'soft')
+    expect(radiusOf(store, 'g0', 'soft')).toBe(7)
+    expect(radiusOf(store, 'g0', 'strong')).toBe(12)
+    expect(radiusOf(store, 'g1', 'inner')).toBeUndefined()
+  })
+})
+
+describe('text box height', () => {
+  const text = (id: string): NodeSchema['body'][number] => ({
+    kind: 'input',
+    id,
+    type: { kind: 'concrete', name: 'STRING' },
+    optional: false,
+    widget: { widgetType: 'STRING', options: { multiline: true } },
+  })
+  const schema: NodeSchema = {
+    type: 'Prompt', displayName: 'Prompt', category: 'test', source: 'v3', isOutputNode: false,
+    body: [text('first'), text('second')],
+  }
+  const sceneWith = (size?: { width: number; height: number }): Scene => {
+    const node = { id: asNodeId('n1'), type: 'Prompt', values: {} }
+    const layout = layoutNode(schema, node, defaultTokens, (value) => value.length * 6,
+      () => ({ viewId: 'core.text', rows: 2 }), size === undefined ? {} : { size })
+    return {
+      graphId: 'g',
+      nodes: [{ id: 'n1', x: 0, y: 0, layout, node, isSubgraph: false }],
+      links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
+    } as unknown as Scene
+  }
+  const lines = defaultTokens.multilineText.lineHeight
+
+  it('drags one box taller in whole lines while the node keeps its other rows and resize surplus', () => {
+    const natural = sceneWith().nodes[0]!.layout
+    const scene = sceneWith({ width: natural.width, height: natural.height + 50 })
+    const first = scene.nodes[0]!.layout.rows[0]!
+    const edgeY = first.y + first.height - 3
+    const harness = interactionHarness(scene)
+
+    harness.fire('pointerdown', 60, edgeY)
+    harness.fire('pointermove', 60, edgeY + 3 * lines + 4)
+    expect(harness.overlays.at(-1)).toMatchObject({
+      textBoxLines: { nodeId: 'n1', valueKey: 'first', lines: 5 },
+      textBoxEdge: { nodeId: 'n1', valueKey: 'first' },
+    })
+    harness.fire('pointerup', 60, edgeY + 3 * lines + 4)
+    // One undo step: the box's lines, and the node's stored height moved by
+    // the same three lines so the second box keeps its 50 px surplus.
+    expect(harness.dispatched).toEqual([{
+      command: 'batch',
+      params: {
+        invocations: [
+          { command: 'view.setTextBoxLines', params: { graphId: 'g', nodeId: 'n1', inputId: 'first', lines: 5 } },
+          {
+            command: 'view.setNodeSize',
+            params: { graphId: 'g', nodeId: 'n1', size: { width: natural.width, height: natural.height + 50 + 3 * lines } },
+          },
+        ],
+      },
+    }])
+  })
+
+  it('steps a focused edge one line per arrow key and stops at two lines', () => {
+    const scene = sceneWith()
+    const second = scene.nodes[0]!.layout.rows[1]!
+    const harness = interactionHarness(scene)
+    harness.fire('pointerdown', 60, second.y + second.height - 3)
+    harness.fire('pointerup', 60, second.y + second.height - 3)
+    expect(harness.dispatched).toEqual([])
+
+    harness.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(harness.dispatched).toEqual([
+      { command: 'view.setTextBoxLines', params: { graphId: 'g', nodeId: 'n1', inputId: 'second', lines: 3 } },
+    ])
+    // Two lines is the floor: stepping up from the declared two changes nothing.
+    harness.fireWindow('keydown', { key: 'ArrowUp', code: 'ArrowUp' })
+    expect(harness.dispatched).toHaveLength(1)
+    harness.fireWindow('keydown', { key: 'Escape', code: 'Escape' })
+    harness.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+    expect(harness.dispatched).toHaveLength(1)
   })
 })

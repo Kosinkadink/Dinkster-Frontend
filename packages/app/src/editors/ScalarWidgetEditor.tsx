@@ -1,6 +1,7 @@
 import {
-  createMemo,
+  createEffect,
   createSignal,
+  on,
   onCleanup,
   Show,
   type Component,
@@ -11,19 +12,13 @@ import {
   numericStepConstraints,
   type Json,
 } from '@dinkster/core'
-import { defaultTokens } from '@dinkster/canvas'
-import type {
-  TextCompletion,
-  TextCompletionInventoryLoadingState,
-  TextCompletionInventoryRequestHandle,
-  TextCompletionInventorySettledState,
-  TextWidgetEditorContext,
-  TextWidgetEditorExtension,
-} from '@dinkster/widgets'
+import { canvasPaintTokens, defaultTokens } from '@dinkster/canvas'
 import { Check, X } from 'lucide-solid'
 import { floatKind, floatSliderView, intKind } from '@dinkster/widgets'
 import { ProductSlider } from '../ProductSlider.js'
 import { ColorWidgetEditor } from './ColorWidgetEditor.js'
+import { InRowFieldImplementation } from './InRowFieldEditor.js'
+import { createTextCompletions, type TextControl } from './text-completions.js'
 import {
   WidgetEditorController,
   type WidgetEditorImplementationProps,
@@ -32,13 +27,7 @@ import {
 } from '../WidgetEditorController.js'
 import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from '../ProductForm.js'
 import { Icon } from '../Icon.js'
-import {
-  createSuggestionInteraction,
-  SuggestionSurface,
-  type SuggestionSurfaceItem,
-  type SuggestionSurfaceState,
-} from '../SuggestionSurface.js'
-import { editorScreenAnchor } from '../widget-editor-position.js'
+import { canvasBaselineRow, devicePixelSnap, domFirstBaseline, editorScreenAnchor } from '../widget-editor-position.js'
 import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, widgetCommitError } from '../widget-commit.js'
 
 export function isInNodeTextEditor(ed: WidgetEditorState): boolean {
@@ -46,24 +35,6 @@ export function isInNodeTextEditor(ed: WidgetEditorState): boolean {
     ed.spec?.widgetType === 'STRING' && ed.multiline
 }
 
-interface CompletionEntry extends SuggestionSurfaceItem {
-  readonly completion: TextCompletion
-  readonly provider?: TextWidgetEditorExtension
-}
-
-interface CompletionContext {
-  readonly text: string
-  readonly caret: number
-  readonly isCurrent?: () => boolean
-}
-
-type ReadyInventory = Extract<TextCompletionInventorySettledState, { readonly status: 'ready' }>
-type CompletionSession =
-  | { readonly status: 'idle' }
-  | (CompletionContext & Exclude<TextCompletionInventoryLoadingState | TextCompletionInventorySettledState, ReadyInventory>)
-  | (CompletionContext & Omit<ReadyInventory, 'items'> & { readonly entries: readonly CompletionEntry[] })
-
-type TextControl = HTMLInputElement | HTMLTextAreaElement
 
 const scalarStrategies = {
   INT: (raw: string) => parseNumericCommit(raw, 'INT'),
@@ -85,21 +56,21 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   let popover: HTMLDivElement | undefined
   onCleanup(() => { live = false })
 
-  const commitTarget = (value: Json): void => {
-    if (!live || props.commitPending()) return
+  /** Resolves true once the editor is closed, false while it stays open. */
+  const commitTarget = (value: Json): Promise<boolean> => {
+    if (!live || props.commitPending()) return Promise.resolve(false)
     if (text && typeof value === 'string' && ed.target.kind === 'input') {
       const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
       const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
       const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
       const current = ed.tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[inputId]
       const resolution = resolveTextCommit(ed.initial, value, current)
-      if (resolution.kind === 'none') { props.close(); return }
+      if (resolution.kind === 'none') { props.close(); return Promise.resolve(true) }
       if (resolution.kind === 'splice') {
-        void props.commitCommand({ command: 'text.splice', params: { graphId, nodeId, inputId, ...resolution.splice } })
-        return
+        return props.commitCommand({ command: 'text.splice', params: { graphId, nodeId, inputId, ...resolution.splice } })
       }
     }
-    props.commitValue(value)
+    return props.commitValue(value)
   }
 
   const parse = (raw: string): Json | undefined => {
@@ -134,119 +105,53 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
     return value
   }
 
-  const commit = (raw: string, closeOnInvalid = false, skipUnchanged = false): void => {
-    if (!live || props.commitPending()) return
+  // A field cannot always show a text as it is stored: a one-line field drops
+  // line breaks, and a text box gives "\r\n" back as "\n". Whether the person
+  // changed a text is judged against what its field showed when it opened, so
+  // a text left unchanged stores nothing, however the field is left.
+  let shown: string | undefined
+  const commit = (field: TextControl, closeOnInvalid = false, skipUnchanged = false): Promise<boolean> => {
+    if (!live) return Promise.resolve(false)
+    if (text && field.value === shown) { props.close(); return Promise.resolve(true) }
+    if (props.commitPending()) return Promise.resolve(false)
     setError(undefined)
-    const value = parse(raw)
-    if (value === undefined) { if (closeOnInvalid) props.close(); return }
+    const value = parse(field.value)
+    if (value === undefined) {
+      if (closeOnInvalid) props.close()
+      return Promise.resolve(closeOnInvalid)
+    }
     if (skipUnchanged) {
       let initial = ed.initial
       if (ed.spec === undefined) {
         try { initial = JSON.parse(String(initial)) as Json } catch { initial = undefined }
       }
-      if (jsonSameValue(value, initial)) { props.close(); return }
+      if (jsonSameValue(value, initial)) { props.close(); return Promise.resolve(true) }
     }
-    commitTarget(value)
+    return commitTarget(value)
   }
 
-  const [session, setSession] = createSignal<CompletionSession>({ status: 'idle' })
-  const entries = createMemo(() => session().status === 'ready' ? (session() as Extract<CompletionSession, { status: 'ready' }>).entries : [])
-  const open = () => session().status !== 'idle'
-  const surfaceState = createMemo<SuggestionSurfaceState<CompletionEntry>>(() => {
-    const state = session()
-    if (state.status === 'loading') return { status: 'loading' }
-    if (state.status === 'ready') return { status: 'ready', items: state.entries }
-    if (state.status === 'error') return { status: 'error', message: state.message }
-    return { status: 'empty' }
-  })
-  const interaction = createSuggestionInteraction<CompletionEntry>()
-  let controller: AbortController | undefined
-  let serial = 0
-  let completionAnchor: TextControl | undefined
+  const completions = createTextCompletions(host, () => live)
+  const { open, entries, interaction, requestCompletions, completionHandlers, completionKeyDown, Suggestions } = completions
 
-  const completionContext = (): TextWidgetEditorContext | undefined => {
-    if (!text || ed.spec === undefined || ed.target.kind !== 'input') return undefined
-    const nodeType = ed.tab.store.doc.graphs[ed.graphId]?.nodes[ed.target.nodeId]?.type
-    return nodeType === undefined ? undefined : {
-      graphId: ed.graphId, nodeId: ed.target.nodeId, inputId: ed.target.valueKey, nodeType, spec: ed.spec,
-    }
-  }
-  const closeCompletions = (): void => {
-    serial += 1; controller?.abort(); controller = undefined
-    setSession({ status: 'idle' }); interaction.reset()
-  }
-  onCleanup(closeCompletions)
-
-  const openSession = (handle: TextCompletionInventoryRequestHandle, request: CompletionContext & { textarea: TextControl; providerByCompletion?: ReadonlyMap<TextCompletion, TextWidgetEditorExtension> }): void => {
-    const requestSerial = ++serial
-    const context = { text: request.text, caret: request.caret, ...(request.isCurrent === undefined ? {} : { isCurrent: request.isCurrent }) }
-    setSession({ ...handle.loading, ...context }); interaction.reset()
-    void handle.settled.then((settled) => {
-      if (!live || requestSerial !== serial) return
-      if (request.textarea.value !== request.text || (request.textarea.selectionStart ?? request.textarea.value.length) !== request.caret || settled === undefined) {
-        setSession({ status: 'idle' }); return
-      }
-      if (settled.status === 'ready') {
-        const found = [...settled.items].sort((a, b) => a.sourceOrder - b.sourceOrder)
-          .filter((item) => item.filterText.startsWith(settled.query)).map(({ completion }) => {
-            const provider = request.providerByCompletion?.get(completion)
-            return { id: provider === undefined ? `inventory:${completion.id}` : `${provider.id}:${completion.id}`, label: completion.label, ...(completion.detail === undefined ? {} : { detail: completion.detail }), completion, ...(provider === undefined ? {} : { provider }) }
-          })
-        setSession(found.length === 0 ? { status: 'empty', scopeId: settled.scopeId, query: settled.query, ...context } : { status: 'ready', scopeId: settled.scopeId, query: settled.query, ...context, entries: found })
-      } else setSession({ ...settled, ...context })
-      interaction.reset()
-    })
-  }
-
-  const requestCompletions = (textarea: TextControl, trigger: string): void => {
-    const context = completionContext()
-    if (context === undefined) return
-    controller?.abort(); controller = new AbortController()
-    const text = textarea.value
-    const caret = textarea.selectionStart ?? text.length
-    const inventory = host.app.liveEmbeddingAndLoraInventory.load({ text, caret, signal: controller.signal })
-    if (inventory !== undefined) {
-      openSession(inventory, { textarea, text, caret, isCurrent: () => host.app.liveEmbeddingAndLoraInventory.isScopeCurrent(inventory.loading.scopeId) })
+  // In the multiline box Ctrl+Enter stores the text and then runs the
+  // workflow, as it does everywhere. Where rows are edited in place, Tab
+  // stores it and opens the next or previous row of the node; a tab
+  // character cannot be typed. The suggestion list keeps the first Tab.
+  const multilineKeyDown = (event: KeyboardEvent & { currentTarget: HTMLTextAreaElement }): void => {
+    if (!event.isComposing && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault()
+      const queue = host.app.commands.get('workflow.queue')
+      void commit(event.currentTarget).then((closed) => { if ((closed || !live) && queue?.enabled?.() !== false) queue?.run() })
       return
     }
-    const providers = host.app.textEditorExtensionRegistry.providersFor(context)
-    if (providers.length === 0) { closeCompletions(); return }
-    const currentController = controller
-    const providerMap = new Map<TextCompletion, TextWidgetEditorExtension>()
-    const scopeId = `text-editor-extensions:${providers.map((provider) => provider.id).join(',')}`
-    const settled = Promise.all(providers.map(async (provider) => {
-      try { return await provider.complete({ ...context, text, caret, trigger, signal: currentController.signal }) }
-      catch (reason) { if (!currentController.signal.aborted) console.error(`text editor extension '${provider.id}' completion failed`, reason); return [] }
-    })).then((results): TextCompletionInventorySettledState | undefined => {
-      if (currentController.signal.aborted) return undefined
-      const active = new Set(host.app.textEditorExtensionRegistry.providersFor(context))
-      let sourceOrder = 0
-      const items = results.flatMap((completions, index) => active.has(providers[index]!) ? completions.map((completion) => {
-        providerMap.set(completion, providers[index]!)
-        return { completion, filterText: completion.label.normalize('NFKC').toLocaleLowerCase(), sourceOrder: sourceOrder++ }
-      }) : [])
-      return items.length === 0 ? undefined : { status: 'ready', scopeId, query: '', items }
-    })
-    openSession({ loading: { status: 'loading', scopeId, query: '' }, settled }, { textarea, text, caret, providerByCompletion: providerMap })
+    if (completionKeyDown(event)) return
+    const moveRow = host.moveRow
+    if (event.isComposing || event.key !== 'Tab' || moveRow === undefined || ed.target.kind !== 'input') return
+    event.preventDefault()
+    const from = { nodeId: ed.target.nodeId, valueKey: ed.target.valueKey }
+    const direction = event.shiftKey ? -1 : 1
+    void commit(event.currentTarget).then((closed) => { if (closed || !live) moveRow(from, direction) })
   }
-
-  const accept = (textarea: TextControl, entry: CompletionEntry): void => {
-    const state = session()
-    const context = completionContext()
-    if (state.status !== 'ready' || textarea.value !== state.text || (textarea.selectionStart ?? textarea.value.length) !== state.caret || state.isCurrent?.() === false ||
-      (entry.provider !== undefined && (context === undefined || !host.app.textEditorExtensionRegistry.providersFor(context).includes(entry.provider)))) { closeCompletions(); return }
-    const { start, end, text } = entry.completion.replacement
-    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || end > textarea.value.length) { closeCompletions(); return }
-    textarea.value = `${textarea.value.slice(0, start)}${text}${textarea.value.slice(end)}`
-    textarea.setSelectionRange(start + text.length, start + text.length)
-    closeCompletions()
-  }
-
-  const completionHandlers = {
-    input: (event: InputEvent & { currentTarget: TextControl }) => requestCompletions(event.currentTarget, typeof event.data === 'string' ? event.data : event.currentTarget.value.at((event.currentTarget.selectionStart ?? 0) - 1) ?? ''),
-  }
-  const Suggestions = () => <Show when={open() && completionAnchor !== undefined}><SuggestionSurface ariaLabel="Text suggestions" anchor={completionAnchor!} {...(host.boundary === undefined ? {} : { boundary: host.boundary })} state={surfaceState()} interaction={interaction} onAccept={(entry) => accept(completionAnchor!, entry)} /></Show>
-  const completionKeyDown = (event: KeyboardEvent & { currentTarget: TextControl }): boolean => interaction.onKeyDown(event, entries(), event.currentTarget, (entry) => accept(event.currentTarget, entry), closeCompletions)
 
   const clickAway = (): void => {
     if (ed.spec !== undefined && ed.multiline && !list) {
@@ -255,17 +160,81 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
     }
     const field = popover?.querySelector<TextControl>('input, textarea')
     if (field == null || field.value === initialText) props.close()
-    else commit(field.value, true, true)
+    else commit(field, true, true)
   }
   host.bindClickAway?.(clickAway)
   onCleanup(() => host.bindClickAway?.(undefined))
 
   if (isInNodeTextEditor(ed)) {
-    const anchor = () => editorScreenAnchor(ed.rect, host.viewport())
+    // The canvas draws at the viewport offset rounded to device pixels.
+    const anchor = () => {
+      const viewport = host.viewport()
+      const ratio = window.devicePixelRatio || 1
+      return editorScreenAnchor(ed.rect, { ...viewport, x: Math.round(viewport.x * ratio) / ratio, y: Math.round(viewport.y * ratio) / ratio })
+    }
     const scale = () => host.viewport().scale
-    return <div class="widget-editor widget-editor-in-node" data-testid="widget-editor" data-editor-target="input" data-editor-mode="STRING" data-editor-surface="in-node" role="dialog" aria-label={`Edit ${ed.label} STRING`} style={{ left: `${anchor().x}px`, top: `${anchor().y}px`, width: `${anchor().width}px`, height: `${anchor().height}px`, padding: `${2 * scale()}px 0`, 'border-radius': `${4 * scale()}px` }}>
-      <div class="widget-editor-in-node-surface"><span class="widget-editor-in-node-label" style={{ width: '100%', height: `${defaultTokens.multilineText.labelHeight * scale()}px`, 'font-size': `${defaultTokens.fontSize * scale()}px`, 'padding-left': `${6 * scale()}px` }}>{ed.label}</span>
-        <textarea aria-label={`Edit ${ed.label}`} aria-autocomplete="list" aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={open() ? interaction.statusId : undefined} aria-expanded={open()} aria-activedescendant={interaction.activeOptionId(entries())} ref={(el) => { completionAnchor = el; queueMicrotask(() => el.focus()) }} value={String(ed.initial ?? '')} style={{ 'font-family': defaultTokens.fontFamily, 'font-size': `${defaultTokens.multilineText.fontSize * scale()}px`, 'line-height': `${defaultTokens.multilineText.lineHeight * scale()}px`, padding: `${defaultTokens.multilineText.padding * scale()}px`, width: `calc(100% - ${defaultTokens.multilineText.scrollbarInset * scale()}px)`, 'align-self': 'flex-start', 'scrollbar-gutter': 'stable', '--multiline-scrollbar-width': `${defaultTokens.multilineText.scrollbarWidth * scale()}px` }} onInput={(event) => completionHandlers.input(event as InputEvent & { currentTarget: TextControl })} onClick={(event) => requestCompletions(event.currentTarget, '')} onKeyUp={(event) => { if (entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onBlur={(event) => event.currentTarget.value === String(ed.initial ?? '') ? props.close() : commit(event.currentTarget.value)} onKeyDown={(event) => { if (!event.isComposing && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); commit(event.currentTarget.value); return } completionKeyDown(event) }} />
+    const [snap, setSnap] = createSignal({ x: 0, y: 0 })
+    const [lift, setLift] = createSignal({ label: 0, text: 0 })
+    const box = defaultTokens.multilineText
+    const edge = canvasPaintTokens.widget.textBoxEdge
+    let root: HTMLDivElement | undefined
+    let label!: HTMLSpanElement
+    let field!: HTMLTextAreaElement
+    // The label and the first line of text move onto the very rows the
+    // canvas painted them on, so opening the box moves no pixel of either.
+    const align = () => {
+      if (root === undefined) return
+      setSnap(devicePixelSnap(root))
+      const origin = root.getBoundingClientRect().top - anchor().y
+      const row = (px: number, center: number) => origin + canvasBaselineRow(px, defaultTokens.fontFamily, scale(), anchor().y + center * scale())
+      const current = lift()
+      setLift({
+        label: current.label + domFirstBaseline(label) - row(defaultTokens.fontSize, box.labelHeight / 2),
+        text: current.text + domFirstBaseline(field) - row(box.fontSize, box.labelHeight + box.padding + box.lineHeight / 2),
+      })
+    }
+    createEffect(on(() => host.viewport(), align, { defer: true }))
+    // The canvas paints a box from its first line, so the box opens there, with
+    // the cursor where a click landed; focusing would scroll to the cursor.
+    const placeCaret = (element: HTMLTextAreaElement): void => {
+      if (ed.caret !== undefined) {
+        const at = document.caretPositionFromPoint?.(ed.caret.x, ed.caret.y)
+        const offset = at?.offsetNode === element ? at.offset : 0
+        element.setSelectionRange(offset, offset)
+      }
+      element.focus({ preventScroll: true })
+      element.scrollTop = 0
+      measureScroll()
+      element.addEventListener('scroll', measureScroll)
+      element.addEventListener('input', measureScroll)
+    }
+    // The scrollbar the canvas paints for text that does not fit, drawn the
+    // same way and following the scroll, in node units.
+    const [scroll, setScroll] = createSignal<{ readonly top: number; readonly height: number } | undefined>(undefined)
+    const measureScroll = (): void => {
+      const track = ed.rect.height - box.labelHeight
+      const visible = track - box.padding * 2
+      const content = field.scrollHeight / scale() - box.padding * 2
+      if (content <= visible + 0.5) {
+        setScroll(undefined)
+        return
+      }
+      const height = Math.min(track, Math.max(box.scrollbarWidth * canvasPaintTokens.widget.scrollbarMinThumbRatio, track * visible / content))
+      const range = field.scrollHeight - field.clientHeight
+      setScroll({ top: range > 0 ? field.scrollTop / range * (track - height) : 0, height })
+    }
+    return <div ref={(el) => { root = el; queueMicrotask(align) }} class="widget-editor widget-editor-in-node" data-testid="widget-editor" data-editor-target="input" data-editor-mode="STRING" data-editor-surface="in-node" role="dialog" aria-label={`Edit ${ed.label} STRING`} style={{ left: `${anchor().x + snap().x}px`, top: `${anchor().y + snap().y}px`, width: `${anchor().width}px`, height: `${anchor().height}px`, 'border-radius': `${4 * scale()}px`, '--box-label': `${box.labelHeight * scale()}px`, '--box-padding': `${box.padding * scale()}px`, '--box-scrollbar-width': `${box.scrollbarWidth * scale()}px`, '--box-scrollbar-inset': `${box.scrollbarInset * scale()}px`, '--box-track-height': `${(ed.rect.height - box.labelHeight) * scale()}px`, '--box-thumb-top': `${(scroll()?.top ?? 0) * scale()}px`, '--box-thumb-height': `${(scroll()?.height ?? 0) * scale()}px`, '--box-edge-left': `${(ed.rect.width - edge.width) / 2 * scale()}px`, '--box-edge-top': `${(ed.rect.height + (ed.rowInsetY ?? 0) - edge.bottomOffset) * scale()}px`, '--box-edge-width': `${edge.width * scale()}px`, '--box-edge-height': `${edge.height * scale()}px`, '--box-edge-radius': `${edge.radius * scale()}px` }}>
+      <div class="widget-editor-in-node-surface"><span ref={label} class="widget-editor-in-node-label" style={{ width: '100%', height: `${box.labelHeight * scale()}px`, 'font-family': defaultTokens.fontFamily, 'font-size': `${defaultTokens.fontSize * scale()}px`, 'padding-left': `${6 * scale()}px`, position: 'relative', top: `${-lift().label}px` }}>{ed.label}</span>
+        <textarea aria-label={`Edit ${ed.label}`} aria-autocomplete="list" aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={open() ? interaction.statusId : undefined} aria-expanded={open()} aria-activedescendant={interaction.activeOptionId(entries())} ref={(el) => { field = el; completions.anchor(el); queueMicrotask(() => { shown = el.value; placeCaret(el) }) }} value={String(ed.initial ?? '')} style={{ 'font-family': defaultTokens.fontFamily, 'font-size': `${box.fontSize * scale()}px`, 'line-height': `${box.lineHeight * scale()}px`, padding: `${box.padding * scale() - lift().text}px ${box.padding * scale()}px ${box.padding * scale() + lift().text}px ${box.textInset * scale()}px`, width: `calc(100% - ${box.scrollbarInset * scale()}px)`, 'align-self': 'flex-start', 'scrollbar-gutter': 'stable', '--multiline-scrollbar-width': `${box.scrollbarWidth * scale()}px` }} onInput={(event) => completionHandlers.input(event as InputEvent & { currentTarget: TextControl })} onClick={(event) => requestCompletions(event.currentTarget, '')} onKeyUp={(event) => { if (entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onBlur={(event) => commit(event.currentTarget)} onKeyDown={multilineKeyDown} />
+        {/* Text scrolled into the padding is hidden, as the canvas clips it. */}
+        <span class="widget-editor-in-node-mask widget-editor-in-node-mask-top" />
+        <span class="widget-editor-in-node-mask widget-editor-in-node-mask-bottom" />
+        <Show when={scroll() !== undefined}>
+          <span class="widget-editor-in-node-track" />
+          <span class="widget-editor-in-node-thumb" />
+        </Show>
+        {/* The bar the canvas paints near the box's bottom edge, kept while editing. */}
+        <Show when={ed.rowInsetY !== undefined}><span class="widget-editor-in-node-edge" /></Show>
         <Suggestions />
       </div>
       <Show when={props.commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
@@ -279,13 +248,13 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
       <ProductSlider ariaLabel={`${ed.label} slider`} value={Number.isFinite(Number(draft())) ? Number(draft()) : Number(ed.initial ?? 0)} min={Number(ed.spec!.options['min'])} max={Number(ed.spec!.options['max'])} step={Number(numericStepConstraints(ed.spec!).step)} onInput={(value) => { setError(undefined); const parsed = parse(String(value)); if (typeof parsed === 'number') setDraft(String(parsed)) }} />
     </Show>
     <ProductField controlId="widget-editor-value" label="Value" layout="compact" message={error()} messageTestId="widget-editor-error" invalid={error() !== undefined}>
-      <Show when={ed.multiline || list} fallback={<input id="widget-editor-value" aria-labelledby={fieldIds.label} aria-autocomplete={text ? 'list' : undefined} aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={error() !== undefined ? fieldIds.message : open() ? interaction.statusId : undefined} aria-invalid={error() === undefined ? undefined : 'true'} aria-expanded={text ? open() : undefined} aria-activedescendant={text ? interaction.activeOptionId(entries()) : undefined} ref={(el) => { if (text) completionAnchor = el; queueMicrotask(() => { el.focus(); if (numeric) el.select() }) }} value={draft()} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={(event) => { setDraft(event.currentTarget.value); setError(undefined); if (text) completionHandlers.input(event as InputEvent & { currentTarget: TextControl }) }} onClick={(event) => { if (text) requestCompletions(event.currentTarget, '') }} onKeyUp={(event) => { if (text && entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onKeyDown={(event) => { if (text && completionKeyDown(event)) return; if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); commit(event.currentTarget.value) } }} />}>
-        <textarea id="widget-editor-value" aria-labelledby={fieldIds.label} aria-describedby={error() === undefined ? undefined : fieldIds.message} aria-invalid={error() === undefined ? undefined : 'true'} ref={(el) => queueMicrotask(() => el.focus())} value={initialText} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={() => setError(undefined)} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) { event.preventDefault(); commit(event.currentTarget.value) } }} />
+      <Show when={ed.multiline || list} fallback={<input id="widget-editor-value" aria-labelledby={fieldIds.label} aria-autocomplete={text ? 'list' : undefined} aria-controls={open() ? interaction.listboxId : undefined} aria-describedby={error() !== undefined ? fieldIds.message : open() ? interaction.statusId : undefined} aria-invalid={error() === undefined ? undefined : 'true'} aria-expanded={text ? open() : undefined} aria-activedescendant={text ? interaction.activeOptionId(entries()) : undefined} ref={(el) => { if (text) completions.anchor(el); queueMicrotask(() => { shown = el.value; el.focus(); if (numeric) el.select() }) }} value={draft()} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={(event) => { setDraft(event.currentTarget.value); setError(undefined); if (text) completionHandlers.input(event as InputEvent & { currentTarget: TextControl }) }} onClick={(event) => { if (text) requestCompletions(event.currentTarget, '') }} onKeyUp={(event) => { if (text && entries().length === 0 && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) requestCompletions(event.currentTarget, '') }} onKeyDown={(event) => { if (text && completionKeyDown(event)) return; if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); commit(event.currentTarget) } }} />}>
+        <textarea id="widget-editor-value" aria-labelledby={fieldIds.label} aria-describedby={error() === undefined ? undefined : fieldIds.message} aria-invalid={error() === undefined ? undefined : 'true'} ref={(el) => queueMicrotask(() => { shown = el.value; el.focus() })} value={initialText} placeholder={typeof ed.spec?.options['placeholder'] === 'string' ? ed.spec.options['placeholder'] : undefined} onInput={() => setError(undefined)} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) { event.preventDefault(); commit(event.currentTarget) } }} />
       </Show>
     </ProductField>
     <Suggestions />
     <div class="widget-editor-meta" data-testid="widget-editor-meta"><Show when={numeric}><dl class="widget-numeric-constraints" data-testid="widget-numeric-constraints" aria-label="Numeric constraints"><dt>Minimum</dt><dd>{Number.isFinite(ed.spec!.options['min']) || isCanonicalUnsafeInteger(ed.spec!.options['min']) ? String(ed.spec!.options['min']) : 'unbounded'}</dd><dt>Maximum</dt><dd>{Number.isFinite(ed.spec!.options['max']) || isCanonicalUnsafeInteger(ed.spec!.options['max']) ? String(ed.spec!.options['max']) : 'unbounded'}</dd><dt>Step</dt><dd>{(Number.isFinite(ed.spec!.options['step']) && Number(ed.spec!.options['step']) > 0) || isCanonicalUnsafeInteger(ed.spec!.options['step']) ? String(ed.spec!.options['step']) : `${numericStepConstraints(ed.spec!).step} (default)`}</dd></dl></Show><Show when={ed.multiline}>{ed.spec ? 'Ctrl+Enter to commit' : 'JSON'}</Show></div>
-    <ProductActionFooter><button type="button" data-testid="widget-editor-cancel" onPointerDown={(event) => event.preventDefault()} onClick={props.close}><Icon icon={X} /> Cancel</button><button type="button" class="primary" data-testid="widget-editor-commit" onPointerDown={(event) => event.preventDefault()} onClick={(event) => { const field = event.currentTarget.closest('.widget-editor')?.querySelector<TextControl>('input, textarea'); if (field) commit(field.value) }}><Icon icon={Check} /> Commit</button></ProductActionFooter>
+    <ProductActionFooter><button type="button" data-testid="widget-editor-cancel" onPointerDown={(event) => event.preventDefault()} onClick={props.close}><Icon icon={X} /> Cancel</button><button type="button" class="primary" data-testid="widget-editor-commit" onPointerDown={(event) => event.preventDefault()} onClick={(event) => { const field = event.currentTarget.closest('.widget-editor')?.querySelector<TextControl>('input, textarea'); if (field) commit(field) }}><Icon icon={Check} /> Commit</button></ProductActionFooter>
   </div>
 }
 
@@ -293,5 +262,5 @@ export const ScalarWidgetEditor: Component<WidgetEditorProps> = (props) => {
   if (props.ed.spec?.widgetType === intKind.type && props.ed.viewId === 'core.integerColor') {
     return <ColorWidgetEditor {...props} />
   }
-  return <WidgetEditorController {...props} implementation={ScalarImplementation} />
+  return <WidgetEditorController {...props} implementation={props.ed.inRow === undefined ? ScalarImplementation : InRowFieldImplementation} />
 }

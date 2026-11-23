@@ -51,6 +51,7 @@ import type {
   InputSpec,
   NoteSpec,
   NodeSchema,
+  NodeSelectorSpec,
   OptionRow,
   OutputSpec,
   SectionSpec,
@@ -370,6 +371,18 @@ export const elabOutputsOf = (e: Pick<ElaboratedInterface, 'items'>): readonly E
  */
 export const valueKeyOf = (i: ElaboratedInput): string => i.address.port
 
+/**
+ * A Switch's member inputs that take part in the run (not the offered add
+ * slot), by value key, in stored order.
+ */
+export const selectorMembersOf = (
+  selector: NodeSelectorSpec,
+  inputs: readonly ElaboratedInput[],
+): readonly string[] =>
+  inputs
+    .filter((input) => input.apiName !== undefined && valueKeyOf(input).startsWith(`${selector.group}.`))
+    .map(valueKeyOf)
+
 // ---------------------------------------------------------------------------
 // Options and budget
 // ---------------------------------------------------------------------------
@@ -600,12 +613,17 @@ function elaboratePass(
     early.add(path)
     return settled.get(path)
   }
+  /** Every key of the shared choice a Use narrowed with `only`, by the narrowed row. */
+  const declaredKeys = new WeakMap<ChoiceSpec, readonly string[]>()
+  /** Choices already reported for a stored key their place does not offer, by diagnostic index. */
+  const unknownChoices = new Map<string, { readonly index: number; readonly dormant: boolean }>()
   let depth = 0
   let membersVisited = 0
   let halted = false
 
-  const report = (code: string, message: string, port?: string, severity: 'error' | 'warning' = 'error'): void => {
+  const report = (code: string, message: string, port?: string, severity: 'error' | 'warning' = 'error', data?: Readonly<Record<string, unknown>>): void => {
     diagnostics.push(diag(severity, 'schema', code, `${schema.type}: ${message}`, {
+      ...(data !== undefined ? { data } : {}),
       ...(options.nodeId !== undefined && port !== undefined
         ? { anchor: { port: { node: options.nodeId, port: asPortId(port) } } }
         : {}),
@@ -873,6 +891,7 @@ function elaboratePass(
         const shared = scope.shared?.get(raw.id)
         if (shared === undefined) continue
         row = applyUse(shared, raw as UseSpec)
+        if (shared.kind === 'choice' && row.kind === 'choice') declaredKeys.set(row, shared.options.map((option) => option.key))
       } else {
         row = raw
       }
@@ -1244,6 +1263,9 @@ function elaboratePass(
     const keys = row.options.map((option) => option.key)
     const storedKey = row.leader === undefined ? stateOf(path)?.selected : undefined
     let key: string | undefined
+    // Set when an option that is not chosen reads a stored key it does not
+    // offer: that place reads as its start key and stores nothing.
+    let startOfPlace = false
     if (row.leader !== undefined) {
       const outcome = evaluate(row.leader, scope)
       if (outcome.kind === 'value' && typeof outcome.value === 'string' && keys.includes(outcome.value)) key = outcome.value
@@ -1255,11 +1277,28 @@ function elaboratePass(
         return
       }
     } else if (storedKey !== undefined) {
-      if (!keys.includes(storedKey)) {
-        report('prompt.bad_dynamic_choice', `choice '${path}' has unknown option '${storedKey}'`, path)
-        return
+      if (keys.includes(storedKey)) {
+        key = storedKey
+      } else if (scope.dormant && declaredKeys.get(row)?.includes(storedKey)) {
+        startOfPlace = true
+        key = row.required ? (row.default !== undefined && keys.includes(row.default) ? row.default : keys[0]) : undefined
+      } else {
+        // A stored key the pack no longer has is no pick: a required choice
+        // goes to its start key and an optional one to none. Opening stores
+        // that change (`selected`); the old option's values stay stored.
+        key = row.required ? (row.default !== undefined && keys.includes(row.default) ? row.default : keys[0]) : undefined
+        startOfPlace = scope.dormant === true
+        // A shared choice is reported once; the chosen place's start key
+        // replaces one an unchosen place reported first.
+        const earlier = unknownChoices.get(path)
+        if (earlier === undefined || (earlier.dormant && !scope.dormant)) {
+          report('elab.combo.removedOption',
+            `option '${storedKey}' of '${literalText(row.displayName) ?? row.id}' is no longer in the pack. It is now ${key === undefined ? 'none' : `'${key}'`}. The old values are kept.`,
+            path, 'warning', { construct: path, selected: key ?? null })
+          if (earlier !== undefined) diagnostics.splice(earlier.index, 1, diagnostics.pop()!)
+          unknownChoices.set(path, { index: earlier?.index ?? diagnostics.length - 1, dormant: scope.dormant === true })
+        }
       }
-      key = storedKey
     } else if (row.required && !view && !scope.ghost && !scope.dormant) {
       // The editor stores a required choice's start key on every command
       // (storeStartState); a run never makes one up.
@@ -1268,7 +1307,7 @@ function elaboratePass(
     } else {
       key = row.required ? row.default ?? keys[0] : undefined
     }
-    chosen.set(path, key ?? null)
+    if (!startOfPlace) chosen.set(path, key ?? null)
     const inRun = !scope.ghost && !scope.dormant
     if (key !== undefined && inRun) choices[path] = key
     if (key !== undefined && inRun && row.required && row.leader === undefined && storedKey === undefined) unstoredChoices[path] = key
@@ -1395,8 +1434,10 @@ function elaboratePass(
     const key = stateOf(path)?.selected
     const variant = row.variants.find((item) => item.key === key)
     if (key !== undefined && variant === undefined) {
-      report('prompt.bad_dynamic_choice', `type choice '${path}' has unknown variant '${key}'`, path)
-      return
+      // A stored variant the pack no longer has is no pick; opening clears it.
+      report('elab.slot.removedVariant',
+        `variant '${key}' of '${literalText(row.displayName) ?? row.id}' is no longer in the pack. ${row.required ? 'Pick a variant before running.' : 'Nothing is selected now.'} The old values are kept.`,
+        path, 'warning', { construct: path, selected: null })
     }
     if (variant === undefined && row.required && !view && !scope.ghost && !scope.dormant) {
       report('prompt.missing_dynamic_choice', `required type choice '${path}' has no stored variant`, path)
@@ -1494,7 +1535,7 @@ function elaboratePass(
 
   if (census && !halted) {
     for (const key of Object.keys(node.dynamic ?? {})) {
-      if (!readState.has(key)) report('elab.dynamic.unknownState', `unknown stored dynamic state '${key}'`, key)
+      if (!readState.has(key)) report('elab.dynamic.unknownState', `'${key}' is no longer part of this node. What was stored for it is kept in the file.`, key, 'error', { construct: key })
     }
   }
 

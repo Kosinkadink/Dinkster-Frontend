@@ -6,7 +6,7 @@
  * identical document write a canvas widget edit would produce - then the
  * stale/remove recovery path and the round trip back to the graph editor.
  */
-import { expect, nativeAppViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeAppViewTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const REMOTE_ROUTE = '/api/choices/dinkster-test-app-view-options'
 
@@ -64,7 +64,7 @@ async function exposeViaMenu(page: Page, inputId: string): Promise<void> {
 test.beforeEach(async ({ page }, testInfo) => {
   const mockRename = testInfo.annotations.some((annotation) => annotation.type === 'mock-rename-dispatch')
   if (mockRename) {
-    await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$))).*/, (route) => route.fulfill({ status: 503, json: {} }))
+    await page.route(/\/api\/.*/, (route) => route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'rename-fixture', schemaWire: 2 }, nodes: {},
     } }))
@@ -74,13 +74,12 @@ test.beforeEach(async ({ page }, testInfo) => {
   if (mockRename) {
     await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
   } else {
-    await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
     await expect.poll(() => page.evaluate(() => {
       const backend = window.__dinksterTest!.app.backends.get()[0]!
       return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
     })).toBe(true)
   }
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async (remoteRoute) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,

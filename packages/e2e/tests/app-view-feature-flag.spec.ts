@@ -1,4 +1,4 @@
-import { expect, nativeTest as test } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 import { mkdirSync } from 'node:fs'
 import { evidenceGroupDir, evidencePath } from './evidence-output.js'
 
@@ -14,7 +14,7 @@ const workflow = {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
+  await page.route(/\/api\//, (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'app-view-flag-test', schemaWire: 2 }, packs: {}, nodes: {},
   } }))
@@ -31,7 +31,7 @@ test.beforeEach(async ({ page }) => {
   }, { workflow })
   await page.goto('/')
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'FlagInput', displayName: 'Flag input', category: 'test', source: 'v3', isOutputNode: false,

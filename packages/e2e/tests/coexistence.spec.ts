@@ -6,7 +6,7 @@
  * value source, and a fixed-policy selector - and the user can still edit a
  * promoted widget, all with a clean Problems state.
  */
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const activeDoc = (page: Page) =>
   page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
@@ -149,8 +149,7 @@ async function openCoexistenceWorkflow(page: Page): Promise<void> {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await openCoexistenceWorkflow(page)
   await page.waitForFunction(() => {
     const tab = window.__dinksterTest!.app.activeTab()
@@ -194,12 +193,8 @@ test('editing the promoted type-choice dependent persists across drill-in and ba
 
   // Drill into the definition and back: the promoted value survives and the
   // definition still shows the revealed dependent on the inner slot node.
-  const header = await page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'inst')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + node.x + node.layout.width / 2, y: rect.top + node.y + node.layout.headerHeight / 2 }
-  })
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, 'inst')
+  await page.mouse.dblclick(mark.x, mark.y)
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
   const slotRows = await page.evaluate(() =>
