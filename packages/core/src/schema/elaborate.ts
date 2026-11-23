@@ -535,8 +535,8 @@ function automaticValueOf(kind: AutomaticKind, value: FormulaValue | Json, row: 
   if (kind === 'text' || kind === 'choice') {
     if (typeof value !== 'string') return undefined
     const widget = row.widget
-    const options = widget?.widgetType === 'COMBO' && widget.remote === undefined && !widget.editableOptions ? widget.options['options'] : undefined
-    if (kind === 'choice' && Array.isArray(options) && !options.some((option) => normalizeComboOption(option)?.value === value)) return undefined
+    const options = kind === 'choice' && widget !== undefined && widget.remote === undefined && !widget.editableOptions ? widget.options['options'] : undefined
+    if (Array.isArray(options) && !options.some((option) => normalizeComboOption(option)?.value === value)) return undefined
     return value
   }
   if (typeof value === 'bigint') return Number.isSafeInteger(Number(value)) ? Number(value) : undefined

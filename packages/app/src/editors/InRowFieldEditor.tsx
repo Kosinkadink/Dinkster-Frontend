@@ -6,6 +6,7 @@ import { placeRow, rowPlacement, visibleCanvas } from './row-placement.js'
 import type { WidgetEditorImplementationProps } from '../WidgetEditorController.js'
 import { resolveTextCommit, resolveTypedNumber, stepTypedNumber, storedNumberNote, widgetCommitError } from '../widget-commit.js'
 import { createTextCompletions } from './text-completions.js'
+import { useAppMessage } from '../locale.js'
 
 /**
  * A number, single-line text or seed row edited in its own row on the
@@ -19,6 +20,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   const ed = host.ed
   const spec = ed.spec!
   const inRow = ed.inRow!
+  const message = useAppMessage()
   const numeric = spec.widgetType === intKind.type || spec.widgetType === floatKind.type
   // An automatic field is empty while its value is automatic, with the value
   // in use as its hint; emptying a fixed one makes it automatic again.
@@ -241,20 +243,22 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
         <span class="dinkster-canvas-side-loading">
           {automatic.state === 'loading' ? <ProductSpinner /> : null}
           <CanvasSideLink onClick={storeDefault}>
-            {automatic.state === 'worked-out' ? `automatic (${automaticText})` : 'automatic (not known)'}
+            {automatic.state === 'worked-out'
+              ? message('automaticField.defaultLine', { value: automaticText! })
+              : message('automaticField.notKnown')}
           </CanvasSideLink>
         </span>
       )
   // While the field is empty: the warning when the default is used, or one
   // plain line saying why a lookup's answer is not fresh.
   const automaticWarning = (): string | undefined => automatic?.state === 'default' && emptied()
-    ? `Could not work out ${ed.label}. Using the default, ${automaticText}.`
+    ? message('automaticField.warning', { field: ed.label, value: automaticText! })
     : undefined
   const lookupNote = (): string | undefined => {
     if (!emptied()) return undefined
-    if (automatic?.kept === 'stale') return 'Could not refresh'
-    if (automatic?.kept === 'paused') return 'Paused'
-    return automatic?.state === 'not-known' ? 'Offline' : undefined
+    if (automatic?.kept === 'stale') return message('automaticField.couldNotRefresh')
+    if (automatic?.kept === 'paused') return message('automaticField.paused')
+    return automatic?.state === 'not-known' ? message('automaticField.offline') : undefined
   }
   const side = createMemo(() => {
     const facts = numeric
@@ -354,7 +358,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
         } : {})}
         {...(fill() === undefined ? {} : { fill: fill()! })}
         {...(inRow.controllerMode !== undefined ? { mark: <CanvasSeedModeIcon mode={mode()!} /> }
-          : emptied() ? { mark: <span>auto</span> } : {})}
+          : emptied() ? { mark: <span>{message('automaticField.auto')}</span> } : {})}
         zoomed={placement().scale > 1}
         place={placement().place}
         sideTop={placement().sideTop}

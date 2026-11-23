@@ -1573,5 +1573,12 @@
   "load3dWidget.record": "Record viewport",
   "load3dWidget.nothingChanged": "Nothing changed yet",
   "load3dWidget.stopRecording": "Stop recording",
-  "load3dWidget.help": "Orbit the selected model and edit its placement. Image slots capture scene, alpha mask and normals at the node's width and height; viewport state slots store metadata without captures. Cancel leaves the document unchanged."
+  "load3dWidget.help": "Orbit the selected model and edit its placement. Image slots capture scene, alpha mask and normals at the node's width and height; viewport state slots store metadata without captures. Cancel leaves the document unchanged.",
+  "automaticField.auto": "auto",
+  "automaticField.defaultLine": "automatic ({value})",
+  "automaticField.notKnown": "automatic (not known)",
+  "automaticField.warning": "Could not work out {field}. Using the default, {value}.",
+  "automaticField.couldNotRefresh": "Could not refresh",
+  "automaticField.paused": "Paused",
+  "automaticField.offline": "Offline"
 }
