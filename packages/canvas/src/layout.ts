@@ -1005,6 +1005,8 @@ export function layoutNode(
     output?: PortSlot & { index: number }
     removable?: true
     reorder?: PendingGrip
+    /** The spare member of a group that can be reordered: room where a grip would stand, none drawn. */
+    gripSpace?: true
     widget?: Extract<LayoutRow, { kind: 'widget' }> extends infer R
       ? Omit<R, 'kind' | 'y' | 'height' | 'inset'>
       : never
@@ -1114,6 +1116,11 @@ export function layoutNode(
       ? gripOf(item.origin.construct, item.origin.key)
       : undefined
   const withGrip = (grip: PendingGrip | undefined): { reorder?: PendingGrip } => grip === undefined ? {} : { reorder: grip }
+  const spareGrip = (item: ElaboratedInput, chain: readonly string[]): { gripSpace?: true } =>
+    item.origin.kind === 'member' && item.origin.ghost === true && chain.at(-1) === groupBoxKey(item.origin.construct) &&
+      decls.get(groupBoxKey(item.origin.construct))?.reorderable === true
+      ? { gripSpace: true }
+      : {}
   const chainKey = (chain: readonly string[]): string => chain.join('\n')
 
   // Modified widget values hidden by each closed box (derived, never
@@ -1295,6 +1302,7 @@ export function layoutNode(
         },
         ...(removable(item, chain) ? { removable: true as const } : {}),
         ...withGrip(rowGrip(item, chain)),
+        ...spareGrip(item, chain),
       })
       continue
     }
@@ -1322,6 +1330,7 @@ export function layoutNode(
       boxes: chain,
       ...(removable(item, chain) ? { removable: true as const } : {}),
       ...withGrip(rowGrip(item, chain)),
+      ...spareGrip(item, chain),
       widget: {
         inputId: spec.id,
         valueKey,
@@ -1807,11 +1816,13 @@ export function layoutNode(
   // A field that is a whole member ends before its remove cross, whose right
   // edge sits where the field's would. A member that can be moved has its
   // grip there instead, or just before the cross, and the field ends before
-  // the grip.
+  // the grip. A spare member ends where the members' fields do.
+  const gripSpaces = new Set(pending.flatMap((row) =>
+    row.gripSpace && lines.get(row)!.at(-1) === row ? [rowIndex.get(row)] : []))
   for (const [index, row] of rows.entries()) {
     if (row.kind !== 'widget' && row.kind !== 'ports') continue
     const crossRoom = row.crossInset === undefined ? 0 : box.cross.size + box.cross.fieldGap
-    const gripRoom = row.reorder === undefined ? 0 : box.gripWidth + box.cross.fieldGap
+    const gripRoom = row.reorder === undefined && !gripSpaces.has(index) ? 0 : box.gripWidth + box.cross.fieldGap
     const right = width - (row.crossInset ?? fieldInset(rowDepth[index]!)) - crossRoom
     const reorder = row.reorder === undefined ? {} : { reorder: { ...row.reorder, gripX: right - box.gripWidth / 2 } }
     if (row.kind === 'widget' && crossRoom + gripRoom > 0)

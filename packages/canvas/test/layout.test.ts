@@ -236,6 +236,23 @@ describe('pairing', () => {
     ])
   })
 
+  it('ends a reorderable group\'s spare member where the members\' fields end', () => {
+    const layout = layoutNode(
+      schemaOf([{
+        kind: 'group', id: 'colors', displayName: 'Colors', reorderable: true,
+        value: widget('color'), keys: { kind: 'numbered', prefix: 'color', start: 0, pad: 0 }, grows: 'filled', minMembers: 1,
+      }]),
+      // Both members are filled, so the group shows its spare.
+      { ...nodeData, values: { 'colors.color0': 1, 'colors.color1': 2 }, dynamic: { colors: { members: ['color0', 'color1'] } } },
+      defaultTokens, measure, widgetMeasure,
+    )
+    const fields = layout.rows.filter((row) => row.kind === 'widget') as Extract<(typeof layout.rows)[number], { kind: 'widget' }>[]
+    expect(fields.map((row) => [row.inputId, row.reorder !== undefined])).toEqual([
+      ['colors.color0', true], ['colors.color1', true], ['colors.color2', false],
+    ])
+    expect(new Set(fields.map((row) => `${row.inset} ${row.width}`)).size).toBe(1)
+  })
+
   it('keeps force-input widgets of a chosen option as socket rows', () => {
     const mode: NodeSchema['body'][number] = {
       kind: 'choice',
