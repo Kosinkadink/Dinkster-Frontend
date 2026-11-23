@@ -1478,8 +1478,12 @@ export class CanvasRenderer {
       tileContext.fillRect(half, half, half, half)
       this.previewChecker = ctx.createPattern(tile, 'repeat')
     }
+    // The checker stops one device pixel inside the picture: an edge that
+    // falls part way across a pixel would otherwise show the checker through
+    // the picture's partly covered edge pixels as a dashed line.
+    const inset = 1 / (this.viewport.scale * (globalThis.devicePixelRatio ?? 1))
     ctx.fillStyle = this.previewChecker ?? t.colors.widgetBackground
-    ctx.fillRect(fit.x, fit.y, fit.width, fit.height)
+    ctx.fillRect(fit.x + inset, fit.y + inset, Math.max(0, fit.width - inset * 2), Math.max(0, fit.height - inset * 2))
     try {
       ctx.drawImage(image, fit.x, fit.y, fit.width, fit.height)
     } catch {
@@ -3137,7 +3141,8 @@ export class CanvasRenderer {
       ctx.fill()
       const glyphColor = r.button.iconColor ?? (active ? t.colors.canvasBackground : t.colors.label)
       if (r.button.icon) {
-        paintToolboxIcon(ctx, r.button.icon, r.x, r.y, r.size, glyphColor)
+        const icon = r.size * paint.iconSize / paint.buttonSize
+        paintToolboxIcon(ctx, r.button.icon, r.x + (r.size - icon) / 2, r.y + (r.size - icon) / 2, icon, glyphColor)
       } else if (r.button.glyph) {
         ctx.fillStyle = glyphColor
         ctx.fillText(r.button.glyph, r.x + r.size / 2, r.y + r.size / 2 + paint.glyphBaselineOffset)
@@ -3693,7 +3698,7 @@ export class CanvasRenderer {
       const folded = l.preview.folded === true
       const statusLabel = preview.statusMessage ?? (preview.status === 'failed'
         ? 'failed'
-        : preview.status === 'unavailable' ? 'unavailable' : 'loading')
+        : preview.status === 'unavailable' ? 'unavailable' : 'loading...')
       if (panel !== undefined) {
         const mediaRect = panel.media
         ctx.fillStyle = t.colors.widgetBackground
@@ -4234,7 +4239,8 @@ export class CanvasRenderer {
       ctx.fillRect(x, y, chip.width, chip.height)
       ctx.strokeStyle = t.colors.selection
       ctx.strokeRect(x, y, chip.width, chip.height)
-      paintSeedControllerIcon(ctx, row.controllerMode, x, y, chip.width, t.colors.label)
+      const icon = chip.width * canvasPaintTokens.controller.chipIconRatio
+      paintSeedControllerIcon(ctx, row.controllerMode, x + (chip.width - icon) / 2, y + (chip.height - icon) / 2, icon, t.colors.label)
       ctx.globalAlpha = chipAlpha
     }
     const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
