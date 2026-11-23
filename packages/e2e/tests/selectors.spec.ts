@@ -11,7 +11,7 @@
  * from n4).
  */
 import selectorFixture from '../../core/fixtures/workflows/selector.json' with { type: 'json' }
-import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { executionDetails, expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const fixture = structuredClone(selectorFixture)
 fixture.graphs.g0.links.l12.from.port = 'IMAGE'
@@ -390,7 +390,7 @@ test('a frozen view shows the EXACT recorded selector resolution; the badge popo
   ).toBeNull()
 
   // Open the frozen view: the renderer receives the recorded resolutions.
-  await row.locator('.execution-open').click()
+  await (await executionDetails(row)).locator('.execution-open').click()
   await expect(page.getByTestId('frozen-banner')).toBeVisible()
   await expect
     .poll(() =>

@@ -401,7 +401,8 @@ The old ecosystem's "widget as output" requests dead-ended because node definiti
 ### 6. Graph control: mode flags, control surfaces, and selectors
 
 The control-surface design below is parked on the branch recorded in
-`rework-queue.md`. Main retains saved surface data and binding lifecycle
+[Control surfaces](https://github.com/Kosinkadink/comfy-vibe-station/issues/1207).
+Main retains saved surface data and binding lifecycle
 protection, but no panel, setting, registry or surface commands. App View,
 ordinary node mode commands and selectors remain separate working features.
 
