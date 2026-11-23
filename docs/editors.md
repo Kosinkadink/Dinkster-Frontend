@@ -6,7 +6,7 @@ document state. This document pins the editor seam so future surfaces
 external-tool bridges) arrive as registry descriptors, never as shell
 rewrites or bolted-on views.
 
-## The contract (user-approved architecture pin, 2026-07-25)
+## The contract (user-approved architecture)
 
 - A tab is conceptually **(document, editorKind)**. `Tab.editorKind` names
   the editor that renders it; the built-in kinds are `graph` (the node
