@@ -32,6 +32,11 @@ export function NodeProblemBox(props: {
   const actionLabel = (action: ProblemBoxAction): string => action === 'edit-field'
     ? message('problemBox.editField')
     : message('problems.action.locateAsset')
+  // A required input never given a value or a wire reads as the row's own sentence.
+  const lineText = (line: ProblemBoxLine): string =>
+    line.problem.diagnostic.code === 'compile.input.missing' && line.rowName !== undefined
+      ? message('problemBox.required', { label: line.rowName.charAt(0).toUpperCase() + line.rowName.slice(1) })
+      : line.message
   return (
     <div
       ref={(el) => { element = el; props.ref?.(el) }}
@@ -55,7 +60,7 @@ export function NodeProblemBox(props: {
           >
             <p class="problem-box-text">
               <Show when={line.rowName}>{(name) => <span class="problem-box-row">{name()}: </span>}</Show>
-              <span class="problem-box-message">{line.message}</span>
+              <span class="problem-box-message">{lineText(line)}</span>
             </p>
             <For each={line.actions}>
               {(action) => (

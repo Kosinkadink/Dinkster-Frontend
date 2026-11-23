@@ -296,4 +296,7 @@ test('node problem badges expose friendly details, clear live, and distinguish b
   await entry.getByRole('button', { name: 'Show on canvas' }).click()
   await expect(box).toHaveAttribute('data-node', 'widgets')
   await expect(box.locator('[data-highlighted="true"]')).toHaveAttribute('data-row', 'required')
+  // The box words a required input as the row's own sentence; Problems keeps the compile message.
+  await expect(box.locator('[data-highlighted="true"] .problem-box-message')).toHaveText(/^\S.* is required\.$/)
+  await expect(entry).toContainText('has no value or connection')
 })
