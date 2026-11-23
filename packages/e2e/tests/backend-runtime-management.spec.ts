@@ -143,6 +143,8 @@ test('backend and runtime management remains truthful and usable across wide, na
   expect(box).not.toBeNull()
   expect(box!.height).toBeGreaterThanOrEqual(40)
   await page.keyboard.press('Tab')
+  await expect(panel.getByRole('textbox', { name: 'Name (optional)', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
   await expect(add).toBeFocused()
   await page.screenshot({ path: evidencePath('issue-37', 'after-backends-200-percent.png') })
 })
