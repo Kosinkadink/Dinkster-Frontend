@@ -763,6 +763,23 @@ const dynSchemas: Record<string, NodeSchema> = {
     ]),
     selector: { input: 'pick', group: 'branch' },
   },
+  NamedSwitch: {
+    ...dynSchemaOf('NamedSwitch', [
+      dynInput('pick', { type: { kind: 'union', names: ['INT', 'BOOLEAN', 'STRING', 'COMBO'] }, optional: true }),
+      dynInput('names', { type: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } }, optional: true, hidden: true }),
+      { kind: 'group', id: 'branch', value: dynInput('value', { optional: true, lazy: true }), keys: { kind: 'named', names: ['a', 'b', 'c'] }, grows: 'button', minMembers: 1 },
+      dynOutput('result'),
+    ]),
+    selector: { input: 'pick', group: 'branch', names: 'names' },
+  },
+  TextPrimitive: {
+    ...dynSchemaOf('TextPrimitive', [
+      dynInput('value', { type: { kind: 'concrete', name: 'STRING' }, widget: { widgetType: 'STRING', options: {}, default: '' } }),
+      { kind: 'output', id: 'STRING', type: { kind: 'concrete', name: 'STRING' }, knownValue: { input: 'value' } },
+    ]),
+    isOutputNode: false,
+  },
+  TextSrc: { ...dynSchemaOf('TextSrc', [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'STRING' } }]), isOutputNode: false },
   ModeSwitch: {
     ...dynSchemaOf('ModeSwitch', [
       dynInput('pick', { type: PICK, optional: true, widget: { widgetType: 'COMBO', options: {}, controller: 'after_generate', controllerInitial: 'fixed' } }),
@@ -2170,6 +2187,60 @@ describe('Primitive and Switch as ordinary nodes', () => {
     const closure = scopeClosure({ ...compileInput(doc, scope), resolve: dynResolve, graphFeatures: ['typedLiteral'] })!
     expect([...closure.included].sort()).toEqual(['selector', 'sourceB'])
     if (result.ok) expect(result.artifact.prompt['selector']!.inputs['pick']).toEqual({ $typed: { type: 'INT', value: 2 } })
+  })
+
+  // Member a is named "c" and member c "Quick": a name wins over a key.
+  const namedSwitchDoc = (pickSource: DynNode) => dynDoc({
+    nodes: {
+      source: pickSource,
+      sourceA: { type: 'ImageSrc' },
+      sourceB: { type: 'ImageSrc' },
+      sourceC: { type: 'ImageSrc' },
+      selector: { type: 'NamedSwitch', values: { pick: 'b' }, dynamic: { branch: { members: ['a', 'b', 'c'], memberLabels: { a: 'c', c: 'Quick' } } } },
+    },
+    links: [
+      [['source', pickSource.type === 'TextPrimitive' ? 'STRING' : 'out'], ['selector', 'pick']],
+      [['sourceA', 'out'], ['selector', 'branch.a']],
+      [['sourceB', 'out'], ['selector', 'branch.b']],
+      [['sourceC', 'out'], ['selector', 'branch.c']],
+    ],
+  })
+  const namedCompile = (doc: WorkflowDocument) => {
+    const scope: ExecutionScope = { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('selector') }] }
+    const input = { ...compileInput(doc, scope), resolve: dynResolve, graphFeatures: ['typedLiteral'] as const }
+    return { result: compile(input), closure: scopeClosure(input) }
+  }
+
+  it('resolves known text on a Switch by branch name, then key, and sends the member key without names', () => {
+    for (const [text, key, kept] of [['c', 'a', 'sourceA'], ['Quick', 'c', 'sourceC'], ['b', 'b', 'sourceB']] as const) {
+      const { result, closure } = namedCompile(namedSwitchDoc({ type: 'TextPrimitive', values: { value: text } }))
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) return
+      expect(result.artifact.prompt['selector']!.inputs['pick']).toEqual({ $typed: { type: 'STRING', value: key } })
+      expect(result.artifact.prompt['selector']!.inputs).not.toHaveProperty('names')
+      expect([...closure!.included].sort()).toEqual(['selector', kept].sort())
+    }
+  })
+
+  it('refuses known text that names no branch on the Switch pick', () => {
+    const { result } = namedCompile(namedSwitchDoc({ type: 'TextPrimitive', values: { value: 'quick' } }))
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.diagnostics.filter((d) => d.severity === 'error').map((d) => [d.code, d.message])).toEqual([
+      ['compile.switch.noBranchNamed', 'Switch received "quick". The branches are c, b and Quick.'],
+    ])
+  })
+
+  it('sends the branch names only when the pick is a wire whose text is not known before the run', () => {
+    const text = namedCompile(namedSwitchDoc({ type: 'TextSrc' })).result
+    expect(text.ok, JSON.stringify(!text.ok && text.diagnostics)).toBe(true)
+    if (text.ok) expect(text.artifact.prompt['selector']!.inputs['names']).toEqual(['c', 'b', 'Quick'])
+    const position = namedCompile(namedSwitchDoc({ type: 'IntSrc' })).result
+    expect(position.ok, JSON.stringify(!position.ok && position.diagnostics)).toBe(true)
+    if (position.ok) expect(position.artifact.prompt['selector']!.inputs).not.toHaveProperty('names')
+    const stored = dynCompile(dynDoc({ nodes: { selector: { type: 'NamedSwitch', values: { pick: 'b' }, dynamic: { branch: { members: ['a', 'b'] } } } } }))
+    expect(stored.ok, JSON.stringify(!stored.ok && stored.diagnostics)).toBe(true)
+    if (stored.ok) expect(stored.artifact.prompt['selector']!.inputs).toEqual({ pick: 'b' })
   })
 
   const routeBody = (extra: { nodes?: Record<string, DynNode>; links?: [DynEnd, DynEnd][]; controllers?: Record<string, string>; boundary?: { inputs?: unknown[] } } = {}) => ({
