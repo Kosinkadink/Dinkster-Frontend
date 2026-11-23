@@ -14,9 +14,6 @@ import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
-import { ProjectFolderSettings } from './ProjectFolderSettings.js'
-import { ModelSettings } from './ModelSettings.js'
-import { OutputMountSettings } from './OutputMountSettings.js'
 
 type AssetMessage = (key: string, params?: MessageParams) => string
 type SourceSectionKey = 'assets.source.section.models' | 'assets.source.section.media' | 'assets.source.section.inputOutput' | 'assets.source.section.other'
@@ -190,15 +187,13 @@ function assetState(state: CollectionPanelState, message: AssetMessage) {
   return <ProductEmptyState title={message('assets.state.empty.title')} hint={message('assets.state.empty.detail', { source })} />
 }
 
-export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly backendLabel?: string }) {
+export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly backendLabel?: string; readonly onOpenStorage?: () => void }) {
   const message = useAppMessage()
   const [adapters, setAdapters] = createSignal<readonly AssetSourceAdapter[]>()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
   const [discoveryError, setDiscoveryError] = createSignal<string>()
   const [retryTick, setRetryTick] = createSignal(0)
-  const [foldersOpen, setFoldersOpen] = createSignal(false)
   const [outputUnconfigured, setOutputUnconfigured] = createSignal(false)
-  let folders: HTMLDetailsElement | undefined
   const [sourceFailures, setSourceFailures] = createSignal<Readonly<Record<string, AssetSourceFailurePresentation>>>({})
   let live = true
   let discoveryGeneration = 0
@@ -288,17 +283,10 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
     <div class="assets-panel" data-testid="assets-overlay">
       <Show when={outputUnconfigured()}>
         <ProductEmptyState testId="assets-output-unconfigured" title={message('outputMountSettings.none')} hint={message('outputMountSettings.configureHint')} action={
-          <ProductButton type="button" onClick={() => { if (folders) folders.open = true; setFoldersOpen(true) }}>{message('outputMountSettings.configure')}</ProductButton>
+          <ProductButton type="button" onClick={() => props.onOpenStorage?.()}>{message('storagePanel.title')}</ProductButton>
         } />
       </Show>
-      <details ref={folders} class="asset-project-folders" onToggle={(event) => setFoldersOpen(event.currentTarget.open)}>
-        <summary>{message('projectFolders.title')}</summary>
-        <Show when={foldersOpen()}>
-          <ProjectFolderSettings connection={props.connection} {...(props.baseUrl === undefined ? {} : { backendUrl: props.baseUrl })} backendLabel={props.baseUrl || props.backendId} onChanged={() => setRetryTick((tick) => tick + 1)} />
-          <ModelSettings connection={props.connection} providerConnection={props.connection} visibilityConnection={props.connection} backendLabel={props.baseUrl || props.backendId} {...(props.baseUrl === undefined ? {} : { backendUrl: props.baseUrl })} onChanged={() => setRetryTick((tick) => tick + 1)} />
-          <OutputMountSettings connection={props.connection} />
-        </Show>
-      </details>
+      <ProductButton type="button" onClick={() => props.onOpenStorage?.()}>{message('storagePanel.title')}</ProductButton>
             <CollectionPanel
               sources={sources()}
               sourceRail={({ selectedId, select }) => <>

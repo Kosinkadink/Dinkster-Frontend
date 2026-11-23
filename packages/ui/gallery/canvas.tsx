@@ -85,6 +85,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
     ],
     ['Wires', ['types', 'structure']],
     ['Subgraphs', ['boundary', 'boundary-names']],
+    ['Flow nodes', ['switch-primitive']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
 
@@ -191,6 +192,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'The same nodes just below 50 percent, where the canvas draws its overview.',
   minimap:
     'The minimap: nodes colored by state, a bypassed node, groups, and the frame of the visible area.',
+  'switch-primitive':
+    'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields. They replace the value source pill and the selector box shown in the second card.',
 }
 
 /** A look an example is drawn in; a page with two or more shows them side by side. */
@@ -303,8 +306,9 @@ function ExampleCard(props: {
     const { tokens, fixture, variant } = props.prepared
     const nodes = example.nodes?.map((index) => fixture.scene.nodes[index]!)
     const names = nodes && new Set(nodes.map((node) => node.id))
-    const scene =
-      nodes && names
+    const scene = example.scene
+      ? example.scene
+      : nodes && names
         ? {
             ...fixture.scene,
             nodes,
@@ -326,11 +330,12 @@ function ExampleCard(props: {
     renderer.setReducedMotion(true)
     renderer.setGridVisible(false)
     renderer.setScene(scene)
-    renderer.setNodeStates(fixture.states)
+    renderer.setNodeStates(example.states ?? fixture.states)
     renderer.setBadges(fixture.badges)
     renderer.setOverlay(example.overlay ?? fixture.overlay)
-    renderer.setRowMarks(fixture.rowMarks)
-    renderer.setCompanions(fixture.companions)
+    renderer.setRowMarks(example.rowMarks ?? fixture.rowMarks)
+    renderer.setCompanions(example.companions ?? fixture.companions)
+    renderer.setInactiveNodes(example.inactive)
     renderer.setToolbox(fixture.toolbox)
     const image = document.createElement('canvas')
     image.width = 320

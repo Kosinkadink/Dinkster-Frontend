@@ -122,7 +122,8 @@ import {
   type WidgetView,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, TriangleAlert, X } from 'lucide-solid'
+import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, Snowflake, TriangleAlert, X } from 'lucide-solid'
+import { executionProgress } from './ExecutionActivityCard.js'
 import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
 import { panelDockZone, setPanelOpen } from './panel-location.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
@@ -1440,7 +1441,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const modalPanel = useSignal(props.app.modalPanel)
   const diagnosticFocus = useSignal(props.app.diagnosticFocus)
   const problems = useSignal(props.app.problems)
-  const reviewReplacements = useSignal(props.app.reviewReplacements)
+  const reviewReplacements = (): boolean => (settingsTick(), props.app.settings.get<boolean>('execution.reviewUpgrades'))
   // Scene/widget diagnostics for THIS editor instance. The app-level
   // solveDiagnostics signal mirrors the focused instance only, so an
   // unfocused split sibling keeps its own rail without clobbering the
@@ -1469,6 +1470,22 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     })
     if (gestureRefusalTimer !== undefined) clearTimeout(gestureRefusalTimer)
     gestureRefusalTimer = setTimeout(() => setGestureRefusal(undefined), 4_000)
+  }
+
+  createEffect(on(useSignal(props.app.frozenEditRefusal), (attempt) => {
+    if (attempt?.tabId === activeTabId()) {
+      showGestureRefusal([diag('info', 'command', 'Frozen', message('frozen.editHint'))])
+    }
+  }, { defer: true }))
+  createEffect(on(activeTabId, (next, previous) => {
+    if (next !== previous) setGestureRefusal(undefined)
+  }, { defer: true }))
+
+  const refuseFrozenEdit = (): boolean => {
+    const tab = activeTab()
+    if (!tab?.execution) return false
+    props.app.refuseFrozenEdit(tab)
+    return true
   }
 
   const reportGestureRefusal = (owner: string, diagnostics: readonly Diagnostic[]): void => {
@@ -2953,10 +2970,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       wheelNavigationMode: () => props.app.settings.get<WheelNavigationMode>('canvas.scrollBehavior'),
       smoothWheelZoom: () => props.app.settings.get<boolean>('canvas.smoothWheelZoom'),
+      frozen,
       dispatchOccurrenceMutation: (intention) => {
         const tab = activeTab()
         const reg = tab ? props.app.registryForTab(tab) : undefined
-        if (!tab || !reg) return { ok: false }
+        if (!tab || refuseFrozenEdit() || !reg) return { ok: false }
         return dispatchOccurrenceIntention({
           document: tab.store.doc,
           resolver: documentResolver(tab.store.doc, reg.resolve),
@@ -2968,11 +2986,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onOccurrenceMutationRefused: (code, message) => {
         const tab = activeTab()
-        if (tab) reportGestureRefusal(tab.id, [diag('warning', 'command', code, message)])
+        if (tab && !refuseFrozenEdit()) reportGestureRefusal(tab.id, [diag('warning', 'command', code, message)])
       },
       resolveWidgetDefault: effectiveWidgetDefault,
       onBoundaryExposureRefused: (_code, source, side) => {
         const tab = activeTab()
+        if (refuseFrozenEdit()) return
         reportBoundaryExposureRefusal({
           tabId: tab?.id,
           reportProblems: (tabId, diagnostics) => reportGestureRefusal(tabId, diagnostics),
@@ -3013,13 +3032,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       onWidgetActivate: (hit, screenX, screenY) => openWidgetEditor(hit, undefined, { x: screenX, y: screenY }),
       onWidgetRowAffordanceActivate: (hit) => {
         const tab = activeTab()
-        if (!tab || tab.execution) return
+        if (!tab || refuseFrozenEdit()) return
         const item = widgetExposureItem(tab, hit.node, hit.row)
         if (item?.action.kind === 'command') props.app.dispatchTo(tab, item.action.invocation)
       },
       onPreviewSurfaceAffordanceActivate: (node) => {
         const tab = activeTab()
-        if (!tab || tab.execution) return
+        if (!tab || refuseFrozenEdit()) return
         const item = previewExposureItem(tab, node)
         if (item?.action.kind === 'command') props.app.dispatchTo(tab, item.action.invocation)
       },
@@ -3033,7 +3052,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onControllerActivate: (hit, screenX, screenY) => {
         const tab = activeTab()
-        if (!tab || tab.execution || hit.row.controllerMode === undefined) return
+        if (!tab || refuseFrozenEdit() || hit.row.controllerMode === undefined) return
         if (companionInputs.get(hit.node.id)?.has(hit.row.inputId)) return
         const rect = canvasEl.getBoundingClientRect()
         props.tooltips?.hide()
@@ -3277,7 +3296,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onBoundaryRenameRequest: (side, itemId, screenX, screenY) => {
         const tab = activeTab()
-        if (!tab || frozen()) return
+        if (!tab || refuseFrozenEdit()) return
         const item = tab.store.doc.graphs[currentGraphId(tab)]?.boundary?.[side]?.find((i) => i.id === itemId)
         if (!item) return
         closePalette()
@@ -3293,18 +3312,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         })
       },
       onOpenPalette: (worldX, worldY) => {
-        if (frozen()) return // read-only view: no node adds
+        if (refuseFrozenEdit()) return // read-only view: no node adds
         openPaletteAt(worldX, worldY)
       },
       onLinkDoubleClick: (context, screenX, screenY) => {
-        if (frozen()) return
+        if (refuseFrozenEdit()) return
         closePalette()
         setMenu(undefined)
         linkMenuOpenedAt = performance.now()
         setLinkDoubleClickMenu({ x: screenX, y: screenY, context })
       },
       onLinkDropOnEmpty: (context, worldX, worldY) => {
-        if (frozen()) return // read-only view: no node adds
+        if (refuseFrozenEdit()) return // read-only view: no node adds
         openPaletteAt(worldX, worldY, context)
         // Keep the dropped noodle visible while the palette is browsed:
         // fixed anchor to drop point, oriented by what the drag was seeking.
@@ -3702,7 +3721,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (node) props.app.openNodeHelp(m.tab, node.type)
       },
       createSubgraph: (_params, m) => {
-        if (frozen()) return
+        if (refuseFrozenEdit()) return
         props.app.createEmptySubgraph(m.tab, m.graphId, {
           x: Math.round(m.worldX),
           y: Math.round(m.worldY),
@@ -3722,7 +3741,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         void props.app.queueSelection(tab, nodeIds.filter((id): id is string => typeof id === 'string'))
       },
       promoteToNet: (params, m) => {
-        if (frozen() || !props.app.settings.get<boolean>('features.namedNets.enabled')) return
+        if (refuseFrozenEdit() || !props.app.settings.get<boolean>('features.namedNets.enabled')) return
         const source =
           params && typeof params === 'object' && !Array.isArray(params)
             ? (params as JsonObject)['source']
@@ -3745,7 +3764,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         })
       },
       renameNet: (params, m) => {
-        if (frozen() || !props.app.settings.get<boolean>('features.namedNets.enabled')) return
+        if (refuseFrozenEdit() || !props.app.settings.get<boolean>('features.namedNets.enabled')) return
         const tab = activeTab()
         const netId =
           params && typeof params === 'object' && !Array.isArray(params)
@@ -3759,7 +3778,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       groupSelection: () => {
         // Create a group around the selected nodes' bounding box. Needs the
         // scene (layout sizes), so it lives here rather than in a command.
-        if (frozen()) return
+        if (refuseFrozenEdit()) return
         const tab = activeTab()
         if (!tab) return
         const selected = scene.nodes.filter((n) => controller.getSelection().has(n.id))
@@ -3788,7 +3807,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         })
       },
       renameGroup: (params, m) => {
-        if (frozen()) return
+        if (refuseFrozenEdit()) return
         const tab = activeTab()
         const groupId =
           params && typeof params === 'object' && !Array.isArray(params)
@@ -3800,7 +3819,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setGroupPrompt({ x: m.x, y: m.y, groupId, initial: group.title })
       },
       renameNode: (params, m) => {
-        if (frozen()) return
+        if (refuseFrozenEdit()) return
         const nodeId =
           params && typeof params === 'object' && !Array.isArray(params)
             ? (params as JsonObject)['nodeId']
@@ -3817,7 +3836,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         })
       },
       renameSelector: (params, m) => {
-        if (frozen()) return
+        if (refuseFrozenEdit()) return
         const tab = activeTab()
         const selectorId =
           params && typeof params === 'object' && !Array.isArray(params)
@@ -4029,6 +4048,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     let scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
     let sceneKey = ''
+    const transferredFrozenViews = new Set<string>()
     let sceneBuildContext: {
       readonly document: WorkflowDocument
       readonly sourceDocument: WorkflowDocument
@@ -4162,11 +4182,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // in-flight link drag and hiding tooltips for no observable change -
       // so the identical scene stays installed. Everything downstream that
       // rebinds to the live Tab wrapper still runs.
+      const continuesFrozenView = tab.replacesFrozenTabId !== undefined && !transferredFrozenViews.has(tab.id) &&
+        sceneKey === `${tab.replacesFrozenTabId}:${graphId}`
+      if (tab.replacesFrozenTabId !== undefined) transferredFrozenViews.add(tab.id)
+      const keptSelection = continuesFrozenView ? [
+        controller.getSelection(), controller.getLinkSelection(), controller.getRerouteSelection(),
+        controller.getValueSourceSelection(), controller.getSelectorSelection(), controller.getGroupSelection(),
+        controller.getNetViewSelection(),
+      ] as const : undefined
       const replaced = key !== sceneKey || (repositioned !== undefined ? scene !== built : !scenesEqual(scene, built))
       if (replaced) {
         scene = built
         renderer.setScene(scene)
         controller.setSelectionOwner(key)
+        if (keptSelection) controller.setSelection(...keptSelection)
         // A document op replaces the scene but not remote gesture state.
         // Re-project the current actors directly, without an empty teardown.
         untrack(refreshPresenceProjection)
@@ -4271,7 +4300,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         sceneKey = key
         sceneViewportOwner = { tabId: tab.id, graphId }
         const saved = props.app.graphViewport(tab.id, graphId)
-        if (saved) renderer.setViewport(saved)
+        if (continuesFrozenView) props.app.setGraphViewport(tab.id, graphId, renderer.getViewport())
+        else if (saved) renderer.setViewport(saved)
         else renderer.fitToScene()
       }
       if (focusPlan && graphId === focusPlan.graphStack[focusPlan.graphStack.length - 1]) {
@@ -4452,7 +4482,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const frozen = tab.execution !== undefined
       const viewedPath = viewInstancePath(tab)
       const wouldRun = frozen ? undefined : props.app.scopeClosureCached(tab)
-      renderer.setInactiveNodes(lazyInactiveSceneNodes({ frozen, closure: wouldRun, instancePath: viewedPath }))
+      if (frozen && boundExec?.artifact && viewedPath) {
+        const included = occurrencesForView({
+          instancePath: viewedPath,
+          runtimeIds: Object.keys(boundExec.artifact.prompt),
+          toSource: boundExec.artifact.provenance.toSource,
+        })
+        renderer.setInactiveNodes(new Set(scene.nodes
+          .filter((node) => !included.own.has(node.id) && !included.inner.has(node.id))
+          .map((node) => node.id)))
+      } else {
+        renderer.setInactiveNodes(lazyInactiveSceneNodes({ frozen, closure: wouldRun, instancePath: viewedPath }))
+      }
       let exactProducer: ((rid: string) => boolean) | undefined
       const reg = props.app.registryForTab(tab)
       const live = frozen || boundExec?.artifact === undefined ? undefined : props.app.previewComparisonCompile(tab)
@@ -4879,7 +4920,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
      */
     function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string, caret?: { x: number; y: number }): void {
       const tab = activeTab()
-      if (!tab || tab.execution) return // frozen views are read-only
+      if (!tab || refuseFrozenEdit()) return
       // An Inputs panel field holding a value source's own value edits that
       // source, as a click on its pill does.
       const sourceOwner = hit.row.valueSourceOwner
@@ -5247,7 +5288,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
     ): void {
       const tab = activeTab()
-      if (!tab || tab.execution) return // frozen views are read-only
+      if (!tab || refuseFrozenEdit()) return
       const graphId = currentGraphId(tab)
       const source = tab.store.doc.graphs[graphId]?.valueSources?.[vs.id]
       if (!source) return
@@ -5913,7 +5954,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // Selection is a view concern of the CURRENT canvas, so it only
       // updates when the invoking tab is still the active one.
       const tab = activeTab()
-      if (!tab || frozen()) return
+      if (!tab || refuseFrozenEdit()) return
       const graphId = currentGraphId(tab)
       // Graph INCARNATION latch (the AP7 blueprint contract): graph ids are
       // reusable after an undo-of-import, so the id matching again after
@@ -5976,7 +6017,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // a tab or graph switch during the OS read must not receive a paste
       // aimed at the previous canvas (the anchor is in its coordinates).
       const tab = activeTab()
-      if (!tab || frozen()) return
+      if (!tab || refuseFrozenEdit()) return
       const graphId = currentGraphId(tab)
       const internalText = pendingClipboardText()
       if (internalText !== undefined) {
@@ -6172,7 +6213,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       createEmptySubgraph: async (position) => {
         const tab = activeTab()
-        if (!tab || frozen()) return false
+        if (!tab || refuseFrozenEdit()) return false
         const vp = renderer.getViewport()
         const center = position ?? {
           x: (canvasEl.clientWidth / 2 - vp.x) / vp.scale,
@@ -6302,8 +6343,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     if (!tab?.execution) return undefined
     const state = props.app.store.get(tab.execution)
     return {
-      prompt: tab.execution.prompt,
+      tab,
       status: state?.status ?? 'unknown',
+      progress: state?.status === 'running' ? executionProgress(state) : undefined,
+      queuedAt: state?.queuedAt,
       sync: props.app.frozenSyncStatus(tab),
       live: props.app.liveTabFor(tab.store.doc.lineage),
       // The compile-time registry is gone (e.g. app restarted, backend
@@ -6463,11 +6506,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             class="gesture-refusal-toast"
             data-testid="gesture-refusal-toast"
             data-refusal-id={refusal.id}
-            role="alert"
+            data-frozen={refusal.diagnostic.code === 'Frozen' ? '' : undefined}
+            role={refusal.diagnostic.code === 'Frozen' ? 'status' : 'alert'}
             style={{ left: `${refusal.x}px`, top: `${refusal.y}px`, 'max-height': `${refusal.maxHeight}px` }}
           >
             <span style={{ 'max-height': `${refusal.contentMaxHeight}px` }}>
-              <strong>{refusal.diagnostic.code}</strong>: {refusal.diagnostic.message}
+              <Show when={refusal.diagnostic.code === 'Frozen'} fallback={
+                <><strong>{refusal.diagnostic.code}</strong>: {refusal.diagnostic.message}</>
+              }>
+                <Icon icon={Snowflake} /> {message('frozen.refusal', { hint: refusal.diagnostic.message })}
+              </Show>
             </span>
             <ProductButton variant="ghost" size="compact"
               type="button"
@@ -6727,7 +6775,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           }}
         />
       </Show>
-      <div ref={cornerControlsEl} class="canvas-corner-controls">
+      <div ref={cornerControlsEl} class="canvas-corner-controls" data-minimap-size={(settingsTick(), props.app.settings.get<string>('canvas.minimap.size'))}>
         <canvas ref={minimapEl} class="minimap" classList={{ hidden: (settingsTick(), !props.app.settings.get<boolean>('canvas.minimap.visible')) }} data-testid="minimap" data-node-colors={props.app.settings.get<boolean>('canvas.minimap.nodes')} data-bypass={props.app.settings.get<boolean>('canvas.minimap.bypass')} data-links={props.app.settings.get<boolean>('canvas.minimap.noodles')} data-groups={props.app.settings.get<boolean>('canvas.minimap.groups')} data-reroutes={props.app.settings.get<boolean>('canvas.minimap.reroutes')} data-errors={props.app.settings.get<boolean>('canvas.minimap.errors')} data-bookmarks={props.app.settings.get<boolean>('canvas.minimap.bookmarks')} />
         <div class="canvas-corner-bar">
           <div class="minimap-bar-controls" role="group" aria-label="Minimap controls">
@@ -6754,22 +6802,26 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       <Show when={frozenInfo()}>
         {(f) => (
           <div class="frozen-banner" data-testid="frozen-banner" data-sync={f().sync}>
-            <span class="frozen-label">FROZEN</span>
-            <span>
-              execution {f().prompt.slice(0, 8)} - {f().status}
-            </span>
+            <Icon icon={Snowflake} />
+            <span class="frozen-label">{message('frozen.label')}</span>
             <span class="frozen-sync">
-              {f().sync === 'in-sync'
-                ? 'matches the live workflow'
-                : f().sync === 'diverged'
-                  ? 'live workflow has changed since this ran'
-                  : 'no live tab open'}
+              {f().status === 'running'
+                ? `Running${f().progress === undefined ? '' : ` ${Math.round(f().progress!.value * 100)}%`}.`
+                : f().status === 'queued'
+                  ? 'Queued.'
+                  : `Ran${f().queuedAt === undefined ? '' : ` ${new Date(f().queuedAt!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`} (${f().status}).`}
+              {' '}{f().sync === 'in-sync' ? 'Matches live.' : f().sync === 'diverged' ? 'Live changed.' : 'No live tab.'}
             </span>
             <Show when={f().schemasUnavailable}>
               <span class="frozen-schema-warning" data-testid="frozen-schema-missing">
                 schemas from this run are unavailable - nodes render without definitions
               </span>
             </Show>
+            <ProductButton size="compact"
+              class="banner-button"
+              data-testid="frozen-open-copy"
+              onClick={() => { void props.app.duplicateTab(f().tab.id, true) }}
+            >{message('frozen.openCopy')}</ProductButton>
             <Show when={f().live}>
               {(live) => (
                 <ProductButton size="compact"
@@ -6777,7 +6829,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   data-testid="frozen-go-live"
                   onClick={() => props.app.activeTabId.set(live().id)}
                 >
-                  Go to Live
+                  {message('frozen.goLive')}
                 </ProductButton>
               )}
             </Show>

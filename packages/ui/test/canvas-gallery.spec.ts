@@ -72,7 +72,7 @@ test('Canvas waits for the bundled italic face before publishing title paint', a
   }
 })
 
-test('Canvas pages are listed under six headings in the side list', async ({
+test('Canvas pages are listed under seven headings in the side list', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
@@ -84,6 +84,7 @@ test('Canvas pages are listed under six headings in the side list', async ({
     'Rows',
     'Wires',
     'Subgraphs',
+    'Flow nodes',
     'Zoom',
   ])
   // Only the heading holding the current page starts open.
@@ -91,7 +92,7 @@ test('Canvas pages are listed under six headings in the side list', async ({
     await headings.evaluateAll((all) =>
       all.map((heading) => heading.getAttribute('aria-expanded')),
     ),
-  ).toEqual(['true', 'false', 'false', 'false', 'false', 'false'])
+  ).toEqual(['true', 'false', 'false', 'false', 'false', 'false', 'false'])
   await expect(pageLink(page, 'anatomy')).toHaveAttribute(
     'aria-current',
     'page',
@@ -145,7 +146,7 @@ test('A page link opens its heading, and the foot steps in list order', async ({
   const wires = sideList(page).getByRole('button', { name: 'Wires' })
   await expect(wires).toHaveAttribute('aria-expanded', 'true')
   await expect(
-    sideList(page).getByRole('button', { name: 'Nodes' }),
+    sideList(page).getByRole('button', { name: 'Nodes', exact: true }),
   ).toHaveAttribute('aria-expanded', 'false')
   await expect(pageLink(page, 'types')).toHaveAttribute('aria-current', 'page')
   const steps = page.getByRole('navigation', { name: 'Canvas pages' })
@@ -234,6 +235,31 @@ test('The content column is centered beside the sidebar', async ({ page }) => {
   // 1440 - 240 sidebar - 2 * 32 padding leaves 1136 for a 960 column.
   expect(gaps.left).toBe(88)
   expect(Math.abs(gaps.left - gaps.right)).toBeLessThanOrEqual(1)
+})
+
+test('An open row\'s side part draws its rules and keys in the node\'s divider and label colors', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await openPage(page, 'row-editing')
+  await cardsReady(page, 'row-editing', 'dark')
+  const palette = (name: string) =>
+    page.evaluate((name) => {
+      const probe = document.createElement('span')
+      probe.style.color = `var(${name})`
+      document.body.append(probe)
+      const color = getComputedStyle(probe).color
+      probe.remove()
+      return color
+    }, name)
+  const help = page.locator('.dinkster-canvas-side-help').first()
+  const key = page.locator('.dinkster-canvas-side-fact dt').first()
+  expect(
+    await help.evaluate((element) => getComputedStyle(element).borderTopColor),
+  ).toBe(await palette('--dinkster-border-divider'))
+  expect(
+    await key.evaluate((element) => getComputedStyle(element).color),
+  ).toBe(await palette('--dinkster-text-secondary'))
 })
 
 for (const theme of ['dark', 'light'] as const) {
@@ -332,7 +358,7 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(canvas).toHaveScreenshot(`tabs-hover-${theme}.png`)
     await page.mouse.move(0, 0)
     await expect(canvas).not.toHaveAttribute('title', /.+/)
-    await canvas.click({ position: { x: 88, y: 152 } })
+    await canvas.click({ position: { x: 101, y: 152 } })
     const dialog = page.getByRole('dialog', { name: 'Node details' })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText('Detail 5', { exact: true })).toBeVisible()

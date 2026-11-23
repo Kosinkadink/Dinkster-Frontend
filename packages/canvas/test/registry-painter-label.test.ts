@@ -7,7 +7,7 @@
  */
 import type { WidgetKind, WidgetRegistry, WidgetView } from '@dinkster/core'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { createRegistryPainter } from '../src/registry-painter.js'
+import { createRegistryPainter, subgraphMarkRect } from '../src/registry-painter.js'
 import { fitItems, paintSwatchRow } from '../src/renderer.js'
 import type { WidgetPaintArgs } from '../src/renderer.js'
 import { defaultTokens } from '../src/tokens.js'
@@ -25,6 +25,7 @@ function fakeCtx(charWidth = 6) {
   const fills: { x: number; y: number; width: number; height: number; fillStyle: string }[] = []
   const roundedFills: { x: number; y: number; width: number; height: number; radius: number; fillStyle: string }[] = []
   const strokes: Array<{ points: Array<{ x: number; y: number }>; strokeStyle: string }> = []
+  const transforms: Array<{ method: 'translate' | 'scale'; x: number; y: number }> = []
   let pendingRect: { x: number; y: number; width: number; height: number; radius: number } | undefined
   let pendingPoints: Array<{ x: number; y: number }> = []
   const ctx = {
@@ -37,8 +38,8 @@ function fakeCtx(charWidth = 6) {
     beginPath: () => { pendingPoints = []; pendingRect = undefined },
     save: () => {},
     restore: () => {},
-    translate: () => {},
-    scale: () => {},
+    translate: (x: number, y: number) => { transforms.push({ method: 'translate', x, y }) },
+    scale: (x: number, y: number) => { transforms.push({ method: 'scale', x, y }) },
     arc: () => {},
     moveTo: (x: number, y: number) => { pendingPoints.push({ x, y }) },
     lineTo: (x: number, y: number) => { pendingPoints.push({ x, y }) },
@@ -58,7 +59,7 @@ function fakeCtx(charWidth = 6) {
       textCalls.push({ text, x, y, align: this.textAlign as CanvasTextAlign, fill: String(this.fillStyle), font: this.font })
     },
   }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, textCalls, clips, fills, roundedFills, strokes }
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, textCalls, clips, fills, roundedFills, strokes, transforms }
 }
 
 const LABEL = 'control_after_generate'
@@ -316,18 +317,34 @@ describe('registry painter label/value split', () => {
       fill.fillStyle === defaultTokens.colors.widgetAffordance && fill.width === defaultTokens.multilineText.scrollbarWidth,
     )
 
-    // The text starts 2 left of the label over it, which is at 6.
-    expect(idle.textCalls.find((call) => call.text === 'one')).toMatchObject({ x: 4 })
+    // The text starts at the x of the label over it.
+    const label = idle.textCalls.find((call) => call.text === 'text' && call.y < 24)!
+    expect(label.x).toBe(6)
+    expect(idle.textCalls.find((call) => call.text === 'one')).toMatchObject({ x: label.x })
     expect(idle.clips.filter((clip) => clip.x === 0).map((clip) => clip.width)).toContain(152)
     expect(fits.roundedFills.some((fill) => fill.fillStyle === defaultTokens.colors.widgetAffordance)).toBe(false)
     expect(scrollbar).toMatchObject({ x: 152, y: 19, width: 6, radius: 3 })
     expect(scrollbar!.y + scrollbar!.height).toBeLessThanOrEqual(72)
   })
 
+  it('draws the subgraph icon before a field\'s name across its whole 14 px box', () => {
+    const painted = fakeCtx()
+    const row = { ...rowWith(5), subgraphMark: { item: 'ctrl', label: LABEL } }
+    createRegistryPainter(registry)({
+      ctx: painted.ctx, row, value: 5, x: 10, y: 20, width: 200, rowHeight: 24, connected: false, tokens: defaultTokens,
+    })
+    const mark = subgraphMarkRect(row, 200, 24, defaultTokens, false, true)
+    expect(mark.size).toBe(14)
+    const at = painted.transforms.findIndex((call) =>
+      call.method === 'translate' && call.x === 10 + mark.x && call.y === 20 + mark.y)
+    // Lucide's 24-unit box drawn at 14 px, starting at the box's corner.
+    expect(painted.transforms[at + 1]).toEqual({ method: 'scale', x: 14 / 24, y: 14 / 24 })
+  })
+
   it('paints an empty multiline placeholder in muted italic type', () => {
     const painted = paintMultilineDetails(76, 160, '')
     const placeholder = painted.textCalls.find((call) => call.text === 'text' && call.y > 24)!
-    expect(placeholder).toMatchObject({ x: 4, y: 35, fill: defaultTokens.colors.label })
+    expect(placeholder).toMatchObject({ x: 6, y: 35, fill: defaultTokens.colors.label })
     expect(placeholder.font).toBe('italic 14px "Noto Sans", sans-serif')
   })
 
