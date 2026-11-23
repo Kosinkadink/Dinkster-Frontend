@@ -348,6 +348,64 @@ describe('while a press waits', () => {
     expect(outcome.message).toBe('Set 1 field. first was changed while the button waited and keeps that value.')
   })
 
+  describe('changes to what the press writes into', () => {
+    const text = { kind: 'concrete', types: ['STRING'] }
+    const pickThen = (step: unknown) => [{ step: 'pick', name: 'chosen', options: { value: ['p', 'q'] } }, step]
+    addSchema('test.waits', [
+      { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['dev.image'] }, required: false },
+      {
+        kind: 'group', id: 'items', keys: { numbered: { prefix: 'item_', start: 1, pad: 0 } }, grows: 'button', minMembers: 0, maxMembers: 3,
+        member: [{ kind: 'input', id: 'label', type: text, required: true, default: 'x' }],
+      },
+      {
+        kind: 'choice', id: 'mode', required: true, default: 'a',
+        options: [{ key: 'a', rows: [{ kind: 'input', id: 'x', type: text, required: true, default: '' }] }, { key: 'b', rows: [] }],
+      },
+      { kind: 'button', id: 'add', label: 'Add', steps: pickThen({ step: 'addMember', group: 'items', values: { label: { formula: 'chosen' } } }) },
+      { kind: 'button', id: 'feed', label: 'Feed', steps: pickThen({ step: 'addNode', nodeType: 'dev.image.gradient', to: 'image', values: {} }) },
+      { kind: 'button', id: 'set_x', label: 'Set x', steps: pickThen({ step: 'set', field: 'mode.x', value: { formula: 'chosen' } }) },
+    ])
+    const waiting = (session: DocumentSession, button: string) => {
+      const list = later<string | undefined>()
+      return { pressing: runPress(session, at(button), hostOf({ pick: () => list.promise })), answer: list.settle }
+    }
+
+    it('fails a second press whose new member another press already added', async () => {
+      const session = sessionOf(documentOf({ n1: { type: 'test.waits' } }))
+      const first = waiting(session, 'add')
+      const second = waiting(session, 'add')
+      await Promise.resolve()
+      first.answer('p')
+      expect((await first.pressing).kind).toBe('done')
+      second.answer('q')
+      expect((await second.pressing).message).toBe('Nothing was changed. The group changed while the button waited.')
+      expect(session.doc.graphs['g0']!.nodes['n1']!.dynamic?.['items']?.members).toEqual(['item_1'])
+      expect(valuesOf(session)).toMatchObject({ 'items.item_1.label': 'p' })
+    })
+
+    it('keeps a wire the user made meanwhile instead of putting a new node in front of it', async () => {
+      const session = sessionOf(documentOf({ n1: { type: 'test.waits' }, src: { type: 'dev.image.gradient' } }))
+      const press = waiting(session, 'feed')
+      await Promise.resolve()
+      session.dispatch({ command: 'link.connect', params: { graphId: 'g0', from: { node: 'src', port: 'image' }, to: { node: 'n1', port: 'image' } } })
+      press.answer('p')
+      expect((await press.pressing).skipped).toEqual([{ id: 'image', why: 'wired' }])
+      const links = Object.values(session.doc.graphs['g0']!.links)
+      expect(links.map((item) => [item.from, item.to])).toEqual([[{ node: 'src', port: 'image' }, { node: 'n1', port: 'image' }]])
+      expect(Object.keys(session.doc.graphs['g0']!.nodes).sort()).toEqual(['n1', 'src'])
+    })
+
+    it('fails when the option holding its field is no longer chosen', async () => {
+      const session = sessionOf(documentOf({ n1: { type: 'test.waits' } }))
+      const press = waiting(session, 'set_x')
+      await Promise.resolve()
+      session.dispatch({ command: 'dynamic.selectOption', params: { graphId: 'g0', nodeId: 'n1', construct: 'mode', option: 'b' } })
+      press.answer('p')
+      expect((await press.pressing).message).toBe('Nothing was changed. A field this button sets is no longer on the node.')
+      expect(valuesOf(session)['mode.x']).toBeUndefined()
+    })
+  })
+
   it('writes nowhere when the node is deleted', async () => {
     const session = probe()
     const answer = later<CallAnswer>()

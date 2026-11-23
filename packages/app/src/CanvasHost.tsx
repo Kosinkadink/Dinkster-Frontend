@@ -1773,6 +1773,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       signal.addEventListener('abort', onAbort, { once: true })
       open(answer)
     })
+  /** The button each open press editor answers to, so it closes when its node goes. */
+  const pressEditorPlaces = new WeakMap<EditorTarget, ButtonPlace>()
+  /** The field editor an Ask form's row opened, which closes with the form. */
+  let askRowTarget: EditorTarget | undefined
   const buttonPresses = createButtonPresses(props.app, {
     edit: (request, signal) => {
       let target: Extract<EditorTarget, { kind: 'local' }> | undefined
@@ -1780,6 +1784,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const rect = buttonWorldRect(request.place)
         if (rect === undefined) { answer(undefined); return }
         target = { kind: 'local', commit: answer, cancel: () => answer(undefined), ...(request.list ? { list: request.list } : {}) }
+        pressEditorPlaces.set(target, request.place)
         setEditor({
           tab: request.place.tab,
           graphId: request.place.graphId,
@@ -1793,16 +1798,43 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         })
       }, () => { if (target !== undefined && untrack(editor)?.target === target) setEditor(undefined) })
     },
-    ask: (place, request, signal) => answerOnce<Readonly<Record<string, Json>>>(
-      signal,
-      (answer) => setAskForm({ place, request, answer }),
-      () => setAskForm(undefined),
-    ),
-    confirmLink: async (place, url) => await answerOnce<boolean>(
-      new AbortController().signal,
-      (answer) => setLinkConfirm({ place, url, answer }),
-      () => setLinkConfirm(undefined),
-    ) === true,
+    // One form and one address question show at a time: a newer one closes the older as Cancel would.
+    ask: (place, request, signal) => {
+      let entry: ReturnType<typeof askForm>
+      return answerOnce<Readonly<Record<string, Json>>>(
+        signal,
+        (answer) => {
+          untrack(askForm)?.answer(undefined)
+          entry = { place, request, answer }
+          setAskForm(entry)
+        },
+        () => {
+          if (untrack(askForm) !== entry) return
+          setAskForm(undefined)
+          if (askRowTarget !== undefined && untrack(editor)?.target === askRowTarget) setEditor(undefined)
+        },
+      )
+    },
+    confirmLink: async (place, url, signal) => {
+      let entry: ReturnType<typeof linkConfirm>
+      return await answerOnce<boolean>(
+        signal,
+        (answer) => {
+          untrack(linkConfirm)?.answer(false)
+          entry = { place, url, answer: (open: boolean) => answer(open) }
+          setLinkConfirm(entry)
+        },
+        () => { if (untrack(linkConfirm) === entry) setLinkConfirm(undefined) },
+      ) === true
+    },
+  })
+  // A list or editor a press opened closes, as Cancel would, when its node leaves the view.
+  createEffect(() => {
+    const current = editor()
+    const place = current === undefined ? undefined : pressEditorPlaces.get(current.target)
+    if (current !== undefined && place !== undefined && buttonScreenRect({ ...place, menu: true }) === undefined) {
+      untrack(() => current.target.kind === 'local' && current.target.cancel())
+    }
   })
   // An editor a press opened and something else replaced hands nothing back.
   let lastEditor: WidgetEditorState | undefined
@@ -7153,6 +7185,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           </Show>
         )}
       </For>
+      {/* A menu button has no row to draw its work on, so it shows under its node with Cancel. */}
+      <For each={[...buttonPresses.states().values()].filter((state) => state.place.menu && state.box === undefined && shownOnThisGraph(state.place))}>
+        {(state) => (
+          <Show when={buttonScreenRect(state.place)}>
+            {(rect) => (
+              <ButtonBoxView
+                box={{ tone: 'info', message: `${state.busy ?? state.place.label ?? state.place.button}...` }}
+                under={rect()}
+                testId="button-menu-working"
+                onCancel={() => buttonPresses.cancel(state.place)}
+              />
+            )}
+          </Show>
+        )}
+      </For>
       <Show when={buttonHover()} keyed>
         {(hover) => (
           <Show when={shownOnThisGraph(hover.place) ? buttonScreenRect(hover.place) : undefined}>
@@ -7171,11 +7218,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 editRow={(row, at, value, set) => {
                   const rect = clientRectToWorld(at)
                   if (rect === undefined) return
+                  askRowTarget = { kind: 'local', commit: set, cancel: () => {} }
                   setEditor({
                     tab: form.place.tab,
                     graphId: form.place.graphId,
                     label: row.displayName ?? row.id,
-                    target: { kind: 'local', commit: set, cancel: () => {} },
+                    target: askRowTarget,
                     spec: row.widget,
                     multiline: false,
                     rect,

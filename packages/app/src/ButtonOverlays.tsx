@@ -28,7 +28,8 @@ function placed(place: () => { readonly left: number; readonly top: number; read
 }
 
 /** A result, skip or reason box under a button's line, with its icon in the text. */
-export function ButtonBoxView(props: { readonly box: ButtonBox; readonly under: ScreenRect; readonly testId?: string }) {
+export function ButtonBoxView(props: { readonly box: ButtonBox; readonly under: ScreenRect; readonly testId?: string; readonly onCancel?: () => void }) {
+  const message = useAppMessage()
   return (
     <div
       class="button-box"
@@ -41,6 +42,9 @@ export function ButtonBoxView(props: { readonly box: ButtonBox; readonly under: 
         <Show when={props.box.tone === 'warn'} fallback={<Info size={14} />}><TriangleAlert size={14} /></Show>
       </span>
       <span>{props.box.message}</span>
+      <Show when={props.onCancel}>
+        {(cancel) => <ProductButton size="compact" variant="ghost" class="button-box-cancel" onClick={() => cancel()()}>{message('common.cancel')}</ProductButton>}
+      </Show>
     </div>
   )
 }

@@ -136,8 +136,8 @@ export interface ActionHost {
   download(filename: string, content: string | Uint8Array): Promise<void>
   queue(toHere: { readonly graphId: string; readonly nodeId: string } | undefined): Promise<void>
   interrupt(): Promise<void>
-  /** Opens a new tab; `confirm` asks the user first, showing the address. */
-  openLink(url: string, confirm: boolean): Promise<void>
+  /** Opens a new tab; `confirm` asks the user first, showing the address, until `signal` cancels. */
+  openLink(url: string, confirm: boolean, signal: AbortSignal): Promise<void>
   /** A number in [0, 1); redo never draws again. */
   random(): number
 }
@@ -284,9 +284,13 @@ export function fieldValue(field: ElaboratedInput, value: unknown, name: string)
       }
       return choice
     }
-    case 'MULTI_COMBO':
+    case 'MULTI_COMBO': {
       if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) return refuse(`${name} takes a list of options.`)
+      const fixed = widget.remote === undefined ? normalizedComboOptions(widget) : []
+      const outside = fixed.length > 0 ? value.find((item) => !fixed.some((option) => option.value === item)) : undefined
+      if (outside !== undefined) return refuse(`${outside} is not one of the options of ${name}.`)
       return value as string[]
+    }
     default:
       return refuse(`${name} is a field a button cannot set.`)
   }
@@ -370,7 +374,12 @@ function memberWired(view: View, group: string, member: string): boolean {
 type Action =
   | { readonly kind: 'value'; readonly path: string; readonly value: Json }
   | { readonly kind: 'mode'; readonly path: string; readonly mode: ControllerMode }
-  | { readonly kind: 'materialize'; readonly frames: readonly MaterializeFrame[] }
+  | {
+      readonly kind: 'materialize'
+      readonly frames: readonly MaterializeFrame[]
+      /** The member an AddMember step adds, which must still be new at the commit. */
+      readonly adds?: { readonly group: string; readonly member: string }
+    }
   | { readonly kind: 'removeMember'; readonly group: string; readonly member: string }
   | { readonly kind: 'disconnect'; readonly path: string }
   | {
@@ -382,6 +391,8 @@ type Action =
       readonly to: string
       /** Insert between: the old source of `to` and the new node's input it now feeds. */
       readonly between?: { readonly from: LinkEndpoint; readonly input: string }
+      /** What fed `to` when the step ran; a different source at the commit skips the step. */
+      readonly source?: LinkEndpoint
     }
 
 function invocationsOf(action: Action, doc: WorkflowDocument, target: PressTarget, actor: string | undefined): CommandInvocation[] {
@@ -433,7 +444,7 @@ function stageOn(store: DocumentStore, actions: readonly Action[], target: Press
   for (const action of actions) {
     const invocations = invocationsOf(action, store.doc, target, actor)
     if (invocations.length === 0) continue
-    const outcome = store.dispatch(batch(invocations))
+    const outcome = store.dispatch({ ...batch(invocations), ...(actor !== undefined ? { actor } : {}) })
     if (!outcome.ok) {
       refuse(outcome.diagnostics.find((item) => item.severity === 'error')?.message ?? 'The change could not be made.')
     }
@@ -511,14 +522,24 @@ class Press {
     if (this.signal.aborted) throw new Cancelled()
   }
 
+  /** Wait for a host answer; Cancel ends the wait even when the host does not listen to the signal. */
   async wait<T>(promise: Promise<T>): Promise<T> {
+    this.checkAbort()
+    let onAbort = (): void => {}
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () => reject(new Cancelled())
+      this.signal.addEventListener('abort', onAbort, { once: true })
+    })
     try {
-      const value = await promise
+      const value = await Promise.race([promise, aborted])
       this.checkAbort()
       return value
     } catch (error) {
       if (this.signal.aborted) throw new Cancelled()
       throw error
+    } finally {
+      this.signal.removeEventListener('abort', onAbort)
+      promise.catch(() => {})
     }
   }
 
@@ -678,6 +699,8 @@ class Press {
         return this.addMember(step.group, step.values)
       case 'removeMember': {
         const group = this.groupOf(step.group)
+        // The count is checked first: members not yet stored still count toward the least.
+        if (group.spec.minMembers > 0 && group.members.length <= group.spec.minMembers) return refuse("The group already has its fewest members.")
         if (group.members.length === 0) return refuse(`${step.group} has no member to remove.`)
         let position: number
         if (step.which === 'first') position = 0
@@ -690,7 +713,6 @@ class Press {
         }
         const member = group.members[position]!
         if (memberWired(this.view, group.path, member)) return this.skip(`${group.path}.${member}`)
-        if (group.members.length <= group.spec.minMembers) return refuse("The group already has its fewest members.")
         this.stage([{ kind: 'removeMember', group: group.path, member }])
         return
       }
@@ -819,7 +841,7 @@ class Press {
     const frame = frames === undefined ? undefined : [...frames].reverse().find((item) => item.construct === group.path)
     if (frames === undefined || frame === undefined) return refuse(`${name} already has its most members.`)
     const key = frame.members.at(-1)!
-    this.stage([{ kind: 'materialize', frames }])
+    this.stage([{ kind: 'materialize', frames, adds: { group: group.path, member: key } }])
     const memberContext = this.view.contexts.get(`${group.path}.${key}.`)
     const writes: Action[] = []
     for (const [row, value] of evaluated) {
@@ -876,6 +898,7 @@ class Press {
       output: output.address.port,
       to: path,
       ...(between !== undefined ? { between } : {}),
+      ...(driver !== undefined ? { source: driver.from } : {}),
     }])
   }
 
@@ -954,7 +977,7 @@ class Press {
     for (const action of this.actions) {
       const view = viewOf(live.doc, this.target, this.host) ?? refuse('The node was removed while the button waited.')
       if (action.kind === 'value' || action.kind === 'mode') {
-        if (edited.has(action.path)) {
+        if (edited.has(`${action.kind === 'value' ? 'values' : 'controllers'}:${action.path}`)) {
           this.skip(action.path, 'edited')
           continue
         }
@@ -965,7 +988,21 @@ class Press {
         if (resolveDynamicAddress({ port: action.path }, view.node.dynamic).kind === 'missing') {
           return refuse('A member this button sets was removed while it waited.')
         }
+        // A choice switched to another option, or a group or member gone, takes the field away.
+        if (inputAt(view, action.path) === undefined) return refuse('A field this button sets is no longer on the node.')
         written.add(action.path)
+      } else if (action.kind === 'materialize') {
+        if (action.adds !== undefined && view.node.dynamic?.[action.adds.group]?.members?.includes(action.adds.member) === true) {
+          return refuse('The group changed while the button waited.')
+        }
+      } else if (action.kind === 'addNode') {
+        const graph = live.doc.graphs[this.target.graphId]!
+        const driver = Object.values(graph.links).find((link) => 'port' in link.to && link.to.node === this.target.nodeId && link.to.port === action.to)
+        const connected = view.connectivity.isInputConnected(action.to)
+        if (JSON.stringify(driver?.from) !== JSON.stringify(action.source) || (connected && driver === undefined)) {
+          this.skip(action.to)
+          continue
+        }
       } else if (action.kind === 'removeMember') {
         if (view.node.dynamic?.[action.group]?.members?.includes(action.member) !== true) {
           return refuse('A member this button removes was already removed.')
@@ -1000,7 +1037,7 @@ class Press {
       case 'download':
         return this.host.download(step.filename, display(await this.value(step.value)))
       case 'openLink':
-        return this.host.openLink(display(await this.value(step.url)), step.url.kind !== 'literal')
+        return this.host.openLink(display(await this.value(step.url)), step.url.kind !== 'literal', this.signal)
       case 'call': {
         const answer = await this.call(step, this.context)
         if (answer.kind !== 'file') return refuse('The pack answered with fields where the button expected a file.')
@@ -1067,7 +1104,7 @@ export async function runPress(
       const old = before[store] ?? {}
       const now = after[store] ?? {}
       for (const key of new Set([...Object.keys(old), ...Object.keys(now)])) {
-        if (JSON.stringify((old as Record<string, unknown>)[key]) !== JSON.stringify((now as Record<string, unknown>)[key])) edited.add(key)
+        if (JSON.stringify((old as Record<string, unknown>)[key]) !== JSON.stringify((now as Record<string, unknown>)[key])) edited.add(`${store}:${key}`)
       }
     }
     before = after

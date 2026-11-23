@@ -5,6 +5,7 @@ import {
   documentNodeResolver,
   documentResolver,
   isAssetWidgetInput,
+  normalizeComboOption,
   runPress,
   type ActionHost,
   type AskRequest,
@@ -67,11 +68,12 @@ export interface ButtonSurfaces {
   edit(request: LocalEditRequest, signal: AbortSignal): Promise<Json | undefined>
   ask(place: ButtonPlace, request: AskRequest, signal: AbortSignal): Promise<Readonly<Record<string, Json>> | undefined>
   /** Shows a field-built address before its tab opens. */
-  confirmLink(place: ButtonPlace, url: string): Promise<boolean>
+  confirmLink(place: ButtonPlace, url: string, signal: AbortSignal): Promise<boolean>
 }
 
-export const buttonKey = (place: Pick<ButtonPlace, 'tab' | 'graphId' | 'nodeId' | 'button'>): string =>
-  JSON.stringify([place.tab.id, place.graphId, place.nodeId, place.button])
+/** One press at a time per button: a menu button and each subgraph instance are their own. */
+export const buttonKey = (place: Pick<ButtonPlace, 'tab' | 'graphId' | 'nodeId' | 'button' | 'menu' | 'instancePath'>): string =>
+  JSON.stringify([place.tab.id, place.graphId, place.instancePath ?? [], place.nodeId, place.menu === true, place.button])
 
 const targetOf = (place: ButtonPlace): PressTarget => ({
   graphId: place.graphId,
@@ -103,10 +105,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
     setStates(copy)
   }
 
-  const resolverOf = (tab: Tab) => {
-    const base = app.registryForTab(tab)?.resolve ?? (() => undefined)
-    return base
-  }
+  const resolverOf = (tab: Tab) => app.registryForTab(tab)?.resolve ?? (() => undefined)
 
   const lookupCall = (request: LookupRequest): LookupCall => ({
     nodeType: request.nodeType,
@@ -123,10 +122,10 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
     return lookups
   }
 
-  const hostFor = (place: ButtonPlace): ActionHost => {
+  /** What `buttonAvailability` reads; cheap enough for every repaint and hover. */
+  const lookOf = (place: ButtonPlace): Pick<ActionHost, 'schemaOf' | 'editorFor'> => {
     const { tab } = place
     const resolve = resolverOf(tab)
-    const backend = app.backendForTab(tab)
     const editorFor = (field: ElaboratedInput) => {
       const spec = field.spec.widget
       if (spec === undefined || NO_HOST_EDITOR.has(spec.widgetType) || isAssetWidgetInput(field.spec)) return undefined
@@ -139,9 +138,19 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
       }, signal)
     }
     return {
+      schemaOf: (doc, graphId, node) => documentNodeResolver(doc, resolve)(graphId, node, place.instancePath as readonly NodeId[] | undefined),
+      editorFor,
+    }
+  }
+
+  const hostFor = (place: ButtonPlace): ActionHost => {
+    const { tab } = place
+    const resolve = resolverOf(tab)
+    const backend = app.backendForTab(tab)
+    return {
+      ...lookOf(place),
       commands: coreCommandRegistry([], resolve),
       schemaResolverFor: (doc: WorkflowDocument) => documentResolver(doc, resolve),
-      schemaOf: (doc, graphId, node) => documentNodeResolver(doc, resolve)(graphId, node, place.instancePath as readonly NodeId[] | undefined),
       async lookup(request, signal): Promise<LookupResult> {
         const lookups = lookupsOf(tab)
         if (request.use === 'value') return lookups.resolve(lookupCall(request), 'value', { signal })
@@ -159,7 +168,6 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         if (spec === undefined) return Promise.reject(new Error(`${field.spec.id} has no picker.`))
         return surfaces.edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial: undefined }, signal)
       },
-      editorFor,
       async pasteImage(field, signal) {
         const spec = field.spec.widget
         if (spec === undefined) throw new Error(`${field.spec.id} does not take an image.`)
@@ -200,10 +208,17 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         if (executions.length === 0) throw new Error('Nothing is running.')
         await Promise.all(executions.map((execution) => app.cancelExecution(execution.ref)))
       },
-      async openLink(url, confirm) {
-        if (confirm && !await surfaces.confirmLink(place, url)) throw new Error('The link was not opened.')
-        const opened = window.open(url, '_blank', 'noopener,noreferrer')
-        if (opened === null && !confirm) throw new Error('The browser blocked the new tab.')
+      async openLink(url, confirm, signal) {
+        let address: URL
+        try {
+          address = new URL(url)
+        } catch {
+          throw new Error(`${url} is not a web address.`)
+        }
+        if (address.protocol !== 'https:' && address.protocol !== 'http:') throw new Error('Only web addresses open in a new tab.')
+        if (confirm && !await surfaces.confirmLink(place, address.href, signal)) throw new Error('The link was not opened.')
+        // With noopener the browser answers null whether or not the tab opened, so a block cannot be told.
+        window.open(address.href, '_blank', 'noopener,noreferrer')
       },
       random: Math.random,
     }
@@ -218,10 +233,8 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
           const entry = await lookupsOf(place.tab).request(lookupCall(request.lookup!), { signal, askedBy: 'press', refresh: true })
           const next = entry.state === 'ready' || entry.state === 'stale' ? entry.answer : undefined
           const list = Array.isArray(next) ? next.flatMap((item: unknown) => {
-            const value = typeof item === 'bigint' ? Number(item) : item
-            return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-              ? [{ value, label: String(value) }]
-              : typeof value === 'object' && value !== null && 'value' in value ? [value as NormalizedComboOption] : []
+            const option = normalizeComboOption(typeof item === 'bigint' ? Number(item) : item)
+            return option === undefined ? [] : [option]
           }) : []
           return open(list, entry.state === 'ready' || entry.state === 'stale' || entry.state === 'paused' ? entry.state : 'failed')
         })()
@@ -239,10 +252,12 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
   }
 
   const availability = (place: ButtonPlace): ButtonAvailability =>
-    buttonAvailability(place.tab.store.doc, targetOf(place), hostFor(place))
+    buttonAvailability(place.tab.store.doc, targetOf(place), lookOf(place))
 
   const report = (place: ButtonPlace, outcome: PressOutcome): void => {
-    const message = [outcome.message, ...outcome.notes].filter((part): part is string => part !== undefined && part !== '').join(' ')
+    // A press that went through already ends its message with its notes; a failed one does not.
+    const parts = outcome.kind === 'failed' ? [outcome.message, ...outcome.notes] : [outcome.message]
+    const message = parts.filter((part): part is string => part !== undefined && part !== '').join(' ')
     if (outcome.kind === 'cancelled' || message === '') {
       update(buttonKey(place), undefined)
       return

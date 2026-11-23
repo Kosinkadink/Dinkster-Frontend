@@ -635,6 +635,7 @@
 .button-box[data-tone='warn'] { border-color: var(--dinkster-warning-border); }
 .button-box-icon { flex: none; display: inline-flex; margin-top: 2px; color: var(--dinkster-text-secondary); }
 .button-box[data-tone='warn'] .button-box-icon { color: var(--dinkster-warning-foreground); }
+.button-box-cancel { flex: none; margin: -3px -4px -3px auto; pointer-events: auto; }
 .button-link-confirm { pointer-events: auto; }
 .button-link-body { display: grid; gap: 6px; min-width: 0; }
 .button-link-address { font-family: var(--dinkster-font-mono, monospace); color: var(--dinkster-text-secondary); }
