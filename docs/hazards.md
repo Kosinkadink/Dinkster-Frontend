@@ -109,10 +109,9 @@ structurally impossible. Keep it that way.
 `traceEndpoint` in `packages/core/src/reroute.ts` is the ONLY code that
 answers "what really drives this endpoint". The compiler, the semantic hash,
 and the scene builder all call it. Never write a second upstream-walking loop,
-even a "simpler local one" - the hash-vs-compiler divergence bug caught in
-review (undriven chains hashed as dangling pairs while the compiler omitted
-them) is exactly what a second implementation produces. If you need different
-trace output, extend `RerouteTrace`, do not fork the walk.
+even a "simpler local one" - separate implementations can diverge when one
+hashes undriven chains as dangling pairs while the compiler omits them. If you
+need different trace output, extend `RerouteTrace`, do not fork the walk.
 
 Failure mode if broken: frozen views dirty (or fail to dirty) on edits that
 do (or do not) change execution; sync badges lie to the user.

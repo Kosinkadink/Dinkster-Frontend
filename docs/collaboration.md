@@ -1,8 +1,7 @@
 # Collaboration (multiplayer shared sessions)
 
 Multiplayer editing of one workflow by several browsers at once, over the
-backend's dinkster-collab surface (protocolVersion 1; joint contract pinned in
-docs/promises.md and mirrored in Dinkster/docs/PROMISES.md). This document
+backend's dinkster-collab surface (protocolVersion 1). This document
 covers the app-level lifecycle and UX; the underlying state machine is
 `core/src/commands/shared-session.ts` (SharedDocumentSession) and the wire
 adapter is `client/src/collab-connection.ts`.
