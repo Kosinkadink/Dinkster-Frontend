@@ -85,6 +85,7 @@ import {
   subgraphDefIdOf,
   diag,
   occurrenceDynamicView,
+  definitionPick,
   occurrencesForView,
   autoConnectTarget,
   canonicalJson,
@@ -2856,6 +2857,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ...(targetSchema?.hasDocs === true ? { nodeHasDocs: true } : {}),
         ...(previewCapable !== undefined ? { previewCapable } : {}),
         ...(mirrorCapable !== undefined ? { mirrorCapable } : {}),
+        ...(menuResolve !== undefined ? { resolve: menuResolve } : {}),
         shortcuts: Object.fromEntries([
           'edit.delete',
           'node.mute',
@@ -3335,6 +3337,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const additionalGroups: ResolvedMenuGroup[] = []
         if (hit.kind === 'pin' && hit.direction === 'in' && hit.pin.dynamicSlot !== undefined) {
           const slot = hit.pin.dynamicSlot
+          // A subgraph node that clears its variant runs the one its
+          // definition picks inside; until a stored "none" exists, clearing
+          // is not offered there, so nobody clears and gets that variant.
+          const shellType = tab.store.doc.graphs[currentGraphId(tab)]?.nodes[hit.node.id]?.type
+          const defId = shellType === undefined ? undefined : subgraphDefIdOf(shellType)
+          const reg = props.app.registryForTab(tab)
+          const definitionPicks = defId !== undefined && reg !== undefined &&
+            definitionPick(tab.store.doc, defId, slot.construct, reg.resolve) !== undefined
           const specialize = (variant: string | null): CommandInvocation => ({
             command: 'dynamic.specializeSlot',
             params: {
@@ -3356,7 +3366,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               {
                 id: 'core.slot.specialize.clear',
                 label: 'Clear specialization',
-                disabled: slot.selected === undefined,
+                disabled: slot.selected === undefined || definitionPicks,
                 action: { kind: 'command' as const, invocation: specialize(null) },
               },
             ],
