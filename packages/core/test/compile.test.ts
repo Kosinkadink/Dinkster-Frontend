@@ -15,7 +15,7 @@ import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
-import { DINKSTER_GRAPH_FEATURE_DECIMAL_INT } from '../src/compile/dinkster-graph.js'
+import { DINKSTER_GRAPH_FEATURE_ABSENT_INPUT, DINKSTER_GRAPH_FEATURE_DECIMAL_INT } from '../src/compile/dinkster-graph.js'
 import { coreVirtualNodeKind } from '../src/virtual-node.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
@@ -1296,6 +1296,19 @@ describe('dynamic interfaces', () => {
     leftOut(tapInto({ type: 'TapGroup', values: { 'items.item0': 4 }, dynamic: { items: { members: ['item0'], seq: 2 } } }, 'items.item1'), 'items.item1')
     leftOut(tapInto({ type: 'TapChoice', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'b' } } }, 'mode.amount'), 'mode.amount')
     leftOut(tapInto({ type: 'TapSlot', values: { 'model.weight': 6 } }, 'model.weight'), 'model.weight')
+
+    // A server that takes the $absent marker gets it in place of the value,
+    // for a field with its own value, so its on_absent policy decides.
+    const gone = dynDoc({
+      nodes: { source: { type: 'TapChoice', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'b' } } }, sink: { type: 'IntSink' } },
+      links: [[{ node: 'source', tap: 'mode.amount' }, ['sink', 'steps']]],
+    })
+    const marked = compile({ ...compileInput(gone), resolve: dynResolve, graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+    expect(marked.ok, JSON.stringify(!marked.ok && marked.diagnostics)).toBe(true)
+    if (marked.ok) {
+      expect(marked.artifact.prompt['sink']!.inputs).toEqual({ steps: { $absent: { reason: "field 'source.mode.amount' is no longer part of its node" } } })
+      expect(marked.artifact.diagnostics.map((d) => d.code)).not.toContain('compile.link.dropped')
+    }
 
     // A field the node never declares is still an error.
     const unknown = tapInto(member, 'itemz.item0')

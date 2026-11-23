@@ -95,6 +95,7 @@ import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaul
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
   decimalIntegerWire,
+  DINKSTER_GRAPH_FEATURE_ABSENT_INPUT,
   DINKSTER_GRAPH_FEATURE_DECIMAL_INT,
   DINKSTER_GRAPH_FEATURE_REGIONS,
   DINKSTER_GRAPH_FEATURE_TYPED_LITERAL,
@@ -473,6 +474,7 @@ function compileImpl(
    */
   const emitTypedLiterals = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_TYPED_LITERAL) ?? false
   const emitDecimalInts = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_DECIMAL_INT) ?? false
+  const emitAbsentInputs = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_ABSENT_INPUT) ?? false
   const emitRegions = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_REGIONS) ?? false
   const diags: Diagnostic[] = []
   const elaborationDiagnosticOwners = new Map<Diagnostic, {
@@ -1417,7 +1419,8 @@ function compileImpl(
      */
     | { readonly kind: 'value'; readonly value: Json; readonly typeId?: string; readonly controllerSources?: readonly ControllerInputSource[]; readonly controllerWidget?: WidgetSpec }
     | { readonly kind: 'muted'; readonly reason: string }
-    | { readonly kind: 'dropped'; readonly reason: string }
+    /** `absent`: the wire gives nothing (its field is no longer part of its node), sent as $absent when the server takes it. */
+    | { readonly kind: 'dropped'; readonly reason: string; readonly absent?: true }
 
   type RouteAt =
     | { readonly kind: 'bypass'; readonly bypass: BypassAt }
@@ -1545,7 +1548,7 @@ function compileImpl(
             if (driver || netSource) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: at.path, defId: at.defId, endpoint: driver?.from ?? netSource! } }] }
             const absent = tappedInputs(at.path, at.defId, endpoint.node, endpoint.tap, []) === undefined &&
               tapsAbsentRow(at.defId, endpoint.node, endpoint.tap)
-            if (absent) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `field '${endpoint.node}.${endpoint.tap}' is not on its node now` } }] }
+            if (absent) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `field '${endpoint.node}.${endpoint.tap}' is no longer part of its node`, absent: true } }] }
             const tapped = tapValue(at.path, at.defId, endpoint.node, endpoint.tap, sink)
             if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `widget tap '${endpoint.node}.${endpoint.tap}' reaches a muted occurrence` } }] }
             if (tapped === undefined) {
@@ -2155,17 +2158,19 @@ function compileImpl(
       const link = connection
       if (isWidgetTapRef(link.from)) {
         const tapped = tappedInputs(path, defId, link.from.node, link.from.tap, [])
-        if (!tapped && tapsAbsentRow(defId, link.from.node, link.from.tap)) {
-          // The wire gives nothing. Until a run can send nothing, the input is
-          // left out of the prompt, as for a muted producer.
+        const givesNothing = !tapped && tapsAbsentRow(defId, link.from.node, link.from.tap)
+        // A wire that gives nothing is sent as $absent by the route below when
+        // the server takes it. Otherwise the input is left out of the prompt,
+        // as for a muted producer, and the warning says what that does.
+        if (givesNothing && !emitAbsentInputs) {
           const into = isPortEndpoint(link.to) ? ` into '${link.to.node}.${link.to.port}'` : ''
           diags.push(diag('warning', 'compile', 'compile.link.dropped',
             `The wire from '${link.from.node}.${link.from.tap}'${into} gives nothing: that field is no longer part of its node. Until a run can send nothing, the input is left out: a field sends its own value, and a required input without one refuses the run.`,
             { anchor: anchorOf(path, link.from.node) }))
-        } else if (!tapped) {
+        } else if (!tapped && !givesNothing) {
           diags.push(diag('error', 'compile', 'compile.tap.missingInput', `${link.from.node}.${link.from.tap}: tapped input is missing in graph ${defId}`))
           continue
-        } else if (tapped !== 'muted' && tapped.some((i) => canonicalTypeIdOf(i.input.spec.type) === undefined)) {
+        } else if (tapped && tapped !== 'muted' && tapped.some((i) => canonicalTypeIdOf(i.input.spec.type) === undefined)) {
           diags.push(diag('error', 'compile', 'compile.tap.nonConcrete', `${link.from.node}.${link.from.tap}: tapped input has no concrete type`))
           continue
         }
@@ -2283,6 +2288,12 @@ function compileImpl(
           }
           if (trace.kind === 'dropped') {
             diags.push(...routeDiagnostics)
+            const receiver = trace.absent === true && emitAbsentInputs ? flat.get(dst.runtimeId) : undefined
+            if (receiver) {
+              receiver.inputs[dst.inputId] = { $absent: { reason: trace.reason } }
+              receiver.linkedInputs.delete(dst.inputId)
+              recordSuccessfulDelivery(dst)
+            }
             continue
           }
           if (trace.kind === 'value') {
