@@ -12,11 +12,13 @@ import { LogPanel } from '../src/LogPanel.js'
 describe('Log scope', () => {
   it('defaults to App without a run and switches to the requested run from a node badge', async () => {
     const [active, setActive] = createSignal<ExecutionState>()
+    const [appRequest, setAppRequest] = createSignal<number>()
     const [request, setRequest] = createSignal<{ runtimeNodeIds: readonly string[]; token: number }>()
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <LogPanel
       active={active}
+      appScopeRequest={appRequest}
       executions={() => active() ? [active()!] : []}
       nodeTitle={(_run, id) => id}
       filterRequest={request}
@@ -34,13 +36,17 @@ describe('Log scope', () => {
     expect(rowsOf(root).map((row) => row.querySelector('.execution-log-message')?.textContent))
       .toEqual(['loading checkpoint', 'CUDA out of memory'])
     expect(root.querySelector('[data-testid="logs-panel"]')?.parentElement?.hidden).toBe(true)
-    await chooseProductOption(root, 'log-scope', 'app')
+    setAppRequest(1)
+    await flush()
+    expect(productSelect(root, 'log-scope').dataset['selectedId']).toBe('app')
     expect(root.querySelector('[data-testid="logs-panel"]')?.parentElement?.hidden).toBe(false)
     expect(root.querySelector('[data-testid="execution-log-panel"]')?.parentElement?.hidden).toBe(true)
     await chooseProductOption(root, 'log-scope', 'run')
     expect(rowsOf(root).map((row) => row.querySelector('.execution-log-message')?.textContent))
       .toEqual(['loading checkpoint', 'CUDA out of memory'])
-    await chooseProductOption(root, 'log-scope', 'app')
+    setAppRequest(2)
+    await flush()
+    expect(productSelect(root, 'log-scope').dataset['selectedId']).toBe('app')
     setActive({ ...populated(), logs: [...populated().logs] })
     await flush()
     expect(productSelect(root, 'log-scope').dataset['selectedId']).toBe('app')

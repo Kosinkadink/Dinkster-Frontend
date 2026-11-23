@@ -15,7 +15,6 @@ const settlePaint = (page: Page): Promise<void> => page.evaluate(() =>
 test('whole-workflow and executing-node progress update from the same execution events', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
 
   const seed = await page.evaluate(async () => {

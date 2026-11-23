@@ -37,7 +37,7 @@ alias-generated rules are registered. Native documents apply applicable
 migrations on open as one undo step, including lossy plans. A dismissable
 Problems notice lists upgraded nodes and warnings, with node navigation;
 it clears on save or tab close and is never persisted. Upgraded nodes look
-ordinary. The status bar's Review upgrades toggle opts out for subsequent
+ordinary. The Settings > Execution > Review upgrades switch opts out for subsequent
 opens and enables migration badges, plan diagnostics and manual apply.
 Schema-arrival diagnostics and legacy boolean normalization remain;
 deprecation pointers alone do not authorize graph edits.

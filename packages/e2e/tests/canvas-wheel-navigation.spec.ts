@@ -48,7 +48,7 @@ test('smooth wheel zoom accumulates input, yields to manual navigation and persi
   await page.route('/supervisor/**', (route) => route.fulfill({ status: 404 }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('connected')
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected')
   await waitForWorkspaceReady(page)
   await page.clock.install()
   await page.clock.pauseAt(new Date(Date.now() + 100))
@@ -137,7 +137,7 @@ test('smooth wheel zoom accumulates input, yields to manual navigation and persi
 test('canvas wheel policy preserves default zoom and adds persisted two-axis pan', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
-  await expect(page.getByTestId('status-bar')).toContainText('connected')
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected')
   await waitForWorkspaceReady(page)
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
   const documentBefore = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))

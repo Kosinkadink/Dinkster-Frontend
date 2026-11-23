@@ -56,7 +56,6 @@ test.beforeEach(async ({ page, proofDocument }) => {
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   if (!proofDocument) return
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([
@@ -107,8 +106,7 @@ for (const state of ['shared', 'isolated', 'host-refused'] as const) {
     } }))
     await mockProjectPacks(page, ['models', 'modifier'])
     await page.goto('/')
-    await expect(page.getByTestId('status-bar')).toContainText('2 node schemas')
-    await waitForWorkspaceReady(page)
+    await waitForWorkspaceReady(page, 2)
     await page.evaluate(async () => {
       await window.__dinksterTest!.app.openDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'resident-process', root: 'g0',

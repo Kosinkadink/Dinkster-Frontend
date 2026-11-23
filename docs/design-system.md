@@ -863,11 +863,8 @@ arbitrary callback.
 
 ### Performance methodology and budget
 
-The historical measurements in [Performance baselines](perf.md) are not
-active browser test gates. A wall-clock test requires elapsed time to be the
-property under test and a bound derived from the slowest hosted runner with
-at least a threefold margin. The removed browser timing cases did not meet
-that requirement.
+A wall-clock test requires elapsed time to be the property under test and a
+bound derived from the slowest hosted runner with at least a threefold margin.
 
 Performance comparisons use the same machine, Chromium build, display mode,
 viewport, device scale, fixture, ports, worker count and environment on both

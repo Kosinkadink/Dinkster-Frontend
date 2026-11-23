@@ -99,8 +99,7 @@ const menuItem = (page: Page, id: string) => page.locator(`[data-item-id="${id}"
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.locator('.conn-status')).toHaveText('connected', { timeout: 15_000 })
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   const failures = await page.evaluate(async (json) => (await window.__dinksterTest!.app.openDocument(json, 'Selectors')), fixture)
   expect(failures).toEqual([])
