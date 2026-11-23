@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, compile, documentResolver, loadDocument, type InputSpec, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, selectorBadgeRect, valueSourceBadgeRect, VS_BADGE_SIZE, type Scene, type SceneNode } from '../src/scene.js'
+import { paintToolboxIcon } from '../src/icons.js'
 import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
 import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
@@ -2833,7 +2834,28 @@ describe('badge and toolbox paint on the live renderer', () => {
     expect(String(fullWidth.args[0]).length).toBeGreaterThan(String(title.args[0]).length)
   })
 
-  it('draws a tab\'s icon 14 px in its 16 px tab and the title mark\'s 14 px in its 20 px box', () => {
+  it('paints an icon at exactly the size it is given; a toolbox button sets its own icon inside it', () => {
+    // Lucide's 24-unit box, moved to the given corner and scaled to the given size, with nothing kept clear.
+    for (const size of [7, 14, 20]) {
+      const { ctx, calls } = recordingCtx()
+      paintToolboxIcon(ctx, 'boxes', 3, 5, size, '#fff')
+      const at = calls.findIndex((call) => call.method === 'translate')
+      expect(calls[at]!.args).toEqual([3, 5])
+      expect(calls[at + 1]).toMatchObject({ method: 'scale', args: [size / 24, size / 24] })
+    }
+    // A 28 px toolbox button draws its icon 16.8 px, centered: 5.6 px clear on each side.
+    const calls = paintWith(fixtureScene('clean'), (r) => {
+      r.setOverlay({ selection: new Set(['c1']) })
+      r.setToolbox([[{ kind: 'button' as const, button: { id: 'core.delete', icon: 'trash-2' as const, label: 'Delete' } }]])
+    })
+    const button = [...calls].reverse().find((call) => call.method === 'roundRect' && call.args[2] === 28)!
+    const at = calls.findIndex((call) => call.method === 'translate' &&
+      Math.abs(Number(call.args[0]) - (Number(button.args[0]) + 5.6)) < 1e-9 &&
+      Math.abs(Number(call.args[1]) - (Number(button.args[1]) + 5.6)) < 1e-9)
+    expect(calls[at + 1]).toMatchObject({ method: 'scale', args: [16.8 / 24, 16.8 / 24] })
+  })
+
+  it('draws a tab\'s icon 14 px in its 20 px tab and the title mark\'s 14 px in its 20 px box', () => {
     const n = nodeOf(fixtureScene('clean'), 'c1')
     const calls = paintWith(emptyScene({ nodes: [n] }), (renderer) => renderer.setBadges({ c1: [MUTED_BADGE, SUBGRAPH_BADGE] }))
     // An icon is drawn by moving to its corner, then scaling Lucide's 24-unit box.
@@ -2842,10 +2864,10 @@ describe('badge and toolbox paint on the live renderer', () => {
     const markX = n.x + n.layout.width - defaultTokens.padX - 20
     const markY = n.y + n.layout.headerHeight / 2 - 10
     expect(scaleAfter(markX + 3, markY + 3)).toMatchObject({ method: 'scale', args: [14 / 24, 14 / 24] })
-    // The tab's words follow its 14 px icon and a 4 px gap; the tab's top is 8.5 above them.
+    // The tab's words follow its 14 px icon and a 4 px gap; the tab's top is 10.5 above them.
     const words = calls.find((call) => call.method === 'fillText' && call.args[0] === 'Muted')!
-    const tabTop = Number(words.args[2]) - canvasPaintTokens.badge.baselineOffset - 8
-    expect(scaleAfter(Number(words.args[1]) - 4 - 14, tabTop + 1)).toMatchObject({ method: 'scale', args: [14 / 24, 14 / 24] })
+    const tabTop = Number(words.args[2]) - canvasPaintTokens.badge.baselineOffset - 10
+    expect(scaleAfter(Number(words.args[1]) - 4 - 14, tabTop + 3)).toMatchObject({ method: 'scale', args: [14 / 24, 14 / 24] })
   })
 
   it('paints the minimize arrow before the title, down when open and right when minimized', () => {

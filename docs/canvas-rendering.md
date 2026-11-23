@@ -114,7 +114,7 @@ iteration. Top tabs start at the node's right edge, the first one furthest
 right; bottom tabs start at its left edge. Both lanes sit 3px outside the
 node's painted outline, flush with its left and right edges.
 
-A tab is 16px high with 11px words and 3px rounded corners. Its fill is 16
+A tab is 20px high with 11px words and 3px rounded corners. Its fill is 16
 percent of its color over the canvas background, its 1px line 65 percent, and
 its icon and words 70 percent of its color over the title color, so the words
 stay readable in either theme; under the pointer the fill rises to 30 percent

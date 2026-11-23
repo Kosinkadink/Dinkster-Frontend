@@ -3088,7 +3088,8 @@ export class CanvasRenderer {
       ctx.fill()
       const glyphColor = r.button.iconColor ?? (active ? t.colors.canvasBackground : t.colors.label)
       if (r.button.icon) {
-        paintToolboxIcon(ctx, r.button.icon, r.x, r.y, r.size, glyphColor)
+        const icon = r.size * paint.iconSize / paint.buttonSize
+        paintToolboxIcon(ctx, r.button.icon, r.x + (r.size - icon) / 2, r.y + (r.size - icon) / 2, icon, glyphColor)
       } else if (r.button.glyph) {
         ctx.fillStyle = glyphColor
         ctx.fillText(r.button.glyph, r.x + r.size / 2, r.y + r.size / 2 + paint.glyphBaselineOffset)
@@ -3295,7 +3296,7 @@ export class CanvasRenderer {
       ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${paint.fontSize}px ${t.fontFamily}`
       const textY = y + height / 2 + canvasPaintTokens.badge.baselineOffset
       if (title) {
-        if (badge.icon !== undefined) paintToolboxIcon(ctx, badge.icon, x + mark.padding, y + (height - mark.iconSize) / 2, mark.iconSize, words, 0)
+        if (badge.icon !== undefined) paintToolboxIcon(ctx, badge.icon, x + mark.padding, y + (height - mark.iconSize) / 2, mark.iconSize, words)
         if (badge.count !== undefined) ctx.fillText(String(badge.count), x + mark.padding + mark.iconSize + mark.gap, textY)
       } else if (entry.overflow) {
         ctx.textAlign = 'center'
@@ -3303,7 +3304,7 @@ export class CanvasRenderer {
       } else {
         let textX = x + paint.padding
         if (badge.icon !== undefined) {
-          paintToolboxIcon(ctx, badge.icon, textX, y + (height - paint.iconSize) / 2, paint.iconSize, words, 0)
+          paintToolboxIcon(ctx, badge.icon, textX, y + (height - paint.iconSize) / 2, paint.iconSize, words)
           textX += paint.iconSize + paint.iconGap
         }
         if (!entry.compact || badge.icon === undefined) {
@@ -4190,7 +4191,8 @@ export class CanvasRenderer {
       ctx.fillRect(x, y, chip.width, chip.height)
       ctx.strokeStyle = t.colors.selection
       ctx.strokeRect(x, y, chip.width, chip.height)
-      paintSeedControllerIcon(ctx, row.controllerMode, x, y, chip.width, t.colors.label)
+      const icon = chip.width * canvasPaintTokens.controller.chipIconRatio
+      paintSeedControllerIcon(ctx, row.controllerMode, x + (chip.width - icon) / 2, y + (chip.height - icon) / 2, icon, t.colors.label)
       ctx.globalAlpha = chipAlpha
     }
     const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
@@ -4557,7 +4559,7 @@ export class CanvasRenderer {
       let titleX = x + t.padX
       if (vs.subgraphMark !== undefined) {
         const mark = valueSourceMarkRect(vs, t.padX)
-        paintToolboxIcon(ctx, 'boxes', x + (mark.x - vs.x), y + (mark.y - vs.y), mark.size, t.colors.subgraphMark, 0)
+        paintToolboxIcon(ctx, 'boxes', x + (mark.x - vs.x), y + (mark.y - vs.y), mark.size, t.colors.subgraphMark)
         titleX += mark.size + canvasPaintTokens.widget.subgraphMark.gap
       }
       const alpha = ctx.globalAlpha

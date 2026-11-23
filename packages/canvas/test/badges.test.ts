@@ -117,11 +117,11 @@ describe('badge layout', () => {
     const entries = layoutNodeBadges(node, list, { tokens, outset: 2, measureLabel })
     const rects = Object.fromEntries(entries.map(({ badge, x, y, width, height }) => [badge.id, { x, y, width, height }]))
     // Width: two 6 px paddings, a 14 px icon and a 4 px gap, and the words; no icon, no icon space.
-    expect(rects[MUTED_BADGE.id]).toEqual({ x: 340 - 55, y: 100 - 2 - 3 - 16, width: 55, height: 16 })
-    expect(rects[DEPRECATED_BADGE.id]).toEqual({ x: 340 - 55 - 2 - 80, y: 79, width: 80, height: 16 })
+    expect(rects[MUTED_BADGE.id]).toEqual({ x: 340 - 55, y: 100 - 2 - 3 - 20, width: 55, height: 20 })
+    expect(rects[DEPRECATED_BADGE.id]).toEqual({ x: 340 - 55 - 2 - 80, y: 75, width: 80, height: 20 })
     const bottom = 100 + node.layout.height + 2 + 3
-    expect(rects[ERROR_BADGE.id]).toEqual({ x: 40, y: bottom, width: 55, height: 16 })
-    expect(rects['pack.plain']).toEqual({ x: 40 + 55 + 2, y: bottom, width: 37, height: 16 })
+    expect(rects[ERROR_BADGE.id]).toEqual({ x: 40, y: bottom, width: 55, height: 20 })
+    expect(rects['pack.plain']).toEqual({ x: 40 + 55 + 2, y: bottom, width: 37, height: 20 })
   })
 
   it('keeps only the subgraph mark in the title bar, at its right end, with its count after the icon', () => {
@@ -176,9 +176,9 @@ describe('badge layout', () => {
     const list = [{ ...badges[0]!, placement: 'above' as const }, ...badges]
     const bounds = nodeBadgeBounds(node, list, { tokens, outset: 4 })
     expect(bounds.x).toBe(-37)
-    expect(bounds.y).toBe(19 - 4 - 3 - 16)
+    expect(bounds.y).toBe(19 - 4 - 3 - 20)
     expect(bounds.width).toBe(112)
-    expect(bounds.y + bounds.height).toBe(19 + node.layout.height + 4 + 3 + 16)
+    expect(bounds.y + bounds.height).toBe(19 + node.layout.height + 4 + 3 + 20)
     const shifted = nodeBadgeBounds({ ...node, x: 64, y: 72 }, list, { tokens, outset: 4 })
     expect(shifted.x - bounds.x).toBe(101)
     expect(shifted.y - bounds.y).toBe(53)

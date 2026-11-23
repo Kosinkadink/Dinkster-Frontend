@@ -133,7 +133,7 @@ function paintSubgraphMark(args: WidgetPaintArgs, companion: boolean, numeric: b
   const alpha = ctx.globalAlpha
   // The mark keeps its full color on a dimmed (driven) row.
   if (args.markAlpha !== undefined) ctx.globalAlpha = args.markAlpha
-  paintToolboxIcon(ctx, 'boxes', x + rect.x, y + rect.y, rect.size, tokens.colors.subgraphMark, 0)
+  paintToolboxIcon(ctx, 'boxes', x + rect.x, y + rect.y, rect.size, tokens.colors.subgraphMark)
   ctx.globalAlpha = alpha
 }
 
@@ -204,7 +204,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.stroke()
       paintToolboxIcon(ctx, openerIcon, x + paint.opener.iconInset,
         y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.value)
-      paintToolboxIcon(ctx, 'chevron-right', x + width - paint.opener.trailingReserve,
+      paintToolboxIcon(ctx, 'chevron-right', x + width - paint.opener.trailingInset - paint.opener.iconSize,
         y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.label)
     }
     const geometry = tokens.rowGeometry
@@ -249,7 +249,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const multilineGutter = tokens.multilineText.scrollbarWidth + tokens.multilineText.scrollbarInset
     // The mode icon always shows; the label and value share the rest of the row.
     const modeIconSize = paint.modeIconSize
-    const modeIconReserve = modeIcon === undefined ? 0 : modeIconSize + paint.modeIconGap
+    const modeIconReserve = modeIcon === undefined ? 0 : paint.modeIconLead + modeIconSize + paint.modeIconGap
     let labelWidth = multiline
       ? 0
       : shareRowWidth(fieldWidth - modeIconReserve, naturalLabelWidth, naturalValueWidth, true)
