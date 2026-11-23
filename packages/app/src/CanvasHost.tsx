@@ -1713,6 +1713,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly graphId: string
     readonly nodeId: string
     readonly inputId: string
+    /** Set for an Inputs panel field whose value is this value source's own. */
+    readonly valueSourceId?: string
     readonly mode: ControllerMode
     readonly trigger: 'after_generate' | 'after_refresh'
     readonly lifetime: object
@@ -1772,12 +1774,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     setPendingController(controller.lifetime)
     setControllerMenu((current) => current?.lifetime === controller.lifetime ? { ...current, refusal: undefined } : current)
     try {
-      const outcome = await props.app.dispatchTo(controller.tab, { command: 'node.setController', params: {
-        graphId: controller.graphId,
-        nodeId: controller.nodeId,
-        inputId: controller.inputId,
-        mode,
-      } })
+      const outcome = await props.app.dispatchTo(controller.tab, controller.valueSourceId !== undefined
+        ? { command: 'valueSource.setController', params: { graphId: controller.graphId, valueSourceId: controller.valueSourceId, mode } }
+        : { command: 'node.setController', params: {
+          graphId: controller.graphId,
+          nodeId: controller.nodeId,
+          inputId: controller.inputId,
+          mode,
+        } })
       if (!isCurrent()) return
       if (outcome.ok) setControllerMenu(undefined)
       else setControllerMenu((current) => current === undefined ? current : { ...current, refusal: outcome.diagnostics[0] })
@@ -3042,6 +3046,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           graphId: hit.row.familyOwner?.graphId ?? currentGraphId(tab),
           nodeId: hit.row.familyOwner?.nodeId ?? hit.node.id,
           inputId: hit.row.familyOwner?.valueKey ?? hit.row.valueKey,
+          ...(hit.row.valueSourceOwner !== undefined ? { valueSourceId: hit.row.valueSourceOwner.valueSourceId } : {}),
           mode: hit.row.controllerMode,
           trigger: hit.row.spec.controller ?? 'after_generate',
         })
@@ -3062,7 +3067,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           badge,
         })
       },
-      onValueSourceActivate: (vs) => openValueSourceEditor(vs),
+      // While a subgraph node is entered, its value through a source is
+      // edited on the Inputs panel, not on the pill.
+      onValueSourceActivate: (vs) => { if (vs.arriving === undefined) openValueSourceEditor(vs) },
       onValueSourceBadgeClick: (vs, rect) => {
         closePalette()
         setEditor(undefined)
@@ -4873,6 +4880,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string, caret?: { x: number; y: number }): void {
       const tab = activeTab()
       if (!tab || tab.execution) return // frozen views are read-only
+      // An Inputs panel field holding a value source's own value edits that
+      // source, as a click on its pill does.
+      const sourceOwner = hit.row.valueSourceOwner
+      if (sourceOwner !== undefined) {
+        const vs = renderer.getScene().valueSources.find((candidate) => candidate.id === sourceOwner.valueSourceId)
+        if (vs !== undefined) openValueSourceEditor(vs, { label: hit.row.label, rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height } })
+        return
+      }
       const graphId = currentGraphId(tab)
       const nodeId = hit.node.id
       const valueGraphId = hit.row.familyOwner?.graphId ?? graphId
@@ -5222,9 +5237,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     /**
      * Click on a value source pill: the pill IS the widget, so open its
      * editor. The effective spec decides the editor kind; without one the
-     * raw JSON fallback renders (the value is always editable - P2).
+     * raw JSON fallback renders (the value is always editable - P2). An
+     * Inputs panel field holding the source's value opens it over the field.
      */
-    function openValueSourceEditor(vs: SceneValueSource): void {
+    function openValueSourceEditor(
+      vs: SceneValueSource,
+      at: { readonly label: string; readonly rect: { x: number; y: number; width: number; height: number } } = {
+        label: vs.title, rect: { x: vs.x, y: vs.y, width: vs.width, height: vs.height },
+      },
+    ): void {
       const tab = activeTab()
       if (!tab || tab.execution) return // frozen views are read-only
       const graphId = currentGraphId(tab)
@@ -5249,18 +5270,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setEditor({
         tab,
         graphId,
-        label: vs.title,
+        label: at.label,
         target: { kind: 'valueSource', valueSourceId: vs.id },
         spec,
         ...(viewId === undefined ? {} : { viewId }),
         // Raw fallback edits JSON text, which wants a multiline field.
         multiline: spec ? viewId === 'core.text' : true,
-        rect: {
-          x: vs.x,
-          y: vs.y,
-          width: vs.width,
-          height: vs.height,
-        },
+        rect: at.rect,
         initial: spec ? source.value : JSON.stringify(source.value, null, 2),
       })
     }
