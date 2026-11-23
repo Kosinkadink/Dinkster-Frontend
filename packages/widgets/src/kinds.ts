@@ -709,7 +709,7 @@ function drawCompactNumber(
 export const numberView: WidgetView<IntegerWidgetValue> = {
   ...makeCompactView<IntegerWidgetValue>('core.number', 'INT'),
   drawCompact(ctx, value, spec, state) {
-    drawCompactNumber(ctx, value, spec, state, String(value))
+    drawCompactNumber(ctx, value, spec, state, formatWidgetValue(value, spec))
   },
 }
 export const floatNumberView: WidgetView<number> = {

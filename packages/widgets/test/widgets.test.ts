@@ -610,6 +610,10 @@ describe('compact views', () => {
     expect(valueText({}, null)[2]).toBe('')
     expect(valueText({ placeholder: 'Any size' }, null)).toEqual([1, 0, 'Any size', expect.objectContaining({ placeholder: true })])
     expect(valueText({ placeholder: 'Any size' }, 0)[2]).toBe(type === 'INT' ? '0' : '0.0')
+    // A declared special value shows its label; any other value its number.
+    const special = { special: [{ value: 0, label: 'no limit' }] }
+    expect(valueText(special, 0)[2]).toBe('no limit')
+    expect(valueText(special, 1)[2]).toBe(type === 'INT' ? '1' : '1.0')
   })
 
   it('COLOR compact row asks for a square of the color directly before its exact stored text', () => {
