@@ -147,7 +147,7 @@ const onOutput = { mount: 'output', prefix: 'renders/portrait' }
 const onUsb = { mount: 'usb1', prefix: 'renders/portrait' }
 
 /** The ready writable mounts every example offers; the first is the project's default output mount. */
-export const galleryMounts = ['output', 'archive', 'shared-nas'] as const
+export const galleryMounts = ['output', 'archive', 'scratch'] as const
 
 /** The node's own default: Project default with the node's default name. */
 export const galleryDefault = { prefix: 'ComfyUI' }
