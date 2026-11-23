@@ -210,8 +210,8 @@ test('fresh ResizeImageMaskNode selects, round-trips, and submits effective wire
 
   // Pointer selection changes the explicit state seeded at node creation.
   await clickRow(page, 'resize_type')
-  await page.getByTestId('combo-dropdown').getByRole('option', { name: 'scale by multiplier', exact: true }).click()
-  expect(await selected(page)).toBe('scale by multiplier')
+  await page.locator('[data-editor-surface="in-row-list"]').getByRole('option', { name: 'scale by multiplier', exact: true }).click()
+  await expect.poll(() => selected(page)).toBe('scale by multiplier')
   expect(await rowIds(page)).toContain('resize_type.multiplier')
 
   // One undo restores the explicit first option seeded at creation.
@@ -221,17 +221,17 @@ test('fresh ResizeImageMaskNode selects, round-trips, and submits effective wire
 
   // Keyboard selection follows the same command path.
   await clickRow(page, 'resize_type')
-  let search = page.getByTestId('combo-search')
+  let search = page.locator('[data-editor-surface="in-row-list"] input')
   await search.fill('scale by multiplier')
   await search.press('ArrowDown')
   await search.press('Enter')
-  expect(await selected(page)).toBe('scale by multiplier')
+  await expect.poll(() => selected(page)).toBe('scale by multiplier')
 
   // Return to dimensions by pointer, then edit the ordinary static combo by keyboard.
   await clickRow(page, 'resize_type')
-  await page.getByTestId('combo-dropdown').getByRole('option', { name: 'scale dimensions', exact: true }).click()
+  await page.locator('[data-editor-surface="in-row-list"]').getByRole('option', { name: 'scale dimensions', exact: true }).click()
   await clickRow(page, 'scale_method')
-  search = page.getByTestId('combo-search')
+  search = page.locator('[data-editor-surface="in-row-list"] input')
   await search.fill('bicubic')
   await search.press('ArrowDown')
   await search.press('Enter')

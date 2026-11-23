@@ -453,9 +453,14 @@ for (const theme of ['dark', 'light'] as const) {
             page.locator('figure.dinkster-canvas-example canvas').first(),
           ).toHaveAttribute('data-ready', `${id}-${theme}`)
         }
-        // No comparison is behind a list: only the widget kind remains.
+        // No comparison is behind a list: only the widget kind remains,
+        // besides the filters of the lists drawn open on the lists page.
+        const filters = page.locator(
+          'input.dinkster-canvas-field-input[role="combobox"]',
+        )
+        await expect(filters).toHaveCount(id === 'row-lists' ? 23 : 0)
         await expect(page.getByRole('combobox')).toHaveCount(
-          id === 'widget-states' ? 1 : 0,
+          (id === 'widget-states' ? 1 : 0) + (await filters.count()),
         )
         const cards = await cardsReady(page, id, theme)
         const comparisons = page.locator('.dinkster-canvas-comparison')
