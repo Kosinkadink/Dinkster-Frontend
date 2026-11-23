@@ -72,7 +72,10 @@ original current canvas, tab, session and navigation, using the same
 ownership checks as extraction. Refusal leaves the selection unchanged.
 
 A promoted literal input transfers this occurrence's stored
-value and controller mode to the fresh source, preserving explicit null.
+value and controller mode to the fresh source, preserving explicit null. A
+group, choice or type choice the occurrence shows whole moves onto the inner
+node: the definition's members, then the occurrence's own, its pick and its
+values, with wires following each member.
 Missing overrides retain the definition's source state. Shared definitions
 and sibling occurrences are unchanged. A connected input forwards its driver
 to the source's consumers and output passthroughs; the copied literal remains
@@ -93,7 +96,9 @@ not translated or renamed. Select the anchored Problems entry to navigate to
 the affected node.
 
 Region occurrences intentionally refuse one-level flatten because ordinary
-nodes cannot preserve map, fold, or while semantics.
+nodes cannot preserve map, fold, or while semantics, and bypassed occurrences
+refuse it because ordinary nodes have no equivalent passthrough. A muted
+occurrence flattens to muted nodes.
 
 ## Remove unused definitions
 

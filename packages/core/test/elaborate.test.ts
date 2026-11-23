@@ -140,7 +140,7 @@ describe('static schemas', () => {
     ])
     const e = elaborateInterface(schema, noState)
     expect(e.diagnostics).toEqual([])
-    expect(e.items.map((i) => (i.kind === 'section' ? `section:${i.spec.id}` : i.kind === 'growth' || i.kind === 'editor' ? i.kind : `${i.kind}:${i.address.port}`))).toEqual([
+    expect(e.items.map((i) => (i.kind === 'section' ? `section:${i.spec.id}` : i.kind === 'input' || i.kind === 'output' ? `${i.kind}:${i.address.port}` : i.kind))).toEqual([
       'output:out0',
       'input:image',
       'section:adv',

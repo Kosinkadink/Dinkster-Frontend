@@ -27,6 +27,7 @@
 
 import {
   elaborateInterface,
+  lineKeyOf,
   materializeFramesOf,
   resettableWidgetsOf,
   resolveWidgetRepresentation,
@@ -203,6 +204,30 @@ export type LayoutRow =
       readonly construct: string
       readonly label: string
       readonly frames: readonly MaterializeFrame[]
+    }
+  | {
+      /** A note (ElaboratedNote): read-only text, inert to hit-testing. */
+      readonly kind: 'note'
+      readonly y: number
+      readonly height: number
+      /** Distance of the row's box from the node's left edge. */
+      readonly inset: number
+      /** Box width when the row shares its line; else the node's width less both insets. */
+      readonly width?: number
+      readonly noteId: string
+      readonly text: string
+      /** The text is the note's "while unknown" answer. */
+      readonly unknown?: true
+    }
+  | {
+      /** A button (ElaboratedButton): drawn and inert; its steps never run here. */
+      readonly kind: 'button'
+      readonly y: number
+      readonly height: number
+      readonly inset: number
+      readonly width?: number
+      readonly buttonId: string
+      readonly label: string
     }
   | {
       /**
@@ -776,7 +801,7 @@ export function layoutNode(
   options: LayoutOptions = {},
 ): NodeLayout {
   interface PendingRow {
-    kind: 'ports' | 'widget' | 'section' | 'growth'
+    kind: 'ports' | 'widget' | 'section' | 'growth' | 'note' | 'button'
     input?: PortSlot
     output?: PortSlot & { index: number }
     widget?: Extract<LayoutRow, { kind: 'widget' }> extends infer R
@@ -784,8 +809,13 @@ export function layoutNode(
       : never
     section?: { sectionId: string; label: string; collapsed: boolean; hiddenModified?: number }
     growth?: { construct: string; label: string; frames: readonly MaterializeFrame[] }
+    note?: { noteId: string; text: string; unknown?: true }
+    button?: { buttonId: string; label: string }
     sectionId?: string
   }
+  /** A `Row` cell's text, which sets its share of the line's width. */
+  const cellLabel = (row: PendingRow): string =>
+    row.widget?.label ?? row.note?.text ?? row.button?.label ?? ''
   const pending: PendingRow[] = []
   const outputs: {
     slot: PortSlot & { index: number }
@@ -913,6 +943,17 @@ export function layoutNode(
           ...(item.origin.kind === 'member' || (item.ancestry?.length ?? 0) > 0 ? { familyMember: true } : {}),
           ...(item.materialize !== undefined ? { materialize: item.materialize } : {}),
         },
+        })
+        continue
+      }
+    if (item.kind === 'note' || item.kind === 'button') {
+      if (isHidden(item.section)) continue
+      pending.push({
+        kind: item.kind,
+        ...(item.section !== undefined ? { sectionId: item.section } : {}),
+        ...(item.kind === 'note'
+          ? { note: { noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}) } }
+          : { button: { buttonId: item.id, label: item.label } }),
       })
       continue
     }
@@ -1066,10 +1107,15 @@ export function layoutNode(
   // Placement hints affect rows, never the elaborated interface or values.
   const adjacentRows = new Map<PendingRow, PendingRow[]>()
   const attached = new Set<PendingRow>()
+  const lineKey = (row: PendingRow): string | undefined => row.widget?.inputId ??
+    (row.note ? `note:${row.note.noteId}` : row.button ? `button:${row.button.buttonId}` : undefined)
   for (const item of items) {
-    if (item.kind !== 'input' || item.spec.adjacentTo === undefined) continue
-    const row = pending.find((row) => row.widget?.inputId === item.spec.id)
-    const anchor = pending.find((row) => row.widget?.inputId === item.spec.adjacentTo)
+    const adjacentTo = item.kind === 'input' ? item.spec.adjacentTo
+      : item.kind === 'note' || item.kind === 'button' ? item.adjacentTo : undefined
+    if (adjacentTo === undefined) continue
+    const key = lineKeyOf(item)
+    const row = pending.find((row) => lineKey(row) === key)
+    const anchor = pending.find((row) => lineKey(row) === adjacentTo)
     if (!row || !anchor || row === anchor || row.sectionId !== anchor.sectionId) continue
     adjacentRows.set(anchor, [...(adjacentRows.get(anchor) ?? []), row])
     attached.add(row)
@@ -1091,7 +1137,7 @@ export function layoutNode(
 
   const rowBaseHeight = (row: PendingRow): number => row.kind === 'ports'
     ? tokens.rowGeometry.portRowHeight
-    : row.kind !== 'widget'
+    : row.kind !== 'widget' || row.widget === undefined
     ? tokens.rowHeight
     : (row.widget!.viewId === 'core.text'
       ? multilineWidgetHeight(row.widget!.rows, tokens)
@@ -1120,6 +1166,7 @@ export function layoutNode(
   const sectionRowY = new Map<string, number>() // header CENTER y by section id
   let advancedBounds: { y: number; bottom: number } | undefined
   const lineBottoms = new Map<PendingRow[], number>()
+  const rowIndex = new Map<PendingRow, number>()
   let y = tokens.headerHeight + stackInsets.top
   for (const row of pending) {
     if (row.kind === 'section') {
@@ -1147,6 +1194,19 @@ export function layoutNode(
         advancedBounds.bottom = y + height
       }
       y += height
+    } else if (row.kind === 'note' || row.kind === 'button') {
+      const line = lines.get(row)!
+      const height = lineBaseHeight(line)
+      const inset = tokens.rowGeometry.fieldInsetX
+      rowIndex.set(row, rows.length)
+      rows.push(row.note
+        ? { kind: 'note', y, height, inset, ...row.note }
+        : { kind: 'button', y, height, inset, ...row.button! })
+      if (row.sectionId === advancedSectionId && advancedBounds !== undefined) {
+        advancedBounds.bottom = Math.max(advancedBounds.bottom, y + height)
+      }
+      lineBottoms.set(line, Math.max(lineBottoms.get(line) ?? y, y + height))
+      if (line.at(-1) === row) y = lineBottoms.get(line)!
     } else if (row.kind === 'ports') {
       const height = tokens.rowGeometry.portRowHeight
       rows.push({
@@ -1168,6 +1228,7 @@ export function layoutNode(
       // Keep the capsule and its edge controls clear of sockets on either
       // border. The symmetric side also reserves space for output widgets.
       const inset = tokens.rowGeometry.fieldInsetX
+      rowIndex.set(row, rows.length)
       rows.push({ kind: 'widget', y, height, inset, ...w })
       // Socketless controls keep their editor and outgoing value tap.
       if (!w.socketless && w.editor !== true) pins.push({
@@ -1219,6 +1280,10 @@ export function layoutNode(
     } else if (row.kind === 'growth') {
       // '+ label' text plus capsule padding.
       content = measure(`+ ${row.label}`, 'label') + canvasPaintTokens.node.growthWidthPadding
+    } else if (row.kind === 'note') {
+      content = measure(row.text, 'label') + row.inset * 2
+    } else if (row.kind === 'button') {
+      content = measure(row.label, 'label') + canvasPaintTokens.node.growthWidthPadding
     } else {
       // Label + a value area floor; widget content depth lives in the
       // expanded editor, so rows never force extreme widths.
@@ -1235,7 +1300,7 @@ export function layoutNode(
   const minWidth = columns * tokens.nodeMinWidth + (columns - 1) * cellGap
   for (const line of new Set(lines.values())) {
     if (line.length < 2) continue
-    width = Math.max(width, line.reduce((sum, row) => sum + measure(row.widget!.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + tokens.padX * 2, 0) + (line.length - 1) * cellGap)
+    width = Math.max(width, line.reduce((sum, row) => sum + measure(cellLabel(row), 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + tokens.padX * 2, 0) + (line.length - 1) * cellGap)
   }
   width = Math.max(minWidth, width)
   const minHeight = naturalHeight
@@ -1251,12 +1316,12 @@ export function layoutNode(
     const compactWidth = tokens.nodeMinWidth
     let left = 0
     for (const [column, pendingRow] of line.entries()) {
-      const index = rows.findIndex((row) => row.kind === 'widget' && row.inputId === pendingRow.widget!.inputId)
-      const row = rows[index] as Extract<LayoutRow, { kind: 'widget' }>
+      const index = rowIndex.get(pendingRow)!
+      const row = rows[index] as Extract<LayoutRow, { kind: 'widget' | 'note' | 'button' }>
       const cellWidth = column === 0 ? width - (line.length - 1) * (compactWidth + gap) : compactWidth
       rows[index] = { ...row, inset: left + row.inset, width: cellWidth - row.inset * 2 }
       for (const [index, pin] of pins.entries()) {
-        if (pin.portId === row.inputId && (pin.direction === 'in' || pin.widgetTap === true))
+        if (row.kind === 'widget' && pin.portId === row.inputId && (pin.direction === 'in' || pin.widgetTap === true))
           // Border sockets keep noodles outside the node body. Distinct slots
           // retain independent hit targets while the controls share a line.
           pins[index] = { ...pin, y: row.y + (column + 0.5) * lineBaseHeight(line) / line.length }
