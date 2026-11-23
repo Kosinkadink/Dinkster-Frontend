@@ -306,6 +306,8 @@ export interface WidgetDescriptorSpec {
   readonly remote?: RemoteSourceSpec
   /** Ordered choices authored on an occurrence, independently of its selected value. */
   readonly editableOptions?: true
+  /** With editableOptions: the hidden list<STRING> input the compiler fills with the authored options. */
+  readonly optionsInput?: string
   /** Schema-declared text completion vocabulary (wire 36). */
   readonly textCompletions?: TextCompletionsSpec
   /** A custom or compositor widget's own part names -> the row ids it writes. */

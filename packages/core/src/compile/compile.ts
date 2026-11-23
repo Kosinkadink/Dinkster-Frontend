@@ -305,6 +305,8 @@ interface FlatNode {
   readonly linkedInputs: Set<string>
   /** Staging record, keyed by ELABORATED input id (remapped to apiName at assembly). */
   readonly inputs: Record<string, Json | readonly [string, number]>
+  /** An editable choice's authored options, keyed by the input its optionsInput names. */
+  readonly authoredOptions?: ReadonlyMap<string, readonly string[]>
 }
 
 /**
@@ -1785,6 +1787,13 @@ function compileImpl(
       const occ: Occurrence = { instancePath: path, node: node.id }
       const runtimeId = occurrenceKey(occ)
       const elab = elabAt(ctx, node, schema)
+      const authoredOptions = new Map<string, readonly string[]>()
+      for (const input of elab.inputs) {
+        const widget = input.spec.widget
+        const target = widget?.optionsInput ??
+          widget?.representations?.representations.find((item) => item.widget.optionsInput !== undefined)?.widget.optionsInput
+        if (target !== undefined) authoredOptions.set(target, (node.dynamic?.[valueKeyOf(input)]?.options ?? []).map(String))
+      }
       const selectorInputKey = schema.selector === undefined
         ? undefined
         : elab.inputsByValueKey.get(schema.selector.input)?.spec.id
@@ -1802,6 +1811,7 @@ function compileImpl(
         ...(selectorMembers !== undefined ? { selectorMembers } : {}),
         linkedInputs: new Set(),
         inputs: {},
+        ...(authoredOptions.size > 0 ? { authoredOptions } : {}),
       })
     }
   }
@@ -2770,6 +2780,12 @@ function compileImpl(
       sourceInputs[submissionName] = {
         node: fn.occ.node,
         port: input.address.port as PortRef['port'],
+      }
+      // The compiler fills an editable choice's options input on every submission.
+      const authored = fn.authoredOptions?.get(valueKeyOf(input))
+      if (authored !== undefined) {
+        inputs[submissionName] = [...authored]
+        continue
       }
       const v = fn.inputs[input.spec.id]
       if (v !== undefined && fn.node.additionalInputs?.includes(input.address.port) &&
