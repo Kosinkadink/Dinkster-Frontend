@@ -2912,9 +2912,6 @@ describe('badge and toolbox paint on the live renderer', () => {
       [target.id]: { color: '#ff0000', titleSuffix: 'decorated', status: 'ready' },
     }))
 
-    expect(decorated.some((call) =>
-      call.method === 'fillText' && call.args[0] === 'Sink decorated...' && call.args.length === 3,
-    )).toBe(true)
     const spacious = {
       ...scene,
       nodes: scene.nodes.map((node) => node.id === target.id
@@ -2925,10 +2922,35 @@ describe('badge and toolbox paint on the live renderer', () => {
       [target.id]: { color: '#ff0000', titleSuffix: 'decorated', status: 'ready' },
     }))
     expect(fitting.some((call) =>
-      call.method === 'fillText' && call.args[0] === `${target.layout.title} decorated (ready)` && call.args.length === 3,
+      call.method === 'fillText' && call.args[0] === `${target.layout.title} (ready)` && call.args.length === 3,
     )).toBe(true)
+    const suffix = fitting.find((call) => call.method === 'fillText' && call.args[0] === 'decorated')
+    expect([suffix?.font, suffix?.fillStyle]).toEqual([`${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`, defaultTokens.colors.label])
     expect(decorated.filter((call) => call.method === 'fill').map((call) => call.fillStyle))
       .not.toEqual(baseline.filter((call) => call.method === 'fill').map((call) => call.fillStyle))
+  })
+
+  it('draws the declared title suffix before an extension\'s, gives it way before the title, and hides it while renaming', () => {
+    const base = fixtureScene('clean')
+    const target = nodeOf(base, 'c1')
+    // The recording context measures 6 px a character; the suffix starts one space after the title.
+    const withRoom = (suffixRoom: number, titleSuffix: string) => ({
+      ...base,
+      nodes: base.nodes.map((node) => node.id === target.id
+        ? { ...node, layout: { ...node.layout, titleSuffix, width: TITLE_START + defaultTokens.padX + canvasPaintTokens.node.titleBadgeGap + 6 * (target.layout.title.length + 1) + suffixRoom } }
+        : node),
+    })
+    const texts = (calls: ReturnType<typeof paint>) => calls.filter((call) => call.method === 'fillText').map((call) => call.args[0])
+    const decorate = (renderer: CanvasRenderer) => renderer.setNodeDecorations({ [target.id]: { titleSuffix: 'decorated' } })
+
+    expect(texts(paintWith(withRoom(200, '4 steps'), decorate))).toEqual(expect.arrayContaining([target.layout.title, '4 steps decorated']))
+    // Too narrow for the whole suffix: it is cut, and the title stays whole.
+    expect(texts(paint(withRoom(60, 'twelve steps more')))).toEqual(expect.arrayContaining([target.layout.title, 'twelve ...']))
+    // Fewer than three of its characters would show: dropped whole.
+    const dropped = texts(paint(withRoom(30, 'twelve steps more')))
+    expect(dropped).toContain(target.layout.title)
+    expect(dropped.filter((text) => String(text).startsWith('tw'))).toEqual([])
+    expect(texts(paintWith(withRoom(200, '4 steps'), (renderer) => renderer.setRenamingNode(target.id)))).not.toContain('4 steps')
   })
 
   it('scope preview accents included nodes and only mildly dims excluded nodes', () => {

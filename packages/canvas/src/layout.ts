@@ -50,6 +50,7 @@ import {
   type PortAddress,
   type SourceFilenameSpec,
   type TypeExpr,
+  type WidgetParts,
   type WidgetSpec,
 } from '@dinkster/core'
 import { IN_NODE_EDITORS, canvasPaintTokens, type DesignTokens } from './tokens.js'
@@ -216,6 +217,13 @@ export type LayoutRow =
         readonly construct: string
         readonly valueKey: string
       }
+      /** The rows its widget's `writes` and `reads` name (flattened ids). */
+      readonly parts?: WidgetParts
+      /**
+       * An editor row: a widget with no value of its own. It has no label and
+       * no pin; `inputId` and `valueKey` are its layout id, which stores nothing.
+       */
+      readonly editor?: true
       /**
        * Set for an Inputs panel field whose value is a value source's own
        * value: edits dispatch valueSource.setValue and
@@ -434,6 +442,8 @@ export interface NodeLayout {
   readonly subtitle?: string
   /** True only when an override differs from the schema/fallback display name. */
   readonly titleRenamed?: boolean
+  /** The declared title suffix, drawn dim after the title; never counted in the width. */
+  readonly titleSuffix?: string
   readonly rows: readonly LayoutRow[]
   readonly pins: readonly PinLayout[]
   /** Body rows are hidden while title, compact preview, and endpoint anchors remain visible. */
@@ -1094,7 +1104,7 @@ export function layoutNode(
     if (item.kind === 'input' || item.kind === 'output') {
       return declared(item.boxes ?? (item.spec.section !== undefined ? [item.spec.section] : []))
     }
-    if (item.kind === 'note' || item.kind === 'button' || item.kind === 'growth') {
+    if (item.kind === 'note' || item.kind === 'button' || item.kind === 'growth' || item.kind === 'editor') {
       return declared(item.boxes ?? (item.section !== undefined ? [item.section] : []))
     }
     return []
@@ -1218,6 +1228,37 @@ export function layoutNode(
       })
       continue
     }
+    if (item.kind === 'editor') {
+      hold(chain)
+      if (isHidden(chain)) continue
+      const measured = widgetMeasure(item.widget) ?? { viewId: 'core.unknown', rows: 1 }
+      // The compact view shows the one row the editor writes, when it writes exactly one.
+      const written = Object.values(item.parts.writes)
+      const shown = written.length === 1 ? node.values[written[0]!] : undefined
+      const ghost = (item.origin.kind === 'member' && item.origin.ghost === true) || item.ancestry?.some((a) => a.ghost) === true
+      pending.push({
+        kind: 'widget',
+        boxes: chain,
+        widget: {
+          inputId: item.id,
+          valueKey: item.id,
+          label: '',
+          type: { kind: 'wildcard' },
+          viewId: measured.viewId,
+          rows: Number.isFinite(measured.rows) ? Math.max(1, Math.floor(measured.rows)) : 1,
+          spec: item.widget,
+          socketless: true,
+          ...(shown !== undefined ? { derivedValue: shown } : {}),
+          parts: item.parts,
+          editor: true,
+          address: { port: item.id },
+          ...(ghost ? { ghost: true } : {}),
+          ...(item.origin.kind === 'member' || (item.ancestry?.length ?? 0) > 0 ? { familyMember: true } : {}),
+          ...(item.materialize !== undefined ? { materialize: item.materialize } : {}),
+        },
+        })
+        continue
+      }
     if (item.kind === 'note' || item.kind === 'button') {
       if (item.adjacentTo === undefined) hold(chain)
       if (isHidden(chain)) continue
@@ -1232,6 +1273,7 @@ export function layoutNode(
     }
     if (item.kind === 'output') {
       const spec = item.spec
+      if (spec.hidden === true) continue
       holdPort(chain, 'outputs')
       if (isHidden(chain)) {
         hidePort(closedAt(chain)!, {
@@ -1355,6 +1397,7 @@ export function layoutNode(
         // A menu's state lives under its flattened id, members included.
         ...(representation.spec.editableOptions === true ? { optionsTarget: { construct: item.address.port } } : {}),
         ...(selector !== undefined ? { selector, lead: true as const } : {}),
+        ...(item.parts !== undefined ? { parts: item.parts } : {}),
         ...annotate(item),
       },
     })
@@ -1675,15 +1718,16 @@ export function layoutNode(
           kind: 'widget', y, height, inset, ...w, ...(row.removable && line.at(-1) === row ? { crossInset: crossInset(depth) } : {}),
           ...(row.reorder && line[0] === row ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
         }, depth)
-        // Socketless controls keep their editor and outgoing value tap.
-        if (!w.socketless) pins.push({
+        // Socketless controls keep their editor and outgoing value tap; an
+        // editor row has no pin.
+        if (!w.socketless && w.editor !== true) pins.push({
           ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2, type: w.type,
           ...(w.optional ? { optional: true as const } : {}),
           widgetBacked: true as const,
         })
         // A widget can also produce its effective value. The duplicate
         // right-edge anchor deliberately shares the input's flattened id.
-        pins.push({
+        if (w.editor !== true) pins.push({
           ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
           ...(staticWidgetInputs.has(w.inputId) ? { staticWidgetTap: true as const } : {}),
         })
@@ -1874,6 +1918,7 @@ export function layoutNode(
       headerHeight: tokens.headerHeight,
       title,
       titleRenamed,
+      ...(elaborated.titleSuffix !== undefined ? { titleSuffix: elaborated.titleSuffix } : {}),
       rows: [],
       pins: pins.map((pin) => ({
         ...pin,
@@ -1897,6 +1942,7 @@ export function layoutNode(
     headerHeight: tokens.headerHeight,
     title,
     titleRenamed,
+    ...(elaborated.titleSuffix !== undefined ? { titleSuffix: elaborated.titleSuffix } : {}),
     rows,
     pins,
     ...(boxes.length > 0 ? { boxes } : {}),

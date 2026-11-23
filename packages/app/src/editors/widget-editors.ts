@@ -11,6 +11,7 @@ import { ImageCompareWidgetEditor } from './ImageCompareWidgetEditor.js'
 import { MultiComboWidgetEditor } from './MultiComboWidgetEditor.js'
 import { MarkdownWidgetEditor } from './MarkdownWidgetEditor.js'
 import { MountWidgetEditor } from './MountWidgetEditor.js'
+import { PainterWidgetEditor } from './PainterWidgetEditor.js'
 import { ResolutionWidgetEditor } from './ResolutionWidgetEditor.js'
 import { SaveTargetWidgetEditor } from './SaveTargetWidgetEditor.js'
 import { ScalarWidgetEditor } from './ScalarWidgetEditor.js'
@@ -35,6 +36,7 @@ const coreWidgetEditors = new Map<string, unknown>([
   ['VIDEO_EDIT', VideoEditWidgetEditor],
   ['BOUNDING_BOX', BoundingBoxWidgetEditor],
   ['IMAGECOMPARE', ImageCompareWidgetEditor],
+  ['PAINTER', PainterWidgetEditor],
   ['CAMERA_ANGLE_VIEW', CameraAngleWidgetEditor],
   ['RESOLUTION_PREVIEW', ResolutionWidgetEditor],
   ['SAVE_TARGET', SaveTargetWidgetEditor],

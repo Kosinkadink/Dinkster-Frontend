@@ -41,6 +41,7 @@ import {
   type CompanionMap,
   type PresenceActor,
   type RowMarkMap,
+  type StoredValueRow,
   type LayoutRow,
   type Scene,
   type SceneNetStub,
@@ -70,6 +71,7 @@ import { CanvasColorArriving } from '@dinkster/ui'
 import {
   defaultValuesOf,
   initialDynamicStateOf,
+  ruleProblemRefs,
   documentResolver,
   elabOutputsOf,
   effectiveOccurrenceTopology,
@@ -384,6 +386,45 @@ export function armedPlacementGhost(
 
 export function palettePickCommitsImmediately(type: string, placement: PaletteAnchor): boolean {
   return type === '__dinkster.reroute' || placement.linkDrop !== undefined || placement.splice !== undefined
+}
+
+/**
+ * The problems of one field's stored value, checked through the same widget
+ * kind the editors use, so a document that arrives with an out-of-range INT,
+ * an unknown COMBO option or an invalid save target is reported without
+ * anyone opening an editor. Only a stored value is checked: a schema default
+ * is the schema author's contract, not the document's.
+ */
+export function storedValueProblems(
+  registry: ReturnType<AppState['widgetRegistryForTab']>,
+  graphId: string,
+  row: StoredValueRow,
+  value: Json | undefined,
+): Diagnostic[] {
+  const refs = [{ graphId, nodeId: row.nodeId, portId: row.inputId, valueKey: row.valueKey, direction: 'input' as const }]
+  const kind = registry.kind(row.spec.widgetType)
+  if (!kind) {
+    return [diag('warning', 'schema', 'widget.kindUnavailable', `${row.nodeId}.${row.valueKey}: widget kind '${row.spec.widgetType}' is not available; using the raw-value editor`, { refs })]
+  }
+  // JSON cannot store undefined, so undefined means "not stored". An
+  // explicit null IS stored (ASSET and MOUNT use it as "no value") and must
+  // reach the validator.
+  if (value === undefined) return []
+  const where = `${row.nodeId}.${row.valueKey}`
+  if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
+    return [unresolvedAssetImportDiagnostic({
+      graphId,
+      nodeId: row.nodeId,
+      inputId: row.inputId,
+      valueKey: row.valueKey,
+      requested: value,
+      ...(row.spec.kind !== undefined ? { expectedKind: row.spec.kind } : {}),
+    })]
+  }
+  if (!kind.valueSchema.validate(value, row.spec)) {
+    return [diag('warning', 'schema', `widget.${row.spec.widgetType}.badValue`, `${where}: stored value does not fit this widget's value shape`, { refs })]
+  }
+  return kind.validate(value, row.spec).map((d) => ({ ...d, message: `${where}: ${d.message}`, refs }))
 }
 
 export function unresolvedAssetImportDiagnostic(args: {
@@ -2547,6 +2588,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       repaintMinimap?.()
     }
     updateTheme()
+    createEffect(() => renderer.setRenamingNode(nodePrompt()?.nodeId))
     const themeObserver = new MutationObserver(updateTheme)
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     onCleanup(() => themeObserver.disconnect())
@@ -4156,11 +4198,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         props.app.extensionRevision.get()
         const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? reg?.resolve(type))
         const occurrenceView = occurrenceDynamicView(doc, resolve, path, path.length === 0 ? graphId : doc.root)
+        const valueRegistry = widgetRegistry()
         return buildScene({
           document: doc,
           seedControllerEnabled,
           graphId,
           resolve,
+          // A hidden row shows while its stored value has a problem, as Problems lists it.
+          storedValueProblem: (row, value) =>
+            storedValueProblems(valueRegistry, graphId, row, value).some((d) => d.severity !== 'info'),
           renderVirtualNode: (node) => props.app.virtualNodeKinds.get(node.type)?.render(node),
           tokens: defaultTokens,
           measure,
@@ -4394,56 +4440,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // Row marks mirror each diagnostic at its widget row (red outline in
       // the renderer) so the Problems entry is actionable on the canvas.
       const marks: Record<string, Set<string>> = {}
-      const mark = (nodeId: string, valueKey: string): void => {
-        (marks[nodeId] ??= new Set()).add(valueKey)
-      }
       for (const node of scene.nodes) {
         for (const row of node.layout.rows) {
           if (row.kind !== 'widget' || row.selector !== undefined) continue
           if (companionInputs.get(node.id)?.has(row.valueKey)) continue
-          const kind = widgetRegistry().kind(row.spec.widgetType)
-          if (!kind) {
-            out.push(diag('warning', 'schema', 'widget.kindUnavailable', `${node.id}.${row.valueKey}: widget kind '${row.spec.widgetType}' is not available; using the raw-value editor`, {
-              refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
-            }))
-            mark(node.id, row.valueKey)
-            continue
-          }
-          // JSON cannot store undefined, so undefined means "not stored":
-          // the schema default applies and is the schema author's problem,
-          // not the document's. An explicit null IS stored (ASSET and
-          // MOUNT use it as "no value") and must reach the validator.
-          const value = node.node.values[row.valueKey]
-          if (value === undefined) continue
-          const where = `${node.id}.${row.valueKey}`
-          if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
-            out.push(unresolvedAssetImportDiagnostic({
-              graphId: scene.graphId,
-              nodeId: node.id,
-              inputId: row.inputId,
-              valueKey: row.valueKey,
-              requested: value,
-              ...(row.spec.kind !== undefined ? { expectedKind: row.spec.kind } : {}),
-            }))
-            mark(node.id, row.valueKey)
-            continue
-          }
-          if (!kind.valueSchema.validate(value, row.spec)) {
-            out.push(diag('warning', 'schema', `widget.${row.spec.widgetType}.badValue`, `${where}: stored value does not fit this widget's value shape`, {
-              refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
-            }))
-            mark(node.id, row.valueKey)
-            continue
-          }
-          const found = kind.validate(value as Json, row.spec)
-          if (found.length > 0) mark(node.id, row.valueKey)
-          for (const d of found) {
-            out.push({
-              ...d,
-              message: `${where}: ${d.message}`,
-              refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
-            })
-          }
+          const found = storedValueProblems(widgetRegistry(), scene.graphId,
+            { nodeId: node.id, inputId: row.inputId, valueKey: row.valueKey, spec: row.spec }, node.node.values[row.valueKey])
+          if (found.length > 0) (marks[node.id] ??= new Set()).add(row.valueKey)
+          out.push(...found)
         }
       }
       return { diagnostics: out, marks }
@@ -4458,10 +4462,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const availabilityDiags = tab.execution || !hasResidentMetadata
         ? [] : props.app.previewAvailabilityDiagnostics(tab) ?? []
       const widgetDiags = widgetValueDiagnostics()
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...availabilityDiags]
+      // A node's declared rules are checked as the user edits, so a failed
+      // one is listed before the run is queued, under the same workflow
+      // origin compile gives it. A rule whose check reads exactly one field
+      // is that field's problem and outlines its row.
+      const marks: Record<string, Set<string>> = Object.fromEntries(
+        Object.entries(widgetDiags.marks).map(([nodeId, keys]) => [nodeId, new Set(keys)]))
+      const ruleDiags = scene.nodes.flatMap(({ node, elaborated }) =>
+        (elaborated?.diagnostics ?? [])
+          .filter((d) => d.code === 'node.rule.failed')
+          .map((d): Diagnostic => {
+            const refs = ruleProblemRefs(d, scene.graphId, node.id)
+            const field = refs[0]?.valueKey
+            if (field !== undefined) (marks[node.id] ??= new Set()).add(field)
+            return { ...d, origin: 'compile', refs }
+          }))
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...ruleDiags, ...availabilityDiags]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
-      renderer.setRowMarks(widgetDiags.marks)
+      renderer.setRowMarks(marks)
     }
 
     createEffect(on(comparisonCompilesChanged, () => {
@@ -5056,11 +5075,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setEditor({
         tab,
         graphId,
-        label: hit.row.label,
+        // An editor row has no label of its own; its editor is titled by its node.
+        label: hit.row.editor === true ? hit.node.layout.title : hit.row.label,
         target: {
           kind: 'input',
           nodeId,
-          valueKey: hit.row.valueKey,
+          // An editor row's value is the one row it writes, when it writes exactly one.
+          valueKey: hit.row.editor === true && hit.row.parts !== undefined && Object.keys(hit.row.parts.writes).length === 1
+            ? Object.values(hit.row.parts.writes)[0]!
+            : hit.row.valueKey,
+          ...(hit.row.parts !== undefined ? { parts: hit.row.parts } : {}),
           ...(hit.row.familyOwner !== undefined ? { familyOwner: hit.row.familyOwner } : {}),
           ...(hit.row.optionsTarget !== undefined ? { optionsTarget: hit.row.optionsTarget } : {}),
           ...(hit.row.materialize !== undefined ? { materialize: hit.row.materialize } : {}),

@@ -3389,6 +3389,42 @@ export class CanvasRenderer {
     }
   }
 
+  /** The node whose title is being renamed, which draws no title suffix meanwhile. */
+  private renamingNode: string | undefined
+
+  setRenamingNode(nodeId: string | undefined): void {
+    if (this.renamingNode === nodeId) return
+    this.renamingNode = nodeId
+    this.requestRender()
+  }
+
+  /**
+   * A title suffix one space after the title, in the row names' dim regular
+   * type. It gives way before the title: cut with an ellipsis when `cut`,
+   * dropped whole when it does not fit or fewer than three characters would
+   * show.
+   */
+  private drawTitleSuffix(ctx: CanvasRenderingContext2D, suffix: string | undefined, left: number, right: number, y: number, cut: boolean): void {
+    if (suffix === undefined) return
+    const t = this.tokens
+    ctx.save()
+    ctx.font = `${t.titleFontSize}px ${t.fontFamily}`
+    const x = left + measureWidth(ctx, ' ')
+    const room = right - x
+    let text: string | undefined = suffix
+    if (measureWidth(ctx, suffix) > room) {
+      const fitted = cut ? fitText(ctx, suffix, room) : ''
+      text = fitted.length - '...'.length >= 3 ? fitted : undefined
+    }
+    if (text !== undefined) {
+      ctx.fillStyle = t.colors.label
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'left'
+      ctx.fillText(text, x, y)
+    }
+    ctx.restore()
+  }
+
   private drawNode(
     ctx: CanvasRenderingContext2D,
     sceneNode: SceneNode,
@@ -3400,9 +3436,11 @@ export class CanvasRenderer {
     const l: NodeLayout = sceneNode.layout
     const decoration = this.nodeDecorations[sceneNode.id]
     const nodeColor = decoration?.color ?? sceneNode.color
-    const title = decoration === undefined
-      ? l.title
-      : `${l.title}${decoration.titleSuffix === undefined ? '' : ` ${decoration.titleSuffix}`}${decoration.status === undefined ? '' : ` (${decoration.status})`}`
+    const title = decoration?.status === undefined ? l.title : `${l.title} (${decoration.status})`
+    // The declared suffix first, then an extension's; neither while the title is being renamed.
+    const suffix = this.renamingNode === sceneNode.id
+      ? undefined
+      : [l.titleSuffix, decoration?.titleSuffix].filter((part) => part !== undefined && part !== '').join(' ') || undefined
     const progress = this.nodeStates[sceneNode.id]
     // Local alias with the drag offset applied; everything below reads node.x/y.
     const node = dx === 0 && dy === 0 ? sceneNode : { ...sceneNode, x: sceneNode.x + dx, y: sceneNode.y + dy }
@@ -3546,6 +3584,7 @@ export class CanvasRenderer {
         ctx.textBaseline = 'middle'
         ctx.textAlign = 'left'
         ctx.fillText(title, node.x + TITLE_START, node.y + l.headerHeight / 2)
+        this.drawTitleSuffix(ctx, suffix, node.x + TITLE_START + measureWidth(ctx, title), node.x + l.width - t.padX, node.y + l.headerHeight / 2, false)
       }
     }
 
@@ -3581,10 +3620,15 @@ export class CanvasRenderer {
         titleX += paint.labelInset + ctx.measureText(node.regionKind).width + paint.titleGap
         ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       }
+      const titleRoom = Math.max(0, badgeLeft - titleX - canvasPaintTokens.node.titleBadgeGap)
+      const titleWidth = measureWidth(ctx, title)
       if (t.titleOverflow === 'ellipsis') {
-        ctx.fillText(fitText(ctx, title, Math.max(0, badgeLeft - titleX - canvasPaintTokens.node.titleBadgeGap)), titleX, node.y + l.headerHeight / 2)
+        ctx.fillText(fitText(ctx, title, titleRoom), titleX, node.y + l.headerHeight / 2)
       } else {
-        ctx.fillText(title, titleX, node.y + l.headerHeight / 2, Math.max(0, badgeLeft - titleX - canvasPaintTokens.node.titleBadgeGap))
+        ctx.fillText(title, titleX, node.y + l.headerHeight / 2, titleRoom)
+      }
+      if (titleWidth <= titleRoom) {
+        this.drawTitleSuffix(ctx, suffix, titleX + titleWidth, titleX + titleRoom, node.y + l.headerHeight / 2, true)
       }
 
       this.drawBadgeTabs(ctx, node, badgeLayout)

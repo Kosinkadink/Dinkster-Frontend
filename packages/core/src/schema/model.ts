@@ -306,6 +306,8 @@ export interface WidgetDescriptorSpec {
   readonly remote?: RemoteSourceSpec
   /** Ordered choices authored on an occurrence, independently of its selected value. */
   readonly editableOptions?: true
+  /** With editableOptions: the hidden list<STRING> input the compiler fills with the authored options. */
+  readonly optionsInput?: string
   /** Schema-declared text completion vocabulary (wire 36). */
   readonly textCompletions?: TextCompletionsSpec
   /** A custom or compositor widget's own part names -> the row ids it writes. */
@@ -488,7 +490,7 @@ interface PortSpecBase {
   /** A label the declaration works out by formula; `displayName` is then unset. */
   readonly labelFormula?: FormulaSpec
   readonly tooltip?: string
-  /** Whether the row shows, as declared; the editor does not evaluate it yet. */
+  /** Whether the row shows. A hidden row is still stored and sent to the run. */
   readonly visible?: Formulated<boolean>
   /** Alpha handling at this port; undefined is the default 'preserve'. */
   readonly alphaPolicy?: AlphaPolicy
@@ -590,6 +592,8 @@ export interface OutputKnownValue {
 export interface OutputSpec extends PortSpecBase {
   readonly kind: 'output'
   readonly type: TypeExpr
+  /** Set by elaboration, never declared: its `visible` is false. Still part of the run. */
+  readonly hidden?: true
   readonly isList?: boolean
   /**
    * Presentation/discovery-only marker: this final output is offered as a
@@ -991,23 +995,39 @@ export interface PackBlueprintDescriptor {
  * the first member. A whole number is a position counting from 0, and a
  * boolean picks between exactly two members, false first. Submission carries
  * the full graph for server-owned lowering.
+ *
+ * `names` names a top-level hidden list<STRING> input; the pick then also
+ * takes text or a choice. The compiler fills it with the branch names, in
+ * member order, only when the pick is a text or choice wire whose value is
+ * not known before the run.
  */
 export interface NodeSelectorSpec {
   readonly input: string
   readonly group: string
+  readonly names?: string
 }
 
 /**
  * The member input id a pick names among `members` (flattened ids, in stored
- * order), or undefined when the pick is not one the server accepts.
+ * order), or undefined when the pick is not one the server accepts. With
+ * `names` (the branch names in member order), text is strict: it picks the
+ * branch with that name, then the member with that key, and otherwise
+ * nothing, as for text on a wire.
  */
 export const selectedMember = (
   selector: NodeSelectorSpec,
   members: readonly string[],
   pick: unknown,
+  names?: readonly string[],
 ): string | undefined => {
   if (members.length === 0) return undefined
   if (pick === undefined || pick === null) return members[0]
+  if (typeof pick === 'string' && names !== undefined) {
+    const named = names.indexOf(pick)
+    if (named >= 0) return members[named]
+    const member = `${selector.group}.${pick}`
+    return members.includes(member) ? member : undefined
+  }
   if (typeof pick === 'string') {
     const member = `${selector.group}.${pick}`
     return members.includes(member) ? member : members[0]
