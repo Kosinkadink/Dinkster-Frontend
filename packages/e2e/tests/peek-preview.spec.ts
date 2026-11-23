@@ -37,6 +37,7 @@ const activeDoc = (page: Page) =>
 /** Register the native server as a second backend (no tab targeting yet). */
 async function addNativeBackend(page: Page): Promise<void> {
   await page.getByTestId('status-connection').click()
+  await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(NATIVE_BACKEND)
   await page.getByTestId('backend-add').click()
   await expect(page.getByTestId('tab-target')).toBeVisible()

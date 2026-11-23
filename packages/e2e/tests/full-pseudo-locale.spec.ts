@@ -110,7 +110,7 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
   await page.getByTestId('modal-close').click()
   await expect(page.getByTestId('app-view-arrange-toggle')).toContainText(pseudo['appView.arrange']!)
   await expect(page.getByTestId('app-view-empty')).toContainText(pseudo['appView.empty']!)
-  await expect(page.getByTestId('library-toggle')).toContainText(pseudo['shell.panel.library.title']!)
+  await expect(page.getByTestId('library-toggle')).toHaveAccessibleName(`${pseudo['shell.panel.library.title']!}: ${pseudo['shell.panel.library.ariaLabel']!}`)
   await expect(page.getByTestId('backends-sidebar-toggle')).toHaveAttribute('aria-label', pseudo['shell.panel.backends.title']!)
   await expect(page.getByTestId('left-panel-toggle')).toHaveAttribute('aria-label', pseudo['shell.toggle.leftPanel']!)
 

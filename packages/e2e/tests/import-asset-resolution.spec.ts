@@ -74,6 +74,7 @@ async function setup(page: Page, guesses: Guesses): Promise<void> {
   await page.goto('/')
   await waitForWorkspaceReady(page)
   await page.getByTestId('status-connection').click()
+  await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(MOCK)
   await page.getByTestId('backend-add').click()
   await selectProductOption(page, page.getByTestId('tab-target'), MOCK)
