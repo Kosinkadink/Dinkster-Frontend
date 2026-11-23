@@ -401,6 +401,48 @@ export function BoundaryTreeGallery() {
         />
       </Example>
       <Example
+        caption="An input added to a face that ends with a section and an output"
+        note="seed was just shown on the subgraph node. A new input goes at the end of the top level, after a box that follows the last input and before the outputs that end the list; nothing goes inside a box by itself."
+      >
+        <Panel
+          title="Detail pass"
+          uses="used in 2 places"
+          entries={[
+            input('image', 'image', 'IMAGE', 'Blend'),
+            input('mask', 'mask', 'MASK', 'Blend'),
+            {
+              kind: 'section',
+              id: 'look',
+              label: 'Look',
+              open: false,
+              rows: [
+                input('radius', 'radius', 'FLOAT', 'Blur'),
+                input('strength', 'strength', 'FLOAT', 'Blend'),
+              ],
+            },
+            input('seed', 'seed', 'INT', 'Grain'),
+            output('result', 'result', 'IMAGE', 'Blend'),
+          ]}
+          selected="seed"
+        />
+      </Example>
+      <Example
+        caption="An output added after a pin-only input"
+        note="preview was just shown; a new output goes at the very end. On the subgraph node it shares the line of mask, the pin-only input directly above it."
+      >
+        <Panel
+          title="Detail pass"
+          uses="used in 2 places"
+          entries={[
+            input('image', 'image', 'IMAGE', 'Blend'),
+            input('strength', 'strength', 'FLOAT', 'Blend'),
+            input('mask', 'mask', 'MASK', 'Blend'),
+            output('preview', 'preview', 'IMAGE', 'Blend'),
+          ]}
+          selected="preview"
+        />
+      </Example>
+      <Example
         caption="A section with no name while open"
         note="The open box keeps only the tab that closes it; closed, it shows its name."
       >
