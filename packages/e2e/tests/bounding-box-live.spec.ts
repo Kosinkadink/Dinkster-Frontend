@@ -63,7 +63,8 @@ test('crop fields submit exact pixels, preview the source and preserve undo', as
   const viewport = page.viewportSize()!
   for (const theme of ['dark', 'light']) {
     await page.evaluate((theme) => { document.documentElement.dataset['theme'] = theme }, theme)
-    const contrast = await page.getByTestId('editor-frame-apply').evaluate((button) => {
+    // The shared button animates its background, so read it once the theme change has settled.
+    await expect.poll(() => page.getByTestId('editor-frame-apply').evaluate((button) => {
       const style = getComputedStyle(button)
       const rgb = (color: string) => color.match(/[\d.]+/g)!.slice(0, 3).map(Number)
       // The nearest painted surface behind the button.
@@ -78,8 +79,7 @@ test('crop fields submit exact pixels, preview the source and preserve undo', as
       const foreground = luminance(style.color)
       const background = luminance(style.backgroundColor)
       return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05)
-    })
-    expect(contrast, `${theme} disabled crop action contrast`).toBeGreaterThanOrEqual(4.5)
+    }), { message: `${theme} disabled crop action contrast` }).toBeGreaterThanOrEqual(4.5)
     for (const height of [viewport.height, viewport.height - 100]) {
       await page.setViewportSize({ ...viewport, height })
       await expect.poll(() => page.getByTestId('widget-modal-surface').evaluate((editor) => {
