@@ -172,8 +172,9 @@ foreground against their actual fill, including the hovered fill.
   Escape dismissal, keyboard focus wrapping and opener restoration for apps;
   while `pending` it cannot be dismissed, however often Escape is pressed.
 - `ProductList`/`ProductListRow` and `ProductTable` provide bordered data surfaces.
-  `ProductEmptyState` centers the approved D mark with a sentence and optional
-  action in its column. `ProductLoading` is one status region with its label;
+  `ProductEmptyState` shows a sentence and optional hint and action, without a
+  picture by default. App empty states retain explicitly supplied semantic icons,
+  such as loading or error indicators. `ProductLoading` is one status region with its label;
   `ProductRunIcon` keeps a supplied Lucide kind icon visible while running,
   breathing in cyan over a 2.4-second cycle. Reduced motion leaves it still
   and cyan. Queued work stays cyan without motion. Its optional
@@ -499,18 +500,18 @@ not grow. This inventory is a migration queue, not a second component system.
 
 ## Token model
 
-| Family      | Roles                                                                                           |
-| ----------- | ----------------------------------------------------------------------------------------------- |
-| Space       | 4, 8, 12, 16, 24, 32 px                                                                         |
-| Type        | metadata 11/16, canvas 12/16, body 13/20, section 15/20, title 18/24; regular 400, bold 700                   |
-| Surface     | canvas, panel, inset, raised, selected                                                          |
-| Text        | primary, secondary, muted, disabled, inverse, on-selected                                       |
-| Border      | subtle, hover, strong, focus, selected                                                          |
-| Meaning     | accent, success, warning, danger, info; each has foreground, background, and border             |
-| Shape       | 4 px small, 6 px control, 8 px card/panel, capsule for tags and removable active filters only   |
+| Family      | Roles                                                                                                               |
+| ----------- | ------------------------------------------------------------------------------------------------------------------- |
+| Space       | 4, 8, 12, 16, 24, 32 px                                                                                             |
+| Type        | metadata 11/16, canvas 12/16, body 13/20, section 15/20, title 18/24; regular 400, bold 700                         |
+| Surface     | canvas, panel, inset, raised, selected                                                                              |
+| Text        | primary, secondary, muted, disabled, inverse, on-selected                                                           |
+| Border      | subtle, hover, strong, focus, selected                                                                              |
+| Meaning     | accent, success, warning, danger, info; each has foreground, background, and border                                 |
+| Shape       | 4 px small, 6 px control, 8 px card/panel, capsule for tags and removable active filters only                       |
 | Interaction | 32 px compact control, 40 px primary input, 24 px canvas input, 2 px focus ring, hover, pressed, selected, disabled |
-| Motion      | fast, standard, reduced-motion duration, one product easing curve                               |
-| Elevation   | low and high only                                                                               |
+| Motion      | fast, standard, reduced-motion duration, one product easing curve                                                   |
+| Elevation   | low and high only                                                                                                   |
 
 Canvas code receives space, relevant type roles, surfaces, text, borders,
 meaning, shapes, and bounded interaction state. It does not receive DOM
