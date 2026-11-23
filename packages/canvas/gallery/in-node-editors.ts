@@ -106,8 +106,14 @@ export const inNodeEditorSchemas: readonly NodeSchema[] = [
     editor('curve', 'CURVE', { inputStrip: ['#000000', '#ffffff'], outputStrip: ['#000000', '#ffffff'] }),
     output('curve', 'CURVE'),
   ]),
+  // A curve from a color to the same color strips both axes in it.
   schema('Red channel curve', [
-    editor('curve', 'CURVE', { inputStrip: ['#000000', '#ff0000'] }),
+    editor('curve', 'CURVE', { inputStrip: ['#000000', '#ff0000'], outputStrip: ['#000000', '#ff0000'] }),
+    output('curve', 'CURVE'),
+  ]),
+  // Its output is an amount, not a color, so only the input has a strip.
+  schema('Saturation by brightness', [
+    editor('curve', 'CURVE', { inputStrip: ['#000000', '#ffffff'] }),
     output('curve', 'CURVE'),
   ]),
   ...[16, undefined].map((maxMembers) => schema(maxMembers === undefined ? 'Palette' : 'Palette of 16', [
@@ -244,8 +250,12 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
     type: 'Brightness curve',
     values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.35, value: 0.5 }, { position: 1, value: 1 }] } },
     view: unfold('curve'), states: { curve: { hover: { position: 0.7, value: 0.45 } } } },
-  { id: 'curve-input-strip', card: 34, caption: 'Only the input strip declared, black to red', type: 'Red channel curve',
+  { id: 'curve-red', card: 34, caption: 'A red channel curve: both strips black to red', type: 'Red channel curve',
     values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.5, value: 0.35 }, { position: 1, value: 0.9 }] } },
+    view: unfold('curve') },
+  { id: 'curve-input-strip', card: 34, caption: 'Saturation by brightness: only the input strip, black to white',
+    type: 'Saturation by brightness',
+    values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0.2 }, { position: 0.5, value: 0.8 }, { position: 1, value: 0.3 }] } },
     view: unfold('curve') },
   { id: 'curve-folded', card: 35, caption: 'Folded: its sketch and the number of points', type: 'Curve editor',
     values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] } } },
