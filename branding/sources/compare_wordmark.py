@@ -3,6 +3,8 @@
 import argparse
 from pathlib import Path
 
+from palette import PALETTE
+
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,19 +24,21 @@ def main():
     reference = Image.open(args.reference).convert("RGB")
     if args.dark_reference_only:
         lower = reference.copy()
-        reference = Image.new("RGB", (446, 518), "#111316")
+        reference = Image.new("RGB", (446, 518), PALETTE["dark"]["bg"]["canvas"])
         reference.paste(lower.crop((0, 292, 446, 518)), (0, 292))
         reference.paste(ImageOps.invert(lower.crop((0, 310, 446, 447))), (0, 56))
         ImageDraw.Draw(reference).text(
             (70, 245),
             "DARK-ON-LIGHT REFERENCE - INVERTED",
-            fill="#F2F4F5",
+            fill=PALETTE["dark"]["text"]["primary"],
             font=ImageFont.truetype("DejaVuSans.ttf", 9),
         )
     native_width = args.native_width
     if native_width != reference.width:
-        padded = Image.new("RGB", (native_width, 518), "#111316")
-        ImageDraw.Draw(padded).rectangle((0, 292, native_width, 518), fill="#F7F8FA")
+        padded = Image.new("RGB", (native_width, 518), PALETTE["dark"]["bg"]["canvas"])
+        ImageDraw.Draw(padded).rectangle(
+            (0, 292, native_width, 518), fill=PALETTE["light"]["bg"]["canvas"]
+        )
         padded.paste(reference, (0, 0))
         reference = padded
     native_x = native_width + 40
@@ -43,16 +47,26 @@ def main():
     drafts = []
     for prefix in (args.prefix,):
         width = native_width * 2
-        draft = Image.new("RGB", (width, 1036), "#111316")
+        draft = Image.new("RGB", (width, 1036), PALETTE["dark"]["bg"]["canvas"])
         draw = ImageDraw.Draw(draft)
-        draw.rectangle((0, 584, width, 1036), fill="#F7F8FA")
+        draw.rectangle((0, 584, width, 1036), fill=PALETTE["light"]["bg"]["canvas"])
         dark = Image.open(ROOT / f"previews/wordmark-{prefix}dark-2x.png")
         light = Image.open(ROOT / f"previews/wordmark-{prefix}light-2x.png")
         draft.paste(dark, (0, 0), dark)
         draft.paste(light, (0, 506), light)
         treatment = "COLOR" if args.color else "MONOCHROME"
-        draw.text((140, 490), f"{treatment} (LIGHT ON DARK)", fill="#F2F4F5", font=font)
-        draw.text((140, 966), f"{treatment} (DARK ON LIGHT)", fill="#1F242A", font=font)
+        draw.text(
+            (140, 490),
+            f"{treatment} (LIGHT ON DARK)",
+            fill=PALETTE["dark"]["text"]["primary"],
+            font=font,
+        )
+        draw.text(
+            (140, 966),
+            f"{treatment} (DARK ON LIGHT)",
+            fill=PALETTE["light"]["text"]["primary"],
+            font=font,
+        )
         drafts.append(draft)
     guides = (
         ("upper: i top / k,t slope start", "#32B7CB"),
@@ -75,10 +89,22 @@ def main():
                 guide_draw.line(
                     (280, y + offset, width - 22, y + offset), fill=color, width=1
                 )
-    comparison = Image.new("RGB", (native_width * 4 + 60, 1670), "#E4E8EC")
+    comparison = Image.new(
+        "RGB", (native_width * 4 + 60, 1670), PALETTE["light"]["bg"]["hover"]
+    )
     draw = ImageDraw.Draw(comparison)
-    draw.text((20, 16), "REFERENCE - native size", fill="#1F242A", font=font)
-    draw.text((native_x, 16), "CURRENT WEIGHT - native size", fill="#1F242A", font=font)
+    draw.text(
+        (20, 16),
+        "REFERENCE - native size",
+        fill=PALETTE["light"]["text"]["primary"],
+        font=font,
+    )
+    draw.text(
+        (native_x, 16),
+        "CURRENT WEIGHT - native size",
+        fill=PALETTE["light"]["text"]["primary"],
+        font=font,
+    )
     for index, (name, color) in enumerate(guides):
         draw.text(
             (double_x + 20, 64 + index * 28), f"{name} guide", fill=color, font=font
@@ -86,14 +112,14 @@ def main():
     draw.text(
         (double_x + 20, 170),
         args.caption,
-        fill="#1F242A",
+        fill=PALETTE["light"]["text"]["primary"],
         font=font,
     )
     if args.dark_reference_only:
         draw.text(
             (double_x + 20, 205),
             "Upper reference: lower artwork inverted",
-            fill="#1F242A",
+            fill=PALETTE["light"]["text"]["primary"],
             font=font,
         )
     comparison.paste(reference, (20, 50))
@@ -102,8 +128,15 @@ def main():
             draft.resize((draft.width // 2, 518), Image.Resampling.LANCZOS),
             (native_x + index * (native_width + 20), 50),
         )
-    draw.text((20, 590), "REFERENCE - 2x", fill="#1F242A", font=font)
-    draw.text((double_x, 590), "CURRENT WEIGHT - 2x", fill="#1F242A", font=font)
+    draw.text(
+        (20, 590), "REFERENCE - 2x", fill=PALETTE["light"]["text"]["primary"], font=font
+    )
+    draw.text(
+        (double_x, 590),
+        "CURRENT WEIGHT - 2x",
+        fill=PALETTE["light"]["text"]["primary"],
+        font=font,
+    )
     comparison.paste(
         reference.resize((native_width * 2, 1036), Image.Resampling.LANCZOS), (20, 624)
     )
@@ -113,7 +146,7 @@ def main():
     if args.prefix:
         return
     letters = Image.open(ROOT / "previews/letters-enlarged.png").convert("RGBA")
-    letter_comparison = Image.new("RGB", (1680, 440), "#F7F8FA")
+    letter_comparison = Image.new("RGB", (1680, 440), PALETTE["light"]["bg"]["canvas"])
     letter_comparison.paste(
         letters.crop((0, 0, 1680, 390)), (0, 50), letters.crop((0, 0, 1680, 390))
     )
@@ -121,7 +154,7 @@ def main():
     labels.text(
         (24, 18),
         "REGULAR - blue: i top / k,t slope start; red: x-height; gold: baseline; magenta: k continuation",
-        fill="#1F242A",
+        fill=PALETTE["light"]["text"]["primary"],
         font=font,
     )
     for (_, color), y in zip(guides, (110, 152, 278)):

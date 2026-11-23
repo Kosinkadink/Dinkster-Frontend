@@ -138,7 +138,7 @@ export function AppPreviewSurface(props: {
                 onPreferences={props.onVideoPreferences} onMediaError={mediaError} onDimensions={setVideoDims} />
             </Show>
             <Show when={preview().src !== undefined && preview().kind === 'audio'}>
-              <AudioTransport media={preview()} assetReader={props.surface.source?.assetReader} onMediaError={mediaError} />
+              <AudioTransport media={preview()} onMediaError={mediaError} />
             </Show>
             <Show when={preview().image !== undefined && preview().status === undefined && preview().kind !== 'video'}>
               <canvas

@@ -1,221 +1,155 @@
-import { createSignal, For, Show } from 'solid-js'
+import { createMemo, createSignal, For, Show } from 'solid-js'
+import Ellipsis from 'lucide-solid/icons/ellipsis'
+import { ProductButton, ProductConfirmation, ProductDisclosure, ProductErrorBanner, ProductMenu, ProductNotice } from '@dinkster/ui'
 import type { AppState, Backend } from './app-state.js'
 import { backendConnectionStatus, canonicalBackendUrl } from './app-state.js'
-import { ConnectionProfilesSection } from './ConnectionProfiles.js'
-import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
+import { ConnectionCredentialControls, createConnectionProfiles } from './ConnectionProfiles.js'
+import { validProfileUrl } from './connection-profiles.js'
 import { useAppMessage } from './locale.js'
-import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from './ProductForm.js'
-import { ProductButton, ProductTextInput } from './ProductControls.js'
+import { ProductField, productFieldIds } from './ProductForm.js'
+import { ProductTextInput } from './ProductControls.js'
 import { ProductPanelHeader } from './ProductSurfaces.js'
-import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
-import { OutputMountSettings } from './OutputMountSettings.js'
-import { ProjectFolderSettings } from './ProjectFolderSettings.js'
 import { useSignal } from './solid-adapter.js'
 
-function BackendCard(props: {
+function BackendRow(props: {
   readonly app: AppState
-  readonly backend: Backend
+  readonly url: string
+  readonly name: string
+  readonly backend: Backend | undefined
   readonly defaultBackend: Backend
+  readonly connections: ReturnType<typeof createConnectionProfiles>
+  readonly activeBackendId?: string | undefined
   readonly tick: () => number
+  readonly onOpenStorage?: ((backend: Backend) => void) | undefined
+  readonly onOpenResources?: ((backend: Backend) => void) | undefined
+  readonly onOpenSettings?: ((backend: Backend) => void) | undefined
 }) {
   const message = useAppMessage()
-  const [restarting, setRestarting] = createSignal(false)
-  const [retryingSchemas, setRetryingSchemas] = createSignal(false)
-  const status = () => { props.tick(); return backendConnectionStatus(props.backend) }
-  const registry = () => { props.tick(); return props.backend.registry.get() }
-  const schemaState = () => { props.tick(); return props.backend.schemaState.get() }
-  const supervisor = () => { props.tick(); return props.backend.supervisor.get() }
-  const progress = () => { props.tick(); return supervisor()?.progress ?? props.backend.composition.get() }
-  const connectionLabel = (): string => message(`backendsPanel.connection.${status()}`)
-  const schemaLabel = (): string => {
-    const state = schemaState().status
-    if (state === 'error') return message('backendsPanel.schema.unavailable')
-    if (state === 'loading') return message('backendsPanel.schema.loading')
-    if (state === 'waiting') return message('backendsPanel.schema.waiting')
-    return message('backendsPanel.schema.notLoaded')
+  const [busy, setBusy] = createSignal(false)
+  const [removing, setRemoving] = createSignal(false)
+  const [error, setError] = createSignal('')
+  const [connectFailed, setConnectFailed] = createSignal(false)
+  const active = createMemo(() => props.backend?.id === (props.activeBackendId ?? props.defaultBackend.id))
+  const status = () => { props.tick(); return props.backend ? backendConnectionStatus(props.backend) : 'disconnected' }
+  const registry = () => { props.tick(); return props.backend?.registry.get() }
+  const schemaState = () => { props.tick(); return props.backend?.schemaState.get() }
+  const supervisor = () => { props.tick(); return props.backend?.supervisor.get() }
+  const perform = async (action: () => Promise<unknown>) => {
+    if (busy() || props.connections.busy()) return
+    setBusy(true)
+    setError('')
+    setConnectFailed(false)
+    try { await action() }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
+    finally { setBusy(false) }
   }
-  const engineStateLabel = (): string => {
-    if (progress() !== undefined) return message('backendsPanel.engine.composing')
-    const state = engine()?.state
-    if (state === 'starting') return message('backendsPanel.engine.starting')
-    if (state === 'failed') return message('backendsPanel.engine.failed')
-    if (state === 'stopped') return message('backendsPanel.engine.stopped')
-    return message('backendsPanel.engine.ready')
+  const connect = async () => {
+    if (props.backend) await props.app.startBackend(props.backend)
+    else if (!await props.app.addBackendByUrl(props.url, { label: props.name })) setConnectFailed(true)
   }
-  const restart = async (): Promise<void> => {
-    if (restarting()) return
-    setRestarting(true)
-    try { await props.app.restartEngine(props.backend) }
-    finally { setRestarting(false) }
+  const remove = async () => {
+    const backend = props.backend
+    if (!await props.connections.remove(props.url)) return
+    if (backend && props.app.backends.get().includes(backend)) props.app.removeBackend(backend.id)
+    setRemoving(false)
   }
-  const retrySchemas = async (): Promise<void> => {
-    if (retryingSchemas()) return
-    setRetryingSchemas(true)
-    try { await props.app.refreshBackendSchemas(props.backend) }
-    finally { setRetryingSchemas(false) }
-  }
-  const engine = () => supervisor()
-
-  return (
-    <article class="backend-card" data-testid="backend-row" data-connection={props.backend.id}>
-      <header class="backend-card-header">
-        <div class="backend-identity">
-          <div class="backend-title-line">
-            <h3>{props.backend.label}</h3>
-            <Show when={props.backend === props.defaultBackend}>
-              <span class="backend-badge">{message('backendsPanel.badge.default')}</span>
+  const title = () => `${message(`backendsPanel.connection.${status()}`)} - ${props.name}${props.backend ? ` - ${message(props.backend.protocol === 'dinkster' ? 'backendsPanel.protocol.dinkster' : 'backendsPanel.protocol.comfyUi')}` : ''}${registry() ? `, ${message('backendsPanel.schema.available', { count: registry()!.schemas.size })}` : ''}`
+  return <article class="backend-server" data-testid="backend-row" data-connection={props.backend?.id ?? props.url} data-status={status()}>
+    <Show when={error() || connectFailed()}><ProductErrorBanner onDismiss={() => { setError(''); setConnectFailed(false) }}>{connectFailed() ? message('connectionProfiles.error.connect', { name: props.name }) : error()}</ProductErrorBanner></Show>
+    <Show when={removing()} fallback={<>
+      <div class="storage-folder-heading">
+        <ProductDisclosure title={title()} open={active()}>
+          <p class="dinkster-metadata" role="status">{message(`backendsPanel.connection.${status()}`)}</p>
+          <code class="backend-address">{props.url || message('backendsPanel.sameOrigin')}</code>
+          <Show when={schemaState()?.status === 'error'}><ProductNotice tone="warning">{message('backendsPanel.notice.schemaFailed', { message: (schemaState() as { message: string }).message })}</ProductNotice></Show>
+          <Show when={supervisor()?.detail}><p class="dinkster-metadata">{supervisor()!.detail}</p></Show>
+          <div class="dinkster-actions">
+            <Show when={status() === 'disconnected'} fallback={<ProductButton intent="remove" disabled={busy() || props.connections.busy()} onClick={() => props.backend && props.app.disconnectBackend(props.backend)}>{message('backendsPanel.action.disconnect')}</ProductButton>}>
+              <ProductButton data-testid="profile-connect" disabled={busy() || props.connections.busy()} onClick={() => { void perform(connect) }}>{message(busy() ? 'connectionProfiles.action.connecting' : 'connectionProfiles.action.connect')}</ProductButton>
             </Show>
-            <span class="backend-badge">{message(props.backend.protocol === 'dinkster' ? 'backendsPanel.protocol.dinkster' : 'backendsPanel.protocol.comfyUi')}</span>
+            <Show when={props.backend} keyed>{(backend) => <>
+              <Show when={supervisor() !== undefined}><ProductButton disabled={busy()} onClick={() => { void perform(() => props.app.restartEngine(backend)) }} data-testid="backend-engine-restart">{message(busy() ? 'backendsPanel.action.restarting' : 'backendsPanel.action.restart')}</ProductButton></Show>
+              <Show when={schemaState()?.status === 'error'}><ProductButton disabled={busy()} onClick={() => { void perform(() => props.app.refreshBackendSchemas(backend)) }} data-testid="backend-schema-retry">{message('backendsPanel.action.retrySchemas')}</ProductButton></Show>
+              <ProductButton onClick={() => props.onOpenStorage?.(backend)}>{message('storagePanel.title')}</ProductButton>
+              <ProductButton onClick={() => props.onOpenResources?.(backend)}>{message('backendsPanel.resources')}</ProductButton>
+              <Show when={backend.protocol === 'dinkster'}><ProductButton onClick={() => props.onOpenSettings?.(backend)}>{message('shell.panel.settings.title')}</ProductButton></Show>
+            </>}</Show>
           </div>
-          <code class="backend-address">{props.backend.baseUrl || message('backendsPanel.sameOrigin')}</code>
-        </div>
-        <span class="backend-status" data-status={status()} role="status">
-          <span class="backend-status-dot" aria-hidden="true" />
-          {connectionLabel()}
-        </span>
-      </header>
-
-      <dl class="backend-facts">
-        <div>
-          <dt>{message('backendsPanel.fact.schemas')}</dt>
-          <dd>
-            <Show when={registry()} fallback={
-              schemaLabel()
-            }>{(value) => message('backendsPanel.schema.available', { count: value().schemas.size })}</Show>
-          </dd>
-        </div>
-        <div>
-          <dt>{message('backendsPanel.fact.protocol')}</dt>
-          <dd>{message(props.backend.protocol === 'dinkster' ? 'backendsPanel.protocol.nativeDinkster' : 'backendsPanel.protocol.comfyUiV1')}</dd>
-        </div>
-      </dl>
-
-      <Show when={status() === 'reconnecting'}>
-        <ProductNotice tone="warning">{message('backendsPanel.notice.reconnecting')}</ProductNotice>
-      </Show>
-      <Show when={status() === 'disconnected'}>
-        <ProductNotice tone="error">{message('backendsPanel.notice.disconnected')}</ProductNotice>
-      </Show>
-      <Show when={schemaState().status === 'error'}>
-        <ProductNotice tone="error" testId="backend-schema-error">
-          {message('backendsPanel.notice.schemaFailed', { message: (schemaState() as { readonly status: 'error'; readonly message: string }).message })}
-        </ProductNotice>
-      </Show>
-
-      <Show when={engine() !== undefined || progress() !== undefined}>
-        <section class="backend-engine" data-state={engine()?.state ?? 'ready'} aria-label={message('backendsPanel.aria.engine', { backend: props.backend.label })}>
-          <div class="backend-engine-heading">
-            <div>
-              <span class="backend-eyebrow">{message('backendsPanel.engine.label')}</span>
-              <strong>{engineStateLabel()}</strong>
-            </div>
-            <Show when={engine()?.engine?.pid}><span class="backend-engine-pid">{message('backendsPanel.engine.pid', { pid: engine()!.engine!.pid! })}</span></Show>
-          </div>
-          <Show when={engine()?.detail}><p>{engine()!.detail}</p></Show>
-          <Show when={progress()}>{(current) => (
-            <div class="backend-progress">
-              <div class="backend-progress-copy">
-                <span>{current().phase || message('backendsPanel.progress.composing')}</span>
-                <span>{message('backendsPanel.progress.count', { done: current().done, total: current().total })}</span>
-              </div>
-              <progress value={current().done} max={Math.max(1, current().total)} aria-label={message('backendsPanel.aria.progress', { backend: props.backend.label })} />
-            </div>
-          )}</Show>
-        </section>
-      </Show>
-
-      <div class="backend-actions">
-        <Show when={schemaState().status === 'error'}>
-          <ProductButton type="button" disabled={retryingSchemas()} data-testid="backend-schema-retry" aria-label={message('backendsPanel.aria.retrySchemas', { backend: props.backend.label })} onClick={() => void retrySchemas()}>
-            {message(retryingSchemas() ? 'backendsPanel.action.retrying' : 'backendsPanel.action.retrySchemas')}
-          </ProductButton>
-        </Show>
-        <Show when={engine()?.state === 'failed' || engine()?.state === 'stopped'}>
-          <ProductButton type="button" disabled={restarting()} data-testid="backend-engine-restart" aria-label={message('backendsPanel.aria.restart', { backend: props.backend.label })} onClick={() => void restart()}>
-            {message(restarting() ? 'backendsPanel.action.restarting' : 'backendsPanel.action.restart')}
-          </ProductButton>
-        </Show>
-        <Show when={props.backend !== props.defaultBackend}>
-          <ProductButton type="button" variant="danger" data-testid="backend-remove" aria-label={message('backendsPanel.aria.remove', { backend: props.backend.label })} onClick={() => props.app.removeBackend(props.backend.id)}>
-            {message('backendsPanel.action.remove')}
-          </ProductButton>
-        </Show>
+          <Show when={validProfileUrl(props.url)}><ConnectionCredentialControls connections={props.connections} url={props.url} name={props.name} /></Show>
+        </ProductDisclosure>
+        <Show when={props.backend !== props.defaultBackend}><ProductMenu icon={Ellipsis} iconOnly label={message('backendsPanel.aria.actions', { backend: props.name })}
+          items={[{ label: message('backendsPanel.action.remove'), intent: 'remove', disabled: props.connections.busy(), onSelect: () => setRemoving(true) }]} /></Show>
       </div>
-
-      <Show when={props.backend.protocol === 'dinkster' ? props.backend : undefined}>
-        {(native) => <>
-          <ProjectFolderSettings connection={native().connection} backendUrl={native().baseUrl} backendLabel={props.backend.label} />
-          <OutputMountSettings connection={native().connection} />
-          <RuntimeSettingsPanel connection={native().connection} backendLabel={props.backend.label} />
-          <AgentPermissionsPanel connection={native().connection} backendLabel={props.backend.label} />
-        </>}
-      </Show>
-    </article>
-  )
+    </>}>
+      <ProductConfirmation title={message('backendsPanel.action.remove')} consequence={message('backendsPanel.removeNotice', { backend: props.name })}
+        actionLabel={message('backendsPanel.action.remove')} intent="remove" pending={busy() || props.connections.busy()} onCancel={() => setRemoving(false)} onConfirm={() => { void perform(remove) }} />
+    </Show>
+  </article>
 }
 
-export function BackendsPanel(props: { readonly app: AppState }) {
+export function BackendsPanel(props: {
+  readonly app: AppState
+  readonly activeBackendId?: string | undefined
+  readonly onOpenStorage?: (backend: Backend) => void
+  readonly onOpenResources?: (backend: Backend) => void
+  readonly onOpenSettings?: (backend: Backend) => void
+}) {
   const message = useAppMessage()
   const backends = useSignal(props.app.backends)
   const tick = useSignal(props.app.backendsTick)
+  const connections = createConnectionProfiles()
+  const addresses = createMemo(() => [...new Set([...backends().map((backend) => canonicalBackendUrl(backend.baseUrl)), ...connections.profiles().map((profile) => canonicalBackendUrl(profile.url))])])
+  const [adding, setAdding] = createSignal(false)
   const [url, setUrl] = createSignal('')
+  const [name, setName] = createSignal('')
+  const [token, setToken] = createSignal('')
   const [discovering, setDiscovering] = createSignal(false)
   const [addError, setAddError] = createSignal('')
-  const add = async (): Promise<void> => {
-    if (discovering()) return
+  const add = async () => {
+    if (discovering() || connections.busy()) return
     const candidate = canonicalBackendUrl(url())
     setAddError('')
-    if (backends().some((backend) => canonicalBackendUrl(backend.baseUrl) === candidate)) {
-      setAddError('backendsPanel.error.duplicate')
-      return
-    }
+    if (addresses().includes(candidate)) { setAddError('backendsPanel.error.duplicate'); return }
     if (!candidate) return
+    if ((!candidate.startsWith('/') || token().trim()) && !validProfileUrl(candidate)) { setAddError('connectionProfiles.error.address'); return }
     setDiscovering(true)
     try {
-      const added = await props.app.addBackendByUrl(candidate)
-      if (added) setUrl('')
+      // Credential custody must succeed before discovery sends authenticated requests.
+      // A failed probe keeps the new profile reachable for retry or token removal.
+      if (token().trim() && !await connections.saveToken(candidate, name() || candidate, token().trim())) return
+      const label = name().trim() || (validProfileUrl(candidate) ? new URL(candidate).host : candidate)
+      const added = await props.app.addBackendByUrl(candidate, { label })
+      if (added) { setUrl(''); setName(''); setToken(''); setAdding(false) }
       else setAddError('backendsPanel.error.addFailed')
-    } finally {
-      setDiscovering(false)
-    }
+    } catch { setAddError('backendsPanel.error.addFailed') }
+    finally { setDiscovering(false) }
   }
-
-  return (
-    <section class="backends-panel" data-testid="backends-panel" aria-label={message('backendsPanel.title')}>
-      <ProductPanelHeader title={message('backendsPanel.title')} />
-      <div class="backend-add-surface">
-        <p>{message('backendsPanel.description')}</p>
-        <form onSubmit={(event) => { event.preventDefault(); void add() }}>
-          <ProductField controlId="backend-address" label={message('backendsPanel.label.address')} description={message('backendsPanel.help.address')} layout="stack" invalid={addError() !== ''}>
-            <ProductTextInput
-              id="backend-address"
-              data-testid="backend-url-input"
-              inputmode="url"
-              autocomplete="url"
-              placeholder={message('backendsPanel.placeholder.address')}
-              value={url()}
-              invalid={addError() !== ''}
-              aria-describedby={`${productFieldIds('backend-address').description}${addError() ? ' backend-add-error' : ''}`}
-              onInput={(event) => { setUrl(event.currentTarget.value); setAddError('') }}
-            />
-          </ProductField>
-          <Show when={addError()}>{(key) => <div id="backend-add-error"><ProductNotice tone="error">{message(key())}</ProductNotice></div>}</Show>
-          <ProductActionFooter>
-            <ProductButton data-testid="backend-add" type="submit" variant="primary" disabled={discovering() || url().trim() === ''}>
-              {message(discovering() ? 'backendsPanel.action.discovering' : 'backendsPanel.action.discover')}
-            </ProductButton>
-          </ProductActionFooter>
-        </form>
-        <Show when={discovering()}><ProductNotice tone="status">{message('backendsPanel.notice.discovering', { address: url().trim() })}</ProductNotice></Show>
-      </div>
-
-      <div class="backend-list" aria-live="polite">
-        <For each={backends()}>{(backend) => (
-          <BackendCard app={props.app} backend={backend} defaultBackend={backends()[0]!} tick={tick} />
-        )}</For>
-      </div>
-
-      <ConnectionProfilesSection app={props.app} />
-    </section>
-  )
+  return <section class="backends-panel" data-testid="backends-panel" aria-label={message('backendsPanel.title')}>
+    <ProductPanelHeader title={message('backendsPanel.title')} actions={<ProductButton intent="add" aria-expanded={adding()} disabled={discovering()} onClick={() => setAdding(!adding())}>{message('backendsPanel.addBackend')}</ProductButton>} />
+    <Show when={connections.error()}><ProductErrorBanner onDismiss={connections.dismissError}>{connections.error()}</ProductErrorBanner></Show>
+    <Show when={adding()}><form class="dinkster-stack" onSubmit={(event) => { event.preventDefault(); void add() }}>
+      <ProductField controlId="backend-address" label={message('backendsPanel.label.address')} description={message('backendsPanel.help.address')} layout="stack" invalid={addError() !== ''}>
+        <ProductTextInput id="backend-address" data-testid="backend-url-input" inputmode="url" autocomplete="url"
+          placeholder={message('backendsPanel.placeholder.address')} value={url()} invalid={addError() !== ''} disabled={discovering()}
+          aria-describedby={`${productFieldIds('backend-address').description}${addError() ? ' backend-add-error' : ''}`}
+          onInput={(event) => { setUrl(event.currentTarget.value); setAddError('') }} />
+      </ProductField>
+      <Show when={addError()}><p id="backend-add-error" class="dinkster-field-error" role="alert">{message(addError())}</p></Show>
+      <ProductField controlId="backend-name" label={message('backendsPanel.label.nameOptional')} layout="stack">
+        <ProductTextInput id="backend-name" data-testid="profile-name-input" value={name()} disabled={discovering()} onInput={(event) => setName(event.currentTarget.value)} />
+      </ProductField>
+      <Show when={connections.custody()}><ProductField controlId="backend-token" label={message('connectionProfiles.label.accessTokenOptional')} layout="stack">
+        <ProductTextInput id="backend-token" data-testid="profile-token-input" type="password" autocomplete="off" value={token()} disabled={discovering()} onInput={(event) => setToken(event.currentTarget.value)} />
+      </ProductField></Show>
+      <ProductButton data-testid="backend-add" type="submit" intent="add" fill="solid" pending={discovering()} disabled={!url().trim() || connections.busy()}>{message(discovering() ? 'connectionProfiles.action.connecting' : 'connectionProfiles.action.connect')}</ProductButton>
+    </form></Show>
+    <div class="backend-list" aria-live="polite">
+      <For each={addresses()}>{(address) => {
+        const backend = () => backends().find((backend) => canonicalBackendUrl(backend.baseUrl) === address)
+        const label = () => backend()?.label ?? connections.matching(address)[0]?.name ?? address
+        return <BackendRow app={props.app} url={address} name={label()} backend={backend()} defaultBackend={backends()[0]!} connections={connections} activeBackendId={props.activeBackendId} tick={tick}
+          onOpenStorage={props.onOpenStorage} onOpenResources={props.onOpenResources} onOpenSettings={props.onOpenSettings} />
+      }}</For>
+    </div>
+  </section>
 }

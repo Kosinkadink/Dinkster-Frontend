@@ -1,6 +1,5 @@
-import { expect, nativeTest as test, selectProductOption, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, selectProductOption, waitForWorkspaceReady, type Page } from './fixtures.js'
 
-test.use({ retentionApi: false })
 
 async function openPainter(page: Page, nodeId = 'paint'): Promise<void> {
   const point = await page.evaluate((nodeId) => {
@@ -17,8 +16,8 @@ async function openPainter(page: Page, nodeId = 'paint'): Promise<void> {
 for (const connected of [false, true]) test(`Painter ${connected ? 'connected first frame' : 'background'} uploads, reopens, executes and undoes`, async ({ page }, testInfo) => {
   test.skip(!process.env['DINKSTER_NATIVE_BACKEND'], 'requires an isolated native backend')
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
-  await waitForStartupOwnership(page)
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 20_000 })
+  await waitForWorkspaceReady(page)
   await page.evaluate(async (connected) => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'painter-live', root: 'g0',
@@ -124,7 +123,7 @@ for (const connected of [false, true]) test(`Painter ${connected ? 'connected fi
     })).toBe(true)
     if (await page.getByTestId('import-assets-accept').isVisible()) await page.getByTestId('import-assets-accept').click()
     await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values.mask)).toEqual(asset)
-    await waitForStartupOwnership(page)
+    await waitForWorkspaceReady(page)
     await openPainter(page, 'n1')
     expect(await pixels()).toEqual({ painted: [225, 38, 104, 255], clear: [0, 0, 0, 0] })
     await page.getByRole('button', { name: 'Cancel', exact: true }).click()

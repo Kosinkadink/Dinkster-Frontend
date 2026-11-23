@@ -27,6 +27,15 @@ const hue = (color: string): number => {
 }
 
 describe('defaultTokens', () => {
+  it('darkens value fields independently of the canvas while retaining light fields', () => {
+    const dark = canvasColorsForTheme('dark')
+    expect(dark.canvasBackground).toBe('#0E1414')
+    expect(dark.widgetBackground).toBe('#0B1111')
+    const light = canvasColorsForTheme('light')
+    expect(light.canvasBackground).toBe('#F7F8FA')
+    expect(light.widgetBackground).toBe('#F7F8FA')
+  })
+
   it('keeps named and unknown type hues while meeting contrast in production theme palettes', () => {
     const previousTokens = { ...defaultTokens, ...previousCanvasTypePaint }
     expect(defaultTokens.typeColors).toEqual(canvasTypePaintForTheme('dark').typeColors)

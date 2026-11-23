@@ -223,11 +223,11 @@ export function installAssetConsent(p: {
           next = { ...next, job }
         } else if (action === 'cancel' && state.job) {
           const job = await scope.connection.cancelModelDownload(state.job.jobId, observation.signal)
-          if (!matches(job)) throw new Error('Model job ownership changed')
+          if (!matches(job)) throw new Error('Model job no longer matches the captured project and requirement')
           next = { ...next, job }
         } else if (state.job && active(state.job)) {
           const job = await scope.connection.fetchModelDownload(state.job.jobId, observation.signal)
-          if (job && !matches(job)) throw new Error('Model job ownership changed')
+          if (job && !matches(job)) throw new Error('Model job no longer matches the captured project and requirement')
           next = { ...next, ...(job ? { job } : { interrupted: true }) }
         } else {
           const { jobs } = await scope.connection.fetchModelDownloads(observation.signal)

@@ -148,13 +148,25 @@ default.
 A hidden choice shows neither its dropdown nor its chosen option's rows; its
 stored key still selects those rows, and they are still stored and run.
 
+A stored key that names an option the pack no longer has is treated as no
+pick when the document opens: a required choice goes to its start key, an
+optional choice and an optional type choice go to none, and a required type
+choice has nothing selected, so the document opens and a run is refused until
+a variant is picked. Opening stores that change in one undoable edit; the old
+values stay in the document. Stored state for a removed group or choice also
+stays in the document but contributes no live rows. Malformed state is still
+refused when opening the file. Problems lists one warning per adjusted node
+under "Upgraded on open"; selecting it moves the canvas to the node, and
+undoing the edit restores the old key without dismissing the warning.
+
 A shared choice has one stored key, and each `Use` of it may offer fewer of
 its options with `only`. When retention, flattening or a replacement reads an
 option that is not chosen, a stored key that place leaves out is not a
 problem. The place reads as its start key: its default when it offers it,
 otherwise its first offered option. Nothing is stored or changed. A stored key
-that no option of the shared choice declares is refused once for the choice,
-and so is a key the chosen option leaves out.
+that no option of the shared choice declares, or that the chosen option leaves
+out, is treated as an option the pack no longer has, and is reported once for
+the choice.
 
 ## Type choices
 

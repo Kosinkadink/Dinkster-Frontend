@@ -3,7 +3,7 @@
  * definition is instantiated twice, so bare definition node ids cannot tell
  * the host which runtime state belongs in the current drilled-in view.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, subgraphMarkPoint, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 type ProjectedStates = Readonly<Record<string, { state: string; value?: number }>>
 
@@ -16,17 +16,8 @@ const projectedStates = (page: Page) =>
   })
 
 async function drillInto(page: Page, nodeId: string): Promise<void> {
-  const header = await page.evaluate((nodeId) => {
-    const renderer = window.__dinksterTest!.renderer!
-    const node = renderer.getScene().nodes.find((item) => item.id === nodeId)
-    if (!node) throw new Error(`no scene node '${nodeId}'`)
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return {
-      x: rect.left + node.x + node.layout.width / 2,
-      y: rect.top + node.y + node.layout.headerHeight / 2,
-    }
-  }, nodeId)
-  await page.mouse.dblclick(header.x, header.y)
+  const mark = await subgraphMarkPoint(page, nodeId)
+  await page.mouse.dblclick(mark.x, mark.y)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().length)).toBe(2)
 }
 
@@ -35,7 +26,7 @@ test('sibling subgraph occurrences project independently at root and when drille
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.routeWebSocket('/ws*', () => {})
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
 
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app

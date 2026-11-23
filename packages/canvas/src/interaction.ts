@@ -31,8 +31,12 @@
  * - node border: drag any corner/edge = ghost preview, ONE atomic
  *   view.setNodeSize (position + size) on release
  * - double-click on a link: ask the host for reroute vs node-splice menu
- * - double-click on a subgraph node: host.onOpenSubgraph
- * - double-click on an ordinary node: toggle minimized state for its selection
+ * - title-bar minimize arrow: click toggles minimized state (the whole
+ *   selection when the node is selected, else that node alone); a drag from
+ *   it moves the node like the rest of the title bar
+ * - subgraph mark: click = host.onBadgeClick, double-click =
+ *   host.onOpenSubgraph; a drag from it moves the node
+ * - double-click on a node's title: toggle minimized state for its selection
  * - double-click on empty canvas: host.onOpenPalette
  * - right-click: select the item under the cursor (preserving an existing
  *   multi-selection that contains it), then host.onContextMenu
@@ -42,9 +46,12 @@
 import {
   canonicalTypeIdOf,
   hasKnownLinkDropAnchorType,
+  dragNumericValue,
   isIntegerWidgetValue,
   numericStepConstraints,
+  numericStepPrecision,
   stepNumericValue,
+  type IntegerWidgetValue,
   typesCompatible,
   type CommandInvocation,
   type Json,
@@ -56,12 +63,13 @@ import {
   type TypeExpr,
   type WidgetSpec,
 } from '@dinkster/core'
-import { hitTestBadge, type BadgeHit, type BadgeRect, type NodeBadge } from './badges.js'
-import { controllerChipContains, WIDGET_EDGE_CONTROL_WIDTH } from './controller-chip.js'
+import { hitTestBadge, SUBGRAPH_BADGE, type BadgeHit, type BadgeRect, type NodeBadge } from './badges.js'
+import { controllerChipContains } from './controller-chip.js'
+import { subgraphMarkRect } from './registry-painter.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
-import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, pinPosition, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
-import { canvasPaintTokens } from './tokens.js'
-import { BOUNDARY_ADD_SLOT, type PinLayout } from './layout.js'
+import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, minimizeArrowRect, pinPosition, previewEdgeShown, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
+import { canvasPaintTokens, type DesignTokens } from './tokens.js'
+import { BOUNDARY_ADD_SLOT, clampTextBoxLines, multilineWidgetHeight, projectTextBoxLines, type LayoutRow, type PinLayout } from './layout.js'
 import { PointerTrace, type PointerTraceEntry, type PointerTraceReason } from './pointer-trace.js'
 import { touchNavViewport } from './touch-nav.js'
 import { wheelNavigationViewport, type WheelNavigationMode } from './zoom.js'
@@ -79,6 +87,7 @@ import {
   widgetRowAffordanceRect,
 } from './renderer.js'
 import {
+  boundaryFieldNode,
   boundarySceneId,
   boundaryNodesInGroup,
   nodesInGroup,
@@ -88,7 +97,9 @@ import {
   selectorsInGroup,
   selectorBadgeRect,
   selectorOutPinPosition,
+  previewFoldedOf,
   valueSourceBadgeRect,
+  valueSourceMarkRect,
   valueSourcePinPosition,
   type Scene,
   type SceneBoundaryNode,
@@ -124,6 +135,21 @@ const isMoveFamilyKind = (kind: Gesture['kind']): boolean =>
   kind === 'group' ||
   kind === 'group-resize' ||
   kind === 'resize'
+
+/** The command that stores a widget row's new value where the row's value lives. */
+const rowValueCommand = (row: Extract<LayoutRow, { kind: 'widget' }>, graphId: string, nodeId: string, value: Json): CommandInvocation =>
+  row.valueSourceOwner !== undefined
+    ? { command: 'valueSource.setValue', params: { graphId: row.valueSourceOwner.graphId, valueSourceId: row.valueSourceOwner.valueSourceId, value } }
+    : { command: 'node.setValue', params: {
+      graphId: row.familyOwner?.graphId ?? graphId,
+      nodeId: row.familyOwner?.nodeId ?? nodeId,
+      inputId: row.familyOwner?.valueKey ?? row.valueKey,
+      value,
+    } }
+
+/** Whole lines a text box shows now, counting any resize surplus it was given. */
+const visibleTextBoxLines = (row: Extract<LayoutRow, { kind: 'widget' }>, tokens: DesignTokens): number =>
+  Math.max(row.rows, Math.floor((row.height - multilineWidgetHeight(0, tokens)) / tokens.multilineText.lineHeight))
 
 export interface ResizeBounds {
   readonly x: number
@@ -395,6 +421,8 @@ export interface InteractionHost {
   /** Current wheel policy; omitted hosts retain cursor-anchored zoom. */
   wheelNavigationMode?(): WheelNavigationMode
   smoothWheelZoom?(): boolean
+  /** Frozen inspection keeps navigation and layout gestures, without edit hover highlights. */
+  frozen?(): boolean
   /** Plan and dispatch one drilled occurrence mutation through the injected capability. */
   dispatchOccurrenceMutation?(intention: OccurrenceLinkIntention): { readonly ok: boolean } | Promise<{ readonly ok: boolean }>
   /** Report an occurrence gesture that cannot be represented atomically. */
@@ -417,12 +445,16 @@ export interface InteractionHost {
   ): void
   /** Click on a widget row; screen coords anchor an editor overlay. */
   onWidgetActivate?(hit: Extract<Hit, { kind: 'widget' }>, screenX: number, screenY: number): void
+  /** Click on a widget row a wire drives; nothing opens, but the host may explain the row. */
+  onWiredWidgetActivate?(hit: Extract<Hit, { kind: 'widget' }>): void
   /** Click on the active lens's registered widget-row affordance. */
   onWidgetRowAffordanceActivate?(hit: Extract<Hit, { kind: 'widget' }>): void
   /** Click on the active lens's preview-surface affordance. */
   onPreviewSurfaceAffordanceActivate?(node: SceneNode): void
   /** Click on an after-generate icon chip; the host owns its DOM menu. */
   onControllerActivate?(hit: Extract<Hit, { kind: 'widget' }>, screenX: number, screenY: number): void
+  /** Click on the subgraph mark before a field's name (row.subgraphMark): `item` is its boundary input. */
+  onSubgraphMarkActivate?(item: string): void
   /** Double-click on a subgraph instance node. */
   onOpenSubgraph?(node: SceneNode): void
   /** Double-click on empty canvas: open the add-node palette here. */
@@ -508,10 +540,21 @@ export type CanvasHoverTarget =
   | { readonly kind: 'widgetTap'; readonly hit: Extract<Hit, { kind: 'widgetTap' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'widget'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'controller'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
+  | { readonly kind: 'subgraphMark'; readonly mark: { readonly item: string; readonly label: string }; readonly x: number; readonly y: number }
   | { readonly kind: 'header'; readonly hit: Extract<Hit, { kind: 'header' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'reroute'; readonly hit: Extract<Hit, { kind: 'reroute' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'link'; readonly hit: Extract<Hit, { kind: 'link' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'toolbox'; readonly button: ToolboxButtonRect; readonly x: number; readonly y: number }
+
+type WidgetRow = Extract<LayoutRow, { kind: 'widget' }>
+/** Where a link dropped on a node body lands: an input or output pin, or a field's value tap. */
+type BodyDropHit = Extract<Hit, { kind: 'pin' | 'widgetTap' }>
+type PinHit = Extract<Hit, { kind: 'pin' | 'widgetTap' }>
+
+/** True when a body drop resolved to the field row's own input or value tap. */
+const landsOnRow = (candidate: BodyDropHit, row: WidgetRow | undefined): row is WidgetRow =>
+  row !== undefined && candidate.pin.portId === row.inputId &&
+  (candidate.kind === 'widgetTap' || candidate.direction === 'in')
 
 type Gesture =
   | { readonly kind: 'idle' }
@@ -673,9 +716,10 @@ type Gesture =
         readonly prev: PortEndpointJson
       }
       readonly dropTargets: ReadonlySet<string>
-      /** Per-layout auto-slot cache. Recomputed when the hovered SceneNode is replaced. */
+      /** Per-layout auto-slot cache. Recomputed when the hovered SceneNode or field row changes. */
       bodyCandidateNode?: SceneNode | undefined
-      bodyCandidate?: Extract<Hit, { kind: 'pin' }> | undefined
+      bodyCandidateRow?: WidgetRow | undefined
+      bodyCandidate?: BodyDropHit | undefined
       moved: boolean
     }
   | {
@@ -701,11 +745,38 @@ type Gesture =
       readonly startWY: number
       moved: boolean
     }
-  | { readonly kind: 'widget'; readonly hit: Extract<Hit, { kind: 'widget' }>; moved: boolean }
+  | {
+      readonly kind: 'widget'
+      readonly hit: Extract<Hit, { kind: 'widget' }>
+      moved: boolean
+      /** A pin whose hit circle also covers the press: a drag starts its wire instead. */
+      readonly pin?: { readonly hit: PinHit; readonly shiftKey: boolean; readonly altKey: boolean }
+    }
+  | {
+      readonly kind: 'number-drag'
+      readonly hit: Extract<Hit, { kind: 'widget' }>
+      readonly start: IntegerWidgetValue
+      /** World x of the row's left edge, for a slider whose value follows the pointer. */
+      readonly rowLeft: number
+      value: IntegerWidgetValue
+    }
   | { readonly kind: 'widget-affordance'; readonly hit: Extract<Hit, { kind: 'widget' }>; moved: boolean }
   | { readonly kind: 'preview-affordance'; readonly node: SceneNode; moved: boolean }
+  /** A press on a title-bar control: the minimize arrow, or the title mark when `badge` is set. */
+  | { readonly kind: 'title-press'; readonly node: SceneNode; readonly badge?: BadgeHit; readonly startWX: number; readonly startWY: number }
   | { readonly kind: 'section'; readonly hit: Extract<Hit, { kind: 'section' }>; moved: boolean }
+  | { readonly kind: 'preview-caption'; readonly node: SceneNode; moved: boolean }
   | { readonly kind: 'growth'; readonly hit: Extract<Hit, { kind: 'growth' }>; moved: boolean }
+  | {
+      /** Dragging a text box's bottom edge: its height follows in whole lines. */
+      readonly kind: 'text-box-lines'
+      readonly nodeId: string
+      readonly valueKey: string
+      readonly startWY: number
+      readonly startLines: number
+      lines: number
+      moved: boolean
+    }
   | {
       readonly kind: 'resize'
       readonly nodeId: string
@@ -755,6 +826,10 @@ type Gesture =
       readonly startWY: number
       moved: boolean
     }
+
+/** A row drawn and stepped as a number; an integer color is drawn as a color. */
+const isNumberRow = (row: Extract<LayoutRow, { kind: 'widget' }>): boolean =>
+  (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
 
 export class InteractionController {
   private selection = new Set<string>()
@@ -836,6 +911,18 @@ export class InteractionController {
   private focusedPinWidgetTap: true | undefined
   private hoveredWidgetNode: string | undefined
   private hoveredWidgetValue: string | undefined
+  /** Text box edge under the idle pointer, and the one arrow keys size. */
+  private hoveredTextEdge: { readonly nodeId: string; readonly valueKey: string } | undefined
+  private hoveredPreviewCaption: string | undefined
+  /** Node whose preview bar (its bottom edge) is under the idle pointer. */
+  private hoveredPreviewEdge: string | undefined
+  private focusedTextEdge: { readonly nodeId: string; readonly valueKey: string } | undefined
+  /** The node whose preview bar was pressed last; arrow keys step its height. */
+  private focusedPreviewEdge: string | undefined
+  /** A box a double-click fitted to its text, with the height it had before. */
+  private textBoxFit: { readonly nodeId: string; readonly valueKey: string; readonly fitted: number; readonly before: number } | undefined
+  private hoveredMinimize: string | undefined
+  private hoveredBadge: { readonly nodeId: string; readonly badgeId: string } | undefined
   private hoveredToolboxButton: string | undefined
   /** A toolbox press can synchronously remove/move the toolbox before the
    * browser emits dblclick. Remember that press briefly so its dblclick can
@@ -912,6 +999,9 @@ export class InteractionController {
       this.setHover(undefined, undefined, undefined)
       this.setAffordanceHover(undefined)
       this.setLinkMidpointHover(undefined)
+      this.setHoveredTextEdge(undefined)
+      this.setHoveredPreviewCaption(undefined)
+      this.setHoveredPreviewEdge(undefined)
     }
     // Space is tracked at the window so it works without canvas focus, but
     // never while typing in a field (space must stay a space there).
@@ -921,7 +1011,23 @@ export class InteractionController {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !isEditable(e.target)) this.spaceDown = true
       // Escape aborts the gesture in place: no dispatch, ghosts dropped.
-      if (e.code === 'Escape') this.cancelGesture('escape')
+      if (e.code === 'Escape') {
+        this.cancelGesture('escape')
+        this.setFocusedTextEdge(undefined)
+        this.setFocusedPreviewEdge(undefined)
+      }
+      // A focused text box edge steps the box one line per arrow press, unless
+      // keyboard focus has since moved to another control.
+      const otherControl = e.target instanceof HTMLElement && e.target !== canvas && e.target !== e.target.ownerDocument.body
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && this.focusedTextEdge !== undefined &&
+          this.gesture.kind === 'idle' && !otherControl) {
+        e.preventDefault()
+        this.stepTextBox(this.focusedTextEdge, e.key === 'ArrowDown')
+      } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && this.focusedPreviewEdge !== undefined &&
+          this.gesture.kind === 'idle' && !otherControl) {
+        e.preventDefault()
+        this.stepPreviewEdge(this.focusedPreviewEdge, e.key === 'ArrowDown')
+      }
     }
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') this.spaceDown = false
@@ -1103,7 +1209,8 @@ export class InteractionController {
         (crossGraph || !scene.links.some((link) => link.id === this.hoveredLinkMidpoint))
       // Rows and pin layouts belong to the exact scene instance. Clear their
       // hover on every replacement, even when an identity happens to recur.
-      const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined
+      const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined ||
+        this.hoveredMinimize !== undefined || this.hoveredBadge !== undefined
       if (staleNode) {
         this.hoveredNode = undefined
         this.host.onNodeHover?.(undefined)
@@ -1238,6 +1345,7 @@ export class InteractionController {
     this.lastGesturePoint = undefined
     this.releasePointer(pointerId)
     if (kind === 'idle') return
+    if (kind === 'number-drag') this.renderer.setRowDrag(undefined)
     this.pointerTrace.recordGesture(kind, 'cancel', reason)
     this.gesture = { kind: 'idle' }
     this.pushOverlay()
@@ -1691,7 +1799,14 @@ export class InteractionController {
     // a selection/drag on the node underneath.
     const badgeHit = this.renderer.getDetailLevel() === 'overview'
       ? undefined
-      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y)
+      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y, (node) => this.renderer.getNodeBadgeLayout(node))
+    if (badgeHit?.badge.placement === 'title') {
+      // The title mark opens its panel on release, so a drag can move the node.
+      e.preventDefault()
+      this.capturePointer(e)
+      this.gesture = { kind: 'title-press', node: badgeHit.node, badge: badgeHit, startWX: w.x, startWY: w.y }
+      return
+    }
     if (badgeHit) {
       // Cancel the pointerdown so the follow-up mousedown's default action
       // (focus change) can't blur a popover the host just opened and focused.
@@ -1713,12 +1828,28 @@ export class InteractionController {
       }),
     )
     this.capturePointer(e)
+    if (hit.kind !== 'text-box-edge') this.setFocusedTextEdge(undefined)
+    this.setFocusedPreviewEdge(hit.kind === 'resize' && hit.handle === 's' ? hit.node.id : undefined)
 
     if (hit.kind === 'widget' && this.widgetRowAffordanceContains(hit)) {
       this.gesture = { kind: 'widget-affordance', hit, moved: false }
       return
     }
-    if ((hit.kind === 'body' || hit.kind === 'header') && this.previewSurfaceAffordanceContains(hit.node, w.x, w.y)) {
+    // A pin's hit circle reaches over the end of its node's field rows. There
+    // a click belongs to the field's control and a drag to the pin.
+    if (hit.kind === 'pin' || hit.kind === 'widgetTap') {
+      const under = hitTest(scene, w.x, w.y, this.hitOptions({ widgetTaps: new Set(), pinRevealed: () => false }))
+      if (under.kind === 'widget' && under.node.id === hit.node.id) {
+        this.gesture = { kind: 'widget', hit: under, moved: false, pin: { hit, shiftKey: e.shiftKey, altKey: e.altKey } }
+        return
+      }
+    }
+    if (hit.kind === 'header' && !e.shiftKey && !e.ctrlKey && !e.metaKey && this.minimizeArrowContains(hit, w.x, w.y)) {
+      this.gesture = { kind: 'title-press', node: hit.node, startWX: w.x, startWY: w.y }
+      return
+    }
+    if ((hit.kind === 'body' || hit.kind === 'header' || hit.kind === 'preview-caption') &&
+        this.previewSurfaceAffordanceContains(hit.node, w.x, w.y)) {
       this.gesture = { kind: 'preview-affordance', node: hit.node, moved: false }
       return
     }
@@ -1736,42 +1867,28 @@ export class InteractionController {
       case 'widget':
         this.gesture = { kind: 'widget', hit, moved: false }
         return
+      case 'text-box-edge': {
+        const lines = visibleTextBoxLines(hit.row, this.renderer.getDesignTokens())
+        this.gesture = {
+          kind: 'text-box-lines', nodeId: hit.node.id, valueKey: hit.row.valueKey,
+          startWY: w.y, startLines: lines, lines, moved: false,
+        }
+        this.focusedTextEdge = { nodeId: hit.node.id, valueKey: hit.row.valueKey }
+        this.pushOverlay()
+        return
+      }
       case 'section':
         this.gesture = { kind: 'section', hit, moved: false }
+        return
+      case 'preview-caption':
+        this.gesture = { kind: 'preview-caption', node: hit.node, moved: false }
         return
       case 'growth':
         this.gesture = { kind: 'growth', hit, moved: false }
         return
       case 'pin':
-        {
-          const gesture = this.beginLinkGesture(scene, hit, e.shiftKey, e.altKey)
-          if (gesture === undefined) return
-          this.gesture = gesture
-        }
-        this.pushOverlay()
-        return
       case 'widgetTap':
-        const fanOut = scene.links.filter((link) =>
-          link.from.kind === 'widgetTap' && link.from.node === hit.node.id && link.from.input === hit.input,
-        )
-        const move = endpointDragMode('out', fanOut.length > 0, e.shiftKey) === 'move-source'
-          ? this.beginMoveSourceGesture(scene, { x: hit.x, y: hit.y }, hit.type, fanOut, hit.node.id)
-          : undefined
-        this.gesture = move ?? {
-          kind: 'link', anchor: { x: hit.x, y: hit.y }, seeking: 'in',
-          presenceOrigin: { kind: 'widgetTap', node: hit.node.id, input: hit.input },
-          anchorType: hit.type,
-          ...(canonicalTypeIdOf(hit.type) !== undefined ? { anchorTypeName: canonicalTypeIdOf(hit.type)! } : {}),
-          fromTap: { node: hit.node.id, tap: hit.input },
-          dropTargets: this.withBoundaryTargets(
-            scene,
-            this.compatibleTargets(scene, hit.type, 'in', hit.node.id),
-            hit.type,
-            'in',
-          ),
-          moved: false,
-        }
-        this.pushOverlay()
+        this.beginPinGesture(scene, hit, e.shiftKey, e.altKey)
         return
       case 'netStub':
         if (e.shiftKey || e.ctrlKey || e.metaKey) {
@@ -1804,6 +1921,11 @@ export class InteractionController {
         return
       case 'boundary-header':
       case 'boundary-body': {
+        const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
+        if (wiredPanelMark !== undefined) {
+          this.host.onSubgraphMarkActivate?.(wiredPanelMark.row.subgraphMark!.item)
+          return
+        }
         const id = boundarySceneId(hit.bnode.side)
         if (e.shiftKey) {
           if (this.selection.has(id)) this.selection.delete(id)
@@ -2076,38 +2198,79 @@ export class InteractionController {
         return
       }
       case 'header':
-      case 'body': {
-        const id = hit.node.id
-        if (e.shiftKey) {
-          const range = connectivityRangeSelection(scene, this.selection, id)
-          if (range !== undefined) {
-            this.selection = range.nodes
-            this.rerouteSelection = new Set([...this.rerouteSelection, ...range.reroutes])
-          }
-          else if (this.selection.has(id)) this.selection.delete(id)
-          else this.selection.add(id)
-        } else if (e.ctrlKey || e.metaKey) {
-          // Toggle immediately; a modifier-drag moves the resulting selection.
-          if (this.selection.has(id)) this.selection.delete(id)
-          else this.selection.add(id)
-        } else if (!this.selection.has(id)) {
-          this.selection = new Set([id])
-          this.linkSelection = new Set()
-          this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set()
-          this.groupSelection = new Set()
-          this.netViewSelection = new Set()
-        }
-        this.notifySelection()
-        const dragIds = this.selection.has(id) ? [...this.selection] : []
-        this.gesture = this.selection.has(id)
-          ? this.selectionMoveGesture(scene, w.x, w.y)
-          : { kind: 'node', nodeIds: dragIds, rerouteIds: [], valueSourceIds: [], selectorIds: [], boundarySides: [], groupIds: [], netViewIds: [], startWX: w.x, startWY: w.y, moved: false }
-        this.pushOverlay()
+      case 'body':
+        this.pressNode(scene, hit.node.id, e, w.x, w.y)
         return
-      }
     }
+  }
+
+  /** Starts the wire gesture a press on a node pin or a field's output pin begins; a pin that starts none leaves the gesture as it was. */
+  private beginPinGesture(scene: Scene, hit: PinHit, shiftKey: boolean, altKey: boolean): void {
+    if (hit.kind === 'pin') {
+      const gesture = this.beginLinkGesture(scene, hit, shiftKey, altKey)
+      if (gesture === undefined) return
+      this.gesture = gesture
+      this.pushOverlay()
+      return
+    }
+    const fanOut = scene.links.filter((link) =>
+      link.from.kind === 'widgetTap' && link.from.node === hit.node.id && link.from.input === hit.input,
+    )
+    const move = endpointDragMode('out', fanOut.length > 0, shiftKey) === 'move-source'
+      ? this.beginMoveSourceGesture(scene, { x: hit.x, y: hit.y }, hit.type, fanOut, hit.node.id)
+      : undefined
+    this.gesture = move ?? {
+      kind: 'link', anchor: { x: hit.x, y: hit.y }, seeking: 'in',
+      presenceOrigin: { kind: 'widgetTap', node: hit.node.id, input: hit.input },
+      anchorType: hit.type,
+      ...(canonicalTypeIdOf(hit.type) !== undefined ? { anchorTypeName: canonicalTypeIdOf(hit.type)! } : {}),
+      fromTap: { node: hit.node.id, tap: hit.input },
+      dropTargets: this.withBoundaryTargets(
+        scene,
+        this.compatibleTargets(scene, hit.type, 'in', hit.node.id),
+        hit.type,
+        'in',
+      ),
+      moved: false,
+    }
+    this.pushOverlay()
+  }
+
+  /** Select a pressed node by the modifier rules and arm a move of what is selected. */
+  private pressNode(
+    scene: Scene,
+    id: string,
+    e: { readonly shiftKey: boolean; readonly ctrlKey: boolean; readonly metaKey: boolean },
+    wx: number,
+    wy: number,
+  ): void {
+    if (e.shiftKey) {
+      const range = connectivityRangeSelection(scene, this.selection, id)
+      if (range !== undefined) {
+        this.selection = range.nodes
+        this.rerouteSelection = new Set([...this.rerouteSelection, ...range.reroutes])
+      }
+      else if (this.selection.has(id)) this.selection.delete(id)
+      else this.selection.add(id)
+    } else if (e.ctrlKey || e.metaKey) {
+      // Toggle immediately; a modifier-drag moves the resulting selection.
+      if (this.selection.has(id)) this.selection.delete(id)
+      else this.selection.add(id)
+    } else if (!this.selection.has(id)) {
+      this.selection = new Set([id])
+      this.linkSelection = new Set()
+      this.rerouteSelection = new Set()
+      this.valueSourceSelection = new Set()
+      this.selectorSelection = new Set()
+      this.groupSelection = new Set()
+      this.netViewSelection = new Set()
+    }
+    this.notifySelection()
+    const dragIds = this.selection.has(id) ? [...this.selection] : []
+    this.gesture = this.selection.has(id)
+      ? this.selectionMoveGesture(scene, wx, wy)
+      : { kind: 'node', nodeIds: dragIds, rerouteIds: [], valueSourceIds: [], selectorIds: [], boundarySides: [], groupIds: [], netViewIds: [], startWX: wx, startWY: wy, moved: false }
+    this.pushOverlay()
   }
 
   private beginLinkGesture(
@@ -2763,27 +2926,49 @@ export class InteractionController {
   }
 
   /**
-   * Deterministically choose a node-body drop slot. Inputs with no driver
+   * Deterministically choose a node-body drop slot. A field row under the
+   * pointer takes the link itself when it fits, occupied or not, exactly as
+   * a drop on its pin would: its input when the drag seeks an input, its
+   * value tap when the drag seeks an output. Otherwise inputs with no driver
    * rank before driven inputs; outputs fan out, so every output is free.
-   * Within a rank, layout pin order is the declared/elaborated order. The
-   * legal-target set is the same structural compatibility decision used by
-   * explicit pin drops. Iterating all ranked pins avoids stopping at an
-   * early slot that fails that full drag-specific validation.
+   * Within a rank, the fields on the pointer's line come first, then layout
+   * pin order, which is the declared/elaborated order. The legal-target set
+   * is the same structural compatibility decision used by explicit pin
+   * drops. Iterating all ranked pins avoids stopping at an early slot that
+   * fails that full drag-specific validation.
    */
   private bodyDropCandidate(
     g: Extract<Gesture, { kind: 'link' }>,
     scene: Scene,
     node: SceneNode,
-  ): Extract<Hit, { kind: 'pin' }> | undefined {
-    if (g.bodyCandidateNode === node) return g.bodyCandidate
+    row?: WidgetRow,
+  ): BodyDropHit | undefined {
+    if (g.bodyCandidateNode === node && g.bodyCandidateRow === row) return g.bodyCandidate
     g.bodyCandidateNode = node
+    g.bodyCandidateRow = row
     g.bodyCandidate = undefined
-    // Widget taps are excluded: a body drop lands on real ports only (a tap
-    // ranked here would commit as a bogus PORT endpoint via pinEndpoint);
-    // explicit tap-pin hits keep their own 'widgetTap' hit path.
-    const pins = node.layout.pins.filter((pin) =>
-      pin.direction === g.seeking && pin.widgetTap !== true,
-    )
+    const legal = (pin: PinLayout): boolean =>
+      g.dropTargets.has(dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true))
+    const hitOf = (pin: PinLayout): BodyDropHit | undefined => {
+      const position = pinPosition(node, pin.portId, pin.direction, pin.widgetTap === true)
+      if (!position) return undefined
+      return pin.widgetTap === true
+        ? { kind: 'widgetTap', node, input: pin.address.port as string, x: position.x, y: position.y, type: pin.type, pin }
+        : { kind: 'pin', node, pin, portId: pin.portId, direction: pin.direction, x: position.x, y: position.y, type: pin.type }
+    }
+    if (row !== undefined) {
+      // Seeking an output, a field offers its value tap; seeking an input, its input pin.
+      const own = node.layout.pins.find((pin) =>
+        pin.portId === row.inputId && pin.direction === g.seeking &&
+        (pin.widgetTap === true) === (g.seeking === 'out') &&
+        pin.collapsedSection === undefined && legal(pin),
+      )
+      g.bodyCandidate = own && hitOf(own)
+      if (g.bodyCandidate) return g.bodyCandidate
+    }
+    // Widget taps are excluded from the ranking: a body drop away from a
+    // field lands on real ports only.
+    const pins = node.layout.pins.filter((pin) => pin.direction === g.seeking && pin.widgetTap !== true)
     // Links hidden by the gesture (the grabbed rewire or net delivery) do
     // not occupy their sink: the drag is moving them off it.
     const isOccupied = (pin: PinLayout): boolean =>
@@ -2791,16 +2976,15 @@ export class InteractionController {
         link.id !== g.rewireLinkId && g.hideLinkIds?.has(link.id) !== true &&
         link.to.kind === 'port' && link.to.node === node.id && link.to.port === pin.portId,
       )
-    const ranked = [...pins.filter((pin) => !isOccupied(pin)), ...pins.filter(isOccupied)]
+    const line = new Set(row === undefined ? [] : node.layout.rows.flatMap((other) =>
+      other.kind === 'widget' && other.y === row.y ? [other.inputId] : []))
+    const lineFirst = (group: PinLayout[]): PinLayout[] =>
+      [...group.filter((pin) => line.has(pin.portId)), ...group.filter((pin) => !line.has(pin.portId))]
+    const ranked = [...lineFirst(pins.filter((pin) => !isOccupied(pin))), ...lineFirst(pins.filter(isOccupied))]
     for (const pin of ranked) {
-      if (!g.dropTargets.has(dropTargetKey(node.id, pin.portId, pin.direction))) continue
-      const position = pinPosition(node, pin.portId, pin.direction, pin.widgetTap === true)
-      if (!position) continue
-      g.bodyCandidate = {
-        kind: 'pin', node, pin, portId: pin.portId, direction: pin.direction,
-        x: position.x, y: position.y, type: pin.type,
-      }
-      break
+      if (!legal(pin)) continue
+      g.bodyCandidate = hitOf(pin)
+      if (g.bodyCandidate) break
     }
     return g.bodyCandidate
   }
@@ -2849,10 +3033,17 @@ export class InteractionController {
   }
 
   private nodeOfBodyHit(hit: Hit): SceneNode | undefined {
+    if (hit.kind === 'widget' && hit.bnode !== undefined) return undefined
     return hit.kind === 'body' || hit.kind === 'header' || hit.kind === 'widget' ||
-      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'resize'
+      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'resize' || hit.kind === 'text-box-edge' ||
+      hit.kind === 'preview-caption'
       ? hit.node
       : undefined
+  }
+
+  /** The boundary panel under a body-like hit; a field on the Inputs panel counts as its body. */
+  private boundaryOfBodyHit(hit: Hit): SceneBoundaryNode | undefined {
+    return hit.kind === 'boundary-body' || hit.kind === 'boundary-header' || hit.kind === 'widget' ? hit.bnode : undefined
   }
 
   /** Boundary-panel counterpart of bodyDropCandidate. Existing rows keep
@@ -2887,16 +3078,117 @@ export class InteractionController {
     return undefined
   }
 
+  /** The value a number row's stepper or drag starts from: stored, else declared, else intrinsic default. */
+  private numberRowValue(hit: Extract<Hit, { kind: 'widget' }>): IntegerWidgetValue | undefined {
+    const row = hit.row
+    const stored = hit.node.node.values[row.valueKey]
+    const intrinsic = this.host.resolveWidgetDefault?.(row.spec)
+    return row.spec.widgetType === 'INT'
+      ? isIntegerWidgetValue(stored)
+        ? stored
+        : isIntegerWidgetValue(row.spec.default)
+          ? row.spec.default
+          : isIntegerWidgetValue(intrinsic) ? intrinsic : undefined
+      : typeof stored === 'number'
+        ? stored
+        : typeof row.spec.default === 'number'
+          ? row.spec.default
+          : typeof intrinsic === 'number' ? intrinsic : undefined
+  }
+
+  /**
+   * A sideways drag on a closed number row under in-row editing changes its
+   * value; nothing opens. Not on touch, where a drag moves the canvas, and
+   * not on a row a wire drives or that shows a derived value.
+   */
+  private numberDragStart(hit: Extract<Hit, { kind: 'widget' }>, pointerType: string): Extract<Gesture, { kind: 'number-drag' }> | undefined {
+    if (this.renderer.getDesignTokens().widgetEditing !== 'in-row' || pointerType === 'touch') return undefined
+    const row = hit.row
+    if (row.viewId !== 'core.number' && row.viewId !== 'core.slider') return undefined
+    if (row.derivedValue !== undefined || row.ghost) return undefined
+    const scene = this.renderer.getScene()
+    if (scene.links.some((link) => link.to.kind === 'port' && link.to.node === hit.node.id && link.to.port === row.inputId)) return undefined
+    const start = this.numberRowValue(hit)
+    if (start === undefined) return undefined
+    return { kind: 'number-drag', hit, start, rowLeft: hit.node.x + row.inset, value: start }
+  }
+
+  /** A slider's value follows the pointer along the row; a plain number moves by the drag distance. */
+  private updateNumberDrag(g: Extract<Gesture, { kind: 'number-drag' }>, sx: number, fast: boolean): void {
+    const row = g.hit.row
+    const constraints = numericStepConstraints({ widgetType: row.spec.widgetType, options: row.spec.options ?? {} })
+    const min = row.spec.options['min']
+    const max = row.spec.options['max']
+    const slider = row.spec.options['display'] === 'slider' && typeof min === 'number' && typeof max === 'number' &&
+      Number.isFinite(min) && Number.isFinite(max) && max > min
+    if (slider) {
+      const worldX = this.renderer.toWorld(sx, this.downY).x
+      const fraction = Math.min(1, Math.max(0, (worldX - g.rowLeft) / Math.max(1, g.hit.width)))
+      const step = constraints.integer ? Number(constraints.step) : constraints.step
+      const raw = min + Math.round((fraction * (max - min)) / step) * step
+      const clamped = Math.min(max, Math.max(min, raw))
+      g.value = constraints.integer
+        ? Math.round(clamped)
+        : Number(clamped.toFixed(numericStepPrecision(step)))
+    } else {
+      g.value = dragNumericValue(g.start, sx - this.downX, constraints, fast)
+    }
+    this.renderer.setRowDrag({ nodeId: g.hit.node.id, valueKey: row.valueKey, value: g.value })
+  }
+
   private controllerChipContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
     const { row } = hit
-    return controllerChipContains(hit.localX, hit.localY, hit.width, row.height)
+    // In-row editing draws a number's mode as an icon before its value and no
+    // chip, so the whole row opens the field and its side part sets the mode.
+    if (this.renderer.getDesignTokens().widgetEditing === 'in-row' && isNumberRow(row)) return false
+    return controllerChipContains(hit.localX, hit.localY, hit.width, row.height, this.renderer.getDesignTokens().rowGeometry)
+  }
+
+  /** Same square the painter draws the mark in (subgraphMarkRect). */
+  private subgraphMarkContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
+    if (hit.row.subgraphMark === undefined) return false
+    const tokens = this.renderer.getDesignTokens()
+    const rect = subgraphMarkRect(hit.row, hit.width, tokens.rowHeight, tokens, this.renderer.showsArrivingValue(hit.node.id, hit.row), isNumberRow(hit.row))
+    return hit.localX >= rect.x && hit.localX <= rect.x + rect.size && hit.localY >= rect.y && hit.localY <= rect.y + rect.size
+  }
+
+  /** A value source's subgraph mark when the world point is on it (valueSourceMarkRect). */
+  private valueSourceMarkAt(vs: SceneValueSource, wx: number, wy: number): SceneValueSource['subgraphMark'] {
+    if (vs.subgraphMark === undefined) return undefined
+    const rect = valueSourceMarkRect(vs, this.renderer.getDesignTokens().padX)
+    return wx >= rect.x && wx <= rect.x + rect.size && wy >= rect.y && wy <= rect.y + rect.size ? vs.subgraphMark : undefined
+  }
+
+  /**
+   * An Inputs panel field wired outside the subgraph hits as panel body, but
+   * its subgraph mark still names and selects its input: the mark's row as a
+   * widget hit when the point is on the mark.
+   */
+  private wiredPanelMarkAt(hit: Hit | undefined, wx: number, wy: number): Extract<Hit, { kind: 'widget' }> | undefined {
+    if (hit?.kind !== 'boundary-body' || hit.bnode.fields === undefined) return undefined
+    const { bnode } = hit
+    const face = boundaryFieldNode(bnode)
+    if (face === undefined) return undefined
+    const tokens = this.renderer.getDesignTokens()
+    for (const row of bnode.layout.rows) {
+      const driven = row.kind === 'widget' && Object.hasOwn(bnode.fields!.wired, row.valueKey) ? bnode.fields!.wired[row.valueKey] : undefined
+      if (row.kind !== 'widget' || row.subgraphMark === undefined || driven === undefined) continue
+      const width = row.width ?? bnode.layout.width - row.inset * 2
+      const localX = wx - bnode.x - row.inset
+      const localY = wy - bnode.y - row.y
+      const rect = subgraphMarkRect(row, width, tokens.rowHeight, tokens, driven.value !== undefined, isNumberRow(row))
+      if (localX >= rect.x && localX <= rect.x + rect.size && localY >= rect.y && localY <= rect.y + rect.size)
+        return { kind: 'widget', node: face, row, bnode, x: bnode.x + row.inset, y: bnode.y + row.y, width, height: row.height, localX, localY }
+    }
+    return undefined
   }
 
   private widgetRowAffordanceContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
     const capabilities = this.renderer.getLensCapabilities?.()
     const affordance = capabilities?.widgetRowAffordance?.(hit.node, hit.row)
     if (affordance === undefined || affordance.disabled === true) return false
-    const rect = widgetRowAffordanceRect(hit.width, this.renderer.getDesignTokens().rowHeight, hit.row)
+    const tokens = this.renderer.getDesignTokens()
+    const rect = widgetRowAffordanceRect(hit.width, tokens.rowHeight, hit.row, tokens.rowGeometry)
     return hit.localX >= rect.x && hit.localX <= rect.x + rect.width &&
       hit.localY >= rect.y && hit.localY <= rect.y + rect.height
   }
@@ -2978,27 +3270,40 @@ export class InteractionController {
     )
     const badge = toolboxInside || overview
       ? undefined
-      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y)
+      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y, (node) => this.renderer.getNodeBadgeLayout(node))
     const hit = toolboxInside || badge ? undefined : hitTest(scene, w.x, w.y, this.hitOptions({
       ...(this.hoveredReroute ? { rerouteSockets: this.hoveredReroute } : {}),
       widgetTaps: this.widgetTapHits(scene),
       pinRevealed: this.pinRevealed(scene),
     }))
-    this.setAffordanceHover(hit)
+    this.setAffordanceHover(hit, {
+      ...(hit?.kind === 'header' && this.minimizeArrowContains(hit, w.x, w.y) ? { minimize: hit.node.id } : {}),
+      ...(badge !== undefined ? { badge: { nodeId: badge.node.id, badgeId: badge.badge.id } } : {}),
+    })
     this.setLinkMidpointHover(hit?.kind === 'link' && hit.midpoint ? hit.link.id : undefined)
-    this.canvas.style.cursor = hit?.kind === 'resize' || hit?.kind === 'group-resize'
+    this.setHoveredTextEdge(hit?.kind === 'text-box-edge' ? { nodeId: hit.node.id, valueKey: hit.row.valueKey } : undefined)
+    this.setHoveredPreviewCaption(hit?.kind === 'preview-caption' ? hit.node.id : undefined)
+    this.setHoveredPreviewEdge(hit?.kind === 'resize' && hit.handle === 's' ? hit.node.id : undefined)
+    this.canvas.style.cursor = hit?.kind === 'resize' && hit.handle === 's'
+      ? 'ns-resize'
+      : hit?.kind === 'resize' || hit?.kind === 'group-resize'
       ? hit.handle === 'nw' || hit.handle === 'se'
         ? 'nwse-resize'
         : 'nesw-resize'
-      : ''
+      : hit?.kind === 'text-box-edge' ? 'ns-resize' : ''
     const controllerChip = hit?.kind === 'widget' && hit.row.controllerMode !== undefined
       && this.controllerChipContains(hit)
+    const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
+    const subgraphMark = hit?.kind === 'widget' && this.subgraphMarkContains(hit) ? hit.row.subgraphMark
+      : wiredPanelMark?.row.subgraphMark ?? (hit?.kind === 'valueSource' ? this.valueSourceMarkAt(hit.valueSource, w.x, w.y) : undefined)
     this.host.onHoverTarget?.(toolboxButton
       ? { kind: 'toolbox', button: toolboxButton, x: clientX, y: clientY }
       : badge
         ? { kind: 'badge', hit: badge, x: clientX, y: clientY }
       : controllerChip
         ? { kind: 'controller', hit, x: clientX, y: clientY }
+      : subgraphMark
+        ? { kind: 'subgraphMark', mark: subgraphMark, x: clientX, y: clientY }
       : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'header' || hit.kind === 'reroute' ||
         hit.kind === 'link' && hit.link.mismatch === true)
         ? { kind: hit.kind, hit, x: clientX, y: clientY } as CanvasHoverTarget
@@ -3021,6 +3326,13 @@ export class InteractionController {
       this.lastGesturePoint = { wx: lw.x, wy: lw.y, cx: e.clientX, cy: e.clientY }
     }
     const passed = Math.hypot(sx - this.downX, sy - this.downY) >= DRAG_THRESHOLD
+    if (g.kind === 'widget' && g.pin !== undefined && passed) {
+      // A pin that starts no wire leaves the row's own drag.
+      this.gesture = { kind: 'widget', hit: g.hit, moved: false }
+      this.beginPinGesture(this.renderer.getScene(), g.pin.hit, g.pin.shiftKey, g.pin.altKey)
+      this.processPointerMove(e)
+      return
+    }
 
     switch (g.kind) {
       case 'pan': {
@@ -3116,19 +3428,30 @@ export class InteractionController {
           })
           return
         }
-        const hit = hitTest(scene, w.x, w.y, this.hitOptions({ pinRevealed: this.pinRevealed(scene, g.dropTargets) }))
+        // The same hit test as the drop, so a field's output pin under the
+        // pointer takes the wire's end at its center like any output pin.
+        const hit = hitTest(scene, w.x, w.y, this.hitOptions({
+          widgetTaps: this.widgetTapHits(scene, g.dropTargets),
+          pinRevealed: this.pinRevealed(scene, g.dropTargets),
+        }))
         const explicitPin = hit.kind === 'pin' && hit.direction === g.seeking &&
           g.dropTargets.has(dropTargetKey(hit.node.id, hit.portId, hit.direction))
           ? hit
-          : undefined
+          : hit.kind === 'widgetTap' && g.seeking === 'out' &&
+            g.dropTargets.has(dropTargetKey(hit.node.id, hit.pin.portId, 'out', true))
+            ? hit
+            : undefined
         const rawBodyNode = explicitPin ? undefined : this.nodeOfBodyHit(hit)
         const bodyNode = rawBodyNode && this.bodyDropEligible(g, scene, rawBodyNode, w) ? rawBodyNode : undefined
-        const boundaryBody = !explicitPin && (hit.kind === 'boundary-body' || hit.kind === 'boundary-header') ? hit.bnode : undefined
+        const boundaryBody = explicitPin ? undefined : this.boundaryOfBodyHit(hit)
         const boundaryCandidate = boundaryBody ? this.boundaryBodyDropCandidate(g, scene, boundaryBody) : undefined
-        const nodeCandidate = explicitPin ?? (bodyNode ? this.bodyDropCandidate(g, scene, bodyNode) : undefined)
+        const fieldRow = bodyNode && hit.kind === 'widget' ? hit.row : undefined
+        const nodeCandidate = explicitPin ?? (bodyNode ? this.bodyDropCandidate(g, scene, bodyNode, fieldRow) : undefined)
         const candidate = nodeCandidate ?? boundaryCandidate
+        const dropRow = nodeCandidate && !explicitPin && landsOnRow(nodeCandidate, fieldRow) ? fieldRow : undefined
         if (!bodyNode) {
           g.bodyCandidateNode = undefined
+          g.bodyCandidateRow = undefined
           g.bodyCandidate = undefined
         }
         const end = candidate ?? w
@@ -3145,20 +3468,51 @@ export class InteractionController {
         this.pushOverlay({
           ghostLink: ghost,
           dropTargets: nodeCandidate
-            ? new Set([dropTargetKey(nodeCandidate.node.id, nodeCandidate.portId, nodeCandidate.direction)])
+            ? new Set([dropTargetKey(nodeCandidate.node.id, nodeCandidate.pin.portId, nodeCandidate.pin.direction, nodeCandidate.pin.widgetTap === true)])
             : boundaryCandidate ? new Set([boundaryTargetKey(boundaryCandidate.bnode.side, boundaryCandidate.item)]) : g.dropTargets,
-          ...(bodyNode && nodeCandidate ? { bodyDropNode: bodyNode.id } : {}),
+          // The field under the pointer shows that it takes the wire; any
+          // other body drop outlines the node whose ranked slot it takes.
+          ...(bodyNode && dropRow ? { dropRow: { nodeId: bodyNode.id, valueKey: dropRow.valueKey } } : {}),
+          ...(bodyNode && nodeCandidate && !dropRow ? { bodyDropNode: bodyNode.id } : {}),
           ...(boundaryBody && boundaryCandidate ? { bodyDropNode: boundarySceneId(boundaryBody.side) } : {}),
           ...(g.hideLinkIds !== undefined ? { hiddenLinkIds: g.hideLinkIds } : {}),
         })
         return
       }
       case 'widget':
+        if (passed && !g.moved) {
+          g.moved = true
+          const drag = this.numberDragStart(g.hit, e.pointerType)
+          if (drag !== undefined) {
+            this.gesture = drag
+            this.updateNumberDrag(drag, sx, e.shiftKey)
+          }
+        }
+        return
+      case 'number-drag':
+        this.updateNumberDrag(g, sx, e.shiftKey)
+        return
       case 'widget-affordance':
       case 'preview-affordance':
       case 'section':
+      case 'preview-caption':
       case 'growth':
         if (passed) g.moved = true
+        return
+      case 'text-box-lines': {
+        if (!passed && !g.moved) return
+        g.moved = true
+        const w = this.renderer.toWorld(sx, sy)
+        const step = this.renderer.getDesignTokens().multilineText.lineHeight
+        g.lines = clampTextBoxLines(g.startLines + Math.round((w.y - g.startWY) / step))
+        this.pushOverlay({ textBoxLines: { nodeId: g.nodeId, valueKey: g.valueKey, lines: g.lines } })
+        return
+      }
+      case 'title-press':
+        // Dragging a title-bar control moves the node like the rest of the title bar.
+        if (!passed) return
+        this.pressNode(this.renderer.getScene(), g.node.id, { shiftKey: false, ctrlKey: false, metaKey: false }, g.startWX, g.startWY)
+        this.processPointerMove(e)
         return
       case 'resize': {
         if (!passed && !g.moved) return
@@ -3320,12 +3674,19 @@ export class InteractionController {
           // Boundary bindings on a SELECTOR row forward the construct, not a
           // value: the row stays the occurrence-local editor (edits route to
           // the owning instance), so only real links make it inert.
+          if (this.subgraphMarkContains(g.hit)) {
+            this.host.onSubgraphMarkActivate?.(g.hit.row.subgraphMark!.item)
+            return
+          }
           const bindingOk = (link: SceneLink) => g.hit.row.selector === undefined || link.boundary !== true
           const connected = scene.links.some(
             (link) => bindingOk(link) && link.to.kind === 'port' && link.to.node === g.hit.node.id && link.to.port === g.hit.row.inputId,
           )
           // The connected value wins; editing the dormant value invites confusion.
-          if (connected) return
+          if (connected) {
+            this.host.onWiredWidgetActivate?.(g.hit)
+            return
+          }
           const row = g.hit.row
           // Paint and interaction share the same row-local chip rectangle;
           // the rightmost numeric stepper remains outside it.
@@ -3333,38 +3694,18 @@ export class InteractionController {
             this.host.onControllerActivate?.(g.hit, clientX, clientY)
             return
           }
-          const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
-          const direction = g.hit.localX <= WIDGET_EDGE_CONTROL_WIDTH
+          const numeric = isNumberRow(row)
+          const stepperZone = this.renderer.getDesignTokens().rowGeometry.stepperZone
+          const direction = g.hit.localX <= stepperZone
             ? -1
-            : g.hit.localX >= g.hit.width - WIDGET_EDGE_CONTROL_WIDTH ? 1 : 0
+            : g.hit.localX >= g.hit.width - stepperZone ? 1 : 0
           if (numeric && row.derivedValue === undefined && !row.ghost && direction !== 0) {
-            const stored = g.hit.node.node.values[row.valueKey]
-            const intrinsic = this.host.resolveWidgetDefault?.(row.spec)
-            const current = row.spec.widgetType === 'INT'
-              ? isIntegerWidgetValue(stored)
-                ? stored
-                : isIntegerWidgetValue(row.spec.default)
-                  ? row.spec.default
-                  : isIntegerWidgetValue(intrinsic) ? intrinsic : undefined
-              : typeof stored === 'number'
-                ? stored
-                : typeof row.spec.default === 'number'
-                  ? row.spec.default
-                  : typeof intrinsic === 'number' ? intrinsic : undefined
+            const current = this.numberRowValue(g.hit)
             if (current !== undefined) {
               // Shared with controller advancement (core numeric-step): the
               // stepper and queue-time advancement must not drift.
               const constraints = numericStepConstraints({ widgetType: row.spec.widgetType, options: row.spec.options ?? {} })
-              const value = stepNumericValue(current, direction, constraints)
-              this.host.dispatch({
-                command: 'node.setValue',
-                params: {
-                  graphId: row.familyOwner?.graphId ?? scene.graphId,
-                  nodeId: row.familyOwner?.nodeId ?? g.hit.node.id,
-                  inputId: row.familyOwner?.valueKey ?? row.valueKey,
-                  value,
-                },
-              })
+              this.host.dispatch(rowValueCommand(row, scene.graphId, g.hit.node.id, stepNumericValue(current, direction, constraints)))
             }
             // A numeric edge zone is an independent control even if an
             // unknown extension kind cannot resolve a starting value. It
@@ -3374,12 +3715,25 @@ export class InteractionController {
           this.host.onWidgetActivate?.(g.hit, clientX, clientY)
         }
         return
+      case 'number-drag': {
+        this.renderer.setRowDrag(undefined)
+        this.pushOverlay()
+        // A drag that ends where it began stores nothing and leaves no undo step.
+        if (String(g.value) === String(g.start)) return
+        this.host.dispatch(rowValueCommand(g.hit.row, scene.graphId, g.hit.node.id, g.value))
+        return
+      }
       case 'widget-affordance':
         this.pushOverlay()
         const affordance = this.renderer.getLensCapabilities().widgetRowAffordance?.(g.hit.node, g.hit.row)
         if (!g.moved && affordance !== undefined && affordance.disabled !== true) {
           this.host.onWidgetRowAffordanceActivate?.(g.hit)
         }
+        return
+      case 'title-press':
+        this.pushOverlay()
+        if (g.badge !== undefined) this.host.onBadgeClick?.(g.badge.node, g.badge.badge, g.badge.rect)
+        else this.toggleMinimized(scene, g.node)
         return
       case 'preview-affordance': {
         this.pushOverlay()
@@ -3389,6 +3743,15 @@ export class InteractionController {
         }
         return
       }
+      case 'preview-caption':
+        this.pushOverlay()
+        if (!g.moved) {
+          this.host.dispatch({
+            command: 'view.setPreviewFolded',
+            params: { graphId: scene.graphId, nodeId: g.node.id, folded: !previewFoldedOf(g.node) },
+          })
+        }
+        return
       case 'section':
         this.pushOverlay()
         if (!g.moved) {
@@ -3571,9 +3934,12 @@ export class InteractionController {
         }
         this.pushOverlay() // drop transient offsets; scene rebuild follows commit
         if (!g.moved) {
-          // Click without drag: open the value editor (the pill IS the widget).
+          // Click without drag: open the value editor (the pill IS the widget),
+          // or on its subgraph mark select the input that shows it.
           const vs = scene.valueSources.find((sv) => sv.id === g.pressedId)
-          if (vs) this.host.onValueSourceActivate?.(vs, clientX, clientY)
+          const mark = vs === undefined ? undefined : this.valueSourceMarkAt(vs, g.startWX, g.startWY)
+          if (mark !== undefined) this.host.onSubgraphMarkActivate?.(mark.item)
+          else if (vs) this.host.onValueSourceActivate?.(vs, clientX, clientY)
         }
         return
       }
@@ -3614,6 +3980,13 @@ export class InteractionController {
         this.pushOverlay()
         return
       }
+      case 'text-box-lines':
+        if (g.moved) {
+          this.textBoxFit = undefined
+          this.commitTextBoxLines(scene, g.nodeId, g.valueKey, g.lines)
+        }
+        this.pushOverlay() // drop the preview; scene rebuild follows commit
+        return
       case 'resize': {
         // Same-graph rebuilds mid-drag keep the gesture alive, so the node
         // may have been deleted underneath it: commit only if it survived
@@ -3744,12 +4117,14 @@ export class InteractionController {
     const bodyNode = rawBodyNode && this.bodyDropEligible(g, scene, rawBodyNode, w) ? rawBodyNode : undefined
     if (!bodyNode) {
       g.bodyCandidateNode = undefined
+      g.bodyCandidateRow = undefined
       g.bodyCandidate = undefined
     }
-    const boundaryBody = rawHit.kind === 'boundary-body' || rawHit.kind === 'boundary-header' ? rawHit.bnode : undefined
+    const boundaryBody = this.boundaryOfBodyHit(rawHit)
+    const fieldRow = bodyNode && rawHit.kind === 'widget' ? rawHit.row : undefined
     const hit: Hit = boundaryBody
       ? (this.boundaryBodyDropCandidate(g, scene, boundaryBody) ?? rawHit)
-      : bodyNode ? (this.bodyDropCandidate(g, scene, bodyNode) ?? rawHit) : rawHit
+      : bodyNode ? (this.bodyDropCandidate(g, scene, bodyNode, fieldRow) ?? rawHit) : rawHit
     const rerouteLegal = hit.kind === 'reroute' && g.dropTargets.has(rerouteTargetKey(hit.reroute.id))
     const pinLegal =
       hit.kind === 'pin' &&
@@ -4189,9 +4564,7 @@ export class InteractionController {
           ? { selector: g.intoSelector.selector, candidate: g.intoSelector.candidate }
           : undefined)
     if (!dropEnd) {
-      const boundarySide = hit.kind === 'boundary-pin' || hit.kind === 'boundary-body' || hit.kind === 'boundary-header'
-        ? hit.bnode.side
-        : undefined
+      const boundarySide = hit.kind === 'boundary-pin' ? hit.bnode.side : this.boundaryOfBodyHit(hit)?.side
       const unsupportedBoundarySource: BoundaryExposureSource | undefined =
         g.fromTap !== undefined && boundarySide === 'inputs'
           ? { kind: 'widgetTap', node: g.fromTap.node, tap: g.fromTap.tap }
@@ -4290,6 +4663,7 @@ export class InteractionController {
       case 'widgetTap':
         return j('widgetTap', hit.node.id, hit.input)
       case 'widget':
+      case 'text-box-edge':
         return j('widget', hit.node.id, hit.row.inputId)
       case 'section':
         return j('section', hit.node.id, hit.row.sectionId)
@@ -4297,6 +4671,7 @@ export class InteractionController {
         return j('growth', hit.node.id, hit.row.construct)
       case 'header':
       case 'body':
+      case 'preview-caption':
         return j('node', hit.node.id)
       case 'resize':
         return j('resize', hit.node.id, hit.handle)
@@ -4363,6 +4738,8 @@ export class InteractionController {
       case 'body':
       case 'resize':
       case 'widget':
+      case 'text-box-edge':
+      case 'preview-caption':
       case 'section':
       case 'growth':
       case 'pin':
@@ -4529,22 +4906,22 @@ export class InteractionController {
       return
     }
     const scene = this.renderer.getScene()
+    // Badges are their own targets: a double-click on the subgraph mark
+    // enters the subgraph, and one on any other badge does nothing.
+    const badgeHit = this.renderer.getDetailLevel() === 'overview'
+      ? undefined
+      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y, (node) => this.renderer.getNodeBadgeLayout(node))
+    if (badgeHit) {
+      if (badgeHit.badge.id === SUBGRAPH_BADGE.id) this.host.onOpenSubgraph?.(badgeHit.node)
+      return
+    }
     const hit = hitTest(scene, w.x, w.y, this.hitOptions({ pinRevealed: this.pinRevealed(scene) }))
-    if ((hit.kind === 'header' || hit.kind === 'body') && hit.node.isSubgraph) {
-      this.host.onOpenSubgraph?.(hit.node)
-    } else if (hit.kind === 'header') {
-      const selectedNodes = scene.nodes.filter((node) => this.selection.has(node.id))
-      const nodes = selectedNodes.some((node) => node.id === hit.node.id)
-        ? selectedNodes
-        : [hit.node]
-      this.host.dispatch({
-        command: 'view.setNodeCollapsed',
-        params: {
-          graphId: scene.graphId,
-          nodeIds: nodes.map((node) => node.id),
-          collapsed: nodes.some((node) => node.layout.minimized !== true),
-        },
-      })
+    // Each click on the minimize arrow already toggled.
+    if (this.minimizeArrowContains(hit, w.x, w.y)) return
+    if (hit.kind === 'header') {
+      this.toggleMinimized(scene, hit.node)
+    } else if (hit.kind === 'text-box-edge') {
+      this.fitTextBox(scene, hit.node, hit.row)
     } else if (hit.kind === 'boundary-pin' && hit.item !== BOUNDARY_ADD_SLOT && !hit.regionIndex) {
       // Double-click a boundary slot: rename its exposed port.
       this.host.onBoundaryRenameRequest?.(hit.bnode.side, hit.item, e.clientX, e.clientY)
@@ -4600,9 +4977,11 @@ export class InteractionController {
       dropTargets?: ReadonlySet<string>
       marquee?: { x1: number; y1: number; x2: number; y2: number }
       resizePreview?: { nodeId: string; x: number; y: number; width: number; height: number }
+      textBoxLines?: { nodeId: string; valueKey: string; lines: number }
       groupDragOffset?: { groupId: string; dx: number; dy: number }
       groupResizeGhost?: { groupId: string; x: number; y: number; width: number; height: number }
       bodyDropNode?: string
+      dropRow?: { nodeId: string; valueKey: string }
     } = {},
   ): void {
     const ghost = extra.ghostLink ?? this.paletteGhost
@@ -4636,6 +5015,11 @@ export class InteractionController {
       ...(this.hoveredWidgetNode !== undefined ? {
         hoveredWidget: { nodeId: this.hoveredWidgetNode, valueKey: this.hoveredWidgetValue! },
       } : {}),
+      ...(this.activeTextEdge() !== undefined ? { textBoxEdge: this.activeTextEdge()! } : {}),
+      ...(this.hoveredPreviewCaption !== undefined ? { hoveredPreviewCaption: this.hoveredPreviewCaption } : {}),
+      ...(this.activePreviewEdge() !== undefined ? { previewEdge: this.activePreviewEdge()! } : {}),
+      ...(this.hoveredMinimize !== undefined ? { hoveredMinimize: this.hoveredMinimize } : {}),
+      ...(this.hoveredBadge !== undefined ? { hoveredBadge: this.hoveredBadge } : {}),
       ...extra,
       ...(ghost !== undefined ? { ghostLink: ghost } : {}),
       ...(this.placementGhost !== undefined ? { placementGhost: this.placementGhost } : {}),
@@ -4682,10 +5066,21 @@ export class InteractionController {
     dropTargets?: ReadonlySet<string>,
   ): (node: SceneNode, pin: PinLayout) => boolean {
     let connected: Set<string> | undefined
+    let wireless: Set<string> | undefined
     return (node, pin) => {
       if (pin.widgetBacked !== true || pin.direction !== 'in') return true
-      if (this.selection.has(node.id) || this.hoveredNode === node.id) return true
       if (dropTargets?.has(dropTargetKey(node.id, pin.portId, pin.direction)) === true) return true
+      // A field driven by an input drawn without its wire has no pin to grab.
+      wireless ??= new Set(
+        scene.links
+          .filter((link) => link.boundary === true && link.hidden === true && link.to.kind === 'port')
+          .map((link) => {
+            const to = link.to as Extract<SceneLink['to'], { kind: 'port' }>
+            return `${to.node}\u0000${to.port}`
+          }),
+      )
+      if (wireless.has(`${node.id}\u0000${pin.portId}`)) return false
+      if (this.selection.has(node.id) || this.hoveredNode === node.id) return true
       // Lazily derive connectivity the way the renderer does each paint.
       connected ??= new Set(
         scene.links
@@ -4740,8 +5135,157 @@ export class InteractionController {
     this.pushOverlay()
   }
 
-  /** Track one pin OR widget row; repeated moves on it are repaint-free. */
-  private setAffordanceHover(hit: Hit | undefined): void {
+  /** The edge drawn hot: the one being dragged, else the focused one, else the hovered one. */
+  private activeTextEdge(): { readonly nodeId: string; readonly valueKey: string } | undefined {
+    const g = this.gesture
+    if (g.kind === 'text-box-lines') return { nodeId: g.nodeId, valueKey: g.valueKey }
+    return this.focusedTextEdge ?? this.hoveredTextEdge
+  }
+
+  private setHoveredTextEdge(edge: { readonly nodeId: string; readonly valueKey: string } | undefined): void {
+    if (edge?.nodeId === this.hoveredTextEdge?.nodeId && edge?.valueKey === this.hoveredTextEdge?.valueKey) return
+    this.hoveredTextEdge = edge
+    this.pushOverlay()
+  }
+
+  /** The node whose preview bar is drawn hot: the one being dragged, else the hovered one. */
+  private activePreviewEdge(): string | undefined {
+    const g = this.gesture
+    if (g.kind === 'resize' && g.handle === 's') return g.nodeId
+    return this.focusedPreviewEdge ?? this.hoveredPreviewEdge
+  }
+
+  private setFocusedPreviewEdge(nodeId: string | undefined): void {
+    if (nodeId === this.focusedPreviewEdge) return
+    this.focusedPreviewEdge = nodeId
+    this.pushOverlay()
+  }
+
+  /** Step the height of a node's open preview from its bar: a picture by `keyStep`, a text result by one row. */
+  private stepPreviewEdge(nodeId: string, down: boolean): void {
+    const scene = this.renderer.getScene()
+    const node = scene.nodes.find((candidate) => candidate.id === nodeId)
+    if (node === undefined || !previewEdgeShown(node)) {
+      this.setFocusedPreviewEdge(undefined)
+      return
+    }
+    const l = node.layout
+    const step = l.textOutput !== undefined ? this.renderer.getDesignTokens().rowHeight : canvasPaintTokens.node.previewEdge.keyStep
+    const height = Math.max(l.minHeight, l.height + (down ? step : -step))
+    if (height === l.height) return
+    this.host.dispatch({
+      command: 'view.setNodeSize',
+      params: {
+        graphId: scene.graphId,
+        nodeId,
+        size: { width: Math.round(l.width), height: Math.round(height - (l.resizeHeightOffset ?? 0)) },
+      },
+    })
+  }
+
+  private setHoveredPreviewEdge(nodeId: string | undefined): void {
+    if (nodeId === this.hoveredPreviewEdge) return
+    this.hoveredPreviewEdge = nodeId
+    this.pushOverlay()
+  }
+
+  private setHoveredPreviewCaption(nodeId: string | undefined): void {
+    if (nodeId === this.hoveredPreviewCaption) return
+    this.hoveredPreviewCaption = nodeId
+    this.pushOverlay()
+  }
+
+  private setFocusedTextEdge(edge: { readonly nodeId: string; readonly valueKey: string } | undefined): void {
+    if (edge?.nodeId === this.focusedTextEdge?.nodeId && edge?.valueKey === this.focusedTextEdge?.valueKey) return
+    this.focusedTextEdge = edge
+    this.pushOverlay()
+  }
+
+  /**
+   * Store one text box's height in lines. Every other row, the preview, and
+   * the text output keep their heights: a node with a manual size moves its
+   * stored height by the same amount in the same undo step, and the node's
+   * resize surplus on this box gives way to the whole lines it now has.
+   */
+  private commitTextBoxLines(scene: Scene, nodeId: string, valueKey: string, lines: number): void {
+    const node = scene.nodes.find((candidate) => candidate.id === nodeId)
+    if (node === undefined) return
+    const projected = projectTextBoxLines(node.layout, valueKey, lines, this.renderer.getDesignTokens())
+    if (projected === node.layout) return
+    const setLines: CommandInvocation = {
+      command: 'view.setTextBoxLines',
+      params: { graphId: scene.graphId, nodeId, inputId: valueKey, lines },
+    }
+    const size = node.layout.sizeOverride
+    this.host.dispatch(composeBatch(scene.graphId, [], size === undefined ? [setLines] : [setLines, {
+      command: 'view.setNodeSize',
+      params: {
+        graphId: scene.graphId,
+        nodeId,
+        size: { width: size.width, height: Math.max(0, Math.round(size.height + projected.height - node.layout.height)) },
+      },
+    }]))
+  }
+
+  private stepTextBox(edge: { readonly nodeId: string; readonly valueKey: string }, down: boolean): void {
+    const scene = this.renderer.getScene()
+    const row = scene.nodes.find((node) => node.id === edge.nodeId)?.layout.rows.find((candidate) =>
+      candidate.kind === 'widget' && candidate.viewId === 'core.text' && candidate.valueKey === edge.valueKey)
+    if (row?.kind !== 'widget') {
+      this.setFocusedTextEdge(undefined)
+      return
+    }
+    this.textBoxFit = undefined
+    const step = canvasPaintTokens.widget.textBoxEdge.keyStepLines
+    this.commitTextBoxLines(scene, edge.nodeId, edge.valueKey,
+      clampTextBoxLines(visibleTextBoxLines(row, this.renderer.getDesignTokens()) + (down ? step : -step)))
+  }
+
+  /** Fit a box to its wrapped text; the same double-click again restores the height before. */
+  private fitTextBox(scene: Scene, node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>): void {
+    const current = visibleTextBoxLines(row, this.renderer.getDesignTokens())
+    const fit = this.textBoxFit
+    if (fit !== undefined && fit.nodeId === node.id && fit.valueKey === row.valueKey && fit.fitted === current) {
+      this.textBoxFit = undefined
+      this.commitTextBoxLines(scene, node.id, row.valueKey, fit.before)
+      return
+    }
+    const fitted = clampTextBoxLines(this.renderer.textBoxContentLines(node, row))
+    this.textBoxFit = { nodeId: node.id, valueKey: row.valueKey, fitted, before: current }
+    this.commitTextBoxLines(scene, node.id, row.valueKey, fitted)
+  }
+
+
+  /** Whether a header hit lands on the minimize arrow, at a zoom where the title bar takes clicks. */
+  private minimizeArrowContains(hit: Hit | undefined, wx: number, wy: number): boolean {
+    if (hit?.kind !== 'header' || this.renderer.getDetailLevel() === 'overview') return false
+    const rect = minimizeArrowRect(hit.node)
+    return wx >= rect.x && wx <= rect.x + rect.width && wy >= rect.y && wy <= rect.y + rect.height
+  }
+
+  /**
+   * Minimize or restore from a node's title bar. A selected node acts for the
+   * whole selection (any open node minimizes all); otherwise the node alone.
+   */
+  private toggleMinimized(scene: Scene, node: SceneNode): void {
+    const selectedNodes = scene.nodes.filter((candidate) => this.selection.has(candidate.id))
+    const nodes = selectedNodes.some((candidate) => candidate.id === node.id) ? selectedNodes : [node]
+    this.host.dispatch({
+      command: 'view.setNodeCollapsed',
+      params: {
+        graphId: scene.graphId,
+        nodeIds: nodes.map((candidate) => candidate.id),
+        collapsed: nodes.some((candidate) => candidate.layout.minimized !== true),
+      },
+    })
+  }
+
+  /** Track one pin or widget row, the minimize arrow and a badge; repeated moves on them are repaint-free. */
+  private setAffordanceHover(
+    hit: Hit | undefined,
+    titleControl: { readonly minimize?: string; readonly badge?: { readonly nodeId: string; readonly badgeId: string } } = {},
+  ): void {
+    if (this.host.frozen?.()) hit = undefined
     const pin = hit?.kind === 'pin' || hit?.kind === 'widgetTap' ? hit : undefined
     const widget = hit?.kind === 'widget' ? hit : undefined
     const pinNode = pin?.node.id
@@ -4756,7 +5300,10 @@ export class InteractionController {
       pinDirection === this.hoveredPinDirection &&
       pinWidgetTap === this.hoveredPinWidgetTap &&
       widgetNode === this.hoveredWidgetNode &&
-      widgetValue === this.hoveredWidgetValue
+      widgetValue === this.hoveredWidgetValue &&
+      titleControl.minimize === this.hoveredMinimize &&
+      titleControl.badge?.nodeId === this.hoveredBadge?.nodeId &&
+      titleControl.badge?.badgeId === this.hoveredBadge?.badgeId
     ) return
     this.hoveredPinNode = pinNode
     this.hoveredPinPort = pinPort
@@ -4764,6 +5311,8 @@ export class InteractionController {
     this.hoveredPinWidgetTap = pinWidgetTap
     this.hoveredWidgetNode = widgetNode
     this.hoveredWidgetValue = widgetValue
+    this.hoveredMinimize = titleControl.minimize
+    this.hoveredBadge = titleControl.badge
     this.pushOverlay()
   }
 
@@ -4774,5 +5323,7 @@ export class InteractionController {
     this.hoveredPinWidgetTap = undefined
     this.hoveredWidgetNode = undefined
     this.hoveredWidgetValue = undefined
+    this.hoveredMinimize = undefined
+    this.hoveredBadge = undefined
   }
 }

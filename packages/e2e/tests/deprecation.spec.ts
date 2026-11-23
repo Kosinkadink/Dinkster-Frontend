@@ -1,4 +1,4 @@
-import { expect, openRailPanel, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 async function badgePoint(page: Page, nodeId: string): Promise<{ x: number; y: number }> {
   return page.evaluate((nodeId) => {
@@ -6,10 +6,12 @@ async function badgePoint(page: Page, nodeId: string): Promise<{ x: number; y: n
     const vp = r.getViewport()
     const node = r.getScene().nodes.find((n) => n.id === nodeId)
     if (!node) throw new Error(`no scene node '${nodeId}'`)
+    const tab = r.getNodeBadgeLayout(node).find((entry) => entry.badge.id === 'core.deprecated')
+    if (!tab) throw new Error(`no deprecated tab on '${nodeId}'`)
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     return {
-      x: rect.left + (node.x + node.layout.width - 22 + 7) * vp.scale + vp.x,
-      y: rect.top + (node.y + node.layout.headerHeight / 2) * vp.scale + vp.y,
+      x: rect.left + (tab.x + tab.width / 2) * vp.scale + vp.x,
+      y: rect.top + (tab.y + tab.height / 2) * vp.scale + vp.y,
     }
   }, nodeId)
 }
@@ -24,9 +26,8 @@ test('review-mode native deprecation badges show guidance without an executable 
     },
   } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/3 node schemas/, { timeout: 30_000 })
-  await waitForStartupOwnership(page)
-  await page.evaluate(() => window.__dinksterTest!.app.reviewReplacements.set(true))
+  await waitForWorkspaceReady(page, 3)
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.reviewUpgrades', true))
   expect(await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
     nodes: [{ id: 1, type: 'AuthoredNode', pos: [120, 120] }, { id: 2, type: 'NoSuccessor', pos: [450, 120] }], links: [],
   }, 'Deprecation guidance')))).toEqual([])
@@ -74,8 +75,7 @@ async function migrationCatalog(page: Page): Promise<void> {
     } },
   } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 30_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page, 1)
 }
 
 async function openMigration(page: Page, lineage: string): Promise<void> {
@@ -203,7 +203,7 @@ test('deprecated resize imports its authored size and undoes from the migration 
     } },
   } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
+  await waitForWorkspaceReady(page, 1)
   expect(await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument({
     nodes: [{ id: 1, type: 'ResizeImagesByLongerEdge', pos: [170, 140],
       properties: { ver: '0.5.1' }, widgets_values: [1536],
@@ -232,10 +232,10 @@ test('deprecated resize imports its authored size and undoes from the migration 
 })
 
 test('only opt-in review holds a lossy migration for badge Apply', async ({ page }, testInfo) => {
-  await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 503, json: {} }))
+  await page.route(/\/api\//, (route) => route.fulfill({ status: 503, json: {} }))
   await page.routeWebSocket('**/api/events?*', () => {})
   await migrationCatalog(page)
-  await page.evaluate(() => window.__dinksterTest!.app.reviewReplacements.set(true))
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('execution.reviewUpgrades', true))
   await openMigration(page, 'review-migration')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.first!.type)).toBe('Previous')
   await expect(page.getByTestId('migration-notice')).toHaveCount(0)
