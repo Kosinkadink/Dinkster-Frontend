@@ -262,16 +262,21 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  width: min(256px, calc(100% - 20px));
+  width: min(160px, calc(100% - 20px));
   pointer-events: none;
 }
+.canvas-corner-controls[data-minimap-size='medium'] { width: min(196px, calc(100% - 20px)); }
+.canvas-corner-controls[data-minimap-size='large'] { width: min(256px, calc(100% - 20px)); }
+.canvas-corner-controls[data-minimap-size='medium'] .minimap { height: 118px; }
+.canvas-corner-controls[data-minimap-size='large'] .minimap { height: 150px; }
+.canvas-corner-controls[data-minimap-size='small'] :is([data-testid='canvas-zoom-out'], [data-testid='canvas-zoom-in']) { display: none; }
 
 .minimap {
   display: block;
   width: 100%;
-  height: 150px;
+  height: 96px;
   background: var(--dinkster-surface-panel);
-  border: 1px solid var(--dinkster-border-subtle);
+  border: 0;
   border-radius: var(--dinkster-radius-card);
   box-shadow: var(--dinkster-elevation-high);
   cursor: pointer;
@@ -348,12 +353,8 @@
 @media (prefers-reduced-motion: reduce) {
   .minimap-switch > span { transition-duration: var(--dinkster-motion-reduced); }
 }
-.minimap-bar-controls, .canvas-zoom-controls { display: flex; gap: 2px; }
-.canvas-zoom-controls .canvas-zoom-level { min-width: 50px; width: 50px; font-variant-numeric: tabular-nums; }
-@media (max-width: 520px) {
-  .minimap { height: 122px; }
-  .canvas-zoom-controls .canvas-corner-button { padding: 0 4px; }
-}
+.minimap-bar-controls, .canvas-zoom-controls { display: contents; }
+.canvas-zoom-controls .canvas-zoom-level { min-width: 40px; width: 40px; font-variant-numeric: tabular-nums; }
 /* Single top row for canvas chrome: view/lens controls left, workflow queue
    right. Composing them in one flex row (wrapping at narrow widths) makes
    control overlap impossible by construction. The container ignores pointer

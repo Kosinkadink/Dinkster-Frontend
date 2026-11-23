@@ -1433,7 +1433,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const modalPanel = useSignal(props.app.modalPanel)
   const diagnosticFocus = useSignal(props.app.diagnosticFocus)
   const problems = useSignal(props.app.problems)
-  const reviewReplacements = useSignal(props.app.reviewReplacements)
+  const reviewReplacements = (): boolean => (settingsTick(), props.app.settings.get<boolean>('execution.reviewUpgrades'))
   // Scene/widget diagnostics for THIS editor instance. The app-level
   // solveDiagnostics signal mirrors the focused instance only, so an
   // unfocused split sibling keeps its own rail without clobbering the
@@ -6481,7 +6481,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           }}
         />
       </Show>
-      <div ref={cornerControlsEl} class="canvas-corner-controls">
+      <div ref={cornerControlsEl} class="canvas-corner-controls" data-minimap-size={(settingsTick(), props.app.settings.get<string>('canvas.minimap.size'))}>
         <canvas ref={minimapEl} class="minimap" classList={{ hidden: (settingsTick(), !props.app.settings.get<boolean>('canvas.minimap.visible')) }} data-testid="minimap" data-node-colors={props.app.settings.get<boolean>('canvas.minimap.nodes')} data-bypass={props.app.settings.get<boolean>('canvas.minimap.bypass')} data-links={props.app.settings.get<boolean>('canvas.minimap.noodles')} data-groups={props.app.settings.get<boolean>('canvas.minimap.groups')} data-reroutes={props.app.settings.get<boolean>('canvas.minimap.reroutes')} data-errors={props.app.settings.get<boolean>('canvas.minimap.errors')} data-bookmarks={props.app.settings.get<boolean>('canvas.minimap.bookmarks')} />
         <div class="canvas-corner-bar">
           <div class="minimap-bar-controls" role="group" aria-label="Minimap controls">

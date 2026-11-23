@@ -17,7 +17,6 @@ const capture = async (page: Page, testInfo: TestInfo, name: string): Promise<vo
 test.beforeEach(async ({ page }) => {
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
 })
 

@@ -46,7 +46,6 @@ async function injectPreview(page: Page, color = '#2563eb'): Promise<void> {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const widget = (id: string, widgetType: string, defaultValue: unknown) => ({

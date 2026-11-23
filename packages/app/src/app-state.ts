@@ -2523,7 +2523,7 @@ export class AppState {
       runtimeNodeIds,
       token: ++this.executionLogFocusToken,
     })
-    setPanelOpen(this.panels, this.dock, 'execution-log', 'bottom', true)
+    setPanelOpen(this.panels, this.dock, 'logs', 'bottom', true)
   }
 
   /** The panel applied this focus request; stop it from replaying. */
@@ -2900,6 +2900,8 @@ export class AppState {
    * rebinding per backend). Same pattern as CanvasHost's docTick.
    */
   readonly backendsTick: Signal<number> = createSignal(0)
+  /** Confirmed-deleted history rows stay out of run lists without clearing canvas results. */
+  readonly hiddenHistoryExecutions: Signal<ReadonlySet<string>> = createSignal(new Set<string>())
 
   /**
    * Tabs currently joined to a shared session, keyed by tab id. Session-only
@@ -3037,6 +3039,13 @@ export class AppState {
       type: 'boolean',
       defaultValue: false,
     })
+    this.settings.register({
+      id: 'execution.reviewUpgrades',
+      get name() { return t('shell.reviewUpgrades.label') },
+      get description() { return t('settings.execution.reviewUpgrades.description') },
+      type: 'boolean',
+      defaultValue: false,
+    })
     this.settings.register({ id: 'canvas.bookmarkTransitions', get name() { return t('settings.canvas.bookmarkTransitions') }, type: 'boolean', defaultValue: true })
     this.settings.register({
       id: 'canvas.smoothWheelZoom',
@@ -3055,6 +3064,19 @@ export class AppState {
         return [
           { value: 'zoom', label: t('settings.canvas.scrollBehavior.option.zoom') },
           { value: 'pan', label: t('settings.canvas.scrollBehavior.option.pan') },
+        ]
+      },
+    })
+    this.settings.register({
+      id: 'canvas.minimap.size',
+      get name() { return t('settings.canvas.minimap.size') },
+      type: 'combo',
+      defaultValue: 'small',
+      get options() {
+        return [
+          { value: 'small', label: t('settings.canvas.minimap.size.small') },
+          { value: 'medium', label: t('settings.canvas.minimap.size.medium') },
+          { value: 'large', label: t('settings.canvas.minimap.size.large') },
         ]
       },
     })
@@ -5045,7 +5067,6 @@ export class AppState {
 
   // -- Schema arrival -------------------------------------------------------
 
-  readonly reviewReplacements = createSignal(false)
   private readonly extraRules: { layer: 'pack' | 'core'; rule: ReplacementRule }[] = []
   private extraRulesVersion = 0
   private readonly replacementRegistries = new WeakMap<SchemaRegistry, { registry: ReplacementRegistry; version: number }>()
@@ -5158,7 +5179,7 @@ export class AppState {
   }
 
   private upgradeOnOpen(tab: Tab): Promise<void> | undefined {
-    if (this.reviewReplacements.get()) return
+    if (this.settings.get<boolean>('execution.reviewUpgrades')) return
     const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
     if (items.length === 0) return
     const store = tab.store
@@ -7531,6 +7552,21 @@ export class AppState {
     return true
   }
 
+  private async confirmRemovedHistoryExecutions(backend: Extract<Backend, { protocol: 'dinkster' }>, runId?: string): Promise<void> {
+    const candidates = this.executionList().filter((execution) => execution.ref.connection === backend.id &&
+      execution.status !== 'queued' && execution.status !== 'running' && execution.jobRef !== undefined &&
+      (runId === undefined || execution.jobRef === runId))
+    const removed = await Promise.all(candidates.map(async (execution) => {
+      try {
+        return await backend.connection.getHistoryRun(execution.jobRef!, LIBRARY_SCOPE) === undefined ? execution.key : undefined
+      } catch {
+        return undefined
+      }
+    }))
+    if (!this.ownerStillLive(backend)) return
+    this.hiddenHistoryExecutions.update((keys) => new Set([...keys, ...removed.filter((key) => key !== undefined)]))
+  }
+
   /**
    * Delete ONE durable run record (never asset bytes or library records,
    * by contract). False on miss - already gone elsewhere is not an error.
@@ -7542,7 +7578,6 @@ export class AppState {
       const deleted = await backend.connection.deleteHistoryRun(runId, LIBRARY_SCOPE)
       if (deleted) {
         clearExecutionResultJobRef(backend.id, runId)
-        this.backendsTick.update((v) => v + 1) // an open Runs collection re-pages
       }
       return deleted
     } catch (e) {
@@ -7550,6 +7585,9 @@ export class AppState {
         diag('error', 'validation', 'history.deleteFailed', `failed to delete run record: ${e instanceof Error ? e.message : String(e)}`),
       ])
       return false
+    } finally {
+      await this.confirmRemovedHistoryExecutions(backend, runId)
+      this.backendsTick.update((v) => v + 1)
     }
   }
 
@@ -7564,13 +7602,15 @@ export class AppState {
     try {
       const deleted = await backend.connection.clearHistory({ scope: LIBRARY_SCOPE })
       clearExecutionResults(backend.id)
-      if (deleted > 0) this.backendsTick.update((v) => v + 1)
       return deleted
     } catch (e) {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         diag('error', 'validation', 'history.clearFailed', `failed to clear run history: ${e instanceof Error ? e.message : String(e)}`),
       ])
       return 0
+    } finally {
+      await this.confirmRemovedHistoryExecutions(backend)
+      this.backendsTick.update((v) => v + 1)
     }
   }
 

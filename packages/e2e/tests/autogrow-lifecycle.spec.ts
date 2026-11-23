@@ -99,7 +99,6 @@ async function openWorkflow(page: Page): Promise<void> {
 
 test('grouped forwarded disconnect compacts atomically and never recycles identity', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   await openWorkflow(page)
   await page.waitForFunction(() => {

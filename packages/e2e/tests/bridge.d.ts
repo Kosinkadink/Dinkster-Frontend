@@ -339,10 +339,11 @@ interface DinksterTestBridge {
     confirmStartupOwnership(): Promise<void>
     activeTab(): DinksterBridgeTab | undefined
     createWorkflow(): DinksterBridgeTab
+    renameTab(id: string, title: string): void
+    executionsForTab(tab: DinksterBridgeTab): readonly import('@dinkster/client').ExecutionState[]
     createRegion(tab: DinksterBridgeTab, graphId: string, position: { x: number; y: number }, kind: 'map' | 'fold' | 'while'):
       Promise<{ ok: boolean; diagnostics: readonly unknown[] }>
     closeTab(id: string): void
-    reviewReplacements: { set(enabled: boolean): void }
     migrationNotices: { get(): ReadonlyMap<string, unknown> }
     dispatchTo(tab: DinksterBridgeTab, invocation: { command: string; params: unknown }):
       | { ok: boolean; diagnostics?: readonly unknown[] }
@@ -374,6 +375,7 @@ interface DinksterTestBridge {
     openTemplate(packId: string, templateId: string, title: string, owner: string): Promise<boolean>
     openEditorForBinding(tabId: string, context: { editorRole?: string; nodeId?: string; widgetType?: string; valueType?: string }): boolean
     dock: {
+      dock(panelId: string, zone: 'left' | 'right' | 'bottom'): void
       activate(zone: 'left' | 'right' | 'bottom', panelId: string): void
       setOpen(zone: 'left' | 'right' | 'bottom', open: boolean): void
     }
@@ -474,6 +476,7 @@ interface DinksterTestBridge {
       register(descriptor: { id: string; title: string; component: () => unknown }): () => void
       get(id: string): { id: string; title: string } | undefined
     }
+    backendsTick: { update(fn: (value: number) => number): void }
     /** Multi-backend surface: connected backends and per-tab targeting. */
     backends: {
       get(): ReadonlyArray<{

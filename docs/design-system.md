@@ -358,8 +358,8 @@ Template gallery uses ProductEmptyState for loading, failed reads, empty catalog
 and searches without matches. Failed reads retain Retry, and the empty folder
 explanation preserves the permission-gated server-path form below it.
 
-The Focused panel uses ProductEmptyState for an absent document and a context
-without problems. Context selection, problem filtering and canvas navigation
+The Problems panel uses ProductEmptyState when Selection only has no selected
+entity or no matching problems. Selection filtering and canvas navigation
 remain independent of the empty presentation.
 
 Badge popovers use ProductEmptyState when error, log or problem details are
@@ -928,7 +928,7 @@ narrow widths and browser CSS zoom.
 ## Extension asset editors
 
 The specialized asset editor shell is parked in
-[the rework queue](rework-queue.md#extension-asset-editor-shell). Generic
+[Extension asset editor shell](https://github.com/Kosinkadink/comfy-vibe-station/issues/1216). Generic
 `WidgetView.editorUi` contributions still use bounded group, text, status
 and action nodes through the Host UI renderer. The ordinary builtin asset
 picker is independent and remains available.
