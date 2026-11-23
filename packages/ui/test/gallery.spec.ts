@@ -127,6 +127,13 @@ for (const width of [1280, 390]) {
       await page.goto(`/#${section}`)
       await page.evaluate(() => document.fonts.ready)
       await expect(page.getByRole('main')).toBeVisible()
+      if (section === 'lists') {
+        const heading = page.locator('.storage-folder-heading').first()
+        const name = await heading.locator('strong').boundingBox()
+        const actions = await heading.getByRole('button', { name: 'Folder actions' }).boundingBox()
+        expect(name!.x + name!.width).toBeLessThan(actions!.x)
+        expect(actions!.width).toBeLessThanOrEqual(40)
+      }
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= window.innerWidth,

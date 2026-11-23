@@ -14,10 +14,11 @@ const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0
 
 async function addNativeBackend(page: Page): Promise<void> {
   await page.getByTestId('status-connection').click()
+  await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(NATIVE_BACKEND)
   await page.getByTestId('backend-add').click()
   // Initial socket connection retires settings fetched before its handshake.
-  await expect(page.getByTestId('backend-row').filter({ hasText: NATIVE_BACKEND }).locator('.backend-status'))
+  await expect(page.getByTestId('backend-row').filter({ hasText: NATIVE_BACKEND }))
     .toHaveAttribute('data-status', 'connected')
   await expect(page.getByTestId('tab-target')).toBeVisible()
   await selectProductOption(page, page.getByTestId('tab-target'), NATIVE_BACKEND)

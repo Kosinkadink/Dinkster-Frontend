@@ -19,10 +19,10 @@ values remain protocol errors. Configured mounts, source browsing, retained
 outputs and Library reopen do not require a default output mount.
 
 Assets shows an explicit unconfigured notice while keeping its sources
-available. Configure output folder opens Project folders and the output
-selector. Backends shows the same state beside the writable-folder selector
-and Apply action; when there are no writable folders, it directs the operator
-to add one in Project folders. Policy-disabled configuration stays read-only.
+available. Configure output folder opens Storage, which holds the default-save
+selector and folder setup. Backends links to Storage instead of holding a
+second folder editor. When there are no writable folders, add one through
+Storage -> Folders -> Add. Policy-disabled configuration stays read-only.
 Selecting an explicit save target does not require a configured default.
 
 ## Document commands and preview loading
