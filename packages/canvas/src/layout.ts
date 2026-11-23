@@ -58,7 +58,13 @@ import { IN_NODE_EDITORS, canvasPaintTokens, type DesignTokens } from './tokens.
 export type TextMeasurer = (text: string, role: 'title' | 'renamedTitle' | 'label' | 'value') => number
 
 /** Resolves the widget view for a spec: view id + compact row count. */
-export type WidgetMeasure = (spec: WidgetSpec) => { viewId: string; rows: number } | undefined
+/**
+ * How the host draws a widget: its view and rows. `editorControls`, for an
+ * editor shown in the node, is the height its own controls take when the
+ * host knows they differ from the editor's fixed rows, such as a recorder on
+ * a backend that cannot take uploads, which shows one sentence instead.
+ */
+export type WidgetMeasure = (spec: WidgetSpec) => { viewId: string; rows: number; editorControls?: number } | undefined
 
 export interface DynamicEditOwner {
   readonly graphId: string
@@ -1007,6 +1013,7 @@ export function layoutNode(
   const cellLabel = (row: PendingRow): string =>
     row.widget?.label ?? row.note?.text ?? row.button?.label ?? ''
   const pending: PendingRow[] = []
+  const editorControlHeights = new Map<string, number>()
   const outputs: {
     slot: PortSlot & { index: number }
     boxes: readonly string[]
@@ -1287,7 +1294,8 @@ export function layoutNode(
       widget,
       options.widgetRepresentations?.[valueKey],
     )
-    const measured = widgetMeasure(representation.spec) ?? { viewId: 'core.unknown', rows: 1 }
+    const { editorControls, ...measured } = widgetMeasure(representation.spec) ?? { viewId: 'core.unknown', rows: 1 }
+    if (editorControls !== undefined && Number.isFinite(editorControls)) editorControlHeights.set(valueKey, Math.max(0, editorControls))
     // Widget measures are host-supplied: a zero, negative, fractional, or
     // non-finite row count would fold rows onto each other and poison every
     // downstream y coordinate. Normalize to a positive whole number of rows.
@@ -1424,7 +1432,8 @@ export function layoutNode(
           : editor.picture
       const openSections = (editor.sections ?? []).filter((section) =>
         options.sectionOverrides?.[`${w.valueKey}.${section.id}`] === false)
-      const controls = (editor.controlRows + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
+      const controls = editorControlHeights.get(w.valueKey) ??
+        (editor.controlRows + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
       const spaceRow: PendingRow = {
         kind: 'editorSpace',
         boxes: cell.boxes,

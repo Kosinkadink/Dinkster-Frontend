@@ -633,7 +633,9 @@ export const canvasPaintTokens = {
  * The editors that fold out in the node, by widget view id: the picture's own
  * height (absent for an editor without one) and how many rows of controls sit
  * under it. The rows are fixed for each editor, so the node does not change
- * height when the editor's state changes.
+ * height when the editor's state changes; a host that knows the controls
+ * differ for good, such as a recorder on a backend that cannot take uploads,
+ * gives their height in the widget's measure.
  */
 export const IN_NODE_EDITORS: Readonly<Record<string, {
   readonly picture?: number

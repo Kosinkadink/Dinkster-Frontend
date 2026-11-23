@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, onCleanup, type JSX } from 'solid-js'
+import { For, Show, createEffect, createSignal, onCleanup, untrack, type JSX } from 'solid-js'
 import type { WidgetRegistry } from '@dinkster/core'
 import {
   CanvasRenderer,
@@ -22,9 +22,11 @@ import {
 } from '../../canvas/gallery/in-node-editors.js'
 import {
   CanvasEditorButtons,
+  CanvasEditorChoice,
   CanvasEditorFact,
   CanvasEditorLine,
   CanvasEditorNote,
+  CanvasEditorNumber,
   CanvasEditorPicture,
   CanvasEditorSection,
   CanvasEditorSpace,
@@ -40,6 +42,24 @@ const str = (state: EditorExampleState, key: string): string | undefined =>
   typeof state[key] === 'string' ? (state[key] as string) : undefined
 const num = (state: EditorExampleState, key: string): number | undefined =>
   typeof state[key] === 'number' ? (state[key] as number) : undefined
+
+const NO_BACKEND = 'Recording uploads require a native Dinkster backend.'
+
+/** The height the no-backend sentence takes at an editor's inner width, as the page draws it. */
+function noBackendHeight(width: number): number {
+  const probe = document.createElement('div')
+  probe.className = 'dinkster-canvas-editor'
+  probe.style.cssText = `visibility: hidden; width: ${width}px; height: auto; padding: 0`
+  const note = document.createElement('div')
+  note.className = 'dinkster-canvas-editor-note'
+  note.dataset['wrap'] = 'true'
+  note.textContent = NO_BACKEND
+  probe.append(note)
+  document.body.append(probe)
+  const height = note.offsetHeight
+  probe.remove()
+  return height
+}
 
 /** A rounded size, never raw bytes. */
 const roundedSize = (bytes: number): string =>
@@ -141,6 +161,18 @@ function CurvePicture(props: { points: readonly { position: number; value: numbe
   )
 }
 
+/** An editor's own number in an example: it steps and is typed in, and keeps what it was given. */
+function GalleryNumber(props: { label: string; value: number; min?: number; max?: number; step?: number; precision?: number }) {
+  const [value, setValue] = createSignal(untrack(() => props.value))
+  return <CanvasEditorNumber {...props} value={value()} onChange={setValue} />
+}
+
+/** An editor's own choice in an example: it opens in place and keeps what is picked. */
+function GalleryChoice(props: { label: string; value: string; options: readonly string[] }) {
+  const [value, setValue] = createSignal(untrack(() => props.value))
+  return <CanvasEditorChoice {...props} value={value()} onChange={setValue} />
+}
+
 /** What one unfolded editor's controls show in an example, by its view. */
 function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample }): JSX.Element {
   const state = (): EditorExampleState => props.example.states?.[props.row.valueKey] ?? {}
@@ -163,8 +195,7 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample }): JSX
         idle: 'Microphone off', waiting: 'Waiting for permission', recording: 'Listening...', saving: 'Saving',
         ready: 'Ready', denied: 'Permission denied', uploadFailed: 'Upload failed', noMicrophone: 'No microphone found',
       }
-      if (status() === 'noBackend')
-        return <CanvasEditorNote tone="muted" wrap>Recording uploads require a native Dinkster backend.</CanvasEditorNote>
+      if (status() === 'noBackend') return <CanvasEditorNote tone="muted" wrap>{NO_BACKEND}</CanvasEditorNote>
       const actions = () => status() === 'ready'
         ? [{ label: 'Play', icon: canvasEditorIcons.play }, { label: 'Remove clip', icon: canvasEditorIcons.remove, intent: 'remove' as const }]
         : status() === 'uploadFailed'
@@ -188,11 +219,11 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample }): JSX
             actions={actions()}
           />
           <CanvasEditorLine dimmed={recording()}>
-            <CanvasEditorFact label="Microphone">Default microphone</CanvasEditorFact>
+            <GalleryChoice label="Microphone" value="Default microphone" options={['Default microphone', 'USB microphone']} />
             <CanvasEditorButtons buttons={[{ label: 'Find microphones', icon: canvasEditorIcons.retry, iconOnly: true }]} />
           </CanvasEditorLine>
           <CanvasEditorLine dimmed={recording()}>
-            <CanvasEditorFact label="Limit (s)">60</CanvasEditorFact>
+            <GalleryNumber label="Limit (s)" value={60} min={1} max={300} />
           </CanvasEditorLine>
           <Show when={status() === 'uploadFailed'} fallback={
             <CanvasEditorNote tone={stored() ? undefined : 'muted'}>{stored() ? `Stored: ${stored()!.name}` : 'Nothing stored'}</CanvasEditorNote>
@@ -205,7 +236,7 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample }): JSX
     case 'core.webcam': {
       const camera = () => str(state(), 'camera') ?? 'off'
       const message = () => camera() === 'error' ? str(state(), 'error')
-        : camera() === 'wired' ? undefined
+        : camera() === 'wired' ? state()['known'] === false ? 'Not known yet' : undefined
           : camera() === 'off' && !stored() ? 'No frame stored yet' : undefined
       return (
         <>
@@ -221,8 +252,9 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample }): JSX
                 { label: 'Stop', icon: canvasEditorIcons.stop, intent: 'remove' },
               ]
             : [{ label: 'Start camera', icon: canvasEditorIcons.capture, disabled: camera() === 'wired' }]} />
-          <CanvasEditorNote tone={stored() ? undefined : 'muted'}>
-            {camera() === 'wired' ? 'The image from the last run' : stored() ? `Stored: ${stored()!.name}` : 'Nothing stored'}
+          <CanvasEditorNote tone={stored() || (camera() === 'wired' && state()['known'] !== false) ? undefined : 'muted'}>
+            {camera() === 'wired' ? state()['known'] === false ? 'Comes by wire' : 'The image from the last run'
+              : stored() ? `Stored: ${stored()!.name}` : 'Nothing stored'}
           </CanvasEditorNote>
         </>
       )
@@ -253,18 +285,22 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample }): JSX
                 : {}),
             },
           )}
-          <CanvasEditorLine dimmed={wired() || view() !== 'model'}><CanvasEditorFact label="Camera projection">Perspective</CanvasEditorFact></CanvasEditorLine>
-          <CanvasEditorLine dimmed={wired() || view() !== 'model'}><CanvasEditorFact label="Field of view">35</CanvasEditorFact></CanvasEditorLine>
+          <CanvasEditorLine dimmed={wired() || view() !== 'model'}>
+            <GalleryChoice label="Camera projection" value="Perspective" options={['Perspective', 'Orthographic']} />
+          </CanvasEditorLine>
+          <CanvasEditorLine dimmed={wired() || view() !== 'model'}>
+            <GalleryNumber label="Field of view" value={35} min={10} max={150} />
+          </CanvasEditorLine>
           <CanvasEditorSection label="Model placement" open={open('placement')}>
             <CanvasEditorLine><CanvasEditorFact label="Model position X Y Z">0, 0, 0</CanvasEditorFact></CanvasEditorLine>
             <CanvasEditorLine><CanvasEditorFact label="Model rotation X Y Z W">0, 0, 0, 1</CanvasEditorFact></CanvasEditorLine>
             <CanvasEditorLine><CanvasEditorFact label="Model scale X Y Z">1, 1, 1</CanvasEditorFact></CanvasEditorLine>
           </CanvasEditorSection>
           <CanvasEditorSection label="Animation" open={open('animation')}>
-            <CanvasEditorLine><CanvasEditorFact label="Animation clip">Walk</CanvasEditorFact></CanvasEditorLine>
+            <CanvasEditorLine><GalleryChoice label="Animation clip" value="Walk" options={['Walk', 'Run', 'Idle']} /></CanvasEditorLine>
             <CanvasEditorLine>
-              <CanvasEditorFact label="Animation time (seconds)">0.40</CanvasEditorFact>
-              <CanvasEditorFact label="Animation speed">1.0</CanvasEditorFact>
+              <GalleryNumber label="Time (s)" value={0.4} min={0} step={0.1} precision={2} />
+              <GalleryNumber label="Speed" value={1} min={0} step={0.1} precision={1} />
             </CanvasEditorLine>
             <CanvasEditorButtons buttons={[{ label: 'Play animation', icon: canvasEditorIcons.play }]} />
           </CanvasEditorSection>
@@ -279,9 +315,13 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample }): JSX
             <Show when={images() > 0}><Still kind={images() === 2 ? 'compare' : 'image-a'} /></Show>,
             images() === 0 ? { message: 'Run to compare' } : {},
           )}
-          <CanvasEditorLine dimmed={images() < 2}><CanvasEditorFact label="Wipe divider">50%</CanvasEditorFact></CanvasEditorLine>
-          <CanvasEditorLine><CanvasEditorFact label="Image A frame">{images() > 0 ? '1 of 1' : 'No images'}</CanvasEditorFact></CanvasEditorLine>
-          <CanvasEditorLine><CanvasEditorFact label="Image B frame">{images() > 1 ? '1 of 1' : 'No images'}</CanvasEditorFact></CanvasEditorLine>
+          <CanvasEditorLine dimmed={images() < 2}><GalleryNumber label="Wipe divider (%)" value={50} min={0} max={100} /></CanvasEditorLine>
+          <CanvasEditorLine dimmed={images() < 1}>
+            <GalleryChoice label="Image A frame" value={images() > 0 ? '1 of 1' : 'No images'} options={images() > 0 ? ['1 of 1'] : []} />
+          </CanvasEditorLine>
+          <CanvasEditorLine dimmed={images() < 2}>
+            <GalleryChoice label="Image B frame" value={images() > 1 ? '1 of 1' : 'No images'} options={images() > 1 ? ['1 of 1'] : []} />
+          </CanvasEditorLine>
         </>
       )
     }
@@ -312,11 +352,13 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample }): JSX
           {picture(
             <CurvePicture points={points} {...(selected === undefined ? {} : { selected })} histogram={state()['histogram'] === true} />,
           )}
-          <CanvasEditorLine><CanvasEditorFact label="Interpolation">{state()['histogram'] === true ? 'Linear' : 'Monotone cubic'}</CanvasEditorFact></CanvasEditorLine>
+          <CanvasEditorLine>
+            <GalleryChoice label="Interpolation" value={state()['histogram'] === true ? 'Linear' : 'Monotone cubic'} options={['Linear', 'Monotone cubic']} />
+          </CanvasEditorLine>
           <CanvasEditorLine dimmed={selected === undefined}>
             <CanvasEditorButtons buttons={[{ label: 'Delete point', icon: canvasEditorIcons.remove, iconOnly: true, intent: 'remove', disabled: selected === undefined }]} />
-            <CanvasEditorFact label="Position">{selected === undefined ? '-' : points[selected]!.position.toFixed(2)}</CanvasEditorFact>
-            <CanvasEditorFact label="Value">{selected === undefined ? '-' : points[selected]!.value.toFixed(2)}</CanvasEditorFact>
+            <GalleryNumber label="Position" value={selected === undefined ? 0 : points[selected]!.position} min={0} max={1} step={0.01} precision={2} />
+            <GalleryNumber label="Value" value={selected === undefined ? 0 : points[selected]!.value} min={0} max={1} step={0.01} precision={2} />
           </CanvasEditorLine>
           <CanvasEditorNote tone="muted">
             {state()['histogram'] === true ? 'Histogram from the selected run' : 'Drag a point to move it. Double-click to add one.'}
@@ -357,7 +399,12 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
       const widgetMeasure: WidgetMeasure = (spec) => {
         const kind = props.registry.kind(spec.widgetType)
         const view = props.registry.viewsFor(spec.widgetType).find((view) => view.id === kind?.defaultView(spec))
-        return view ? { viewId: view.id, rows: view.measure(spec).rows } : undefined
+        if (!view) return undefined
+        // On a backend that cannot take uploads the recorder is its one sentence.
+        const noBackend = view.id === 'core.audioRecord' &&
+          Object.values(example.states ?? {}).some((state) => state['status'] === 'noBackend')
+        const space = (example.width ?? 300) - tokens.rowGeometry.fieldInsetX * 2 - canvasPaintTokens.node.editorSpace.pad * 2
+        return { viewId: view.id, rows: view.measure(spec).rows, ...(noBackend ? { editorControls: noBackendHeight(space) } : {}) }
       }
       const built = createInNodeEditorScene(tokens, measure, widgetMeasure, example, { x: MARGIN, y: MARGIN })
       const node = built.nodes.find((item) => item.id === example.id)!

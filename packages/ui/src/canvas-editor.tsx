@@ -1,7 +1,6 @@
-import { For, Show, type JSX } from 'solid-js'
+import { For, Show, createSignal, type JSX } from 'solid-js'
 import {
   Camera,
-  ChevronRight,
   Circle,
   Play,
   RotateCcw,
@@ -9,6 +8,8 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-solid'
+import { CanvasChoiceGlyph, CanvasRowField, CanvasStepGlyph } from './canvas-field.js'
+import { CanvasRowList } from './canvas-list.js'
 import { ProductButton, ProductIcon, ProductIconButton, ProductSpinner } from './controls.js'
 
 /**
@@ -89,7 +90,7 @@ export function CanvasEditorNote(props: { tone?: 'problem' | 'muted' | undefined
   )
 }
 
-/** A closed or open section of an editor's own rows, drawn like a closed box of the node. */
+/** A closed or open section of an editor's own rows, its header drawn as the node draws a section's header. */
 export function CanvasEditorSection(props: {
   label: string
   open: boolean
@@ -106,7 +107,9 @@ export function CanvasEditorSection(props: {
       }}
     >
       <summary>
-        <ProductIcon icon={ChevronRight} />
+        <svg class="dinkster-canvas-editor-section-arrow" viewBox="0 0 4 6" aria-hidden="true">
+          <path d="M0 0L4 3L0 6Z" />
+        </svg>
         {props.label}
       </summary>
       <div class="dinkster-canvas-editor-section-rows">{props.children}</div>
@@ -205,6 +208,160 @@ export function CanvasEditorButtons(props: {
           </ProductButton>
         )}
       </For>
+    </div>
+  )
+}
+
+/**
+ * A number of an editor's own, drawn as the node's number row is: the minus,
+ * the name, the value and the plus. The steppers step it; pressing the row
+ * opens it in place as the node's row opens, typed in with the same keys:
+ * Enter stores, Escape leaves, the arrow keys step and Shift steps ten
+ * times. A typed value is kept within the row's limits.
+ */
+export function CanvasEditorNumber(props: {
+  label: string
+  value: number
+  min?: number
+  max?: number
+  step?: number
+  /** Digits after the point the value shows. */
+  precision?: number
+  onChange?: (value: number) => void
+}) {
+  const [open, setOpen] = createSignal(false)
+  const [text, setText] = createSignal('')
+  const [width, setWidth] = createSignal(0)
+  let slot!: HTMLDivElement
+  const format = (value: number) => value.toFixed(props.precision ?? 0)
+  const clamp = (value: number) => Math.min(props.max ?? Infinity, Math.max(props.min ?? -Infinity, value))
+  const store = (value: number) => {
+    if (Number.isFinite(value)) props.onChange?.(clamp(value))
+  }
+  const stepped = (from: number, direction: -1 | 1, fast: boolean) =>
+    clamp(from + direction * (props.step ?? 1) * (fast ? 10 : 1))
+  const step = (direction: -1 | 1, fast: boolean) => store(stepped(props.value, direction, fast))
+  // While open, a step changes the typed text; Enter or leaving stores it.
+  const stepText = (direction: -1 | 1, fast: boolean) => {
+    const next = stepped(Number(text()), direction, fast)
+    if (Number.isFinite(next)) setText(format(next))
+  }
+  const begin = () => {
+    // The open field is the row's field grown by one pixel on every side.
+    setWidth(slot.offsetWidth + 2)
+    setText(format(props.value))
+    setOpen(true)
+  }
+  return (
+    <div class="dinkster-canvas-editor-field-slot" ref={slot}
+      onFocusOut={(event) => {
+        if (open() && !slot.contains(event.relatedTarget as Node | null)) { store(Number(text())); setOpen(false) }
+      }}>
+      <div class="dinkster-canvas-field-row dinkster-canvas-editor-field" data-steppers="true" onClick={begin}>
+        <button type="button" class="dinkster-canvas-field-step" tabindex="-1" aria-label="Decrease"
+          onClick={(event) => { event.stopPropagation(); step(-1, event.shiftKey) }}>
+          <CanvasStepGlyph direction={-1} />
+        </button>
+        <span class="dinkster-canvas-field-label">{props.label}</span>
+        <button type="button" class="dinkster-canvas-editor-field-value" aria-label={`${props.label}: ${format(props.value)}`}>
+          {format(props.value)}
+        </button>
+        <button type="button" class="dinkster-canvas-field-step" tabindex="-1" aria-label="Increase"
+          onClick={(event) => { event.stopPropagation(); step(1, event.shiftKey) }}>
+          <CanvasStepGlyph direction={1} />
+        </button>
+      </div>
+      <Show when={open()}>
+        <CanvasRowField
+          look="flat-title"
+          rowWidth={width()}
+          place="right"
+          label={props.label}
+          value={text()}
+          inputLabel={props.label}
+          onInput={setText}
+          onStep={stepText}
+          inputRef={(element) => queueMicrotask(() => { element.focus(); element.select() })}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') { store(Number(text())); setOpen(false) }
+            else if (event.key === 'Escape') setOpen(false)
+            else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+              event.preventDefault()
+              stepText(event.key === 'ArrowUp' ? 1 : -1, event.shiftKey)
+            }
+          }}
+        />
+      </Show>
+    </div>
+  )
+}
+
+/**
+ * A choice of an editor's own, drawn as the node's choice row is: the name,
+ * the chosen entry and the chevron. Pressing the row opens it in place as
+ * the node's choice row opens: the value becomes a filter and the entries
+ * hang under the row at its width, inside one outline.
+ */
+export function CanvasEditorChoice(props: {
+  label: string
+  value: string
+  options: readonly string[]
+  onChange?: (value: string) => void
+}) {
+  const [open, setOpen] = createSignal(false)
+  const [query, setQuery] = createSignal('')
+  const [highlight, setHighlight] = createSignal(0)
+  const [width, setWidth] = createSignal(0)
+  let slot!: HTMLDivElement
+  const shown = () => props.options.filter((option) => option.toLowerCase().includes(query().toLowerCase()))
+  const pick = (index: number) => {
+    const chosen = shown()[index]
+    if (chosen !== undefined) props.onChange?.(chosen)
+    setOpen(false)
+  }
+  const begin = () => {
+    setWidth(slot.offsetWidth + 2)
+    setQuery('')
+    setHighlight(Math.max(0, props.options.indexOf(props.value)))
+    setOpen(true)
+  }
+  return (
+    <div class="dinkster-canvas-editor-field-slot" ref={slot}
+      onFocusOut={(event) => {
+        if (open() && !slot.contains(event.relatedTarget as Node | null)) setOpen(false)
+      }}>
+      <button type="button" class="dinkster-canvas-field-row dinkster-canvas-editor-field" data-steppers="false"
+        aria-haspopup="listbox" onClick={begin}>
+        <span class="dinkster-canvas-field-label">{props.label}</span>
+        <span class="dinkster-canvas-editor-field-value">{props.value}</span>
+        <span class="dinkster-canvas-editor-field-chevron"><CanvasChoiceGlyph /></span>
+      </button>
+      <Show when={open()}>
+        <CanvasRowList
+          look="flat-title"
+          rowWidth={width()}
+          place="right"
+          label={props.label}
+          query={query()}
+          onQuery={(text) => { setQuery(text); setHighlight(0) }}
+          inputLabel={props.label}
+          placeholder={props.value}
+          inputRef={(element) => queueMicrotask(() => element.focus())}
+          options={shown().map((option) => ({ key: option, label: option, ...(option === props.value ? { saved: true } : {}) }))}
+          highlight={highlight()}
+          onHighlight={setHighlight}
+          onPick={pick}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') pick(highlight())
+            else if (event.key === 'Escape') setOpen(false)
+            else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              event.preventDefault()
+              const count = shown().length
+              if (count > 0) setHighlight((highlight() + (event.key === 'ArrowDown' ? 1 : count - 1)) % count)
+            }
+          }}
+        />
+      </Show>
     </div>
   )
 }

@@ -564,6 +564,16 @@ export function CanvasRowFocus(
 const MINUS_PATH = 'M9.5 12.5H15.5'
 const PLUS_PATH = 'M8.5 12.5H14.5M11.5 9.5V15.5'
 
+/** The minus or plus the canvas draws in a number row's stepper zone. */
+export function CanvasStepGlyph(props: { direction: -1 | 1 }) {
+  return <StepGlyph path={props.direction < 0 ? MINUS_PATH : PLUS_PATH} />
+}
+
+/** The chevron the canvas draws at a choice row's end, in the same 24px zone. */
+export function CanvasChoiceGlyph() {
+  return <StepGlyph path="M8.5 10.5L11.5 13.5L14.5 10.5" />
+}
+
 function StepGlyph(props: { path: string }) {
   return (
     <svg
