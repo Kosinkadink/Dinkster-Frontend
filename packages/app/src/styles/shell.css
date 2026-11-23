@@ -195,8 +195,8 @@
 }
 .sidebar-button[aria-pressed='true']::before {
   position: absolute;
-  top: 14px;
-  bottom: 14px;
+  top: 9px;
+  bottom: 9px;
   left: -1px;
   width: 3px;
   border-radius: 0 var(--dinkster-radius-small) var(--dinkster-radius-small) 0;
@@ -223,8 +223,8 @@
 .shell-region-icon-panel[data-active='true'] { fill: currentColor; }
 
 .left-sidebar {
-  width: 76px;
-  flex: 0 0 76px;
+  width: 48px;
+  flex: 0 0 48px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -250,23 +250,17 @@
 .sidebar-button {
   position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--dinkster-space-4);
-  width: 100%;
-  min-height: 56px;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  flex-shrink: 0;
   padding: var(--dinkster-space-4);
-  font-family: var(--dinkster-font-family);
-  font-size: var(--dinkster-type-metadata-size);
-  font-weight: var(--dinkster-weight-regular);
-  line-height: var(--dinkster-type-metadata-line);
-  text-align: center;
 }
 
 .sidebar-button-icon { display: inline-flex; align-items: center; justify-content: center; }
 .sidebar-button-icon svg { width: 20px; height: 20px; stroke-width: 1.5; }
-.sidebar-button-label { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-settings-button { flex: 0 0 auto; margin-top: var(--dinkster-space-4); }
 
 .view-toggle-cluster { display: inline-flex; align-items: center; margin-right: var(--dinkster-space-4); }
@@ -793,9 +787,6 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
   .product-field[data-layout='row'] .product-field-actions button { height: 100%; }
   .product-action-footer { align-items: stretch; flex-direction: column; }
   .product-action-buttons { width: 100%; }
-  .left-sidebar { width: calc(var(--dinkster-space-32) + var(--dinkster-space-16)); flex-basis: calc(var(--dinkster-space-32) + var(--dinkster-space-16)); }
-  .sidebar-button { min-height: 44px; }
-  .sidebar-button-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .dock-panel,
   .rail {
     position: absolute;

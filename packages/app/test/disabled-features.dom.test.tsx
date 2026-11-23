@@ -248,12 +248,12 @@ it('renders backend targeting, review state and live shared-session tooltip hint
 
   const backends = host.querySelector<HTMLButtonElement>('[data-testid="backends-sidebar-toggle"]')!
   expect(backends.getAttribute('aria-pressed')).toBe('false')
-  expect(backends.getAttribute('data-tooltip-label')).toBe('Manage backend connections')
+  expect(backends.getAttribute('data-tooltip-label')).toBe('Backends\nManage backend connections')
   backends.click()
   expect(backends.getAttribute('aria-pressed')).toBe('true')
-  expect(backends.hasAttribute('data-tooltip-label')).toBe(false)
+  expect(backends.getAttribute('data-tooltip-label')).toBe('Backends\nManage backend connections')
   backends.click()
-  expect(backends.getAttribute('data-tooltip-label')).toBe('Manage backend connections')
+  expect(backends.getAttribute('data-tooltip-label')).toBe('Backends\nManage backend connections')
 
   const status = createSignal<SharedSessionStatus>('live')
   app.collabTabs.set(new Map([[app.activeTab()!.id, { session: { status } } as unknown as CollabTabState]]))

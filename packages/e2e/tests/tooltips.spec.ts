@@ -13,7 +13,7 @@ test('opening Library dismisses its focused activity-bar tooltip', async ({ page
   await expect(library).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('app-tooltip')).toBeHidden()
   await library.hover()
-  await expect(page.getByTestId('app-tooltip')).toBeHidden()
+  await expect(page.getByTestId('app-tooltip')).toHaveText('Library\nBrowse packs, templates, and saved workflows', { timeout: 250 })
   await page.keyboard.press('Enter')
   await expect(library).toHaveAttribute('aria-pressed', 'false')
   await page.mouse.move(600, 400)
@@ -22,8 +22,9 @@ test('opening Library dismisses its focused activity-bar tooltip', async ({ page
   await expect(page.getByTestId('app-tooltip')).toBeVisible()
 })
 
-test('cut activity labels show their full title before help without changing fitting labels', async ({ page }, testInfo) => {
+test('icon-only activity items show immediate name-first help on hover and focus, selected or not', async ({ page }, testInfo) => {
   await waitForWorkspaceReady(page)
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('tooltips.delayMs', 3000))
   await page.evaluate(() => window.__dinksterTest!.app.panels.register({
     id: 'long-pack-panel',
     title: 'Image review workspace',
@@ -40,43 +41,51 @@ test('cut activity labels show their full title before help without changing fit
   if (await library.getAttribute('aria-pressed') === 'true') await library.click()
   const tooltip = page.getByTestId('app-tooltip')
   const fullHelp = 'Image review workspace\nInspect the images produced by this pack.'
-  const libraryHelp = 'Browse packs, templates, and saved workflows'
-  expect(await long.locator('.sidebar-button-label').evaluate((label) => label.scrollWidth > label.clientWidth)).toBe(true)
-  expect(await library.locator('.sidebar-button-label').evaluate((label) => label.scrollWidth > label.clientWidth)).toBe(false)
+  const libraryHelp = 'Library\nBrowse packs, templates, and saved workflows'
+  await expect(long).toHaveAccessibleName('Image review workspace')
+  await expect(long).toHaveText('')
+  await expect(long.locator('svg')).toBeVisible()
+  await expect(library).toHaveText('')
 
   await page.mouse.move(600, 400)
   await long.hover()
-  await expect(tooltip).toHaveText(fullHelp)
-  await page.screenshot({ path: testInfo.outputPath('cut-label-help.png') })
+  await expect(tooltip).toHaveText(fullHelp, { timeout: 250 })
+  await page.screenshot({ path: testInfo.outputPath('plain-item-help.png') })
   await page.mouse.move(600, 400)
   await long.focus()
-  await expect(tooltip).toHaveText(fullHelp)
+  await expect(tooltip).toHaveText(fullHelp, { timeout: 250 })
   await page.keyboard.press('Enter')
   await expect(long).toBeFocused()
   await expect(long).toHaveAttribute('aria-pressed', 'true')
   await expect(tooltip).toBeHidden()
+  await page.screenshot({ path: testInfo.outputPath('selected-item.png') })
   await long.hover()
-  await expect(tooltip).toBeHidden()
+  await expect(tooltip).toHaveText(fullHelp, { timeout: 250 })
+  await page.screenshot({ path: testInfo.outputPath('selected-item-help.png') })
+  await page.mouse.move(600, 400)
+  await long.blur()
+  await long.focus()
+  await expect(tooltip).toHaveText(fullHelp, { timeout: 250 })
   await page.keyboard.press('Enter')
   await expect(long).toHaveAttribute('aria-pressed', 'false')
   await page.mouse.move(600, 400)
   await long.blur()
   await long.focus()
-  await expect(tooltip).toHaveText(fullHelp)
+  await expect(tooltip).toHaveText(fullHelp, { timeout: 250 })
 
   await page.getByTestId('graph-canvas').focus()
   await library.hover()
   await expect(tooltip).toHaveText(libraryHelp)
-  await page.screenshot({ path: testInfo.outputPath('fitting-label-help.png') })
   await page.mouse.move(600, 400)
   await library.focus()
   await expect(tooltip).toHaveText(libraryHelp)
 })
 
-test('DOM chrome tooltip observes delay, Alt detail, and hover-out', async ({ page }) => {
+test('Settings keeps immediate help, Alt detail, and hover-out', async ({ page }) => {
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('tooltips.delayMs', 3000))
   const settings = page.getByTestId('settings-button')
   await settings.hover()
-  await expect(page.getByTestId('app-tooltip')).toHaveText('Settings', { timeout: 1_500 })
+  await expect(page.getByTestId('app-tooltip')).toHaveText('Settings', { timeout: 250 })
   await page.mouse.move(600, 400)
   await expect(page.getByTestId('app-tooltip')).toBeHidden()
 
