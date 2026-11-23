@@ -81,9 +81,9 @@ export function CanvasEditorLine(props: { dimmed?: boolean; children: JSX.Elemen
 }
 
 /** A line naming what the editor stores, or a message about it; `tone` colors a problem. */
-export function CanvasEditorNote(props: { tone?: 'problem' | 'muted'; children: JSX.Element }) {
+export function CanvasEditorNote(props: { tone?: 'problem' | 'muted' | undefined; wrap?: boolean; children: JSX.Element }) {
   return (
-    <div class="dinkster-canvas-editor-note" data-tone={props.tone}>
+    <div class="dinkster-canvas-editor-note" data-tone={props.tone} data-wrap={props.wrap === true ? 'true' : undefined}>
       {props.children}
     </div>
   )
@@ -178,14 +178,22 @@ export function CanvasRecorderStrip(props: {
   )
 }
 
-/** A row of an editor's buttons, each with its icon and label. */
+/** A row of an editor's buttons, each with its icon and label; `iconOnly` names the button only for assistive technology. */
 export function CanvasEditorButtons(props: {
-  buttons: readonly { label: string; icon?: LucideIcon; intent?: 'add' | 'remove'; disabled?: boolean; pending?: boolean; onClick?: () => void }[]
+  buttons: readonly { label: string; icon?: LucideIcon; iconOnly?: boolean; intent?: 'add' | 'remove'; disabled?: boolean; pending?: boolean; onClick?: () => void }[]
 }) {
   return (
     <div class="dinkster-canvas-editor-buttons">
       <For each={props.buttons}>
-        {(button) => (
+        {(button) => button.iconOnly === true && button.icon !== undefined ? (
+          <ProductIconButton
+            label={button.label}
+            icon={button.icon}
+            {...(button.intent === 'remove' ? { intent: 'remove' as const } : {})}
+            disabled={button.disabled === true}
+            onClick={() => button.onClick?.()}
+          />
+        ) : (
           <ProductButton
             {...(button.intent === undefined ? {} : { intent: button.intent })}
             disabled={button.disabled === true}

@@ -79,6 +79,7 @@ export const canvasGalleryPages = [
   ['node-look', 'Original and new node look'],
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],
+  ['in-node-editors', 'Editors in the node'],
   ['widget-driven', 'Link-driven widgets'],
   ['widget-offered', 'Offered widgets'],
   ['widget-companions', 'Propagated values'],
