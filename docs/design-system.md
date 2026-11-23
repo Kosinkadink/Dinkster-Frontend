@@ -966,7 +966,7 @@ scoped shared CSS with embedded Noto fonts plus token-derived native overlay
 colors/height and macOS traffic-light position. The DOM bar and native overlay
 both use `surface.frame`. `native.minimumWidth` supplies Linux, macOS (`darwin`)
 and Windows (`win32`) widths from the three `toolbarMinimumWidth` layout tokens:
-374, 454 and 510px. These include the shared narrow row's 350px and native
+384, 464 and 520px. These include the shared narrow row's 360px with running activity and native
 reservations; hosts with additional controls must measure that fuller row and
 apply a greater minimum. The host applies the minimum to window construction
 and resizing; CSS does not enforce a native window size. The installer reuses the first

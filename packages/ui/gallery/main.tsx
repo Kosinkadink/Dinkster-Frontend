@@ -316,20 +316,51 @@ function Gallery() {
               </Section>
               <Section title="Run activity" components="ProductRunActivity">
                 <div class="dinkster-actions">
-                  <ProductRunActivity running={1} waiting={0} label="1 running" />
-                  <ProductRunActivity running={3} waiting={0} label="3 running" />
-                  <ProductRunActivity running={0} waiting={2} label="2 queued" />
-                  <ProductRunActivity running={1} waiting={2} label="1 running, 2 queued" />
-                  <ProductRunActivity running={3} waiting={1} label="3 running, 1 queued" />
+                  <ProductRunActivity
+                    running={1}
+                    waiting={0}
+                    label="1 running"
+                  />
+                  <ProductRunActivity
+                    running={3}
+                    waiting={0}
+                    label="3 running"
+                  />
+                  <ProductRunActivity
+                    running={0}
+                    waiting={2}
+                    label="2 queued"
+                  />
+                  <ProductRunActivity
+                    running={1}
+                    waiting={2}
+                    label="1 running, 2 queued"
+                  />
+                  <ProductRunActivity
+                    running={3}
+                    waiting={1}
+                    label="3 running, 1 queued"
+                  />
                 </div>
               </Section>
               <Section title="Run icons" components="ProductRunIcon">
                 <div class="dinkster-actions">
-                  <span>Idle <ProductRunIcon icon={Settings} /></span>
-                  <span>Queued <ProductRunIcon icon={Settings} queued /></span>
-                  <span>Running <ProductRunIcon icon={Settings} running /></span>
-                  <span>Finished <ProductRunIcon icon={Settings} result="finished" /></span>
-                  <span>Failed <ProductRunIcon icon={Settings} result="failed" /></span>
+                  <span>
+                    Idle <ProductRunIcon icon={Settings} />
+                  </span>
+                  <span>
+                    Queued <ProductRunIcon icon={Settings} queued />
+                  </span>
+                  <span>
+                    Running <ProductRunIcon icon={Settings} running />
+                  </span>
+                  <span>
+                    Finished{' '}
+                    <ProductRunIcon icon={Settings} result="finished" />
+                  </span>
+                  <span>
+                    Failed <ProductRunIcon icon={Settings} result="failed" />
+                  </span>
                 </div>
               </Section>
               <Section
@@ -918,6 +949,14 @@ function Gallery() {
 function WindowToolbarGallery() {
   const [state, setState] = createSignal('idle')
   const [shortcut, setShortcut] = createSignal('Ctrl+K')
+  const [runActivity, setRunActivity] = createSignal('idle')
+  const runCounts = () => ({
+    running:
+      runActivity() === 'multiple' ? 3 : runActivity() === 'running' ? 1 : 0,
+    waiting: runActivity() === 'idle' ? 0 : 2,
+  })
+  const runSummary = () =>
+    `${runCounts().running} running, ${runCounts().waiting} queued`
   const [brand, setBrand] = createSignal('menu')
   const [projectName, setProjectName] = createSignal('Sample project')
   const [account, setAccount] = createSignal('none')
@@ -957,6 +996,20 @@ function WindowToolbarGallery() {
               <For each={['idle', 'running', 'pending']}>
                 {(value) => <option value={value}>{value}</option>}
               </For>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <ProductField label="All-workflow activity">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={runActivity()}
+              onChange={(event) => setRunActivity(event.currentTarget.value)}
+            >
+              <option value="idle">Idle</option>
+              <option value="waiting">Queued only</option>
+              <option value="running">One running, two queued</option>
+              <option value="multiple">Three running, two queued</option>
             </ProductSelect>
           )}
         </ProductField>
@@ -1131,6 +1184,12 @@ function WindowToolbarGallery() {
                       }
                       actions={(narrow) => (
                         <>
+                          <Show when={runCounts().running > 0}>
+                            <ProductRunActivity
+                              {...runCounts()}
+                              label={runSummary()}
+                            />
+                          </Show>
                           <ProductMenu
                             label="Customize layout"
                             icon={Settings}

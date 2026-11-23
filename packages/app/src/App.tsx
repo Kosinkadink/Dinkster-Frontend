@@ -1468,6 +1468,10 @@ export function App(props: {
     executions()
     return app.executionList().filter((execution) => execution.status === 'queued' || execution.status === 'running')
   }
+  const allWorkflowActivity = () => {
+    executions()
+    return executionActivity(app.executionList())
+  }
   const runsActivity = () => {
     executions()
     const tab = activeTab()
@@ -2809,6 +2813,9 @@ export function App(props: {
         }
         search={<UniversalSearchTrigger shortcut={searchShortcut()} onOpen={() => app.searchOpen.set(true)} />}
         actions={<>
+          <Show when={allWorkflowActivity().running > 0}>
+            <ProductRunActivity {...allWorkflowActivity()} label={message('runs.activity', allWorkflowActivity())} />
+          </Show>
           <Show when={managedContext().kind === 'workflow'}>
             <ProductWindowAction label={message('shell.window.moveToMain')} icon={PanelTop} data-testid="redock-workflow" onClick={redockCurrentWindow} />
           </Show>

@@ -234,6 +234,7 @@ test('circular account toolbar fits its measured platform minimums', async ({
   page,
 }) => {
   await page.goto('/#window-toolbar')
+  await page.getByLabel('All-workflow activity').selectOption('running')
   await page.addStyleTag({
     content:
       '.dinkster-window-toolbar-host[data-platform="win32"] { padding-right:148px }',
@@ -249,9 +250,9 @@ test('circular account toolbar fits its measured platform minimums', async ({
     ]) {
       await page.getByLabel('Account state').selectOption(account)
       for (const [platform, width] of [
-        ['linux', 374],
-        ['darwin', 454],
-        ['win32', 510],
+        ['linux', 384],
+        ['darwin', 464],
+        ['win32', 520],
       ] as const) {
         const bar = page
           .getByRole('region', { name: `custom dark ${platform}`, exact: true })
@@ -394,7 +395,9 @@ test('44px toolbar keeps account and full compact metadata in one row', async ({
       })
       await expect(account).toHaveCSS('height', '32px')
       await expect(account).toHaveCSS('width', '32px')
-      const symbol = bar.locator('.dinkster-window-toolbar-brand .dinkster-brand-mark').first()
+      const symbol = bar
+        .locator('.dinkster-window-toolbar-brand .dinkster-brand-mark')
+        .first()
       await expect(symbol).toHaveCSS('height', '22px')
       await expect(bar.locator('.dinkster-wordmark')).toHaveCount(0)
       const marking = bar.locator('.dinkster-window-identity-compact')
@@ -460,6 +463,67 @@ test('toolbar search is outlined, capped and centered with native reservations',
         .toEqual({ width: 480, center: 1000 })
     }
   }
+})
+
+test('toolbar activity separates running and queued counts and disappears without running work', async ({
+  page,
+}) => {
+  await page.goto('/#window-toolbar')
+  await page.getByLabel('Execution state').selectOption('running')
+  await page.getByLabel('Account state').selectOption('signed-out')
+  const bar = page
+    .getByRole('region', { name: 'custom dark linux', exact: true })
+    .locator('header')
+  await expect(bar.locator('.dinkster-run-activity')).toHaveCount(0)
+  await page.getByLabel('All-workflow activity').selectOption('waiting')
+  await expect(bar.locator('.dinkster-run-activity')).toHaveCount(0)
+  for (const [state, running] of [
+    ['running', '1'],
+    ['multiple', '3'],
+  ] as const) {
+    await page.getByLabel('All-workflow activity').selectOption(state)
+    await expect(
+      bar.getByRole('img', { name: `${running} running, 2 queued` }),
+    ).toBeVisible()
+    await expect(bar.locator('.dinkster-run-activity-running')).toHaveText(
+      running,
+    )
+    await expect(bar.locator('.dinkster-run-activity-waiting')).toHaveText('2')
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect
+        .poll(async () => {
+          const bounds = (await bar.boundingBox())!
+          const activity = (await bar
+            .locator('.dinkster-run-activity')
+            .boundingBox())!
+          return (
+            activity.x >= bounds.x &&
+            activity.x + activity.width <= bounds.x + bounds.width
+          )
+        })
+        .toBe(true)
+      for (const control of await bar
+        .locator('button, .dinkster-run-activity, .dinkster-window-identity')
+        .all()) {
+        const bounds = (await control.boundingBox())!
+        expect(bounds.x).toBeGreaterThanOrEqual(12)
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 12)
+      }
+      const search = (await bar
+        .getByRole('button', { name: 'Search', exact: true })
+        .boundingBox())!
+      const activity = (await bar
+        .locator('.dinkster-run-activity')
+        .boundingBox())!
+      expect(search.x + search.width).toBeLessThanOrEqual(activity.x)
+      await bar.screenshot({
+        path: `test-results/captures/toolbar-run-${state}-${width}.png`,
+      })
+    }
+  }
+  await page.getByLabel('All-workflow activity').selectOption('idle')
+  await expect(bar.locator('.dinkster-run-activity')).toHaveCount(0)
 })
 
 test('Rich toolbar labels preserve branding, compact geometry and pending focus', async ({
@@ -662,7 +726,7 @@ for (const state of ['running', 'pending'])
           ).toBe(true)
           const searchBounds = (await search.boundingBox())!
           expect(searchBounds.width).toBeGreaterThanOrEqual(116)
-          expect(searchBounds.width).toBe(contentWidth === 940 ? 186 : 286)
+          expect(searchBounds.width).toBe(contentWidth - 738)
           const layoutBounds = (await bar
             .getByRole('button', { name: 'Customize layout', exact: true })
             .boundingBox())!
