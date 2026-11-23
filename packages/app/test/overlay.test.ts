@@ -20,6 +20,7 @@ import {
   type ExecutionRef,
 } from '@dinkster/core'
 import { AppState, type Tab } from '../src/app-state.js'
+import { layoutGroups, repairEditorLayout, splitGroup } from '../src/editor-layout.js'
 import { historicalRegistry, historicalSchemas } from './historical-schemas.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
@@ -88,6 +89,113 @@ describe('follow-latest default', () => {
     expect(app.executionsForTab(subgraph).map((entry) => entry.ref)).toEqual([subgraphRun])
   })
 
+})
+
+describe('tab run marks', () => {
+  it('shows the last run to end, not the last one queued, and clears cancelled results', () => {
+    const slow = run(basic, 100)
+    const fast = run(basic, 200)
+    expect(app.tabRunState(basic)).toBe('queued')
+    app.store.apply({ kind: 'started', execution: slow, timestamp: 201 })
+    app.store.apply({ kind: 'completed', execution: fast, timestamp: 202 })
+    expect(app.tabRunState(basic)).toBe('running')
+    app.store.apply({ kind: 'error', execution: slow, timestamp: 400, runtimeNodeId: 'n0',
+      detail: { exceptionType: 'RuntimeError', exceptionMessage: 'No image', traceback: [] } })
+    expect(app.tabRunState(basic)).toBe('failed')
+    const cancelled = run(basic, 500)
+    app.store.apply({ kind: 'cancelled', execution: cancelled, timestamp: 501 })
+    expect(app.tabRunState(basic)).toBe('idle')
+  })
+
+  it('tracks each lineage independently of overlay pins and clears results on edit or a new run', async () => {
+    expect(app.tabRunState(basic)).toBe('idle')
+    const first = run(basic, 100)
+    app.store.apply({ kind: 'started', execution: first, timestamp: 101 })
+    expect(app.tabRunState(basic)).toBe('running')
+    expect(app.tabRunState(subgraph)).toBe('idle')
+    app.store.apply({ kind: 'completed', execution: first, timestamp: 102 })
+    expect(app.tabRunState(basic)).toBe('finished')
+    const other = run(subgraph, 200)
+    app.store.apply({ kind: 'started', execution: other, timestamp: 201 })
+    expect(app.tabRunState(subgraph)).toBe('running')
+    expect(app.tabRunState(basic)).toBe('finished')
+    const edited = await app.dispatchTo(basic, { command: 'node.move', params: {
+      graphId: basic.store.doc.root, positions: { n0: { x: 419, y: 173 } },
+    } })
+    expect(edited.ok).toBe(true)
+    expect(app.tabRunState(basic)).toBe('idle')
+    const second = run(basic, 300)
+    app.store.apply({ kind: 'started', execution: second, timestamp: 301 })
+    app.pinExecutionOverlay(basic.id, first)
+    expect(app.tabRunState(basic)).toBe('running')
+    app.store.apply({ kind: 'completed', execution: second, timestamp: 302 })
+    expect(app.tabRunState(basic)).toBe('finished')
+    const third = run(basic, 400)
+    expect(app.tabRunState(basic)).toBe('queued')
+    app.store.apply({ kind: 'error', execution: third, timestamp: 401, runtimeNodeId: 'n0',
+      detail: { exceptionType: 'RuntimeError', exceptionMessage: 'No image', traceback: [] } })
+    expect(app.tabRunState(basic)).toBe('failed')
+    expect(app.tabRunState(subgraph)).toBe('running')
+    expect(await app.openExecutionView(second)).toBe(true)
+    expect(app.tabRunState(app.activeTab()!)).toBe('finished')
+  })
+})
+
+describe('document tab actions', () => {
+  it('duplicates live and frozen workflows with independent lineages and no run history', async () => {
+    const ref = run(basic, 100)
+    app.store.apply({ kind: 'completed', execution: ref, timestamp: 101 })
+    const copy = (await app.duplicateTab(basic.id))!
+    expect(copy.title).toBe('basic copy')
+    expect(copy.store.doc).toEqual({ ...basic.store.doc, lineage: copy.store.doc.lineage })
+    expect(copy.store.doc.lineage).not.toBe(basic.store.doc.lineage)
+    expect(copy.store).not.toBe(basic.store)
+    expect(app.backendForTab(copy)).toBe(app.backendForTab(basic))
+    expect(app.isTabDirty(copy.id)).toBe(true)
+    expect(app.tabRunState(copy)).toBe('idle')
+    expect(app.activeTabId.get()).toBe(copy.id)
+    expect((await app.duplicateTab(basic.id))?.title).toBe('basic copy 2')
+    expect(await app.openExecutionView(ref)).toBe(true)
+    const frozen = app.activeTab()!
+    app.renameTab(frozen.id, 'Not allowed')
+    expect(app.activeTab()?.title).toBe(frozen.title)
+    const thawed = (await app.duplicateTab(frozen.id))!
+    expect(thawed.title).toBe('basic copy 3')
+    expect(thawed.execution).toBeUndefined()
+    expect(thawed.editorKind).toBe('graph')
+    expect(app.isTabDirty(thawed.id)).toBe(true)
+    expect(app.tabs.get()).toContain(frozen)
+
+    const nodeId = Object.keys(frozen.store.doc.graphs[frozen.store.doc.root]!.nodes)[0]!
+    const graphId = frozen.store.doc.root
+    expect((await app.dispatchTo(frozen, { command: 'node.move', params: { graphId, positions: { [nodeId]: { x: 137, y: 249 } } } })).ok).toBe(true)
+    const arranged = frozen.store.doc
+    expect((await app.dispatchTo(frozen, { command: 'node.remove', params: { graphId, nodeIds: [nodeId] } })).ok).toBe(false)
+    expect(frozen.store.doc).toBe(arranged)
+    expect((await app.dispatchTo(frozen, { command: 'batch', params: { invocations: [
+      { command: 'node.move', params: { graphId, positions: { [nodeId]: { x: 999, y: 555 } } } },
+      { command: 'batch', params: { invocations: [{ command: 'node.remove', params: { graphId, nodeIds: [nodeId] } }] } },
+    ] } })).ok).toBe(false)
+    expect(frozen.store.doc).toBe(arranged)
+    expect(app.isTabDirty(frozen.id)).toBe(false)
+    const before = app.tabs.get().map((tab) => tab.id)
+    const layout = repairEditorLayout(app.editorSplits.layout.get(), before)
+    app.editorSplits.layout.set(splitGroup(layout, layout.focusedGroupId, 'column', frozen.id))
+    const groups = layoutGroups(app.editorSplits.layout.get().root)
+    const replacement = (await app.duplicateTab(frozen.id, true))!
+    expect(app.tabs.get().map((tab) => tab.id)).toEqual(before.map((id) => id === frozen.id ? replacement.id : id))
+    expect(layoutGroups(app.editorSplits.layout.get().root)).toEqual(groups.map((group) => ({
+      ...group,
+      tabIds: group.tabIds.map((id) => id === frozen.id ? replacement.id : id),
+      activeTabId: group.activeTabId === frozen.id ? replacement.id : group.activeTabId,
+    })))
+    expect(replacement.store.doc.view).toEqual(arranged.view)
+    expect(replacement.execution).toBeUndefined()
+    expect(replacement.title).toBe('basic copy 4')
+    expect(app.executionForTab(replacement)).toBeUndefined()
+    expect(await app.openExecutionView(ref)).toBe(true)
+    expect(app.activeTab()!.store.doc).toEqual(basic.store.doc)
+  })
 })
 
 describe('pinning', () => {

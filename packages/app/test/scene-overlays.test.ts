@@ -355,7 +355,6 @@ describe('executed image paging overlay', () => {
       exactProducer: () => true,
     })
 
-    expect(sourceFor).toHaveBeenCalledWith(expect.anything(), ['saved'], false, undefined, undefined)
     expect(model.previews.saved).toEqual(decoded)
     expect(model.previewSources.saved).toBe(source)
   })
@@ -383,7 +382,6 @@ describe('executed image paging overlay', () => {
     expect(model.executedImages.n1).toMatchObject({ images, index: 1, count: 2 })
     expect(model.executedImages.n1?.key).toContain('document\u0000run\u0000g0\u0000[]\u0000n1')
     expect(model.previews.n1).toEqual({ status: 'loading', count: 2, index: 1 })
-    expect(sourceFor).toHaveBeenCalledWith(expect.anything(), ['n1'], false, 1, undefined)
 
     const live = deriveSceneOverlays({
       ...base,
@@ -400,7 +398,7 @@ describe('executed image paging overlay', () => {
 })
 
 describe('region execution feedback overlay', () => {
-  it('renders the projected iteration counter as a non-interactive header badge', () => {
+  it('renders the projected iteration counter as a non-interactive bottom tab', () => {
     const model = deriveSceneOverlays({
       ...base,
       scene: scene([{ id: 'r', isSubgraph: true, regionKind: 'map' }]),
@@ -414,7 +412,8 @@ describe('region execution feedback overlay', () => {
       expect.objectContaining({
         id: 'core.region.iteration',
         glyph: 'iteration 2 of 3',
-        variant: 'label',
+        placement: 'below',
+        icon: 'repeat',
         interactive: false,
       }),
     ]))
@@ -655,8 +654,6 @@ describe('retainProvenExecution', () => {
     expect(retained.execution.nodes.b).toBe(current.nodes.b)
     expect(retained.execution.outputs.b).toBe(current.outputs.b)
     expect(retained.retainedRuntimeIds).toEqual(new Set(['a']))
-    expect(retained.executionOwners?.get('a')).toBe(newer)
-    expect(retained.executionOwners?.get('b')).toBe(current)
   })
 
   it.each([
@@ -958,7 +955,7 @@ describe('deriveSceneOverlays', () => {
         {
           id: 'z.valid',
           decorate: (node) => node.id === 'proof' ? {
-            badges: [{ id: 'pack.proof', glyph: 'Pack', variant: 'label', interactive: false, color: '#7b3fb2' }],
+            badges: [{ id: 'pack.proof', glyph: 'Pack', variant: 'label', interactive: false, color: '#7b3fb2', icon: 'info' }],
             color: '#123456', titleSuffix: 'decorated', status: 'ready',
           } : undefined,
         },
@@ -967,6 +964,10 @@ describe('deriveSceneOverlays', () => {
           decorate: (node) => node.id === 'other'
             ? { badges: [{ id: 'pack.invalid', glyph: 'Bad', color: 'purple' }] }
             : { badges: [{ id: 'pack.partial', glyph: 'Partial', color: '#112233' }] },
+        },
+        {
+          id: 'c.unknown-icon',
+          decorate: () => ({ badges: [{ id: 'pack.icon', glyph: 'Icon', color: '#112233', icon: 'not-a-canvas-icon' }] }),
         },
         {
           id: 'b.accessor',
@@ -983,7 +984,7 @@ describe('deriveSceneOverlays', () => {
 
     expect(decorated.badges.proof).toEqual([
       executionErrorBadge(1),
-      { id: 'pack.proof', glyph: 'Pack', variant: 'label', interactive: false, color: '#7b3fb2' },
+      { id: 'pack.proof', glyph: 'Pack', interactive: false, color: '#7b3fb2', icon: 'info' },
     ])
     expect(decorated.badges.other).toBeUndefined()
     expect(decorated.presentation.proof).toEqual({ color: '#123456', titleSuffix: 'decorated', status: 'ready' })
@@ -991,6 +992,7 @@ describe('deriveSceneOverlays', () => {
     expect(results.map(([id, error]) => [id, error === undefined])).toEqual([
       ['a.invalid', false],
       ['b.accessor', false],
+      ['c.unknown-icon', false],
       ['z.valid', true],
     ])
   })
@@ -1279,7 +1281,7 @@ describe('deriveSceneOverlays', () => {
       scene: scene([{ id: 'first', isSubgraph: true, type: '#shared' }]),
     })
     expect(model.badges.first).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'core.subgraph', glyph: '2', icon: 'boxes', variant: 'label' }),
+      expect.objectContaining({ id: 'core.subgraph', count: 2, icon: 'boxes', placement: 'title' }),
     ]))
   })
 

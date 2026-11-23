@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, nativeAppViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeAppViewTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const mp4 = readFileSync(new URL('../fixtures/media-overlay/with_metadata.mp4', import.meta.url))
 const png = readFileSync(new URL('../fixtures/media-overlay/with_metadata.png', import.meta.url))
@@ -18,7 +18,7 @@ async function install(
 ) {
   const requests: URL[] = []
   let strip = png
-  await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 404, json: { error: 'isolated video fixture' } }))
+  await page.route(/\/api\//, (route) => route.fulfill({ status: 404, json: { error: 'isolated video fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'video-test', schemaWire: 2 }, nodes: {} } }))
@@ -55,7 +55,7 @@ async function install(
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined,
   ), { timeout: 15_000 }).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   strip = Buffer.from(await page.evaluate(() => {
     const canvas = document.createElement('canvas')
     canvas.width = 640; canvas.height = 45

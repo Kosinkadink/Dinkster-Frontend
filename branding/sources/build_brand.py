@@ -21,9 +21,8 @@ ET.register_namespace("", SVG)
 ET.register_namespace("inkscape", INK)
 ET.register_namespace("sodipodi", SOD)
 
-# The outlined Outfit scaffold is retained for editing. These proposed contours
-# replace its rounded terminals with the reference's diagonal construction.
-# Coordinates use the reference lettering's 56-unit ascender-to-baseline frame.
+# Historical comparisons use the original diagonal construction and the
+# reference lettering's 56-unit ascender-to-baseline frame.
 K_DIAGONAL_SPAN = 14 * math.sqrt(2)
 K_ARM_TOP = 63 - K_DIAGONAL_SPAN
 K_LEG_INNER = 3 + K_DIAGONAL_SPAN
@@ -31,7 +30,7 @@ K_JOIN_X = (63 - K_LEG_INNER) / 2
 I_CUT_SLOPE = 0.7
 I_FACE_GAP = 4 / math.hypot(1, 8 / 19)
 I_STEM_TOP = 16 + I_FACE_GAP * math.hypot(1, I_CUT_SLOPE)
-LETTERS = {
+HISTORICAL_LETTERS = {
     "i": f"M2 0H17V{16 - 17 * I_CUT_SLOPE}L0 16V2Z M0 {I_STEM_TOP}L15 {I_STEM_TOP - 15 * I_CUT_SLOPE}V47L6 56H0Z",
     "n": "M0 56V25L12 14H30L42 25V56H28V33Q28 26 21 26Q14 26 14 33V56Z",
     "k": f"M7 0L15.9 -8.9A3 3 0 0 1 21 -6.8V{K_ARM_TOP - 21}L{K_ARM_TOP - 14} 14H49L30 33L67 70H{70 - K_LEG_INNER}L{K_JOIN_X} {63 - K_JOIN_X}L7 56Z",
@@ -50,8 +49,10 @@ REGULAR_WORDMARK_POSITIONS = {
     "e": 311.625,
     "r": 357.125,
 }
-YELLOW_PLANE_X = 331.6546762589928
-YELLOW_PLANE_TOP = 395.0
+FOOT_JUNCTION_X = 331.6546762589928
+FOOT_JUNCTION_Y = 530.611510791367
+FOOT_RADIUS = 38.4
+FOOT_BAND_WIDTH = 58.0
 REGULAR_WORDMARK_SCALE = 1.35
 REGULAR_WORDMARK_BASELINE = 188.0
 HEAVIER_POSITIONS = {
@@ -83,13 +84,35 @@ N_RIGHT = 28 + N_COUNTER
 I_TOP = 16 + (HEAVIER_GAP + D_STEM_WIDTH - 15) * math.hypot(1, 8 / 15)
 E_COUNTER = f"M14 34V{34 - HEAVIER_GAP}H{14 + HEAVIER_GAP * 11 / 8}Z"
 HEAVIER_LETTERS = {
-    **LETTERS,
+    **HISTORICAL_LETTERS,
     "i": f"M0 0H17V6.933333L-2 17.066667V2Z M0 {I_TOP}L15 {I_TOP - 8}V49L8 56H0Z",
     "n": f"M0 56V25L12 13H{N_RIGHT - 12}L{N_RIGHT} 25V56H{14 + N_COUNTER}V33Q{14 + N_COUNTER} 26 {14 + N_COUNTER / 2} 26Q14 26 14 33V56Z",
     "k": "M0 6L8.9 -2.9A3 3 0 0 1 14 -0.8V22L29 7H49L23 33L65 70H44L16 40L0 56Z",
     "t": f"M0 5L14 -6V14H30L24 27H14V31Q14 {27 + N_COUNTER} 20 {27 + N_COUNTER}H29V56H12L0 44Z",
     "e": f"M40 25L16 43H38L31 56H18Q0 56 0 38V14H25Q34 14 40 25Z {E_COUNTER}",
 }
+
+# The heavier comparison remains frozen; regular production contours are outlined.
+LETTERS = {
+    path.get("id"): path.get("d")
+    for path in ET.parse(ROOT / "sources/letter-contours.svg").getroot()
+}
+
+
+def foot_band_path():
+    direction = complex(-1, 0.969) / math.hypot(1, 0.969)
+    center = complex(
+        FOOT_JUNCTION_X - FOOT_RADIUS,
+        FOOT_JUNCTION_Y - FOOT_RADIUS * (1 - direction.imag) / -direction.real,
+    )
+    radius = FOOT_RADIUS + FOOT_BAND_WIDTH
+    tangent = center + radius * complex(direction.imag, -direction.real)
+    end = tangent + direction * 900
+    return (
+        f"M{FOOT_JUNCTION_X + FOOT_BAND_WIDTH} 395V{center.imag}"
+        f"A{radius} {radius} 0 0 1 {tangent.real} {tangent.imag}"
+        f"L{end.real} {end.imag}H-400V395Z"
+    )
 
 
 def node(tag, attrs=None, parent=None):
@@ -329,6 +352,11 @@ def main():
     parser.add_argument("--inkscape", required=True)
     args = parser.parse_args()
     approved = ET.parse(ROOT / "sources/dinkster-d.svg").getroot()[0]
+    historical_d = next(
+        element
+        for element in ET.parse(ROOT / "svg/dinkster-wordmark-heavier-dark.svg").iter()
+        if element.get("id") == "wordmark-heavier-dark-d"
+    )
     master = node(
         "svg", {"viewBox": "0 0 1700 11000", "width": "1700", "height": "11000"}
     )
@@ -414,7 +442,7 @@ def main():
     )
     for name, contour in (
         ("coral", geometry.to_svg([coral_commands], geometry.Transform(1, 0, 0))),
-        ("yellow", f"M0 {YELLOW_PLANE_TOP}H{YELLOW_PLANE_X}V1000H0Z"),
+        ("foot", foot_band_path()),
     ):
         clip = node(
             "clipPath", {"id": f"plane-{name}", "clipPathUnits": "userSpaceOnUse"}, defs
@@ -430,7 +458,7 @@ def main():
     for label, color, name in (
         ("03_Chromatic_Cyan", "#32E6C5", "cyan"),
         ("04_Chromatic_Coral", "#FF7468", "coral"),
-        ("05_Chromatic_Yellow", "#FFD86B", "yellow"),
+        ("05_Chromatic_Foot", "#FF7468", "foot"),
     ):
         plane = layer(master, label)
         copy = deepcopy(approved)
@@ -486,7 +514,7 @@ def main():
         node("rect", {"width": "1000", "height": "1000", "opacity": "0"}, color_symbol)
         clipped = node("g", {"clip-path": f"url(#{clip_id})"}, color_symbol)
         node("rect", {"width": "1000", "height": "1000", "fill": "#32E6C5"}, clipped)
-        for name, fill in (("coral", "#FF7468"), ("yellow", "#FFD86B")):
+        for name, fill in (("coral", "#FF7468"), ("foot", "#FF7468")):
             node(
                 "rect",
                 {
@@ -517,7 +545,7 @@ def main():
             artboards,
         )
         symbol = node("g", {"transform": "translate(16.9 76.6) scale(.139)"}, wordmark)
-        d = deepcopy(approved)
+        d = deepcopy(historical_d if variant.startswith("heavier") else approved)
         d.set("id", f"wordmark-{variant}-d")
         d.set("fill", "currentColor")
         symbol.append(d)

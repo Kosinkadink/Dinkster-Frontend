@@ -1,7 +1,10 @@
 import { expect, test } from '../../e2e/visual.js'
 
 for (const theme of ['dark', 'light'] as const) {
-  test(`portable About assets and live theme at ${theme}`, async ({ page }) => {
+  test(`portable About assets and live theme at ${theme}`, async ({
+    page,
+    baseURL,
+  }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.setViewportSize({ width: 520, height: 320 })
     await page.addInitScript(() => {
@@ -60,7 +63,7 @@ for (const theme of ['dark', 'light'] as const) {
       ),
     ).toEqual([])
     expect(
-      requests.every((url) => new URL(url).origin === 'http://127.0.0.1:5287'),
+      requests.every((url) => new URL(url).origin === new URL(baseURL!).origin),
     ).toBe(true)
     await page.goto(
       '/portable/about.html?title=%3Cscript%3Eexample%3C%2Fscript%3E&version=test',

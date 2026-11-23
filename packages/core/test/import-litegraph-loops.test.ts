@@ -237,10 +237,6 @@ const helperSchemas = new Map<string, NodeSchema>([
           type: { kind: 'variable', templateId: 'T' },
         },
       ],
-      selector: {
-        input: 'condition',
-        branches: { false: 'on_false', true: 'on_true' },
-      },
     },
   ],
 ])

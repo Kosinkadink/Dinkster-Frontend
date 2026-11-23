@@ -7,7 +7,6 @@ import {
   type CollabSessionDescriptor,
   type SharedSessionStatus,
 } from '@dinkster/core'
-import { DinksterConnection } from '@dinkster/client'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppState, type CollabTabState, type Tab } from '../src/app-state.js'
@@ -115,8 +114,6 @@ function mountProductionRace() {
     removeItem: (key: string) => { storage.delete(key) },
   })
   vi.stubGlobal('sessionStorage', undefined)
-  vi.spyOn(DinksterConnection.prototype, 'retainAssets').mockImplementation(async (owner, declaration) =>
-    ({ ...owner, ...declaration, revision: declaration.revision + 1 }))
   let snapshot: unknown
   let snapshotCount = 0
   let currentDescriptor: CollabSessionDescriptor | undefined

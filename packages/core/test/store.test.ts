@@ -1159,6 +1159,72 @@ describe('view.setWidgetRepresentation', () => {
   })
 })
 
+describe('view.setTextBoxLines', () => {
+  const invocation = (lines: number | null | string, inputId = 'prompt') => ({
+    command: 'view.setTextBoxLines',
+    params: { graphId: 'g0', nodeId: 'n1', inputId, lines },
+  })
+
+  it('keeps each box height as view state that undo and redo replay, clearing one box at a time', () => {
+    const store = makeStore({
+      ...doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) }),
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 10, y: 20 } } } } } },
+    })
+    const beforeHash = semanticHashOf(store.doc)
+    expect(store.dispatch(invocation(6)).ok).toBe(true)
+    expect(store.dispatch(invocation(3, 'negative')).ok).toBe(true)
+    expect(store.doc.view.graphs.g0!.nodes.n1!.textLines).toEqual({ prompt: 6, negative: 3 })
+    expect(semanticHashOf(store.doc)).toBe(beforeHash)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.view.graphs.g0!.nodes.n1!.textLines).toEqual({ prompt: 6 })
+    expect(store.redo()).toBe(true)
+    expect(store.dispatch(invocation(null)).ok).toBe(true)
+    expect(store.doc.view.graphs.g0!.nodes.n1!.textLines).toEqual({ negative: 3 })
+    expect(store.dispatch(invocation(null, 'negative')).ok).toBe(true)
+    expect(store.doc.view.graphs.g0!.nodes.n1).toEqual({ position: { x: 10, y: 20 } })
+  })
+
+  it('refuses a height that is not a positive whole number of lines', () => {
+    const store = makeStore()
+    for (const lines of [0, -2, 2.5, '4']) {
+      expect(store.dispatch(invocation(lines)).ok).toBe(false)
+    }
+    expect(store.dispatch({ ...invocation(4), params: { ...invocation(4).params, nodeId: 'missing' } }).ok).toBe(false)
+  })
+})
+
+describe('view.setPreviewFolded', () => {
+  const fold = (folded: boolean) => ({ command: 'view.setPreviewFolded', params: { graphId: 'g0', nodeId: 'n1', folded } })
+  const collapse = (collapsed: boolean) => ({ command: 'view.setNodeCollapsed', params: { graphId: 'g0', nodeIds: ['n1'], collapsed } })
+
+  it('keeps the open node\'s fold apart from a minimized node\'s, which starts folded and closes again on minimize or restore', () => {
+    const store = makeStore({
+      ...doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) }),
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 10, y: 20 } } } } } },
+    })
+    const beforeHash = semanticHashOf(store.doc)
+    const view = () => store.doc.view.graphs.g0!.nodes.n1!
+    expect(store.dispatch(fold(true)).ok).toBe(true)
+    expect(view()).toEqual({ position: { x: 10, y: 20 }, previewFolded: true })
+    expect(semanticHashOf(store.doc)).toBe(beforeHash)
+    // Minimized, opening the caption sets only the minimized choice.
+    expect(store.dispatch(collapse(true)).ok).toBe(true)
+    expect(store.dispatch(fold(false)).ok).toBe(true)
+    expect(view()).toMatchObject({ previewFolded: true, minimizedPreviewOpen: true })
+    // Restoring brings back the open node's own choice and forgets the minimized one.
+    expect(store.dispatch(collapse(false)).ok).toBe(true)
+    expect(view()).toEqual({ position: { x: 10, y: 20 }, previewFolded: true })
+    expect(store.undo()).toBe(true)
+    expect(view()).toMatchObject({ collapsed: true, minimizedPreviewOpen: true })
+    expect(store.undo()).toBe(true)
+    expect(view().minimizedPreviewOpen).toBeUndefined()
+    expect(store.dispatch(collapse(false)).ok).toBe(true)
+    expect(store.dispatch(fold(false)).ok).toBe(true)
+    expect(view()).toEqual({ position: { x: 10, y: 20 } })
+    expect(store.dispatch({ ...fold(true), params: { ...fold(true).params, folded: 'yes' } }).ok).toBe(false)
+  })
+})
+
 describe('named net commands', () => {
   function makeNetStore(ext?: WorkflowDocument['ext']) {
     const initial = doc({
