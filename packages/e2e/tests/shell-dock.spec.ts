@@ -175,8 +175,7 @@ test('a zone with no renderable tabs hides without losing its saved open state',
   await expect(regionToggle).toBeEnabled()
 })
 
-test('left bar selects the panel title and each toggle activates or closes its panel', async ({ page }) => {
-  // Include the longer built-in title in the left-bar label geometry checks.
+test('left bar uses square icon-only actions and each toggle activates or closes its panel', async ({ page }) => {
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as {
       dock: { dock(id: string, zone: 'left'): boolean; setOpen(zone: 'left', open: boolean): void }
@@ -184,21 +183,22 @@ test('left bar selects the panel title and each toggle activates or closes its p
     app.dock.dock('extensions', 'left')
     app.dock.setOpen('left', false)
   })
-  await page.evaluate(() => document.fonts.ready)
-  const labels = page.locator('.left-sidebar .sidebar-button-label')
-  await expect(labels.filter({ hasText: 'Extensions' })).toBeVisible()
-  for (const label of await labels.all()) {
-    const geometry = await label.evaluate((element) => {
-      const text = document.createRange()
-      text.selectNodeContents(element)
-      const content = text.getBoundingClientRect()
-      const available = element.getBoundingClientRect()
-      return { textWidth: content.width, width: available.width, textHeight: content.height, height: available.height, lines: text.getClientRects().length }
-    })
-    expect(geometry.lines).toBe(1)
-    expect(geometry.textWidth).toBeLessThanOrEqual(geometry.width)
-    expect(geometry.textHeight).toBeLessThanOrEqual(geometry.height)
+  await expect(page.locator('.left-sidebar').getByRole('button', { name: 'Extensions', exact: true })).toBeVisible()
+  for (const width of [1440, 900, 769, 768, 480]) {
+    await page.setViewportSize({ width, height: 800 })
+    expect((await page.locator('.left-sidebar').boundingBox())!.width).toBe(48)
+    for (const button of await page.locator('.left-sidebar button').all()) {
+      await expect(button).not.toHaveAccessibleName('')
+      await expect(button).toHaveText('')
+      const item = (await button.boundingBox())!
+      const icon = (await button.locator('svg').boundingBox())!
+      expect(item.width).toBe(40)
+      expect(item.height).toBe(40)
+      expect(icon.width).toBe(20)
+      expect(icon.height).toBe(20)
+    }
   }
+  await page.setViewportSize({ width: 1440, height: 900 })
 
   // Nothing docked by default.
   await expect(page.getByTestId('dock-panel')).not.toBeVisible()
@@ -221,8 +221,12 @@ test('left bar selects the panel title and each toggle activates or closes its p
   await expect(zone.getByRole('heading', { name: 'Backends', exact: true })).toBeVisible()
   await expect(page.getByTestId('library-overlay')).toHaveCount(1)
 
-  // The status connection item closes the active Backends zone.
+  // Status opens Backends idempotently; its sidebar toggle closes the zone.
   await page.getByTestId('status-connection').click()
+  await expect(dock).toBeVisible()
+  await expect(dock).toHaveAttribute('data-active-panel', 'backends')
+  await expect(page.getByTestId('backends-panel')).toBeVisible()
+  await page.getByTestId('backends-sidebar-toggle').click()
   await expect(dock).not.toBeVisible()
 
   // Re-open and close via the zone header X.

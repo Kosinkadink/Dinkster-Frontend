@@ -2945,7 +2945,6 @@ export function App(props: {
                     tooltip={panel.description ?? panel.title}
                     pressed={sidebarPressed(panel.id)}
                     panelId={panel.id}
-                    suppressTooltipWhenPressed={true}
                     testId={panel.toggleTestId}
                     onActivate={() => {
                       tooltips.hide()
