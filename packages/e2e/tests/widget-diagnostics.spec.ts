@@ -286,4 +286,14 @@ test('node problem badges expose friendly details, clear live, and distinguish b
   await expect.poll(() => page.evaluate(() =>
     (window.__dinksterTest!.renderer!.getBadges()['widgets'] ?? []).map((badge) => badge.id),
   )).not.toContain('core.problem.warning')
+
+  // Show on canvas opens the node's box with the picked problem's line
+  // highlighted; nothing opened it before the click.
+  await expect(page.getByTestId('problem-box')).toHaveCount(0)
+  await openRailPanel(page, 'Problems')
+  const entry = problemEntries(page, 'compile.input.missing')
+  await entry.locator('summary').click()
+  await entry.getByRole('button', { name: 'Show on canvas' }).click()
+  await expect(box).toHaveAttribute('data-node', 'widgets')
+  await expect(box.locator('[data-highlighted="true"]')).toHaveAttribute('data-row', 'required')
 })

@@ -1935,16 +1935,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     problemBoxHost?.highlightRow(undefined)
   }
 
-  const openProblemBox = (nodeId: string, highlightedRow?: string): void => {
+  /** Opens the node's box, optionally with one line highlighted; false when the node has no line to show. */
+  const openProblemBox = (nodeId: string, pick?: (line: ProblemBoxLine) => boolean): boolean => {
     const host = problemBoxHost
     const owner = host?.owner()
-    if (!host || owner === undefined) return
+    if (!host || owner === undefined) return false
     const lines = host.lines(nodeId)
-    if (lines.length === 0) return closeProblemBox()
+    const picked = pick === undefined ? undefined : lines.find(pick)
+    if (lines.length === 0 || (pick !== undefined && picked === undefined)) return false
     setBadgePopover(undefined)
-    const highlighted = highlightedRow === undefined ? undefined : lines.find((line) => line.row === highlightedRow)?.key
-    setProblemBox({ owner, nodeId, nodeTitle: host.title(nodeId), lines, ...(highlighted === undefined ? {} : { highlighted }) })
-    host.highlightRow(highlightedRow === undefined ? undefined : { nodeId, row: highlightedRow })
+    setProblemBox({ owner, nodeId, nodeTitle: host.title(nodeId), lines, ...(picked === undefined ? {} : { highlighted: picked.key }) })
+    host.highlightRow(picked?.row === undefined ? undefined : { nodeId, row: picked.row })
+    return true
   }
 
   createEffect(() => {
@@ -3145,7 +3147,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             performance.now() - problemBoxPointerClose.at < 1000
           problemBoxPointerClose = undefined
           if (problemBox()?.nodeId === node.id || closedByThisPress) closeProblemBox()
-          else openProblemBox(node.id)
+          else if (!openProblemBox(node.id)) closeProblemBox()
           return
         }
         closeProblemBox()
@@ -4452,6 +4454,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
             { width: canvasEl.clientWidth, height: canvasEl.clientHeight },
           ))
+          // Show on canvas opens the node's box with the picked problem's
+          // line highlighted, once this rebuild has projected its problems.
+          const picked = focusRequest?.diagnostic
+          if (picked !== undefined && input === undefined) {
+            queueMicrotask(() => {
+              if (activeTab() !== tab || currentGraphId(tab) !== graphId) return
+              openProblemBox(node.id, (line) => line.problem.diagnostic === picked ||
+                (line.problem.diagnostic.code === picked.code && line.problem.diagnostic.message === picked.message))
+            })
+          }
         } else if (link) {
           controller.setSelection([], [link.id])
           camera.animateTo(viewportCenteredOnNode(

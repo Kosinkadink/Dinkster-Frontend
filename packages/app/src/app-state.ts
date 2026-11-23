@@ -1221,6 +1221,8 @@ export interface DiagnosticFocusRequest {
   readonly anchor: DiagnosticAnchor
   readonly openAssetInput?: string
   readonly missingAssetDigest?: string
+  /** The problem Show on canvas picked; the node's box opens on its line. */
+  readonly diagnostic?: Diagnostic
   /** Current view context for solver anchors that carry only a port. */
   readonly portInstancePath?: readonly string[]
 }
