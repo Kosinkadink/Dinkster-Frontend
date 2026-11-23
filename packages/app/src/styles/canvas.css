@@ -573,7 +573,7 @@
   overflow: auto;
 }
 /* A list or editor a button press opened, including one from its form's rows, sits above that form. */
-.widget-popover-layer:has(.widget-editor-popover[data-editor-target='local']) { z-index: 26; }
+.widget-popover-layer:has([data-editor-target='local']) { z-index: 26; }
 .widget-editor-popover.color-editor { width: min(300px, calc(100% - 8px)); }
 .widget-editor-popover.combo-dropdown { height: min(300px, calc(100% - 8px)); overflow: hidden; }
 .widget-editor-popover.combo-dropdown.editable-combo-dropdown { width: min(480px, calc(100% - 8px)); height: auto; max-height: calc(100% - 8px); overflow-y: auto; }
@@ -665,14 +665,9 @@
 .button-link-address { font-family: var(--dinkster-font-mono, monospace); color: var(--dinkster-text-secondary); }
 .button-link-body .product-action-footer { margin: 0; }
 
-/* An Ask step's form, in the side part beside its node. */
-.button-ask-form {
-  position: fixed;
-  z-index: 25;
-  display: grid;
-  gap: var(--dinkster-space-8);
-  width: 280px;
-  padding: var(--dinkster-space-12);
-}
-.button-ask-title { margin: 0; font-size: var(--dinkster-type-body-size); font-weight: 600; }
-.button-ask-form .product-action-footer { margin: 0; }
+/* An Ask step's form: the side part of its button's row, above the boxes and below the row editor it opens. */
+.palette-layer.button-ask-layer { z-index: 25; }
+.button-ask-frame .dinkster-canvas-field-side { pointer-events: auto; }
+.button-ask-form { width: calc(var(--dinkster-space-32) * 7); }
+.button-ask-title { margin: 0 0 var(--dinkster-space-4); }
+.button-ask-missing { margin: var(--dinkster-space-4) 0 0; color: var(--dinkster-text-secondary); }

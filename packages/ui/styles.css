@@ -474,6 +474,25 @@
 .dinkster-canvas-side-link { min-width: var(--dinkster-space-24); padding: 0; border: 0; background: transparent; color: var(--dinkster-text-secondary); font: inherit; text-align: left; cursor: pointer; }
 .dinkster-canvas-side-link > span { display: inline-block; vertical-align: top; border-bottom: var(--dinkster-border-width) dotted var(--dinkster-text-muted); }
 .dinkster-canvas-side-link:hover { color: var(--dinkster-text-primary); }
+/* A field row inside a side part looks like a row on a node; the buttons that end it look like a node's buttons. */
+.dinkster-canvas-side-row { display: flex; align-items: center; box-sizing: border-box; height: var(--dinkster-input-canvas-height); margin-top: calc(var(--dinkster-space-4) / 2); overflow: hidden; border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-field); color: var(--dinkster-text-secondary); }
+.dinkster-canvas-side-row-open { display: flex; flex: 1 1 auto; align-items: center; gap: var(--dinkster-space-8); min-width: 0; height: 100%; padding: 0 calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.dinkster-canvas-side-row[data-steppers='true'] .dinkster-canvas-side-row-open { padding: 0; }
+.dinkster-canvas-side-row-open:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); border-radius: var(--dinkster-radius-small); }
+.dinkster-canvas-side-row-label { flex: none; max-width: 50%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dinkster-canvas-side-row-value { margin-left: auto; overflow: hidden; color: var(--dinkster-text-primary); white-space: nowrap; text-overflow: ellipsis; }
+.dinkster-canvas-side-row-step { display: grid; place-items: center; flex: none; width: var(--dinkster-space-24); height: 100%; padding: 0; border: 0; background: transparent; color: var(--dinkster-text-disabled); cursor: pointer; }
+.dinkster-canvas-side-row-step:hover { color: var(--dinkster-text-primary); }
+.dinkster-canvas-side-row-chevron { flex: none; width: var(--dinkster-space-12); height: var(--dinkster-space-12); color: var(--dinkster-text-disabled); }
+.dinkster-canvas-side-row-switch { position: relative; flex: none; box-sizing: border-box; width: calc(var(--dinkster-space-24) - var(--dinkster-space-4)); height: calc(var(--dinkster-space-8) + var(--dinkster-space-4) / 2); margin-left: auto; border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-text-disabled); }
+.dinkster-canvas-side-row-switch::after { content: ''; position: absolute; top: calc(var(--dinkster-space-4) / 4); left: calc(var(--dinkster-space-4) / 4); width: var(--dinkster-space-8); height: var(--dinkster-space-8); border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-text-primary); }
+.dinkster-canvas-side-row-switch[data-on='true'] { background: var(--dinkster-border-focus); }
+.dinkster-canvas-side-row-switch[data-on='true']::after { left: calc(var(--dinkster-space-8) + var(--dinkster-space-4) * 3 / 4); }
+.dinkster-canvas-side-actions { display: flex; gap: var(--dinkster-space-4); margin-top: var(--dinkster-space-8); }
+.dinkster-canvas-side-action { flex: 1 1 0; min-width: 0; height: var(--dinkster-input-canvas-height); padding: 0 var(--dinkster-space-8); border: 0; border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-selected); box-shadow: inset 0 0 0 var(--dinkster-border-width) var(--dinkster-border-hover); color: var(--dinkster-text-primary); font: inherit; cursor: pointer; }
+.dinkster-canvas-side-action[data-primary='true'] { background: var(--dinkster-accent-background); box-shadow: inset 0 0 0 var(--dinkster-border-width) var(--dinkster-accent-border); color: var(--dinkster-accent-foreground); }
+.dinkster-canvas-side-action:disabled { opacity: 0.5; cursor: default; }
+.dinkster-canvas-side-action:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: var(--dinkster-border-width); }
 /* A panel hung under or over an open field, such as a color picker: one shape with the field and no line where they meet. */
 .dinkster-canvas-field-panel { box-sizing: border-box; overflow-y: auto; background: var(--dinkster-surface-panel); }
 .dinkster-canvas-field-panel[data-place='below'] { border-radius: 0 0 var(--dinkster-radius-small) var(--dinkster-radius-small); }

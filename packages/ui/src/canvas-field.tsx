@@ -1,5 +1,6 @@
 import {
   For,
+  Index,
   Show,
   createEffect,
   createSignal,
@@ -9,7 +10,7 @@ import {
   type JSX,
 } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
-import { ArrowDown, ArrowUp, Dice5, Lock, Minus, Plus } from 'lucide-solid'
+import { ArrowDown, ArrowUp, ChevronDown, Dice5, Lock, Minus, Plus } from 'lucide-solid'
 
 /** A box in screen pixels. */
 export interface CanvasBox {
@@ -637,6 +638,108 @@ export function CanvasSideLink(props: {
     >
       <span>{props.children}</span>
     </button>
+  )
+}
+
+/**
+ * A field row inside a side part, drawn as the canvas draws one on a node:
+ * the name on the left and the value on the right, with the minus and plus
+ * on a number, a chevron on a choice and a switch on a toggle. Pressing the
+ * row opens it as a row on a node opens; the minus and plus step it.
+ */
+export function CanvasSideRow(props: {
+  label: string
+  value: string
+  kind: 'number' | 'choice' | 'toggle' | 'text'
+  /** A toggle's state. */
+  on?: boolean
+  onOpen: (row: HTMLElement) => void
+  onStep?: (direction: -1 | 1, fast: boolean) => void
+  testId?: string
+}) {
+  let row!: HTMLDivElement
+  const step = (direction: -1 | 1) => (
+    <Show when={props.onStep}>
+      {(onStep) => (
+        <button
+          type="button"
+          class="dinkster-canvas-side-row-step"
+          tabindex="-1"
+          aria-label={`${direction < 0 ? 'Decrease' : 'Increase'} ${props.label}`}
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={(event) => onStep()(direction, event.shiftKey)}
+        >
+          <StepGlyph path={direction < 0 ? MINUS_PATH : PLUS_PATH} />
+        </button>
+      )}
+    </Show>
+  )
+  return (
+    <div
+      ref={(element) => (row = element)}
+      class="dinkster-canvas-side-row"
+      data-kind={props.kind}
+      data-steppers={props.onStep !== undefined}
+    >
+      {step(-1)}
+      <button
+        type="button"
+        class="dinkster-canvas-side-row-open"
+        data-testid={props.testId}
+        {...(props.kind === 'toggle' ? { 'aria-pressed': props.on === true } : {})}
+        onClick={() => props.onOpen(row)}
+      >
+        <span class="dinkster-canvas-side-row-label">{props.label}</span>
+        <Show
+          when={props.kind === 'toggle'}
+          fallback={<span class="dinkster-canvas-side-row-value">{props.value}</span>}
+        >
+          <span
+            class="dinkster-canvas-side-row-switch"
+            data-on={props.on === true}
+            aria-hidden="true"
+          />
+        </Show>
+        <Show when={props.kind === 'choice'}>
+          <ChevronDown class="dinkster-canvas-side-row-chevron" aria-hidden="true" />
+        </Show>
+      </button>
+      {step(1)}
+    </div>
+  )
+}
+
+/**
+ * The buttons that end a side part, such as Cancel and Apply, drawn as a
+ * node's buttons sharing one line; the primary one is marked.
+ */
+export function CanvasSideActions(props: {
+  actions: readonly {
+    readonly label: string
+    readonly onClick: () => void
+    readonly primary?: boolean
+    readonly disabled?: boolean
+    readonly testId?: string
+  }[]
+}) {
+  return (
+    <div class="dinkster-canvas-side-actions">
+      {/* By place, so a button stays the same element while its state changes under a press. */}
+      <Index each={props.actions}>
+        {(action) => (
+          <button
+            type="button"
+            class="dinkster-canvas-side-action"
+            data-primary={action().primary === true}
+            data-testid={action().testId}
+            disabled={action().disabled === true}
+            onClick={() => action().onClick()}
+          >
+            {action().label}
+          </button>
+        )}
+      </Index>
+    </div>
   )
 }
 

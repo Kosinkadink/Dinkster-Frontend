@@ -139,6 +139,7 @@ import { createMirrorImageEstimator } from './mirror-image-previews.js'
 import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
 import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
 import { RowFocusOverlay, type RowFocusState } from './editors/RowFocusOverlay.js'
+import type { RowBox } from './editors/row-placement.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
 import { applyNodeDecorations, deriveSceneOverlays, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
 import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
@@ -1733,6 +1734,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   let clientRectToWorld = (_rect: DOMRect): { x: number; y: number; width: number; height: number } | undefined => undefined
   /** A button's line in world space; a menu button's is its whole node. */
   let buttonWorldRect = (_place: ButtonPlace): { x: number; y: number; width: number; height: number } | undefined => undefined
+  /**
+   * The field a press's list or form opens on: the button's own cell inside
+   * its row's insets, as a field sharing a line opens on its cell. A menu
+   * button has no row, so its field is a row's height under its node, where
+   * the menu's work shows.
+   */
+  let buttonFieldBox = (_place: ButtonPlace): RowBox | undefined => undefined
   const buttonScreenRect = (place: ButtonPlace): ScreenRect | undefined => {
     sceneVersion()
     const rect = buttonWorldRect(place)
@@ -1770,7 +1778,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     edit: (request, signal) => {
       let target: Extract<EditorTarget, { kind: 'local' }> | undefined
       return answerOnce<Json>(signal, (answer) => {
-        const rect = buttonWorldRect(request.place)
+        // A list opens in place, as a choice row's does: the button's row becomes its filter.
+        const view = props.app.widgetRegistryForTab(request.place.tab).kind(request.spec.widgetType)?.defaultView(request.spec)
+        const box = editsRowsInPlace() && view === 'core.select' && request.spec.remote === undefined
+          ? buttonFieldBox(request.place)
+          : undefined
+        const rect = box?.rect ?? buttonWorldRect(request.place)
         if (rect === undefined) { answer(undefined); return }
         target = { kind: 'local', commit: answer, cancel: () => answer(undefined), ...(request.list ? { list: request.list } : {}) }
         pressEditorPlaces.set(target, request.place)
@@ -1782,6 +1795,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           spec: request.spec,
           multiline: false,
           rect,
+          ...(box === undefined ? {} : { inRow: { look: box.look, nodeTop: box.nodeTop, nodeBottom: box.nodeBottom, storedAtOpen: request.initial ?? null } }),
           initial: request.initial,
           ...(request.stagedFile ? { stagedFile: request.stagedFile } : {}),
         })
@@ -4251,6 +4265,23 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const left = Math.min(...line.map((item) => 'inset' in item ? item.inset : 0))
       const right = Math.max(...line.map((item) => 'inset' in item ? item.inset + ('width' in item && item.width !== undefined ? item.width : node.layout.width - item.inset * 2) : node.layout.width))
       return { x: node.x + left, y: node.y + row.y, width: right - left, height: row.height }
+    }
+    buttonFieldBox = (place) => {
+      const node = shownOnThisGraph(place) ? scene.nodes.find((candidate) => candidate.id === place.nodeId) : undefined
+      if (node === undefined) return undefined
+      const tokens = renderer.getDesignTokens()
+      const { fieldInsetX, fieldInsetY, portRowHeight } = tokens.rowGeometry
+      const row = place.menu ? undefined : node.layout.rows.find((item) => item.kind === 'button' && item.buttonId === place.button)
+      if (!place.menu && row?.kind !== 'button') return undefined
+      const line = row?.kind === 'button'
+        ? { x: node.x + row.inset, y: node.y + row.y, width: row.width ?? node.layout.width - row.inset * 2, height: row.height }
+        : { x: node.x + fieldInsetX, y: node.y + node.layout.height + 4, width: node.layout.width - fieldInsetX * 2, height: portRowHeight }
+      return {
+        rect: { x: line.x, y: line.y + fieldInsetY, width: line.width, height: line.height - fieldInsetY * 2 },
+        look: tokens.nodeLook,
+        nodeTop: node.y,
+        nodeBottom: node.y + node.layout.height,
+      }
     }
     function refreshButtonPaint(tab: Tab | undefined): void {
       const paint: Record<string, Record<string, ButtonPaint>> = {}
@@ -7459,24 +7490,42 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       </Show>
       <Show when={askForm()} keyed>
         {(form) => (
-          <Show when={buttonScreenRect({ ...form.place, menu: true })}>
-            {(rect) => (
+          <Show when={(sceneVersion(), buttonFieldBox(form.place))}>
+            {(box) => (
               <ButtonAskForm
                 request={form.request}
-                beside={rect()}
+                box={box()}
+                menu={form.place.menu === true}
+                viewport={editorViewport}
+                boundary={canvasEl.parentElement!}
                 widgetKind={(type) => props.app.widgetRegistryForTab(form.place.tab).kind(type)}
                 editRow={(row, at, value, set) => {
-                  const rect = clientRectToWorld(at)
-                  if (rect === undefined) return
+                  const world = clientRectToWorld(at.row)
+                  const formWorld = clientRectToWorld(at.form)
+                  if (world === undefined || formWorld === undefined) return
+                  const spec = row.widget
+                  // The rows a node edits in place open in place here too; the form stands for the node.
+                  const view = spec === undefined ? undefined : props.app.widgetRegistryForTab(form.place.tab).kind(spec.widgetType)?.defaultView(spec)
+                  const inRow = view !== undefined && editsRowsInPlace() && spec?.remote === undefined &&
+                    ['core.number', 'core.slider', 'core.line', 'core.color', 'core.integerColor', 'core.select'].includes(view)
+                  // A form drawn at normal size while zoomed out spans more of the world than it covers on screen.
+                  const zoom = Math.max(1, editorViewport().scale)
                   askRowTarget = { kind: 'local', commit: set, cancel: () => {} }
                   setEditor({
                     tab: form.place.tab,
                     graphId: form.place.graphId,
                     label: row.displayName ?? row.id,
                     target: askRowTarget,
-                    spec: row.widget,
+                    spec,
                     multiline: false,
-                    rect,
+                    rect: inRow ? { x: world.x, y: world.y, width: at.row.width / zoom, height: at.row.height / zoom } : world,
+                    ...(inRow ? { inRow: {
+                      look: box().look,
+                      nodeTop: formWorld.y,
+                      nodeBottom: formWorld.y + formWorld.height,
+                      storedAtOpen: value ?? null,
+                      ...(row.tooltip === undefined ? {} : { help: row.tooltip }),
+                    } } : {}),
                     initial: value,
                   })
                 }}

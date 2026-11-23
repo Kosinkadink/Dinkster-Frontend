@@ -87,9 +87,17 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
   let live = true
   onCleanup(() => { live = false })
 
-  const lookup = lookupProvider?.(props)
-  const lookupState = (): RowListLookupState | undefined => lookup?.state()
   const declared = comboOptions(spec)
+  // A press's Pick brings its list's state with it; Try again asks the
+  // press's lookup again, which opens the list anew with its answer.
+  const pickList = ed.target.kind === 'local' ? ed.target.list : undefined
+  const lookup: RowListLookup | undefined = lookupProvider?.(props) ?? (pickList === undefined ? undefined : {
+    state: () => pickList.state === 'failed'
+      ? { kind: 'unavailable', reason: 'failed', refreshing: false }
+      : pickList.state === 'paused' ? { kind: 'paused', options: declared } : { kind: 'stale', options: declared, refreshing: false },
+    refresh: () => { pickList.retry?.(); props.close() },
+  })
+  const lookupState = (): RowListLookupState | undefined => lookup?.state()
   const options = createMemo<readonly ComboOption[]>(() => {
     const state = lookupState()
     if (state === undefined) return declared
@@ -240,7 +248,8 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
 
   // The declared default, stored by its link even when the current options
   // do not hold it: a choice the person makes, checked like any other.
-  const defaultValue = effectiveWidgetDefault(spec)
+  // A press's Pick has nothing stored and no default.
+  const defaultValue = ed.target.kind === 'local' && stored === undefined ? undefined : effectiveWidgetDefault(spec)
   const storeDefault = (): void => {
     if (defaultValue === undefined) return
     store(defaultValue as Json, formatWidgetValue(defaultValue, spec))

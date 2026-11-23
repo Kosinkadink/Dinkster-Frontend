@@ -615,7 +615,7 @@ describe('steps that are not a button\'s', () => {
 
     const clashing = twoNodes()
     const clash = await runSteps(clashing, [part('n1', [set('a', { value: 5 })]), part('n1', [set('a', { value: 6 })])], hostOf(), { conflictMessage: 'These fixes disagree.' })
-    expect(clash).toMatchObject({ kind: 'failed', message: 'Nothing was changed. These fixes disagree.' })
+    expect(clash).toMatchObject({ kind: 'failed', message: 'These fixes disagree.' })
     expect(clashing.canUndo).toBe(false)
     // One part may set a field twice, and two parts may agree.
     const agreeing = twoNodes()
@@ -649,7 +649,7 @@ describe('steps that are not a button\'s', () => {
     const started = twoNodes()
     edit(started, 'b', 9)
     expect(await runSteps(started, fix, hostOf(), { unchanged: (doc) => doc.graphs['g0']!.nodes['n1']!.values['b'] === 0, staleMessage: stale }))
-      .toMatchObject({ kind: 'failed', message: `Nothing was changed. ${stale}` })
+      .toMatchObject({ kind: 'failed', message: stale })
 
     const meanwhile = twoNodes()
     const first = waiting()
@@ -657,7 +657,7 @@ describe('steps that are not a button\'s', () => {
     await Promise.resolve()
     edit(meanwhile, 'b', 9)
     first.answer.settle({ state: 'ready', value: 3n })
-    expect(await running).toMatchObject({ kind: 'failed', message: `Nothing was changed. ${stale}` })
+    expect(await running).toMatchObject({ kind: 'failed', message: stale })
     expect(valuesOf(meanwhile)).toMatchObject({ a: 1, b: 9 })
 
     // Without strict the user's value is kept and reported; with strict the run fails.
@@ -667,7 +667,7 @@ describe('steps that are not a button\'s', () => {
     await Promise.resolve()
     edit(strict, 'a', 2)
     second.answer.settle({ state: 'ready', value: 3n })
-    expect(await strictRun).toMatchObject({ kind: 'failed', message: `Nothing was changed. ${stale}` })
+    expect(await strictRun).toMatchObject({ kind: 'failed', message: stale })
     expect(valuesOf(strict)).toMatchObject({ a: 2 })
   })
 

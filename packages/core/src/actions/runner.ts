@@ -225,9 +225,12 @@ export const NO_WAIT_MESSAGE = 'These steps wait on a pack or a lookup, so they 
 /** A value as steps handle it: whole numbers are bigints and decimals numbers. */
 type Value = FormulaValue
 
-class Refusal extends Error {}
-const refuse = (message: string): never => {
-  throw new Refusal(message)
+/** `own` marks a message the caller passed, which the outcome shows as it is. */
+class Refusal extends Error {
+  constructor(message: string, readonly own = false) { super(message) }
+}
+const refuse = (message: string, own = false): never => {
+  throw new Refusal(message, own)
 }
 
 class Cancelled extends Error {}
@@ -1009,7 +1012,7 @@ class Press {
       const view = viewOf(live.doc, this.target, this.host) ?? refuse('The node was removed while the button waited.')
       if (action.kind === 'value' || action.kind === 'mode') {
         if (edited.has(`${action.kind === 'value' ? 'values' : 'controllers'}:${action.path}`)) {
-          if (this.options.strict === true) return refuse(this.options.staleMessage ?? STALE_MESSAGE)
+          if (this.options.strict === true) return refuse(this.options.staleMessage ?? STALE_MESSAGE, this.options.staleMessage !== undefined)
           this.skip(action.path, 'edited')
           continue
         }
@@ -1151,8 +1154,9 @@ export async function runSteps(
   return run(session, parts, host, options)
 }
 
-const failedOutcome = (message: string, notes: readonly string[] = []): PressOutcome =>
-  ({ kind: 'failed', message: `Nothing was changed. ${message}`, warning: true, skipped: [], notes })
+/** A failure; a message the caller passed is shown as it is, any other after "Nothing was changed." */
+const failedOutcome = (message: string, notes: readonly string[] = [], own = false): PressOutcome =>
+  ({ kind: 'failed', message: own ? message : `Nothing was changed. ${message}`, warning: true, skipped: [], notes })
 
 async function run(session: DocumentSession, parts: readonly StepPart[], host: ActionHost, options: PressOptions): Promise<PressOutcome> {
   const stale = options.staleMessage ?? STALE_MESSAGE
@@ -1161,7 +1165,8 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
     if (steps.some((step) => isOutsideStep(step) || ASKS_THE_USER.has(step.step))) return failedOutcome(INSIDE_ONLY_MESSAGE)
     if (options.noWait === true && steps.some((step) => step.step === 'call')) return failedOutcome(NO_WAIT_MESSAGE)
   }
-  if (options.unchanged?.(session.doc) === false) return failedOutcome(stale)
+  const ownStale = options.staleMessage !== undefined
+  if (options.unchanged?.(session.doc) === false) return failedOutcome(stale, [], ownStale)
 
   // Which fields of each node the run touches change while it waits, and whether a node goes.
   const placeKey = (place: StepPlace): string => `${place.graphId} ${place.nodeId}`
@@ -1212,11 +1217,11 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
     const writes = new Map<string, string>()
     for (const press of presses) {
       for (const [field, value] of press.finalWrites()) {
-        if (writes.has(field) && writes.get(field) !== value) refuse(options.conflictMessage ?? CONFLICT_MESSAGE)
+        if (writes.has(field) && writes.get(field) !== value) refuse(options.conflictMessage ?? CONFLICT_MESSAGE, options.conflictMessage !== undefined)
         writes.set(field, value)
       }
     }
-    if (options.unchanged?.(session.doc) === false) refuse(stale)
+    if (options.unchanged?.(session.doc) === false) refuse(stale, ownStale)
     if (gone || options.stillCurrent?.() === false) refuse('The node was removed while the button waited.')
 
     // Build everything again on the live document and store it as one undo step.
@@ -1237,7 +1242,7 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
     options.onProgress?.(undefined)
     const notes = presses.flatMap((press) => press.notes)
     if (error instanceof Cancelled) return { kind: 'cancelled', skipped: [], notes: [] }
-    if (error instanceof Refusal) return failedOutcome(error.message, notes)
+    if (error instanceof Refusal) return failedOutcome(error.message, notes, error.own)
     return failedOutcome(error instanceof Error && error.message !== '' ? error.message : 'The button could not finish.', notes)
   }
 
