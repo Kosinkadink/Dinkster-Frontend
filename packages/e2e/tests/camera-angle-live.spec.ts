@@ -3,7 +3,7 @@ import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js
 
 test('camera composer writes real siblings, executes orbit coordinates and preserves undo', async ({ page }, testInfo) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 20_000 })
   await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({

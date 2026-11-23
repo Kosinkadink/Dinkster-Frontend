@@ -1,4 +1,4 @@
-import { expect, nativeTest as test } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => {
   await page.routeWebSocket('**/api/events?*', () => {})
@@ -22,10 +22,7 @@ test.beforeEach(async ({ page }) => {
     }),
   )
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(
-    /\d+ node schemas/,
-    { timeout: 15_000 },
-  )
+  await waitForWorkspaceReady(page)
   await page.addStyleTag({
     content:
       '*, *::before, *::after { animation: none !important; transition: none !important; }',

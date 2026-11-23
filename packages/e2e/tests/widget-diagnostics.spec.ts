@@ -108,7 +108,6 @@ test.beforeEach(async ({ page }) => {
     packs: [], assets: [], errors: [],
   } }))
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
 })
 
@@ -121,8 +120,7 @@ test('an additive nested combo field keeps the node editable and reports its nam
     }] } },
   } }))
   await page.reload()
-  await expect(page.getByTestId('status-bar')).toContainText('1 node schemas', { timeout: 15_000 })
-  await waitForWorkspaceReady(page)
+  await waitForWorkspaceReady(page, 1)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'additive-widget', root: 'g0',

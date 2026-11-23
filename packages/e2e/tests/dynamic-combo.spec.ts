@@ -9,7 +9,7 @@
  * swap in the scene, branch-local widget values survive round trips, and
  * one undo restores the previous selection atomically.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
 
@@ -54,7 +54,7 @@ const selectedOf = (page: Page): Promise<string | undefined> =>
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const concrete = (name: string) => ({ kind: 'concrete', name })
     const widget = (id: string, widgetType: string, defaultValue: number) => ({

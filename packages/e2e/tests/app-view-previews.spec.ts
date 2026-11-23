@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, appViewTest as test, type Page } from './fixtures.js'
+import { expect, appViewTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/app-view-preview-promotion'
 const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XxW8WQAAAABJRU5ErkJggg==', 'base64')
@@ -94,7 +94,7 @@ async function injectLiveFrame(page: Page, width: number, height: number, label:
 test.beforeEach(async ({ page }) => {
   mkdirSync(proofDir, { recursive: true })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'

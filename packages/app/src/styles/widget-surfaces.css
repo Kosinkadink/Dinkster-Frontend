@@ -492,17 +492,26 @@
 }
 
 .frozen-banner {
-  border-color: var(--dinkster-info-border);
+  flex-wrap: nowrap;
 }
 
-.frozen-banner[data-sync='diverged'] {
-  border-color: var(--dinkster-warning-border);
+.frozen-banner > svg,
+.frozen-banner .frozen-label,
+.frozen-banner .banner-button {
+  flex: none;
+  white-space: nowrap;
 }
 
 .frozen-label {
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--dinkster-info-foreground);
+  font-weight: var(--dinkster-weight-regular);
+  color: var(--dinkster-text-primary);
+}
+
+.frozen-banner .frozen-sync {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .frozen-schema-warning {
@@ -575,7 +584,8 @@
 .app-tooltip {
   position: fixed;
   z-index: 30;
-  max-width: min(360px, calc(100vw - 16px));
+  width: max-content;
+  max-width: min(360px, var(--tooltip-available-width, calc(100vw - 16px)));
   padding: 7px 9px;
   background: var(--dinkster-surface-panel);
   border: 1px solid var(--dinkster-border-subtle);
@@ -585,6 +595,7 @@
   pointer-events: none;
   white-space: pre-wrap;
 }
+.app-tooltip [role='tooltip'] { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
 .app-tooltip-title { color: var(--dinkster-text-primary); font-weight: 600; margin-bottom: 3px; }
 .app-tooltip-detail { color: var(--dinkster-text-secondary); margin-top: 3px; }
 

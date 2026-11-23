@@ -4,7 +4,8 @@ The shared `dinkster-image` format, version 2, remains available to layered
 assets, previews and compositor execution. The Image documents workspace and
 image editors are parked; no product control opens them. Existing stored image
 documents, drafts and assets are not modified or deleted. Their authoring code
-and tests are preserved in [the rework queue](rework-queue.md#image-documents-workspace).
+and tests are preserved in
+[Image documents workspace](https://github.com/Kosinkadink/comfy-vibe-station/issues/1190).
 
 ## Shared format
 

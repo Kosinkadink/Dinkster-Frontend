@@ -6,7 +6,6 @@ const gridProofDir = '/tmp/app-view-layout-grid'
 const mobileProofDir = '/tmp/app-view-layout-mobile'
 
 async function registerSchema(page: Page): Promise<void> {
-  await waitForWorkspaceReady(page)
   await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AppLayoutTest',
@@ -58,7 +57,6 @@ test.beforeEach(async ({ page }) => {
   mkdirSync(gridProofDir, { recursive: true })
   mkdirSync(mobileProofDir, { recursive: true })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForWorkspaceReady(page)
   await registerSchema(page)
   await page.evaluate(async () => {
@@ -145,7 +143,7 @@ test('authors text and a group, renders the clean flow, and restores it after re
     ;(window.__dinksterTest!.app as unknown as { flushPersistTabs(): void }).flushPersistTabs()
   })
   await page.reload()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await registerSchema(page)
   await waitForOwnedTab(page)
   await selectAppView(page)
@@ -409,7 +407,7 @@ test('renders mixed grid and flow in row-major DOM order and restores it after r
     ;(window.__dinksterTest!.app as unknown as { flushPersistTabs(): void }).flushPersistTabs()
   })
   await page.reload()
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   await registerSchema(page)
   await waitForOwnedTab(page)
   await selectAppView(page)
