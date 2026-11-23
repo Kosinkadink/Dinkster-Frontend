@@ -64,3 +64,7 @@ the editor works out now, the field carries the warning "The last run could
 not work out frame rate and used the default, 24.", also listed in Problems.
 It goes when the user fixes a value or wires the field, and when a later run
 works the value out. The editor reads the record from the finished job.
+
+A frozen view of a past run shows, on each automatic field, the value that
+run recorded rather than one worked out now: worked out, or the default with
+the dot and the warning when the run could not work it out.

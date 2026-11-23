@@ -9,7 +9,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, on, onCleanup, onMount, Show, For, Index, untrack } from 'solid-js'
-import type { ExecutionLogEntry } from '@dinkster/client'
+import type { ExecutionLogEntry, ExecutionState } from '@dinkster/client'
 import {
   badgeRect,
   buildScene,
@@ -128,7 +128,7 @@ import { createMirrorImageEstimator } from './mirror-image-previews.js'
 import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
 import { tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
-import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
+import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, retainProvenExecution, withRecordedAutomaticValues, type SelectedInputPreview } from './scene-overlays.js'
 import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
 import { BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
 import { pasteClipboardIntoTab } from './clipboard-paste.js'
@@ -4054,7 +4054,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly extensionRevision: number
       readonly seedControllerEnabled: boolean
       readonly plannerAvailable: boolean
+      readonly recordedAutomatic: ExecutionState['automaticValues']
     } | undefined
+    // A frozen tab's run records what its automatic fields used; the record
+    // arrives with the finished job, after the snapshot's first scene.
+    const frozenAutomatic = createMemo(() => {
+      executions()
+      const tab = activeTab()
+      return tab?.execution === undefined ? undefined : props.app.executionForTab(tab)?.automaticValues
+    })
     let sceneViewportOwner: { readonly tabId: string; readonly graphId: string } | undefined
     let pendingViewport: { readonly tabId: string; readonly graphId: string; readonly viewport: ReturnType<CanvasRenderer['getViewport']> } | undefined
     let viewportPause: ReturnType<typeof setTimeout> | undefined
@@ -4103,6 +4111,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         node: asNodeId(path[path.length - 1]!),
       }
       const plannerAvailable = occurrenceOwner !== undefined && occurrencePlanner() !== undefined
+      const recordedAutomatic = frozenAutomatic()
       const currentExtensionRevision = props.app.extensionRevision.get()
       const previousBuild = sceneBuildContext
       const graphNodes = new Map(Object.entries(doc.graphs[graphId]?.nodes ?? {}))
@@ -4113,7 +4122,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         previousBuild.extensionsGeneration === extensionsGeneration &&
         previousBuild.extensionRevision === currentExtensionRevision &&
         previousBuild.seedControllerEnabled === seedControllerEnabled &&
-        previousBuild.plannerAvailable === plannerAvailable
+        previousBuild.plannerAvailable === plannerAvailable &&
+        previousBuild.recordedAutomatic === recordedAutomatic
       const valuesUpdated = canReuseScene && path.length === 0
         ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => reg?.resolve(type))
         : undefined
@@ -4127,7 +4137,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         props.app.extensionRevision.get()
         const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? reg?.resolve(type))
         const occurrenceView = occurrenceDynamicView(doc, resolve, path, path.length === 0 ? graphId : doc.root)
-        return buildScene({
+        const fresh = buildScene({
           document: doc,
           seedControllerEnabled,
           graphId,
@@ -4141,6 +4151,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             occurrence: { owner: occurrenceOwner, plannerAvailable },
           } : {}),
         })
+        return recordedAutomatic === undefined ? fresh
+          : withRecordedAutomaticValues(fresh, untrack(() => props.app.executionForTab(tab)), path)
       })()
       const graphView = doc.view.graphs[graphId]
       sceneBuildContext = {
@@ -4168,6 +4180,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         extensionRevision: currentExtensionRevision,
         seedControllerEnabled,
         plannerAvailable,
+        recordedAutomatic,
       }
       // A rebuild can produce a scene identical to the installed one: a
       // workspace-session swap re-reads an equal document, and an edit in

@@ -143,6 +143,33 @@ const digestOutputs = (outputs: ExecutionState['outputs'][string]) => {
   return Object.keys(retained).length > 0 ? retained : undefined
 }
 
+type RecordedAutomatic = NonNullable<ExecutionState['automaticValues']>[number]
+
+/** Calls `visit` for each automatic row of the viewed scene that the run recorded a value for. */
+function eachRecordedAutomaticRow(
+  scene: Scene,
+  execution: Pick<ExecutionState, 'artifact' | 'automaticValues'> | undefined,
+  instancePath: readonly string[] | undefined,
+  keep: (record: RecordedAutomatic) => boolean,
+  visit: (node: Scene['nodes'][number], row: Extract<Scene['nodes'][number]['layout']['rows'][number], { kind: 'widget' }>, record: RecordedAutomatic) => void,
+): void {
+  const records = execution?.automaticValues?.filter(keep) ?? []
+  const toSource = execution?.artifact?.provenance.toSource
+  if (records.length === 0 || toSource === undefined || instancePath === undefined) return
+  const own = occurrencesForView({ instancePath, runtimeIds: records.map((record) => record.runtimeNodeId), toSource }).own
+  for (const node of scene.nodes) {
+    const runtimeIds = new Set(own.get(node.id) ?? [])
+    if (runtimeIds.size === 0) continue
+    for (const row of node.layout.rows) {
+      if (row.kind !== 'widget' || row.automatic === undefined) continue
+      const record = records.find((item) => runtimeIds.has(item.runtimeNodeId) && item.inputId === row.valueKey)
+      if (record !== undefined) visit(node, row, record)
+    }
+  }
+}
+
+const shownValue = (value: Json): string => typeof value === 'string' ? value : JSON.stringify(value)
+
 /**
  * The fields the viewed graph's last run filled with their default because
  * it could not work out their automatic value, while the editor works one
@@ -155,27 +182,63 @@ export function lastRunAutomaticDiagnostics(args: {
   readonly execution: Pick<ExecutionState, 'artifact' | 'automaticValues'> | undefined
   readonly instancePath: readonly string[] | undefined
 }): readonly Diagnostic[] {
-  const records = args.execution?.automaticValues?.filter((record) => !record.workedOut) ?? []
-  const toSource = args.execution?.artifact?.provenance.toSource
-  if (records.length === 0 || toSource === undefined || args.instancePath === undefined) return []
-  const own = occurrencesForView({ instancePath: args.instancePath, runtimeIds: records.map((record) => record.runtimeNodeId), toSource }).own
   const out: Diagnostic[] = []
-  for (const node of args.scene.nodes) {
-    const runtimeIds = new Set(own.get(node.id) ?? [])
-    if (runtimeIds.size === 0) continue
-    for (const row of node.layout.rows) {
-      if (row.kind !== 'widget' || row.automatic?.state !== 'worked-out') continue
-      const record = records.find((item) => runtimeIds.has(item.runtimeNodeId) && item.inputId === row.valueKey)
-      if (record === undefined) continue
-      const shown = typeof record.value === 'string' ? record.value : JSON.stringify(record.value)
-      out.push(diag('warning', 'runtime', 'automatic.lastRunDefault',
-        `The last run could not work out ${row.label} and used the default, ${shown}.`, {
-          anchor: { port: { node: asNodeId(node.id), port: asPortId(row.inputId) } },
-          data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
-        }))
-    }
-  }
+  eachRecordedAutomaticRow(args.scene, args.execution, args.instancePath, (record) => !record.workedOut, (node, row, record) => {
+    if (row.automatic?.state !== 'worked-out') return
+    out.push(diag('warning', 'runtime', 'automatic.lastRunDefault',
+      `The last run could not work out ${row.label} and used the default, ${shownValue(record.value)}.`, {
+        anchor: { port: { node: asNodeId(node.id), port: asPortId(row.inputId) } },
+        data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
+      }))
+  })
   return out
+}
+
+/**
+ * A frozen view of a past run: each automatic row shows the value that run
+ * recorded, not one worked out now, and warns only where the run used the
+ * default.
+ */
+export function withRecordedAutomaticValues(
+  scene: Scene,
+  execution: Pick<ExecutionState, 'artifact' | 'automaticValues'> | undefined,
+  instancePath: readonly string[] | undefined,
+): Scene {
+  const recorded = new Map<string, Map<string, RecordedAutomatic>>()
+  eachRecordedAutomaticRow(scene, execution, instancePath, () => true, (node, row, record) => {
+    let rows = recorded.get(node.id)
+    if (rows === undefined) recorded.set(node.id, (rows = new Map()))
+    rows.set(row.valueKey, record)
+  })
+  if (recorded.size === 0) return scene
+  const diagnostics = scene.diagnostics.filter((d) => {
+    const port = d.anchor?.port
+    return d.code !== 'automatic.default' || port === undefined ||
+      !recorded.get(port.node)?.has(String(d.data?.['input'] ?? port.port))
+  })
+  const nodes = scene.nodes.map((node) => {
+    const rows = recorded.get(node.id)
+    if (rows === undefined) return node
+    return {
+      ...node,
+      layout: {
+        ...node.layout,
+        rows: node.layout.rows.map((row) => {
+          const record = row.kind === 'widget' ? rows.get(row.valueKey) : undefined
+          if (record === undefined || row.kind !== 'widget') return row
+          if (!record.workedOut) {
+            diagnostics.push(diag('warning', 'runtime', 'automatic.default',
+              `Could not work out ${row.label}. Using the default, ${shownValue(record.value)}.`, {
+                anchor: { port: { node: asNodeId(node.id), port: asPortId(row.inputId) } },
+                data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
+              }))
+          }
+          return { ...row, automatic: { value: record.value, state: record.workedOut ? 'worked-out' as const : 'default' as const } }
+        }),
+      },
+    }
+  })
+  return { ...scene, nodes, diagnostics }
 }
 
 /**
