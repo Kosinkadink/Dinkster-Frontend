@@ -241,11 +241,18 @@ export interface CanvasSideFact {
   readonly value: JSX.Element
 }
 
+/** Where an open field's panel, such as a color picker, hangs: under the field or over it. */
+export type CanvasPanelPlace = 'below' | 'above'
+
 interface CanvasRowFrameProps {
   /** Width of the row at normal size. */
   rowWidth: number
   place: CanvasSidePlace
-  /** The side part's top, from the row's top, at normal size. */
+  /**
+   * The side part's top at normal size, from the row's top, or from the
+   * panel's top when a panel hangs over the row: the row and its panel are
+   * one column, and the side part sits beside, under or over that column.
+   */
   sideTop?: number
   /** The height the side part may take before it scrolls. */
   sideMaxHeight?: number
@@ -257,6 +264,11 @@ interface CanvasRowFrameProps {
   look?: 'original' | 'flat-title'
   /** The caller scales the field with the canvas, zoomed in. */
   zoomed?: boolean
+  /** Content hung under or over the row at its width, inside the same outline. */
+  panel?: JSX.Element
+  panelPlace?: CanvasPanelPlace
+  /** The height the panel may take before it scrolls, at normal size. */
+  panelMaxHeight?: number
 }
 
 /**
@@ -266,6 +278,7 @@ interface CanvasRowFrameProps {
 function CanvasRowFrame(
   props: CanvasRowFrameProps & {
     focus?: boolean
+    neutral?: boolean
     steppers?: boolean
     children?: JSX.Element
   },
@@ -276,26 +289,41 @@ function CanvasRowFrame(
   let root!: HTMLDivElement
   let row!: HTMLDivElement
   let side: HTMLDivElement | undefined
+  let panel: HTMLDivElement | undefined
   const [rowHeight, setRowHeight] = createSignal(0)
+  const [panelHeight, setPanelHeight] = createSignal(0)
   const [sideSize, setSideSize] = createSignal<{
     width: number
     height: number
   }>()
+  // The column's top from the row's top: a panel over the row raises it.
+  const columnTop = () => (props.panelPlace === 'above' ? -panelHeight() : 0)
   let reported: CanvasSideSize | undefined
   const measure = () => {
     root.style.width = `${props.rowWidth}px`
     setRowHeight(row.offsetHeight)
+    if (panel) {
+      panel.style.maxHeight =
+        props.panelMaxHeight === undefined ? '' : `${props.panelMaxHeight}px`
+      setPanelHeight(panel.offsetHeight)
+    } else setPanelHeight(0)
     if (!side) {
       setSideSize(undefined)
       return
     }
-    side.style.top = props.sideTop === undefined ? '' : `${props.sideTop}px`
+    side.style.top =
+      props.sideTop === undefined ? '' : `${props.sideTop + columnTop()}px`
     side.style.maxHeight =
       props.sideMaxHeight === undefined ? '' : `${props.sideMaxHeight}px`
     const size = { width: side.offsetWidth, height: side.offsetHeight }
     const previous = sideSize()
     if (previous?.width !== size.width || previous.height !== size.height)
       setSideSize(size)
+    // A side part beside a panel that reaches past the panel's bottom meets
+    // it at an inside corner, which stays square.
+    root.dataset.sidePast = String(
+      (props.sideTop ?? 0) + size.height > row.offsetHeight + panelHeight(),
+    )
     // A side part held to a height reports the height its lines need, so
     // its place is chosen from its whole size.
     const whole = {
@@ -317,6 +345,9 @@ function CanvasRowFrame(
       props.sideTop,
       props.sideMaxHeight,
       props.side,
+      props.panel,
+      props.panelPlace,
+      props.panelMaxHeight,
     ]
     measure()
   })
@@ -324,11 +355,12 @@ function CanvasRowFrame(
     const observer = new ResizeObserver(measure)
     observer.observe(root)
     if (side) observer.observe(side)
+    if (panel) observer.observe(panel)
     onCleanup(() => observer.disconnect())
   })
   const outline = () =>
     canvasFieldOutline(
-      { width: props.rowWidth, height: rowHeight() },
+      { width: props.rowWidth, height: rowHeight() + panelHeight() },
       sideSize(),
       props.place,
       props.sideTop ?? 0,
@@ -344,8 +376,10 @@ function CanvasRowFrame(
       class="dinkster-canvas-field"
       data-place={props.place}
       data-side={props.side !== undefined}
+      data-panel={props.panel === undefined ? 'none' : (props.panelPlace ?? 'below')}
       data-look={props.look ?? 'original'}
       data-focus={props.focus === true}
+      data-neutral={props.neutral === true}
       data-zoomed={props.zoomed === true}
       data-testid={props.focus === true ? 'canvas-row-focus' : 'canvas-row-field'}
     >
@@ -356,6 +390,15 @@ function CanvasRowFrame(
       >
         {content}
       </div>
+      <Show when={props.panel}>
+        <div
+          ref={(element) => (panel = element)}
+          class="dinkster-canvas-field-panel"
+          data-place={props.panelPlace ?? 'below'}
+        >
+          {props.panel}
+        </div>
+      </Show>
       <Show when={props.side}>
         <div
           ref={(element) => (side = element)}
@@ -366,7 +409,7 @@ function CanvasRowFrame(
         </div>
       </Show>
       <svg class="dinkster-canvas-field-outline" aria-hidden="true">
-        <path d={outline()} />
+        <path d={outline()} transform={`translate(0 ${columnTop()})`} />
       </svg>
     </div>
   )
@@ -417,6 +460,11 @@ export function CanvasRowField(
       {...(props.ref === undefined ? {} : { ref: props.ref })}
       {...(props.look === undefined ? {} : { look: props.look })}
       {...(props.zoomed === undefined ? {} : { zoomed: props.zoomed })}
+      {...(props.panel === undefined ? {} : { panel: props.panel })}
+      {...(props.panelPlace === undefined ? {} : { panelPlace: props.panelPlace })}
+      {...(props.panelMaxHeight === undefined
+        ? {}
+        : { panelMaxHeight: props.panelMaxHeight })}
       steppers={props.onStep !== undefined}
     >
       <Show when={props.fill !== undefined}>
@@ -498,7 +546,12 @@ export function CanvasRowField(
  * the row's box, with the row's side part. The canvas still draws the row,
  * so the frame is clear over it and leaves the pointer to the canvas.
  */
-export function CanvasRowFocus(props: CanvasRowFrameProps) {
+export function CanvasRowFocus(
+  props: CanvasRowFrameProps & {
+    /** A side part that only explains, such as what a wire brings: no focus outline. */
+    neutral?: boolean
+  },
+) {
   return <CanvasRowFrame {...props} focus />
 }
 

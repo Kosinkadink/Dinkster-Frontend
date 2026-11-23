@@ -450,6 +450,7 @@
 .dinkster-canvas-field-side[data-place='below-node'], .dinkster-canvas-field-side[data-place='above-node'] { left: 0; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); }
 .dinkster-canvas-field-outline { position: absolute; top: 0; left: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
 .dinkster-canvas-field-outline path { fill: none; stroke: var(--dinkster-border-focus); stroke-width: var(--dinkster-focus-ring-width); }
+.dinkster-canvas-field[data-neutral='true'] .dinkster-canvas-field-outline path { stroke: var(--dinkster-border-subtle); stroke-width: var(--dinkster-border-width); }
 .dinkster-canvas-side-result, .dinkster-canvas-side-problem, .dinkster-canvas-side-help { margin: 0; }
 .dinkster-canvas-side-problem { color: var(--dinkster-warning-foreground); }
 .dinkster-canvas-side-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: var(--dinkster-space-12); margin: 0; }
@@ -473,6 +474,41 @@
 .dinkster-canvas-side-link { min-width: var(--dinkster-space-24); padding: 0; border: 0; background: transparent; color: var(--dinkster-text-secondary); font: inherit; text-align: left; cursor: pointer; }
 .dinkster-canvas-side-link > span { display: inline-block; vertical-align: top; border-bottom: var(--dinkster-border-width) dotted var(--dinkster-text-muted); }
 .dinkster-canvas-side-link:hover { color: var(--dinkster-text-primary); }
+/* A panel hung under or over an open field, such as a color picker: one shape with the field and no line where they meet. */
+.dinkster-canvas-field-panel { box-sizing: border-box; overflow-y: auto; background: var(--dinkster-surface-panel); }
+.dinkster-canvas-field-panel[data-place='below'] { border-radius: 0 0 var(--dinkster-radius-small) var(--dinkster-radius-small); }
+.dinkster-canvas-field-panel[data-place='above'] { position: absolute; bottom: 100%; left: 0; width: 100%; border-radius: var(--dinkster-radius-small) var(--dinkster-radius-small) 0 0; }
+.dinkster-canvas-field[data-panel='below'] .dinkster-canvas-field-row { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.dinkster-canvas-field[data-panel='above'] .dinkster-canvas-field-row { border-top-left-radius: 0; border-top-right-radius: 0; }
+.dinkster-canvas-field[data-panel='above'][data-side='true'][data-place='right'] .dinkster-canvas-field-panel { border-top-right-radius: 0; }
+.dinkster-canvas-field[data-panel='above'][data-side='true'][data-place='left'] .dinkster-canvas-field-panel { border-top-left-radius: 0; }
+.dinkster-canvas-field[data-side-past='true'][data-place='right'] .dinkster-canvas-field-panel[data-place='below'] { border-bottom-right-radius: 0; }
+.dinkster-canvas-field[data-side-past='true'][data-place='left'] .dinkster-canvas-field-panel[data-place='below'] { border-bottom-left-radius: 0; }
+.dinkster-canvas-field[data-panel='below'][data-side='true'][data-place='below-field'] .dinkster-canvas-field-panel { border-radius: 0; }
+.dinkster-canvas-field[data-panel='above'][data-side='true'][data-place='above-field'] .dinkster-canvas-field-panel { border-radius: 0; }
+/* A color picker: its handles stay inside each control, and the keyboard's place is outlined. */
+.dinkster-canvas-color-picker { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--dinkster-space-8); padding: var(--dinkster-space-8); }
+.dinkster-canvas-color-area { position: relative; height: calc(var(--dinkster-space-32) * 4); border-radius: var(--dinkster-radius-small); cursor: crosshair; touch-action: none; }
+.dinkster-canvas-color-strip { position: relative; height: var(--dinkster-space-16); border-radius: var(--dinkster-radius-small); cursor: crosshair; touch-action: none; }
+.dinkster-canvas-color-area > svg, .dinkster-canvas-color-strip > svg { display: block; }
+.dinkster-canvas-color-area:focus, .dinkster-canvas-color-strip:focus, .dinkster-canvas-color-area[data-focused='true'], .dinkster-canvas-color-strip[data-focused='true'] { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-selected); outline-offset: var(--dinkster-border-width); }
+.dinkster-canvas-color-picker[data-disabled='true'] .dinkster-canvas-color-area, .dinkster-canvas-color-picker[data-disabled='true'] .dinkster-canvas-color-strip, .dinkster-canvas-color-picker[data-disabled='true'] .dinkster-canvas-color-swatch { cursor: default; }
+.dinkster-canvas-color-swatches { display: flex; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-8); }
+.dinkster-canvas-color-swatches:focus { outline: 0; }
+.dinkster-canvas-color-swatch { display: grid; flex: none; border-radius: var(--dinkster-radius-small); cursor: pointer; }
+/* A swatch is the smallest control size. */
+.dinkster-canvas-color-swatch > svg { width: var(--dinkster-space-24); height: var(--dinkster-space-24); }
+.dinkster-canvas-color-swatch[data-default='true'] { margin-right: var(--dinkster-space-4); }
+.dinkster-canvas-color-swatch[aria-selected='true'] { outline: var(--dinkster-border-width) solid var(--dinkster-border-selected); outline-offset: var(--dinkster-border-width); }
+.dinkster-canvas-color-swatches:focus .dinkster-canvas-color-swatch[data-candidate='true'], .dinkster-canvas-color-swatches[data-focused='true'] .dinkster-canvas-color-swatch[data-candidate='true'] { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-selected); outline-offset: var(--dinkster-border-width); }
+.dinkster-canvas-color-square { display: block; flex: none; }
+.dinkster-canvas-color-square-edge { stroke: var(--dinkster-border-strong); stroke-width: 1; }
+.dinkster-canvas-color-handle { pointer-events: none; }
+.dinkster-canvas-color-checker-light { fill: var(--dinkster-checker-light); }
+.dinkster-canvas-color-checker-dark { fill: var(--dinkster-checker-dark); }
+.dinkster-canvas-color-code { display: inline-flex; align-items: center; gap: calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2); white-space: nowrap; vertical-align: top; }
+.dinkster-canvas-color-line { margin: 0; }
+.dinkster-canvas-color-line .dinkster-spinner { margin-right: var(--dinkster-space-4); }
 .dinkster-canvas-steps { display: flex; justify-content: space-between; gap: var(--dinkster-space-16); padding-top: var(--dinkster-space-16); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
 .dinkster-canvas-steps .dinkster-link { display: grid; gap: var(--dinkster-space-4); text-decoration: none; }
 .dinkster-canvas-steps .dinkster-link > :last-child { text-decoration: underline; }

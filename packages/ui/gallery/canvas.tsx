@@ -43,6 +43,7 @@ import {
   type ProductNavigationGroup,
 } from '../src/index.js'
 import { NodeLookGallery } from './node-look.js'
+import { ColorEditingGallery } from './color-editing.js'
 import { RowEditingGallery } from './row-editing.js'
 
 type Theme = 'dark' | 'light'
@@ -71,6 +72,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'widgets',
         'core-rows',
         'row-editing',
+        'color-editing',
         'collection-rows',
         'editor-rows',
         'widget-driven',
@@ -158,6 +160,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
+  'color-editing':
+    'A color row becomes its own field when clicked, with a picker under it and what Enter stores beside it. Nothing is stored until the field is left. The saved color is a line in the side part beside the field, read here as the tooltip asked for, while the draft differs from it; nothing marks it by the name.',
   'collection-rows':
     'Multi-choice, list, colors and curve rows; After raises the rows that open an editor and draws the curve in its row.',
   'editor-rows':
@@ -574,7 +578,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'node-look') return
+    if (currentPage === 'row-editing' || currentPage === 'color-editing' || currentPage === 'node-look') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -672,6 +676,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'row-editing'}>
           <RowEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'color-editing'}>
+          <ColorEditingGallery theme={theme()} />
         </Show>
         <Show when={prepared()[0]}>
           {(first) => (
