@@ -385,7 +385,7 @@ export function smallFlowNodesGallery(
   // 10. The order of the rows decides the winner.
   cards.push({
     caption:
-      'The top input that has a value wins, so the order of the rows is part of what Or else does. Above, photo.png is First and comes out; below, the same two wires with backup.png moved to the top give backup.png. Moving a row by hand is not built in the editor yet; these two are stored in each order.',
+      'The top input that has a value wins, so the order of the rows is part of what Or else does. Above, photo.png is First and comes out; below, the same two wires with backup.png moved to the top give backup.png. The canvas has no grip to drag a row yet, so these two are stored in each order.',
     scene: scene({
       root: {
         nodes: {
