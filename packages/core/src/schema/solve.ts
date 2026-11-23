@@ -847,63 +847,84 @@ export function solveGraphTypes(
     return producers.length === 1 && producers[0]!.length === 1 &&
       producers[0]![0]!.kind === 'output' && !knownOutputs.get(producers[0]![0]!.ref.node)?.has(producers[0]![0]!.ref.port)
   }
-  const counted = feeds.filter((feed) =>
-    !(feed.source.kind === 'link' && branchingLinks.has(feed.source.id)) &&
-    !(selectors.has(feed.to.node) && feed.to.port.startsWith(`${selectors.get(feed.to.node)!.group}.`) && !runtimePick(feed.to.node)))
+  const unbranched = feeds.filter((feed) => !(feed.source.kind === 'link' && branchingLinks.has(feed.source.id)))
+  const storedPickBranch = (feed: Feed): boolean =>
+    selectors.has(feed.to.node) && feed.to.port.startsWith(`${selectors.get(feed.to.node)!.group}.`) && !runtimePick(feed.to.node)
   const broughtBy = (feed: Feed, fed: ReadonlyMap<VarKey, ReadonlySet<string>>): ReadonlySet<string> | undefined => {
     if (feed.atoms !== undefined) return new Set(feed.atoms)
     const passed = fed.get(feed.from!)
     // A generic producer that cannot bind passes no type on.
     return passed !== undefined && passed.size > 0 ? passed : undefined
   }
-  let fed = new Map<VarKey, ReadonlySet<string>>()
-  for (let pass = 0; pass <= counted.length; pass++) {
-    const next = new Map<VarKey, ReadonlySet<string>>()
-    for (const feed of counted) {
-      const atoms = broughtBy(feed, fed)
-      if (atoms === undefined) continue
-      const prior = next.get(feed.key)
-      next.set(feed.key, prior === undefined ? atoms : new Set([...atoms].filter((atom) => prior.has(atom))))
+  /** The types each variable is fed through `counted`, narrowed until stable. */
+  const fedTypes = (counted: readonly Feed[]): ReadonlyMap<VarKey, ReadonlySet<string>> => {
+    let fed = new Map<VarKey, ReadonlySet<string>>()
+    for (let pass = 0; pass <= counted.length; pass++) {
+      const next = new Map<VarKey, ReadonlySet<string>>()
+      for (const feed of counted) {
+        const atoms = broughtBy(feed, fed)
+        if (atoms === undefined) continue
+        const prior = next.get(feed.key)
+        next.set(feed.key, prior === undefined ? atoms : new Set([...atoms].filter((atom) => prior.has(atom))))
+      }
+      const stable = next.size === fed.size && [...next].every(([key, atoms]) => {
+        const prior = fed.get(key)
+        return prior !== undefined && prior.size === atoms.size && [...atoms].every((atom) => prior.has(atom))
+      })
+      fed = next
+      if (stable) break
     }
-    const stable = next.size === fed.size && [...next].every(([key, atoms]) => {
-      const prior = fed.get(key)
-      return prior !== undefined && prior.size === atoms.size && [...atoms].every((atom) => prior.has(atom))
+    return fed
+  }
+  /** Each conflicted variable once, named the way a person reads it. */
+  const conflicts = (counted: readonly Feed[]) => {
+    const fed = fedTypes(counted)
+    return [...fed].filter(([, atoms]) => atoms.size === 0).map(([key]) => {
+      const into = counted.filter((feed) => feed.key === key)
+      const node = into[0]!.to.node
+      const brought = new Map<string, ReadonlySet<string>>()
+      for (const feed of into) {
+        const atoms = broughtBy(feed, fed)
+        if (atoms === undefined) continue
+        const prior = brought.get(feed.to.port)
+        brought.set(feed.to.port, prior === undefined ? atoms : new Set([...atoms].filter((atom) => prior.has(atom))))
+      }
+      const order = [...(portTypes.get(node)?.inputs.keys() ?? [])]
+      const labels = inputLabels.get(node)
+      const named = [...brought]
+        .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
+        .map(([port, types]) => `${labels?.get(port) ?? port} is ${[...types].join(' or ')}`)
+      return { key, node, into, message: `These inputs must be the same type: ${named.join(', ')}.` }
     })
-    fed = next
-    if (stable) break
   }
   const refused = new Set<VarRecord>()
-  for (const [key, atoms] of fed) {
-    if (atoms.size > 0) continue
-    const into = counted.filter((feed) => feed.key === key)
-    const node = into[0]!.to.node
-    refused.add(vars.find(key))
-    const brought = new Map<string, ReadonlySet<string>>()
-    for (const feed of into) {
-      const atoms = broughtBy(feed, fed)
-      if (atoms === undefined) continue
-      const prior = brought.get(feed.to.port)
-      brought.set(feed.to.port, prior === undefined ? atoms : new Set([...atoms].filter((atom) => prior.has(atom))))
+  const onNode = (conflict: ReturnType<typeof conflicts>[number]) => {
+    const last = conflict.into.at(-1)!
+    return {
+      anchor: { port: last.to, ...(last.source.kind === 'link' ? { link: last.source.id } : {}) },
+      data: { node: conflict.node, edges: conflict.into.map((feed) => sourceLabel(feed.source)) },
     }
-    const order = [...(portTypes.get(node)?.inputs.keys() ?? [])]
-    const labels = inputLabels.get(node)
-    const named = [...brought]
-      .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
-      .map(([port, types]) => `${labels?.get(port) ?? port} is ${[...types].join(' or ')}`)
-    const last = into.at(-1)!
-    diagnostics.push(
-      diag('error', 'schema', 'solve.varConflict', `These inputs must be the same type: ${named.join(', ')}.`, {
-        anchor: { port: last.to, ...(last.source.kind === 'link' ? { link: last.source.id } : {}) },
-        data: { node, edges: into.map((feed) => sourceLabel(feed.source)) },
-      }),
-    )
+  }
+  for (const conflict of conflicts(unbranched.filter((feed) => !storedPickBranch(feed)))) {
+    refused.add(vars.find(conflict.key))
+    diagnostics.push(diag('error', 'schema', 'solve.varConflict', conflict.message, onNode(conflict)))
+  }
+  // A Switch with a stored or known pick runs only the picked branch, so
+  // branches of different types are a warning on the Switch, worded as the
+  // error is.
+  const warned = new Set<VarRecord>()
+  for (const conflict of conflicts(unbranched)) {
+    const root = vars.find(conflict.key)
+    if (refused.has(root) || warned.has(root) || !conflict.into.some(storedPickBranch)) continue
+    warned.add(root)
+    diagnostics.push(diag('warning', 'schema', 'solve.varConflict', conflict.message, onNode(conflict)))
   }
 
   // -- 4. Other conflicted classes: mark every contributing edge, one warning each.
   for (const root of vars.roots()) {
     if (root.domain === undefined || root.domain.size > 0) continue
     for (const source of root.sources) setVerdict(source, 'mismatch')
-    if (refused.has(root)) continue
+    if (refused.has(root) || warned.has(root)) continue
     const firstLink = root.sources.find((s): s is Extract<EdgeSource, { kind: 'link' }> => s.kind === 'link')
     const firstProjected = root.sources.find((s): s is Extract<EdgeSource, { kind: 'projectedInput' }> => s.kind === 'projectedInput')
     const firstSlotBinding = root.slotBindings[0]

@@ -1190,7 +1190,13 @@ describe('a type variable fed two different types', () => {
     expect(conflicts(switchWith('runtime'))).toEqual([
       { severity: 'error', message: 'These inputs must be the same type: branch 1 is IMAGE, branch 2 is LATENT.', node: 'sw' },
     ])
-    expect(conflicts(switchWith('known')).map((c) => c.severity)).toEqual(['warning'])
-    expect(conflicts(switchWith('stored')).map((c) => c.severity)).toEqual(['warning'])
+    // Only the picked branch runs, so it is a warning on the Switch, in the error's words.
+    for (const pick of ['known', 'stored'] as const) {
+      expect(conflicts(switchWith(pick))).toEqual([
+        { severity: 'warning', message: 'These inputs must be the same type: branch 1 is IMAGE, branch 2 is LATENT.', node: 'sw' },
+      ])
+      expect(solve(switchWith(pick)).diagnostics.find((d) => d.code === 'solve.varConflict')?.anchor?.port)
+        .toEqual({ node: 'sw', port: 'branch.branch1' })
+    }
   })
 })
