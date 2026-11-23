@@ -8,7 +8,7 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-solid'
-import { CanvasChoiceGlyph, CanvasRowField, CanvasStepGlyph } from './canvas-field.js'
+import { CanvasClosedRow, CanvasRowField } from './canvas-field.js'
 import { CanvasRowList } from './canvas-list.js'
 import { ProductButton, ProductIcon, ProductIconButton, ProductSpinner } from './controls.js'
 
@@ -257,20 +257,7 @@ export function CanvasEditorNumber(props: {
       onFocusOut={(event) => {
         if (open() && !slot.contains(event.relatedTarget as Node | null)) { store(Number(text())); setOpen(false) }
       }}>
-      <div class="dinkster-canvas-field-row dinkster-canvas-editor-field" data-steppers="true" onClick={begin}>
-        <button type="button" class="dinkster-canvas-field-step" tabindex="-1" aria-label="Decrease"
-          onClick={(event) => { event.stopPropagation(); step(-1, event.shiftKey) }}>
-          <CanvasStepGlyph direction={-1} />
-        </button>
-        <span class="dinkster-canvas-field-label">{props.label}</span>
-        <button type="button" class="dinkster-canvas-editor-field-value" aria-label={`${props.label}: ${format(props.value)}`}>
-          {format(props.value)}
-        </button>
-        <button type="button" class="dinkster-canvas-field-step" tabindex="-1" aria-label="Increase"
-          onClick={(event) => { event.stopPropagation(); step(1, event.shiftKey) }}>
-          <CanvasStepGlyph direction={1} />
-        </button>
-      </div>
+      <CanvasClosedRow label={props.label} value={format(props.value)} onOpen={begin} onStep={step} />
       <Show when={open()}>
         <CanvasRowField
           look="flat-title"
@@ -330,12 +317,7 @@ export function CanvasEditorChoice(props: {
       onFocusOut={(event) => {
         if (open() && !slot.contains(event.relatedTarget as Node | null)) setOpen(false)
       }}>
-      <button type="button" class="dinkster-canvas-field-row dinkster-canvas-editor-field" data-steppers="false"
-        aria-haspopup="listbox" onClick={begin}>
-        <span class="dinkster-canvas-field-label">{props.label}</span>
-        <span class="dinkster-canvas-editor-field-value">{props.value}</span>
-        <span class="dinkster-canvas-editor-field-chevron"><CanvasChoiceGlyph /></span>
-      </button>
+      <CanvasClosedRow label={props.label} value={props.value} onOpen={begin} />
       <Show when={open()}>
         <CanvasRowList
           look="flat-title"

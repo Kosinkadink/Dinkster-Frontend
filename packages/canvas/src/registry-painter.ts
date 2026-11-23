@@ -454,7 +454,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
                 paintValueSwatch(ctx, swatch, textX - measureWidth(ctx, text) - paint.valueSwatch.gap - paint.valueSwatch.size,
                   textY - paint.valueSwatch.size / 2, tokens)
               }
-              if (args.connected && (role === undefined || role === 'widgetValue')) {
+              // A host's editor summary is what the editor shows, an arriving value included, so it is never struck.
+              if (args.connected && summary === undefined && (role === undefined || role === 'widgetValue')) {
                 paintStaleValueStrikethrough(ctx, text, textX, textY, alignRight ? 'right' : 'left', tokens.colors.value)
               }
               ctx.restore()

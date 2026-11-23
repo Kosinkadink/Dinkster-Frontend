@@ -564,14 +564,47 @@ export function CanvasRowFocus(
 const MINUS_PATH = 'M9.5 12.5H15.5'
 const PLUS_PATH = 'M8.5 12.5H14.5M11.5 9.5V15.5'
 
-/** The minus or plus the canvas draws in a number row's stepper zone. */
-export function CanvasStepGlyph(props: { direction: -1 | 1 }) {
-  return <StepGlyph path={props.direction < 0 ? MINUS_PATH : PLUS_PATH} />
-}
+/** The chevron the canvas draws at a choice row's end, in the stepper's 24px zone. */
+const CHEVRON_PATH = 'M8.5 10.5L11.5 13.5L14.5 10.5'
 
-/** The chevron the canvas draws at a choice row's end, in the same 24px zone. */
-export function CanvasChoiceGlyph() {
-  return <StepGlyph path="M8.5 10.5L11.5 13.5L14.5 10.5" />
+/**
+ * A row drawn as the canvas draws it while closed, for rows the canvas does
+ * not paint itself, such as an editor's own: a number with its minus and
+ * plus (given `onStep`), or a choice with its chevron. Pressing the row
+ * opens it; the caller lays the open field or list over it.
+ */
+export function CanvasClosedRow(props: {
+  label: string
+  value: string
+  onOpen: () => void
+  onStep?: (direction: -1 | 1, fast: boolean) => void
+}) {
+  const stepper = (direction: -1 | 1) => (
+    <button type="button" class="dinkster-canvas-field-step" tabindex="-1" aria-label={direction < 0 ? 'Decrease' : 'Increase'}
+      onClick={(event) => props.onStep?.(direction, event.shiftKey)}>
+      <StepGlyph path={direction < 0 ? MINUS_PATH : PLUS_PATH} />
+    </button>
+  )
+  return (
+    <Show when={props.onStep} fallback={
+      <button type="button" class="dinkster-canvas-field-row dinkster-canvas-closed-row" data-steppers="false"
+        aria-haspopup="listbox" onClick={() => props.onOpen()}>
+        <span class="dinkster-canvas-field-label">{props.label}</span>
+        <span class="dinkster-canvas-closed-row-value">{props.value}</span>
+        <span class="dinkster-canvas-closed-row-chevron"><StepGlyph path={CHEVRON_PATH} /></span>
+      </button>
+    }>
+      <div class="dinkster-canvas-field-row dinkster-canvas-closed-row" data-steppers="true">
+        {stepper(-1)}
+        <button type="button" class="dinkster-canvas-closed-row-open" aria-label={`${props.label}: ${props.value}`}
+          onClick={() => props.onOpen()}>
+          <span class="dinkster-canvas-field-label">{props.label}</span>
+          <span class="dinkster-canvas-closed-row-value">{props.value}</span>
+        </button>
+        {stepper(1)}
+      </div>
+    </Show>
+  )
 }
 
 function StepGlyph(props: { path: string }) {

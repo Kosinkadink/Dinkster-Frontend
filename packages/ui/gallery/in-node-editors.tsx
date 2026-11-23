@@ -49,7 +49,9 @@ const NO_BACKEND = 'Recording uploads require a native Dinkster backend.'
 function noBackendHeight(width: number): number {
   const probe = document.createElement('div')
   probe.className = 'dinkster-canvas-editor'
-  probe.style.cssText = `visibility: hidden; width: ${width}px; height: auto; padding: 0`
+  // Off the page; the editor's own padding is added to the inner width.
+  probe.style.left = '-10000px'
+  probe.style.width = `${width + canvasPaintTokens.node.editorSpace.pad * 2}px`
   const note = document.createElement('div')
   note.className = 'dinkster-canvas-editor-note'
   note.dataset['wrap'] = 'true'
