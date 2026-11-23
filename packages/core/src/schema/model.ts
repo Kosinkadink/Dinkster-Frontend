@@ -608,7 +608,8 @@ export interface OutputSpec extends PortSpecBase {
   /** Presentation-only pre-execution estimate sourced from a selected asset. */
   readonly represents?: OutputRepresents
   /** Exact pre-execution value sourced from a typed primitive identity input. */
-  readonly knownValue?: OutputKnownValue
+  readonly knownValue?: OutputKnownValue  /** Layout only: on a subgraph node, never share the line of the input pin above. */
+  readonly ownRow?: true
 }
 
 /** A stored value with no pin and no field, written by an editor or an action. */

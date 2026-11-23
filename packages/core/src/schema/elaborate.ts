@@ -217,6 +217,8 @@ export interface ElaboratedInput {
   readonly derivedValue?: Json
   /** Member state to persist before writing or wiring this row. */
   readonly materialize?: readonly MaterializeFrame[]
+  /** Keys of the boxes the node draws around this row, outermost first. */
+  readonly boxes?: readonly string[]
 }
 
 export interface ElaboratedOutput {
@@ -229,7 +231,10 @@ export interface ElaboratedOutput {
   readonly ancestry?: readonly DynamicAncestor[]
   /** False when this output takes no part in wiring: a member the document does not store. */
   readonly wireable?: false
+  /** The output of a member past a count that shrank, kept because it is wired; it carries nothing. */
+  readonly outsideCount?: true
   readonly materialize?: readonly MaterializeFrame[]
+  readonly boxes?: readonly string[]
 }
 
 /** A section header as the node draws it. */
@@ -239,6 +244,8 @@ export interface ElaboratedSectionSpec {
   readonly id: string
   readonly displayName?: string
   readonly collapsedByDefault?: boolean
+  /** False: the open box shows no name, only a small tab that closes it. */
+  readonly openName?: false
 }
 
 export interface ElaboratedSection {
@@ -246,7 +253,44 @@ export interface ElaboratedSection {
   readonly spec: ElaboratedSectionSpec
   /** The section around this one, when nested. */
   readonly section?: string
+  readonly boxes?: readonly string[]
 }
+
+/**
+ * A box the node draws around rows other than a section's: a group, a
+ * member of a group that has more than one row, or the rows of a choice's
+ * chosen option. Layout only, like a section. It comes before the rows it
+ * holds, and those rows name it in their `boxes`.
+ */
+export interface ElaboratedBox {
+  readonly kind: 'box'
+  /** Box key: `group:<id>`, `member:<id>.<key>` or `option:<id>`, with the flattened id. */
+  readonly id: string
+  readonly box: 'group' | 'member' | 'option'
+  /** Flattened id of the group or choice. */
+  readonly construct: string
+  /** Shown name: the group's name, or the member's label. */
+  readonly label: string
+  /** A group: how many members it shows, not counting the spare one. */
+  readonly members?: number
+  /** A member: its position in the group, from 0. */
+  readonly ordinal?: number
+  /** A member the document does not store yet. */
+  readonly ghost?: true
+  /** A group that grows by hand: each member can be removed on the node. */
+  readonly byHand?: true
+  /** A group whose stored members can be put in another order (`dynamic.moveMember`). */
+  readonly reorderable?: true
+  /** A member: its key in the group. */
+  readonly member?: string
+  readonly openName?: false
+  /** A group shown whole on a subgraph node: how many members its definition holds before this node's own. */
+  readonly interiorMembers?: number
+  readonly boxes?: readonly string[]
+}
+
+/** The key of a group's box, which also keys its saved open state. */
+export const groupBoxKey = (path: string): string => `group:${path}`
 
 /**
  * A group's add control: a member the node offers when a spare member would
@@ -262,6 +306,7 @@ export interface ElaboratedGrowth {
   readonly label: string
   readonly frames: readonly MaterializeFrame[]
   readonly section?: string
+  readonly boxes?: readonly string[]
 }
 
 /**
@@ -276,6 +321,7 @@ export interface ElaboratedNote {
   /** The text is the note's "while unknown" answer. */
   readonly unknown?: true
   readonly section?: string
+  readonly boxes?: readonly string[]
   /** Line key of the cell drawn before this one in a `Row`. */
   readonly adjacentTo?: string
 }
@@ -287,6 +333,7 @@ export interface ElaboratedButton {
   readonly id: string
   readonly label: string
   readonly section?: string
+  readonly boxes?: readonly string[]
   /** Line key of the cell drawn before this one in a `Row`. */
   readonly adjacentTo?: string
 }
@@ -296,7 +343,7 @@ export const lineKeyOf = (item: ElaboratedItem): string | undefined =>
   item.kind === 'input' ? item.spec.id
     : item.kind === 'note' || item.kind === 'button' ? `${item.kind}:${item.id}` : undefined
 
-export type ElaboratedItem = ElaboratedInput | ElaboratedOutput | ElaboratedSection | ElaboratedGrowth | ElaboratedNote | ElaboratedButton
+export type ElaboratedItem = ElaboratedInput | ElaboratedOutput | ElaboratedSection | ElaboratedBox | ElaboratedGrowth | ElaboratedNote | ElaboratedButton
 
 export interface ElaboratedInterface {
   /** Ordered as the body declares; members appear in their stored order at their group's place. */
@@ -439,6 +486,8 @@ interface Scope {
   readonly ancestry: readonly DynamicAncestor[]
   readonly frames?: readonly MaterializeFrame[]
   readonly section?: string
+  /** Keys of the boxes drawn around this scope's rows, outermost first. */
+  readonly boxes: readonly string[]
   /** Type-variable scope of an independent-types member (`group.key`). */
   readonly typeMember?: string
   /** Prefix for the labels of a record member's rows. */
@@ -786,11 +835,27 @@ function elaboratePass(
 
   // -- Emission ---------------------------------------------------------------
 
-  const common = (scope: Scope): Pick<ElaboratedInput, 'origin' | 'ancestry' | 'materialize'> => ({
+  const boxed = (scope: Scope): { readonly boxes?: readonly string[] } =>
+    scope.boxes.length > 0 ? { boxes: scope.boxes } : {}
+
+  const common = (scope: Scope): Pick<ElaboratedInput, 'origin' | 'ancestry' | 'materialize' | 'boxes'> => ({
     origin: scope.origin,
     ...(scope.ancestry.length > 0 ? { ancestry: scope.ancestry } : {}),
     ...(scope.frames !== undefined ? { materialize: scope.frames } : {}),
+    ...boxed(scope),
   })
+
+  /**
+   * Announce a box before the rows it holds, and drop the announcement again
+   * when `fill` adds no rows: a box with nothing in it is not drawn.
+   */
+  const box = (announce: ElaboratedBox, fill: (boxes: readonly string[]) => Partial<ElaboratedBox> | void): void => {
+    const at = items.length
+    if (!push(announce)) return
+    const patch = fill([...(announce.boxes ?? []), announce.id])
+    if (items.length === at + 1 && items[at] === announce) items.pop()
+    else if (patch && items[at] === announce) items[at] = { ...announce, ...patch }
+  }
 
   const emitInput = (row: InputSpec, path: string, scope: Scope, label?: string, extra: Partial<ElaboratedInput> = {}): void => {
     if (!claim(emittedInputs, activeInputs, path, scope)) {
@@ -931,6 +996,7 @@ function elaboratePass(
     const id = scope.prefix + row.id
     const placed = {
       ...(scope.section !== undefined ? { section: scope.section } : {}),
+      ...boxed(scope),
       ...(adjacentTo !== undefined ? { adjacentTo } : {}),
     }
     const item: ElaboratedItem = row.kind === 'note'
@@ -952,10 +1018,12 @@ function elaboratePass(
         id,
         ...(label !== undefined ? { displayName: label } : {}),
         ...(row.collapsedByDefault ? { collapsedByDefault: true } : {}),
+        ...(row.openName === false ? { openName: false as const } : {}),
       },
       ...(scope.section !== undefined ? { section: scope.section } : {}),
+      ...boxed(scope),
     })
-    rows(row.rows, { ...scope, section: id })
+    rows(row.rows, { ...scope, section: id, boxes: [...scope.boxes, id] })
     depth--
   }
 
@@ -996,20 +1064,35 @@ function elaboratePass(
     if (!enter(path)) return
     if (!scope.ghost) constructs.add(path)
     try {
-      groupBody(row, path, scope)
+      box({
+        kind: 'box',
+        id: groupBoxKey(path),
+        box: 'group',
+        construct: path,
+        label: literalText(row.displayName) ?? row.id,
+        ...(row.grows === 'button' ? { byHand: true as const } : {}),
+        ...(row.reorderable === true && typeof row.grows === 'string' ? { reorderable: true as const } : {}),
+        ...(row.openName === false ? { openName: false as const } : {}),
+        ...(row.interiorMembers !== undefined ? { interiorMembers: row.interiorMembers } : {}),
+        ...boxed(scope),
+      }, (boxes) => {
+        const members = groupBody(row, path, { ...scope, boxes })
+        return members === undefined ? undefined : { members }
+      })
     } finally {
       depth--
     }
   }
 
-  const groupBody = (row: GroupSpec, path: string, scope: Scope): void => {
+  /** Emit a group's members; returns how many it shows, not counting the spare one. */
+  const groupBody = (row: GroupSpec, path: string, scope: Scope): number | undefined => {
     const limit = memberLimitOf(row)
     const grows = row.grows
     let keys: string[]
     let storedCount: number
     if (typeof grows === 'object' && 'followList' in grows) {
       report('elab.group.followList', `group '${path}' follows a list, and a field that holds a list of assets is not built yet`, path)
-      return
+      return undefined
     }
     if (typeof grows === 'object' && 'count' in grows) {
       const outcome = evaluate(grows.count, scope)
@@ -1077,6 +1160,7 @@ function elaboratePass(
       ...(row.keys.kind === 'numbered' ? { seq: keyPosition(row.keys, members.at(-1)!)! + 1 } : {}),
     })
 
+    const memberRows = (row.member ?? []).filter((item) => item.kind !== 'state' && item.kind !== 'editor').length
     /** Emit one member; returns whether it is in use (a stored value or a wire). */
     const member = (position: number, key: string, ghost: boolean, dormant = false): boolean => {
       membersVisited++
@@ -1109,12 +1193,29 @@ function elaboratePass(
         else emitOutput({ ...row.value, id: key }, `${path}.${key}`, valueScope, label)
       } else {
         const prefix = `${path}.${key}.`
-        rows(row.member ?? [], {
+        const fill = (boxes: readonly string[]): void => rows(row.member ?? [], {
           ...memberScope,
           prefix,
           labelPrefix: label,
+          boxes,
           formulaFrames: [...scope.formulaFrames, { prefix, rows: row.member ?? [], index: position, key }],
         })
+        // A member of more than one drawn row gets a box of its own.
+        if (memberRows > 1) {
+          box({
+            kind: 'box',
+            id: `member:${path}.${key}`,
+            box: 'member',
+            construct: path,
+            label,
+            member: key,
+            ordinal: position,
+            ...(ghost ? { ghost: true as const } : {}),
+            ...boxed(scope),
+          }, fill)
+        } else {
+          fill(scope.boxes)
+        }
       }
       const emitted = items.slice(before)
       if (ghost && emitted.length === 0 && position === storedCount + offered.length - 1) {
@@ -1125,6 +1226,7 @@ function elaboratePass(
           label: growthLabel,
           frames: frames!,
           ...(scope.section !== undefined ? { section: scope.section } : {}),
+          ...boxed(scope),
         })
       }
       return emitted.some((item) =>
@@ -1153,11 +1255,27 @@ function elaboratePass(
       }
     }
 
+    // A count that shrank keeps the outputs of a later member whose output is
+    // wired, so the wire stays on its output. Drawn dimmed after the counted
+    // members, outside the count: they carry nothing and are not run.
+    if (view && !census && typeof grows === 'object' && 'count' in grows) {
+      for (let position = keys.length; position < limit; position++) {
+        if (halted) return
+        const key = memberKeyAt(row.keys, position)
+        if (key === undefined) break
+        const before = items.length
+        member(position, key, false, true)
+        const kept = items.splice(before).filter((item) => item.kind === 'box' || item.kind === 'output')
+        if (!kept.some((item) => item.kind === 'output' && connectivity.isOutputConnected(item.address.port))) continue
+        items.push(...kept.map((item) => item.kind === 'output' ? { ...item, outsideCount: true as const } : item))
+      }
+    }
+
     // Members the node offers beyond the stored ones: up to the minimum, and
     // one spare once every member of a group that grows by link or by a
     // filled field is in use, so a minimum of five shows five until the
     // fifth is used.
-    if (!view || typeof grows !== 'string' || scope.dormant) return
+    if (!view || typeof grows !== 'string' || scope.dormant) return keys.length
     const spare = (grows === 'link' || grows === 'filled') && !scope.ghost && allUsed ? 1 : 0
     const shown = Math.min(limit, Math.max(row.minMembers, storedCount + spare))
     while (storedCount + offered.length < shown) {
@@ -1186,9 +1304,11 @@ function elaboratePass(
           label: growthLabel,
           frames: [...(scope.frames ?? []), frameFor([...offered, key])],
           ...(scope.section !== undefined ? { section: scope.section } : {}),
+          ...boxed(scope),
         })
       }
     }
+    return storedCount + Math.max(0, missing)
   }
 
   const choice = (row: ChoiceSpec, path: string, scope: Scope): void => {
@@ -1293,6 +1413,7 @@ function elaboratePass(
         ...(key !== undefined ? { derivedValue: key } : {}),
         ...(scope.ancestry.length > 0 ? { ancestry: scope.ancestry } : {}),
         ...(scope.frames !== undefined ? { materialize: scope.frames } : {}),
+        ...boxed(scope),
       })
     }
     const shared = new Map(row.shared.filter((item) => item.kind !== 'row').map((item) => [(item as { id: string }).id, item]))
@@ -1306,7 +1427,7 @@ function elaboratePass(
         prefix: `${path}.`, rows: every,
         hidden: new Set([...scopeNamesOf(every).names.keys()].filter((name) => !kept.has(name))),
       }
-      rows(option.rows, {
+      const fill = (boxes: readonly string[]): void => rows(option.rows, {
         ...scope,
         prefix: `${path}.`,
         // A hidden choice hides its option's rows too; they are still stored and run.
@@ -1314,8 +1435,23 @@ function elaboratePass(
         dormant: scope.dormant || !active,
         origin: { kind: 'branch', construct: path, option: option.key },
         shared,
+        boxes,
         formulaFrames: [...scope.formulaFrames, frame],
       })
+      // The chosen option's rows hang in a box under the dropdown that picks
+      // it. A choice led by a formula, or hidden, draws no dropdown and so no box.
+      if (active && row.leader === undefined && !scope.hidden && row.hidden !== true) {
+        box({
+          kind: 'box',
+          id: `option:${path}`,
+          box: 'option',
+          construct: path,
+          label: option.label ?? option.key,
+          ...boxed(scope),
+        }, fill)
+      } else {
+        fill(scope.boxes)
+      }
     }
   }
 
@@ -1456,6 +1592,7 @@ function elaboratePass(
     hidden: false,
     origin: { kind: 'static' },
     ancestry: [],
+    boxes: [],
     formulaFrames: [{ prefix: '', rows: schema.body }],
   }
   rows(schema.body, topScope)

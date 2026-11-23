@@ -5,7 +5,7 @@
  */
 
 import type { TypeExpr } from '@dinkster/core'
-import type { LayoutRow, PinLayout } from './layout.js'
+import type { LayoutRow, MemberGrip, PinLayout } from './layout.js'
 import { canvasPaintTokens, defaultTokens, type CanvasDetailLevel } from './tokens.js'
 import {
   boundaryFieldNode,
@@ -101,6 +101,12 @@ export type Hit =
       readonly kind: 'growth'
       readonly node: SceneNode
       readonly row: Extract<LayoutRow, { kind: 'growth' }>
+    }
+  /** A member's grip: dragging it moves the member within its group. */
+  | {
+      readonly kind: 'grip'
+      readonly node: SceneNode
+      readonly grip: MemberGrip
     }
   /** The bottom edge of a multiline text box: dragging it sets the box's height in lines. */
   | {
@@ -283,6 +289,20 @@ export function textBoxEdgeAt(
   return undefined
 }
 
+/** The member grip whose box, across its row's full height, holds the point. */
+export function gripAt(node: SceneNode, wx: number, wy: number): MemberGrip | undefined {
+  const half = canvasPaintTokens.node.box.grip.hit / 2
+  for (const row of node.layout.rows) {
+    if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports') || row.reorder === undefined) continue
+    const ry = node.y + row.y
+    if (wy < ry || wy > ry + row.height) continue
+    // The target stops at a field's edge, so the field keeps its own end.
+    if (row.kind === 'widget' && wx <= node.x + row.inset + (row.width ?? node.layout.width - row.inset * 2)) continue
+    if (Math.abs(wx - node.x - row.reorder.gripX) <= half) return row.reorder
+  }
+  return undefined
+}
+
 /** The minimize arrow's square target at the left end of a node's title bar. */
 export function minimizeArrowRect(node: SceneNode): { x: number; y: number; width: number; height: number } {
   const { left, target } = canvasPaintTokens.node.minimizeArrow
@@ -333,19 +353,27 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
   const bPin = hitTestBoundaryPin(scene, wx, wy, pinHitRadius)
   if (bPin) return bPin
 
-  for (let i = scene.nodes.length - 1; i >= 0; i--) {
+  // Pins pressed together on a closed box's row overlap: the nearest center
+  // wins, and a field's output pin wins a tie.
+  let tap: Extract<Hit, { kind: 'widgetTap' }> | undefined
+  let tapDistance = pinHitRadius
+  for (let i = scene.nodes.length - 1; i >= 0 && tap === undefined; i--) {
     const node = scene.nodes[i]!
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {
-      if (pin.widgetTap !== true || !opts?.widgetTaps?.has(`${node.id}:${pin.portId}:out:tap`)) continue
+      if (pin.widgetTap !== true || pin.stacked === true || !opts?.widgetTaps?.has(`${node.id}:${pin.portId}:out:tap`)) continue
       const x = node.x + node.layout.width
       const y = node.y + pin.y
-      if (Math.hypot(wx - x, wy - y) <= pinHitRadius)
-        return { kind: 'widgetTap', node, input: pin.address.port as string, x, y, type: pin.type, pin }
+      const distance = Math.hypot(wx - x, wy - y)
+      if (distance <= tapDistance) {
+        tapDistance = distance
+        tap = { kind: 'widgetTap', node, input: pin.address.port as string, x, y, type: pin.type, pin }
+      }
     }
   }
   const pin = hitTestPin(scene, wx, wy, opts?.pinRevealed, pinHitRadius)
-  if (pin) return pin
+  if (pin && (tap === undefined || Math.hypot(wx - pin.x, wy - pin.y) < tapDistance)) return pin
+  if (tap) return tap
 
   // Body passes also run in reverse paint order: selector boxes and value
   // source pills paint ABOVE boundary and regular nodes, so they must win
@@ -442,11 +470,17 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
       if (previewCaptionAt(node, wx, wy) && nodeResizeHandle(node, wx, wy, opts?.scale) === undefined) {
         return { kind: 'preview-caption', node }
       }
+      const grip = gripAt(node, wx, wy)
+      if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const row of l.rows) {
-        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button') continue
+        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button' || row.kind === 'member') continue
         const ry = node.y + row.y
         if (wy < ry || wy > ry + row.height) continue
-        if (row.kind === 'section') return { kind: 'section', node, row }
+        if (row.kind === 'section') {
+          // The header, closed row or tab spans the box, not the node's margin.
+          if (wx < node.x + row.inset || wx > node.x + l.width - row.inset) continue
+          return { kind: 'section', node, row }
+        }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
         const width = row.width ?? l.width - row.inset * 2
         if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
@@ -464,11 +498,17 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     if (!inside && !minimizedProxy) continue
     if (wy <= node.y + l.headerHeight) return { kind: 'header', node }
     if (contentDetail) {
+      const grip = gripAt(node, wx, wy)
+      if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const row of l.rows) {
-        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button') continue
+        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button' || row.kind === 'member') continue
         const ry = node.y + row.y
         if (wy < ry || wy > ry + row.height) continue
-        if (row.kind === 'section') return { kind: 'section', node, row }
+        if (row.kind === 'section') {
+          // The header, closed row or tab spans the box, not the node's margin.
+          if (wx < node.x + row.inset || wx > node.x + l.width - row.inset) continue
+          return { kind: 'section', node, row }
+        }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
         const width = row.width ?? l.width - row.inset * 2
         if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
@@ -897,7 +937,7 @@ export function hitTestPin(
     const node = scene.nodes[i]!
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {
-      if (pin.widgetTap === true) continue
+      if (pin.widgetTap === true || pin.stacked === true) continue
       if (pinRevealed && !pinRevealed(node, pin)) continue
       const px = pin.direction === 'in' ? node.x : node.x + node.layout.width
       const py = node.y + pin.y

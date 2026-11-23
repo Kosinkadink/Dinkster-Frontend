@@ -11,11 +11,11 @@ import {
 import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type CanvasHoverTarget, type InteractionHost } from '../src/interaction.js'
 import { subgraphMarkRect } from '../src/registry-painter.js'
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
-import { BOUNDARY_ADD_SLOT, layoutNode, type LayoutRow } from '../src/layout.js'
+import { BOUNDARY_ADD_SLOT, layoutNode, memberAt, type LayoutRow } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
 import { buildScene, REROUTE_SOCKET_OFFSET, scenesEqual, valueSourceMarkRect, type Scene, type SceneNode } from '../src/scene.js'
 import { layoutNodeBadges, SUBGRAPH_BADGE } from '../src/badges.js'
-import { defaultTokens } from '../src/tokens.js'
+import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
 
 function interactionHarness(
@@ -1247,6 +1247,52 @@ describe('node-body link drops', () => {
     harness.fire('pointerup', 250, 35)
     expect(harness.dispatched.at(-1)).toMatchObject({
       command: 'link.connect', params: { to: { node: 'n2', port: 'second' } },
+    })
+  })
+
+  describe('on a closed box', () => {
+    const FLOAT = { kind: 'concrete', name: 'FLOAT' }
+    const closedScene = (fits: boolean): Scene => {
+      const scene = typedScene() as any
+      const port = (portId: string, type: unknown) => ({ portId, label: `${portId} field`, address: { port: portId }, direction: 'in', type })
+      scene.nodes[1].layout.rows = [{
+        kind: 'section', y: 20, height: 24, top: 21, inset: 4, sectionId: 'sampling', box: 'section',
+        label: 'Sampling', collapsed: true, count: 3,
+        hiddenPorts: [
+          port('image', { kind: 'concrete', name: 'IMAGE' }),
+          port('busy', fits ? FLOAT : { kind: 'concrete', name: 'MASK' }),
+          port('free', fits ? FLOAT : { kind: 'concrete', name: 'MASK' }),
+        ],
+      }]
+      scene.links = [{
+        id: 'busy-link', from: { kind: 'port', node: 'n1', port: 'out' }, to: { kind: 'port', node: 'n2', port: 'busy' },
+        x1: 110, y1: 32, x2: 200, y2: 42,
+      }]
+      return scene
+    }
+
+    it('wires the first free field inside that fits and names it on the row', () => {
+      const harness = interactionHarness(closedScene(true))
+      harness.fire('pointerdown', 110, 32)
+      harness.fire('pointermove', 250, 35)
+      const overlay = harness.overlays.at(-1) as any
+      expect(overlay.hoveredBox).toEqual({ nodeId: 'n2', boxId: 'sampling', target: 'free field' })
+      expect(overlay.ghostLink).toMatchObject({ x2: 200, y2: 10 + (21 + 44) / 2 })
+      harness.fire('pointerup', 250, 35)
+      expect(harness.dispatched.at(-1)).toMatchObject({
+        command: 'link.connect', params: { to: { node: 'n2', port: 'free' } },
+      })
+    })
+
+    it('falls back to an ordinary body drop when nothing inside fits', () => {
+      const harness = interactionHarness(closedScene(false))
+      harness.fire('pointerdown', 110, 32)
+      harness.fire('pointermove', 250, 35)
+      expect((harness.overlays.at(-1) as any).hoveredBox?.target).toBeUndefined()
+      harness.fire('pointerup', 250, 35)
+      expect(harness.dispatched.at(-1)).toMatchObject({
+        command: 'link.connect', params: { to: { node: 'n2', port: 'first' } },
+      })
     })
   })
 
@@ -4558,5 +4604,118 @@ describe('text box height', () => {
     harness.fireWindow('keydown', { key: 'Escape', code: 'Escape' })
     harness.fireWindow('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
     expect(harness.dispatched).toHaveLength(1)
+  })
+})
+
+describe('moving a member by its grip', () => {
+  const schema = (minMembers = 1): NodeSchema => ({
+    type: 'Stack', displayName: 'Stack', category: 'test', source: 'v3', isOutputNode: false,
+    body: [{
+      kind: 'group', id: 'loras', displayName: 'LoRAs', reorderable: true,
+      member: [{ kind: 'input', id: 'strength', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } }],
+      keys: { kind: 'numbered', prefix: 'lora', start: 0, pad: 0 }, grows: 'button', minMembers, maxMembers: 4, addLabel: 'Add LoRA',
+    }],
+  })
+  const sceneWith = (members: readonly string[], tokens = { ...defaultTokens, memberRemoveCross: true }): Scene => {
+    const node = { id: asNodeId('n1'), type: 'Stack', values: {}, dynamic: { loras: { members: [...members] } } }
+    const layout = layoutNode(schema(), node, tokens, (value) => value.length * 6, () => ({ viewId: 'core.number', rows: 1 }))
+    return {
+      graphId: 'g',
+      nodes: [{ id: 'n1', x: 0, y: 0, layout, node, isSubgraph: false }],
+      links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
+    } as unknown as Scene
+  }
+  const gripRows = (scene: Scene) => scene.nodes[0]!.layout.rows.filter((row) => row.kind === 'widget' && row.reorder !== undefined) as
+    Extract<Scene['nodes'][number]['layout']['rows'][number], { kind: 'widget' }>[]
+
+  it('puts the grip 4 px before the remove cross, and the field 4 px before the grip', () => {
+    const scene = sceneWith(['lora0', 'lora1', 'lora2'])
+    const { width } = scene.nodes[0]!.layout
+    const box = canvasPaintTokens.node.box
+    const rows = gripRows(scene)
+    expect(rows.map((row) => row.reorder!.member)).toEqual(['lora0', 'lora1', 'lora2'])
+    for (const row of rows) {
+      const crossLeft = width - row.crossInset! - box.cross.size
+      const gripLeft = row.reorder!.gripX - box.gripWidth / 2
+      expect(crossLeft - (gripLeft + box.gripWidth)).toBe(4)
+      expect(gripLeft - (row.inset + row.width!)).toBe(4)
+      expect(row.reorder!.alone).toBeUndefined()
+    }
+    // Without the cross the grip stands where the cross would, and the field ends 4 px before it.
+    const bare = sceneWith(['lora0', 'lora1'], defaultTokens)
+    for (const row of gripRows(bare)) {
+      expect(row.crossInset).toBeUndefined()
+      expect(bare.nodes[0]!.layout.width - row.inset - (row.reorder!.gripX + box.gripWidth / 2)).toBe(0)
+      expect(row.reorder!.gripX - box.gripWidth / 2 - (row.inset + row.width!)).toBe(4)
+    }
+    // A group's only member has a grip that does nothing.
+    expect(gripRows(sceneWith(['lora0']))[0]!.reorder).toMatchObject({ member: 'lora0', alone: true })
+  })
+
+  it('drops the first member after the last, and the last before the first, as one command each', () => {
+    const scene = sceneWith(['lora0', 'lora1', 'lora2'])
+    const rows = gripRows(scene)
+    const gripY = (index: number) => rows[index]!.y + rows[index]!.height / 2
+    const harness = interactionHarness(scene)
+    harness.fire('pointerdown', rows[0]!.reorder!.gripX, gripY(0))
+    harness.fire('pointermove', rows[0]!.reorder!.gripX, rows[2]!.y + rows[2]!.height - 1)
+    expect(harness.overlays.at(-1)).toMatchObject({
+      memberDrag: { nodeId: 'n1', construct: 'loras', member: 'lora0', line: { y: rows[2]!.y + rows[2]!.height } },
+    })
+    harness.fire('pointerup', rows[0]!.reorder!.gripX, rows[2]!.y + rows[2]!.height - 1)
+    harness.fire('pointerdown', rows[2]!.reorder!.gripX, gripY(2))
+    harness.fire('pointermove', rows[2]!.reorder!.gripX, rows[0]!.y + 1)
+    harness.fire('pointerup', rows[2]!.reorder!.gripX, rows[0]!.y + 1)
+    expect(harness.dispatched).toEqual([
+      { command: 'dynamic.moveMember', params: { graphId: 'g', nodeId: 'n1', construct: 'loras', member: 'lora0', index: 2 } },
+      { command: 'dynamic.moveMember', params: { graphId: 'g', nodeId: 'n1', construct: 'loras', member: 'lora2', index: 0 } },
+    ])
+  })
+
+  it('gives a member drawn as one line of fields one grip, at the line\'s end, and one place', () => {
+    const field = (id: string) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } })
+    const lined: NodeSchema = {
+      ...schema(),
+      body: [{ ...(schema().body[0] as Extract<NodeSchema['body'][number], { kind: 'group' }>), member: [{ kind: 'row', rows: [field('a'), field('b')] }] }],
+    }
+    const node = { id: asNodeId('n1'), type: 'Stack', values: {}, dynamic: { loras: { members: ['lora0', 'lora1', 'lora2'] } } }
+    const layout = layoutNode(lined, node, defaultTokens, (value) => value.length * 6, () => ({ viewId: 'core.number', rows: 1 }))
+    const grips = layout.rows.filter((row) => row.kind === 'widget' && row.reorder !== undefined) as Extract<LayoutRow, { kind: 'widget' }>[]
+    expect(grips.map((row) => [row.inputId, row.reorder!.member])).toEqual([
+      ['loras.lora0.b', 'lora0'], ['loras.lora1.b', 'lora1'], ['loras.lora2.b', 'lora2'],
+    ])
+    // The grip stands past the end of the line's last field.
+    for (const row of grips) expect(row.reorder!.gripX - canvasPaintTokens.node.box.gripWidth / 2 - (row.inset + row.width!)).toBe(4)
+    const middle = layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'loras.lora1.a')!
+    expect(memberAt(layout, middle.y + 1)).toEqual({ construct: 'loras', member: 'lora1', index: 1, count: 3 })
+  })
+
+  it('dims the grip of a group\'s only stored member even while it shows offered ones', () => {
+    const atLeastTwo: NodeSchema = { ...schema(2) }
+    const node = { id: asNodeId('n1'), type: 'Stack', values: {}, dynamic: { loras: { members: ['lora0'] } } }
+    const layout = layoutNode(atLeastTwo, node, defaultTokens, (value) => value.length * 6, () => ({ viewId: 'core.number', rows: 1 }))
+    const grips = layout.rows.flatMap((row) => row.kind === 'widget' && row.reorder !== undefined ? [row.reorder] : [])
+    expect(grips).toEqual([expect.objectContaining({ member: 'lora0', alone: true })])
+  })
+
+  it('shows no line beside the member itself, and Escape or a release outside the group changes nothing', () => {
+    const scene = sceneWith(['lora0', 'lora1', 'lora2'])
+    const rows = gripRows(scene)
+    const x = rows[1]!.reorder!.gripX
+    const harness = interactionHarness(scene)
+    harness.fire('pointerdown', x, rows[1]!.y + rows[1]!.height / 2)
+    harness.fire('pointermove', x, rows[1]!.y + rows[1]!.height - 1)
+    expect(harness.overlays.at(-1)).toMatchObject({ memberDrag: { member: 'lora1' } })
+    expect((harness.overlays.at(-1) as { memberDrag: { line?: unknown } }).memberDrag.line).toBeUndefined()
+    harness.fire('pointerup', x, rows[1]!.y + rows[1]!.height - 1)
+    harness.fire('pointerdown', x, rows[1]!.y + rows[1]!.height / 2)
+    harness.fire('pointermove', x, rows[2]!.y + rows[2]!.height - 1)
+    harness.fireWindow('keydown', { key: 'Escape', code: 'Escape' })
+    harness.fire('pointerup', x, rows[2]!.y + rows[2]!.height - 1)
+    harness.fire('pointerdown', x, rows[1]!.y + rows[1]!.height / 2)
+    harness.fire('pointermove', x, -40)
+    harness.fire('pointerup', x, -40)
+    expect(harness.dispatched).toEqual([])
+    expect(harness.overlays.at(-1)).not.toHaveProperty('memberDrag')
   })
 })
