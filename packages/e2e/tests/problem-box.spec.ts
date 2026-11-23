@@ -144,4 +144,13 @@ test('a problem outlines its row and the tab opens one box under the node', asyn
   // One list behind the tab, the box and Problems: 2 + 1 causes.
   await openRailPanel(page, 'Problems')
   await expect(page.getByTestId('problems-panel').locator('details.problem')).toHaveCount(3)
+
+  // A minimized node keeps every problem's tab, including a field check on a
+  // row it no longer draws.
+  await page.keyboard.press('Escape')
+  await page.mouse.click(nodes.node.left + 20, nodes.node.top + 10)
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'gen')!.layout.minimized)).toBe(true)
+  await expect.poll(() => page.evaluate(() =>
+    (window.__dinksterTest!.renderer!.getBadges()['gen'] ?? []).map((badge) => badge.glyph))).toEqual(['Error 2', 'Warning'])
 })

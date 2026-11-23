@@ -248,6 +248,12 @@ export interface SceneNode {
   readonly virtual?: VirtualNodeRenderModel
   /** Full effective interface, including inputs hidden by presentation state. */
   readonly elaborated?: ElaboratedInterface
+  /**
+   * Every field row of a minimized node or of a node with a folded section,
+   * laid out open with its sections unfolded, so a problem on a field the
+   * node does not show still reaches its tab. Absent when layout shows them all.
+   */
+  readonly fieldRows?: readonly LayoutRow[]
   /** Schema declares live previews or an output intended for preview. */
   readonly previewCapable?: true
   /** The open node's preview is folded to its caption row. */
@@ -1396,6 +1402,16 @@ export function buildScene(input: BuildSceneInput): Scene {
       : rawLayout
     const virtual = node.virtual === true ? input.renderVirtualNode?.(occurrenceNode) : undefined
     const layout = virtual === undefined ? layoutWithPorts : { ...layoutWithPorts, pins: [] }
+    const foldedSections = elaborated?.items.filter((item) => item.kind === 'section').map((item) => item.spec.id) ?? []
+    const hidesFields = view?.collapsed === true || baseLayout.rows.some((row) => row.kind === 'section' && row.collapsed)
+    const fieldRows = schema && hidesFields
+      ? layoutNode(schema, occurrenceNode, input.tokens, measure, input.widgetMeasure, {
+          ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
+          sectionOverrides: Object.fromEntries(foldedSections.map((id) => [id, false])),
+          ...(view?.views ? { widgetRepresentations: view.views } : {}),
+          ...(elaborated !== undefined ? { elaborated } : {}),
+        }).rows.filter((row) => row.kind === 'widget')
+      : undefined
     const sceneNode: SceneNode = {
       id: node.id,
       x: pos.x,
@@ -1404,6 +1420,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       node: occurrenceNode,
       ...(virtual !== undefined ? { virtual } : {}),
       ...(elaborated !== undefined ? { elaborated } : {}),
+      ...(fieldRows !== undefined ? { fieldRows } : {}),
       ...(schema !== undefined && hasPreviewSurface(schema)
         ? { previewCapable: true as const }
         : {}),

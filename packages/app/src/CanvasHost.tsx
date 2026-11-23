@@ -4518,7 +4518,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const widgetValueDiagnostics = (): Diagnostic[] => {
       const out: Diagnostic[] = []
       for (const node of scene.nodes) {
-        for (const row of node.layout.rows) {
+        for (const row of node.fieldRows ?? node.layout.rows) {
           if (row.kind !== 'widget' || row.selector !== undefined) continue
           if (companionInputs.get(node.id)?.has(row.valueKey)) continue
           const kind = widgetRegistry().kind(row.spec.widgetType)
