@@ -26,9 +26,10 @@ non-empty legacy `interface` list.
   none), because the editor does not evaluate formulas yet.
 - **Button**: a full-width row with a thin edge, its label centered and an
   optional icon from the engine's list, on its own line or as a cell of a
-  Row. A Row of only buttons splits evenly; a button too narrow for its
-  label shows the icon alone and its label as a tooltip. Clicking it runs its
-  steps; see [Buttons](#buttons).
+  Row. A Row of only buttons splits evenly; beside a field, a button with an
+  icon is a small square. A button too narrow for its label shows the icon
+  alone and its label as a tooltip. Clicking it runs its steps; see
+  [Buttons](#buttons).
 - **Editor**: decoded with the schema; the canvas does not draw it. An editor
   row is a custom or compositor widget with no value of its own; it must name
   at least one row it writes or reads.

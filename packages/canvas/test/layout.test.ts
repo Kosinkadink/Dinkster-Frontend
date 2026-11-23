@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import type { ButtonSpec, InputSpec, NodeData, NodeSchema, NoteSpec, OutputSpec } from '@dinkster/core'
 import { asNodeId, elaborateInterface, EMPTY_CONNECTIVITY } from '@dinkster/core'
 import { layoutNode, projectNodeLayoutHeight, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
-import { defaultTokens } from '../src/tokens.js'
+import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = (spec) =>
@@ -133,12 +133,17 @@ describe('pairing', () => {
     expect(layout.pins.find((pin) => pin.portId === 'w')!.y).toBe(w!.y + w!.height / 2)
   })
 
-  it('splits a Row of only buttons evenly from end to end', () => {
+  it('splits a Row of only buttons evenly and keeps an icon button square beside a field', () => {
     const button = (id: string, label: string): ButtonSpec => ({ kind: 'button', id, label, steps: [] })
     const layout = doLayout([{ kind: 'row', rows: [button('a', 'Import a long sheet name'), button('b', 'Go'), button('c', 'Export')] }])
     const widths = layout.rows.map((row) => row.kind === 'button' ? row.width : undefined)
     expect(widths).toHaveLength(3)
     expect(new Set(widths).size).toBe(1)
+    // Beside a field, a button with an icon is a square and the field takes the rest of the line.
+    const beside = doLayout([{ kind: 'row', rows: [widget('rate'), { ...button('reset', 'Reset the frame rate'), icon: 'rotate-ccw' }] }])
+    const [rate, reset] = beside.rows
+    expect(reset).toMatchObject({ kind: 'button', width: reset!.height - canvasPaintTokens.widget.verticalInset * 2 })
+    expect(rate!.kind === 'widget' && rate!.width).toBeGreaterThan(beside.width / 2)
   })
 
   it('outputs pair with connection-input rows top-down', () => {

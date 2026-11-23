@@ -4,6 +4,7 @@ import {
   coreCommandRegistry,
   documentNodeResolver,
   documentResolver,
+  isAssetWidgetInput,
   runPress,
   type ActionHost,
   type AskRequest,
@@ -80,7 +81,11 @@ const targetOf = (place: ButtonPlace): PressTarget => ({
   ...(place.instancePath?.length ? { occurrence: [...place.instancePath, place.nodeId].join('/') } : {}),
 })
 
-/** Editors a step may open; the mask and other image editing waits for the replacement image surface. */
+/**
+ * Editors a step may not open yet. An asset field's own editing (the mask and
+ * other image editing) waits for the replacement image surface; its picker is
+ * OpenPicker.
+ */
 const NO_HOST_EDITOR = new Set(['COMPOSITOR', 'CURVE', 'PAINTER', 'MASK', 'IMAGE_COMPARE'])
 
 /**
@@ -124,7 +129,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
     const backend = app.backendForTab(tab)
     const editorFor = (field: ElaboratedInput) => {
       const spec = field.spec.widget
-      if (spec === undefined || NO_HOST_EDITOR.has(spec.widgetType)) return undefined
+      if (spec === undefined || NO_HOST_EDITOR.has(spec.widgetType) || isAssetWidgetInput(field.spec)) return undefined
       if (app.widgetRegistryForTab(tab).kind(spec.widgetType) === undefined) return undefined
       return (signal: AbortSignal) => surfaces.edit({
         place,

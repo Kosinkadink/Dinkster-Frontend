@@ -1238,11 +1238,17 @@ export function layoutNode(
     // A line of buttons shares the row evenly from end to end.
     const even = line.every((row) => row.kind === 'button') ? (width - (line.length - 1) * gap) / line.length : undefined
     const pinned = pinnedCells(line)
+    // Beside a field, a button with an icon is a small square that shows the icon alone.
+    const laterWidth = (row: PendingRow): number =>
+      row.kind === 'button' && row.button?.icon !== undefined
+        ? rowBaseHeight(row) - canvasPaintTokens.widget.verticalInset * 2 + (tokens.pinRadius + WIDGET_PIN_GAP) * 2
+        : compactWidth
+    const laterWidths = line.slice(1).reduce((sum, row) => sum + laterWidth(row) + gap, 0)
     let left = 0
     for (const [column, pendingRow] of line.entries()) {
       const index = rowIndex.get(pendingRow)!
       const row = rows[index] as Extract<LayoutRow, { kind: 'widget' | 'note' | 'button' }>
-      const cellWidth = even ?? (column === 0 ? width - (line.length - 1) * (compactWidth + gap) : compactWidth)
+      const cellWidth = even ?? (column === 0 ? width - laterWidths : laterWidth(pendingRow))
       rows[index] = { ...row, inset: left + row.inset, width: cellWidth - row.inset * 2 }
       const slot = pinned.indexOf(pendingRow)
       for (const [index, pin] of pins.entries()) {
