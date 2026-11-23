@@ -11,7 +11,9 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
-import { boundaryBindingKey, boundaryItems, boundaryItemsWithPaths, isNodeBoundaryBinding, withBoundaryItems, type BoundaryBinding, type BoundaryItem, type GraphDef, type Json, type JsonObject, type NodeBoundaryBinding, type WorkflowDocument } from '../format/document.js'
+import { validateGraphDefShape } from '../format/validate.js'
+import { canonicalJson } from '../compile/hash.js'
+import { boundaryBindingKey, boundaryItems, boundaryItemsWithPaths, isNodeBoundaryBinding, withBoundaryItems, type Boundary, type BoundaryBinding, type BoundaryEntry, type BoundaryInputEntry, type BoundaryItem, type GraphDef, type Json, type JsonObject, type NodeBoundaryBinding, type WorkflowDocument } from '../format/document.js'
 import { asNodeId, asPortId, asRerouteId, isPortEndpoint, samePortRef, type PortRef } from '../ids.js'
 import type { CommandDefinition, CommandExecutionContext, SharedReplayPreparation, TransactionBuilder } from './contract.js'
 import { constructsAround, deriveBoundarySchema, familyStateAt, resolveBoundaryRoute } from '../schema/derive-boundary.js'
@@ -568,7 +570,74 @@ const boundaryUnbind: CommandDefinition = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// boundary.arrange {graphId, body}
+//
+// Sets the boundary's layout: where each input and output sits, the sections
+// and the lines of fields, fold defaults and outputs kept on rows of their
+// own. `body` names every item by side and id, as in
+// [{kind: 'input', id}, {kind: 'section', id, rows: [...]},
+//  {kind: 'line', rows: [{kind: 'input', id}, ...]}, {kind: 'output', id, ownRow: true}].
+// It must name exactly the items the boundary has, so it never adds, removes
+// or rebinds one: layout changes no value, wire or cache key.
+// ---------------------------------------------------------------------------
+
+const boundaryArrange: CommandDefinition = {
+  id: 'boundary.arrange',
+  run(doc, params, tx) {
+    if (!isObj(params) || typeof params.graphId !== 'string' || !Array.isArray(params.body))
+      return [err('params.invalid', 'boundary.arrange: params must be {graphId, body: [...]}')]
+    const def = graphOf(doc, params.graphId)
+    if (!def) return [err('graph.missing', `boundary.arrange: unknown graph '${params.graphId}'`)]
+    const items = {
+      inputs: new Map(boundaryItems(def.boundary, 'inputs').map((item) => [item.id as string, item])),
+      outputs: new Map(boundaryItems(def.boundary, 'outputs').map((item) => [item.id as string, item])),
+    }
+    const named = new Set<string>()
+    const problems: Diagnostic[] = []
+    const build = (entries: readonly Json[]): BoundaryEntry[] => entries.flatMap((entry): BoundaryEntry[] => {
+      if (!isObj(entry)) {
+        problems.push(err('params.invalid', 'boundary.arrange: every body entry must be an object'))
+        return []
+      }
+      if (entry.kind === 'input' || entry.kind === 'output') {
+        const side = entry.kind === 'input' ? 'inputs' : 'outputs'
+        const item = typeof entry.id === 'string' ? items[side].get(entry.id) : undefined
+        if (item === undefined || named.has(`${side}:${item.id}`)) {
+          problems.push(err('boundary.arrangeItems', `boundary.arrange: '${String(entry.id)}' is not a boundary ${entry.kind}, or is named twice`))
+          return []
+        }
+        named.add(`${side}:${item.id}`)
+        const { kind: _kind, ownRow: _ownRow, ...plain } = item as BoundaryItem & { kind?: unknown; ownRow?: unknown }
+        if (entry.kind === 'input') return [{ ...plain, kind: 'input' }]
+        return [{ ...plain, kind: 'output', ...(entry.ownRow === true ? { ownRow: true as const } : {}) }]
+      }
+      const rows = Array.isArray(entry.rows) ? build(entry.rows) : []
+      if (entry.kind === 'line') return [{ kind: 'line', rows: rows as BoundaryInputEntry[] }]
+      if (entry.kind === 'section' && typeof entry.id === 'string') return [{
+        kind: 'section', id: entry.id, rows,
+        ...(typeof entry.displayName === 'string' && entry.displayName.length > 0 ? { displayName: entry.displayName } : {}),
+        ...(entry.collapsedByDefault === true ? { collapsedByDefault: true as const } : {}),
+        ...(entry.openName === false ? { openName: false as const } : {}),
+      }]
+      problems.push(err('params.invalid', "boundary.arrange: an entry is an 'input', 'output', 'line' or a 'section' with an id"))
+      return []
+    })
+    const body = build(params.body)
+    if (problems.length > 0) return problems
+    if (named.size !== items.inputs.size + items.outputs.size)
+      return [err('boundary.arrangeItems', 'boundary.arrange: the body must name every input and output of the boundary')]
+    const boundary: Boundary = { body }
+    const shape = validateGraphDefShape({ ...def, boundary } as unknown as Json, `$.graphs.${def.id}`)
+    if (shape.length > 0) return [err('boundary.arrangeShape', `boundary.arrange: ${shape[0]!.message}`)]
+    if (canonicalJson(boundary) === canonicalJson(def.boundary ?? { body: [] })) return []
+    tx.set(['graphs', def.id, 'boundary'], boundary as unknown as Json)
+    return []
+  },
+}
+
 export const BOUNDARY_COMMANDS: readonly CommandDefinition[] = [
+  boundaryArrange,
   boundaryAddBinding,
   boundaryRemoveBinding,
   boundaryAddItem,

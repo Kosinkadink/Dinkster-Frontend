@@ -254,6 +254,8 @@ function checkBoundaryEntries(c: ShapeChecker, entries: readonly unknown[], path
           if (!c.obj(row, rp)) return
           if (row['kind'] !== 'input') c.fail(`${rp}.kind`, "a line holds only inputs ('input')")
           else checkBoundaryItem(c, row, rp, 'inputs')
+          if ((row['binds'] as Record<string, unknown> | undefined)?.['kind'] === 'construct')
+            c.fail(`${rp}.binds`, 'a whole group, choice, type choice or described row takes a line of its own')
         })
       }
     } else {

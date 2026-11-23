@@ -631,9 +631,9 @@ export function mapBoundaryItems(
 }
 
 /**
- * Sets one side's items to `items`, in that order of ids: an item whose id the
- * boundary holds keeps its place among sections and lines, an item it lacks
- * is added, and an item `items` lacks is removed. A new input goes at the end
+ * Sets one side's items to `items`, matched by id: an item the boundary holds
+ * is replaced at its place among sections and lines, an item it lacks is
+ * added, and an item `items` lacks is removed. A new input goes at the end
  * of the top level before the outputs that end it; a new output goes at the
  * very end.
  */

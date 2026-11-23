@@ -55,7 +55,7 @@ import type {
   TypeChoiceSpec,
   TypeExpr,
 } from './model.js'
-import { boundaryItems } from '../format/document.js'
+import { boundaryItems, type BoundaryEntry } from '../format/document.js'
 
 /** Resolves node types and optional backend-declared editor roles. */
 export interface SchemaResolver {
@@ -605,6 +605,36 @@ const constructShapeKey = (row: GroupSpec | ChoiceSpec | TypeChoiceSpec | Descri
  * diagnostics for every unresolvable binding; the schema is produced only if
  * no error occurred (partial schemas would let bad instances propagate).
  */
+/**
+ * The subgraph node's body in the order the boundary stores it: each derived
+ * row at its item's place, inside the stored sections and lines. A line left
+ * with one row draws that row alone.
+ */
+function arrangedBody(entries: readonly BoundaryEntry[], derived: readonly BodyRow[]): BodyRow[] {
+  const byId = new Map(derived.flatMap((row) => 'id' in row && typeof row.id === 'string' ? [[row.id, row] as const] : []))
+  const arrange = (rows: readonly BoundaryEntry[]): BodyRow[] => rows.flatMap((entry): BodyRow[] => {
+    if (entry.kind === 'section') {
+      return [{
+        kind: 'section', id: entry.id, rows: arrange(entry.rows) as OptionRow[],
+        ...(entry.displayName !== undefined ? { displayName: entry.displayName } : {}),
+        ...(entry.collapsedByDefault ? { collapsedByDefault: true } : {}),
+        ...(entry.openName === false ? { openName: false as const } : {}),
+      }]
+    }
+    if (entry.kind === 'line') {
+      const cells = entry.rows.flatMap((cell) => {
+        const row = byId.get(cell.id)
+        return row !== undefined ? [row] : []
+      })
+      return cells.length > 1 ? [{ kind: 'row', rows: cells as InputSpec[] }] : cells
+    }
+    const row = byId.get(entry.id)
+    if (row === undefined) return []
+    return [entry.kind === 'output' && entry.ownRow && row.kind === 'output' ? { ...row, ownRow: true } : row]
+  })
+  return arrange(entries)
+}
+
 export function deriveBoundarySchema(
   graph: GraphDef,
   resolve: SchemaResolver,
@@ -1188,7 +1218,7 @@ export function deriveBoundarySchema(
       displayName: def.name,
       category: 'subgraph',
       source: 'subgraph',
-      body: derivedItems,
+      body: arrangedBody(def.boundary?.body ?? [], derivedItems),
       isOutputNode,
       ...(emitsPreviews ? { emitsPreviews: true } : {}),
       ...(mayExpandGraph ? { mayExpandGraph: true } : {}),
