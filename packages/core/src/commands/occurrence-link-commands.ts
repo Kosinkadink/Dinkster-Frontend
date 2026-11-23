@@ -36,18 +36,15 @@ function validLinkEndpoint(value: Json | undefined): boolean {
     return exactKeys(value, ['selector'], ['candidate']) && nonEmptyString(value.selector) &&
       (value.candidate === undefined || nonEmptyString(value.candidate))
   if (value.tap !== undefined) return exactKeys(value, ['node', 'tap']) && nonEmptyString(value.node) && nonEmptyString(value.tap)
-  return exactKeys(value, ['node', 'port'], ['kind', 'members']) && (value.kind === undefined || value.kind === 'port') &&
-    nonEmptyString(value.node) && nonEmptyString(value.port) &&
-    (value.members === undefined || stringArray(value.members, false))
+  return exactKeys(value, ['node', 'port'], ['kind']) && (value.kind === undefined || value.kind === 'port') &&
+    nonEmptyString(value.node) && nonEmptyString(value.port)
 }
 
 function validBinding(value: Json | undefined): boolean {
   if (isObj(value) && value.kind === 'valueSource')
     return exactKeys(value, ['kind', 'valueSource', 'type']) && validateBoundaryBindingShape(value).length === 0
-  return isObj(value) && exactKeys(value, ['kind', 'node', 'port'], ['members', 'slots']) &&
-    (value.kind === 'port' || value.kind === 'family' || value.kind === 'slot' || value.kind === 'dynamicCombo') && nonEmptyString(value.node) && nonEmptyString(value.port) &&
-    (value.members === undefined || stringArray(value.members, false)) &&
-    (value.slots === undefined || value.kind === 'family' && stringArray(value.slots, false))
+  return isObj(value) && exactKeys(value, ['kind', 'node', 'port']) &&
+    value.kind === 'port' && nonEmptyString(value.node) && nonEmptyString(value.port)
 }
 
 function validRoute(value: Json | undefined): boolean {
@@ -61,8 +58,7 @@ function validOccurrenceEndpoint(value: Json | undefined): boolean {
   if (value.kind === 'body') return exactKeys(value, ['kind', 'endpoint']) && validLinkEndpoint(value.endpoint)
   return value.kind === 'boundary' && exactKeys(value, ['kind', 'occurrence', 'address', 'route']) &&
     ownerFromJson(value.occurrence) !== undefined && isObj(value.address) &&
-    exactKeys(value.address, ['port'], ['members']) && nonEmptyString(value.address.port) &&
-    (value.address.members === undefined || stringArray(value.address.members, false)) && validRoute(value.route)
+    exactKeys(value.address, ['port']) && nonEmptyString(value.address.port) && validRoute(value.route)
 }
 
 function validParentDelivery(value: Json | undefined): boolean {
@@ -87,17 +83,15 @@ function validIdentity(value: Json | undefined, marker = false): boolean {
     ownerFromJson(value.owner) !== undefined && nonEmptyString(value.linkId)
 }
 
-function validDynamicState(value: Json | undefined, depth = 0): boolean {
-  if (!isObj(value) || depth > 16 || !exactKeys(value, [], ['members', 'memberLabels', 'seq', 'selected', 'options', 'memberState'])) return false
+function validDynamicState(value: Json | undefined): boolean {
+  if (!isObj(value) || !exactKeys(value, [], ['members', 'memberLabels', 'seq', 'selected', 'options'])) return false
   if (value.options !== undefined && (!Array.isArray(value.options) || !value.options.every(isComboValue))) return false
   if (value.members !== undefined && !stringArray(value.members, false)) return false
   if (value.seq !== undefined && (!Number.isSafeInteger(value.seq) || Number(value.seq) < 0)) return false
   if (value.selected !== undefined && !nonEmptyString(value.selected)) return false
   if (value.memberLabels !== undefined && (!isObj(value.memberLabels) ||
       !Object.entries(value.memberLabels).every(([member, label]) => member.length > 0 && nonEmptyString(label)))) return false
-  if (value.memberState === undefined) return true
-  return isObj(value.memberState) && Object.entries(value.memberState).every(([member, scope]) =>
-    member.length > 0 && isObj(scope) && Object.values(scope).every((state) => validDynamicState(state, depth + 1)))
+  return true
 }
 
 export interface OccurrenceLinkPlanEndpoint {
@@ -161,7 +155,7 @@ const planEndpoint = (endpoint: ResolvedOccurrenceEndpoint): OccurrenceLinkPlanE
 const identityKey = (identity: EffectiveLinkIdentity): string => canonicalJson(identity)
 const isRegionIndexSource = (endpoint: OccurrenceLinkEndpoint): boolean =>
   endpoint.kind === 'body' && isPortEndpoint(endpoint.endpoint) &&
-  endpoint.endpoint.node === '$region' && endpoint.endpoint.port === 'index' && endpoint.endpoint.members === undefined
+  endpoint.endpoint.node === '$region' && endpoint.endpoint.port === 'index'
 const identityOwnedBy = (identity: EffectiveLinkIdentity, owner: OccurrenceRef): boolean =>
   identity.kind !== 'occurrence' || occurrenceKey(identity.owner) === occurrenceKey(owner)
 
@@ -198,16 +192,14 @@ function materializedDocument(
     if (!schema) return undefined
     const elaborated = elaborateInterface(schema, node)
     const candidates = side === 'from' ? elabOutputsOf(elaborated) : elabInputsOf(elaborated)
-    const offered = candidates.find((item) => item.address.port === endpoint.address.port &&
-      canonicalJson(item.address.members ?? null) === canonicalJson(endpoint.address.members ?? null))
+    const offered = candidates.find((item) => item.address.port === endpoint.address.port)
     const frames = offered && materializeFramesOf(elaborated.items, offered)
     if (!frames) continue
     const applied = applyMaterializeFrames(node.dynamic ?? {}, frames)
     if (!applied) return undefined
-    const construct = frames[0]!.construct
-    const nextState = applied[construct]
-    if (!nextState) return undefined
-    materializations.push({ graphId: graph.id, nodeId: node.id, construct, state: nextState })
+    for (const { construct } of frames) {
+      materializations.push({ graphId: graph.id, nodeId: node.id, construct, state: applied[construct]! })
+    }
     current = {
       ...current,
       graphs: {
@@ -228,27 +220,23 @@ function materializedDocument(
   return { document: current, materializations }
 }
 
+/** Persist each frame's members into the state of its group, keyed by the group's flattened id. */
 function applyMaterializeFrames(
   dynamic: Readonly<Record<string, DynamicPortState>>,
   frames: readonly MaterializeFrame[],
 ): Readonly<Record<string, DynamicPortState>> | undefined {
-  const apply = (scope: Readonly<Record<string, DynamicPortState>>, index: number): Readonly<Record<string, DynamicPortState>> | undefined => {
-    const frame = frames[index]
-    if (!frame || frame.members.length === 0) return undefined
+  if (frames.length === 0) return undefined
+  let scope = dynamic
+  for (const frame of frames) {
+    if (frame.members.length === 0) return undefined
     const state = scope[frame.construct] ?? {}
     const members = [...(state.members ?? [])]
     for (const member of frame.members) if (!members.includes(member)) members.push(member)
-    const suffixes = members.map((member) => /^m(\d{1,15})$/.exec(member)?.[1]).filter((value): value is string => value !== undefined)
-    let next: DynamicPortState = { ...state, members, seq: Math.max(state.seq ?? 0, 0, ...suffixes.map((value) => Number(value) + 1)) }
-    if (index + 1 < frames.length) {
-      const member = frame.members.at(-1)!
-      const child = apply(state.memberState?.[member] ?? {}, index + 1)
-      if (!child) return undefined
-      next = { ...next, memberState: { ...(state.memberState ?? {}), [member]: child } }
-    }
-    return { ...scope, [frame.construct]: next }
+    // The frame carries the group's counter past its members, so a removed key is never offered again.
+    const seq = Math.max(state.seq ?? 0, frame.seq ?? 0)
+    scope = { ...scope, [frame.construct]: { ...state, members, ...(seq > 0 ? { seq } : {}) } }
   }
-  return apply(dynamic, 0)
+  return scope
 }
 
 function driverOf(links: readonly EffectiveLink[], target: OccurrenceLinkPlanEndpoint, except?: EffectiveLinkIdentity): EffectiveLink | undefined {
@@ -333,12 +321,11 @@ export function occurrenceLinkPlanDigest(
 
 function resolvePlannedEndpoint(
   doc: WorkflowDocument,
-  resolver: SchemaResolver,
   owner: OccurrenceRef,
   endpoint: OccurrenceLinkEndpoint,
   side: 'from' | 'to',
 ): OccurrenceLinkPlanEndpoint | undefined {
-  const result = resolveOccurrenceLinkEndpoint(doc, resolver, owner, endpoint, side)
+  const result = resolveOccurrenceLinkEndpoint(doc, owner, endpoint, side)
   return result.endpoint === undefined || result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
     ? undefined
     : planEndpoint(result.endpoint)
@@ -355,8 +342,8 @@ function buildPlan(
   if (effective.bodyGraph.id !== intent.bodyGraph || effective.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return undefined
   const allLinks = [...effective.links, ...effective.projectedParentLinks]
   const byIdentity = new Map(allLinks.map((link) => [identityKey(link.identity), link]))
-  const requestedFrom = intent.from && resolvePlannedEndpoint(staged.document, resolver, intent.owner, intent.from, 'from')
-  const requestedTo = intent.to && resolvePlannedEndpoint(staged.document, resolver, intent.owner, intent.to, 'to')
+  const requestedFrom = intent.from && resolvePlannedEndpoint(staged.document, intent.owner, intent.from, 'from')
+  const requestedTo = intent.to && resolvePlannedEndpoint(staged.document, intent.owner, intent.to, 'to')
   const deliveries: OccurrenceLinkPlanDelivery[] = []
   if (intent.command === 'occurrence.link.connect') {
     if (!requestedFrom || !requestedTo) return undefined

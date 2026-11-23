@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const PROOF = '/tmp/asset-widget-presentation-proof'
 const digest = `blake3:${'a'.repeat(64)}`
@@ -52,13 +52,13 @@ test('source media upload adopts canonical refs and preserves list and cancel se
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
-    dinkster: { version: 'wire22-proof', schemaWire: 1 },
+    dinkster: { version: 'wire22-proof', schemaWire: 2 },
     nodes: { SourceUpload: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'SourceUpload',
       displayName: 'Source Upload',
-      interface: [{
-        role: 'input',
+      body: [{
+        kind: 'input',
         id: 'files',
         required: true,
         type: { kind: 'list', element: { kind: 'concrete', types: ['ASSET'] } },
@@ -66,21 +66,21 @@ test('source media upload adopts canonical refs and preserves list and cancel se
         sourceFilename: { kind: 'media/image', category: 'input' },
       }],
     }, SourceScalar: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'SourceScalar',
       displayName: 'Source Scalar',
-      interface: [{
-        role: 'input', id: 'file', required: true,
+      body: [{
+        kind: 'input', id: 'file', required: true,
         type: { kind: 'concrete', types: ['ASSET'] },
         widget: { type: 'ASSET', accept: ['image/*'], kind: 'media/image', allowUpload: true },
         sourceFilename: { kind: 'media/image', category: 'input' },
       }],
     }, SourceVideo: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'SourceVideo',
       displayName: 'Source Video',
-      interface: [{
-        role: 'input', id: 'video', required: true,
+      body: [{
+        kind: 'input', id: 'video', required: true,
         type: { kind: 'concrete', types: ['ASSET'] },
         widget: { type: 'ASSET', accept: ['video/*'], kind: 'media/video', allowUpload: true },
         sourceFilename: { kind: 'media/video', category: 'input' },

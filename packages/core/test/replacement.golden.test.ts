@@ -1,7 +1,7 @@
 /**
  * Replacement rules against GOLDEN payloads emitted by the real backend
- * encoder (dinkster_schema schema_to_wire/rule_to_wire at Dinkster a479dfee,
- * schema wire v21; regenerate with
+ * encoder (dinkster_schema schema_to_wire/rule_to_wire at Dinkster 22898868,
+ * schema wire 2; copied byte for byte from goldens/replacements, regenerated with
  * scripts/generate_replacement_goldens.py there, drift-locked backend-side
  * by tests/test_goldens.py).
  *
@@ -36,7 +36,7 @@ const loadGolden = (name: string): { raw: readonly (DinksterWireSchema & { repla
     }
   ).schemas
   const { schemas, diagnostics } = parseDinksterNodes({
-    schemaVersion: 1,
+    schemaVersion: 2,
     nodes: Object.fromEntries(raw.map((s) => [s.nodeType, s])),
   })
   expect(diagnostics, `${name}.json must decode clean`).toEqual([])

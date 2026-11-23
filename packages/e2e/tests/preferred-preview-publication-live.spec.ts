@@ -3,7 +3,7 @@
  * the producer preview still selects IMAGE rather than caching MASK.
  */
 import { deflateSync } from 'node:zlib'
-import type { NodeSchema } from '@dinkster/core'
+import type { NodeSchema, OutputSpec } from '@dinkster/core'
 import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
@@ -46,7 +46,7 @@ async function openMidgraphDoc(page: Page, asset: { digest: string; size: number
   const contract = await page.evaluate(() => {
     const schemas = window.__dinksterTest!.app.backends.get()[0]!.registry.get()!.schemas as ReadonlyMap<string, NodeSchema>
     const load = [...schemas].find(([id]) => id.endsWith('.load_image'))!
-    const output = (name: string): string => load[1].items.find((item) =>
+    const output = (name: string): string => load[1].body.find((item): item is OutputSpec =>
       item.kind === 'output' && item.type.kind === 'concrete' && item.type.name.toLowerCase().split('.').at(-1) === name)!.id
     return { load: load[0], image: output('image'), mask: output('mask') }
   })

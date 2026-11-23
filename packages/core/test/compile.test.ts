@@ -99,10 +99,12 @@ describe('golden pairs', () => {
   })
   it.each([25, 29.97, undefined])('stamps numeric-union widget value %s without changing concrete numerics', (value) => {
     const schema = parseDinksterSchema('Numeric', {
+      schemaVersion: 2,
+      nodeType: 'Numeric',
       outputNode: true,
-      interface: [
-        { role: 'input', id: 'frame_rate', type: { kind: 'union', types: ['FLOAT', 'INT'] }, required: true, default: 23.976, widget: { type: 'NUMBER', step: 0.01 } },
-        { role: 'input', id: 'count', type: { kind: 'concrete', types: ['INT'] }, required: true, widget: { type: 'NUMBER', min: 0 } },
+      body: [
+        { kind: 'input', id: 'frame_rate', type: { kind: 'union', types: ['FLOAT', 'INT'] }, required: true, default: 23.976, widget: { type: 'NUMBER', step: 0.01 } },
+        { kind: 'input', id: 'count', type: { kind: 'concrete', types: ['INT'] }, required: true, widget: { type: 'NUMBER', min: 0 } },
       ],
     }).schema!
     expect(schema).toBeDefined()
@@ -128,7 +130,7 @@ describe('golden pairs', () => {
 
   it('requires explicit supported type stamps for nonconcrete additional literals', () => {
     const schema = parseDinksterSchema('Authored', {
-      outputNode: true, additionalInputs: { kind: 'wildcard' }, interface: [],
+      schemaVersion: 2, nodeType: 'Authored', outputNode: true, additionalInputs: { kind: 'wildcard' }, body: [],
     }).schema!
     const base = loadWorkflow('minimal')
     for (const [value, features, accepted] of [
@@ -150,9 +152,11 @@ describe('golden pairs', () => {
 
   it('compiles explicit extra membership without deriving ports from dormant values', () => {
     const schema = parseDinksterSchema('Authored', {
+      schemaVersion: 2,
+      nodeType: 'Authored',
       outputNode: true,
       additionalInputs: { kind: 'concrete', types: ['INT'] },
-      interface: [{ role: 'input', id: 'choice', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', editableOptions: true, options: [] } }],
+      body: [{ kind: 'input', id: 'choice', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', editableOptions: true, options: [] } }],
     }).schema!
     const base = loadWorkflow('minimal')
     const document = (additionalInputs: readonly string[]): WorkflowDocument => ({
@@ -398,13 +402,15 @@ describe('value handling', () => {
     expect(loaded.document).toBeDefined()
     for (const expanded of [false, true]) {
       const schema = parseDinksterSchema('Evolving', {
+        schemaVersion: 2,
+        nodeType: 'Evolving',
         outputNode: true,
-        interface: [
-          { role: 'input', id: 'mode', type: { kind: 'concrete', types: ['COMBO'] }, required: true,
+        body: [
+          { kind: 'input', id: 'mode', type: { kind: 'concrete', types: ['COMBO'] }, required: true,
             default: 'linear', widget: { type: 'COMBO', options: expanded ? ['linear', 'cubic', 'nearest'] : ['linear', 'nearest'] } },
-          { role: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 512, widget: { type: 'NUMBER', min: 1 } },
-          ...(expanded ? [{ role: 'input' as const, id: 'batch', type: { kind: 'concrete' as const, types: ['INT'] }, required: true, default: 3, widget: { type: 'NUMBER', min: 1 } }] : []),
-          { role: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 512, widget: { type: 'NUMBER', min: 1 } },
+          { kind: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 512, widget: { type: 'NUMBER', min: 1 } },
+          ...(expanded ? [{ kind: 'input', id: 'batch', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 3, widget: { type: 'NUMBER', min: 1 } }] : []),
+          { kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 512, widget: { type: 'NUMBER', min: 1 } },
         ],
       }).schema!
       expect(schema).toBeDefined()
@@ -473,15 +479,16 @@ describe('semantic hash', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Dynamic interfaces (dynamic interface implementation compile integration)
+// Dynamic interfaces (groups, choices and type choices in compile)
 //
-// The compiler resolves values/links by elaborated document identity
-// ({port, members} / elaborated key) and emits wire names (apiName) and
-// non-ghost output indexes. These tests pin that contract with synthetic
-// dynamic schemas (the object_info fixture is static-only).
+// The compiler resolves values and links by flattened id, submits each input
+// under it, sends choice keys as slotVariants and member order as
+// outputMembers, and wires outputs by non-ghost output index. These tests pin
+// that contract with synthetic schemas (the object_info fixture is
+// static-only).
 // ---------------------------------------------------------------------------
 
-import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
+import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
 const IMAGE: TypeExpr = { kind: 'concrete', name: 'IMAGE' }
 const dynInput = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
@@ -492,7 +499,7 @@ const dynInput = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
   ...extra,
 })
 const dynOutput = (id: string): OutputSpec => ({ kind: 'output', id, type: IMAGE })
-const dynSchemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema => ({
+const dynSchemaOf = (type: string, items: BodyRow[]): NodeSchema => ({
   type,
   displayName: type,
   category: 'test',
@@ -501,11 +508,13 @@ const dynSchemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchem
   body: items,
 })
 
-const wire15SchemaOf = (type: string, interfaceItems: readonly Record<string, unknown>[]): NodeSchema => {
-  const parsed = parseDinksterSchema(type, { schemaVersion: 1, interface: interfaceItems } as never)
-  if (!parsed.schema || parsed.diagnostics.length > 0) throw new Error(`bad test schema ${type}: ${JSON.stringify(parsed.diagnostics)}`)
-  return { ...parsed.schema, isOutputNode: true }
-}
+const numbered = (prefix: string): GroupSpec['keys'] => ({ kind: 'numbered', prefix, start: 0, pad: 0 })
+const group = (id: string, prefix: string, rows: Pick<GroupSpec, 'value' | 'member'>, extra: Partial<GroupSpec> = {}): GroupSpec => ({
+  kind: 'group', id, ...rows, keys: numbered(prefix), grows: 'link', minMembers: 0, maxMembers: 4, ...extra,
+})
+const choice = (id: string, options: ChoiceSpec['options'], extra: Partial<ChoiceSpec> = {}): ChoiceSpec => ({
+  kind: 'choice', id, options, shared: [], required: true, ...extra,
+})
 
 const dynSchemas: Record<string, NodeSchema> = {
   ImageSrc: dynSchemaOf('ImageSrc', [dynOutput('out')]),
@@ -534,81 +543,30 @@ const dynSchemas: Record<string, NodeSchema> = {
   AssetLiteral: dynSchemaOf('AssetLiteral', [dynInput('in', {
     widget: { widgetType: 'ASSET', options: {} },
   })]),
-  // Single-slot autogrow (connectable): wire names images.image0, image1...
+  // A group of pins: flattened ids images.image0, images.image1...
   Batcher: dynSchemaOf('Batcher', [
-    {
-      ...dynInput('images'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('image')],
-        naming: { kind: 'prefix', prefix: 'image', min: 1, max: 2 },
-      },
-    },
+    group('images', 'image', { value: dynInput('image') }, { minMembers: 1, maxMembers: 2 }),
     dynOutput('out'),
   ]),
-  // Widget-backed autogrow: member values live under member elab keys.
+  // A group of fields: member values live under their flattened ids.
   Weigher: dynSchemaOf('Weigher', [
-    {
-      ...dynInput('weights'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('w', { widget: { widgetType: 'FLOAT', options: {}, default: 0.5 } })],
-        naming: { kind: 'prefix', prefix: 'w', min: 0, max: 4 },
-      },
-    },
+    group('weights', 'w', { value: dynInput('w', { widget: { widgetType: 'FLOAT', options: {}, default: 0.5 } }) }, { grows: 'filled' }),
   ]),
   NamedRoute: dynSchemaOf('NamedRoute', [
-    {
-      ...dynInput('values'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('value', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'value', min: 0, max: 4 },
-      },
-    },
-    dynInput('name', {
-      type: { kind: 'concrete', name: 'STRING' },
-      widget: { widgetType: 'COMBO', options: {}, optionSource: { inputFamily: 'values' } },
-    }),
+    group('values', 'value', { value: dynInput('value', { optional: true }) }),
     dynOutput('out'),
   ]),
-  // Autogrow OUTPUT family followed by a static output (index arithmetic).
+  // A group of outputs followed by a static output (index arithmetic).
   Splitter: dynSchemaOf('Splitter', [
-    {
-      ...dynOutput('outs'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('o')],
-        naming: { kind: 'prefix', prefix: 'o', min: 0, max: 4 },
-      },
-    } as OutputSpec,
+    group('outs', 'o', { value: dynOutput('o') }),
     dynOutput('last'),
-  ]),
-  // Output autogrow with a MINIMUM: a fresh node min-fills synthetic members.
-  SplitterMin: dynSchemaOf('SplitterMin', [
-    {
-      ...dynOutput('outs'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('o')],
-        naming: { kind: 'prefix', prefix: 'o', min: 1, max: 4 },
-      },
-    } as OutputSpec,
   ]),
   CountSplitter: dynSchemaOf('CountSplitter', [
     dynInput('count', {
       type: { kind: 'concrete', name: 'INT' },
       widget: { widgetType: 'INT', options: {}, default: 0 },
     }),
-    {
-      ...dynOutput('images'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('image')],
-        naming: { kind: 'prefix', prefix: 'image', min: 0, max: 4 },
-        count: { input: 'count', suffix: 'index' },
-      },
-    } as OutputSpec,
+    group('images', '', { value: dynOutput('image') }, { grows: { count: 'count' } }),
   ]),
   CountMultiSplitter: dynSchemaOf('CountMultiSplitter', [
     dynInput('count', {
@@ -616,49 +574,17 @@ const dynSchemas: Record<string, NodeSchema> = {
       widget: { widgetType: 'INT', options: {}, default: 0 },
     }),
     dynOutput('before'),
-    {
-      ...dynOutput('images'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('image')],
-        naming: { kind: 'prefix', prefix: 'image', min: 0, max: 4 },
-        count: { input: 'count', suffix: 'index' },
-      },
-    } as OutputSpec,
+    group('images', '', { value: dynOutput('image') }, { grows: { count: 'count' } }),
     dynOutput('after'),
-    {
-      ...dynOutput('masks'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [dynInput('mask')],
-        naming: { kind: 'prefix', prefix: 'mask', min: 0, max: 4 },
-        count: { input: 'count', suffix: 'index' },
-      },
-    } as OutputSpec,
-  ]),
-  // Unknown dynamic kinds elaborate as inert placeholders (forward compat).
-  WeirdIn: dynSchemaOf('WeirdIn', [
-    { ...dynInput('myst'), dynamic: { kind: 'mystery' } as never },
-  ]),
-  WeirdOut: dynSchemaOf('WeirdOut', [
-    { ...dynOutput('myst'), dynamic: { kind: 'mystery' } as never } as OutputSpec,
-    dynOutput('last'),
+    group('masks', '', { value: dynOutput('mask') }, { grows: { count: 'count' } }),
   ]),
   // Schema-level id collisions: the compiler must reject, never overwrite.
   DupIn: dynSchemaOf('DupIn', [dynInput('x'), dynInput('x')]),
   DupOut: dynSchemaOf('DupOut', [dynOutput('y'), dynOutput('y')]),
-  // Static ids containing '#'/'%': elaborated spec.id is escaped, but the
-  // document keys values by the RAW schema id.
+  // Static ids containing '#'/'%': the document keys values by the raw id.
   Odd: dynSchemaOf('Odd', [
     dynInput('a#b', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
     dynInput('c%d', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
-  ]),
-  // One input's RAW id equals another's ESCAPED elaborated id ('a#b'
-  // elaborates to spec.id 'a%23b'). Value keys are RAW for statics, so both
-  // route unambiguously - this pins that no spec.id-keyed lookup shadows it.
-  OddClash: dynSchemaOf('OddClash', [
-    dynInput('a#b', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
-    dynInput('a%23b', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
   ]),
   ExactInteger: dynSchemaOf('ExactInteger', [
     dynInput('seed', {
@@ -684,129 +610,69 @@ const dynSchemas: Record<string, NodeSchema> = {
   DecimalIntegerFloatSink: dynSchemaOf('DecimalIntegerFloatSink', [
     dynInput('value', { type: { kind: 'concrete', name: 'FLOAT' } }),
   ]),
-  // DynamicCombo: selector value is dynamic state; branch values branch-local.
+  // A choice: its key is stored state; option rows flatten as mode.<row>.
   Modal: dynSchemaOf('Modal', [
-    {
-      ...dynInput('mode'),
-      dynamic: {
-        kind: 'dynamicCombo',
-        options: [
-          { key: 'simple', inputs: [dynInput('strength', { widget: { widgetType: 'FLOAT', options: {}, default: 1 } })] },
-          {
-            key: 'advanced',
-            inputs: [
-              dynInput('strength', { widget: { widgetType: 'FLOAT', options: {}, default: 1 } }),
-              dynInput('bias', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
-            ],
-          },
+    choice('mode', [
+      { key: 'simple', rows: [dynInput('strength', { widget: { widgetType: 'FLOAT', options: {}, default: 1 } })] },
+      {
+        key: 'advanced',
+        rows: [
+          dynInput('strength', { widget: { widgetType: 'FLOAT', options: {}, default: 1 } }),
+          dynInput('bias', { widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
         ],
       },
-    },
+    ]),
   ]),
   SpecializedSlot: dynSchemaOf('SpecializedSlot', [{
-    ...dynInput('slot', { optional: true }),
-    dynamic: {
-      kind: 'dynamicSlot', slotType: IMAGE, inputs: [],
-      variants: [
-        { key: 'selected', type: IMAGE, inputs: [dynInput('x', { widget: { widgetType: 'FLOAT', options: {}, default: 1 } })] },
-        { key: 'other', type: IMAGE, inputs: [dynInput('x', { widget: { widgetType: 'FLOAT', options: {}, default: 2 } })] },
-        { key: 'empty', type: IMAGE, inputs: [] },
-      ],
-    },
+    kind: 'typeChoice',
+    id: 'slot',
+    variants: [
+      { key: 'selected', type: IMAGE, rows: [dynInput('x', { widget: { widgetType: 'FLOAT', options: {}, default: 1 } })] },
+      { key: 'other', type: IMAGE, rows: [dynInput('x', { widget: { widgetType: 'FLOAT', options: {}, default: 2 } })] },
+      { key: 'empty', type: IMAGE, rows: [] },
+    ],
+    rows: [],
+    required: false,
   }]),
-  CropImage: dynSchemaOf('CropImage', [
-    {
-      ...dynInput('source'),
-      dynamic: {
-        kind: 'dynamicCombo',
-        options: [
-          { key: 'coordinates', inputs: [] },
-          {
-            key: 'region',
-            inputs: [{
-              ...dynInput('region'),
-              dynamic: {
-                kind: 'dynamicSlot',
-                materialization: 'wire15',
-                slotType: IMAGE,
-                inputs: [],
-                variants: [{ key: 'mask', type: IMAGE, inputs: [] }],
-              },
-            }],
-          },
-        ],
-      },
-    },
-    dynOutput('image'),
+  ItemGroup: dynSchemaOf('ItemGroup', [group('items', 'item', { value: dynInput('value', { optional: true }) })]),
+  NamedGroup: dynSchemaOf('NamedGroup', [{
+    kind: 'group', id: 'args', value: dynInput('value'), keys: { kind: 'named', names: ['a', 'b'] }, grows: 'link', minMembers: 1,
+  }]),
+  RecordGroup: dynSchemaOf('RecordGroup', [
+    group('pairs', 'pair', { member: [dynInput('left', { optional: true }), dynInput('right', { optional: true })] }, { maxMembers: 3 }),
   ]),
-  Wire15Family: dynSchemaOf('Wire15Family', [{
-    ...dynInput('items', { optional: true }),
-    dynamic: {
-      kind: 'autogrow', materialization: 'wire15',
-      template: [dynInput('value', { optional: true })],
-      naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-    },
-  }]),
-  Wire15Names: wire15SchemaOf('Wire15Names', [{
-    role: 'inputFamily', id: 'args', memberNames: ['a', 'b'], minMembers: 1,
-    template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['IMAGE'] }, required: false }],
-  }]),
-  Wire15RequiredMin: wire15SchemaOf('Wire15RequiredMin', [{
-    role: 'inputFamily', id: 'items', memberPrefix: 'item', minMembers: 2, maxMembers: 4,
-    template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
-  }]),
-  Wire15Grouped: wire15SchemaOf('Wire15Grouped', [{
-    role: 'inputFamily', id: 'pairs', memberPrefix: 'pair', minMembers: 0, maxMembers: 3,
-    template: [
-      { role: 'input', id: 'left', type: { kind: 'concrete', types: ['IMAGE'] }, required: false },
-      { role: 'input', id: 'right', type: { kind: 'concrete', types: ['IMAGE'] }, required: false },
-    ],
-  }]),
-  Wire15ComboFamily: wire15SchemaOf('Wire15ComboFamily', [{
-    role: 'inputFamily', id: 'items', memberPrefix: 'item', minMembers: 0, maxMembers: 3,
-    template: [{
-      role: 'dynamicCombo', id: 'mode', options: [
-        { key: 'a', inputs: [{
-          role: 'input', id: 'amount', type: { kind: 'concrete', types: ['IMAGE'] }, required: false,
-        }] },
-        { key: 'b', inputs: [] },
-      ],
-    }],
-  }]),
-  Wire15Recursive: wire15SchemaOf('Wire15Recursive', [{
-    role: 'dynamicCombo', id: 'mode', options: [
-      { key: 'none', inputs: [] },
-      { key: 'batch', inputs: [
-        {
-          role: 'inputFamily', id: 'frames', memberPrefix: 'frame', minMembers: 0, maxMembers: 4,
-          template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['IMAGE'] }, required: false }],
-        },
-        { role: 'dynamicCombo', id: 'quality', options: [
-          { key: 'draft', inputs: [] },
-          { key: 'full', inputs: [{ role: 'input', id: 'steps', type: { kind: 'concrete', types: ['IMAGE'] }, required: false }] },
-        ] },
+  ChoiceGroup: dynSchemaOf('ChoiceGroup', [
+    group('items', 'item', { member: [choice('mode', [
+      { key: 'a', rows: [dynInput('amount', { optional: true })] },
+      { key: 'b', rows: [] },
+    ])] }, { maxMembers: 3 }),
+  ]),
+  NestedChoice: dynSchemaOf('NestedChoice', [
+    choice('mode', [
+      { key: 'none', rows: [] },
+      { key: 'batch', rows: [
+        group('frames', 'frame', { value: dynInput('value', { optional: true }) }),
+        choice('quality', [
+          { key: 'draft', rows: [] },
+          { key: 'full', rows: [dynInput('steps', { optional: true })] },
+        ]),
       ] },
-    ],
-  }]),
-  Wire15PunctuationCombo: wire15SchemaOf('Wire15PunctuationCombo', [{
-    role: 'dynamicCombo', id: 'mode', options: [
-      { key: 'Flux.2 [pro]', inputs: [
-        { role: 'input', id: 'scale', type: { kind: 'concrete', types: ['IMAGE'] }, required: false },
-      ] },
-      { key: 'Flux.2 [max]', inputs: [] },
-    ], default: 'Flux.2 [pro]',
-  }]),
-  Wire15NonFirstDefault: wire15SchemaOf('Wire15NonFirstDefault', [{
-    role: 'dynamicCombo', id: 'mode', options: [
-      { key: 'first', inputs: [
-        { role: 'input', id: 'scale', type: { kind: 'concrete', types: ['IMAGE'] }, required: false },
-      ] },
-      { key: 'descriptor default', inputs: [] },
-    ], default: 'descriptor default',
-  }]),
-  Wire15OpenSlot: wire15SchemaOf('Wire15OpenSlot', [{
-    role: 'dynamicSlot', id: 'model', slotType: { kind: 'concrete', types: ['IMAGE'] }, required: false,
-    inputs: [{ role: 'input', id: 'weight', type: { kind: 'concrete', types: ['IMAGE'] }, required: false }],
+    ]),
+  ]),
+  PunctuationChoice: dynSchemaOf('PunctuationChoice', [
+    choice('mode', [
+      { key: 'Flux.2 [pro]', rows: [dynInput('scale', { optional: true })] },
+      { key: 'Flux.2 [max]', rows: [] },
+    ], { default: 'Flux.2 [pro]' }),
+  ]),
+  NonFirstDefaultChoice: dynSchemaOf('NonFirstDefaultChoice', [
+    choice('mode', [
+      { key: 'first', rows: [dynInput('scale', { optional: true })] },
+      { key: 'descriptor default', rows: [] },
+    ], { default: 'descriptor default' }),
+  ]),
+  OpenSlot: dynSchemaOf('OpenSlot', [{
+    kind: 'typeChoice', id: 'model', type: IMAGE, rows: [dynInput('weight', { optional: true })], required: false,
   }]),
   LazySelector: {
     ...dynSchemaOf('LazySelector', [
@@ -826,20 +692,9 @@ const dynSchemas: Record<string, NodeSchema> = {
     ]),
     selector: { input: 'switch#id', branches: { false: 'on_false', true: 'on_true' } },
   },
-  CreateList14: dynSchemaOf('CreateList14', [{
-    ...dynInput('items', { optional: true }),
-    dynamic: {
-      kind: 'autogrow', template: [dynInput('value', { optional: true })],
-      naming: { kind: 'prefix', prefix: 'items', min: 1, max: 3 },
-    },
-  }]),
-  CreateList15: wire15SchemaOf('CreateList15', [{
-    role: 'inputFamily', id: 'items', memberPrefix: 'items', minMembers: 1, maxMembers: 3, required: false,
-    template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['IMAGE'] }, required: false }],
-  }]),
   'comfy.ResizeImageMaskNode': parseDinksterSchema(
     'comfy.ResizeImageMaskNode',
-    { ...readJson('fixtures/dinkster-resize-image-mask-wire16.json') as DinksterWireSchema, schemaVersion: 1 },
+    { ...readJson('fixtures/dinkster-resize-image-mask-wire16.json') as DinksterWireSchema, schemaVersion: 2 },
   ).schema!,
 }
 const dynResolve = (type: string) => dynSchemas[type]
@@ -851,7 +706,7 @@ type DynNode = {
   mode?: 'active' | 'muted' | 'bypassed'
 }
 type DynEnd =
-  | [node: string, port: string, members?: string[]]
+  | [node: string, port: string]
   | { reroute: string }
   | { node: string; tap: string }
   | { valueSource: string }
@@ -871,7 +726,7 @@ const dynDoc = (parts: {
   }>
 }): WorkflowDocument => {
   const end = (e: DynEnd) => Array.isArray(e)
-    ? { node: e[0], port: e[1], ...(e[2] ? { members: e[2] } : {}) }
+    ? { node: e[0], port: e[1] }
     : e
   const defOf = (
     id: string,
@@ -922,11 +777,11 @@ const dynCompile = (doc: WorkflowDocument, scope: ExecutionScope = { kind: 'full
   compile({ ...compileInput(doc, scope), resolve: dynResolve })
 
 describe('dynamic interfaces', () => {
-  it('keeps input-family labels out of execution while submitting the stable member id', () => {
+  it('keeps member labels out of execution while submitting the member key', () => {
     const document = dynDoc({ nodes: { route: {
       type: 'NamedRoute',
-      values: { name: 'm7', 'values.value#m7': 4 },
-      dynamic: { values: { members: ['m7'], memberLabels: { m7: 'Background' } } },
+      values: { 'values.value7': 4 },
+      dynamic: { values: { members: ['value7'], memberLabels: { value7: 'Background' } } },
     } } })
     const labeled = dynCompile(document)
     const unlabeled = dynCompile({
@@ -937,7 +792,7 @@ describe('dynamic interfaces', () => {
           ...document.graphs.g0!,
           nodes: {
             ...document.graphs.g0!.nodes,
-            route: { ...document.graphs.g0!.nodes.route!, dynamic: { values: { members: ['m7'] } } },
+            route: { ...document.graphs.g0!.nodes.route!, dynamic: { values: { members: ['value7'] } } },
           },
         },
       },
@@ -946,7 +801,7 @@ describe('dynamic interfaces', () => {
     expect(labeled.ok, JSON.stringify(!labeled.ok && labeled.diagnostics)).toBe(true)
     expect(unlabeled.ok, JSON.stringify(!unlabeled.ok && unlabeled.diagnostics)).toBe(true)
     if (!labeled.ok || !unlabeled.ok) return
-    expect(labeled.artifact.prompt.route?.inputs).toEqual({ name: 'm7', 'values.value0': 4 })
+    expect(labeled.artifact.prompt.route?.inputs).toEqual({ 'values.value7': 4 })
     expect(labeled.artifact.prompt).toEqual(unlabeled.artifact.prompt)
     expect(labeled.artifact.semanticHash).toBe(unlabeled.artifact.semanticHash)
     expect(JSON.stringify(labeled.artifact.prompt)).not.toContain('Background')
@@ -1111,14 +966,14 @@ describe('dynamic interfaces', () => {
   it.each([
     [true, 'selectedSource', 'inactiveSource', ['selected-route']],
     [false, 'inactiveSource', 'selectedSource', []],
-  ] as const)('composes lazy choice %s with bypass on either branch, net, reroute, and recursive wire-15 destination', (choice, liveSource, dimmedSource, reroutes) => {
+  ] as const)('composes lazy choice %s with bypass on either branch, net, reroute, and a group member destination', (choice, liveSource, dimmedSource, reroutes) => {
     const doc = dynDoc({
       nodes: {
         inactiveSource: { type: 'ImageSrc' },
         selectedSource: { type: 'ImageSrc' },
         bypass: { type: 'Passthrough', mode: 'bypassed' },
         selector: { type: 'LazySelector', values: { switch: choice } },
-        target: { type: 'Wire15Family' },
+        target: { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } },
       },
       reroutes: ['selected-route'],
       nets: [['inactive-feed', ['inactiveSource', 'out'], [['bypass', 'in']]]],
@@ -1126,7 +981,7 @@ describe('dynamic interfaces', () => {
         [['bypass', 'out'], ['selector', 'on_false']],
         [['selectedSource', 'out'], { reroute: 'selected-route' }],
         [{ reroute: 'selected-route' }, ['selector', 'on_true']],
-        [['selector', 'result'], ['target', 'items.result']],
+        [['selector', 'result'], ['target', 'items.item0']],
       ],
     })
     const scope: ExecutionScope = {
@@ -1251,18 +1106,18 @@ describe('dynamic interfaces', () => {
     expect(closure.inactiveExclusive.size).toBe(0)
   })
 
-  it('rewires a wire-15 destination after its producer becomes bypassed', () => {
+  it('rewires a group member destination after its producer becomes bypassed', () => {
     const clean = dynDoc({
       nodes: {
         source: { type: 'ImageSrc' },
         modeNode: { type: 'Passthrough' },
-        target: { type: 'Wire15Family' },
+        target: { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } },
       },
-      links: [[['source', 'out'], ['modeNode', 'in']], [['modeNode', 'out'], ['target', 'items.stable']]],
+      links: [[['source', 'out'], ['modeNode', 'in']], [['modeNode', 'out'], ['target', 'items.item0']]],
     })
     const before = dynCompile(clean)
     expect(before.ok, JSON.stringify(!before.ok && before.diagnostics)).toBe(true)
-    if (before.ok) expect(before.artifact.prompt['target']!.inputs).toEqual({ 'items.stable': ['modeNode', 0] })
+    if (before.ok) expect(before.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': ['modeNode', 0] })
     const changed = structuredClone(clean) as unknown as Mutable
     const graphs = changed['graphs'] as Mutable
     const root = graphs['g0'] as Mutable
@@ -1271,126 +1126,123 @@ describe('dynamic interfaces', () => {
     const after = dynCompile(changed as unknown as WorkflowDocument)
     expect(after.ok, JSON.stringify(!after.ok && after.diagnostics)).toBe(true)
     if (after.ok) {
-      expect(after.artifact.prompt['target']!.inputs).toEqual({ 'items.stable': ['source', 0] })
+      expect(after.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': ['source', 0] })
       expect(Object.keys(after.artifact.prompt)).not.toContain('modeNode')
     }
   })
 
-  it('lowers recursive wire-15 family values at stable materialized paths', () => {
+  it('lowers group member values at their flattened ids', () => {
     const result = dynCompile(dynDoc({
-      nodes: { target: { type: 'Wire15Family', values: { 'items.stable': 7 }, dynamic: { items: { members: ['stable'] } } } },
+      nodes: { target: { type: 'ItemGroup', values: { 'items.item0': 7 }, dynamic: { items: { members: ['item0'] } } } },
     }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
-    expect(result.artifact.prompt['target']!.inputs).toEqual({ 'items.stable': 7 })
+    expect(result.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': 7 })
+    expect(result.artifact.prompt['target']!.outputMembers).toEqual({ items: ['item0'] })
   })
 
-  it('lowers names-form members by semantic suffix and enforces minimum membership', () => {
+  it('lowers named members by their names and enforces minimum membership', () => {
     const lowered = dynCompile(dynDoc({
-      nodes: { target: { type: 'Wire15Names', values: { 'args.b': 9 }, dynamic: { args: { members: ['b'] } } } },
+      nodes: { target: { type: 'NamedGroup', values: { 'args.b': 9 }, dynamic: { args: { members: ['b'] } } } },
     }))
     expect(lowered.ok, JSON.stringify(!lowered.ok && lowered.diagnostics)).toBe(true)
     if (lowered.ok) expect(lowered.artifact.prompt['target']!.inputs).toEqual({ 'args.b': 9 })
 
-    const missing = dynCompile(dynDoc({ nodes: { target: { type: 'Wire15Names' } } }))
+    const missing = dynCompile(dynDoc({ nodes: { target: { type: 'NamedGroup' } } }))
     expect(missing.ok).toBe(false)
     if (!missing.ok) expect(missing.diagnostics.map((diagnostic) => diagnostic.code)).toContain('elab.autogrow.underMin')
   })
 
-  it('appends grouped-template leaf ids without submitting member vocabulary keys', () => {
+  it('submits record member rows at <group>.<key>.<row>', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15Grouped',
-      values: { 'pairs.stable.left': 1, 'pairs.stable.right': 2 },
-      dynamic: { pairs: { members: ['stable'] } },
+      type: 'RecordGroup',
+      values: { 'pairs.pair0.left': 1, 'pairs.pair0.right': 2 },
+      dynamic: { pairs: { members: ['pair0'] } },
     } } }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt['target']!.inputs).toEqual({
-      'pairs.stable.left': 1,
-      'pairs.stable.right': 2,
+      'pairs.pair0.left': 1,
+      'pairs.pair0.right': 2,
     })
   })
 
-  it('carries member-addressed wire-15 choices under materialized paths', () => {
+  it('carries the choices of group members as slotVariants under their flattened ids', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15ComboFamily',
+      type: 'ChoiceGroup',
+      values: { 'items.item0.mode.amount': 5 },
       dynamic: {
-        items: { members: ['left', 'right'] },
-        'items.left.mode': { selected: 'a' },
-        'items.right.mode': { selected: 'b' },
+        items: { members: ['item0', 'item1'] },
+        'items.item0.mode': { selected: 'a' },
+        'items.item1.mode': { selected: 'b' },
       },
     } } }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt.target).toEqual({
-      class_type: 'Wire15ComboFamily',
+      class_type: 'ChoiceGroup',
       outputIds: [],
-      inputs: {
-        'items.left.mode': 'a',
-        'items.right.mode': 'b',
-      },
+      inputs: { 'items.item0.mode.amount': 5 },
+      outputMembers: { items: ['item0', 'item1'] },
       slotVariants: {
-        'items.left.mode': 'a',
-        'items.right.mode': 'b',
+        'items.item0.mode': 'a',
+        'items.item1.mode': 'b',
       },
     })
   })
 
-  it('lowers nested combo selectors and only the active recursive paths', () => {
+  it('lowers nested choices and only the rows of chosen options', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15Recursive',
-      values: { 'mode.frames.stable': 1, 'mode.quality.steps': 2, 'mode.inactive': 3 },
+      type: 'NestedChoice',
+      values: { 'mode.frames.frame0': 1, 'mode.quality.steps': 2 },
       dynamic: {
         mode: { selected: 'batch' },
-        'mode.frames': { members: ['stable'] },
+        'mode.frames': { members: ['frame0'] },
         'mode.quality': { selected: 'full' },
       },
     } } }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt['target']).toEqual({
-      class_type: 'Wire15Recursive',
+      class_type: 'NestedChoice',
       outputIds: [],
       inputs: {
-        mode: 'batch',
-        'mode.frames.stable': 1,
-        'mode.quality': 'full',
+        'mode.frames.frame0': 1,
         'mode.quality.steps': 2,
       },
+      outputMembers: { 'mode.frames': ['frame0'] },
       slotVariants: { mode: 'batch', 'mode.quality': 'full' },
     })
   })
 
-  it('rejects a missing nested wire-15 choice instead of deriving the first option', () => {
+  it('rejects a required nested choice with nothing stored instead of deriving the first option', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15Recursive',
+      type: 'NestedChoice',
       dynamic: { mode: { selected: 'batch' }, 'mode.frames': { members: [] } },
     } } }))
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.diagnostics).toContainEqual(expect.objectContaining({
-      code: 'compile.combo.missingChoice',
-      message: expect.stringContaining("DynamicCombo 'mode.quality' has no stored choice"),
+      severity: 'error',
+      message: expect.stringContaining("required choice 'mode.quality' has no stored option"),
     }))
   })
 
-  it('lowers the Flux.2 [pro] wire-15 combo selection and active branch verbatim', () => {
+  it('carries the Flux.2 [pro] option key verbatim and lowers its rows', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15PunctuationCombo',
+      type: 'PunctuationChoice',
       values: { 'mode.scale': 2 },
       dynamic: { mode: { selected: 'Flux.2 [pro]' } },
     } } }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
-    expect(result.artifact.prompt['target']!.inputs).toEqual({
-      mode: 'Flux.2 [pro]',
-      'mode.scale': 2,
-    })
+    expect(result.artifact.prompt['target']!.inputs).toEqual({ 'mode.scale': 2 })
+    expect(result.artifact.prompt['target']!.slotVariants).toEqual({ mode: 'Flux.2 [pro]' })
   })
 
-  it('rejects an invalid stored wire-15 choice without falling back', () => {
+  it('rejects an invalid stored choice without falling back', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15Recursive',
+      type: 'NestedChoice',
       dynamic: { mode: { selected: 'gone' } },
     } } }))
     expect(result.ok).toBe(false)
@@ -1398,18 +1250,18 @@ describe('dynamic interfaces', () => {
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain('prompt.bad_dynamic_choice')
   })
 
-  it('submits an explicitly stored first wire-15 option rather than a descriptor default', () => {
+  it('submits an explicitly stored first option rather than the declared default', () => {
     const result = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15NonFirstDefault',
+      type: 'NonFirstDefaultChoice',
       values: { 'mode.scale': 3 },
       dynamic: { mode: { selected: 'first' } },
     } } }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt['target']).toEqual({
-      class_type: 'Wire15NonFirstDefault',
+      class_type: 'NonFirstDefaultChoice',
       outputIds: [],
-      inputs: { mode: 'first', 'mode.scale': 3 },
+      inputs: { 'mode.scale': 3 },
       slotVariants: { mode: 'first' },
     })
   })
@@ -1429,7 +1281,7 @@ describe('dynamic interfaces', () => {
             },
             dynamic: { resize_type: { selected: 'scale dimensions' } },
           },
-          excluded: { type: 'Wire15PunctuationCombo' },
+          excluded: { type: 'PunctuationChoice' },
         },
         links: [[['source', 'image'], ['target', 'input']]],
       }),
@@ -1443,7 +1295,6 @@ describe('dynamic interfaces', () => {
       inputs: {
         input: ['source', 0],
         scale_method: 'bicubic',
-        resize_type: 'scale dimensions',
         'resize_type.width': 640,
         'resize_type.height': 480,
         'resize_type.crop': 'disabled',
@@ -1455,81 +1306,66 @@ describe('dynamic interfaces', () => {
 
   it('lowers open-slot values, links, and dependents only while the slot is active', () => {
     const valued = dynCompile(dynDoc({ nodes: { target: {
-      type: 'Wire15OpenSlot', values: { model: 'value', 'model.weight': 0.5 },
+      type: 'OpenSlot', values: { model: 'value', 'model.weight': 0.5 },
     } } }))
     expect(valued.ok, JSON.stringify(!valued.ok && valued.diagnostics)).toBe(true)
     if (valued.ok) expect(valued.artifact.prompt['target']!.inputs).toEqual({ model: 'value', 'model.weight': 0.5 })
 
     const linked = dynCompile(dynDoc({
-      nodes: { source: { type: 'ImageSrc' }, target: { type: 'Wire15OpenSlot', values: { 'model.weight': 0.75 } } },
+      nodes: { source: { type: 'ImageSrc' }, target: { type: 'OpenSlot', values: { 'model.weight': 0.75 } } },
       links: [[['source', 'out'], ['target', 'model']]],
     }))
     expect(linked.ok, JSON.stringify(!linked.ok && linked.diagnostics)).toBe(true)
     if (linked.ok) expect(linked.artifact.prompt['target']!.inputs).toEqual({ model: ['source', 0], 'model.weight': 0.75 })
 
-    const inactive = dynCompile(dynDoc({ nodes: { target: { type: 'Wire15OpenSlot', values: { 'model.weight': 0.5 } } } }))
-    expect(inactive.ok).toBe(false)
-    if (!inactive.ok) expect(inactive.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.value.unknownInput')
+    // A dependent's value is kept while the slot is inactive, never compiled and never warned about.
+    const inactive = dynCompile(dynDoc({ nodes: { target: { type: 'OpenSlot', values: { 'model.weight': 0.5 } } } }))
+    expect(inactive.ok, JSON.stringify(!inactive.ok && inactive.diagnostics)).toBe(true)
+    if (inactive.ok) {
+      expect(inactive.artifact.prompt['target']!.inputs).toEqual({})
+      expect(inactive.artifact.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain('compile.value.unknownInput')
+    }
 
-    const absent = dynCompile(dynDoc({ nodes: { target: { type: 'Wire15OpenSlot' } } }))
+    const absent = dynCompile(dynDoc({ nodes: { target: { type: 'OpenSlot' } } }))
     expect(absent.ok).toBe(true)
     if (absent.ok) expect(absent.artifact.prompt['target']!.inputs).toEqual({})
   })
 
-  it('keeps muted wire-15 link evidence structural but omits its dead delivery', () => {
-    const live = dynCompile(dynDoc({
-      nodes: { source: { type: 'ImageSrc' }, target: { type: 'Wire15Family' } },
-      links: [[['source', 'out'], ['target', 'items.linked']]],
-    }))
-    expect(live.ok, JSON.stringify(!live.ok && live.diagnostics)).toBe(true)
-    if (live.ok) expect(live.artifact.prompt['target']!.inputs).toEqual({ 'items.linked': ['source', 0] })
-
-    const dead = dynCompile(dynDoc({
-      nodes: { source: { type: 'ImageSrc', mode: 'muted' }, target: { type: 'Wire15Family' } },
-      links: [[['source', 'out'], ['target', 'items.dead']]],
-    }))
-    expect(dead.ok, JSON.stringify(!dead.ok && dead.diagnostics)).toBe(true)
-    if (dead.ok) {
-      expect(dead.artifact.prompt['target']!.inputs).toEqual({})
-      expect(dead.artifact.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.link.dropped')
-    }
-  })
-
-  it('shares reroute, net, and bypass delivery semantics with wire-15 evidence', () => {
+  it('delivers into a group member through a reroute, a net, and a bypassed node', () => {
     const rerouted = dynCompile(dynDoc({
-      nodes: { source: { type: 'ImageSrc' }, target: { type: 'Wire15Family' } },
+      nodes: { source: { type: 'ImageSrc' }, target: { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } } },
       reroutes: ['r'],
-      links: [[['source', 'out'], { reroute: 'r' }], [{ reroute: 'r' }, ['target', 'items.rerouted']]],
+      links: [[['source', 'out'], { reroute: 'r' }], [{ reroute: 'r' }, ['target', 'items.item0']]],
     }))
     expect(rerouted.ok, JSON.stringify(!rerouted.ok && rerouted.diagnostics)).toBe(true)
-    if (rerouted.ok) expect(rerouted.artifact.prompt['target']!.inputs).toEqual({ 'items.rerouted': ['source', 0] })
+    if (rerouted.ok) expect(rerouted.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': ['source', 0] })
 
     const net = dynCompile(dynDoc({
-      nodes: { source: { type: 'ImageSrc' }, target: { type: 'Wire15Family' } },
-      nets: [['images', ['source', 'out'], [['target', 'items.net']]]],
+      nodes: { source: { type: 'ImageSrc' }, target: { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } } },
+      nets: [['images', ['source', 'out'], [['target', 'items.item0']]]],
     }))
     expect(net.ok, JSON.stringify(!net.ok && net.diagnostics)).toBe(true)
-    if (net.ok) expect(net.artifact.prompt['target']!.inputs).toEqual({ 'items.net': ['source', 0] })
+    if (net.ok) expect(net.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': ['source', 0] })
 
     const bypassed = dynCompile(dynDoc({
       nodes: {
         source: { type: 'ImageSrc' },
         pass: { type: 'Passthrough', mode: 'bypassed' },
-        target: { type: 'Wire15Family' },
+        target: { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } },
       },
-      links: [[['source', 'out'], ['pass', 'in']], [['pass', 'out'], ['target', 'items.bypassed']]],
+      links: [[['source', 'out'], ['pass', 'in']], [['pass', 'out'], ['target', 'items.item0']]],
     }))
     expect(bypassed.ok, JSON.stringify(!bypassed.ok && bypassed.diagnostics)).toBe(true)
-    if (bypassed.ok) expect(bypassed.artifact.prompt['target']!.inputs).toEqual({ 'items.bypassed': ['source', 0] })
+    if (bypassed.ok) expect(bypassed.artifact.prompt['target']!.inputs).toEqual({ 'items.item0': ['source', 0] })
   })
 
-  it('projects wire-15 live-link materialization per subgraph occurrence', () => {
+  it('activates an open type choice per subgraph occurrence from its live link', () => {
     const result = dynCompile(dynDoc({
       nodes: { source: { type: 'ImageSrc' }, linked: { type: '#sub' }, absent: { type: '#sub' } },
       links: [[['source', 'out'], ['linked', 'model']]],
       subgraphs: {
         sub: {
-          nodes: { inner: { type: 'Wire15OpenSlot' } },
+          nodes: { inner: { type: 'OpenSlot' } },
           boundary: { inputs: [{ id: 'model', binds: { kind: 'port', node: 'inner', port: 'model' } }] },
         },
       },
@@ -1540,10 +1376,9 @@ describe('dynamic interfaces', () => {
     expect(result.artifact.prompt['absent.inner']!.inputs).toEqual({})
   })
 
-  it('lowers a linked selected DynamicSlot variant input construct-locally with a slotVariants entry', () => {
-    // Settled contract (Dinkster c2ac572, wire v6): dependents submit under
-    // '<slotId>.<local>' and the stored choice travels once per node as
-    // slotVariants - the backend elaborates the interface from that choice.
+  it('lowers a linked input of the chosen variant at its flattened id with a slotVariants entry', () => {
+    // Rows of the chosen variant submit under '<slotId>.<row>' and the stored
+    // key travels once per node as slotVariants.
     const result = dynCompile(dynDoc({
       nodes: {
         slotSource: { type: 'ImageSrc' },
@@ -1552,7 +1387,7 @@ describe('dynamic interfaces', () => {
       },
       links: [
         [['slotSource', 'out'], ['target', 'slot']],
-        [['valueSource', 'out'], ['target', 'slot.[selected].x']],
+        [['valueSource', 'out'], ['target', 'slot.x']],
       ],
     }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
@@ -1565,14 +1400,14 @@ describe('dynamic interfaces', () => {
     })
   })
 
-  it('lowers a stored value on a selected DynamicSlot variant input', () => {
+  it('lowers a stored value on an input of the chosen variant', () => {
     const result = dynCompile(dynDoc({
       nodes: {
         source: { type: 'ImageSrc' },
         target: {
           type: 'SpecializedSlot',
           dynamic: { slot: { selected: 'selected' } },
-          values: { 'slot.[selected].x': 3 },
+          values: { 'slot.x': 3 },
         },
       },
       links: [[['source', 'out'], ['target', 'slot']]],
@@ -1587,7 +1422,7 @@ describe('dynamic interfaces', () => {
     })
   })
 
-  it('emits slotVariants for a connected zero-dependent variant (choice travels even with no dependents)', () => {
+  it('emits slotVariants for a connected variant with no rows (the key travels even with no dependents)', () => {
     // Settled contract (c2ac572): the elaborated schema's slotChoices join
     // the backend schema signature, so switching variants is a cache miss
     // even when the variant contributes no dependent inputs. The choice must
@@ -1610,9 +1445,9 @@ describe('dynamic interfaces', () => {
     })
   })
 
-  it('rejects a connected DynamicSlot storing an unknown variant key', () => {
-    // Unknown/stale keys are deterministic elaboration-failed errors on the
-    // backend; surface them early and anchored instead of submitting.
+  it('rejects a connected type choice storing an unknown variant key', () => {
+    // Unknown or stale keys are refused by the engine; surface them before
+    // submitting.
     const result = dynCompile(dynDoc({
       nodes: {
         source: { type: 'ImageSrc' },
@@ -1622,11 +1457,12 @@ describe('dynamic interfaces', () => {
     }))
     expect(result.ok).toBe(false)
     if (result.ok) return
-    const d = result.diagnostics.find((c) => c.code === 'compile.slot.missingVariant')
-    expect(d?.message).toBe("SpecializedSlot.slot: unknown slot variant 'gone'")
+    const d = result.diagnostics.find((c) => c.code === 'prompt.bad_dynamic_choice')
+    expect(d?.severity).toBe('error')
+    expect(d?.message).toContain("type choice 'slot' has unknown variant 'gone'")
   })
 
-  it('rejects a connected variant-bearing DynamicSlot without a stored choice', () => {
+  it('rejects a connected type choice with variants and no stored key', () => {
     // The backend elaborates the interface FROM the stored choice; a
     // connected slot with none (or an unknown key) is a deterministic
     // elaboration failure there, surfaced early here.
@@ -1642,7 +1478,7 @@ describe('dynamic interfaces', () => {
     expect(result.diagnostics.some((d) => d.code === 'compile.slot.missingVariant')).toBe(true)
   })
 
-  it('scopes DynamicSlot variant validation to the partial closure', () => {
+  it('scopes type choice variant validation to the partial closure', () => {
     const doc = dynDoc({
       nodes: {
         selectedSource: { type: 'ImageSrc' },
@@ -1721,26 +1557,17 @@ describe('dynamic interfaces', () => {
     }
   })
 
-  it('keeps a disconnected DynamicSlot choice inert: no slotVariants, no error', () => {
-    const result = dynCompile(dynDoc({
-      nodes: { target: { type: 'SpecializedSlot', dynamic: { slot: { selected: 'selected' } } } },
-    }))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (!result.ok) return
-    expect(result.artifact.prompt['target']).toEqual({ class_type: 'SpecializedSlot', inputs: {}, outputIds: [] })
-  })
-
-  it('autogrow members: links resolve by member identity, prompt keys are positional wire names', () => {
+  it('group members: links and prompt keys use the flattened id', () => {
     const result = dynCompile(
       dynDoc({
         nodes: {
           a: { type: 'ImageSrc' },
           b: { type: 'ImageSrc' },
-          g: { type: 'Batcher', dynamic: { images: { members: ['m0', 'm1'] } } },
+          g: { type: 'Batcher', dynamic: { images: { members: ['image0', 'image1'] } } },
         },
         links: [
-          [['a', 'out'], ['g', 'images.image', ['m0']]],
-          [['b', 'out'], ['g', 'images.image', ['m1']]],
+          [['a', 'out'], ['g', 'images.image0']],
+          [['b', 'out'], ['g', 'images.image1']],
         ],
       }),
     )
@@ -1751,57 +1578,58 @@ describe('dynamic interfaces', () => {
       'images.image1': ['b', 0],
     })
     expect(result.artifact.provenance.inputSources?.['g']).toEqual({
-      'images.image0': { node: 'g', port: 'images.image', members: ['m0'] },
-      'images.image1': { node: 'g', port: 'images.image', members: ['m1'] },
+      'images.image0': { node: 'g', port: 'images.image0' },
+      'images.image1': { node: 'g', port: 'images.image1' },
     })
   })
 
-  it('member values compile under wire names; unset persisted members take the template default; ghosts never compile', () => {
+  it('member values compile under flattened ids; unset stored members take the member default; ghosts never compile', () => {
     const result = dynCompile(
       dynDoc({
         nodes: {
           g: {
             type: 'Weigher',
-            values: { 'weights.w#m0': 2 },
-            dynamic: { weights: { members: ['m0', 'm1'] } },
+            values: { 'weights.w0': 2 },
+            dynamic: { weights: { members: ['w0', 'w1'] } },
           },
         },
       }),
     )
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
-    // Exactly the two persisted members: the trailing ghost has no apiName.
+    // Exactly the two stored members: the spare ghost has no apiName.
     expect(result.artifact.prompt['g']!.inputs).toEqual({ 'weights.w0': 2, 'weights.w1': 0.5 })
     expect(result.artifact.diagnostics).toEqual([])
   })
 
-  it('member reordering follows identity, not position', () => {
+  it('member order travels in outputMembers; values stay with their keys', () => {
     const result = dynCompile(
       dynDoc({
         nodes: {
           g: {
             type: 'Weigher',
-            values: { 'weights.w#m0': 1, 'weights.w#m1': 2 },
-            dynamic: { weights: { members: ['m1', 'm0'] } }, // m1 now first
+            values: { 'weights.w0': 1, 'weights.w1': 2 },
+            dynamic: { weights: { members: ['w1', 'w0'] } }, // w1 now first
           },
         },
       }),
     )
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.artifact.prompt['g']!.inputs).toEqual({ 'weights.w0': 2, 'weights.w1': 1 })
+    expect(result.artifact.prompt['g']!.inputs).toEqual({ 'weights.w0': 1, 'weights.w1': 2 })
+    expect(result.artifact.prompt['g']!.outputMembers).toEqual({ weights: ['w1', 'w0'] })
   })
 
-  it('dynamic output families: link indexes count non-ghost elaborated outputs', () => {
+  it('output groups: link indexes count non-ghost elaborated outputs', () => {
     const result = dynCompile(
       dynDoc({
         nodes: {
-          s: { type: 'Splitter', dynamic: { outs: { members: ['a', 'b'] } } },
+          s: { type: 'Splitter', dynamic: { outs: { members: ['o0', 'o1'] } } },
           k0: { type: 'Sink' },
           k1: { type: 'Sink' },
         },
         links: [
-          [['s', 'outs.o', ['b']], ['k0', 'in']],
+          [['s', 'outs.o1'], ['k0', 'in']],
           [['s', 'last'], ['k1', 'in']],
         ],
       }),
@@ -1811,21 +1639,21 @@ describe('dynamic interfaces', () => {
     expect(result.artifact.prompt['s']).toEqual({
       class_type: 'Splitter',
       inputs: {},
-      outputIds: ['outs.o#a', 'outs.o#b', 'last'],
-      outputMembers: { outs: ['a', 'b'] },
+      outputIds: ['outs.o0', 'outs.o1', 'last'],
+      outputMembers: { outs: ['o0', 'o1'] },
     })
     expect(result.artifact.prompt['k0']!.inputs).toEqual({ in: ['s', 1] })
-    // 'last' sits after members a(0), b(1); the ghost is skipped in wiring.
+    // 'last' sits after members o0(0), o1(1); the ghost is skipped in wiring.
     expect(result.artifact.prompt['k1']!.inputs).toEqual({ in: ['s', 2] })
   })
 
-  it('count-bound output families compile canonical members and link member 1', () => {
+  it('count groups of outputs compile their positional members and link member 1', () => {
     const result = dynCompile(dynDoc({
       nodes: {
         s: { type: 'CountSplitter', values: { count: 3 } },
         k: { type: 'Sink' },
       },
-      links: [[['s', 'images', ['1']], ['k', 'in']]],
+      links: [[['s', 'images.1'], ['k', 'in']]],
     }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
@@ -1833,7 +1661,6 @@ describe('dynamic interfaces', () => {
       class_type: 'CountSplitter',
       inputs: { count: 3 },
       outputIds: ['images.0', 'images.1', 'images.2'],
-      outputMembers: { images: ['0', '1', '2'] },
     })
     expect(result.artifact.prompt.k!.inputs).toEqual({ in: ['s', 1] })
     const restored = dynCompile(loadDocument(JSON.parse(JSON.stringify(result.artifact.snapshot))).document!)
@@ -1841,24 +1668,7 @@ describe('dynamic interfaces', () => {
     if (restored.ok) expect(restored.artifact.prompt).toEqual(result.artifact.prompt)
   })
 
-  it('rejects a linked output count even when the node retains a stored literal', () => {
-    const result = dynCompile(dynDoc({
-      nodes: {
-        source: { type: 'ImageSrc' },
-        splitter: { type: 'CountSplitter', values: { count: 2 } },
-      },
-      links: [[['source', 'out'], ['splitter', 'count']]],
-    }))
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.diagnostics).toContainEqual(expect.objectContaining({
-        code: 'elab.outputFamily.linkedCount',
-        severity: 'error',
-      }))
-    }
-  })
-
-  it('keeps static output positions around families that share one count input', () => {
+  it('keeps static output positions around count groups that share one count input', () => {
     const result = dynCompile(dynDoc({
       nodes: {
         source: { type: 'CountMultiSplitter', values: { count: 2 } },
@@ -1869,33 +1679,28 @@ describe('dynamic interfaces', () => {
       },
       links: [
         [['source', 'before'], ['before', 'in']],
-        [['source', 'images', ['1']], ['image', 'in']],
+        [['source', 'images.1'], ['image', 'in']],
         [['source', 'after'], ['after', 'in']],
-        [['source', 'masks', ['0']], ['mask', 'in']],
+        [['source', 'masks.0'], ['mask', 'in']],
       ],
     }))
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
-    expect(result.artifact.prompt.source?.outputMembers).toEqual({
-      images: ['0', '1'],
-      masks: ['0', '1'],
-    })
+    expect(result.artifact.prompt.source?.outputIds).toEqual(['before', 'images.0', 'images.1', 'after', 'masks.0', 'masks.1'])
+    expect(result.artifact.prompt.source?.outputMembers).toBeUndefined()
     expect(result.artifact.prompt.before?.inputs.in).toEqual(['source', 0])
     expect(result.artifact.prompt.image?.inputs.in).toEqual(['source', 2])
     expect(result.artifact.prompt.after?.inputs.in).toEqual(['source', 3])
     expect(result.artifact.prompt.mask?.inputs.in).toEqual(['source', 4])
   })
 
-  it('combo: selector compiles from dynamic state, active branch values keep branch-local identity, dormant values never warn', () => {
+  it('choice: the stored key travels in slotVariants, chosen option values submit, values of other options never warn', () => {
     const result = dynCompile(
       dynDoc({
         nodes: {
           m: {
             type: 'Modal',
-            values: {
-              'mode.[advanced].strength': 0.7,
-              'mode.[simple].strength': 0.3, // dormant: preserved, not compiled, no warning
-            },
+            values: { 'mode.strength': 0.7 },
             dynamic: { mode: { selected: 'advanced' } },
           },
         },
@@ -1904,14 +1709,25 @@ describe('dynamic interfaces', () => {
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt['m']!.inputs).toEqual({
-      mode: 'advanced',
       'mode.strength': 0.7,
-      'mode.bias': 0, // branch widget default
+      'mode.bias': 0, // option widget default
     })
+    expect(result.artifact.prompt['m']!.slotVariants).toEqual({ mode: 'advanced' })
     expect(result.artifact.diagnostics).toEqual([])
+
+    const simple = dynCompile(dynDoc({ nodes: { m: {
+      type: 'Modal',
+      values: { 'mode.strength': 0.3, 'mode.bias': 5 }, // bias: kept, not compiled, no warning
+      dynamic: { mode: { selected: 'simple' } },
+    } } }))
+    expect(simple.ok, JSON.stringify(!simple.ok && simple.diagnostics)).toBe(true)
+    if (!simple.ok) return
+    expect(simple.artifact.prompt['m']!.inputs).toEqual({ 'mode.strength': 0.3 })
+    expect(simple.artifact.prompt['m']!.slotVariants).toEqual({ mode: 'simple' })
+    expect(simple.artifact.diagnostics).toEqual([])
   })
 
-  it('boundary items bind individual family members through subgraphs', () => {
+  it('boundary items bind individual group members through subgraphs', () => {
     const result = dynCompile(
       dynDoc({
         nodes: {
@@ -1921,9 +1737,9 @@ describe('dynamic interfaces', () => {
         links: [[['a', 'out'], ['s0', 'first']]],
         subgraphs: {
           sub: {
-            nodes: { b: { type: 'Batcher', dynamic: { images: { members: ['m0'] } } } },
+            nodes: { b: { type: 'Batcher', dynamic: { images: { members: ['image0'] } } } },
             boundary: {
-              inputs: [{ id: 'first', binds: { kind: 'port', node: 'b', port: 'images.image', members: ['m0'] } }],
+              inputs: [{ id: 'first', binds: { kind: 'port', node: 'b', port: 'images.image0' } }],
             },
           },
         },
@@ -1941,13 +1757,14 @@ describe('dynamic interfaces', () => {
 
 describe('dynamic wireability and interface integrity', () => {
 
-  it('duplicate elaborated input ids/wire names are compile errors, not overwrites', () => {
+  it('duplicate elaborated input ids are compile errors, not overwrites', () => {
     const result = dynCompile(dynDoc({ nodes: { d: { type: 'DupIn' } } }))
     expect(result.ok).toBe(false)
     if (result.ok) return
-    const codes = result.diagnostics.map((d) => d.code)
-    expect(codes).toContain('compile.interface.duplicatePort')
-    expect(codes).toContain('compile.interface.duplicateApiName')
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      severity: 'error',
+      code: 'elab.projectedNamespaceCollision',
+    }))
   })
 
   it('static input ids containing #/% compile stored raw-keyed values', () => {

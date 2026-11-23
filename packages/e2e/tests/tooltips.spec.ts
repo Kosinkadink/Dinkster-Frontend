@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test, test as seededTest } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => { await page.goto('/') })
 
@@ -40,7 +40,7 @@ test('node palette port product tooltip preserves hover and keyboard wording', a
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
     type: 'UaTooltipProof', displayName: 'UA tooltip proof', category: 'test', source: 'v3', isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'STRING' }, optional: false, tooltip: 'Exact input tooltip wording.' },
       { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'STRING' }, tooltip: 'Exact output tooltip wording.' },
     ],
@@ -61,7 +61,7 @@ test('node palette port product tooltip preserves hover and keyboard wording', a
 
 test('shell and minimap seams use product tooltips without document writes', async ({ page }) => {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'shell-tooltip-fixture', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'shell-tooltip-fixture', schemaWire: 2 }, nodes: {},
   } }))
   await page.reload()
   await expect(page.getByTestId('left-panel-toggle')).toBeEnabled()
@@ -110,7 +110,7 @@ test('stateful control tooltip re-reads its label after the click toggles state'
   await expect(page.getByTestId('app-tooltip')).toHaveText('Show minimap')
 })
 
-test('canvas pin and widget tooltips use scene coordinates and hide on mouse-down', async ({ page }) => {
+seededTest('canvas pin and widget tooltips use scene coordinates and hide on mouse-down', async ({ page }) => {
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   const points = await page.evaluate(() => {
     const test = window.__dinksterTest!
@@ -156,11 +156,11 @@ test('mismatch noodle midpoint grab-dot tooltip shows the retained solver diagno
     test.app.registerSchemas([
       {
         type: 'TooltipImage', displayName: 'Image source', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
+        body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
       },
       {
         type: 'TooltipLatent', displayName: 'Latent sink', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'input', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
+        body: [{ kind: 'input', id: 'input', type: { kind: 'concrete', name: 'LATENT' }, optional: false }],
       },
     ])
     await test.app.openDocument({

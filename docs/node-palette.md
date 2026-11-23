@@ -29,10 +29,13 @@ children open while updating counts and adding or removing other categories.
 
 ## Preview and placement
 
-The preview shows the highlighted entry's rendered node, description,
-canonical input and output types, optionality, widget kind, dynamic-family
-kind, and deprecation or experimental status. Blueprint boundary hints are
-labelled as declared because the body is not fetched before activation.
+The preview shows the highlighted entry's rendered node, description, and
+deprecation or experimental status, and lists the rows a new node of that
+type shows, with canonical types, optionality and widget kind. Group members
+carry an `autogrow` badge, choice dropdowns a `combo` badge and type choice
+pins a `slot` badge (see [Node body](node-body.md)); hidden inputs are not
+listed. Blueprint boundary hints are labelled as declared because the body is
+not fetched before activation.
 
 Browsing and highlighting never mutate the workflow. Ordinary node,
 subgraph, and blueprint choices arm the existing pointer-following placement
@@ -54,8 +57,7 @@ blueprint, and action data only.
 Host-owned labels, filter text, announcements, empty states, and preview
 headings use the active application locale and update while the palette or a
 type-filter dialog remains open. Node names, descriptions, categories, ports,
-types, tooltips, widget kinds, and dynamic-family identifiers remain
-pack-provided data.
+types, tooltips and widget kinds remain pack-provided data.
 
 At narrow widths, categories and results stack vertically and the schema
 preview is hidden so browsing and keyboard placement remain reachable. Hidden

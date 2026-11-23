@@ -6,14 +6,17 @@
  * whose uniforms bind to the node's inputs by id: each image input binds as
  * `sampler2D u_<id>`, and each float/int/boolean/combo input binds as a
  * scalar uniform named by the input id (a combo binds as the index of the
- * stored value in the schema's declared options). This module derives those
+ * stored value in the schema's declared options). A required choice at the
+ * node's top scope binds as `int <choice id>`, the index of its chosen option
+ * among the options as declared, and the rows of the chosen option bind by
+ * their declared ids. This module derives those
  * bindings for every mirrored node in a graph: scalar values must be
  * CLIENT-RESIDENT (stored widget values, widget-tap defaults, and
  * value-source literals - the same discipline expression estimates apply),
  * while each image input must trace to a producer output, returned as a
  * reference for the host to pair with locally available imagery. A mirror
- * scoped by `applies` (wire v30) additionally requires every named combo
- * to resolve to a covered option key, or the node derives no binding.
+ * scoped by `applies` additionally requires every named choice to have a
+ * covered option key, or the node derives no binding.
  *
  * Bindings are presentation state only: they never feed compile, hashing,
  * or submission, and every failure yields "no binding" rather than an error.
@@ -29,7 +32,7 @@ import {
   type ElaboratedInput,
   type ElaboratedInterface,
 } from '../schema/elaborate.js'
-import type { NodeSchema } from '../schema/model.js'
+import { scopeRowsOf, type ChoiceSpec, type NodeSchema } from '../schema/model.js'
 import { effectiveWidgetDefault } from '../schema/widget-defaults.js'
 
 /** Whether this frontend can evaluate `schema`'s declared mirror on a GPU. */
@@ -165,18 +168,36 @@ export function deriveGlslMirrorBindings(
     })) continue
     const usedNames = new Set<string>()
     let resolvable = true
+    // A missing uniform reads 0, the first option, so a choice on "none"
+    // has no sound binding.
+    const topChoices = scopeRowsOf(schema.body).filter((row): row is ChoiceSpec => row.kind === 'choice')
+    for (const choice of topChoices) {
+      const key = chosen[choice.id]
+      const selected = choice.options.findIndex((option) => option.key === key)
+      if (selected < 0) {
+        resolvable = false
+        break
+      }
+      usedNames.add(choice.id)
+      scalars.push({ name: choice.id, glslType: 'int', value: selected })
+    }
+    if (!resolvable) continue
     for (const item of inputs) {
+      // A dropdown of a choice below the top scope has no declared uniform.
+      const origin = item.origin
+      if (origin.kind === 'selector' && !topChoices.some((choice) => choice.id === origin.construct)) {
+        resolvable = false
+        break
+      }
       // Items without an apiName (ghost members, a choice's dropdown) never
       // reach the prompt's inputs, so the backend never binds them as uniforms.
       if (item.apiName === undefined) continue
       const kind = uniformKindOf(item)
       const name = uniformNameOf(item)
-      // The uniform naming contract is by declared leaf id; a member-bearing
-      // address, an unmapped type, a nested id, or two inputs claiming the
-      // same uniform have no sound binding, so the node estimates nothing
-      // rather than guessing.
-      if (kind === undefined || name === undefined || usedNames.has(name) ||
-          (item.address.members?.length ?? 0) > 0) {
+      // The uniform naming contract is by declared leaf id; an unmapped type,
+      // a nested id, or two inputs claiming the same uniform have no sound
+      // binding, so the node estimates nothing rather than guessing.
+      if (kind === undefined || name === undefined || usedNames.has(name)) {
         resolvable = false
         break
       }
@@ -186,7 +207,6 @@ export function deriveGlslMirrorBindings(
       const key = portRefKey({
         node: node.id,
         port: asPortId(item.address.port),
-        ...(item.address.members ? { members: item.address.members } : {}),
       })
       const driver = index.inputDriverOf.get(key)
 
@@ -219,9 +239,7 @@ export function deriveGlslMirrorBindings(
           value = def.valueSources?.[trace.id]?.value
         } else if (trace.kind === 'tapValue') {
           const upstream = inputsOfNode(trace.node)
-          const tapped = upstream?.find(
-            (i) => (i.address.members?.length ?? 0) === 0 && i.address.port === trace.input,
-          )
+          const tapped = upstream?.find((i) => i.address.port === trace.input)
           const upstreamNode = def.nodes[trace.node]
           if (tapped && upstreamNode) value = residentValueOf(upstreamNode.values, tapped)
         }

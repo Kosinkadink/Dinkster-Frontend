@@ -139,7 +139,7 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
   } else if (path.endsWith('/api/nodes')) {
     await route.fulfill({ json: {
       schemaVersion: 1, epoch: 1,
-      dinkster: { version: 'visual-fixture', schemaWire: 1 },
+      dinkster: { version: 'visual-fixture', schemaWire: 2 },
       nodes: {},
     } })
   } else if (path.endsWith('/api/models/providers/huggingface')) {
@@ -165,6 +165,12 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     await route.fulfill({ json: { sessions: [] } })
   } else if (path.endsWith('/api/history/runs')) {
     await route.fulfill({ json: { records: [] } })
+  } else if (path.endsWith('/api/projects/default')) {
+    await route.fulfill({ json: { project: {
+      id: 'default', name: 'Default', created: '2026-01-01T00:00:00Z', revision: 1, deleted: false,
+    } } })
+  } else if (path.endsWith('/api/projects/default/needs')) {
+    await route.fulfill({ json: { packs: [], installed: [], extra: [], unknown: [] } })
   } else if (path.endsWith('/api/workflows/plan')) {
     await route.fulfill({ json: { packs: [], assets: [], errors: [] } })
   } else if (path.includes('/api/library/retentions/document/') || path.includes('/api/library/retentions/preview/')) {
@@ -174,50 +180,6 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
   }
 }
 
-test('populated image workspace at desktop and compact widths', async ({ page }) => {
-  await boot(page)
-  await closeGallery(page)
-  await page.getByTestId('image-documents-button').click()
-  const workspace = page.getByTestId('image-document-workspace')
-  await page.route('/api/assets/media?*', async (route) => {
-    const request = route.request()
-    const url = new URL(request.url())
-    const digest = await request.headerValue('x-dinkster-digest')
-    const body = request.postDataBuffer()!
-    expect(request.method()).toBe('POST')
-    expect(url.searchParams.get('scope')).toBe('local')
-    expect(url.searchParams.get('kind')).toBe('media/image')
-    expect(digest).toMatch(/^blake3:[0-9a-f]{64}$/)
-    expect(body.length).toBeGreaterThan(0)
-    await route.fulfill({ status: 201, json: {
-      kind: 'media/image', asset: { digest, name: url.searchParams.get('name'),
-        size: body.length, mediaType: 'image/png', virtualPath: '' },
-    } })
-  })
-  const bytes = await page.evaluate(async () => {
-    const canvas = document.createElement('canvas')
-    canvas.width = 640
-    canvas.height = 400
-    const context = canvas.getContext('2d')!
-    const gradient = context.createLinearGradient(0, 0, 640, 400)
-    gradient.addColorStop(0, '#173f6c')
-    gradient.addColorStop(1, '#d7a86e')
-    context.fillStyle = gradient
-    context.fillRect(0, 0, 640, 400)
-    return [...new Uint8Array(await (await fetch(canvas.toDataURL('image/png'))).arrayBuffer())]
-  })
-  await workspace.locator('.image-document-tabs input[type=file]').setInputFiles({
-    name: 'Coastline.png', mimeType: 'image/png', buffer: Buffer.from(bytes),
-  })
-  await expect(page.getByTestId('image-document-editor')).toBeVisible()
-  await expect(workspace.locator('.image-document-layer-row')).toHaveCount(1)
-  await expect(workspace.locator('.image-document-preview canvas')).toHaveAttribute('width', '640')
-  for (const width of [1440, 900]) {
-    await page.setViewportSize({ width, height: width === 1440 ? 900 : 700 })
-    await screenshot(page, `image-workspace-${width}`)
-  }
-})
-
 test('App view validation and remote failures keep editable controls', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
@@ -226,7 +188,7 @@ test('App view validation and remote failures keep editable controls', async ({ 
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'AppNoticeVisual', displayName: 'App feedback', category: 'test', source: 'visual', isOutputNode: true,
-      items: [
+      body: [
         { kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 5 } },
         { kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false, widget: { widgetType: 'COMBO', options: {}, default: 'old', remote: { route: '/api/choices/panel-state-visual', maxRetries: 0 } } },
       ],
@@ -298,56 +260,6 @@ test('Memory lease rows retain device identity, bytes and expiry', async ({ page
     await screenshot(page, `memory-lease-rows-${width}`)
   }
   await page.evaluate(() => (window as unknown as { disposeLeaseVisual(): void }).disposeLeaseVisual())
-})
-
-test('Output descriptor invalid documents keep repair and probe feedback', async ({ page }) => {
-  await boot(page)
-  await closeGallery(page)
-  for (const profile of [false, true]) {
-    await page.evaluate(async (profile) => {
-      const componentPath = '/src/OutputDescriptorEditor.tsx'
-      const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
-      const { OutputDescriptorEditor } = await import(componentPath)
-      const { render } = await import(rendererPath)
-      const host = document.createElement('section')
-      host.style.cssText = 'position:absolute;top:64px;left:84px;right:24px;bottom:32px;max-width:520px;overflow:auto;z-index:20;background:var(--dinkster-surface-panel)'
-      document.querySelector('.canvas-pane')!.append(host)
-      const app = window.__dinksterTest!.app
-      const dispose = render(() => OutputDescriptorEditor({
-        spec: { input: 'entries', choices: [{ id: 'float', type: { kind: 'concrete', name: 'core.float' } }], minEntries: 0, maxEntries: 3, fixedIds: false,
-          ...(profile ? { probe: { input: 'asset', kind: 'model', revision: '1' } } : {}) },
-        initial: '{', asset: undefined, staleLinks: [], app, tab: app.activeTab()!, isCurrent: () => true,
-        onDisconnect: () => {}, onCommit: () => { host.dataset['committed'] = 'true' }, onClose: () => { host.dataset['closed'] = 'true' },
-      }), host)
-      ;(window as unknown as { disposeDescriptorVisual(): void }).disposeDescriptorVisual = () => { dispose(); host.remove() }
-    }, profile)
-    const editor = page.getByTestId('output-descriptor-editor')
-    await expect(editor.getByRole('status').first()).toBeVisible()
-    await expect(editor.getByTestId('output-descriptors-apply')).toBeDisabled()
-    await expect(editor.getByText(profile ? 'Probe the current asset to generate valid outputs.' : 'Use Stored JSON to repair invalid descriptors.', { exact: true })).toBeVisible()
-    if (profile) {
-      await editor.getByTestId('output-profile-probe').click()
-      await expect(editor.getByRole('alert')).toHaveText('Choose an asset before probing.')
-    }
-    for (const [width, height] of [[1440, 900], [900, 700]] as const) {
-      await page.setViewportSize({ width, height })
-      await editor.getByTestId('output-descriptors-apply').scrollIntoViewIfNeeded()
-      await page.mouse.move(0, 0)
-      await screenshot(page, `descriptor-invalid-${profile ? 'profile' : 'editable'}-${width}`)
-    }
-    if (!profile) {
-      await editor.getByRole('button', { name: 'Stored JSON', exact: true }).click()
-      await editor.getByRole('textbox', { name: 'Descriptor document', exact: true }).fill('{"entries":[]}')
-      await expect(editor.getByRole('status')).toHaveCount(0)
-      await expect(editor.getByTestId('output-descriptors-apply')).toBeEnabled()
-      await editor.getByTestId('output-descriptors-apply').click()
-      await expect(editor.locator('..')).toHaveAttribute('data-committed', 'true')
-    } else {
-      await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
-      await expect(editor.locator('..')).toHaveAttribute('data-closed', 'true')
-    }
-    await page.evaluate(() => (window as unknown as { disposeDescriptorVisual(): void }).disposeDescriptorVisual())
-  }
 })
 
 test('runtime panel headers and backend add error at desktop and compact widths', async ({ page }) => {
@@ -846,7 +758,7 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
     bridge.app.registerSchemas([
       {
         type: 'EmptyImage', displayName: 'Empty Image', category: 'visual', source: 'visual', isOutputNode: false,
-        items: [
+        body: [
           ...['width', 'height', 'batch_size', 'color'].map((id) => ({
             kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'INT' }, optional: false,
             widget: { widgetType: 'INT', options: {} },
@@ -856,7 +768,7 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
       },
       {
         type: 'PreviewImage', displayName: 'Preview Image', category: 'visual', source: 'visual', isOutputNode: true,
-        items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+        body: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
       },
     ])
     const diagnostics = (await bridge.app.openDocument({
@@ -1003,7 +915,6 @@ test('Editor host and target fallbacks explain unavailable editors', async ({ pa
   await closeGallery(page)
   for (const [kind, text] of [
     ['curve', 'No curve target is active.'],
-    ['image', 'No image target is active.'],
     ['unregistered-editor', "No editor registered for kind 'unregistered-editor'"],
   ] as const) {
     await page.evaluate((kind) => {
@@ -1121,59 +1032,6 @@ test('Workflow queue empty popover preserves disclosure and Escape focus', async
   await control.getByTestId('queue-button').click()
   await expect(control.locator('..')).toHaveAttribute('data-queued', 'true')
   await page.evaluate(() => (window as unknown as { disposeQueueVisual(): void }).disposeQueueVisual())
-})
-
-test('Compositor missing runtime state keeps its explanation and Cancel action', async ({ page }) => {
-  await boot(page)
-  await closeGallery(page)
-  await page.evaluate(async () => {
-    const app = window.__dinksterTest!.app
-    app.registerSchemas([{
-      type: 'CompositorEmptyVisual', displayName: 'Create Layered Image', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'compositor',
-      items: [{ kind: 'input', id: 'recipe', optional: true, type: { kind: 'concrete', name: 'dinkster.compositor' },
-        widget: { widgetType: 'COMPOSITOR', options: {}, default: { version: 2, documentDigest: null, commands: [] } } }],
-    }])
-    const diagnostics = (await app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'compositor-empty-visual', root: 'g0',
-      graphs: { g0: { id: 'g0', name: 'Compositor', nodes: { create: { id: 'create', type: 'CompositorEmptyVisual', values: { recipe: { version: 2, documentDigest: null, commands: [] } } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
-      view: { graphs: { g0: { nodes: { create: { position: { x: 120, y: 100 } } } } } },
-    }, 'Compositor'))
-    if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
-    const editorApp = app as unknown as {
-      compositorTargetForInput(tab: unknown, graph: string, node: string, input: string): unknown
-      openCompositorEditor(target: unknown): boolean
-    }
-    const target = editorApp.compositorTargetForInput(app.activeTab()!, 'g0', 'create', 'recipe')
-    if (!editorApp.openCompositorEditor(target)) throw new Error('Empty compositor did not open')
-  })
-  const editor = page.getByTestId('compositor-editor')
-  await expect(editor.getByTestId('compositor-empty')).toContainText('Run Create Layered Image to load its sources.')
-  await expect(editor.getByTestId('compositor-empty')).toContainText('The layer stack stays in the graph.')
-  await expect(editor.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled()
-  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
-    await page.setViewportSize({ width, height })
-    await page.mouse.move(0, 0)
-    await screenshot(page, `compositor-no-runtime-${width}`)
-  }
-  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(editor).toBeHidden()
-  await page.evaluate(async () => {
-    const componentPath = '/src/CompositorEditor.tsx'
-    const rendererPath = '/node_modules/.vite/deps/solid-js_web.js'
-    const { CompositorEditor } = await import(componentPath)
-    const { render } = await import(rendererPath)
-    const host = document.createElement('div')
-    host.style.cssText = 'position:absolute;inset:48px 0 0;z-index:20'
-    document.querySelector('.canvas-pane')!.append(host)
-    const dispose = render(() => CompositorEditor({ app: window.__dinksterTest!.app }), host)
-    ;(window as unknown as { disposeCompositorVisual: () => void }).disposeCompositorVisual = () => { dispose(); host.remove() }
-  })
-  await expect(page.getByText('No compositor target is active.', { exact: true })).toBeVisible()
-  for (const [width, height] of [[1440, 900], [900, 700]] as const) {
-    await page.setViewportSize({ width, height })
-    await screenshot(page, `compositor-no-target-${width}`)
-  }
-  await page.evaluate(() => (window as unknown as { disposeCompositorVisual(): void }).disposeCompositorVisual())
 })
 
 test('Asset selection instructions stay readable for the rail and single or multiple picks', async ({ page }) => {
@@ -1414,7 +1272,7 @@ test('GLSL editor missing-data and refused-preview states preserve editing and d
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'GlslEmptyVisual', displayName: 'GLSL Shader', category: 'test', source: 'v3', isOutputNode: true, editorRole: 'glsl',
-      items: [{ kind: 'input', id: 'fragment_shader', optional: true, type: { kind: 'concrete', name: 'core.string' },
+      body: [{ kind: 'input', id: 'fragment_shader', optional: true, type: { kind: 'concrete', name: 'core.string' },
         widget: { widgetType: 'STRING', options: { multiline: true }, default: '#version 300 es\ninvalid shader' } }],
     }])
     const diagnostics = (await app.openDocument({

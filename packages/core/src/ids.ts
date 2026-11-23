@@ -63,21 +63,14 @@ export const asConnectionId = (s: string): ConnectionId => s as ConnectionId
 export const asPromptId = (s: string): PromptId => s as PromptId
 
 /**
- * A port reference within one graph definition: a node, a schema port, and -
- * when the port belongs to a dynamic family - the generated member-id path.
- * For family members `port` is the stamped slot path ('<family>.<slotId>'),
- * uniformly even when the family template has a single slot.
- *
- * `members` is ordered outermost-first: one segment per enclosing dynamic
- * construct (nested families need one id per level; a flat family has one).
- * Every segment is a stable generated id, never an ordinal - reordering
- * members never moves values or links. Canonical form: the field is present
- * iff non-empty (validators reject empty arrays).
+ * A port reference within one graph definition: a node and the port's
+ * flattened id. A row inside a group member carries the member key in its
+ * id (`items.item1.amount`); member keys are stable, so reordering members
+ * never moves values or links.
  */
 export interface PortRef {
   readonly node: NodeId
   readonly port: PortId
-  readonly members?: readonly DynamicMemberId[]
 }
 
 /** Reference to a reroute junction (used only as a link endpoint). */
@@ -141,40 +134,23 @@ export const isPortEndpoint = (e: LinkEndpoint): e is PortRef =>
 // Canonical endpoint equality and keys (hazard N6)
 //
 // EVERY comparison or map-keying of port references goes through these -
-// never ad hoc field comparisons or hand-packed strings. They are the single
-// place that knows what member identity looks like (a member-id path,
-// outermost first). Keys are opaque and injective BY CONSTRUCTION
-// (JSON-escaped components), for arbitrary id strings - injectivity never
-// depends on validators excluding separator characters. Never parse one
-// back apart.
+// never ad hoc field comparisons or hand-packed strings. Keys are opaque and
+// injective BY CONSTRUCTION (JSON-escaped components), for arbitrary id
+// strings - injectivity never depends on validators excluding separator
+// characters. Never parse one back apart.
 // ---------------------------------------------------------------------------
 
 const KEY_SEP = '\u0000'
 
-/** Structural identity of two member paths (undefined == empty == static). */
-export const sameMemberPath = (
-  a: readonly DynamicMemberId[] | undefined,
-  b: readonly DynamicMemberId[] | undefined,
-): boolean => {
-  const la = a?.length ?? 0
-  const lb = b?.length ?? 0
-  if (la !== lb) return false
-  for (let i = 0; i < la; i++) if (a![i] !== b![i]) return false
-  return true
-}
-
-/** Structural identity of two port references (node + port + member path). */
+/** Structural identity of two port references (node + port). */
 export const samePortRef = (a: PortRef, b: PortRef): boolean =>
-  a.node === b.node && a.port === b.port && sameMemberPath(a.members, b.members)
+  a.node === b.node && a.port === b.port
 
 /**
- * Canonical injective node-local key for a port address (port + optional
- * member path), for maps scoped to one node. Opaque - never split it.
- * JSON packing keeps it injective for arbitrary component strings: an empty
- * path and an absent one produce the same key (both mean "static port").
+ * Canonical node-local key for a port, for maps scoped to one node. Opaque -
+ * never split it.
  */
-export const portAddressKey = (port: string, members?: readonly string[]): string =>
-  JSON.stringify(members === undefined || members.length === 0 ? [port] : [port, ...members])
+export const portAddressKey = (port: string): string => JSON.stringify([port])
 
 /**
  * Canonical injective map key for a PortRef. Opaque - never split it.
@@ -182,7 +158,7 @@ export const portAddressKey = (port: string, members?: readonly string[]): strin
  * so the separator cannot be forged by an id.)
  */
 export const portRefKey = (p: PortRef): string =>
-  `${JSON.stringify(p.node)}${KEY_SEP}${portAddressKey(p.port, p.members)}`
+  `${JSON.stringify(p.node)}${KEY_SEP}${portAddressKey(p.port)}`
 
 /** Structural identity across the LinkEndpoint union. */
 export const sameEndpoint = (a: LinkEndpoint, b: LinkEndpoint): boolean => {

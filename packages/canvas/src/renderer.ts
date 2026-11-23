@@ -29,7 +29,6 @@ import { projectNodeLayoutHeight, widgetChromeRect, withCompactPreviewRegion, wi
 import {
   boundarySceneId,
   GROUP_HEADER_HEIGHT,
-  portEndKey,
   REROUTE_RADIUS,
   REROUTE_SOCKET_OFFSET,
   REROUTE_SOCKET_RADIUS,
@@ -1368,41 +1367,26 @@ export class CanvasRenderer {
       end: SceneLinkEnd,
       direction: 'in' | 'out',
       fallback: { x: number; y: number },
-      familyBind: boolean,
     ): { x: number; y: number } => {
       if (end.kind !== 'port' && end.kind !== 'widgetTap') return fallback
       const node = byId.get(end.node)
       const pin = end.kind === 'widgetTap'
         ? node?.layout.pins.find((candidate) => candidate.widgetTap === true && candidate.address.port === end.input)
         : node?.layout.pins.find((candidate) =>
-            candidate.direction === direction && candidate.portId === portEndKey(end) && candidate.widgetTap !== true,
+            candidate.direction === direction && candidate.portId === end.port && candidate.widgetTap !== true,
           )
-      if (node === undefined) return fallback
-      if (pin === undefined && familyBind && end.kind === 'port') {
-        const prefix = end.members ?? []
-        const familyPin = node.layout.pins.find((candidate) =>
-          candidate.direction === direction && candidate.widgetTap !== true &&
-          (candidate.address.port === end.port || candidate.address.port.startsWith(`${end.port}.`)) &&
-          prefix.length <= (candidate.address.members?.length ?? 0) &&
-          prefix.every((member, index) => candidate.address.members?.[index] === member),
-        )
-        return {
-          x: direction === 'out' ? node.x + node.layout.width : node.x,
-          y: node.y + (familyPin?.y ?? node.layout.headerHeight / 2),
-        }
-      }
-      if (pin === undefined) return fallback
+      if (node === undefined || pin === undefined) return fallback
       return { x: direction === 'out' ? node.x + node.layout.width : node.x, y: node.y + pin.y }
     }
     const links = scene.links.map((link) => {
-      const from = anchor(link.from, 'out', { x: link.x1, y: link.y1 }, link.boundaryFamily === true)
-      const to = anchor(link.to, 'in', { x: link.x2, y: link.y2 }, link.boundaryFamily === true)
+      const from = anchor(link.from, 'out', { x: link.x1, y: link.y1 })
+      const to = anchor(link.to, 'in', { x: link.x2, y: link.y2 })
       return { ...link, x1: from.x, y1: from.y, x2: to.x, y2: to.y }
     })
     const netStubs = scene.netStubs.map((stub) => {
       const node = byId.get(stub.nodeId)
       const direction = stub.role === 'source' ? 'out' : 'in'
-      const key = portEndKey({ port: stub.portId, ...(stub.members === undefined ? {} : { members: stub.members }) })
+      const key = stub.portId
       const pin = node?.layout.pins.find((candidate) =>
         candidate.direction === direction && candidate.portId === key && candidate.widgetTap !== true,
       )
@@ -1761,14 +1745,11 @@ export class CanvasRenderer {
           .filter((link) => link.to.kind === 'port')
           .map((link) => {
           const to = link.to as Extract<SceneLinkEnd, { kind: 'port' }>
-          return `${to.node}\u0000${portEndKey(to)}`
+          return `${to.node}\u0000${to.port}`
         }),
         ...this.scene.netStubs
           .filter((stub) => stub.role === 'sink')
-          .map((stub) => `${stub.nodeId}\u0000${portEndKey({
-            port: stub.portId,
-            ...(stub.members === undefined ? {} : { members: stub.members }),
-          })}`),
+          .map((stub) => `${stub.nodeId}\u0000${stub.portId}`),
       ],
     )
     this.connectedOutputPins = new Set(
@@ -1778,15 +1759,12 @@ export class CanvasRenderer {
           .map((link) => {
           const from = link.from as Extract<SceneLinkEnd, { kind: 'port' | 'widgetTap' }>
           return from.kind === 'port'
-            ? `${from.node}\u0000${portEndKey(from)}`
+            ? `${from.node}\u0000${from.port}`
             : `${from.node}\u0000${from.input}`
         }),
         ...this.scene.netStubs
           .filter((stub) => stub.role === 'source')
-          .map((stub) => `${stub.nodeId}\u0000${portEndKey({
-            port: stub.portId,
-            ...(stub.members === undefined ? {} : { members: stub.members }),
-          })}`),
+          .map((stub) => `${stub.nodeId}\u0000${stub.portId}`),
       ],
     )
     this.connectedWidgetTaps = new Set(
@@ -1806,7 +1784,7 @@ export class CanvasRenderer {
         .filter((link) => link.boundary !== true && link.to.kind === 'port')
         .map((link) => {
           const to = link.to as Extract<SceneLinkEnd, { kind: 'port' }>
-          return `${to.node}\u0000${portEndKey(to)}`
+          return `${to.node}\u0000${to.port}`
         }),
     )
   }
@@ -2960,7 +2938,7 @@ export class CanvasRenderer {
     const pin = end.kind === 'widgetTap'
       ? node?.layout.pins.find((candidate) => candidate.widgetTap === true && candidate.address.port === end.input)
       : node?.layout.pins.find((candidate) =>
-          candidate.direction === direction && candidate.portId === portEndKey(end) && candidate.widgetTap !== true,
+          candidate.direction === direction && candidate.portId === end.port && candidate.widgetTap !== true,
         )
     if (pin === undefined) return { x: fallbackX, y: fallbackY }
     return {
@@ -3438,7 +3416,8 @@ export class CanvasRenderer {
           if (row.inactive) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
           const companionAlpha = ctx.globalAlpha
           if (connected) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
-          const hovered = this.overlay.hoveredWidget?.nodeId === sceneNode.id &&
+          const hovered = row.viewId !== 'core.compositor' &&
+            this.overlay.hoveredWidget?.nodeId === sceneNode.id &&
             this.overlay.hoveredWidget.valueKey === row.valueKey
           this.paintWidget({
             ctx,
@@ -3939,7 +3918,6 @@ export class CanvasRenderer {
         continue
       if (pin.widgetBacked && pin.direction === 'in' && !connected && !isLegalTarget && !nodeSelected && !nodeHovered && problemKind === undefined)
         continue
-      if (pin.familyOwner !== undefined && pin.familyOwner.socketed !== true) continue
       const boundaryFocused = pin.widgetTap !== true &&
         (pin.direction === 'in' ? this.boundaryFocus?.inputs : this.boundaryFocus?.outputs)?.[node.id]?.has(pin.portId) === true
       if (boundaryFocused && !isTarget) {

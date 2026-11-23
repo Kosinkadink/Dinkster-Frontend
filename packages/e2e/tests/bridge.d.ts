@@ -46,7 +46,7 @@ interface DinksterBridgeSceneNode {
       ghost?: true
       /** Materialized Autogrow member retaining family-growth styling. */
       familyMember?: true
-      address: { port: string; members?: readonly string[] }
+      address: { port: string }
       familyOwner?: { socketed?: true }
       /** Optional input (donut) / maybe-absent producer. */
       optional?: true

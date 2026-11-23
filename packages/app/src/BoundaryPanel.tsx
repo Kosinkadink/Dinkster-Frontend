@@ -17,6 +17,7 @@ import {
   deriveBoundarySchema,
   documentResolver,
   inputsOf,
+  isComboWidgetInput,
   normalizedComboOptions,
   numberFieldRange,
   outputsOf,
@@ -68,12 +69,10 @@ const formulaLiteral = (value: string | number | boolean): string =>
 /** The unbind parameters of one binding, or undefined when no unbind can remove it. */
 const unbindParams = (binding: BoundaryBinding): JsonObject | undefined => {
   if (binding.kind === 'widgetTap') return { node: binding.node, tap: binding.tap }
-  if (binding.kind !== 'port' && binding.kind !== 'slot' && binding.kind !== 'dynamicCombo') return undefined
+  if (binding.kind !== 'port') return undefined
   return {
     node: binding.node,
     port: binding.port,
-    ...(binding.kind !== 'port' ? { bindingKind: binding.kind } : {}),
-    ...(binding.members !== undefined ? { members: [...binding.members] } : {}),
     ...(binding.viaReroute !== undefined ? { viaReroute: binding.viaReroute } : {}),
   }
 }
@@ -509,7 +508,7 @@ export function BoundaryPanel(props: { app: AppState }) {
       choices.push({ id: formula, label: message('boundaryPanel.show.linked', { name: nameOf(spec) }), value: formula })
     }
     for (const spec of nameable) {
-      if (spec.widget?.widgetType !== 'COMBO') continue
+      if (spec.widget === undefined || !isComboWidgetInput(spec)) continue
       for (const option of normalizedComboOptions(spec.widget)) {
         const formula = `${spec.id} == ${formulaLiteral(option.value)}`
         choices.push({ id: formula, label: message('boundaryPanel.show.equals', { name: nameOf(spec), value: option.label }), value: formula })

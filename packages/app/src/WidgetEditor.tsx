@@ -15,7 +15,7 @@ export {
 export { isInNodeTextEditor } from './editors/ScalarWidgetEditor.js'
 
 export function WidgetEditor(props: WidgetEditorProps) {
-  if (props.ed.hostUi !== undefined || props.ed.outputDescriptors !== undefined) {
+  if (props.ed.hostUi !== undefined) {
     return <WidgetEditorController {...props} />
   }
   const target = props.ed.target

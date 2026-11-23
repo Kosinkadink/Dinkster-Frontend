@@ -119,21 +119,21 @@ describe('widgetRepresentationMenuGroup', () => {
 
   it('addresses dynamic rows by value key and forwarded rows by their document owner', () => {
     expect(widgetRepresentationAddress(hit({
-      kind: 'widget', node: { id: 'visible' }, row: { valueKey: 'family.member#text' },
+      kind: 'widget', node: { id: 'visible' }, row: { valueKey: 'family.member.text' },
     }) as Extract<Hit, { kind: 'widget' }>, 'g0')).toEqual({
-      graphId: 'g0', nodeId: 'visible', inputId: 'family.member#text',
+      graphId: 'g0', nodeId: 'visible', inputId: 'family.member.text',
     })
     expect(widgetRepresentationAddress(hit({
       kind: 'widget',
       node: { id: 'instance' },
       row: {
-        valueKey: 'forwarded.member#text',
+        valueKey: 'forwarded.member.text',
         familyOwner: {
-          graphId: 'definition', nodeId: 'owner', construct: 'boundary', valueKey: 'boundary.persisted#text',
+          graphId: 'definition', nodeId: 'owner', construct: 'boundary', valueKey: 'boundary.persisted.text',
         },
       },
     }) as Extract<Hit, { kind: 'widget' }>, 'g0')).toEqual({
-      graphId: 'definition', nodeId: 'owner', inputId: 'boundary.persisted#text',
+      graphId: 'definition', nodeId: 'owner', inputId: 'boundary.persisted.text',
     })
   })
 })
@@ -163,17 +163,15 @@ describe('menuTargetOf', () => {
     })
   })
 
-  it('flags unpersisted widget rows and taps synthetic (ghost, materialize, ownerless forwarding)', () => {
+  it('flags unpersisted widget rows and taps synthetic (ghost, materialize)', () => {
     const flagged = (row: unknown) =>
       (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row })) as { synthetic?: true }).synthetic
     expect(flagged({ inputId: 'x', ghost: true })).toBe(true)
     expect(flagged({ inputId: 'x', materialize: [{ construct: 'c', member: 'm' }] })).toBe(true)
-    expect(flagged({ inputId: 'x', familyOwner: { graphId: 'g', nodeId: 'n', construct: 'c' } })).toBe(true)
     expect(flagged({ inputId: 'x' })).toBeUndefined()
     const tapFlagged = (pin: unknown) =>
       (menuTargetOf(hit({ kind: 'widgetTap', node: { id: 'n1' }, input: 'x', pin })) as { synthetic?: true }).synthetic
     expect(tapFlagged({ ghost: true })).toBe(true)
-    expect(tapFlagged({ familyOwner: { graphId: 'g', nodeId: 'n', construct: 'c' } })).toBe(true)
     expect(tapFlagged({})).toBeUndefined()
   })
 

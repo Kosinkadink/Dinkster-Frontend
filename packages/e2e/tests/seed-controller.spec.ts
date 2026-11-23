@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, nativeTest as documentTest, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const fanoutProofDir = process.env['DINKSTER_CONTROLLER_FANOUT_PROOF_DIR']
 if (fanoutProofDir) mkdirSync(fanoutProofDir, { recursive: true })
@@ -59,13 +59,13 @@ const state = (page: Page) => page.evaluate(() => {
   return { controller: node.controllers?.width, width: node.values.width, height: node.values.height, displayed: row.controllerMode }
 })
 
-test.beforeEach(async ({ page }, testInfo) => {
+test.beforeEach(async ({ page, seedWorkflows }, testInfo) => {
   const mockControllerDispatch = testInfo.annotations.some((annotation) => annotation.type === 'mock-controller-dispatch')
   if (mockControllerDispatch) {
     await page.route('**/api/**', (route) => /^\/api\/library\/retention(?:s\/|-clients$)/.test(new URL(route.request().url()).pathname)
       ? route.fallback() : route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'controller-fixture', schemaWire: 1 }, nodes: {},
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'controller-fixture', schemaWire: 2 }, nodes: {},
     } }))
     await page.routeWebSocket('**/api/events?*', () => {})
     await page.goto('/')
@@ -83,13 +83,13 @@ test.beforeEach(async ({ page }, testInfo) => {
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   await waitForStartupOwnership(page)
-  if (mockLegacyDiscovery) return
+  if (!seedWorkflows) return
   await page.evaluate(() => {
     const test = window.__dinksterTest! as any
     const node = test.renderer!.getScene().nodes.find((item: any) => item.id === 'n0')!
     const registry = test.app.registry.get()!
     const original = registry.resolve(node.node.type)!
-    test.app.registerSchemas([{ ...original, items: original.items.map((item: any) =>
+    test.app.registerSchemas([{ ...original, body: original.body.map((item: any) =>
       item.kind === 'input' && item.id === 'width' && item.widget
         ? { ...item, widget: { ...item.widget, controller: 'after_generate' } }
         : item,
@@ -122,14 +122,14 @@ test('controller chip opens a detailed menu, selects a persistent mode, and undo
   await expect.poll(() => state(page)).toMatchObject({ controller: 'fixed', displayed: 'fixed' })
 })
 
-test('20 rapid INT increments commit exact declared steps and undo individually', {
+documentTest('20 rapid INT increments commit exact declared steps and undo individually', {
   annotation: { type: 'mock-legacy-discovery' },
 }, async ({ page }) => {
   await page.evaluate(async () => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'RapidSeedE2E', displayName: 'Rapid Seed', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: {
           widgetType: 'INT', options: { min: 0, max: Number.MAX_SAFE_INTEGER, step: 3 }, default: 100,
@@ -172,14 +172,14 @@ test('20 rapid INT increments commit exact declared steps and undo individually'
   })).toEqual({ value: 100, revision: 40 })
 })
 
-test('completed runs advance promoted controller values on each subgraph occurrence', {
+documentTest('completed runs advance promoted controller values on each subgraph occurrence', {
   annotation: { type: 'mock-legacy-discovery' },
 }, async ({ page }, testInfo) => {
   await page.evaluate(async () => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'PromotedControllerE2E', displayName: 'Promoted Controller', category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         {
           kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: {
@@ -249,13 +249,13 @@ test('completed runs advance promoted controller values on each subgraph occurre
   await testInfo.attach('promoted-controller-after-completion', { path: afterPath, contentType: 'image/png' })
 })
 
-test('promoted fan-out advancement follows primary binding order', {
+documentTest('promoted fan-out advancement follows primary binding order', {
   annotation: { type: 'mock-legacy-discovery' },
 }, async ({ page }, testInfo) => {
   await page.evaluate(async () => {
     const controlled = (type: string, name: string) => ({
       type, displayName: name, category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         {
           kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: {
@@ -346,7 +346,7 @@ test('promoted fan-out advancement follows primary binding order', {
   })).toEqual({ primaryFirst: 11, secondaryFirst: 11 })
 })
 
-test('remote COMBO reuses the controller chip with refresh-specific copy', async ({ page }) => {
+documentTest('remote COMBO reuses the controller chip with refresh-specific copy', async ({ page }) => {
   let remoteRequests = 0
   await page.route('**/api/choices/seed-controller-options', async (route) => {
     remoteRequests += 1
@@ -356,7 +356,7 @@ test('remote COMBO reuses the controller chip with refresh-specific copy', async
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'RefreshComboE2E', displayName: 'Refresh Combo', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: {
           widgetType: 'COMBO', options: {}, default: 'alpha', controller: 'after_refresh',

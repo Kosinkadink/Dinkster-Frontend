@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, asPromptId, diag, type DinksterNodesPayload, type ExecutionRef } from '@dinkster/core'
+import { asConnectionId, asPromptId, diag, DINKSTER_SCHEMA_WIRE_VERSION, type DinksterNodesPayload, type ExecutionRef } from '@dinkster/core'
 import { buildDinksterRegistry, type HistoryRunRecord } from '@dinkster/client'
 import { AppState, LIBRARY_SCOPE, type Backend, type Tab } from '../src/app-state.js'
 import { groupNoOpHistoryRuns, historySource, runIdOfEntry, runsFilterOf, runsSource } from '../src/collections.js'
@@ -18,10 +18,21 @@ import { createWorkflowApp } from './fixtures/workflow-app.js'
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
-const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-const nodesPayload = JSON.parse(
-  readFileSync(join(coreRoot, 'fixtures/dinkster-nodes.json'), 'utf8'),
-) as DinksterNodesPayload
+const INT = { kind: 'concrete', types: ['INT'] }
+const nodesPayload: DinksterNodesPayload = {
+  schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+  nodes: {
+    'std.math.add_ints': {
+      nodeType: 'std.math.add_ints', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1,
+      displayName: 'Add Ints', category: 'math', description: '', idempotent: true,
+      body: [
+        { kind: 'input', id: 'a', required: true, type: INT },
+        { kind: 'input', id: 'b', required: true, default: 1, type: INT },
+        { kind: 'output', id: 'sum', type: INT },
+      ],
+    },
+  },
+}
 
 const DIGEST = 'blake3:' + 'a'.repeat(64)
 
@@ -355,9 +366,25 @@ describe('resubmitRunWorkflow', () => {
     const { backend } = (await nativeSetup())
     // The producing document opens cleanly but its executed output depends
     // on a node type this backend does not resolve, so the queue refuses.
-    const comfyPayload = JSON.parse(readFileSync(
-      join(coreRoot, 'fixtures/dinkster-nodes-comfy.json'), 'utf8',
-    )) as DinksterNodesPayload
+    const IMAGE = { kind: 'concrete', types: ['comfy.IMAGE'] }
+    const comfyPayload: DinksterNodesPayload = {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      nodes: {
+        'comfy.EmptyImage': {
+          nodeType: 'comfy.EmptyImage', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1, displayName: 'Empty Image',
+          category: 'comfy/image', description: '', idempotent: true, aliases: ['EmptyImage'], pack: 'comfy',
+          body: [
+            ...['width', 'height', 'batch_size', 'color'].map((id) => ({ kind: 'input', id, type: INT, required: false, default: id === 'batch_size' ? 1 : id === 'color' ? 0 : 512 })),
+            { kind: 'output', id: 'image', type: IMAGE },
+          ],
+        },
+        'comfy.PreviewImage': {
+          nodeType: 'comfy.PreviewImage', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1, displayName: 'Preview Image',
+          category: 'comfy/image', description: '', idempotent: false, aliases: ['PreviewImage'], outputNode: true, pack: 'comfy',
+          body: [{ kind: 'input', id: 'images', type: IMAGE, required: true }],
+        },
+      },
+    }
     backend.registry.set(buildDinksterRegistry(backend.id, comfyPayload))
     const unresolvedDoc = readFileSync(join(
       dirname(fileURLToPath(import.meta.url)), 'fixtures/unresolved-output-dependency.json',
@@ -372,6 +399,7 @@ describe('resubmitRunWorkflow', () => {
     // The reopened tab stays active so the user can inspect the refusal.
     expect(app.activeTab()?.title).toBe('Unresolved node feeding the executed output')
     expect(app.problems.get().some((d) => d.code === 'compile.schema.unknown')).toBe(true)
+    expect(backend.registry.get()?.schemas.size).toBe(2)
   })
 
 })

@@ -12,24 +12,15 @@ import type { NodeMode, PreviewMode } from '../format/document.js'
 import { isExposed } from '../format/exposed.js'
 import { isPreviewExposed } from '../format/exposed-previews.js'
 import { netViewPositions } from '../format/net-views.js'
-import { asDynamicMemberId, asNodeId, asPortId, samePortRef, type PortRef } from '../ids.js'
+import { asNodeId, asPortId, samePortRef, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { t } from '../i18n/index.js'
 import type { MenuContribution, MenuContext, MenuItem } from './contract.js'
 
-/**
- * Menu-target port -> command PortRef params. The single place that maps a
- * clicked pin/stub to command identity, so dynamic member ids are never
- * silently dropped (hazard N6).
- */
-const portParams = (p: {
-  node: string
-  port: string
-  members?: readonly string[] | undefined
-}): { node: string; port: string; members?: string[] } => ({
+/** Menu-target port -> command PortRef params: the node and flattened port id. */
+const portParams = (p: { node: string; port: string }): { node: string; port: string } => ({
   node: p.node,
   port: p.port,
-  ...(p.members !== undefined && p.members.length > 0 ? { members: [...p.members] } : {}),
 })
 
 const NODE_MODES: readonly { mode: NodeMode; label: string; icon: string; command?: string }[] = [
@@ -354,8 +345,7 @@ const nodeCompactDynamic: MenuContribution = {
     if (!def) return []
     const nodeIds = targetNodeIds(ctx, ctx.target.nodeId).filter((nodeId) => {
       const dynamic = def.nodes[nodeId]?.dynamic
-      return Object.values(dynamic ?? {}).some((state) =>
-        (state.members?.length ?? 0) > 0 || Object.keys(state.memberState ?? {}).length > 0)
+      return Object.values(dynamic ?? {}).some((state) => (state.members?.length ?? 0) > 0)
     })
     if (nodeIds.length === 0) return []
     const invocations = nodeIds.map((nodeId) => ({
@@ -745,7 +735,7 @@ const pinPromoteToNet: MenuContribution = {
       {
         id: 'core.pin.promoteToNet',
         label: 'Promote to named net...',
-        action: { kind: 'host', action: 'promoteToNet', params: { source: portParams({ node: t.nodeId, port: t.portId, members: t.members }) } },
+        action: { kind: 'host', action: 'promoteToNet', params: { source: portParams({ node: t.nodeId, port: t.portId }) } },
       },
     ]
   },
@@ -761,11 +751,10 @@ const pinConnectToNet: MenuContribution = {
     const t = ctx.target
     const def = ctx.doc.graphs[ctx.graphId]
     if (!def) return []
-    const to = portParams({ node: t.nodeId, port: t.portId, members: t.members })
+    const to = portParams({ node: t.nodeId, port: t.portId })
     const toRef: PortRef = {
       node: asNodeId(t.nodeId),
       port: asPortId(t.portId),
-      ...(t.members !== undefined && t.members.length > 0 ? { members: t.members.map(asDynamicMemberId) } : {}),
     }
     return Object.values(def.nets)
       .filter((net) => net.source.node !== t.nodeId) // self-loop: not offered
@@ -856,9 +845,6 @@ const netStubResetPosition: MenuContribution = {
     const to: PortRef = {
       node: asNodeId(t.nodeId),
       port: asPortId(t.portId),
-      ...(t.members !== undefined && t.members.length > 0
-        ? { members: t.members.map(asDynamicMemberId) }
-        : {}),
     }
     const authored = netViewPositions(ctx.doc, ctx.graphId).some((view) =>
       view.netId === t.netId &&
@@ -877,7 +863,7 @@ const netStubResetPosition: MenuContribution = {
               netId: t.netId,
               role: t.role,
               ...(t.role === 'sink'
-                ? { to: portParams({ node: t.nodeId, port: t.portId, members: t.members }) }
+                ? { to: portParams({ node: t.nodeId, port: t.portId }) }
                 : {}),
             },
           },
@@ -901,7 +887,7 @@ const netStubDisconnect: MenuContribution = {
         label: 'Disconnect this input',
         action: {
           kind: 'command',
-          invocation: { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to: portParams({ node: t.nodeId, port: t.portId, members: t.members }) } },
+          invocation: { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to: portParams({ node: t.nodeId, port: t.portId }) } },
         },
       },
     ]
@@ -960,21 +946,6 @@ const canvasCreateSubgraph: MenuContribution = {
       label: 'Create empty subgraph',
       action: { kind: 'host', action: 'createSubgraph' },
     }]
-  },
-}
-
-const canvasCreateRegions: MenuContribution = {
-  id: 'core.canvas.createRegions',
-  targets: ['canvas'],
-  group: '10-nav',
-  order: 2,
-  resolve(ctx) {
-    if (ctx.target.kind !== 'canvas') return []
-    return (['map', 'fold', 'while'] as const).map((kind) => ({
-      id: `core.canvas.create${kind[0]!.toUpperCase()}${kind.slice(1)}Region`,
-      label: `Create ${kind} region`,
-      action: { kind: 'host' as const, action: 'createRegion', params: { kind } },
-    }))
   },
 }
 
@@ -1263,6 +1234,5 @@ export function coreMenuContributions(): readonly MenuContribution[] {
     widgetExpose,
     nodePreviewExpose,
     canvasCreateSubgraph,
-    canvasCreateRegions,
   ]
 }

@@ -14,7 +14,6 @@
  * Well-known host actions the app shell provides:
  * - 'openSubgraph'    {nodeId}   drill into a subgraph instance
  * - 'createSubgraph'  {}         create an empty definition at the menu point and drill in
- * - 'createRegion'    {kind}     create a fresh map/fold/while region and select its occurrence
  * - 'openPalette'     {}         open the add-node palette at the menu point
  * - 'deleteSelection' {}         delete the current selection (nodes+links+reroutes)
  * - 'queueSelection'  {nodeIds}  partial-execute: queue the union of upstream
@@ -44,7 +43,7 @@ export type MenuTarget =
       readonly netId?: string
       /** Consumer end: a real input, a reroute junction, or a selector branch (nets are port-only). */
       readonly to:
-        | { readonly node: string; readonly port: string; readonly members?: readonly string[] }
+        | { readonly node: string; readonly port: string }
         | { readonly reroute: string }
         | { readonly selector: string; readonly candidate: string }
     }
@@ -55,8 +54,6 @@ export type MenuTarget =
       readonly kind: 'pin'
       readonly nodeId: string
       readonly portId: string
-      /** Dynamic member-id path, when the pin is an elaborated member. */
-      readonly members?: readonly string[]
       readonly direction: 'in' | 'out'
     }
   | {
@@ -66,8 +63,6 @@ export type MenuTarget =
       readonly role: 'source' | 'sink'
       readonly nodeId: string
       readonly portId: string
-      /** Dynamic member-id path, when the endpoint is an elaborated member. */
-      readonly members?: readonly string[]
     }
   | {
       readonly kind: 'widget'

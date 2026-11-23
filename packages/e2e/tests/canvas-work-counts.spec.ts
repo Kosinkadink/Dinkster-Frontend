@@ -9,9 +9,9 @@ declare global {
 
 test('select, context menu and drag release do not compile availability before the next frame', async ({ page }, info) => {
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'e2e', schemaWire: 1 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'e2e', schemaWire: 2 },
     packs: { demo: { displayName: 'Demo' } }, nodes: {
-      'demo.node': { schemaVersion: 1, displayName: 'Demo node', pack: 'demo', signature: 's', interface: [] },
+      'demo.node': { schemaVersion: 2, displayName: 'Demo node', pack: 'demo', signature: 's', body: [] },
     },
   } }))
   await page.route('/supervisor/**', (route) => route.fulfill({ status: 404 }))
@@ -20,7 +20,7 @@ test('select, context menu and drag release do not compile availability before t
   await expect(page.getByTestId('status-bar')).toContainText('1 node schemas')
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    app.registerSchemas([{ type: 'demo.node', displayName: 'Demo node', category: 'test', source: 'v3', isOutputNode: true, items: [] }])
+    app.registerSchemas([{ type: 'demo.node', displayName: 'Demo node', category: 'test', source: 'v3', isOutputNode: true, body: [] }])
     await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'canvas-counting', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Root', nodes: {
         n0: { id: 'n0', type: 'demo.node', values: {} },
@@ -115,9 +115,9 @@ test('select, context menu and drag release do not compile availability before t
 
 test('numeric increments paint without synchronous whole-workflow comparison', async ({ page }, info) => {
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'numeric-counting', schemaWire: 1 },
-    nodes: { 'demo.numeric': { displayName: 'Numeric node', unavailableReason: 'Comparison fixture', interface: [
-      { role: 'input', id: 'scale', required: true, type: { kind: 'concrete', types: ['FLOAT'] },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'numeric-counting', schemaWire: 2 },
+    nodes: { 'demo.numeric': { displayName: 'Numeric node', unavailableReason: 'Comparison fixture', body: [
+      { kind: 'input', id: 'scale', required: true, type: { kind: 'concrete', types: ['FLOAT'] },
         widget: { type: 'FLOAT', default: 1, step: 0.01 } },
     ] } },
   } }))

@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_CANVAS_WHEEL_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -43,7 +43,7 @@ const wheel = (
 
 test('smooth wheel zoom accumulates input, yields to manual navigation and persists its toggle', async ({ page }, info) => {
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'e2e', schemaWire: 1 }, packs: {}, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'e2e', schemaWire: 2 }, packs: {}, nodes: {},
   } }))
   await page.route('/supervisor/**', (route) => route.fulfill({ status: 404 }))
   await page.routeWebSocket('**/api/events?*', () => {})

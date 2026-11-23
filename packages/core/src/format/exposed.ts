@@ -79,9 +79,8 @@ export function exposedParameters(doc: WorkflowDocument): readonly ExposedParame
 
 /**
  * Canonical identity key for an exposed entry. JSON-encoded triple, NOT a
- * separator join: document/schema ids are arbitrary non-empty strings (the
- * subgraph crossing machinery even mints '\u0000'-prefixed ids on purpose),
- * so no in-band separator is injective. Distinct triples MUST map to
+ * separator join: document/schema ids are arbitrary non-empty strings, so
+ * no in-band separator is injective. Distinct triples MUST map to
  * distinct keys or unexpose/rename/move hit the wrong entry.
  */
 export const exposedKey = (e: Pick<ExposedParameter, 'graphId' | 'nodeId' | 'inputId'>): string =>

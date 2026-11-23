@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { WebSocketRoute } from '@playwright/test'
-import { expect, test, type Locator, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Locator, type Page } from './fixtures.js'
 
 const PRIMARY = 'http://memory.test'
 const SECONDARY = 'http://memory-secondary.test'
@@ -94,7 +94,7 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.route(`${PRIMARY}/supervisor/status`, (route) => route.fulfill({ status: 404 }))
   await page.route(`${PRIMARY}/system_stats`, (route) => route.fulfill({ status: 404 }))
-  await page.route(`${PRIMARY}/api/nodes*`, (route) => route.fulfill({ json: { schemaVersion: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {} } }))
+  await page.route(`${PRIMARY}/api/nodes*`, (route) => route.fulfill({ json: { schemaVersion: 1, dinkster: { version: 'test', schemaWire: 2 }, nodes: {} } }))
   await page.route(`${PRIMARY}/api/settings`, (route) => route.fulfill({ json: { ...settings, settings: { ...settings.settings, 'memory-budgets': section({}) } } }))
   await page.route(`${PRIMARY}/api/settings/memory-headroom`, (route) => rejectHeadroom ? route.fulfill({ status: 400, json: {
     error: 'invalid-settings', category: 'memory-headroom', message: 'Headroom exceeds server policy.', offendingFlag: '--reserve-vram', owner: 'host-policy',
@@ -109,7 +109,7 @@ test('Memory and Aimdo surface covers wide lifecycle, details, settings, and mul
   })
   await page.route(`${SECONDARY}/supervisor/status`, (route) => route.fulfill({ status: 404 }))
   await page.route(`${SECONDARY}/system_stats`, (route) => route.fulfill({ status: 404 }))
-  await page.route(`${SECONDARY}/api/nodes*`, (route) => route.fulfill({ json: { schemaVersion: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {} } }))
+  await page.route(`${SECONDARY}/api/nodes*`, (route) => route.fulfill({ json: { schemaVersion: 1, dinkster: { version: 'test', schemaWire: 2 }, nodes: {} } }))
   await page.route(`${SECONDARY}/api/settings`, (route) => route.fulfill({ json: { categories: { granted: [], available: [] }, settings: {} } }))
   await page.route(`${SECONDARY}/memory/status*`, (route) => route.fulfill({ json: { ...baseStatus, devices: { cpu: { executionCapacity: 1, executionInUse: 0 } }, memoryGovernor: null, leases: null } }))
   await page.routeWebSocket(`${PRIMARY.replace('http', 'ws')}/api/events*`, (socket) => { primarySocket = socket })
@@ -276,7 +276,7 @@ test('Memory surface remains usable on touch, narrow layout, reduced motion, and
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.route(`${PRIMARY}/supervisor/status`, (route) => route.fulfill({ status: 404 }))
   await page.route(`${PRIMARY}/system_stats`, (route) => route.fulfill({ status: 404 }))
-  await page.route(`${PRIMARY}/api/nodes*`, (route) => route.fulfill({ json: { schemaVersion: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {} } }))
+  await page.route(`${PRIMARY}/api/nodes*`, (route) => route.fulfill({ json: { schemaVersion: 1, dinkster: { version: 'test', schemaWire: 2 }, nodes: {} } }))
   await page.route(`${PRIMARY}/api/settings`, (route) => route.fulfill({ json: settings }))
   await page.route(`${PRIMARY}/memory/status*`, (route) => route.fulfill({ json: new URL(route.request().url()).searchParams.get('details') === '1' ? detailedStatus : baseStatus }))
   await page.routeWebSocket(`${PRIMARY.replace('http', 'ws')}/api/events*`, () => {})

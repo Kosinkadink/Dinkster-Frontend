@@ -43,7 +43,7 @@ test('reopened workflow checks exact asset presence without acquiring or rewriti
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'WorkflowAssetPresence', displayName: 'Workflow asset presence', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'file', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+      body: [{ kind: 'input', id: 'file', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
         widget: { widgetType: 'ASSET', kind: 'asset/file', options: {}, default: null } }],
     }])
     await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'workflow-asset-presence', root: 'g0',
@@ -117,21 +117,19 @@ for (const state of ['retired', 'inactive', 'linked'] as const) {
     await page.evaluate(async (state) => {
       const app = window.__dinksterTest!.app
       const assetType = { kind: 'concrete', name: 'ASSET' } as const
-      const file = { kind: 'input', id: 'file#name', type: assetType, optional: false,
+      const file = { kind: 'input', id: 'file', type: assetType, optional: false,
         widget: { widgetType: 'ASSET', kind: 'asset/file', options: {}, default: null } } as const
       app.registerSchemas([{
         type: 'UnavailableAssetInput', displayName: 'Unavailable asset input', category: 'test', source: 'v3', isOutputNode: false,
-        items: state === 'retired' ? [] : [{
-          kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'STRING' }, optional: true,
-          dynamic: { kind: 'dynamicCombo', defaultOption: 'empty', options: [
-            { key: 'empty', inputs: [] }, { key: 'file', inputs: [file] },
-          ] },
+        body: state === 'retired' ? [] : [{
+          kind: 'choice', id: 'choice', required: true, default: 'empty', shared: [],
+          options: [{ key: 'empty', rows: [] }, { key: 'file', rows: [file] }],
         }],
       }, {
         type: 'AssetInputProducer', displayName: 'Asset input producer', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: assetType }],
+        body: [{ kind: 'output', id: 'out', type: assetType }],
       }])
-      const key = state === 'retired' ? 'file#name' : 'choice.[file].file%23name'
+      const key = state === 'retired' ? 'file' : 'choice.file'
       await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: `unavailable-asset-${state}`, root: 'g0',
         graphs: { g0: { id: 'g0', name: 'root', nodes: {
           target: { id: 'target', type: 'UnavailableAssetInput', values: { [key]: {
@@ -140,7 +138,7 @@ for (const state of ['retired', 'inactive', 'linked'] as const) {
           } }, ...(state === 'retired' ? {} : { dynamic: { choice: { selected: state === 'linked' ? 'file' : 'empty' } } }) },
           source: { id: 'source', type: 'AssetInputProducer', values: {} },
         }, links: state === 'linked' ? {
-          wire: { id: 'wire', from: { node: 'source', port: 'out' }, to: { node: 'target', port: 'choice.[file].file#name' } },
+          wire: { id: 'wire', from: { node: 'source', port: 'out' }, to: { node: 'target', port: 'choice.file' } },
         } : {}, nets: {}, reroutes: {}, nextOrdinal: 3 } },
         view: { graphs: { g0: { nodes: {
           target: { position: { x: 400, y: 200 } }, source: { position: { x: 80, y: 200 } },
@@ -151,7 +149,7 @@ for (const state of ['retired', 'inactive', 'linked'] as const) {
     if (state === 'linked') {
       const row = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
         .find((node) => node.id === 'target')!.layout.rows.find((row) => row.kind === 'widget' && row.inputId !== 'choice'))
-      expect(row!.inputId).toBe('choice.[file].file%23name')
+      expect(row!.inputId).toBe('choice.file')
     }
     await openRailPanel(page, 'Problems')
     const problem = page.getByTestId('problems-panel').locator('details.problem', { hasText: 'is missing on' })
@@ -224,7 +222,7 @@ for (const fixture of [
       const app = window.__dinksterTest!.app
       app.registerSchemas([{
         type: 'LocalCatalogProof', displayName: 'Local catalog proof', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'file', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+        body: [{ kind: 'input', id: 'file', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
           widget: { widgetType: 'ASSET', kind, options: { accept: [mime] }, default: null } }],
       }])
       await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'local-catalog-proof', root: 'g0',

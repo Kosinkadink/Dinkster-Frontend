@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/audit-v19-proof'
 
@@ -23,23 +23,23 @@ test('proves all five wire 19 widget facts through the current live wire', async
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'wire19-proof', schemaWire: 1 },
+    dinkster: { version: 'wire19-proof', schemaWire: 2 },
     packs: { test: { displayName: 'Test' } },
     nodes: { Wire19Proof: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'Wire19Proof',
       displayName: 'Wire 19 Adoption',
       category: 'test',
       outputNode: true,
       signature: 'wire19-proof-node',
-      interface: [
-        { role: 'input', id: 'rounded', required: true, type: { kind: 'concrete', types: ['FLOAT'] },
+      body: [
+        { kind: 'input', id: 'rounded', required: true, type: { kind: 'concrete', types: ['FLOAT'] },
           widget: { type: 'NUMBER', round: 0.25 } },
-        { role: 'input', id: 'prompt', required: true, type: { kind: 'concrete', types: ['STRING'] },
+        { kind: 'input', id: 'prompt', required: true, type: { kind: 'concrete', types: ['STRING'] },
           widget: { type: 'STRING', multiline: false, placeholder: 'Describe a scene', dynamicPrompts: true } },
-        { role: 'input', id: 'mode', required: true, type: { kind: 'concrete', types: ['COMBO'] },
-          widget: { type: 'COMBO', options: ['alpha', 'beta', 'gamma'], controlAfterGenerate: 'increment' } },
-        { role: 'input', id: 'tint', required: true, type: { kind: 'concrete', types: ['STRING'] },
+        { kind: 'input', id: 'mode', required: true, type: { kind: 'concrete', types: ['COMBO'] },
+          widget: { type: 'COMBO', options: ['alpha', 'beta', 'gamma'] }, afterRun: 'increment' },
+        { kind: 'input', id: 'tint', required: true, type: { kind: 'concrete', types: ['STRING'] },
           widget: { type: 'COLOR' } },
       ],
     } },

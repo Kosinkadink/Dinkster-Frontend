@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 
 /**
  * In-app image estimates from glsl mirrors: a node whose schema declares a
@@ -12,7 +12,7 @@ import { expect, test } from './fixtures.js'
  */
 
 const adjustWire = JSON.parse(
-  readFileSync(fileURLToPath(new URL('../../core/test/fixtures/image_adjust_wire29.json', import.meta.url)), 'utf8'),
+  readFileSync(fileURLToPath(new URL('../../core/test/fixtures/image_adjust.json', import.meta.url)), 'utf8'),
 ) as Record<string, unknown>
 
 // 2x2 RGB PNG: red, green / blue, white. Inverting gives cyan, magenta /
@@ -23,19 +23,19 @@ const sourcePng = Buffer.from(
 )
 
 const imageSourceNode = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodeType: 'e2e.image.source',
   displayName: 'Image Source',
   category: 'test',
-  interface: [
+  body: [
     {
-      role: 'input',
+      kind: 'input',
       id: 'image',
       required: true,
       type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } },
       widget: { type: 'ASSET', accept: ['image/png'] },
     },
-    { role: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+    { kind: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
   ],
 }
 
@@ -49,7 +49,7 @@ test('glsl mirrors paint GPU image estimates gated by execution.mirrorPreviews',
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'mirror-image-estimates-proof', schemaWire: 1 },
+    dinkster: { version: 'mirror-image-estimates-proof', schemaWire: 2 },
     nodes: {
       'e2e.image.source': imageSourceNode,
       'dinkster.image.adjust': adjustWire,
@@ -94,7 +94,7 @@ test('glsl mirrors paint GPU image estimates gated by execution.mirrorPreviews',
                 virtualPath: 'image.png',
               } },
             },
-            adjust: { id: 'adjust', type: 'dinkster.image.adjust', values: { operation: 'invert' } },
+            adjust: { id: 'adjust', type: 'dinkster.image.adjust', values: {}, dynamic: { operation: { selected: 'invert' } } },
           },
           links: {
             l1: { id: 'l1', from: { node: 'src', port: 'image' }, to: { node: 'adjust', port: 'image' } },

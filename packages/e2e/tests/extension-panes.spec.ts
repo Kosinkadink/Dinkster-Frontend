@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
-import { expect, appViewTest as test, waitForStartupOwnership, type Page, type Locator } from './fixtures.js'
+import { expect, nativeAppViewTest as test, waitForStartupOwnership, type Page, type Locator } from './fixtures.js'
 
 const hash = (value: string) => `sha256:${createHash('sha256').update(value).digest('hex')}`
 const proofDir = process.env['DINKSTER_EXTENSION_EDITOR_PROOF_DIR']
@@ -39,7 +39,7 @@ async function backend(page: Page, base: string, initial: string) {
     }] })
     const path = new URL(route.request().url()).pathname
     if (path === `${base}/api/nodes`) return route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'proof', schemaWire: 1 }, extensionSnapshotDigest: hash(body), nodes: {},
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'proof', schemaWire: 2 }, extensionSnapshotDigest: hash(body), nodes: {},
     } })
     if (path === `${base}/api/extensions/snapshot`) return route.fulfill({ body, contentType: 'application/json' })
     if (path === `${base}${moduleUrl}`) return route.fulfill({ body: source, contentType: 'text/javascript', headers: { 'Cache-Control': 'private, immutable' } })
@@ -155,7 +155,7 @@ test.beforeEach(async ({ page }) => {
   await waitForStartupOwnership(page)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas([{
     type: 'PaneProof', displayName: 'Snapshot widget', category: 'test', source: 'v3', isOutputNode: true,
-    items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
+    body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
       widget: { widgetType: 'pane-proof.kind', options: {}, default: 7 } }],
   }]))
 })

@@ -17,9 +17,9 @@ it.each([
   'keeps the connected IMAGE receipt through $nodeType decode and draw: $scenario', async ({ scenario, nodeType }) => {
     const schema = parseDinksterSchema(nodeType, { replacements: [
       { from: 'Painter', cases: [{ to: nodeType }] },
-    ], interface: [
-      { role: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
-      { role: 'input', id: 'mask', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
+    ], body: [
+      { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+      { kind: 'input', id: 'mask', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
         widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image', allowUpload: true },
         sourceFilename: { kind: 'media/image', category: 'input' } },
     ] }).schema!
@@ -98,8 +98,8 @@ it.each([
 )
 
 it.each(['apply', 'local', 'failure', 'cancel', 'retarget', 'closed'] as const)('keeps Painter edits undoable and authority-bound on %s', async (outcome) => {
-  const schema = parseDinksterSchema('Painter', { interface: [
-    { role: 'input', id: 'mask', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
+  const schema = parseDinksterSchema('Painter', { body: [
+    { kind: 'input', id: 'mask', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
       widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image', allowUpload: true },
       sourceFilename: { kind: 'media/image', category: 'input' } },
   ] }).schema!
@@ -177,8 +177,8 @@ it.each(['apply', 'local', 'failure', 'cancel', 'retarget', 'closed'] as const)(
 
 it.each(['live', 'refused', 'closed-before', 'closed-decode', 'edited', 'disconnected', 'disposed'] as const)(
   'borrows the saved Painter mask owner through bitmap decode: %s', async (scenario) => {
-    const schema = parseDinksterSchema('Painter', { interface: [
-      { role: 'input', id: 'mask', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
+    const schema = parseDinksterSchema('Painter', { body: [
+      { kind: 'input', id: 'mask', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
         widget: { type: 'ASSET', accept: ['image/png'], kind: 'media/image', allowUpload: true },
         sourceFilename: { kind: 'media/image', category: 'input' } },
     ] }).schema!

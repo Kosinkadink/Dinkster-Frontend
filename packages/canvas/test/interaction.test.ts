@@ -8,7 +8,7 @@ import { InteractionController, connectivityRangeSelection, resizedNodeBounds, t
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
 import { BOUNDARY_ADD_SLOT } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
-import { portEndKey, REROUTE_SOCKET_OFFSET, type Scene } from '../src/scene.js'
+import { REROUTE_SOCKET_OFFSET, type Scene } from '../src/scene.js'
 import { defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
 
@@ -875,7 +875,7 @@ describe('context menus', () => {
   })
 })
 
-describe('occurrence-owned family pins', () => {
+describe('occurrence region index pins', () => {
   it('connects the derived region index through the occurrence planner in either drag direction', () => {
     const regionScene = (): Scene => {
       const scene = interactionScene() as any
@@ -933,66 +933,6 @@ describe('occurrence-owned family pins', () => {
     readonly.fire('dblclick', -100, 42)
     expect(rename).not.toHaveBeenCalled()
     readonly.controller.dispose()
-  })
-
-  it('are legal drag origins and drop targets at the command-dispatch seam', () => {
-    const scene = interactionScene() as any
-    scene.occurrence = { owner: { instancePath: [], node: 'instance' }, bodyGraph: 'g0' }
-    scene.valueSources = []
-    scene.selectors = []
-    scene.reroutes = []
-    scene.nodes[0].layout.pins = [{
-      portId: 'out', address: { port: 'out' }, direction: 'out', x: 100, y: 22,
-      type: { kind: 'concrete', name: 'FLOAT' },
-    }]
-    scene.nodes[1].layout.pins = [{
-      portId: 'owned', address: { port: 'weights.w', members: ['s0'] }, direction: 'in', x: 0, y: 22,
-      type: { kind: 'concrete', name: 'FLOAT' },
-      familyOwner: {
-        graphId: 'root', nodeId: 'instance', construct: 'forwarded', socketed: true,
-        occurrence: { instancePath: [], node: 'instance' }, familyPath: 'weights', sourceMember: 's0',
-        route: [{ graph: 'g0', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n2', port: 'weights' } }],
-        sourceEndpoint: {
-          kind: 'boundary', occurrence: { instancePath: [], node: 'instance' },
-          address: { port: 'forwarded.w', members: ['s0'] },
-          route: [{ graph: 'g0', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n2', port: 'weights' } }],
-        },
-      },
-    }]
-    scene.nodes.slice(2).forEach((node: any) => { node.layout.pins = [] })
-    const intentions: any[] = []
-    const harness = interactionHarness(scene, {
-      dispatchOccurrenceMutation: (intention) => { intentions.push(intention); return { ok: true } },
-    })
-
-    harness.fire('pointerdown', 200, 32)
-    harness.fire('pointermove', 110, 32)
-    harness.fire('pointerup', 110, 32)
-    harness.fire('pointerdown', 110, 32)
-    harness.fire('pointermove', 200, 32)
-    harness.fire('pointerup', 200, 32)
-
-    expect(intentions).toEqual([
-      {
-        kind: 'connect', owner: { instancePath: [], node: 'instance' }, bodyGraph: 'g0',
-        from: { kind: 'body', endpoint: { node: 'n1', port: 'out' } },
-        to: {
-          kind: 'boundary', occurrence: { instancePath: [], node: 'instance' },
-          address: { port: 'forwarded.w', members: ['s0'] },
-          route: [{ graph: 'g0', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n2', port: 'weights' } }],
-        },
-      },
-      {
-        kind: 'connect', owner: { instancePath: [], node: 'instance' }, bodyGraph: 'g0',
-        from: { kind: 'body', endpoint: { node: 'n1', port: 'out' } },
-        to: {
-          kind: 'boundary', occurrence: { instancePath: [], node: 'instance' },
-          address: { port: 'forwarded.w', members: ['s0'] },
-          route: [{ graph: 'g0', boundaryId: 'forwarded', binding: { kind: 'family', node: 'n2', port: 'weights' } }],
-        },
-      },
-    ])
-    expect(harness.dispatched).toEqual([])
   })
 })
 
@@ -1673,14 +1613,14 @@ describe('modifier parity across link endpoint kinds', () => {
     scene.selectors = []
     scene.nodes[1].layout.pins = [
       {
-        portId: portEndKey({ port: 'pairs.image', members: ['m0'] as any }),
-        address: { port: 'pairs.image', members: ['m0'] }, direction: 'in', y: 22, type: FLOAT,
+        portId: 'pairs.m0.image',
+        address: { port: 'pairs.m0.image' }, direction: 'in', y: 22, type: FLOAT,
       },
     ]
     scene.links = [{
       id: 'boundary:inputs:value', boundary: true,
       from: { kind: 'boundary', side: 'inputs', item: 'value' },
-      to: { kind: 'port', node: 'n2', port: 'pairs.image', members: ['m0'] },
+      to: { kind: 'port', node: 'n2', port: 'pairs.m0.image' },
       x1: 0, y1: 32, x2: 200, y2: 32,
     }]
 
@@ -1695,7 +1635,7 @@ describe('modifier parity across link endpoint kinds', () => {
           command: 'boundary.unbind',
           params: {
             graphId: 'g0', side: 'inputs', itemId: 'value',
-            node: 'n2', port: 'pairs.image', members: ['m0'],
+            node: 'n2', port: 'pairs.m0.image',
           },
         },
         { command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n2' } },
@@ -2478,14 +2418,20 @@ describe('gesture ownership and cancellation', () => {
   it('a captured press that starts no gesture releases ownership immediately', () => {
     const scene = interactionScene() as any
     scene.nodes[0].layout.pins = [{
-      portId: 'out', address: { port: 'out' }, direction: 'out', y: 22,
+      portId: 'in', address: { port: 'in' }, direction: 'in', y: 22,
       type: { kind: 'concrete', name: 'FLOAT' },
-      familyOwner: { socketed: false },
     }]
-    const harness = interactionHarness(scene)
-    // Press on the inert family-owned pin: the pointer is captured but no
-    // gesture starts, and the release is then dropped.
-    harness.fire('pointerdown', 110, 32, { buttons: 1, pointerType: 'mouse' })
+    scene.links = [{
+      id: 'projected', from: { kind: 'port', node: 'n2', port: 'out' }, to: { kind: 'port', node: 'n1', port: 'in' },
+      typeName: 'FLOAT', effectiveIdentities: [{ id: 'a' }, { id: 'b' }],
+    }]
+    const refused = vi.fn()
+    const harness = interactionHarness(scene, { onOccurrenceMutationRefused: refused })
+    // Press on an input fed by a projected fan-out: the grab is refused, so
+    // the pointer is captured but no gesture starts, and the release is then
+    // dropped.
+    harness.fire('pointerdown', 10, 32, { buttons: 1, pointerType: 'mouse' })
+    expect(refused).toHaveBeenCalledWith('occurrence.link.multipleDeliveriesUnsupported', expect.any(String))
     // The next press must start a fresh gesture instead of being swallowed
     // by stale ownership.
     harness.fire('pointerdown', 30, 15, { buttons: 1, pointerType: 'mouse' })
@@ -2886,16 +2832,16 @@ describe('group resizing', () => {
 describe('numeric widget steppers', () => {
   it('routes a forwarded suffix member value to its occurrence owner', () => {
     const scene = interactionScene() as any
-    scene.nodes[0].layout.rows[0].valueKey = 'weights.w#rebased'
+    scene.nodes[0].layout.rows[0].valueKey = 'weights.w.rebased'
     scene.nodes[0].layout.rows[0].familyOwner = {
-      graphId: 'g0', nodeId: 'instance', construct: 'forwarded', valueKey: 'forwarded.w#member',
+      graphId: 'g0', nodeId: 'instance', construct: 'forwarded', valueKey: 'forwarded.w.member',
     }
     const harness = interactionHarness(scene)
     harness.fire('pointerdown', 100, 35)
     harness.fire('pointerup', 100, 35)
     expect(harness.dispatched).toEqual([{
       command: 'node.setValue',
-      params: { graphId: 'g0', nodeId: 'instance', inputId: 'forwarded.w#member', value: 0.3 },
+      params: { graphId: 'g0', nodeId: 'instance', inputId: 'forwarded.w.member', value: 0.3 },
     }])
   })
 
@@ -3094,7 +3040,7 @@ describe('boundary row rename interaction', () => {
     harness.fire('pointermove', 110, 160)
     harness.fire('pointerup', 110, 160)
     expect(select).not.toHaveBeenCalled()
-    expect(harness.dispatched.map((invocation) => invocation.command)).toEqual(['view.moveBoundaryNode'])
+    expect(harness.dispatched).toMatchObject([{ command: 'view.moveBoundaryNode' }])
   })
 
   it('double-clicking a boundary slot label requests a rename', () => {

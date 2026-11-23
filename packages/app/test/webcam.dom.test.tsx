@@ -61,10 +61,10 @@ it('stages capture, preserves the saved frame on cancel or device failure, and a
   const device = camera()
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:camera')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-  const schema = parseDinksterSchema('dinkster.image.webcam_capture', { interface: [
-    { role: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM' } },
-    { role: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, default: 640 },
-    { role: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 180 },
+  const schema = parseDinksterSchema('dinkster.image.webcam_capture', { body: [
+    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM' } },
+    { kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, default: 640 },
+    { kind: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 180 },
   ] }).schema!
   const saved = { digest: `blake3:${'a'.repeat(64)}`, name: 'saved.png', size: 8, mediaType: 'image/png', virtualPath: 'input/saved.png' }
   const captured = { ...saved, digest: `blake3:${'b'.repeat(64)}`, name: 'webcam.png' }
@@ -112,14 +112,14 @@ async function queueSetup(captureOnQueue = true) {
   const app = createWorkflowApp()
   const backend = app.backends.get()[0]!
   const type = 'dinkster.image.webcam_capture'
-  backend.registry.set(buildDinksterRegistry(backend.id, { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: { [type]: { interface: [
-    { role: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM' } },
-    { role: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, default: 640 },
-    { role: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 180 },
-    { role: 'input', id: 'capture_on_queue', type: { kind: 'concrete', types: ['BOOLEAN'] }, default: true },
-    { role: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
-  ] }, 'test.frame': { interface: [
-    { role: 'output', id: 'frame', type: { kind: 'concrete', types: ['WEBCAM'] } },
+  backend.registry.set(buildDinksterRegistry(backend.id, { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: { [type]: { body: [
+    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM' } },
+    { kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, default: 640 },
+    { kind: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 180 },
+    { kind: 'input', id: 'capture_on_queue', type: { kind: 'concrete', types: ['BOOLEAN'] }, default: true },
+    { kind: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+  ] }, 'test.frame': { body: [
+    { kind: 'output', id: 'frame', type: { kind: 'concrete', types: ['WEBCAM'] } },
   ] } } }))
   const saved = { digest: `blake3:${'a'.repeat(64)}`, name: 'saved.png', size: 8, mediaType: 'image/png', virtualPath: 'input/saved.png' }
   await app.importWorkflowFile({ name: 'camera.json', text: async () => JSON.stringify({ nodes: [

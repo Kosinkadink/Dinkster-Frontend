@@ -307,7 +307,7 @@ describe('dropped image insertion', () => {
   const asset: AssetRef = { digest, name: 'server-name-2.png', size: 73, mediaType: 'image/png', virtualPath: 'imports/scene/server-name-2.png' }
   const schema = {
     type: 'dinkster.load_image', displayName: 'Load Image', category: 'image', source: { kind: 'dinkster' }, isOutputNode: false,
-    items: [{ kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.IMAGE' } }, required: true, widget: { widgetType: 'ASSET', options: { accept: ['image/*'] } } }],
+    body: [{ kind: 'input', id: 'image', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.IMAGE' } }, required: true, widget: { widgetType: 'ASSET', options: { accept: ['image/*'] } } }],
   } as unknown as NodeSchema
   const document = { graphs: { g0: { nodes: {} } } } as unknown as WorkflowDocument
   const base = () => ({
@@ -373,12 +373,12 @@ describe('dropped image insertion', () => {
   it('chooses a synthetic catalog loader whose ASSET input exactly accepts the dropped MIME type', async () => {
     const pngOnly = {
       ...schema,
-      items: [{ ...schema.body[0]!, widget: { widgetType: 'ASSET', options: { accept: ['image/png'] } } }],
+      body: [{ ...schema.body[0]!, widget: { widgetType: 'ASSET', options: { accept: ['image/png'] } } }],
     } as NodeSchema
     const synthetic = {
       ...schema,
       type: 'pack.synthetic_jpeg_loader',
-      items: [{ ...schema.body[0]!, id: 'source', widget: { widgetType: 'ASSET', options: { accept: ['image/jpeg'] } } }],
+      body: [{ ...schema.body[0]!, id: 'source', widget: { widgetType: 'ASSET', options: { accept: ['image/jpeg'] } } }],
     } as NodeSchema
     const p = { ...base(), mediaType: 'image/jpeg' as const, upload: async () => ({ ...asset, mediaType: 'image/jpeg' }), schemas: () => [pngOnly, synthetic] }
     await expect(insertDroppedImage(p)).resolves.toBe('inserted')
@@ -415,7 +415,7 @@ describe('dropped image insertion', () => {
   })
 
   it('does not author through a hidden compatibility asset input', async () => {
-    const hidden = { ...schema, items: [{ ...schema.body[0]!, hidden: true }] } as NodeSchema
+    const hidden = { ...schema, body: [{ ...schema.body[0]!, hidden: true }] } as NodeSchema
     const p = { ...base(), schemas: () => [hidden] }
     await expect(insertDroppedImage(p)).resolves.toBe('schema-missing')
     expect(p.dispatch).not.toHaveBeenCalled()
@@ -429,7 +429,7 @@ describe('dropped latent insertion', () => {
   }
   const schema = {
     type: 'dinkster.latent.load_latent', displayName: 'Load Latent', category: 'latent', source: { kind: 'dinkster' }, isOutputNode: false,
-    items: [{ kind: 'input', id: 'latent', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.LATENT' } }, required: true, widget: { widgetType: 'ASSET', options: { accept: ['.latent'] }, kind: 'data/latent' } }],
+    body: [{ kind: 'input', id: 'latent', type: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.LATENT' } }, required: true, widget: { widgetType: 'ASSET', options: { accept: ['.latent'] }, kind: 'data/latent' } }],
   } as unknown as NodeSchema
   const document = { graphs: { g0: { nodes: {} } } } as unknown as WorkflowDocument
   const base = () => ({
@@ -484,7 +484,7 @@ describe('dropped latent insertion', () => {
 
   it.each([undefined, 'data/checkpoint'])('refuses a Load Latent schema with widget kind %s', async (kind) => {
     const item = schema.body[0]! as Extract<NodeSchema['body'][number], { kind: 'input' }>
-    const wrongSchema = { ...schema, items: [{
+    const wrongSchema = { ...schema, body: [{
       ...item, widget: { widgetType: 'ASSET', options: {}, ...(kind === undefined ? {} : { kind }) },
     }] } as unknown as NodeSchema
     const p = { ...base(), schemas: () => [wrongSchema] }
@@ -493,7 +493,7 @@ describe('dropped latent insertion', () => {
   })
 
   it('does not author through a hidden compatibility asset input', async () => {
-    const hidden = { ...schema, items: [{ ...schema.body[0]!, hidden: true }] } as NodeSchema
+    const hidden = { ...schema, body: [{ ...schema.body[0]!, hidden: true }] } as NodeSchema
     const p = { ...base(), schemas: () => [hidden] }
     await expect(insertDroppedLatent(p)).resolves.toBe('schema-missing')
     expect(p.dispatch).not.toHaveBeenCalled()

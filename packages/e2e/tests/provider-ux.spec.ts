@@ -1,63 +1,68 @@
-import { expect, nativeTest as test, openRailPanel, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, mockProjectPacks, nativeTest as test, openRailPanel, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'provider-ux-proof', schemaWire: 1 },
+  dinkster: { version: 'provider-ux-proof', schemaWire: 2 },
   packs: {
     'dinkster-nodes-image': { displayName: 'Dinkster Image Nodes', abbr: 'DN' },
     'dinkster-nodes-generation': { displayName: 'Dinkster Generation', abbr: 'DG' },
   },
   nodes: {
     'test.ImageSource': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.ImageSource',
       displayName: 'Load Test Image',
       category: 'test',
-      interface: [{ role: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+      body: [{ kind: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
       signature: 'provider-ux-image-source',
     },
     'test.ImageSink': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.ImageSink',
       displayName: 'Preview Image',
       category: 'test',
       outputNode: true,
-      interface: [{ role: 'input', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+      body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
       signature: 'provider-ux-image-sink',
     },
     'test.AdvancedControls': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.AdvancedControls',
       displayName: 'Advanced Controls',
       category: 'test',
-      interface: [
+      body: [
         {
-          role: 'input', id: 'prompt', displayName: 'Prompt', required: false,
+          kind: 'input', id: 'prompt', label: 'Prompt', required: false,
           type: { kind: 'concrete', types: ['STRING'] }, default: '',
           widget: { type: 'STRING', multiline: true },
         },
         {
-          role: 'input', id: 'policy', displayName: 'Policy', required: false,
-          type: { kind: 'concrete', types: ['COMBO'] }, default: 'auto', advanced: true,
-          widget: { type: 'COMBO', options: ['auto', 'quality'] },
-        },
-        {
-          role: 'input', id: 'reference_image', displayName: 'Reference Image', required: false,
-          type: { kind: 'concrete', types: ['comfy.IMAGE'] }, advanced: true,
+          kind: 'section', id: 'advanced', label: 'Advanced', collapsed: true,
+          rows: [
+            {
+              kind: 'input', id: 'policy', label: 'Policy', required: false,
+              type: { kind: 'concrete', types: ['COMBO'] }, default: 'auto',
+              widget: { type: 'COMBO', options: ['auto', 'quality'] },
+            },
+            {
+              kind: 'input', id: 'reference_image', label: 'Reference Image', required: false,
+              type: { kind: 'concrete', types: ['comfy.IMAGE'] },
+            },
+          ],
         },
       ],
       signature: 'advanced-controls-proof',
     },
     'dinkster.preprocess.model_depth': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       displayName: 'Preprocess Model Depth',
       category: 'Image',
       pack: 'dinkster-nodes-image',
       executionArms: ['native'],
-      interface: [
+      body: [
         {
-          role: 'input', id: 'model', displayName: 'Model', required: false,
+          kind: 'input', id: 'model', label: 'Model', required: false,
           type: { kind: 'concrete', types: ['COMBO'] }, default: 'auto',
           widget: {
             type: 'COMBO',
@@ -69,7 +74,7 @@ const catalog = {
           },
         },
         {
-          role: 'input', id: 'provider', displayName: 'Provider', required: false,
+          kind: 'input', id: 'provider', label: 'Provider', required: false,
           type: { kind: 'concrete', types: ['COMBO'] },
           widget: { type: 'COMBO', remote: { route: '/api/choices/dinkster.preprocess.model_depth.providers' } },
           hidden: true,
@@ -77,42 +82,42 @@ const catalog = {
       ],
     },
     'dinkster.preprocess.lineart_realistic': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       displayName: 'Preprocess Realistic Line Art',
       category: 'Image',
       pack: 'dinkster-vision-hed',
       executionArms: ['native'],
-      interface: [
+      body: [
         {
-          role: 'input', id: 'image', displayName: 'Image', required: true,
+          kind: 'input', id: 'image', label: 'Image', required: true,
           type: { kind: 'concrete', types: ['comfy.IMAGE'] },
         },
         {
-          role: 'input', id: 'provider', displayName: 'Provider', required: false,
+          kind: 'input', id: 'provider', label: 'Provider', required: false,
           type: { kind: 'concrete', types: ['COMBO'] },
           widget: { type: 'COMBO', remote: { route: '/api/choices/dinkster.preprocess.lineart_realistic.providers' } },
           hidden: true,
         },
         {
-          role: 'output', id: 'image', displayName: 'Image',
+          kind: 'output', id: 'image', label: 'Image',
           type: { kind: 'concrete', types: ['comfy.IMAGE'] },
         },
       ],
     },
     'dinkster.text_generate': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       displayName: 'Generate Text',
       category: 'Generation',
       pack: 'dinkster-nodes-generation',
       executionArms: ['native'],
-      interface: [
+      body: [
         {
-          role: 'input', id: 'prompt', displayName: 'Prompt', required: false,
+          kind: 'input', id: 'prompt', label: 'Prompt', required: false,
           type: { kind: 'concrete', types: ['STRING'] }, default: '',
           widget: { type: 'STRING', multiline: true },
         },
         {
-          role: 'input', id: 'provider', displayName: 'Service', required: false,
+          kind: 'input', id: 'provider', label: 'Service', required: false,
           type: { kind: 'concrete', types: ['COMBO'] }, hidden: true,
           widget: {
             type: 'COMBO',
@@ -145,6 +150,7 @@ test('node cards show intent controls without provider, arm, or pack leakage', a
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: {}, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: catalog }))
+  await mockProjectPacks(page, ['dinkster-nodes-image', 'dinkster-nodes-generation', 'dinkster-vision-hed'])
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest !== undefined)).toBe(true)
   await expect.poll(() => page.evaluate(() =>
@@ -305,6 +311,7 @@ test('unavailable vision capability identifies and anchors Preprocess Realistic 
       }],
     },
   }))
+  await mockProjectPacks(page, ['dinkster-nodes-image', 'dinkster-nodes-generation', 'dinkster-vision-hed'])
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest !== undefined)).toBe(true)
 

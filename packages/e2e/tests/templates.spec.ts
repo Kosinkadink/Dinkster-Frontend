@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, type Page } from './fixtures.js'
 
 const MOCK = 'http://templates.test'
 const proofDir = process.env['DINKSTER_TEMPLATE_PROOF_DIR']
@@ -18,7 +18,7 @@ const TEMPLATE_DOC = {
 
 async function openTemplatesPanel(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 2 }, nodes: {},
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.route('/api/settings', (route) => route.fulfill({ json: {
@@ -31,9 +31,9 @@ async function openTemplatesPanel(page: Page): Promise<void> {
   } }))
   await page.route(`${MOCK}/api/mounts`, (route) => route.fulfill({ json: { mounts: [] } }))
   await page.route(`${MOCK}/api/nodes*`, (route) => void route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 1 },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 2 },
     packs: { demo: { displayName: 'Demo Pack', assets: [{ id: 'model', name: 'Demo Model', digest: 'blake3:x', kind: 'model/checkpoint', size: 1024 }] } },
-    nodes: { 'demo.node': { displayName: 'Demo Node', pack: 'demo', signature: 's', interface: [] } },
+    nodes: { 'demo.node': { displayName: 'Demo Node', pack: 'demo', signature: 's', body: [] } },
   } }))
   await page.route(`${MOCK}/api/templates*`, (route) => {
     const q = new URL(route.request().url()).searchParams.get('q')?.toLowerCase() ?? ''

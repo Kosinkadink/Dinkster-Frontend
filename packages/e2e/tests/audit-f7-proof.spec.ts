@@ -1,15 +1,16 @@
-import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
+import { expect, mockProjectPacks, nativeAppViewTest as test, type Page } from './fixtures.js'
 
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-f7-proof', schemaWire: 1 },
+  dinkster: { version: 'audit-f7-proof', schemaWire: 2 },
   packs: {},
   nodes: {},
 }
 
 async function prepare(page: Page): Promise<void> {
   await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$))).*/, (route) => { throw new Error(`unexpected unmocked API request: ${route.request().url()}`) })
+  await mockProjectPacks(page)
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.route('/api/settings', (route) => route.fulfill({ json: { categories: { granted: [], available: [] }, settings: {} } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))

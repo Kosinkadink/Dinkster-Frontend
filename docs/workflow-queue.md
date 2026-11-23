@@ -122,8 +122,8 @@ snapshot actions. Each activity card uses text labels in addition to status
 styling, retains the complete prompt identity, and exposes an explicit Open
 snapshot action when local provenance allows the exact frozen view.
 
-The control is ordinary Dinkster chrome: styled buttons, a custom caret, and a
-themed overflow track. It adds no native select or browser scrollbar chrome.
+The control is ordinary Dinkster chrome: styled buttons, a custom caret, and the
+shared quiet scrollbar. It adds no native select or browser scrollbar chrome.
 It shares one wrapping flex row with the view and lens controls, so the
 controls cannot overlap each other at any width, and it stays clear of the
 bottom-right minimap.

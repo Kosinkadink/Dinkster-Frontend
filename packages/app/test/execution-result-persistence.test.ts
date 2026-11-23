@@ -508,8 +508,9 @@ describe('startup result source admission', () => {
     try {
       const starting = test.app.start()
       if (order !== 'startup') {
+        await vi.waitFor(() => expect(schemas).toHaveLength(1))
         ;(test.backend.connection.status as unknown as { set(value: string): void }).set('connected')
-        expect(schemas).toHaveLength(2)
+        await vi.waitFor(() => expect(schemas).toHaveLength(2))
         if (order === 'startup-first') {
           schemas[0]!(test.registry)
           await starting

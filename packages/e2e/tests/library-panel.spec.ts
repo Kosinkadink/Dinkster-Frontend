@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_LIBRARY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -25,7 +25,7 @@ const nodes = Object.fromEntries(Object.keys(packs).map((pack, index) => [`fixtu
   displayName: `Fixture Node ${index + 1}`,
   pack,
   signature: `fixture-${index}`,
-  interface: [],
+  body: [],
 }]))
 
 const templates = Array.from({ length: 32 }, (_, index) => {
@@ -61,7 +61,7 @@ async function installFixture(page: Page): Promise<{
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'library-panel-proof', schemaWire: 1 },
+    dinkster: { version: 'library-panel-proof', schemaWire: 2 },
     packs,
     nodes,
   } }))

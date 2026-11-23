@@ -101,18 +101,26 @@ nodes, inner wires, or promoted widgets. An unattached output has no producer;
 connecting it cannot fabricate an execution value. Flattening a definition
 with unattached slots is refused until its interface can be resolved.
 
-## Nested slot exposure
+## Canvas panel positions
 
-A forwarded family starts in **Tracks template** mode. New nested slots become
-exposed automatically. **Pin selection** records the current explicit slot
-set; checkboxes then expose a whole subtree, a narrowed subtree, or no part of
-that subtree. **Track all slots** removes the explicit set.
+The Inputs and Outputs panels inside a subgraph keep their own saved positions.
+Moving, adding, removing or resizing other graph items does not move them. Drag a
+panel, alone or in a selection, to reposition it.
 
-The document remains authoritative. Slot edits use `boundary.setSlots` and
-`boundary.clearSlots`, remain one undo step, and never keep a second local
-selection. The panel refuses an empty pinned selection, reports invalid stored
-paths and derivation diagnostics inline, and names an unavailable schema
-catalog instead of hiding the exposure state.
+New definitions store their initial content-bound positions during extraction,
+paste or import. Opening an older document does not change it: the first command
+that edits a definition stores its previously drawn panel positions in that same
+undo step. Undo restores the edited items and the panels' original places.
+
+## Groups and choices
+
+A boundary item forwards one inner input or output by its flattened id, such
+as `loras.lora0.strength` (see [Node body](node-body.md)). Forwarding a whole
+group, choice or type choice is refused: the item shows the
+`boundary.familyBind` diagnostic inline, and compilation reports the bound id
+as an unknown port (`compile.port.unknownInput` or
+`compile.port.unknownOutput`). Other boundary diagnostics, such as a
+row of an option that is not chosen, also appear inline on their item.
 
 ## Regions and frozen views
 

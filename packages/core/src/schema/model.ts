@@ -53,7 +53,6 @@ export type TypeExpr =
   | { readonly kind: 'asset'; readonly element: TypeExpr }
   | { readonly kind: 'stream'; readonly element: TypeExpr }
   | { readonly kind: 'tuple'; readonly elements: readonly TypeExpr[] }
-  | { readonly kind: 'family_tuple'; readonly input: string }
   | { readonly kind: 'tuple_element'; readonly input?: string; readonly element?: TypeExpr; readonly index: string | number }
 
 /** COMBO is a concrete type carrying a string, boolean, or finite number. */
@@ -305,17 +304,14 @@ export interface WidgetDescriptorSpec {
   readonly controllerInitial?: 'fixed' | 'increment' | 'decrement' | 'randomize'
   /** Declarative remote option source (combos and kin). */
   readonly remote?: RemoteSourceSpec
-  /** Ordered options derived from one occurrence-local input family. */
-  readonly optionSource?: InputFamilyOptionSourceSpec
   /** Ordered choices authored on an occurrence, independently of its selected value. */
   readonly editableOptions?: true
   /** Schema-declared text completion vocabulary (wire 36). */
   readonly textCompletions?: TextCompletionsSpec
-}
-
-export interface InputFamilyOptionSourceSpec {
-  /** Family construct path. Values are stable member suffixes. */
-  readonly inputFamily: string
+  /** A custom or compositor widget's own part names -> the row ids it writes. */
+  readonly writes?: Readonly<Record<string, string>>
+  /** A custom or compositor widget's own part names -> the row ids it reads. */
+  readonly reads?: Readonly<Record<string, string>>
 }
 
 export interface TextCompletionItemSpec {
@@ -328,7 +324,6 @@ export interface TextCompletionItemSpec {
 
 export interface TextCompletionsSpec {
   readonly items: readonly TextCompletionItemSpec[]
-  readonly inputFamilies: readonly string[]
 }
 
 /** One stable schema-authored name for one widget presentation. */
@@ -490,7 +485,11 @@ interface PortSpecBase {
    */
   readonly id: string
   readonly displayName?: string
+  /** A label the declaration works out by formula; `displayName` is then unset. */
+  readonly labelFormula?: FormulaSpec
   readonly tooltip?: string
+  /** Whether the row shows, as declared; the editor does not evaluate it yet. */
+  readonly visible?: Formulated<boolean>
   /** Alpha handling at this port; undefined is the default 'preserve'. */
   readonly alphaPolicy?: AlphaPolicy
   readonly maskPolarity?: MaskPolarity
@@ -528,8 +527,6 @@ export interface InputSpec extends PortSpecBase {
   readonly optional: boolean
   /** Derived boundary input forwarding an edit-time schema literal. */
   readonly outputSchemaSource?: true
-  /** Descriptor editor contract of a described row's stored description (set by elaboration). */
-  readonly outputDescriptors?: OutputDescriptorsSpec
   /** Declared absence policy; undefined = the required-ness default. */
   readonly onAbsent?: AbsentPolicy
   /** The execution accepts storage-backed values directly (wire 39); true or omitted. */
@@ -589,31 +586,6 @@ export interface OutputKnownValue {
   readonly input: string
 }
 
-/** Ordered output schema stored as JSON in an ordinary string input. */
-export interface OutputDescriptorsSpec {
-  readonly input: string
-  readonly choices: readonly (Pick<OutputSpec, 'alphaPolicy' | 'maskPolarity' | 'maskSemantic'> & {
-    readonly id: string
-    readonly type: Extract<TypeExpr, { kind: 'concrete' }>
-    readonly displayName?: string
-    readonly optional?: boolean
-    readonly preview?: true
-    readonly doc?: string
-  })[]
-  readonly minEntries: number
-  readonly maxEntries: number
-  readonly fixedIds: boolean
-  readonly probe?: { readonly input: string; readonly kind: 'model'; readonly revision: string }
-  /** A direct boundary port selects one stable entry, never its position. */
-  readonly selectedId?: string
-  readonly boundaryProjection?: {
-    readonly fallback?: unknown
-    readonly fixed?: true
-    readonly assetFallback?: unknown
-    readonly assetFixed?: true
-  }
-}
-
 /** An output pin. Inside a group member or an option it exists only with it. */
 export interface OutputSpec extends PortSpecBase {
   readonly kind: 'output'
@@ -657,7 +629,8 @@ export interface SectionSpec {
   readonly displayName?: Formulated<string>
   readonly tooltip?: Formulated<string>
   readonly visible?: Formulated<boolean>
-  readonly rows: readonly BodyRow[]
+  /** A section under a choice's option may place the choice's shared rows by `Use`. */
+  readonly rows: readonly OptionRow[]
   readonly collapsedByDefault?: boolean
   /** False: the open box shows no name, only a small tab that closes it. */
   readonly openName?: false
@@ -667,6 +640,18 @@ export interface SectionSpec {
 export interface RowSpec {
   readonly kind: 'row'
   readonly rows: readonly (InputSpec | ButtonSpec | NoteSpec)[]
+}
+
+/**
+ * A widget with no value of its own, on a line of its own. Layout: it is not
+ * stored, run or drawn by the editor yet; its widget names the rows it writes
+ * and reads.
+ */
+export interface EditorSpec {
+  readonly kind: 'editor'
+  readonly id: string
+  readonly widget: WidgetSpec
+  readonly visible?: Formulated<boolean>
 }
 
 /** Read-only text, usually a formula. */
@@ -827,6 +812,7 @@ export type BodyRow =
   | SectionSpec
   | RowSpec
   | NoteSpec
+  | EditorSpec
   | ButtonSpec
   | GroupSpec
   | ChoiceSpec
@@ -1210,6 +1196,10 @@ export const isComboWidgetInput = (spec: InputSpec): boolean =>
 
 export const isAssetWidgetInput = (spec: Pick<InputSpec, 'widget'>): boolean =>
   spec.widget?.widgetType === 'ASSET'
+
+/** A widget edited as a number field: INT or FLOAT. */
+export const isNumberWidget = (widget: Pick<WidgetSpec, 'widgetType'> | undefined): boolean =>
+  widget?.widgetType === 'INT' || widget?.widgetType === 'FLOAT'
 
 export const isImageAssetInput = (spec: InputSpec): boolean => {
   const type = canonicalTypeIdOf(spec.type)

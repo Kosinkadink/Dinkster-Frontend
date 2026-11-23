@@ -11,6 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   COLLAB_PROTOCOL_VERSION,
+  DINKSTER_SCHEMA_WIRE_VERSION,
   asConnectionId,
   asNodeId,
   diag,
@@ -20,6 +21,7 @@ import {
   type CollabConnectionEvent,
   type CollabServerOp,
   type CollabSessionDescriptor,
+  type DinksterNodesPayload,
   type FetchOpsOutcome,
   type Json,
   type NodeSchema,
@@ -31,7 +33,6 @@ import {
 import { DinksterConnection, buildDinksterRegistry, type RetainedAssets } from '@dinkster/client'
 import { SharedWorkerDocumentAuthority } from '../src/shared-worker-authority.js'
 import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
-import nodesPayload from '../../core/fixtures/dinkster-nodes.json'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 import { AppState, type Tab } from '../src/app-state.js'
@@ -285,6 +286,22 @@ const planSeedFlatten = (app: AppState, tab: Tab) => flattenInvocation(
   app.backends.get()[0]!.registry.get()!.resolve,
 )
 
+const INT = { kind: 'concrete', types: ['INT'] }
+const nodesPayload: DinksterNodesPayload = {
+  schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+  nodes: {
+    'std.math.add_ints': {
+      nodeType: 'std.math.add_ints', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1,
+      displayName: 'Add Ints', category: 'math', description: '', idempotent: true,
+      body: [
+        { kind: 'input', id: 'a', required: true, type: INT },
+        { kind: 'input', id: 'b', required: true, default: 1, type: INT },
+        { kind: 'output', id: 'sum', type: INT },
+      ],
+    },
+  },
+}
+
 const seedFlattenSchemas: readonly NodeSchema[] = [
   { type: 'X', displayName: 'X', category: 'test', source: 'v3', isOutputNode: false, body: [] },
   {
@@ -316,90 +333,6 @@ const installSeedFlattenRegistry = (app: AppState): void => {
     diagnostics: [],
     resolve: (type) => schemas.get(type),
   })
-}
-
-const sharedCountSchema: NodeSchema = {
-  type: 'CountedOutput',
-  displayName: 'Counted output',
-  category: 'test',
-  source: 'v3',
-  isOutputNode: false,
-  body: [
-    {
-      kind: 'input',
-      id: 'count',
-      type: { kind: 'concrete', name: 'INT' },
-      optional: false,
-      widget: { widgetType: 'INT', options: {}, default: 3 },
-    },
-    {
-      kind: 'output',
-      id: 'results',
-      type: { kind: 'concrete', name: 'INT' },
-      dynamic: {
-        kind: 'autogrow',
-        template: [{
-          kind: 'input',
-          id: 'result',
-          type: { kind: 'concrete', name: 'INT' },
-          optional: false,
-        }],
-        naming: { kind: 'prefix', prefix: '', min: 0, max: 4 },
-        count: { input: 'count', suffix: 'index' },
-      },
-    },
-  ],
-}
-
-const sharedCountDocument = (): WorkflowDocument => ({
-  format: 'dinkster-workflow',
-  formatVersion: 1,
-  lineage: 'shared-count-edit' as never,
-  root: 'g0' as never,
-  graphs: {
-    g0: {
-      id: 'g0' as never,
-      name: 'root',
-      nextOrdinal: 1,
-      nodes: {
-        left: { id: 'left' as never, type: '#sub', values: {} },
-        right: { id: 'right' as never, type: '#sub', values: {} },
-      },
-      links: {},
-      nets: {},
-      reroutes: {},
-    },
-    sub: {
-      id: 'sub' as never,
-      name: 'sub',
-      nextOrdinal: 1,
-      nodes: {
-        split: { id: 'split' as never, type: sharedCountSchema.type, values: { count: 3 } },
-      },
-      links: {},
-      nets: {},
-      reroutes: {},
-      boundary: {
-        inputs: [{ id: 'amount', binds: { kind: 'port', node: 'split' as never, port: 'count' as never }, promoted: true }],
-        outputs: [{ id: 'results', binds: { kind: 'family', node: 'split' as never, port: 'results' as never } }],
-      },
-    },
-  },
-  view: { graphs: {} },
-})
-
-const installSharedCountRegistry = (app: AppState) => {
-  const backend = app.backends.get().find((candidate) => candidate.protocol === 'dinkster')
-  if (backend === undefined) throw new Error('native backend setup failed')
-  const schemas = new Map([[sharedCountSchema.type, sharedCountSchema]])
-  backend.registry.set({
-    connection: backend.id,
-    hash: 'shared-count-edit',
-    schemas,
-    diagnostics: [],
-    resolve: (type) => schemas.get(type),
-  })
-  return backend
 }
 
 // ---------------------------------------------------------------------------
@@ -1067,76 +1000,6 @@ const gate = (): { promise: Promise<void>; open: () => void } => {
 }
 
 describe('lifecycle races', () => {
-  it('rebases a promoted count edit over an unrelated shared operation', async () => {
-    vi.stubGlobal('localStorage', fakeStorage())
-    const server = new FakeCollabServer()
-    const postGate = gate()
-    let holdPosts = false
-    let heldPosts = 0
-    const appA = prepareWorkflowApp(new AppState({
-      collabTransport: {
-        ...server.transport,
-        connect: (config) => {
-          const conn = server.transport.connect(config)
-          return {
-            sessionId: conn.sessionId,
-            postOp: async (op: CollabClientOp) => {
-              if (holdPosts) {
-                heldPosts += 1
-                await postGate.promise
-              }
-              return conn.postOp(op)
-            },
-            fetchSnapshot: () => conn.fetchSnapshot(),
-            fetchOps: (after: number) => conn.fetchOps(after),
-            putSnapshot: (revision: number, document: WorkflowDocument) => conn.putSnapshot(revision, document),
-            sendPresence: (payload: Json) => conn.sendPresence(payload),
-            close: () => conn.close(),
-            onEvent: (listener: (event: CollabConnectionEvent) => void) => conn.onEvent(listener),
-          }
-        },
-      },
-    }))
-    appA.addBackend('http://collab', 'collab', false, 'dinkster')
-    const backendA = installSharedCountRegistry(appA)
-    editableApps.push(prepareWorkflowApp(appA))
-    expect((await appA.openDocument(sharedCountDocument(), 'Shared count edit'))).toEqual([])
-    appA.setTabTarget(activeTab(appA).id, backendA.id)
-    expect(await appA.shareActiveTab()).toBeUndefined()
-    const tabA = activeTab(appA)
-
-    const appB = makeApp(server)
-    const backendB = installSharedCountRegistry(appB)
-    editableApps.push(prepareWorkflowApp(appB))
-    expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
-    const tabB = activeTab(appB)
-    appB.setTabTarget(tabB.id, backendB.id)
-
-    holdPosts = true
-    expect((await appA.dispatchTo(tabA, {
-      command: 'node.setValue',
-      params: { graphId: 'g0', nodeId: 'left', inputId: 'amount', value: 3 },
-    })).ok).toBe(true)
-    await until(() => heldPosts === 1, 'promoted count POST held')
-
-    expect((await appB.dispatchTo(tabB, {
-      command: 'node.setTitle',
-      params: { graphId: 'g0', nodeId: 'right', title: 'peer edit' },
-    })).ok).toBe(true)
-    await sharedSession(appB, tabB.id).settle()
-    await until(() =>
-      tabA.store.doc.graphs.g0!.nodes.right!.title === 'peer edit' &&
-      tabA.store.doc.graphs.g0!.nodes.left!.values.amount === 3,
-    'count intention replay')
-    expect(appA.problems.get().filter((problem) => problem.code.startsWith('collab.conflict.'))).toEqual([])
-
-    postGate.open()
-    await sharedSession(appA, tabA.id).settle()
-    await until(() => tabB.store.doc.graphs.g0!.nodes.left!.values.amount === 3, 'count convergence')
-    expect(tabA.store.doc.graphs.g0!.nodes.left!.values).toEqual({ amount: 3 })
-    expect(tabB.store.doc.graphs.g0!.nodes.left!.values).toEqual({ amount: 3 })
-  })
-
   it('rechecks the wire-15 mode gate when a collab rebase changes content at the same revision', async () => {
     const server = new FakeCollabServer()
     let holdPosts = false
@@ -1577,7 +1440,13 @@ describe('lifecycle races', () => {
     expect(tabB.store.doc.graphs[root]!.nodes[winnerNodeId]?.type).toBe(`#${fixedGraphId}`)
     expect(tabB.store.doc.graphs[root]!.nodes[loserNodeId]).toBeUndefined()
     expect(tabB.store.doc.graphs[fixedGraphId]).toEqual(tabA.store.doc.graphs[fixedGraphId])
-    expect(tabB.store.doc.view.graphs[fixedGraphId]).toEqual({ nodes: {} })
+    expect(tabB.store.doc.view.graphs[fixedGraphId]).toEqual({
+      nodes: {},
+      boundary: {
+        inputs: { position: { x: -260, y: 0 } },
+        outputs: { position: { x: 440, y: 0 } },
+      },
+    })
     expect(tabB.graphStack.get()).toEqual([root])
     expect(tabB.instancePath.get()).toEqual([])
     expect(appB.problems.get()).toContainEqual(expect.objectContaining({

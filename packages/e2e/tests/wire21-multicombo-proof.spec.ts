@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/audit-f7-proof'
 
@@ -40,7 +40,7 @@ const multiInterface = [
   { id: 'absent', widget: { type: 'MULTI_COMBO', options: ['plain'] } },
   { id: 'remote', widget: { type: 'MULTI_COMBO', options: [], remote: { route: '/api/choices/providers', refreshButton: true } } },
 ].map(({ id, widget }) => ({
-  role: 'input', id, required: true,
+  kind: 'input', id, required: true,
   type: { kind: 'list', element: { kind: 'concrete', types: ['COMBO'] } }, widget,
 }))
 
@@ -51,10 +51,10 @@ test('proves wire21 MULTI_COMBO editing, presentation, OOV, and remote choices',
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1,
-    dinkster: { version: 'wire21-multicombo-proof', schemaWire: 1 },
+    dinkster: { version: 'wire21-multicombo-proof', schemaWire: 2 },
     nodes: { Wire21MultiProof: {
-      schemaVersion: 1, nodeType: 'Wire21MultiProof', displayName: 'Wire 21 Multi Combo',
-      category: 'test', outputNode: false, signature: 'wire21-multi-proof', interface: multiInterface,
+      schemaVersion: 2, nodeType: 'Wire21MultiProof', displayName: 'Wire 21 Multi Combo',
+      category: 'test', outputNode: false, signature: 'wire21-multi-proof', body: multiInterface,
     } },
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))

@@ -11,31 +11,31 @@
  *   /api/jobs body carries a NEW job identity, never the interrupted one.
  *   Nothing auto-resumes, by contract.
  */
-import { expect, selectProductOption, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const DIGEST = `blake3:${'a'.repeat(64)}`
 
 const nativeTable = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'interrupted-history-e2e', schemaWire: 1 },
+  dinkster: { version: 'interrupted-history-e2e', schemaWire: 2 },
   packs: { test: { displayName: 'Test' } },
   nodes: {
     'test.ImageSource': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.ImageSource',
       displayName: 'Image Source',
       category: 'test',
-      interface: [{ role: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+      body: [{ kind: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
       signature: 'image-source-e2e',
     },
     'test.ImageSink': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'test.ImageSink',
       displayName: 'Image Sink',
       category: 'test',
       outputNode: true,
-      interface: [{ role: 'input', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+      body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
       signature: 'image-sink-e2e',
     },
   },

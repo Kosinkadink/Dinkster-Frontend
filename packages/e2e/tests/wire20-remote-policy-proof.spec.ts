@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, appViewTest as test, type Page } from './fixtures.js'
+import { expect, nativeAppViewTest as test, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/audit-f6-p2-proof'
 
@@ -35,12 +35,12 @@ test('proves wire20 manual control policy, CAS, TTL, and phase1 fallback through
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1,
-    dinkster: { version: 'wire20-remote-policy-proof', schemaWire: 1 },
+    dinkster: { version: 'wire20-remote-policy-proof', schemaWire: 2 },
     nodes: { Wire20RemotePolicyProof: {
-      schemaVersion: 1, nodeType: 'Wire20RemotePolicyProof', displayName: 'Wire 20 Remote Policy',
+      schemaVersion: 2, nodeType: 'Wire20RemotePolicyProof', displayName: 'Wire 20 Remote Policy',
       category: 'test', outputNode: false, signature: 'wire20-remote-policy-proof',
-      interface: ['first', 'last', 'edit', 'ttl', 'legacy'].map((id) => ({
-        role: 'input', id, required: true,
+      body: ['first', 'last', 'edit', 'ttl', 'legacy'].map((id) => ({
+        kind: 'input', id, required: true,
         type: { kind: 'concrete', types: ['COMBO'] },
         widget: {
           type: 'COMBO', options: [`${id}-old`],

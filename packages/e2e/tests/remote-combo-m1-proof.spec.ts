@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 const proofDir = '/tmp/audit-f6-proof'
 
@@ -26,18 +26,18 @@ test('proves remote COMBO editing implementation consumer states and OOV authori
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'remote-combo-m1-proof', schemaWire: 1 },
+    dinkster: { version: 'remote-combo-m1-proof', schemaWire: 2 },
     packs: { test: { displayName: 'Test' } },
     nodes: { RemoteComboProof: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       nodeType: 'RemoteComboProof',
       displayName: 'Remote COMBO editing implementation',
       category: 'test',
       outputNode: false,
       signature: 'remote-combo-m1-proof-node',
-      interface: [
+      body: [
         {
-          role: 'input', id: 'ready', required: true,
+          kind: 'input', id: 'ready', required: true,
           type: { kind: 'concrete', types: ['COMBO'] },
           widget: {
             type: 'COMBO', options: ['static-fallback'],
@@ -45,7 +45,7 @@ test('proves remote COMBO editing implementation consumer states and OOV authori
           },
         },
         {
-          role: 'input', id: 'unavailable', required: true,
+          kind: 'input', id: 'unavailable', required: true,
           type: { kind: 'concrete', types: ['COMBO'] },
           widget: {
             type: 'COMBO', options: ['static-fallback'],

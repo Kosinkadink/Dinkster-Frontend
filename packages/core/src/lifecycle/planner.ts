@@ -36,7 +36,7 @@ import { canonicalJson, sha256Hex } from '../compile/hash.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
 import type { NodeSchema } from '../schema/model.js'
-import { DEFAULT_ELAB_BUDGET, elabKeyOf, elaborateInterface, EMPTY_CONNECTIVITY, valueKeyOf } from '../schema/elaborate.js'
+import { DEFAULT_ELAB_BUDGET, elaborateInterface, EMPTY_CONNECTIVITY, valueKeyOf } from '../schema/elaborate.js'
 import { effectiveWidgetDefault } from '../schema/widget-defaults.js'
 import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.js'
 import { matchBoundaryItem } from '../compile/crossing.js'
@@ -44,7 +44,7 @@ import { rerouteInputTargets } from '../reroute.js'
 
 export const LIFECYCLE_PLAN_VERSION = 'subgraph-lifecycle-plan-v2'
 
-export type FlattenRouteKind = 'plain' | 'plainWidget' | 'widgetTap' | 'combo' | 'family' | 'specialized' | 'unresolved'
+export type FlattenRouteKind = 'plain' | 'plainWidget' | 'widgetTap' | 'unresolved'
 
 export interface FlattenBoundaryPlanEntry {
   readonly side: 'input' | 'output'
@@ -63,8 +63,6 @@ export interface FlattenSchemaPlan {
 export type FlattenStateRefusalCode =
   | 'subgraph.flatten.stateUnresolved'
   | 'subgraph.flatten.dormantStateUnsupported'
-  | 'subgraph.flatten.nativeFamilyUnsupported'
-  | 'subgraph.flatten.specializedSlotUnsupported'
   | 'subgraph.lifecycle.boundaryUnresolved'
   | 'subgraph.lifecycle.idExhausted'
 
@@ -85,50 +83,10 @@ export interface FlattenBoundaryStateRoute {
   readonly side: 'input' | 'output'
   readonly id: string
   readonly bindingCount: number
-  readonly familyScopeIds: readonly string[]
-  readonly addressIndexes: readonly number[]
 }
 
 export interface FlattenPortAddress {
   readonly port: string
-  readonly members?: readonly string[]
-}
-
-export interface FlattenScopeStep {
-  readonly construct: string
-  readonly member: string
-  readonly storage: 'memberState' | 'pathSegment'
-}
-
-export interface FlattenFamilyScopeRef {
-  readonly construct: string
-  readonly ancestors: readonly FlattenScopeStep[]
-}
-
-export interface FlattenFamilyScopeMap {
-  readonly id: string
-  readonly parent?: { readonly scope: string; readonly beforeMember: string; readonly afterMember: string }
-  readonly source: FlattenFamilyScopeRef
-  readonly target: FlattenFamilyScopeRef & { readonly node: string }
-  readonly policy:
-    | { readonly kind: 'ordinal'; readonly materialization: 'ordinary' | 'wire15'; readonly prefix: string; readonly min: number; readonly max: number }
-    | { readonly kind: 'names'; readonly materialization: 'wire15'; readonly vocabulary: readonly string[]; readonly min: number; readonly max: number }
-  readonly sourceMembers: readonly string[]
-  readonly targetBefore: { readonly members: readonly string[]; readonly memberStateKeys: readonly string[]; readonly seq?: number }
-  readonly members: readonly { readonly before: string; readonly after: string }[]
-  readonly targetAfter: { readonly members: readonly string[]; readonly memberStateKeys: readonly string[]; readonly seq?: number }
-}
-
-export interface FlattenInputIdentity {
-  readonly address: FlattenPortAddress
-  readonly valueKey: string
-  readonly origin: 'static' | 'member' | 'selector' | 'branch' | 'slot' | 'dependent'
-}
-
-export interface FlattenMappedTarget {
-  readonly bindingIndex: number
-  readonly binding: BoundaryBinding
-  readonly input?: FlattenInputIdentity
 }
 
 export interface FlattenEnclosingBindingRewrite {
@@ -140,22 +98,11 @@ export interface FlattenEnclosingBindingRewrite {
   readonly after: readonly BoundaryBinding[]
 }
 
-export interface FlattenAddressMapEntry {
-  readonly side: 'input' | 'output'
-  readonly boundaryId: string
-  readonly before: FlattenPortAddress
-  readonly uses: readonly ('endpoint' | 'value' | 'controller' | 'dynamic')[]
-  readonly input?: FlattenInputIdentity
-  readonly targets: readonly FlattenMappedTarget[]
-}
-
 export interface FlattenReadyStatePlan {
   readonly version: 'subgraph-flatten-state-plan-v1'
   readonly status: 'ready'
   readonly source: FlattenStateSource
   readonly nodes: readonly FlattenNodeStateSnapshot[]
-  readonly familyScopes: readonly FlattenFamilyScopeMap[]
-  readonly addresses: readonly FlattenAddressMapEntry[]
   readonly routes: readonly FlattenBoundaryStateRoute[]
   readonly enclosingRewrites: readonly FlattenEnclosingBindingRewrite[]
 }
@@ -170,7 +117,7 @@ export interface FlattenRefusedStatePlan {
     readonly side?: 'input' | 'output'
     readonly boundaryId?: string
     readonly key?: string
-    readonly address?: { readonly port: string; readonly members?: readonly string[] }
+    readonly address?: FlattenPortAddress
   }
 }
 
@@ -191,7 +138,7 @@ export interface FlattenStoredPortEvidence {
 
 export type FlattenStoredStateWalk =
   | { readonly ok: true; readonly inventory: FlattenStoredStateInventory }
-  | { readonly ok: false; readonly code: 'subgraph.flatten.stateUnresolved' | 'subgraph.flatten.nativeFamilyUnsupported'; readonly message: string }
+  | { readonly ok: false; readonly code: 'subgraph.flatten.stateUnresolved'; readonly message: string }
 
 /**
  * Inventories persisted state against the node's body, including the rows
@@ -255,7 +202,7 @@ function occurrencePortEvidence(parent: GraphDef, nodeId: string): FlattenStored
   const evidence: FlattenStoredPortEvidence[] = []
   const add = (ref: PortRef, side: 'input' | 'output', use: 'link' | 'net' | 'enclosing'): void => {
     if (ref.node !== nodeId) return
-    evidence.push({ key: elabKeyOf({ port: ref.port, ...(ref.members !== undefined ? { members: ref.members } : {}) }), side, use })
+    evidence.push({ key: ref.port, side, use })
   }
   for (const link of Object.values(parent.links).sort((a, b) => compareStrings(a.id, b.id))) {
     if (isPortEndpoint(link.from)) add(link.from, 'output', 'link')
@@ -271,7 +218,7 @@ function occurrencePortEvidence(parent: GraphDef, nodeId: string): FlattenStored
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (binding.node !== nodeId) continue
         if (binding.kind === 'widgetTap') continue
-        add({ node: binding.node, port: binding.port, ...(binding.members !== undefined ? { members: binding.members } : {}) }, side, 'enclosing')
+        add({ node: binding.node, port: binding.port }, side, 'enclosing')
       }
     }
   }
@@ -311,11 +258,7 @@ export function classifyFlattenBoundaryRoute(
     const node = body.nodes[binding.node]
     return classifyFlattenBindingRoute(binding, node === undefined ? undefined : resolveSchema(node.type), expectedSide, node)
   })
-  return routes.includes('specialized') ? 'specialized'
-    : routes.includes('family') ? 'family'
-      : routes.includes('combo') ? 'combo'
-        : routes.includes('unresolved') ? 'unresolved'
-          : routes[0] ?? 'unresolved'
+  return routes.includes('unresolved') ? 'unresolved' : routes[0] ?? 'unresolved'
 }
 
 function flattenBindingTargets(body: GraphDef, binding: BoundaryBinding): readonly BoundaryBinding[] {
@@ -391,8 +334,6 @@ function planFlattenState(
     side: 'input' | 'output'
     id: string
     bindingCount: number
-    familyScopeIds: string[]
-    addressIndexes: number[]
   }> = []
   let refusal: FlattenRefusedStatePlan['refusal'] | undefined
   const items = [
@@ -417,14 +358,10 @@ function planFlattenState(
       side: 'input' | 'output'
       id: string
       bindingCount: number
-      familyScopeIds: string[]
-      addressIndexes: number[]
     } = {
       side,
       id: item.id,
       bindingCount: 1 + (item.alsoBinds?.length ?? 0),
-      familyScopeIds: [],
-      addressIndexes: [],
     }
     routes.push(stateRoute)
     if (routePlan.route === 'widgetTap') continue
@@ -499,7 +436,7 @@ function planFlattenState(
         : primarySlot.widget?.controllerInitial ?? (primarySlot.widget?.controller !== undefined ? 'randomize' : undefined)
     for (const binding of targets) {
       const target = nodes.get(binding.node as string)
-      if (target === undefined || binding.kind !== 'port' || (binding.members?.length ?? 0) > 0) {
+      if (target === undefined || binding.kind !== 'port') {
         fail('subgraph.flatten.stateUnresolved', `promoted boundary '${item.id}' cannot map to one plain target`, 'input', item.id)
         continue
       }
@@ -553,8 +490,6 @@ function planFlattenState(
     status: 'ready',
     source,
     nodes: [...nodes.values()].sort((a, b) => compareStrings(a.node, b.node)),
-    familyScopes: [],
-    addresses: [],
     routes,
     enclosingRewrites,
   }
@@ -1060,7 +995,7 @@ export interface BoundaryCut {
   readonly primaryMoved: boolean
   /** Index in [binds, ...alsoBinds] where the occurrence replaces moved targets. */
   readonly replacementIndex?: number
-  /** Exact nested item shape. Whole-family slots remain on the enclosing item. */
+  /** Exact nested item shape. */
   readonly nestedItem?: {
     readonly binds: BoundaryBinding
     readonly alsoBinds?: readonly BoundaryBinding[]
@@ -1118,7 +1053,7 @@ function endpointKey(endpoint: LinkEndpoint): string {
   if (isValueSourceRef(endpoint)) return canonicalJson(['valueSource', endpoint.valueSource])
   if (isSelectorRef(endpoint)) return canonicalJson(['selector', endpoint.selector, endpoint.candidate ?? null])
   if (isWidgetTapRef(endpoint)) return canonicalJson(['tap', endpoint.node, endpoint.tap])
-  return canonicalJson(['port', endpoint.node, endpoint.port, endpoint.members ?? []])
+  return canonicalJson(['port', endpoint.node, endpoint.port])
 }
 
 function refusalForLink(
@@ -1146,7 +1081,6 @@ function refusalForLink(
 const bindingAsPort = (binding: Exclude<BoundaryBinding, { kind: 'widgetTap' | 'unbound' | 'valueSource' }>): PortRef => ({
   node: binding.node,
   port: binding.port,
-  ...(binding.members !== undefined ? { members: binding.members } : {}),
 })
 
 const bindingAsOutputEndpoint = (binding: BoundaryBinding): PortRef | WidgetTapRef | ValueSourceRef => {
@@ -1306,15 +1240,10 @@ export function auditExtractionCuts(
       }
       const kind = refusal !== undefined ? 'unrepresentable' : side === 'inputs' ? 'in-cut' : 'out-cut'
       const firstMovedIndex = bindings.findIndex((binding) => bindingSelected(binding, selected))
-      const nestedBindings = movedBindings.map((binding) => {
-        if (binding.kind !== 'family') return binding
-        const { slots: _slots, ...withoutSlots } = binding
-        return withoutSlots
-      })
       const nestedItem = refusal === undefined
         ? {
-            binds: nestedBindings[0]!,
-            ...(nestedBindings.length > 1 ? { alsoBinds: nestedBindings.slice(1) } : {}),
+            binds: movedBindings[0]!,
+            ...(movedBindings.length > 1 ? { alsoBinds: movedBindings.slice(1) } : {}),
             ...(item.promoted === true ? { promoted: true as const } : {}),
             ...(item.tooltip !== undefined ? { tooltip: item.tooltip } : {}),
             ...(item.limits !== undefined ? { limits: item.limits } : {}),
@@ -1336,7 +1265,7 @@ export function auditExtractionCuts(
         ...(refusal !== undefined ? { refusal } : {}),
       })
       if (refusal !== undefined) continue
-      if (side === 'outputs' && item.binds.kind !== 'family') {
+      if (side === 'outputs') {
         const source = bindingAsOutputEndpoint(item.binds)
         const key = endpointKey(source)
         let group = outputGroups.get(key)
@@ -1470,13 +1399,6 @@ export function boundaryNameCandidates(audit: ExtractionCutAudit): readonly Boun
       base: isValueSourceRef(cut.source) ? cut.source.valueSource : isWidgetTapRef(cut.source) ? cut.source.tap : cut.source.port,
       orderKey: `${endpointKey(cut.source)}:${cut.consumers[0] === undefined ? '' : endpointKey(cut.consumers[0])}`,
     })),
-    ...audit.boundaries
-      .filter((cut) => cut.kind === 'out-cut' && cut.nestedItem !== undefined && cut.nestedItem.binds.kind === 'family')
-      .map((cut) => ({
-        side: 'output' as const,
-        base: cut.nestedItem!.binds.port ?? '',
-        orderKey: canonicalJson(['boundary', cut.itemIndex, cut.itemId]),
-      })),
   ]
 }
 

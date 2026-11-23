@@ -251,7 +251,7 @@ test('sharing keeps a local edit undoable with Ctrl+Z', async ({ page }) => {
   const baseline = await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{ type: 'ShareUndoProof', displayName: 'Share undo proof', category: 'test',
-      source: 'v3', isOutputNode: false, items: [] }])
+      source: 'v3', isOutputNode: false, body: [] }])
     const tab = app.activeTab()!
     const graphId = tab.store.doc.root
     const count = Object.keys(tab.store.doc.graphs[graphId]!.nodes).length
@@ -342,7 +342,7 @@ test('production watcher keeps remote close truthful when an in-flight end fails
   await expect(page.getByTestId('collab-current-session')).toHaveCount(0)
   await expect(page.getByTestId('collab-session')).toHaveCount(0)
   await expect(page.getByTestId('collab-unshared')).toBeFocused()
-  await expect(page.getByRole('status').first()).toHaveText(
+  await expect(page.getByTestId('collab-panel').getByRole('status').first()).toHaveText(
     'The collaboration session closed. The workflow is available locally.',
   )
 
@@ -354,7 +354,7 @@ test('production watcher keeps remote close truthful when an in-flight end fails
   })
   await expect(page.getByTestId('collab-end-error')).toContainText('network lost after remote close')
   await expect(page.getByTestId('collab-unshared')).toBeFocused()
-  await expect(page.getByRole('status').first()).toHaveText(
+  await expect(page.getByTestId('collab-panel').getByRole('status').first()).toHaveText(
     'The end request failed after the collaboration session closed. The workflow is available locally.',
   )
   await page.screenshot({ path: `${evidenceDir}/after-remote-close-end-failure.png`, fullPage: true })
@@ -381,7 +381,7 @@ test('production leave immediately rejoins a live session through a fresh connec
   await expect(page.getByTestId('collab-session')).toHaveCount(1)
   await expect(page.getByTestId('collab-join')).toBeEnabled()
   await expect(page.getByTestId('collab-unshared')).toBeFocused()
-  await expect(page.getByRole('status').first()).toHaveText(
+  await expect(page.getByTestId('collab-panel').getByRole('status').first()).toHaveText(
     'You left the collaboration session. The workflow is available locally.',
   )
   await page.screenshot({ path: `${evidenceDir}/after-leave-rejoinable.png`, fullPage: true })
@@ -474,7 +474,7 @@ test('successful end invalidates in-flight discovery and preserves its announcem
   await page.getByTestId('collab-end').click()
   await page.getByTestId('collab-end-confirm-button').click()
   await expect(page.getByTestId('collab-unshared')).toBeFocused()
-  await expect(page.getByRole('status').first()).toHaveText(
+  await expect(page.getByTestId('collab-panel').getByRole('status').first()).toHaveText(
     'The collaboration session ended for everyone. The workflow is available locally.',
   )
 
@@ -482,7 +482,7 @@ test('successful end invalidates in-flight discovery and preserves its announcem
   await expect.poll(() => listCalls).toBe(2)
   await expect(page.getByTestId('collab-session')).toHaveCount(0)
   await expect(page.getByTestId('collab-empty')).toBeVisible()
-  await expect(page.getByRole('status').first()).toHaveText(
+  await expect(page.getByTestId('collab-panel').getByRole('status').first()).toHaveText(
     'The collaboration session ended for everyone. The workflow is available locally.',
   )
 })

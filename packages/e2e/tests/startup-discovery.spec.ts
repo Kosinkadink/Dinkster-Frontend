@@ -17,10 +17,10 @@ test.use({ baseURL: nativeFrontend })
 const NATIVE_TABLE = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'e2e', schemaWire: 1 },
+  dinkster: { version: 'e2e', schemaWire: 2 },
   packs: { demo: { displayName: 'Demo Pack' } },
   nodes: {
-    'demo.node': { schemaVersion: 1, displayName: 'Demo Node', pack: 'demo', signature: 's', interface: [] },
+    'demo.node': { schemaVersion: 2, displayName: 'Demo Node', pack: 'demo', signature: 's', body: [] },
   },
 }
 
@@ -58,7 +58,7 @@ for (const unavailable of [404, 503, 'pending'] as const) {
         const app = window.__dinksterTest!.app
         app.registerSchemas([{
           type: 'Loader', displayName: 'Loader', category: 'test', source: 'v3', isOutputNode: false,
-          items: [{ kind: 'input', id: 'file', optional: false, type: { kind: 'concrete', name: 'ASSET' } }],
+          body: [{ kind: 'input', id: 'file', optional: false, type: { kind: 'concrete', name: 'ASSET' } }],
         }])
         const tab = app.activeTab()!
         const before = JSON.stringify(tab.store.doc)

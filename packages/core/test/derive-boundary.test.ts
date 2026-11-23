@@ -9,10 +9,9 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
-import { deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from '../src/schema/derive-boundary.js'
+import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
-import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
-import { inputsOf, outputCountInputsOf, outputsOf, type NodeSchema } from '../src/schema/model.js'
+import { inputsOf, outputsOf, type NodeSchema } from '../src/schema/model.js'
 
 /** Build a GraphDef from a plain literal (branded ids make literals noisy). */
 const asDef = (d: unknown): GraphDef => d as GraphDef
@@ -67,28 +66,18 @@ const innerSchemas: Record<string, NodeSchema> = {
         widget: { widgetType: 'INT', options: {} },
       },
       {
-        kind: 'input',
+        kind: 'group',
         id: 'input',
-        type: { kind: 'variable', templateId: 'T' },
-        optional: false,
-        dynamic: {
-          kind: 'autogrow',
-          template: [
-            {
-              kind: 'input',
-              id: 'input',
-              type: { kind: 'variable', templateId: 'T' },
-              optional: true,
-            },
-          ],
-          naming: { kind: 'prefix', prefix: 'input' },
-        },
+        value: { kind: 'input', id: 'input', type: { kind: 'variable', templateId: 'T' }, optional: true },
+        keys: { kind: 'numbered', prefix: 'input', start: 0, pad: 0 },
+        grows: 'link',
+        minMembers: 0,
       },
       { kind: 'output', id: 'out0', type: { kind: 'variable', templateId: 'T' } },
     ],
   },
-  // Nested dynamics: autogrow 'items' whose template groups a widget slot
-  // with a NESTED autogrow slot 'sub' (Autogrow-in-Autogrow).
+  // Nested groups: group 'items' whose member rows hold a widget field and
+  // a NESTED group 'sub' (a group inside a group).
   Stack: {
     type: 'Stack',
     displayName: 'Stack',
@@ -97,133 +86,32 @@ const innerSchemas: Record<string, NodeSchema> = {
     isOutputNode: false,
     body: [
       {
-        kind: 'input',
+        kind: 'group',
         id: 'items',
-        type: { kind: 'variable', templateId: 'T' },
-        optional: false,
-        dynamic: {
-          kind: 'autogrow',
-          template: [
-            {
-              kind: 'input',
-              id: 'name',
-              type: { kind: 'concrete', name: 'STRING' },
-              optional: true,
-              widget: { widgetType: 'STRING', options: {} },
-            },
-            {
-              kind: 'input',
-              id: 'sub',
-              type: { kind: 'variable', templateId: 'T' },
-              optional: true,
-              dynamic: {
-                kind: 'autogrow',
-                template: [{ kind: 'input', id: 'w', type: { kind: 'variable', templateId: 'T' }, optional: true }],
-                naming: { kind: 'prefix', prefix: 'sub', max: 4 },
-              },
-            },
-          ],
-          naming: { kind: 'prefix', prefix: 'item', min: 1, max: 5 },
-        },
+        member: [
+          {
+            kind: 'input',
+            id: 'name',
+            type: { kind: 'concrete', name: 'STRING' },
+            optional: true,
+            widget: { widgetType: 'STRING', options: {} },
+          },
+          {
+            kind: 'group',
+            id: 'sub',
+            value: { kind: 'input', id: 'w', type: { kind: 'variable', templateId: 'T' }, optional: true },
+            keys: { kind: 'numbered', prefix: 'sub', start: 0, pad: 0 },
+            grows: 'link',
+            minMembers: 0,
+            maxMembers: 4,
+          },
+        ],
+        keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+        grows: 'button',
+        minMembers: 1,
+        maxMembers: 5,
       },
       { kind: 'output', id: 'out0', type: { kind: 'variable', templateId: 'T' } },
-    ],
-  },
-  NamedGrow: {
-    type: 'NamedGrow',
-    displayName: 'Named Grow',
-    category: 'util',
-    source: 'v3',
-    isOutputNode: false,
-    body: [
-      {
-        kind: 'input',
-        id: 'ins',
-        type: { kind: 'concrete', name: 'IMAGE' },
-        optional: false,
-        dynamic: {
-          kind: 'autogrow',
-          template: [{ kind: 'input', id: 'ins', type: { kind: 'concrete', name: 'IMAGE' }, optional: true }],
-          naming: { kind: 'names', names: ['a', 'b', 'c'], min: 2 },
-        },
-      },
-    ],
-  },
-  MultiOut: {
-    type: 'MultiOut',
-    displayName: 'Multi Out',
-    category: 'util',
-    source: 'v3',
-    isOutputNode: false,
-    body: [
-      { kind: 'input', id: 'src', type: { kind: 'variable', templateId: 'T' }, optional: false },
-      {
-        kind: 'output',
-        id: 'outs',
-        type: { kind: 'variable', templateId: 'T' },
-        isList: true,
-        dynamic: {
-          kind: 'autogrow',
-          template: [{ kind: 'input', id: 'outs', type: { kind: 'variable', templateId: 'T' }, optional: true }],
-          naming: { kind: 'prefix', prefix: 'out', max: 6 },
-        },
-      },
-    ],
-  },
-  CountOut: {
-    type: 'CountOut',
-    displayName: 'Count Out',
-    category: 'util',
-    source: 'v3',
-    isOutputNode: false,
-    body: [
-      {
-        kind: 'input',
-        id: 'count',
-        type: { kind: 'concrete', name: 'INT' },
-        optional: false,
-        widget: { widgetType: 'INT', options: {}, default: 0 },
-      },
-      {
-        kind: 'output',
-        id: 'images',
-        type: { kind: 'concrete', name: 'IMAGE' },
-        dynamic: {
-          kind: 'autogrow',
-          template: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: true }],
-          naming: { kind: 'prefix', prefix: 'image', min: 0, max: 4 },
-          count: { input: 'count', suffix: 'index' },
-        },
-      },
-      { kind: 'output', id: 'done', type: { kind: 'concrete', name: 'IMAGE' } },
-    ],
-  },
-  WideCountOut: {
-    type: 'WideCountOut',
-    displayName: 'Wide Count Out',
-    category: 'util',
-    source: 'v3',
-    isOutputNode: false,
-    body: [
-      {
-        kind: 'input',
-        id: 'count',
-        type: { kind: 'concrete', name: 'INT' },
-        optional: false,
-        widget: { widgetType: 'INT', options: {}, default: 0 },
-      },
-      {
-        kind: 'output',
-        id: 'images',
-        type: { kind: 'concrete', name: 'IMAGE' },
-        dynamic: {
-          kind: 'autogrow',
-          template: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: true }],
-          naming: { kind: 'prefix', prefix: 'image', min: 0, max: Number.MAX_SAFE_INTEGER },
-          count: { input: 'count', suffix: 'index' },
-        },
-      },
-      { kind: 'output', id: 'done', type: { kind: 'concrete', name: 'IMAGE' } },
     ],
   },
   ComboNode: {
@@ -234,54 +122,38 @@ const innerSchemas: Record<string, NodeSchema> = {
     isOutputNode: false,
     body: [
       {
-        kind: 'input',
+        kind: 'choice',
         id: 'mode',
-        type: { kind: 'concrete', name: 'COMBO' },
-        optional: false,
-        dynamic: {
-          kind: 'dynamicCombo',
-          options: [
-            { key: 'a', inputs: [{ kind: 'input', id: 'x', type: { kind: 'concrete', name: 'INT' }, optional: false }] },
-          ],
-        },
+        required: true,
+        shared: [],
+        options: [
+          { key: 'a', rows: [{ kind: 'input', id: 'x', type: { kind: 'concrete', name: 'INT' }, optional: false }] },
+        ],
       },
     ],
-  },
-  PlainSlotNode: {
-    type: 'PlainSlotNode', displayName: 'Plain slot', category: 'util', source: 'v3', isOutputNode: false,
-    body: [{
-      kind: 'input', id: 'model', type: { kind: 'concrete', name: 'MODEL' }, optional: true,
-      dynamic: { kind: 'dynamicSlot', slotType: { kind: 'concrete', name: 'MODEL' }, inputs: [] },
-    }],
   },
   SpecializedSlotNode: {
     type: 'SpecializedSlotNode', displayName: 'Specialized slot', category: 'util', source: 'v3', isOutputNode: false,
     body: [{
-      kind: 'input', id: 'model', type: { kind: 'concrete', name: 'MODEL' }, optional: true,
-      dynamic: {
-        kind: 'dynamicSlot', slotType: { kind: 'concrete', name: 'MODEL' }, inputs: [],
-        variants: [{
-          key: 'special', type: { kind: 'variable', templateId: 'V' },
-          inputs: [{ kind: 'input', id: 'strength', type: { kind: 'variable', templateId: 'V' }, optional: false }],
-        }],
-      },
+      kind: 'typeChoice', id: 'model', required: false, rows: [],
+      variants: [{
+        key: 'special', type: { kind: 'variable', templateId: 'V' },
+        rows: [{ kind: 'input', id: 'strength', type: { kind: 'variable', templateId: 'V' }, optional: false }],
+      }],
     }],
   },
   MatchedSlotNode: {
     type: 'MatchedSlotNode', displayName: 'Matched slot', category: 'util', source: 'v3', isOutputNode: false,
     body: [
       {
-        kind: 'input', id: 'source', type: { kind: 'union', names: ['IMAGE', 'MASK'] }, optional: false,
-        dynamic: {
-          kind: 'dynamicSlot', slotType: { kind: 'union', names: ['IMAGE', 'MASK'] }, inputs: [], typeTemplateId: 'T',
-          variants: [
-            {
-              key: 'image', type: { kind: 'concrete', name: 'IMAGE' },
-              inputs: [{ kind: 'input', id: 'copy', type: { kind: 'variable', templateId: 'T' }, optional: false }],
-            },
-            { key: 'mask', type: { kind: 'concrete', name: 'MASK' }, inputs: [] },
-          ],
-        },
+        kind: 'typeChoice', id: 'source', required: true, rows: [], typeVariable: 'T',
+        variants: [
+          {
+            key: 'image', type: { kind: 'concrete', name: 'IMAGE' },
+            rows: [{ kind: 'input', id: 'copy', type: { kind: 'variable', templateId: 'T' }, optional: false }],
+          },
+          { key: 'mask', type: { kind: 'concrete', name: 'MASK' }, rows: [] },
+        ],
       },
       { kind: 'output', id: 'out', type: { kind: 'variable', templateId: 'T' } },
       { kind: 'output', id: 'batch', type: { kind: 'list', element: { kind: 'variable', templateId: 'T' } } },
@@ -349,7 +221,7 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
       {
         code: 'boundary.tapAmbiguous',
         tap: 'seed',
-        schema: { ...innerSchemas.KSampler!, items: [...innerSchemas.KSampler!.body, seed] },
+        schema: { ...innerSchemas.KSampler!, body: [...innerSchemas.KSampler!.body, seed] },
       },
       {
         code: 'boundary.tapUnsupported',
@@ -357,17 +229,18 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
         schema: innerSchemas.KSampler!,
       },
       {
-        code: 'boundary.tapUnsupported',
+        // A group is not an input, so a tap naming it finds no static input.
+        code: 'boundary.tapMissing',
         tap: 'seed',
         schema: {
           ...innerSchemas.KSampler!,
-          items: [{
-            ...seed,
-            dynamic: {
-              kind: 'autogrow',
-              template: [seed],
-              naming: { kind: 'prefix', prefix: 'seed' },
-            },
+          body: [{
+            kind: 'group',
+            id: 'seed',
+            value: seed,
+            keys: { kind: 'numbered', prefix: 'seed', start: 0, pad: 0 },
+            grows: 'filled',
+            minMembers: 0,
           }],
         },
       },
@@ -455,15 +328,16 @@ describe('widget promotion vs socket-only', () => {
       const menu = { kind: 'input' as const, id: 'choice', type: { kind: 'concrete' as const, name: 'COMBO' }, optional: false,
         widget: { widgetType: 'COMBO', editableOptions: true as const, options: { options: ['schema'] } } }
       const inner: NodeSchema = { type: 'Menu', displayName: 'Menu', category: 'test', source: 'v3', isOutputNode: false,
-        body: nested ? [{ kind: 'input', id: 'items', type: menu.type, optional: false,
-          dynamic: { kind: 'autogrow', template: [menu], naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } } }] : [menu] }
+        body: nested ? [{ kind: 'group', id: 'items', value: menu, keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+          grows: 'filled', minMembers: 0, maxMembers: 4 }] : [menu] }
       const graph = asDef({ id: 'sub', name: 'sub', nodes: { n0: {
         id: 'n0', type: 'Menu', values: { choice: 'outside' },
-        dynamic: nested ? { items: { members: ['m0', 'm1'], memberState: {
-          m0: { 'items.choice': { options: ['sibling'] } }, m1: { 'items.choice': { options: choices } },
-        } } } : { choice: { options: choices } },
+        dynamic: nested ? {
+          items: { members: ['item0', 'item1'] },
+          'items.item0': { options: ['sibling'] }, 'items.item1': { options: choices },
+        } : { choice: { options: choices } },
       } }, links: {}, nets: {}, nextOrdinal: 1, boundary: { inputs: [{ id: 'menu', promoted: true,
-        binds: { kind: 'port', node: 'n0', port: nested ? 'items.choice' : 'choice', ...(nested ? { members: ['m1'] } : {}) },
+        binds: { kind: 'port', node: 'n0', port: nested ? 'items.item1' : 'choice' },
       }], outputs: [] } })
       const before = JSON.stringify(graph)
       const { schema, diagnostics } = deriveBoundarySchema(graph, (type) => type === inner.type ? inner : undefined)
@@ -482,17 +356,17 @@ describe('type variables cross the boundary', () => {
     id: 'gT',
     name: 'generic',
     nodes: {
-      n0: { id: 'n0', type: 'ImpactSwitch', values: { select: 1 } },
-      n1: { id: 'n1', type: 'ImpactSwitch', values: { select: 1 } },
+      n0: { id: 'n0', type: 'ImpactSwitch', values: { select: 1 }, dynamic: { input: { members: ['input0'] } } },
+      n1: { id: 'n1', type: 'ImpactSwitch', values: { select: 1 }, dynamic: { input: { members: ['input0'] } } },
     },
     links: {},
     nets: {},
     boundary: {
-      // Family members bind via the stamped slot path ('<family>.<slotId>')
-      // plus the member id - the derived port carries the template slot.
+      // Group members bind by flattened id ('<group>.<key>'); the derived
+      // port carries the member's type.
       inputs: [
-        { id: 'a', binds: { kind: 'port', node: 'n0', port: 'input.input', members: ['m0'] } },
-        { id: 'b', binds: { kind: 'port', node: 'n1', port: 'input.input', members: ['m0'] } },
+        { id: 'a', binds: { kind: 'port', node: 'n0', port: 'input.input0' } },
+        { id: 'b', binds: { kind: 'port', node: 'n1', port: 'input.input0' } },
       ],
       outputs: [
         { id: 'outA', binds: { kind: 'port', node: 'n0', port: 'out0' } },
@@ -518,7 +392,7 @@ describe('type variables cross the boundary', () => {
   })
 })
 
-describe('whole-family forwarding derives boundary autogrow families', () => {
+describe('group member forwarding', () => {
   const defWith = (
     nodes: Record<string, unknown>,
     inputs: readonly unknown[],
@@ -535,219 +409,22 @@ describe('whole-family forwarding derives boundary autogrow families', () => {
     })
 
   const inputItem = (schema: NodeSchema, id: string) => inputsOf(schema).find((i) => i.id === id)!
-  const outputItem = (schema: NodeSchema, id: string) => outputsOf(schema).find((o) => o.id === id)!
-
-  it.each([0, 1, 2])('preserves positional requiredness through a forwarded prefix of %s', (prefix) => {
-    const inner = parseDinksterSchema('Positional', { interface: [{
-      role: 'inputFamily', id: 'items', minMembers: 2, maxMembers: 4,
-      memberPrefix: 'item', optionalAfterMinimum: true,
-      template: [{ role: 'input', id: 'value', type: { kind: 'concrete', types: ['IMAGE'] }, required: true }],
-    }] }).schema!
-    const def = defWith({ n0: { id: 'n0', type: 'Positional', values: {}, dynamic: {
-      items: { members: Array.from({ length: prefix }, (_, index) => `item${index}`) },
-    } } }, [{ id: 'pics', binds: { kind: 'family', node: 'n0', port: 'items' } }])
-    const result = deriveBoundarySchema(def, () => inner)
-    expect(result.diagnostics).toEqual([])
-    expect(inputItem(result.schema!, 'pics').dynamic).toMatchObject({ optionalAfterMinimum: true, materialization: 'wire15' })
-    const inputs = elabInputsOf(elaborateInterface(result.schema!, {
-      values: {}, dynamic: { pics: { members: ['item2'] } },
-    })).filter((input) => input.origin.kind !== 'member' || !input.origin.ghost)
-    expect(inputs.map((input) => [input.apiName, input.spec.optional])).toEqual(
-      Array.from({ length: 3 - prefix }, (_, index) => [`pics.item${prefix + index}`, prefix + index >= 2]),
-    )
-  })
-
-  it('forwards a top-level input family with a recursively freshened template', () => {
-    const def = defWith({ n0: { id: 'n0', type: 'ImpactSwitch', values: {} } }, [
-      { id: 'pics', binds: { kind: 'family', node: 'n0', port: 'input' } },
-    ])
-    const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
-    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    const pics = inputItem(schema!, 'pics')
-    // The declaring slot's type variable is namespaced by inner node id, so
-    // the boundary family shares dynamic typing with the inner one.
-    expect(pics.type).toEqual({ kind: 'variable', templateId: 'n0:T' })
-    expect(pics.dynamic).toMatchObject({
-      kind: 'autogrow',
-      naming: { kind: 'prefix', prefix: 'input', max: 10 },
-    })
-    expect(pics.dynamic).not.toHaveProperty('ordinalOffset')
-    const spec = pics.dynamic as Extract<NonNullable<typeof pics.dynamic>, { kind: 'autogrow' }>
-    expect(spec.template).toHaveLength(1)
-    expect(spec.template[0]!.type).toEqual({ kind: 'variable', templateId: 'n0:T' })
-  })
-
-  it('definition prefix members reduce capacity and set the ordinal offset', () => {
-    const def = defWith(
-      { n0: { id: 'n0', type: 'ImpactSwitch', values: {}, dynamic: { input: { members: ['m0', 'm1'] } } } },
-      [{ id: 'pics', binds: { kind: 'family', node: 'n0', port: 'input' } }],
-    )
-    const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
-    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    expect(inputItem(schema!, 'pics').dynamic).toMatchObject({
-      kind: 'autogrow',
-      naming: { kind: 'prefix', prefix: 'input', max: 8 },
-      ordinalOffset: 2,
-    })
-  })
-
-  it('definition prefix satisfies the family minimum for instances', () => {
-    // Stack 'items' has min 1: with no prefix the derived family keeps
-    // min 1; one definition-local member satisfies it, so instances owe 0.
-    const bare = defWith({ n0: { id: 'n0', type: 'Stack', values: {} } }, [
-      { id: 'stack', binds: { kind: 'family', node: 'n0', port: 'items' } },
-    ])
-    const bareSchema = deriveBoundarySchema(bare, resolve).schema!
-    expect(inputItem(bareSchema, 'stack').dynamic).toMatchObject({
-      kind: 'autogrow',
-      naming: { kind: 'prefix', prefix: 'item', min: 1, max: 5 },
-    })
-
-    const seeded = defWith(
-      { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['m0'] } } } },
-      [{ id: 'stack', binds: { kind: 'family', node: 'n0', port: 'items' } }],
-    )
-    const seededSchema = deriveBoundarySchema(seeded, resolve).schema!
-    const seededSpec = inputItem(seededSchema, 'stack').dynamic
-    expect(seededSpec).toMatchObject({ kind: 'autogrow', naming: { kind: 'prefix', prefix: 'item', max: 4 }, ordinalOffset: 1 })
-    expect((seededSpec as Extract<NonNullable<typeof seededSpec>, { kind: 'autogrow' }>).naming).not.toHaveProperty('min')
-  })
-
-  it('names-list forwarding slices the remaining names', () => {
-    const def = defWith(
-      { n0: { id: 'n0', type: 'NamedGrow', values: {}, dynamic: { ins: { members: ['m0'] } } } },
-      [{ id: 'more', binds: { kind: 'family', node: 'n0', port: 'ins' } }],
-    )
-    const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
-    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    expect(inputItem(schema!, 'more').dynamic).toMatchObject({
-      kind: 'autogrow',
-      naming: { kind: 'names', names: ['b', 'c'], min: 1 },
-      ordinalOffset: 1,
-    })
-  })
-
-  it('forwards an output family, carrying isList from the top-level item', () => {
-    const def = defWith(
-      { n0: { id: 'n0', type: 'MultiOut', values: {} } },
-      [{ id: 'src', binds: { kind: 'port', node: 'n0', port: 'src' } }],
-      [{ id: 'outs', binds: { kind: 'family', node: 'n0', port: 'outs' } }],
-    )
-    const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
-    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    const outs = outputItem(schema!, 'outs')
-    expect(outs.isList).toBe(true)
-    expect(outs.type).toEqual({ kind: 'variable', templateId: 'n0:T' })
-    expect(outs.dynamic).toMatchObject({ kind: 'autogrow', naming: { kind: 'prefix', prefix: 'out', max: 6 } })
-    // Both boundary items bind n0, so its 'T' stays shared across them.
-    expect(inputItem(schema!, 'src').type).toEqual({ kind: 'variable', templateId: 'n0:T' })
-  })
-
-  it('projects a count-bound output family with a fixed definition count', () => {
-    const def = defWith(
-      { n0: { id: 'n0', type: 'CountOut', values: { count: 3 } } },
-      [],
-      [{ id: 'pictures', binds: { kind: 'family', node: 'n0', port: 'images' } }],
-    )
-    const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
-    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    const pictures = outputItem(schema!, 'pictures')
-    expect(pictures.dynamic).toMatchObject({
-      kind: 'autogrow',
-      count: {
-        input: 'count',
-        suffix: 'index',
-        boundaryProjection: { fallback: 3, fixed: true },
-      },
-    })
-    expect(outputCountInputsOf(schema!)).toEqual([])
-    expect(elaborateInterface(schema!, { values: {} }).outputMembers).toEqual({ pictures: ['0', '1', '2'] })
-  })
-
-  it('projects a promoted output count as occurrence-local instance state', () => {
-    const def = defWith(
-      { n0: { id: 'n0', type: 'CountOut', values: { count: 3 } } },
-      [{ id: 'amount', binds: { kind: 'port', node: 'n0', port: 'count' }, promoted: true }],
-      [{ id: 'pictures', binds: { kind: 'family', node: 'n0', port: 'images' } }],
-    )
-    const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
-    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    expect(outputItem(schema!, 'pictures').dynamic).toMatchObject({
-      count: {
-        input: 'amount',
-        suffix: 'index',
-        boundaryProjection: { fallback: 3 },
-      },
-    })
-    expect(outputCountInputsOf(schema!)).toEqual(['amount'])
-    expect(elaborateInterface(schema!, { values: { amount: 2 } }).outputMembers).toEqual({ pictures: ['0', '1'] })
-    expect(elaborateInterface(schema!, { values: {} }).outputMembers).toEqual({ pictures: ['0', '1', '2'] })
-    const invalid = elaborateInterface(schema!, { values: { amount: null } })
-    expect(invalid.outputMembers).toBeUndefined()
-    expect(invalid.diagnostics).toContainEqual(expect.objectContaining({ code: 'elab.outputFamily.badCount' }))
-  })
-
-  it('forwards a nested family through an enclosing concrete member path', () => {
-    const def = defWith(
-      { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['m0'] } } } },
-      [{ id: 'subs', binds: { kind: 'family', node: 'n0', port: 'items.sub', members: ['m0'] } }],
-    )
-    const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
-    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    const subs = inputItem(schema!, 'subs')
-    expect(subs.dynamic).toMatchObject({ kind: 'autogrow', naming: { kind: 'prefix', prefix: 'sub', max: 4 } })
-    expect(subs.dynamic).not.toHaveProperty('ordinalOffset')
-    const spec = subs.dynamic as Extract<NonNullable<typeof subs.dynamic>, { kind: 'autogrow' }>
-    expect(spec.template[0]!.type).toEqual({ kind: 'variable', templateId: 'n0:T' })
-  })
-
-  it('nested definition prefix state scopes to the crossed member (hazard N4)', () => {
-    // Member m0 holds one 'sub' member; sibling m1 holds two. Forwarding
-    // m0's family must see prefix 1, never m1's state.
-    const def = defWith(
-      {
-        n0: {
-          id: 'n0',
-          type: 'Stack',
-          values: {},
-          dynamic: {
-            items: {
-              members: ['m0', 'm1'],
-              memberState: {
-                m0: { 'items.sub': { members: ['s0'] } },
-                m1: { 'items.sub': { members: ['x0', 'x1'] } },
-              },
-            },
-          },
-        },
-      },
-      [{ id: 'subs', binds: { kind: 'family', node: 'n0', port: 'items.sub', members: ['m0'] } }],
-    )
-    const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
-    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    expect(inputItem(schema!, 'subs').dynamic).toMatchObject({
-      kind: 'autogrow',
-      naming: { kind: 'prefix', prefix: 'sub', max: 3 },
-      ordinalOffset: 1,
-    })
-  })
 
   it('concrete nested member binding (depth 2) derives a plain port', () => {
     const def = defWith(
-      { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['m0'], memberState: { m0: { 'items.sub': { members: ['s0'] } } } } } } },
-      [{ id: 'w', binds: { kind: 'port', node: 'n0', port: 'items.sub.w', members: ['m0', 's0'] } }],
+      { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['item0'] }, 'items.item0.sub': { members: ['sub0'] } } } },
+      [{ id: 'w', binds: { kind: 'port', node: 'n0', port: 'items.item0.sub.sub0' } }],
     )
     const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
     expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
     const w = inputItem(schema!, 'w')
-    expect(w.type).toEqual({ kind: 'variable', templateId: 'n0:T' })
-    expect(w.dynamic).toBeUndefined()
+    expect(w).toMatchObject({ kind: 'input', type: { kind: 'variable', templateId: 'n0:T' } })
   })
 
   it('widget promotion works on a nested member slot', () => {
     const def = defWith(
-      { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['m0'] } } } },
-      [{ id: 'label', binds: { kind: 'port', node: 'n0', port: 'items.name', members: ['m0'] }, promoted: true }],
+      { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['item0'] } } } },
+      [{ id: 'label', binds: { kind: 'port', node: 'n0', port: 'items.item0.name' }, promoted: true }],
     )
     const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
     expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
@@ -755,24 +432,16 @@ describe('whole-family forwarding derives boundary autogrow families', () => {
     expect(label.widget).toEqual({ widgetType: 'STRING', options: {} })
     expect(label.optional).toBe(true)
   })
-
-  // Chained forwarding: forwarding an ALREADY-DERIVED '#def' schema whose
-  // family carries a sliced names list / ordinalOffset must compose - offset
-  // additive, names re-sliced, bounds re-reduced. Load-bearing for nested
-  // subgraphs (hazard F4).
-
 })
 
 describe('boundary structural identity and presentation', () => {
-  it('promotes the selected materialized combo branch without exposing inactive inputs', () => {
+  it('promotes the selected choice option row without exposing inactive rows', () => {
     const schema: NodeSchema = {
       type: 'Resize', displayName: 'Resize', category: 'test', source: 'v3', isOutputNode: false,
-      body: [{ kind: 'input', id: 'mode', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
-        dynamic: { kind: 'dynamicCombo', materialization: 'wire15', options: [
-          { key: 'width', inputs: [{ kind: 'input', id: 'width', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 512 } }] },
-          { key: 'longer', inputs: [{ kind: 'input', id: 'longer_size', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 512 } }] },
-        ] },
-      }],
+      body: [{ kind: 'choice', id: 'mode', required: true, shared: [], options: [
+        { key: 'width', rows: [{ kind: 'input', id: 'width', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 512 } }] },
+        { key: 'longer', rows: [{ kind: 'input', id: 'longer_size', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 512 } }] },
+      ] }],
     }
     const def = asDef({
       id: 'gResize', name: 'Resize', links: {}, nets: {}, nextOrdinal: 1,
@@ -784,8 +453,12 @@ describe('boundary structural identity and presentation', () => {
     expect(inputsOf(result.schema!)).toEqual([expect.objectContaining({
       id: 'size', type: { kind: 'concrete', name: 'INT' }, widget: expect.objectContaining({ default: 1024 }),
     })])
-    expect(resolveBoundaryRoute(schema, { kind: 'port', node: 'n0' as never, port: 'mode.width' as never }, 'input', {}, def.nodes['n0']!.dynamic))
-      .toMatchObject({ ok: false, code: 'boundary.unknownPort' })
+    const inactive = deriveBoundarySchema(asDef({
+      ...def,
+      boundary: { inputs: [{ id: 'size', binds: { kind: 'port', node: 'n0', port: 'mode.width' }, promoted: true }], outputs: [] },
+    }), () => schema)
+    expect(inactive.schema).toBeUndefined()
+    expect(inactive.diagnostics).toContainEqual(expect.objectContaining({ code: 'boundary.branchInactive' }))
   })
 
   it('resolves same-id input and output ports by the boundary side', () => {
@@ -831,7 +504,7 @@ describe('boundary structural identity and presentation', () => {
     const labels = [
       { id: 'positive_prompt' },
       { id: 'masks_m4' },
-      { id: 'nested.cfgScale' },
+      { id: 'nested_cfg', displayName: 'nested.cfgScale' },
       { id: 'first', displayName: 'IMAGE' },
       { id: 'second', displayName: 'IMAGE' },
       { id: 'third', displayName: 'named_value_m4' },
@@ -891,196 +564,7 @@ describe('boundary structural identity and presentation', () => {
   })
 })
 
-describe('slot-selective forwarding (binds.slots, hazard F10)', () => {
-  const img = { kind: 'concrete', name: 'IMAGE' } as const
-  const mask = { kind: 'concrete', name: 'MASK' } as const
-  const localSchemas: Record<string, NodeSchema> = {
-    // Grouped template: required socket-only 'image', optional 'mask',
-    // required-but-widget-backed 'label'.
-    Pair: {
-      type: 'Pair',
-      displayName: 'Pair',
-      category: 'util',
-      source: 'v3',
-      isOutputNode: false,
-      body: [
-        {
-          kind: 'input',
-          id: 'pairs',
-          type: img,
-          optional: false,
-          dynamic: {
-            kind: 'autogrow',
-            template: [
-              { kind: 'input', id: 'image', type: img, optional: false },
-              { kind: 'input', id: 'mask', type: mask, optional: true },
-              { kind: 'input', id: 'label', type: { kind: 'concrete', name: 'STRING' }, optional: false, widget: { widgetType: 'STRING', options: {} } },
-            ],
-            naming: { kind: 'prefix', prefix: 'pair', max: 6 },
-          },
-        },
-        { kind: 'output', id: 'out0', type: img },
-      ],
-    },
-    // Grouped template whose 'req' slot is a min-1 nested autogrow holding a
-    // required socket-only slot: omitting 'req' starves min-filled members.
-    NestReq: {
-      type: 'NestReq',
-      displayName: 'Nest Req',
-      category: 'util',
-      source: 'v3',
-      isOutputNode: false,
-      body: [
-        {
-          kind: 'input',
-          id: 'groups',
-          type: img,
-          optional: false,
-          dynamic: {
-            kind: 'autogrow',
-            template: [
-              { kind: 'input', id: 'tag', type: { kind: 'concrete', name: 'STRING' }, optional: true, widget: { widgetType: 'STRING', options: {} } },
-              {
-                kind: 'input',
-                id: 'req',
-                type: img,
-                optional: true,
-                dynamic: {
-                  kind: 'autogrow',
-                  template: [{ kind: 'input', id: 'x', type: img, optional: false }],
-                  naming: { kind: 'prefix', prefix: 'r', min: 1, max: 3 },
-                },
-              },
-            ],
-            naming: { kind: 'prefix', prefix: 'g', max: 4 },
-          },
-        },
-      ],
-    },
-    // Grouped template with a THREE-slot min-0 nested autogrow for nested
-    // (dotted) selection: optional 's'/'t' and required socket-only 'r'.
-    NestSel: {
-      type: 'NestSel',
-      displayName: 'Nest Sel',
-      category: 'util',
-      source: 'v3',
-      isOutputNode: false,
-      body: [
-        {
-          kind: 'input',
-          id: 'groups',
-          type: img,
-          optional: false,
-          dynamic: {
-            kind: 'autogrow',
-            template: [
-              { kind: 'input', id: 'tag', type: { kind: 'concrete', name: 'STRING' }, optional: true, widget: { widgetType: 'STRING', options: {} } },
-              {
-                kind: 'input',
-                id: 'sub',
-                type: img,
-                optional: true,
-                dynamic: {
-                  kind: 'autogrow',
-                  template: [
-                    { kind: 'input', id: 's', type: img, optional: true },
-                    { kind: 'input', id: 't', type: mask, optional: true },
-                    { kind: 'input', id: 'r', type: img, optional: false },
-                  ],
-                  naming: { kind: 'prefix', prefix: 'k', max: 3 },
-                },
-              },
-            ],
-            naming: { kind: 'prefix', prefix: 'g', max: 4 },
-          },
-        },
-      ],
-    },
-    // Grouped OUTPUT family: starvation checks are input-side only.
-    OutPair: {
-      type: 'OutPair',
-      displayName: 'Out Pair',
-      category: 'util',
-      source: 'v3',
-      isOutputNode: false,
-      body: [
-        { kind: 'input', id: 'src', type: img, optional: false },
-        {
-          kind: 'output',
-          id: 'outs',
-          type: img,
-          dynamic: {
-            kind: 'autogrow',
-            template: [
-              { kind: 'input', id: 'main', type: img, optional: false },
-              { kind: 'input', id: 'aux', type: mask, optional: true },
-            ],
-            naming: { kind: 'prefix', prefix: 'o', max: 4 },
-          },
-        },
-      ],
-    },
-  }
-  const resolveLocal: SchemaResolver = (t) => localSchemas[t] ?? innerSchemas[t]
-
-  const defWith = (nodes: Record<string, unknown>, inputs: readonly unknown[], outputs: readonly unknown[] = []): GraphDef =>
-    asDef({ id: 'gS', name: 'sel', nodes, links: {}, nets: {}, boundary: { inputs, outputs }, nextOrdinal: 1 })
-  const pairNode = (dynamic?: unknown) => ({ n0: { id: 'n0', type: 'Pair', values: {}, ...(dynamic ? { dynamic } : {}) } })
-  const specOf = (schema: NodeSchema, id: string) => {
-    const item = [...inputsOf(schema), ...outputsOf(schema)].find((i) => i.id === id)!
-    return item.dynamic as Extract<NonNullable<typeof item.dynamic>, { kind: 'autogrow' }>
-  }
-
-  it('filters the derived template in TEMPLATE order, not listing order', () => {
-    const def = defWith(pairNode(), [
-      { id: 'p', binds: { kind: 'family', node: 'n0', port: 'pairs', slots: ['label', 'image'] } },
-    ])
-    const { schema, diagnostics } = deriveBoundarySchema(def, resolveLocal)
-    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    expect(specOf(schema!, 'p').template.map((s) => s.id)).toEqual(['image', 'label'])
-  })
-
-  it('selecting the nested autogrow slot forwards it whole, widget-backed sibling omitted', () => {
-    const def = defWith({ n0: { id: 'n0', type: 'NestReq', values: {} } }, [
-      { id: 'g', binds: { kind: 'family', node: 'n0', port: 'groups', slots: ['req'] } },
-    ])
-    const { schema, diagnostics } = deriveBoundarySchema(def, resolveLocal)
-    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    const template = specOf(schema!, 'g').template
-    expect(template.map((s) => s.id)).toEqual(['req'])
-    expect(template[0]!.dynamic).toMatchObject({ kind: 'autogrow', naming: { kind: 'prefix', prefix: 'r' } })
-  })
-
-  it('output families select symmetrically without starvation checks', () => {
-    const def = defWith(
-      { n0: { id: 'n0', type: 'OutPair', values: {} } },
-      [],
-      [{ id: 'o', binds: { kind: 'family', node: 'n0', port: 'outs', slots: ['aux'] } }],
-    )
-    const { schema, diagnostics } = deriveBoundarySchema(def, resolveLocal)
-    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    expect(specOf(schema!, 'o').template.map((s) => s.id)).toEqual(['aux'])
-  })
-
-  const nestSelNode = { n0: { id: 'n0', type: 'NestSel', values: {} } }
-
-  it('a dotted path narrows a nested autogrow construct, in TEMPLATE order at both levels', () => {
-    const def = defWith(nestSelNode, [
-      { id: 'g', binds: { kind: 'family', node: 'n0', port: 'groups', slots: ['sub.r', 'sub.s', 'tag'] } },
-    ])
-    const { schema, diagnostics } = deriveBoundarySchema(def, resolveLocal)
-    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    const template = specOf(schema!, 'g').template
-    expect(template.map((s) => s.id)).toEqual(['tag', 'sub'])
-    const nested = template[1]!.dynamic as Extract<NonNullable<(typeof template)[1]['dynamic']>, { kind: 'autogrow' }>
-    expect(nested.template.map((s) => s.id)).toEqual(['s', 'r'])
-    // Narrowing filters the nested template ONLY - capacity and naming stay.
-    expect(nested.naming).toMatchObject({ kind: 'prefix', prefix: 'k', max: 3 })
-  })
-
-})
-
-describe('dynamicSlot boundary bindings', () => {
+describe('type choice boundary bindings', () => {
   const specializedDef = (options: { selected?: boolean; connected?: boolean; two?: boolean } = {}): GraphDef => {
     const ids = options.two ? ['a', 'b'] : ['a']
     return asDef({
@@ -1097,7 +581,7 @@ describe('dynamicSlot boundary bindings', () => {
       }])),
       nets: {},
       boundary: {
-        inputs: ids.map((id) => ({ id, binds: { kind: 'port', node: id, port: 'model.[special].strength' } })),
+        inputs: ids.map((id) => ({ id, binds: { kind: 'port', node: id, port: 'model.strength' } })),
         outputs: [],
       },
       nextOrdinal: 3,
@@ -1116,7 +600,7 @@ describe('dynamicSlot boundary bindings', () => {
       },
       nets: {},
       boundary: {
-        inputs: [{ id: 'copy', binds: { kind: 'port', node: 'matched', port: 'source.[image].copy' } }],
+        inputs: [{ id: 'copy', binds: { kind: 'port', node: 'matched', port: 'source.copy' } }],
         outputs: [
           { id: 'out', binds: { kind: 'port', node: 'matched', port: 'out' } },
           { id: 'batch', binds: { kind: 'port', node: 'matched', port: 'batch' } },
@@ -1151,24 +635,11 @@ describe('derivation failures produce diagnostics, never partial schemas', () =>
     nextOrdinal: 1,
   })
 
-  it('forwards a dynamicCombo selector with empty branch templates', () => {
+  it('binds a concrete input beneath the chosen option of a choice', () => {
     const result = deriveBoundarySchema(asDef({
       ...base,
       nodes: { n0: { id: 'n0', type: 'ComboNode', values: {} } },
-      boundary: { inputs: [{ id: 'mode', binds: { kind: 'port', node: 'n0', port: 'mode' } }], outputs: [] },
-    }), resolve)
-    expect(result.diagnostics).toEqual([{ severity: 'warning', origin: 'schema', code: 'boundary.selectorOnly', message: 'gE.mode: selector forwarding does not include branch inputs', refs: [{ graphId: 'gE', portId: 'mode', direction: 'input' }] }])
-    const input = result.schema?.body[0]
-    expect(input?.kind).toBe('input')
-    if (input?.kind !== 'input') return
-    expect(input.dynamic).toEqual({ kind: 'dynamicCombo', options: [{ key: 'a', inputs: [] }], defaultOption: 'a' })
-  })
-
-  it('binds a concrete input beneath the active combo branch', () => {
-    const result = deriveBoundarySchema(asDef({
-      ...base,
-      nodes: { n0: { id: 'n0', type: 'ComboNode', values: {} } },
-      boundary: { inputs: [{ id: 'x', binds: { kind: 'port', node: 'n0', port: 'mode.[a].x' } }], outputs: [] },
+      boundary: { inputs: [{ id: 'x', binds: { kind: 'port', node: 'n0', port: 'mode.x' } }], outputs: [] },
     }), resolve)
     expect(result.diagnostics).toEqual([])
     expect(result.schema?.body[0]).toMatchObject({ kind: 'input', id: 'x', optional: false })
@@ -1188,7 +659,7 @@ describe('derivation failures produce diagnostics, never partial schemas', () =>
             category: 'subgraph',
             source: 'subgraph',
             isOutputNode: true,
-            items: [],
+            body: [],
           }
         : innerSchemas[t]
     const { schema } = deriveBoundarySchema(nested, resolveNested)

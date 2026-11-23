@@ -5,11 +5,8 @@ import { expect, openRailPanel, test, type Page } from './fixtures.js'
 const proofDir = process.env['DINKSTER_OUTPUT_REFUSAL_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
 
-const image = { kind: 'concrete' as const, name: 'IMAGE' }
-const integer = { kind: 'concrete' as const, name: 'INT' }
-
 async function registerSchemas(page: Page): Promise<void> {
-  await page.evaluate(({ image, integer }) => {
+  await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'RefusalFloatSource',
@@ -17,37 +14,10 @@ async function registerSchemas(page: Page): Promise<void> {
         category: 'test',
         source: 'v3',
         isOutputNode: true,
-        items: [{ kind: 'output', id: 'value', type: { kind: 'concrete', name: 'FLOAT' } }],
-      },
-      {
-        type: 'RuntimeAritySplit',
-        displayName: 'Runtime Arity Split',
-        category: 'test',
-        source: 'v3',
-        isOutputNode: true,
-        items: [
-          {
-            kind: 'input',
-            id: 'count',
-            type: integer,
-            optional: false,
-            widget: { widgetType: 'INT', options: { min: 0, max: 4 }, default: 0 },
-          },
-          {
-            kind: 'output',
-            id: 'outs',
-            type: image,
-            dynamic: {
-              kind: 'autogrow',
-              template: [{ kind: 'input', id: 'out', type: image, optional: true }],
-              naming: { kind: 'prefix', prefix: 'out', min: 0, max: 4 },
-              count: { input: 'count', suffix: 'index' },
-            },
-          },
-        ],
+        body: [{ kind: 'output', id: 'value', type: { kind: 'concrete', name: 'FLOAT' } }],
       },
     ])
-  }, { image, integer })
+  })
 }
 
 async function openStructuralWorkflow(page: Page): Promise<void> {
@@ -210,72 +180,6 @@ test('structural producers refuse direct boundary outputs with visible diagnosti
   if (proofDir) {
     await page.screenshot({
       path: join(proofDir, 'structural-output-refusal.png'),
-      animations: 'disabled',
-      fullPage: true,
-    })
-  }
-})
-
-test('execution-time output arity is refused until count is a pre-execution literal', async ({ page }) => {
-  let promptPosts = 0
-  await page.route('/prompt', (route) => {
-    promptPosts += 1
-    return route.fulfill({ json: { prompt_id: 'unexpected' } })
-  })
-  await page.evaluate(async () => {
-    const diagnostics = (await window.__dinksterTest!.app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'runtime-output-arity-refusal', root: 'root',
-      graphs: {
-        root: {
-          id: 'root', name: 'Runtime output arity refusal',
-          nodes: { instance: { id: 'instance', type: '#runtimeArity', values: {} } },
-          links: {}, nets: {}, reroutes: {}, nextOrdinal: 10,
-        },
-        runtimeArity: {
-          id: 'runtimeArity', name: 'Runtime output arity',
-          nodes: { split: { id: 'split', type: 'RuntimeAritySplit', values: {} } },
-          links: {}, nets: {}, reroutes: {},
-          boundary: {
-            inputs: [],
-            outputs: [{ id: 'pictures', binds: { kind: 'family', node: 'split', port: 'outs' } }],
-          },
-          nextOrdinal: 10,
-        },
-      },
-      view: { graphs: {
-        root: { nodes: { instance: { position: { x: 180, y: 120 } } } },
-        runtimeArity: { nodes: { split: { position: { x: 180, y: 120 } } } },
-      } },
-    }, 'Runtime output arity refusal'))
-    if (diagnostics.length > 0) throw new Error(`open failed: ${JSON.stringify(diagnostics)}`)
-    const tab = window.__dinksterTest!.app.activeTab()!
-    tab.graphStack.set(['root', 'runtimeArity'])
-    tab.instancePath.set(['instance'])
-  })
-
-  await openRailPanel(page, 'Boundary')
-  await page.locator('[data-testid=boundary-item][data-problem=true]').first().click()
-  const boundaryDiagnostic = page.locator('[data-testid=boundary-diag][data-code="boundary.countBoundOutputInvalid"]')
-  await expect(boundaryDiagnostic).toBeVisible()
-  await expect(boundaryDiagnostic).toContainText("runtimeArity.pictures: count input 'count' requires an integer in 0..4")
-  if (proofDir) await page.getByTestId('boundary-panel').screenshot({ path: join(proofDir, 'boundary-count-warning.png') })
-
-  await page.evaluate(async () => {
-    const app = window.__dinksterTest!.app
-    await app.queue(app.activeTab()!)
-  })
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.problems.get()
-    .filter((diagnostic) => diagnostic.code === 'elab.outputFamily.badCount')
-    .map((diagnostic) => diagnostic.message))).toEqual([
-    "[runtimeArity/split] RuntimeAritySplit.outs: count input 'count' must store a safe nonnegative integer",
-  ])
-  await expect(page.getByTestId('problems-panel')).toContainText("count input 'count' must store a safe nonnegative integer")
-  expect(promptPosts).toBe(0)
-  await openRailPanel(page, 'Problems')
-
-  if (proofDir) {
-    await page.screenshot({
-      path: join(proofDir, 'runtime-output-arity-refusal.png'),
       animations: 'disabled',
       fullPage: true,
     })

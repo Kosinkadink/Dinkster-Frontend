@@ -1,4 +1,4 @@
-import { expect, test, waitForStartupOwnership } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership } from './fixtures.js'
 
 test('optional and maybe-absent pins keep their hollow identity when connected', async ({ page }, testInfo) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
@@ -6,7 +6,7 @@ test('optional and maybe-absent pins keep their hollow identity when connected',
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'optional-output-proof', schemaWire: 1 },
+    dinkster: { version: 'optional-output-proof', schemaWire: 2 },
     packs: {},
     nodes: {},
   } }))
@@ -23,7 +23,7 @@ test('optional and maybe-absent pins keep their hollow identity when connected',
         category: 'proof',
         source: 'v3',
         isOutputNode: false,
-        items: [
+        body: [
           { kind: 'output', id: 'always', displayName: 'Always produces', type: scalar },
           { kind: 'output', id: 'maybe', displayName: 'May be absent', type: scalar, optional: true },
         ],
@@ -34,21 +34,19 @@ test('optional and maybe-absent pins keep their hollow identity when connected',
         category: 'proof',
         source: 'v3',
         isOutputNode: false,
-        items: [{ kind: 'input', id: 'value', displayName: 'Optional value', type: scalar, optional: true }],
+        body: [{ kind: 'input', id: 'value', displayName: 'Optional value', type: scalar, optional: true }],
       },
       {
-        type: 'AutogrowInputProof',
-        displayName: 'Autogrow input proof',
+        type: 'GroupInputProof',
+        displayName: 'Group input proof',
         category: 'proof',
         source: 'v3',
         isOutputNode: false,
-        items: [{
-          kind: 'input', id: 'values', type: scalar, optional: false,
-          dynamic: {
-            kind: 'autogrow',
-            template: [{ kind: 'input', id: 'value', type: scalar, optional: false }],
-            naming: { kind: 'prefix', prefix: 'value', min: 1, max: 3 },
-          },
+        body: [{
+          kind: 'group', id: 'values',
+          value: { kind: 'input', id: 'value', type: scalar, optional: false },
+          keys: { kind: 'numbered', prefix: 'value', start: 1, pad: 0 },
+          grows: 'link', minMembers: 1, maxMembers: 3,
         }],
       },
     ] as never)
@@ -65,15 +63,15 @@ test('optional and maybe-absent pins keep their hollow identity when connected',
             proof: { id: 'proof', type: 'OptionalOutputProof', values: {} },
             optional: { id: 'optional', type: 'OptionalInputProof', values: {} },
             dynamic: {
-              id: 'dynamic', type: 'AutogrowInputProof', values: {},
-              dynamic: { values: { members: ['m0'], seq: 1 } },
+              id: 'dynamic', type: 'GroupInputProof', values: {},
+              dynamic: { values: { members: ['value1'] } },
             },
           },
           links: {
             l0: { id: 'l0', from: { node: 'proof', port: 'always' }, to: { node: 'optional', port: 'value' } },
             l1: {
               id: 'l1', from: { node: 'proof', port: 'always' },
-              to: { node: 'dynamic', port: 'values.value', members: ['m0'] },
+              to: { node: 'dynamic', port: 'values.value1' },
             },
           },
           nets: {},
@@ -104,7 +102,7 @@ test('optional and maybe-absent pins keep their hollow identity when connected',
     const optional = renderer.getScene().nodes.find((candidate) => candidate.id === 'optional')!
       .layout.pins.find((pin) => pin.portId === 'value')!
     const dynamic = renderer.getScene().nodes.find((candidate) => candidate.id === 'dynamic')!
-    const member = dynamic.layout.pins.find((pin) => !pin.ghost && pin.address.members?.[0] === 'm0')!
+    const member = dynamic.layout.pins.find((pin) => !pin.ghost && pin.portId === 'values.value1')!
     const ghost = dynamic.layout.pins.find((pin) => pin.ghost)!
     const canvas = document.querySelector<HTMLElement>('[data-testid="graph-canvas"]')!.getBoundingClientRect()
     const viewport = renderer.getViewport()

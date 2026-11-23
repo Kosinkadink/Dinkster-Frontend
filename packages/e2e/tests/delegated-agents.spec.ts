@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { expect, test } from '../visual.js'
 
 test('auth-off principals retain permission toggles through the production decoder', async ({ page, request }, testInfo) => {
-  await page.route('**/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'fixture', schemaWire: 1 }, nodes: {} } }))
+  await page.route('**/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'fixture', schemaWire: 2 }, nodes: {} } }))
   await page.route('**/api/sessions?*', (route) => route.fulfill({ json: { sessions: [] } }))
   await page.route('**/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('**/api/principals', (route) => route.fulfill({ json: [

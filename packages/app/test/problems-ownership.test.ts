@@ -4,19 +4,27 @@
  * workflow's diagnostics never bleed into another tab even when both
  * documents use the same graph ids.
  */
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState, GLOBAL_PROBLEMS_OWNER, visibleProblems, type Backend, type Tab } from '../src/app-state.js'
-import { asNodeId, diag, type DinksterNodesPayload } from '@dinkster/core'
+import { asNodeId, diag, DINKSTER_SCHEMA_WIRE_VERSION, type DinksterNodesPayload } from '@dinkster/core'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
-const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-const nodesPayload = JSON.parse(
-  readFileSync(join(coreRoot, 'fixtures/dinkster-nodes.json'), 'utf8'),
-) as DinksterNodesPayload
+const INT = { kind: 'concrete', types: ['INT'] }
+const nodesPayload: DinksterNodesPayload = {
+  schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+  nodes: {
+    'std.math.add_ints': {
+      nodeType: 'std.math.add_ints', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1,
+      displayName: 'Add Ints', category: 'math', description: '', idempotent: true,
+      body: [
+        { kind: 'input', id: 'a', required: true, type: INT },
+        { kind: 'input', id: 'b', required: true, default: 1, type: INT },
+        { kind: 'output', id: 'sum', type: INT },
+      ],
+    },
+  },
+}
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }

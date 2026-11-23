@@ -1,14 +1,15 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "nodeType": "dinkster.image.filter",
   "version": 2,
   "displayName": "Filter Image",
   "category": "image/filter",
   "description": "",
   "idempotent": true,
-  "interface": [
+  "interface": [],
+  "body": [
     {
-      "role": "input",
+      "kind": "input",
       "id": "image",
       "type": {
         "kind": "concrete",
@@ -19,373 +20,266 @@
       "required": true
     },
     {
-      "role": "dynamicCombo",
+      "kind": "choice",
       "id": "operation",
       "options": [
         {
           "key": "gaussian_blur",
-          "inputs": [
+          "rows": [
             {
-              "role": "input",
-              "id": "radius",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "INT"
-                ]
-              },
-              "required": false,
-              "default": 1,
-              "widget": {
-                "type": "NUMBER",
-                "min": 0,
-                "max": 31,
-                "step": 1
-              }
+              "kind": "use",
+              "id": "radius"
             },
             {
-              "role": "input",
-              "id": "sigma",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "FLOAT"
-                ]
-              },
-              "required": false,
-              "default": 1.0,
-              "widget": {
-                "type": "NUMBER",
-                "min": 0.1,
-                "max": 10.0,
-                "step": 0.1
-              }
+              "kind": "use",
+              "id": "sigma"
             }
           ]
         },
         {
           "key": "sharpen",
-          "inputs": [
+          "rows": [
             {
-              "role": "input",
-              "id": "radius",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "INT"
-                ]
-              },
-              "required": false,
-              "default": 1,
-              "widget": {
-                "type": "NUMBER",
-                "min": 0,
-                "max": 31,
-                "step": 1
-              }
+              "kind": "use",
+              "id": "radius"
             },
             {
-              "role": "input",
-              "id": "sigma",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "FLOAT"
-                ]
-              },
-              "required": false,
-              "default": 1.0,
-              "widget": {
-                "type": "NUMBER",
-                "min": 0.1,
-                "max": 10.0,
-                "step": 0.1
-              }
+              "kind": "use",
+              "id": "sigma"
             },
             {
-              "role": "input",
-              "id": "strength",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "FLOAT"
-                ]
-              },
-              "required": false,
-              "default": 1.0,
-              "widget": {
-                "type": "NUMBER",
-                "min": 0.0,
-                "max": 5.0,
-                "step": 0.01
-              }
+              "kind": "use",
+              "id": "strength"
             }
           ]
         },
         {
           "key": "quantize",
-          "inputs": [
+          "rows": [
             {
-              "role": "input",
-              "id": "colors",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "INT"
-                ]
-              },
-              "required": false,
-              "default": 256,
-              "widget": {
-                "type": "NUMBER",
-                "min": 1,
-                "max": 256,
-                "step": 1
-              },
-              "advanced": true
+              "kind": "use",
+              "id": "colors"
             },
             {
-              "role": "input",
-              "id": "dither",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "COMBO"
-                ]
-              },
-              "required": false,
-              "default": "none",
-              "widget": {
-                "type": "COMBO",
-                "options": [
-                  "none",
-                  "floyd-steinberg",
-                  "bayer-2",
-                  "bayer-4",
-                  "bayer-8",
-                  "bayer-16"
-                ]
-              },
-              "advanced": true
+              "kind": "use",
+              "id": "dither"
             }
           ]
         },
         {
           "key": "noise",
-          "inputs": [
+          "rows": [
             {
-              "role": "input",
-              "id": "strength",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "FLOAT"
-                ]
-              },
-              "required": false,
-              "default": 1.0,
-              "widget": {
-                "type": "NUMBER",
-                "min": 0.0,
-                "max": 5.0,
-                "step": 0.01
-              }
+              "kind": "use",
+              "id": "strength"
             },
             {
-              "role": "input",
-              "id": "seed",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "INT"
-                ]
-              },
-              "required": false,
-              "default": 0,
-              "widget": {
-                "type": "NUMBER",
-                "min": 0,
-                "max": 9007199254740991,
-                "step": 1
-              },
-              "advanced": true
+              "kind": "use",
+              "id": "seed"
             }
           ]
         },
         {
           "key": "erode",
-          "inputs": [
+          "rows": [
             {
-              "role": "input",
-              "id": "kernel_size",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "INT"
-                ]
-              },
-              "required": false,
-              "default": 3,
-              "widget": {
-                "type": "NUMBER",
-                "min": 1,
-                "max": 999,
-                "step": 1
-              },
-              "advanced": true
+              "kind": "use",
+              "id": "kernel_size"
             }
           ]
         },
         {
           "key": "dilate",
-          "inputs": [
+          "rows": [
             {
-              "role": "input",
-              "id": "kernel_size",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "INT"
-                ]
-              },
-              "required": false,
-              "default": 3,
-              "widget": {
-                "type": "NUMBER",
-                "min": 1,
-                "max": 999,
-                "step": 1
-              },
-              "advanced": true
+              "kind": "use",
+              "id": "kernel_size"
             }
           ]
         },
         {
           "key": "open",
-          "inputs": [
+          "rows": [
             {
-              "role": "input",
-              "id": "kernel_size",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "INT"
-                ]
-              },
-              "required": false,
-              "default": 3,
-              "widget": {
-                "type": "NUMBER",
-                "min": 1,
-                "max": 999,
-                "step": 1
-              },
-              "advanced": true
+              "kind": "use",
+              "id": "kernel_size"
             }
           ]
         },
         {
           "key": "close",
-          "inputs": [
+          "rows": [
             {
-              "role": "input",
-              "id": "kernel_size",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "INT"
-                ]
-              },
-              "required": false,
-              "default": 3,
-              "widget": {
-                "type": "NUMBER",
-                "min": 1,
-                "max": 999,
-                "step": 1
-              },
-              "advanced": true
+              "kind": "use",
+              "id": "kernel_size"
             }
           ]
         },
         {
           "key": "gradient",
-          "inputs": [
+          "rows": [
             {
-              "role": "input",
-              "id": "kernel_size",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "INT"
-                ]
-              },
-              "required": false,
-              "default": 3,
-              "widget": {
-                "type": "NUMBER",
-                "min": 1,
-                "max": 999,
-                "step": 1
-              },
-              "advanced": true
+              "kind": "use",
+              "id": "kernel_size"
             }
           ]
         },
         {
           "key": "bottom_hat",
-          "inputs": [
+          "rows": [
             {
-              "role": "input",
-              "id": "kernel_size",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "INT"
-                ]
-              },
-              "required": false,
-              "default": 3,
-              "widget": {
-                "type": "NUMBER",
-                "min": 1,
-                "max": 999,
-                "step": 1
-              },
-              "advanced": true
+              "kind": "use",
+              "id": "kernel_size"
             }
           ]
         },
         {
           "key": "top_hat",
-          "inputs": [
+          "rows": [
             {
-              "role": "input",
-              "id": "kernel_size",
-              "type": {
-                "kind": "concrete",
-                "types": [
-                  "INT"
-                ]
-              },
-              "required": false,
-              "default": 3,
-              "widget": {
-                "type": "NUMBER",
-                "min": 1,
-                "max": 999,
-                "step": 1
-              },
-              "advanced": true
+              "kind": "use",
+              "id": "kernel_size"
             }
           ]
         }
       ],
-      "required": true,
+      "shared": [
+        {
+          "kind": "input",
+          "id": "radius",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "INT"
+            ]
+          },
+          "required": false,
+          "default": 1,
+          "widget": {
+            "type": "NUMBER",
+            "min": 0,
+            "max": 31,
+            "step": 1
+          }
+        },
+        {
+          "kind": "input",
+          "id": "sigma",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "FLOAT"
+            ]
+          },
+          "required": false,
+          "default": 1.0,
+          "widget": {
+            "type": "NUMBER",
+            "min": 0.1,
+            "max": 10.0,
+            "step": 0.1
+          }
+        },
+        {
+          "kind": "input",
+          "id": "strength",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "FLOAT"
+            ]
+          },
+          "required": false,
+          "default": 1.0,
+          "widget": {
+            "type": "NUMBER",
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "kind": "input",
+          "id": "colors",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "INT"
+            ]
+          },
+          "required": false,
+          "default": 256,
+          "widget": {
+            "type": "NUMBER",
+            "min": 1,
+            "max": 256,
+            "step": 1
+          }
+        },
+        {
+          "kind": "input",
+          "id": "dither",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "COMBO"
+            ]
+          },
+          "required": false,
+          "default": "none",
+          "widget": {
+            "type": "COMBO",
+            "options": [
+              "none",
+              "floyd-steinberg",
+              "bayer-2",
+              "bayer-4",
+              "bayer-8",
+              "bayer-16"
+            ]
+          }
+        },
+        {
+          "kind": "input",
+          "id": "seed",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "INT"
+            ]
+          },
+          "required": false,
+          "default": 0,
+          "widget": {
+            "type": "NUMBER",
+            "min": 0,
+            "max": 9007199254740991,
+            "step": 1
+          }
+        },
+        {
+          "kind": "input",
+          "id": "kernel_size",
+          "type": {
+            "kind": "concrete",
+            "types": [
+              "INT"
+            ]
+          },
+          "required": false,
+          "default": 3,
+          "widget": {
+            "type": "NUMBER",
+            "min": 1,
+            "max": 999,
+            "step": 1
+          }
+        }
+      ],
       "default": "gaussian_blur"
     },
     {
-      "role": "output",
+      "kind": "output",
       "id": "image",
       "type": {
         "kind": "concrete",
@@ -830,7 +724,7 @@
     "tolerance": {
       "perChannel": 0.00392156862745098
     },
-    "source": "#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\n\nuniform sampler2D u_image;\nuniform int operation;\nuniform int radius;\nuniform float sigma;\nuniform float strength;\n\nout vec4 fragColor;\n\nconst int MAX_RADIUS = 31;\n\nfloat weights[2 * MAX_RADIUS + 1];\n\nvoid loadKernel() {\n    float total = 0.0;\n    for (int offset = -radius; offset <= radius; offset++) {\n        float c = float(offset) / float(radius);\n        float weight = exp(-(c * c) / (2.0 * sigma * sigma));\n        weights[offset + radius] = weight;\n        total += weight;\n    }\n    for (int i = 0; i <= 2 * radius; i++) {\n        weights[i] /= total;\n    }\n}\n\nint reflectIndex(int position, int size) {\n    if (size == 1) {\n        return 0;\n    }\n    int period = 2 * (size - 1);\n    int wrapped = position % period;\n    if (wrapped < 0) {\n        wrapped += period;\n    }\n    return wrapped < size ? wrapped : period - wrapped;\n}\n\nvec4 gaussianBlur(ivec2 center, ivec2 size) {\n    if (radius == 0) {\n        return texelFetch(u_image, center, 0);\n    }\n    loadKernel();\n    vec4 accumulated = vec4(0.0);\n    for (int dy = -radius; dy <= radius; dy++) {\n        int y = reflectIndex(center.y + dy, size.y);\n        vec4 row = vec4(0.0);\n        for (int dx = -radius; dx <= radius; dx++) {\n            int x = reflectIndex(center.x + dx, size.x);\n            row += weights[dx + radius] * texelFetch(u_image, ivec2(x, y), 0);\n        }\n        accumulated += weights[dy + radius] * row;\n    }\n    return accumulated;\n}\n\nvoid main() {\n    ivec2 center = ivec2(gl_FragCoord.xy);\n    ivec2 size = textureSize(u_image, 0);\n    if (operation == 0) {\n        fragColor = gaussianBlur(center, size);\n    } else {\n        vec4 x = texelFetch(u_image, center, 0);\n        fragColor = clamp(x + 10.0 * strength * (x - gaussianBlur(center, size)), 0.0, 1.0);\n    }\n}\n",
+    "source": "#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\n\nuniform sampler2D u_image;\nuniform int operation;\nuniform int radius;\nuniform float sigma;\nuniform float strength;\n\nout vec4 fragColor;\n\nconst int MAX_RADIUS = 31;\n\nfloat weights[2 * MAX_RADIUS + 1];\n\nvoid loadKernel() {\n    float total = 0.0;\n    for (int offset = -radius; offset <= radius; offset++) {\n        float c = float(offset) / float(radius);\n        float weight = exp(-(c * c) / (2.0 * sigma * sigma));\n        weights[offset + radius] = weight;\n        total += weight;\n    }\n    for (int i = 0; i <= 2 * radius; i++) {\n        weights[i] /= total;\n    }\n}\n\nint reflectIndex(int position, int size) {\n    if (size == 1) {\n        return 0;\n    }\n    int period = 2 * (size - 1);\n    int wrapped = abs(position) % period;\n    return wrapped < size ? wrapped : period - wrapped;\n}\n\nvec4 gaussianBlur(ivec2 center, ivec2 size) {\n    if (radius == 0) {\n        return texelFetch(u_image, center, 0);\n    }\n    loadKernel();\n    vec4 accumulated = vec4(0.0);\n    for (int dy = -radius; dy <= radius; dy++) {\n        int y = reflectIndex(center.y + dy, size.y);\n        vec4 row = vec4(0.0);\n        for (int dx = -radius; dx <= radius; dx++) {\n            int x = reflectIndex(center.x + dx, size.x);\n            row += weights[dx + radius] * texelFetch(u_image, ivec2(x, y), 0);\n        }\n        accumulated += weights[dy + radius] * row;\n    }\n    return accumulated;\n}\n\nvoid main() {\n    ivec2 center = ivec2(gl_FragCoord.xy);\n    ivec2 size = textureSize(u_image, 0);\n    if (operation == 0) {\n        fragColor = gaussianBlur(center, size);\n    } else {\n        vec4 x = texelFetch(u_image, center, 0);\n        fragColor = clamp(x + 10.0 * strength * (x - gaussianBlur(center, size)), 0.0, 1.0);\n    }\n}\n",
     "applies": {
       "operation": [
         "gaussian_blur",

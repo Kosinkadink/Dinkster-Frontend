@@ -1,4 +1,4 @@
-import { asDynamicMemberId, asNodeId, asPortId, type PortRef } from '../ids.js'
+import { asNodeId, asPortId, type PortRef } from '../ids.js'
 import type { Json, JsonObject, WorkflowDocument } from './document.js'
 
 export const NET_VIEWS_EXT_KEY = 'dinkster.netViews'
@@ -6,10 +6,10 @@ export const NET_VIEWS_EXT_KEY = 'dinkster.netViews'
 /**
  * Authored tag geometry. `offset` is relative to the owning node's stored
  * view position (its top-left), so the tag rides along when the node moves.
- * `absolute` is the retired world-coordinate form: it renders where it was
- * saved but never follows the node. Documents are canonicalized to offsets
- * on load whenever the owning node has a stored position; absolute survives
- * only when the owner cannot be resolved.
+ * `absolute` stores world coordinates when the owner has no stored position:
+ * it renders where it was saved but never follows the node. Documents are
+ * canonicalized to offsets on load whenever the owning node has a stored
+ * position; otherwise absolute geometry survives.
  */
 export type NetViewGeometry =
   | { readonly kind: 'offset'; readonly x: number; readonly y: number }
@@ -36,14 +36,7 @@ const isObj = (value: Json | undefined): value is JsonObject =>
 const parsePortRef = (value: Json | undefined): PortRef | undefined => {
   if (!isObj(value) || typeof value.node !== 'string' || value.node.length === 0 ||
       typeof value.port !== 'string' || value.port.length === 0) return undefined
-  const members = value.members
-  if (members !== undefined && (!Array.isArray(members) || members.length === 0 ||
-      !members.every((member): member is string => typeof member === 'string' && member.length > 0))) return undefined
-  return {
-    node: asNodeId(value.node),
-    port: asPortId(value.port),
-    ...(members === undefined ? {} : { members: members.map(asDynamicMemberId) }),
-  }
+  return { node: asNodeId(value.node), port: asPortId(value.port) }
 }
 
 const parseVec = (value: Json | undefined): { x: number; y: number } | undefined =>
@@ -74,7 +67,7 @@ export const parseNetViewPosition = (value: Json): NetViewPosition | undefined =
 export const netViewKey = (view: NetViewPosition): string =>
   view.role === 'source'
     ? JSON.stringify([view.graphId, view.netId, 'source'])
-    : JSON.stringify([view.graphId, view.netId, 'sink', view.to.node, view.to.port, view.to.members ?? []])
+    : JSON.stringify([view.graphId, view.netId, 'sink', view.to.node, view.to.port])
 
 export function netViewPositions(doc: WorkflowDocument, graphId?: string): readonly NetViewPosition[] {
   const raw = doc.ext?.[NET_VIEWS_EXT_KEY]
@@ -97,11 +90,7 @@ export const netViewToJson = (view: NetViewPosition): Json => ({
   netId: view.netId,
   role: view.role,
   ...(view.role === 'sink' ? {
-    to: {
-      node: view.to.node,
-      port: view.to.port,
-      ...(view.to.members === undefined ? {} : { members: [...view.to.members] }),
-    },
+    to: { node: view.to.node, port: view.to.port },
   } : {}),
   ...(view.geometry.kind === 'offset'
     ? { offset: { x: view.geometry.x, y: view.geometry.y } }

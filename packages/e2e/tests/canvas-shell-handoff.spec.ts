@@ -1,5 +1,5 @@
 import type { TestInfo } from '@playwright/test'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 interface PointerProbeEntry {
   readonly type: string
@@ -78,7 +78,7 @@ async function installPointerProbe(page: Page): Promise<void> {
 
 async function openBlankCanvas(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'canvas-handoff', schemaWire: 1 }, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'canvas-handoff', schemaWire: 2 }, nodes: {},
   } }))
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText('0 node schemas', { timeout: 15_000 })

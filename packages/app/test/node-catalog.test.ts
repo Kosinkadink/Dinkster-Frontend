@@ -7,13 +7,13 @@ const pack = 'image-tools'
 const path = 'packs/image-tools/1.10.0/schemas.json'
 const schemaBody = (changes: Record<string, unknown> = {}) => JSON.stringify({
   packName: pack, version: '1.10.0', schemas: [{
-    nodeType: 'image.resize', schemaVersion: 3, schemaWireVersion: 1, schemaSignature: 'resize-signature', role: 'compute',
+    nodeType: 'image.resize', schemaVersion: 3, schemaWireVersion: 2, schemaSignature: 'resize-signature', role: 'compute',
     schema: {
-      schemaVersion: 1, version: 3, displayName: 'Resize Image', category: 'image/transform', searchTerms: ['resample'],
-      interface: [
-        { role: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] }, required: true },
-        { role: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 768, widget: { type: 'INT', min: 1, max: 4096 } },
-        { role: 'output', id: 'result', type: { kind: 'concrete', types: ['IMAGE'] } },
+      schemaVersion: 2, version: 3, displayName: 'Resize Image', category: 'image/transform', searchTerms: ['resample'],
+      body: [
+        { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] }, required: true },
+        { kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 768, widget: { type: 'INT', min: 1, max: 4096 } },
+        { kind: 'output', id: 'result', type: { kind: 'concrete', types: ['IMAGE'] } },
       ],
     },
   }], ...changes,
@@ -69,7 +69,7 @@ describe('static first-party node catalog', () => {
   })
 
   it('rejects mismatched or malformed schema bodies even when a matching digest is advertised', async () => {
-    for (const body of [schemaBody({ packName: 'other-pack' }), schemaBody({ version: '2.0.0' }), schemaBody({ schemas: [{ nodeType: 'bad', schemaWireVersion: 99 }] }), schemaBody({ schemas: [{ nodeType: 'bad', schemaVersion: 1, schemaWireVersion: 1, schemaSignature: 'x', schema: { interface: 'invalid' } }] })]) {
+    for (const body of [schemaBody({ packName: 'other-pack' }), schemaBody({ version: '2.0.0' }), schemaBody({ schemas: [{ nodeType: 'bad', schemaWireVersion: 99 }] }), schemaBody({ schemas: [{ nodeType: 'bad', schemaVersion: 1, schemaWireVersion: 2, schemaSignature: 'x', schema: { body: 'invalid' } }] })]) {
       const catalog = new RemoteNodeCatalog(prefix, storage(), serve(prefix, indexBody(body), body))
       expect(await catalog.refresh()).toEqual([])
       expect(catalog.cached()).toEqual([])

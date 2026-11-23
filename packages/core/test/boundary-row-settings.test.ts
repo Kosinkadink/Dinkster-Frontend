@@ -39,7 +39,8 @@ const item = (id: string, port: string, extra: Partial<BoundaryItem> = {}): Boun
   ({ id, binds: { kind: 'port', node: 'blend', port }, ...extra } as BoundaryItem)
 
 function soften(inputs: BoundaryItem[], instanceValues: Record<string, Json> = {}): WorkflowDocument {
-  const def = (id: string, partial: Partial<GraphDef>) => ({ id, name: id, nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 100, ...partial })
+  const def = (id: string, partial: Record<string, unknown>) =>
+    ({ id, name: id, nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 100, ...partial }) as unknown as GraphDef
   return {
     format: 'dinkster-workflow',
     formatVersion: 1,

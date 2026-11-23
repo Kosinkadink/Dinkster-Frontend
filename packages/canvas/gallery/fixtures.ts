@@ -459,15 +459,13 @@ export function createCanvasGalleryFixture(
           id,
           page === 'widget-offered'
             ? items.map((item) => ({
-                kind: 'input',
+                kind: 'group',
                 id: `${item.id}_family`,
-                type: item.type,
-                optional: true,
-                dynamic: {
-                  kind: 'autogrow',
-                  naming: { kind: 'prefix', prefix: item.id, min: 0, max: 8 },
-                  template: [item],
-                },
+                value: item,
+                keys: { kind: 'numbered', prefix: item.id, start: 1, pad: 0 },
+                grows: 'link',
+                minMembers: 0,
+                maxMembers: 8,
               }))
             : items,
         ),

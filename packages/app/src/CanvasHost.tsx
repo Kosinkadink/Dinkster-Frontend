@@ -55,6 +55,7 @@ import {
   type OccurrenceMutationPlanner,
   type BoundaryExposureSource,
 } from '@dinkster/canvas'
+import { canvasMeasures } from './canvas-measures.js'
 import { VideoPreview } from './VideoPreview.js'
 import type { VideoPreferences } from './video-preview.js'
 import { AudioTransport } from './AudioTransport.js'
@@ -66,9 +67,6 @@ import {
   initialDynamicStateOf,
   documentResolver,
   elabOutputsOf,
-  outputDescriptorAssetOf,
-  outputDescriptorValueOf,
-  parseOutputDescriptors,
   effectiveOccurrenceTopology,
   effectiveWidgetDefault,
   documentValueSourceResolver,
@@ -120,10 +118,9 @@ import {
   type WidgetSpec,
   type WidgetView,
   type WorkflowDocument,
-  type OutputDescriptorsSpec,
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, TriangleAlert, X, ZoomIn, ZoomOut } from 'lucide-solid'
-import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type RegionKind, type Tab, type WorkerCatalogState } from './app-state.js'
+import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab, type WorkerCatalogState } from './app-state.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
 import { liveExactnessFor } from './companion-display.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
@@ -152,7 +149,7 @@ import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
 import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type WidgetEditorState } from './WidgetEditor.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND, type EditorHostContext } from './editors.js'
+import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
 import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
 import type { LatentMetadata } from './latent-metadata.js'
@@ -336,9 +333,8 @@ const clipboardScopes = new Map<string, {
   readonly sources: ReadonlyMap<string, GraphDef['nodes'][string]>
   readonly endpointTypes: ReadonlyMap<string, string>
 }>()
-const clipboardEndpointKey = (
-  kind: 'input' | 'output' | 'tap', node: string, port: string, members: readonly string[] | undefined,
-): string => JSON.stringify([kind, node, port, members ?? []])
+const clipboardEndpointKey = (kind: 'input' | 'output' | 'tap', node: string, port: string): string =>
+  JSON.stringify([kind, node, port])
 
 export const clipboardSceneEndpointTypes = (source: Scene): ReadonlyMap<string, string> => {
   const result = new Map<string, string>()
@@ -350,11 +346,11 @@ export const clipboardSceneEndpointTypes = (source: Scene): ReadonlyMap<string, 
     // flip the type representation and falsely reject a stub.
     for (const pin of node.layout.pins) {
       if (pin.widgetTap === true) {
-        if (node.missingSchema !== true && pin.staticWidgetTap === true && pin.familyOwner === undefined && (pin.address.members?.length ?? 0) === 0)
-          result.set(clipboardEndpointKey('tap', node.id, pin.address.port, undefined), JSON.stringify(pin.type))
+        if (node.missingSchema !== true && pin.staticWidgetTap === true)
+          result.set(clipboardEndpointKey('tap', node.id, pin.address.port), JSON.stringify(pin.type))
         continue
       }
-      result.set(clipboardEndpointKey(pin.direction === 'in' ? 'input' : 'output', node.id, pin.address.port, pin.address.members), JSON.stringify(pin.type))
+      result.set(clipboardEndpointKey(pin.direction === 'in' ? 'input' : 'output', node.id, pin.address.port), JSON.stringify(pin.type))
     }
   }
   return result
@@ -429,28 +425,6 @@ export function unresolvedAssetImportDiagnostic(args: {
   )
 }
 
-export function textEditorInputInventory(
-  elaborated: ElaboratedInterface | undefined,
-  inputFamilies: readonly string[],
-): {
-  readonly inputFamilyMembers: Readonly<Record<string, readonly string[]>>
-} {
-  const apiNames = elaborated === undefined
-    ? []
-    : elabInputsOf(elaborated).flatMap((input) => input.apiName === undefined ? [] : [input.apiName])
-  return {
-    inputFamilyMembers: Object.fromEntries(inputFamilies.map((family) => {
-      const prefix = `${family}.`
-      const members = apiNames.flatMap((apiName) => {
-        if (!apiName.startsWith(prefix)) return []
-        const member = apiName.slice(prefix.length).split('.')[0]
-        return member === undefined || member === '' ? [] : [member]
-      })
-      return [family, [...new Set(members)]]
-    })),
-  }
-}
-
 /** Keep native selection/drag behavior from stealing canvas pointer gestures. */
 export function installCanvasGestureGuards(canvas: HTMLCanvasElement): () => void {
   const onPointerDown = (): void => {
@@ -491,10 +465,10 @@ export function linkSpliceInvocations(
   if (!input || !output) return []
   const materialize = (target: NonNullable<typeof input>): CommandInvocation[] => target.materialize ? [{
     command: 'dynamic.materialize',
-    params: { graphId, nodeId, frames: target.materialize.map((frame) => ({ construct: frame.construct, members: [...frame.members] })) },
+    params: { graphId, nodeId, frames: target.materialize.map((frame) => ({ ...frame, members: [...frame.members] })) },
   }] : []
-  const inputEnd = { node: nodeId, port: input.port, ...(input.members ? { members: [...input.members] } : {}) }
-  const outputEnd = { node: nodeId, port: output.port, ...(output.members ? { members: [...output.members] } : {}) }
+  const inputEnd = { node: nodeId, port: input.port }
+  const outputEnd = { node: nodeId, port: output.port }
   return [
     { command: 'link.disconnect', params: { graphId, linkId: splice.linkId } },
     ...materialize(input),
@@ -516,7 +490,7 @@ export function rerouteDropInvocations(
   if (!from || !to) return []
   return [
     { command: 'reroute.add', params: { graphId, position } },
-    ...(drop.fixedMaterialize ? [{ command: 'dynamic.materialize', params: { graphId, nodeId: drop.fixedMaterialize.nodeId, frames: drop.fixedMaterialize.frames.map((frame) => ({ construct: frame.construct, members: [...frame.members] })) } } as CommandInvocation] : []),
+    ...(drop.fixedMaterialize ? [{ command: 'dynamic.materialize', params: { graphId, nodeId: drop.fixedMaterialize.nodeId, frames: drop.fixedMaterialize.frames.map((frame) => ({ ...frame, members: [...frame.members] })) } } as CommandInvocation] : []),
     { command: 'link.connect', params: { graphId, from, to } },
   ]
 }
@@ -537,18 +511,17 @@ export function linkDropInvocations(
   const newEnd = {
     node: nodeId,
     port: target.port,
-    ...(target.members !== undefined ? { members: [...target.members] } : {}),
   }
   const from = drop.seeking === 'in' ? drop.fixedFrom : newEnd
   const to = drop.seeking === 'in' ? newEnd : drop.fixedInto
   if (from === undefined || to === undefined) return []
   const out: CommandInvocation[] = []
-  const materializeOf = (owner: string, frames: readonly { construct: string; members: readonly string[] }[]): CommandInvocation => ({
+  const materializeOf = (owner: string, frames: readonly { construct: string; members: readonly string[]; seq?: number }[]): CommandInvocation => ({
     command: 'dynamic.materialize',
     params: {
       graphId,
       nodeId: owner,
-      frames: frames.map((f) => ({ construct: f.construct, members: [...f.members] })),
+      frames: frames.map((f) => ({ ...f, members: [...f.members] })),
     },
   })
   if (drop.fixedMaterialize !== undefined) {
@@ -906,7 +879,7 @@ export function selectionDeleteInvocation(args: {
   const selectedNetViews = [...(args.selectedNetViews ?? [])]
   const deletedNodes = new Set(nodeIds)
   const linkIds: string[] = []
-  const netSinks: { node: string; port: string; members?: string[] }[] = []
+  const netSinks: { node: string; port: string }[] = []
   const boundaryOps: { command: string; params: JsonObject }[] = []
   const freedNodes = new Set<string>()
   for (const id of selectedLinks) {
@@ -922,7 +895,6 @@ export function selectionDeleteInvocation(args: {
         params: {
           graphId, side: link.from.side, itemId: link.from.item,
           node: link.to.node, port: link.to.port,
-          ...(link.to.members !== undefined ? { members: [...link.to.members] } : {}),
         },
       })
       freedNodes.add(link.to.node)
@@ -933,7 +905,6 @@ export function selectionDeleteInvocation(args: {
         params: {
           graphId, side: link.to.side, itemId: link.to.item,
           node: link.from.node, port: link.from.port,
-          ...(link.from.members !== undefined ? { members: [...link.from.members] } : {}),
         },
       })
     } else if (link.to.kind === 'boundary' && link.from.kind === 'widgetTap') {
@@ -948,7 +919,6 @@ export function selectionDeleteInvocation(args: {
     } else if (link.netId !== undefined && link.to.kind === 'port') {
       netSinks.push({
         node: link.to.node, port: link.to.port,
-        ...(link.to.members !== undefined ? { members: [...link.to.members] } : {}),
       })
       freedNodes.add(link.to.node)
     } else {
@@ -984,8 +954,7 @@ export function selectionDeleteInvocation(args: {
   }
   const graphDeletesSink = (stub: SceneNetStub): boolean =>
     deletedNodes.has(stub.nodeId) || netSinks.some((sink) =>
-      sink.node === stub.nodeId && sink.port === stub.portId &&
-      JSON.stringify(sink.members ?? []) === JSON.stringify(stub.members ?? []),
+      sink.node === stub.nodeId && sink.port === stub.portId,
     )
   const invocations: { command: string; params: JsonObject }[] = [
     ...(hasDeleteItems ? [{
@@ -1005,11 +974,7 @@ export function selectionDeleteInvocation(args: {
             command: 'net.disconnectInput',
             params: {
               graphId,
-              to: {
-                node: stub.nodeId,
-                port: stub.portId,
-                ...(stub.members === undefined ? {} : { members: [...stub.members] }),
-              },
+              to: { node: stub.nodeId, port: stub.portId },
             } as JsonObject,
           }]
         : [],
@@ -1352,22 +1317,6 @@ export function visibleOutputPagerRect(
   const bottom = Math.min(rect.y + rect.height, canvas.top + canvas.height)
   if (right - left < 150 || bottom - top < 72) return undefined
   return { x: left, y: top, width: right - left, height: bottom - top }
-}
-
-export async function commitRegionCreation(
-  app: AppState,
-  tab: Tab,
-  graphId: string,
-  position: { x: number; y: number },
-  kind: RegionKind,
-  selectOccurrence: (nodeId: string) => void,
-): Promise<CommandOutcome> {
-  if (tab.execution) return { ok: false, diagnostics: [] }
-  const occurrenceNodeId = tab.store.predictedNodeId(graphId)
-  if (occurrenceNodeId === undefined) return { ok: false, diagnostics: [] }
-  const outcome = await app.createRegion(tab, graphId, position, kind)
-  if (outcome.ok) selectOccurrence(occurrenceNodeId)
-  return outcome
 }
 
 /**
@@ -2044,8 +1993,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly x: number
     readonly y: number
     readonly mode: 'create' | 'rename'
-    /** create: the output being promoted (structural: port + member path). */
-    readonly source?: { readonly node: string; readonly port: string; readonly members?: readonly string[] }
+    /** create: the output being promoted. */
+    readonly source?: { readonly node: string; readonly port: string }
     /** rename: the net being renamed. */
     readonly netId?: string
     readonly initial: string
@@ -2068,7 +2017,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           source: {
             node: p.source.node,
             port: p.source.port,
-            ...(p.source.members !== undefined ? { members: [...p.source.members] } : {}),
           },
         },
       })
@@ -2366,16 +2314,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         kind: 'utility',
         fields: [{ text: 'Reroute', weight: 3 }, { text: 'utility junction dot', weight: 1 }],
       },
-      ...(['map', 'fold', 'while'] as const).map((kind): PaletteEntry => ({
-        type: `__dinkster.region.${kind}`,
-        name: `${kind[0]!.toUpperCase()}${kind.slice(1)} region`,
-        category: 'Regions',
-        kind: 'utility',
-        fields: [
-          { text: `${kind} region`, weight: 3 },
-          { text: 'loop repetition subgraph', weight: 1 },
-        ],
-      })),
     ]
     for (const kind of props.app.virtualNodeKinds.values()) {
       entries.push({
@@ -2652,8 +2590,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const e = end as JsonObject
       if (typeof e['node'] !== 'string' || typeof e['port'] !== 'string') return undefined
       return renderer.getScene().nodes.find((node) => node.id === e['node'])?.layout.pins.find((pin) =>
-        pin.direction === direction && pin.address.port === e['port'] &&
-        JSON.stringify(pin.address.members ?? []) === JSON.stringify(e['members'] ?? []),
+        pin.direction === direction && pin.address.port === e['port'],
       )
     }
     const specializeFreshConnect = (invocation: CommandInvocation): CommandInvocation => {
@@ -2675,11 +2612,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const specialization = {
         command: 'dynamic.specializeSlot',
         params: {
-          graphId: slot.owner?.graphId ?? connectParams['graphId'],
-          nodeId: slot.owner?.nodeId ?? to['node'],
-          construct: slot.owner?.construct ?? slot.construct,
+          graphId: connectParams['graphId'],
+          nodeId: to['node'],
+          construct: slot.construct,
           variant,
-          ...((slot.owner?.ancestors ?? slot.ancestors).length > 0 ? { ancestors: slot.owner?.ancestors ?? slot.ancestors } : {}),
         },
       }
       // Rewires intentionally never enter this seam: removing their old edge
@@ -2786,15 +2722,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const outcome = await props.app.dispatchTo(tab, invocation)
         if (!outcome.ok && target.isCurrent()) showGestureRefusal(outcome.diagnostics)
         return outcome
-      } finally {
-        target.dispose()
-      }
-    }
-    const createRegionAt = async (tab: Tab, graphId: string, position: { x: number; y: number }, kind: RegionKind): Promise<boolean> => {
-      const target = captureLifecycleTarget(tab, graphId)
-      try {
-        const outcome = await commitRegionCreation(props.app, tab, graphId, position, kind, (occurrenceNodeId) => target.selectNodes([occurrenceNodeId]))
-        return outcome.ok
       } finally {
         target.dispose()
       }
@@ -2982,10 +2909,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const scopes = menuNodeIds.length > 0
         ? props.app.previewSelectionExecutionScopes(tab, menuNodeIds)
         : undefined
-      const hasExplicitImageEntry = additionalGroups.some((group) => group.items.some((item) => item.id === 'core.image.edit'))
-      const selectionImageTarget = hasExplicitImageEntry
-        ? undefined
-        : props.app.imageTargetForSelection(tab, currentGraphId(tab), ctx.selection.nodes)
       const resolvedGroups = [
         ...resolveNodeMenuGroups(
           props.app.menuRegistry,
@@ -3015,17 +2938,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ],
         }),
         ...(placementGroup === undefined ? [] : [placementGroup]),
-        ...(selectionImageTarget ? [{
-          group: '46-image-editor',
-          items: [{
-            id: 'core.image.edit',
-            label: 'Edit image',
-            action: { kind: 'host' as const, action: 'openImageEditor', params: {
-              nodeId: selectionImageTarget.nodeId,
-              inputId: selectionImageTarget.inputId,
-            } },
-          }],
-        }] : []),
         ...additionalGroups,
       ]
       const submenu = submenuId === undefined
@@ -3321,7 +3233,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             const ref = {
               node: asNodeId(target.hit.node.id),
               port: asPortId(target.hit.pin.address.port),
-              ...(target.hit.pin.address.members !== undefined ? { members: target.hit.pin.address.members } : {}),
             }
             const diagnostics = scene.diagnostics.filter((diagnostic) => {
               if (!diagnostic.anchor?.port || !samePortRef(diagnostic.anchor.port, ref)) return false
@@ -3442,11 +3353,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const specialize = (variant: string | null): CommandInvocation => ({
             command: 'dynamic.specializeSlot',
             params: {
-              graphId: slot.owner?.graphId ?? currentGraphId(tab),
-              nodeId: slot.owner?.nodeId ?? hit.node.id,
-              construct: slot.owner?.construct ?? slot.construct,
+              graphId: currentGraphId(tab),
+              nodeId: hit.node.id,
+              construct: slot.construct,
               variant,
-              ...((slot.owner?.ancestors ?? slot.ancestors).length > 0 ? { ancestors: slot.owner?.ancestors ?? slot.ancestors } : {}),
             },
           })
           additionalGroups.push({
@@ -3476,15 +3386,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             disabled: tab.execution !== undefined || hit.row.ghost === true || hit.row.materialize !== undefined,
           })
           if (representationGroup !== undefined) additionalGroups.push(representationGroup)
-          const imageTarget = props.app.imageTargetForInput(tab, address.graphId, address.nodeId, address.inputId)
-          if (imageTarget) additionalGroups.push({
-            group: '46-image-editor',
-            items: [{
-              id: 'core.image.edit',
-              label: 'Edit image',
-              action: { kind: 'host', action: 'openImageEditor', params: { graphId: address.graphId, nodeId: address.nodeId, inputId: address.inputId } },
-            }],
-          })
         }
         openCanvasMenu(menuTargetOf(hit), worldX, worldY, additionalGroups)
       },
@@ -3824,12 +3725,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           y: Math.round(m.worldY),
         })
       },
-      createRegion: (params, m) => {
-        if (frozen() || !params || typeof params !== 'object' || Array.isArray(params)) return
-        const kind = (params as JsonObject)['kind']
-        if (kind !== 'map' && kind !== 'fold' && kind !== 'while') return
-        createRegionAt(m.tab, m.graphId, { x: Math.round(m.worldX), y: Math.round(m.worldY) }, kind)
-      },
       extractSubgraph: () => { beginExtractSubgraph() },
       flattenSubgraph: () => { flattenSelectedSubgraph() },
       runOnMachine: (params, m) => {
@@ -3859,17 +3754,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (!source || typeof source !== 'object' || Array.isArray(source)) return
         const node = (source as JsonObject)['node']
         const port = (source as JsonObject)['port']
-        const members = (source as JsonObject)['members']
         if (typeof node !== 'string' || typeof port !== 'string') return
-        const memberPath =
-          Array.isArray(members) && members.every((x): x is string => typeof x === 'string')
-            ? members
-            : undefined
         setNetPrompt({
           x: m.x,
           y: m.y,
           mode: 'create',
-          source: { node, port, ...(memberPath !== undefined ? { members: memberPath } : {}) },
+          source: { node, port },
           initial: '',
         })
       },
@@ -3956,15 +3846,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const sel = tab.store.doc.graphs[currentGraphId(tab)]?.selectors?.[selectorId]
         if (!sel) return
         setSelectorPrompt({ x: m.x, y: m.y, selectorId, initial: sel.title ?? 'Select' })
-      },
-      openImageEditor: (params, m) => {
-        if (!params || typeof params !== 'object' || Array.isArray(params)) return
-        const nodeId = (params as JsonObject)['nodeId']
-        const inputId = (params as JsonObject)['inputId']
-        const graphId = (params as JsonObject)['graphId']
-        if (typeof nodeId !== 'string' || typeof inputId !== 'string') return
-        const target = props.app.imageTargetForInput(m.tab, typeof graphId === 'string' ? graphId : m.graphId, nodeId, inputId)
-        if (target) props.app.openImageEditor(target)
       },
       copySelection: () => { void copySelection() },
       pasteSelection: (_params, m) => { void pasteFromClipboard({ x: m.worldX, y: m.worldY }) },
@@ -4139,16 +4020,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const type = entry.type
       setRecentNodeTypes((items) => [type, ...items.filter((item) => item !== type)].slice(0, 10))
       closePalette()
-      if (type.startsWith('__dinkster.region.')) {
-        const kind = type.slice('__dinkster.region.'.length)
-        const tab = activeTab()
-        if (tab && !frozen() && (kind === 'map' || kind === 'fold' || kind === 'while')) {
-          createRegionAt(tab, currentGraphId(tab), {
-            x: Math.round(p.worldX), y: Math.round(p.worldY),
-          }, kind)
-        }
-        return
-      }
       // Dropped noodles and link splices own an exact release point and must
       // remain one immediate atomic insertion. Ordinary picks instead enter
       // the same pointer-attached lifecycle as Search Dinkster.
@@ -4166,22 +4037,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       hostFocused,
     )
 
-    const measureCtx = document.createElement('canvas').getContext('2d')!
-    const measure: TextMeasurer = (text, role) => {
-      measureCtx.font =
-        role === 'title' || role === 'renamedTitle'
-          ? `${role === 'renamedTitle' ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`
-          : `${defaultTokens.fontSize}px ${defaultTokens.fontFamily}`
-      return measureCtx.measureText(text).width
-    }
-    const widgetMeasure: WidgetMeasure = (spec) => {
-      const kind = widgetRegistry().kind(spec.widgetType)
-      if (!kind) return undefined
-      const viewId = kind.defaultView(spec)
-      const view = widgetRegistry().viewsFor(spec.widgetType).find((v) => v.id === viewId)
-      if (!view) return undefined
-      return { viewId, rows: view.measure(spec).rows }
-    }
+    const { measure, widgetMeasure } = canvasMeasures(widgetRegistry)
     const placementGeometryForEntry = (entry: PaletteEntry): PlacementGeometry => {
       if (entry.schema === undefined) {
         return { ...canvasPaintTokens.preview.unknownPlacement, headerHeight: defaultTokens.headerHeight }
@@ -5064,6 +4920,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const valueNodeId = hit.row.familyOwner?.nodeId ?? nodeId
       const valueKey = hit.row.familyOwner?.valueKey ?? hit.row.valueKey
       const spec = hit.row.spec
+      if (spec.widgetType === 'COMPOSITOR') return
       const curveTarget = spec.widgetType === 'CURVE'
         ? props.app.curveTargetForInput(
             tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
@@ -5095,54 +4952,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         hit.row.derivedValue !== undefined
           ? hit.row.derivedValue
           : stored !== undefined ? stored : effectiveWidgetDefault(spec)
-      const inputInventory = textEditorInputInventory(
-        hit.node.elaborated,
-        spec.textCompletions?.inputFamilies ?? [],
-      )
-      const inputFamilyMembers = spec.textCompletions === undefined
-        ? undefined
-        : inputInventory.inputFamilyMembers
       const reg = registry()
       const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
       const schema = resolve(hit.node.node.type)
       const roleEditor = schema?.editorRole === undefined ? undefined : props.app.editors.forRole(schema.editorRole)
-      // TODO(#1134 question 7): no row opens the descriptor editor until the design thread answers.
-      const descriptors = undefined as OutputDescriptorsSpec | undefined
-      const descriptorRevision = tab.store.revision
-      const descriptorNode = tab.store.doc.graphs[graphId]?.nodes[nodeId]
-      const occurrenceValues = descriptors === undefined ? undefined : occurrenceDynamicView(
-        tab.store.doc, resolve, viewInstancePath(tab) ?? [], (viewInstancePath(tab)?.length ?? 0) === 0 ? graphId : tab.store.doc.root,
-      ).values.get(nodeId)
-      const descriptorValues = occurrenceValues ?? hit.node.node.values
-      const staleDescriptorLinks = descriptors === undefined ? [] : (() => {
-        const { probe: _probe, ...unprobed } = descriptors
-        const parsed = parseOutputDescriptors(unprobed, outputDescriptorValueOf(descriptors, descriptorValues))
-        if (!parsed.ok && !descriptors.fixedIds) return []
-        const descriptorIds = new Set([
-          ...(parsed.ok ? parsed.document.entries.map((entry) => entry.id) : []),
-          ...(descriptors.fixedIds ? descriptors.choices.map((choice) => choice.id) : []),
-        ])
-        const activeIds = new Set(hit.node.elaborated === undefined
-          ? []
-          : elabOutputsOf(hit.node.elaborated).map((output) => output.address.port))
-        return Object.values(tab.store.doc.graphs[graphId]?.links ?? {}).flatMap((link) =>
-          isPortEndpoint(link.from) && link.from.node === nodeId && descriptorIds.has(link.from.port) && !activeIds.has(link.from.port)
-            ? [{ linkId: link.id, outputId: link.from.port }]
-            : [])
-      })()
-
       if (roleEditor?.id === CURVE_EDITOR_KIND) {
         if (curveTarget) {
           props.app.openCurveEditor(curveTarget)
-          return
-        }
-      }
-      if (roleEditor?.id === IMAGE_EDITOR_KIND && schema?.editorRole === 'compositor') {
-        const target = props.app.compositorTargetForInput(
-          tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
-        )
-        if (target) {
-          props.app.openCompositorEditor(target)
           return
         }
       }
@@ -5186,7 +5002,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           valueKey: hit.row.valueKey,
           ...(hit.row.familyOwner !== undefined ? { familyOwner: hit.row.familyOwner } : {}),
           ...(hit.row.optionsTarget !== undefined ? { optionsTarget: hit.row.optionsTarget } : {}),
-          ...(hit.row.inputFamilyOwner !== undefined ? { inputFamilyOwner: hit.row.inputFamilyOwner } : {}),
           ...(hit.row.materialize !== undefined ? { materialize: hit.row.materialize } : {}),
           ...(hit.row.selector !== undefined ? { selector: hit.row.selector } : {}),
         },
@@ -5198,7 +5013,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         // Captured at open time like declaredType: the merge arm gates on
         // the OWNER backend's advertised batch-merge providers.
         ...(mergeableTypes !== undefined ? { mergeableTypes } : {}),
-        ...(inputFamilyMembers === undefined ? {} : { inputFamilyMembers }),
         multiline: widgetKind === undefined || hit.row.viewId === 'core.text',
         rect: {
           x: hit.x,
@@ -5208,16 +5022,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         },
         initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
         ...(missingAssetDigest === undefined ? {} : { missingAssetDigest }),
-        ...(descriptors !== undefined ? { outputDescriptors: {
-          spec: descriptors,
-          asset: outputDescriptorAssetOf(descriptors, descriptorValues),
-          staleLinks: staleDescriptorLinks,
-          isCurrent: () => tab.store.revision === descriptorRevision && tab.store.doc.graphs[graphId]?.nodes[nodeId] === descriptorNode,
-          onDisconnect: (linkId: string) => {
-            const current = props.app.activeTab()
-            if (current?.id === tab.id) props.app.dispatchTo(current, { command: 'link.disconnect', params: { graphId, linkId } })
-          },
-        } } : {}),
         ...(viewInstancePath(tab) === undefined ? {} : { instancePath: viewInstancePath(tab)! }),
         ...(widgetView?.editorUi === undefined ? {} : {
           hostUi: {
@@ -5962,9 +5766,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             const sourceKey = clipboardEndpointKey(
               'tap' in stub.source ? 'tap' : 'output', stub.source.node,
               'tap' in stub.source ? stub.source.tap : stub.source.port,
-              'tap' in stub.source ? undefined : stub.source.members,
             )
-            const targetKey = clipboardEndpointKey('input', stub.target.node, stub.target.port, stub.target.members)
+            const targetKey = clipboardEndpointKey('input', stub.target.node, stub.target.port)
             const currentTypes = clipboardSceneEndpointTypes(scene)
             return scope?.tab === tab && scope.graphId === graphId &&
               scope.sources.get(stub.source.node) === tab.store.doc.graphs[graphId]?.nodes[stub.source.node] &&
@@ -6198,16 +6001,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           y: (canvasEl.clientHeight / 2 - vp.y) / vp.scale,
         }
         return (await props.app.createEmptySubgraph(tab, currentGraphId(tab), center)).ok
-      },
-      createRegion: (kind, position) => {
-        const tab = activeTab()
-        if (!tab || frozen()) return false
-        const vp = renderer.getViewport()
-        const center = position ?? {
-          x: (canvasEl.clientWidth / 2 - vp.x) / vp.scale,
-          y: (canvasEl.clientHeight / 2 - vp.y) / vp.scale,
-        }
-        return createRegionAt(tab, currentGraphId(tab), center, kind)
       },
       extractSubgraph: beginExtractSubgraph,
       flattenSubgraph: flattenSelectedSubgraph,

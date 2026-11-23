@@ -292,28 +292,6 @@
     "text:image",
     "text:x"
   ],
-  "ImageDocumentWorkspace.tsx": [
-    "text:bytes",
-    "text:x",
-    "text:x"
-  ],
-  "ImageEditor.tsx": [
-    "attribute:aria-label:Mask tools",
-    "attribute:title:No image target is active.",
-    "attribute:title:No image target is active.",
-    "text:Cancel",
-    "text:Clear",
-    "text:Erase",
-    "text:Hardness",
-    "text:Image editor",
-    "text:Invert",
-    "text:Loading source image...",
-    "text:Mask",
-    "text:Paint",
-    "text:Redo mask edit",
-    "text:Size",
-    "text:Undo mask edit"
-  ],
   "MemoryPanel.tsx": [
     "attribute:aria-label:Active memory leases",
     "attribute:aria-label:Memory history table",
@@ -383,7 +361,6 @@
   "ProjectsDialog.tsx": [
     "attribute:aria-label:New project name",
     "attribute:placeholder:New project name",
-    "text:A project keeps its own tabs, backend connections, and layout. Windows on the same project stay in sync.",
     "text:Create project",
     "text:Current",
     "text:New window",

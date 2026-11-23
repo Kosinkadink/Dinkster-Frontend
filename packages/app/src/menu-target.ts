@@ -105,8 +105,9 @@ export function widgetRepresentationMenuGroup(input: {
 
 /**
  * Document address for representation view state. Dynamic widgets key view
- * state by their elaborated value key, and a forwarded family row belongs to
- * its occurrence-view owner rather than the visible instance node.
+ * state by their elaborated value key, and a row whose value is stored by a
+ * promoted boundary input belongs to that owning instance node rather than
+ * the visible node.
  */
 export function widgetRepresentationAddress(
   hit: Extract<Hit, { kind: 'widget' }>,
@@ -191,12 +192,9 @@ export function widgetMenuTarget(
   nodeId: string,
   row: Extract<Hit, { kind: 'widget' }>['row'],
 ): MenuTarget {
-  const synthetic =
-    row.ghost === true ||
-    row.materialize !== undefined ||
-    (row.familyOwner !== undefined && row.familyOwner.valueKey === undefined)
+  const synthetic = row.ghost === true || row.materialize !== undefined
   const owner =
-    !synthetic && row.familyOwner?.valueKey !== undefined
+    !synthetic && row.familyOwner !== undefined
       ? {
           owner: {
             graphId: row.familyOwner.graphId,
@@ -229,7 +227,6 @@ export function menuTargetOf(hit: Hit): MenuTarget {
             ? {
                 node: hit.link.to.node,
                 port: hit.link.to.port,
-                ...(hit.link.to.members !== undefined ? { members: hit.link.to.members } : {}),
               }
             : hit.link.to.kind === 'reroute'
               ? { reroute: hit.link.to.reroute }
@@ -260,7 +257,6 @@ export function menuTargetOf(hit: Hit): MenuTarget {
         kind: 'pin',
         nodeId: hit.node.id,
         portId: hit.pin.address.port,
-        ...(hit.pin.address.members !== undefined ? { members: hit.pin.address.members } : {}),
         direction: hit.direction,
       }
     case 'widgetTap':
@@ -268,9 +264,9 @@ export function menuTargetOf(hit: Hit): MenuTarget {
         kind: 'widget',
         nodeId: hit.node.id,
         inputId: hit.input,
-        // Tap pins carry no owner value key, so forwarded/unpersisted taps
-        // can only be flagged, never redirected.
-        ...(hit.pin.ghost === true || hit.pin.materialize !== undefined || hit.pin.familyOwner !== undefined
+        // Tap pins carry no owner value key, so unpersisted taps can only
+        // be flagged, never redirected.
+        ...(hit.pin.ghost === true || hit.pin.materialize !== undefined
           ? { synthetic: true as const }
           : {}),
       }
@@ -290,7 +286,6 @@ export function menuTargetOf(hit: Hit): MenuTarget {
         role: hit.stub.role,
         nodeId: hit.stub.nodeId,
         portId: hit.stub.portId,
-        ...(hit.stub.members !== undefined ? { members: hit.stub.members } : {}),
       }
     case 'group-header':
     case 'group-resize':

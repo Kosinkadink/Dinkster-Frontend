@@ -489,12 +489,7 @@
   gap: var(--dinkster-space-8);
   max-height: min(420px, calc(100vh - 140px));
   overflow-y: auto;
-  scrollbar-color: var(--dinkster-border-strong) var(--dinkster-surface-inset);
-  scrollbar-width: thin;
 }
-.workflow-queue-list::-webkit-scrollbar { width: 8px; }
-.workflow-queue-list::-webkit-scrollbar-track { background: var(--dinkster-surface-inset); }
-.workflow-queue-list::-webkit-scrollbar-thumb { background: var(--dinkster-border-strong); border-radius: var(--dinkster-radius-small); }
 
 @media (max-width: 520px) {
   .workflow-queue-control { max-width: calc(100% - var(--dinkster-space-16)); }
@@ -559,7 +554,6 @@
 }
 .widget-editor-popover.color-editor { width: min(300px, calc(100% - 8px)); }
 .widget-editor-popover.combo-dropdown { height: min(300px, calc(100% - 8px)); overflow: hidden; }
-.widget-editor-popover.combo-dropdown.input-family-combo { height: auto; max-height: min(520px, calc(100% - 8px)); }
 .widget-editor-popover.combo-dropdown.editable-combo-dropdown { width: min(480px, calc(100% - 8px)); height: auto; max-height: calc(100% - 8px); overflow-y: auto; }
 .widget-editor-popover .widget-editor-header { cursor: default; touch-action: auto; }
 

@@ -45,14 +45,75 @@ export function ProductPanel(props: { children: JSX.Element }) {
   return <div class="dinkster-panel">{props.children}</div>
 }
 
+export function ProductWindowIdentity(props: {
+  qa?: boolean
+  development?: boolean
+}) {
+  return (
+    <Show when={props.qa || props.development}>
+      <span class="dinkster-window-identity">
+        <Show when={props.qa}>
+          <span>[QA]</span>
+        </Show>
+        <Show when={props.development}>
+          <span title="Development project - unpublished sources">
+            Development
+          </span>
+        </Show>
+      </span>
+    </Show>
+  )
+}
+
 export function ProductWindowChrome(props: {
   title: string
   platform: 'darwin' | 'win32' | 'linux'
+  qa?: boolean
+  development?: boolean
 }) {
   return (
-    <header class="dinkster-window-chrome" data-platform={props.platform}>
+    <header
+      class="dinkster-window-chrome dinkster-desktop-bar"
+      data-platform={props.platform}
+    >
       <ProductBrandMark />
       <span class="dinkster-brand-title">{props.title}</span>
+      <ProductWindowIdentity
+        qa={props.qa ?? false}
+        development={props.development ?? false}
+      />
+    </header>
+  )
+}
+
+export function ProductWindowToolbar(props: {
+  title: string
+  platform: 'darwin' | 'win32' | 'linux'
+  brand: JSX.Element
+  search: JSX.Element
+  actions: JSX.Element
+  service?: string | undefined
+  qa?: boolean
+  development?: boolean
+}) {
+  return (
+    <header
+      class="dinkster-desktop-bar dinkster-window-toolbar-host"
+      data-platform={props.platform}
+      aria-label={props.title}
+    >
+      <div class="dinkster-window-toolbar">
+        <div class="dinkster-window-toolbar-brand">{props.brand}</div>
+        <div class="dinkster-window-toolbar-search">{props.search}</div>
+        <div class="dinkster-window-toolbar-actions">{props.actions}</div>
+        <Show when={props.service}>
+          <span class="dinkster-window-toolbar-service">{props.service}</span>
+        </Show>
+        <ProductWindowIdentity
+          qa={props.qa ?? false}
+          development={props.development ?? false}
+        />
+      </div>
     </header>
   )
 }

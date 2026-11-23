@@ -142,8 +142,8 @@ const SHA256_CONSTANTS = new Uint32Array([
  * skeletons behind (CO3). Hashing it raw would make materialize-then-undo
  * hash differently from never-materialized - violating "equal hash means
  * equal current execution semantics" the same way hashing nextOrdinal or
- * surfaceSeq would. So `seq` is stripped at declared DynamicPortState
- * positions, containers emptied by the stripping are pruned, and everything
+ * surfaceSeq would. So `seq` is stripped from each DynamicPortState,
+ * states emptied by the stripping are pruned, and everything
  * else (members, selected, unknown extension props) hashes verbatim.
  */
 function semanticDynamicState(st: Json): Json | undefined {
@@ -151,23 +151,6 @@ function semanticDynamicState(st: Json): Json | undefined {
   const out: Record<string, Json> = {}
   for (const [key, v] of Object.entries(st)) {
     if (key === 'seq' || key === 'memberLabels') continue
-    if (key === 'memberState' && typeof v === 'object' && v !== null && !Array.isArray(v)) {
-      const ms: Record<string, Json> = {}
-      for (const [member, constructs] of Object.entries(v)) {
-        if (typeof constructs !== 'object' || constructs === null || Array.isArray(constructs)) {
-          ms[member] = constructs
-          continue
-        }
-        const cs: Record<string, Json> = {}
-        for (const [construct, nested] of Object.entries(constructs)) {
-          const ns = semanticDynamicState(nested)
-          if (ns !== undefined) cs[construct] = ns
-        }
-        if (Object.keys(cs).length > 0) ms[member] = cs
-      }
-      if (Object.keys(ms).length > 0) out['memberState'] = ms
-      continue
-    }
     out[key] = v
   }
   return Object.keys(out).length > 0 ? out : undefined
@@ -311,8 +294,6 @@ const semanticBoundaryBinding = (binding: BoundaryBinding): Json => binding.kind
       kind: binding.kind,
       node: binding.node,
       port: binding.port,
-      ...(binding.members ? { members: binding.members } : {}),
-      ...(binding.slots ? { slots: [...binding.slots].sort() } : {}),
       ...(binding.viaReroute !== undefined ? { viaReroute: binding.viaReroute } : {}),
     } as unknown as Json
 

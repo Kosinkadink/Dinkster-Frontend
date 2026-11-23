@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, appViewTest as test } from './fixtures.js'
+import { expect, nativeAppViewTest as test } from './fixtures.js'
 import { pseudoCatalog } from './pseudo-catalog.js'
 import { auditLayout } from './ui-audit.js'
 import { evidencePath } from './evidence-output.js'
@@ -28,7 +28,7 @@ test('runs mounted host surfaces through the complete pseudo catalog', async ({ 
     return route.fulfill({ json: {
       schemaVersion: 1,
       epoch: 1,
-      dinkster: { version: 'full-pseudo-locale-e2e', schemaWire: 1 },
+      dinkster: { version: 'full-pseudo-locale-e2e', schemaWire: 2 },
       nodes: {},
     } })
   })

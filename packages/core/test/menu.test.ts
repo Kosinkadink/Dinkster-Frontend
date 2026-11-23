@@ -243,7 +243,7 @@ describe('core contributions', () => {
             n1: { ...baseGraph.nodes.n1!, dynamic: { images: { members: ['m0'], seq: 1 } } },
             n2: {
               ...baseGraph.nodes.n2!,
-              dynamic: { mode: { selected: 'batch' }, images: { memberState: { m4: {} }, seq: 5 } },
+              dynamic: { mode: { selected: 'batch' }, images: { members: ['m4'], seq: 5 } },
             },
           },
         },

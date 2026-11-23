@@ -33,7 +33,7 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { generatedBoundaryLabel, regionBoundaryLabels } from './boundary-labels.js'
-import { isNodeBoundaryBinding, isSubtreeBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type NodeData, type PortBoundaryBinding, type RegionContract } from '../format/document.js'
+import { isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type NodeData, type PortBoundaryBinding, type RegionContract } from '../format/document.js'
 import { isPortEndpoint, portAddressKey, type DynamicMemberId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
@@ -42,7 +42,7 @@ import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
 import { describedEntries } from './elaborate.js'
 import { applyUse, isRowId, keyPosition, scopeNamesOf } from './body.js'
 import { Formula, FormulaRefused, type FormulaScope } from '../mirror/formula.js'
-import { canonicalTypeIdOf, inputsOf, scopeRowsOf, typeExprFromTypeId } from './model.js'
+import { canonicalTypeIdOf, inputsOf, isNumberWidget, scopeRowsOf, typeExprFromTypeId } from './model.js'
 import type {
   BodyRow,
   ChoiceSpec,
@@ -233,9 +233,6 @@ export function resolveBoundaryRoute(
     return { ok: false, code: 'boundary.tapRoute', message: `widget tap '${binding.tap}' is not a port or family route` }
   }
   const path = binding.port as string
-  if ((binding.members?.length ?? 0) > 0) {
-    return { ok: false, code: 'boundary.memberPath', message: `port '${path}' carries member ids; a member is part of the flattened id` }
-  }
   const segs = path.split('.')
   let found: BoundaryRoute | undefined
   let problem: { code: string; message: string } | undefined
@@ -250,21 +247,29 @@ export function resolveBoundaryRoute(
   ): void => {
     const seg = segs[index]
     for (const raw of scopeRowsOf(rows)) {
-      if (raw.kind === 'row' || raw.kind === 'note' || raw.kind === 'button' || raw.kind === 'section') continue
+      if (raw.kind === 'row' || raw.kind === 'note' || raw.kind === 'editor' || raw.kind === 'button' || raw.kind === 'section') continue
       let row: BodyRow
       if (raw.kind === 'use') {
         const base = shared?.get(raw.id)
         if (base === undefined) continue
         row = applyUse(base, raw)
       } else row = raw
-      if (row.kind === 'row' || row.kind === 'section' || row.kind === 'note' || row.kind === 'button' || row.id !== seg) continue
+      if (row.kind === 'row' || row.kind === 'section' || row.kind === 'note' || row.kind === 'editor' || row.kind === 'button' || row.id !== seg) continue
       const full = `${prefix}${row.id}`
       const top = topItem ?? row
       const last = index === segs.length - 1
       switch (row.kind) {
         case 'input':
         case 'output':
-          if (last) found = { side: row.kind, topItem: top, hops, terminal: { kind: 'port', slot: { ...row, id: full } } }
+          if (last) {
+            const route: BoundaryRoute = { side: row.kind, topItem: top, hops, terminal: { kind: 'port', slot: { ...row, id: full } } }
+            // An input and an output may share an id; keep looking for the expected side.
+            if (expectedSide !== undefined && row.kind !== expectedSide) {
+              found ??= route
+              continue
+            }
+            found = route
+          }
           break
         case 'group':
           if (last) {
@@ -395,13 +400,13 @@ export function deriveBoundarySchema(
       if (binding.viaReroute === undefined) return [binding]
       const targets = rerouteInputTargets(graph, binding.viaReroute)
       if (binding.kind !== 'port' || !targets?.length ||
-          !targets.some((target) => target.node === binding.node && portAddressKey(target.port, target.members) === portAddressKey(binding.port, binding.members)) ||
+          !targets.some((target) => target.node === binding.node && portAddressKey(target.port) === portAddressKey(binding.port)) ||
           Object.values(graph.links).some((link) => 'reroute' in link.to && link.to.reroute === binding.viaReroute)) {
         fail('boundary.reroute', `boundary input '${item.id}' has an invalid or internally driven junction attachment`)
         return []
       }
       const { viaReroute: _via, ...authority } = binding
-      return [authority, ...targets.filter((target) => target.node !== binding.node || portAddressKey(target.port, target.members) !== portAddressKey(binding.port, binding.members))
+      return [authority, ...targets.filter((target) => target.node !== binding.node || portAddressKey(target.port) !== portAddressKey(binding.port))
         .map((target) => ({ kind: 'port' as const, ...target }))]
     })
     const { alsoBinds: _also, ...single } = item
@@ -446,12 +451,12 @@ export function deriveBoundarySchema(
 
   /** Link existence on an inner node's input, by flattened id. */
   const isInternallyConnected = (b: PortBoundaryBinding, port: string): boolean => {
-    const key = portAddressKey(port, b.members)
+    const key = portAddressKey(port)
     for (const link of Object.values(def.links)) {
-      if (isPortEndpoint(link.to) && link.to.node === b.node && portAddressKey(link.to.port, link.to.members) === key) return true
+      if (isPortEndpoint(link.to) && link.to.node === b.node && portAddressKey(link.to.port) === key) return true
     }
     for (const net of Object.values(def.nets)) {
-      if (net.sinks.some((s) => s.node === b.node && portAddressKey(s.port, s.members) === key)) return true
+      if (net.sinks.some((s) => s.node === b.node && portAddressKey(s.port) === key)) return true
     }
     return false
   }
@@ -483,10 +488,6 @@ export function deriveBoundarySchema(
     }
     if (binds.kind === 'widgetTap') {
       fail('boundary.tapSide', `${describe} uses an output-only widget tap binding`)
-      return undefined
-    }
-    if (binds.kind === 'family' || isSubtreeBinding(binds)) {
-      fail('boundary.familyUnsupported', `${describe}: forwarding a whole group, choice or type choice to the subgraph's face is not available`)
       return undefined
     }
     const result = resolveBoundaryRoute(schema, binds, expectedSide, node.values, node.dynamic)
@@ -522,10 +523,6 @@ export function deriveBoundarySchema(
         return undefined
       }
     }
-    if (binds.slots !== undefined) {
-      fail('boundary.slotsOnPort', `${describe}: 'slots' is invalid on a 'port' binding`)
-      return undefined
-    }
     const resolved = { node, route }
     routeCache.set(binds, { ...routeCache.get(binds), [expectedSide]: resolved })
     return resolved
@@ -535,8 +532,8 @@ export function deriveBoundarySchema(
   const routeFor = (item: BoundaryItem, side: 'input' | 'output'): { node: NodeData; route: BoundaryRoute } | undefined =>
     routeForBinding(item.binds, `boundary ${side} '${item.id}'`, side)
 
-  /** Fan-out duplicate key: full target address (node, port, member path). */
-  const targetKeyOf = (b: PortBoundaryBinding): string => JSON.stringify([b.node, b.port, b.members ?? []])
+  /** Fan-out duplicate key: full target address (node, port). */
+  const targetKeyOf = (b: PortBoundaryBinding): string => JSON.stringify([b.node, b.port])
 
   const displayNameOf = (
     item: BoundaryItem,
@@ -639,7 +636,7 @@ export function deriveBoundarySchema(
         }
         const key = targetKeyOf(b)
         if (seenTargets.has(key)) {
-          fail('boundary.duplicateBind', `${describe} repeats target '${b.node}/${b.port}'${b.members ? ` member '${b.members.join('.')}'` : ''}`)
+          fail('boundary.duplicateBind', `${describe} repeats target '${b.node}/${b.port}'`)
           fanoutOk = false
           continue
         }
@@ -917,7 +914,7 @@ export function boundaryInnerInput(def: GraphDef, item: BoundaryItem, resolve: S
 /** A number field's declared range: INT and FLOAT widgets only. */
 export function numberFieldRange(input: InputSpec | undefined): { readonly min?: number; readonly max?: number } | undefined {
   const widget = input?.widget
-  if (widget === undefined || (widget.widgetType !== 'INT' && widget.widgetType !== 'FLOAT')) return undefined
+  if (widget === undefined || !isNumberWidget(widget)) return undefined
   const bound = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) ? value : undefined
   const min = bound(widget.options['min'])
   const max = bound(widget.options['max'])

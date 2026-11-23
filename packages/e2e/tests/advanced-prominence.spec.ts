@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_385_SOCKET_PROOF_DIR']
 
@@ -31,7 +31,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'advanced-prominence-e2e', schemaWire: 1 },
+    dinkster: { version: 'advanced-prominence-e2e', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
@@ -44,56 +44,59 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'ImageSourceE2E', displayName: 'Image Source', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'image', type: concrete('IMAGE') }],
+        body: [{ kind: 'output', id: 'image', type: concrete('IMAGE') }],
       },
       {
         type: 'ImageSinkE2E', displayName: 'Image Sink', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'image', type: concrete('IMAGE'), optional: false }],
+        body: [{ kind: 'input', id: 'image', type: concrete('IMAGE'), optional: false }],
       },
       {
         type: 'FloatSinkE2E', displayName: 'Float Sink', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'value', type: concrete('FLOAT'), optional: false }],
+        body: [{ kind: 'input', id: 'value', type: concrete('FLOAT'), optional: false }],
       },
       {
         type: 'AdvancedE2E', displayName: 'Advanced Controls', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'image', type: concrete('IMAGE'), optional: false },
-          { kind: 'input', id: 'reference', type: concrete('IMAGE'), optional: true, advanced: true },
           {
             kind: 'input', id: 'caption', type: concrete('STRING'), optional: true,
             widget: { widgetType: 'STRING', options: {}, default: '' },
           },
           {
-            kind: 'input', id: 'strength', type: concrete('FLOAT'), optional: true, advanced: true,
-            widget: { widgetType: 'FLOAT', options: {}, default: 1 },
+            kind: 'section', id: 'advanced', displayName: 'Advanced', collapsedByDefault: true,
+            rows: [
+              { kind: 'input', id: 'reference', type: concrete('IMAGE'), optional: true },
+              {
+                kind: 'input', id: 'strength', type: concrete('FLOAT'), optional: true,
+                widget: { widgetType: 'FLOAT', options: {}, default: 1 },
+              },
+            ],
           },
           { kind: 'output', id: 'image', type: concrete('IMAGE') },
         ],
       },
       {
         type: 'WidgetSourceE2E', displayName: 'Widget Output', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{
+        body: [{
           kind: 'input', id: 'amount', type: concrete('FLOAT'), optional: true,
           widget: { widgetType: 'FLOAT', options: {}, default: 1 },
         }],
       },
       {
         type: 'CreateListE2E', displayName: 'Create List', category: 'test', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           {
-            kind: 'input', id: 'items', type: { kind: 'wildcard' }, optional: false,
-            dynamic: {
-              kind: 'autogrow',
-              template: [{ kind: 'input', id: 'item', type: variable, optional: false }],
-              naming: { kind: 'prefix', prefix: 'items', min: 1, max: 8 },
-            },
+            kind: 'group', id: 'items',
+            value: { kind: 'input', id: 'item', type: variable, optional: false },
+            keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+            grows: 'link', minMembers: 1, maxMembers: 8,
           },
           { kind: 'output', id: 'list', type: { kind: 'list', element: variable } },
         ],
       },
       {
         type: 'GenericInputE2E', displayName: 'Scalar or List', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'value', type: variable, optional: false }],
+        body: [{ kind: 'input', id: 'value', type: variable, optional: false }],
       },
     ])
     const failures = (await window.__dinksterTest!.app.openDocument({
@@ -107,7 +110,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
         generic: { id: 'generic', type: 'GenericInputE2E', values: {} },
         list: {
           id: 'list', type: 'CreateListE2E', values: {},
-          dynamic: { items: { members: ['m0'], seq: 1 } },
+          dynamic: { items: { members: ['item0'], seq: 1 } },
         },
       }, links: {
         imageIn: {
@@ -133,7 +136,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
         widgetItem: {
           id: 'widgetItem',
           from: { node: 'widget', tap: 'amount' },
-          to: { node: 'list', port: 'items.item', members: ['m0'] },
+          to: { node: 'list', port: 'items.item0' },
         },
       }, nets: {}, reroutes: {}, nextOrdinal: 6 } },
       view: { graphs: { g0: { nodes: {
@@ -167,7 +170,7 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
       }))
     const listPins = list.layout.pins.map((pin) => ({
       direction: pin.direction,
-      members: pin.address.members,
+      port: pin.address.port,
       ghost: pin.ghost,
       type: pin.type,
     }))
@@ -217,8 +220,8 @@ test('Advanced proxies restore endpoints and scalar-list sockets stay distinct',
     }),
   ])
   expect(collapsed.listPins).toEqual(expect.arrayContaining([
-    expect.objectContaining({ direction: 'in', members: ['m0'], ghost: undefined, type: { kind: 'concrete', name: 'FLOAT' } }),
-    expect.objectContaining({ direction: 'in', ghost: true, type: { kind: 'concrete', name: 'FLOAT' } }),
+    expect.objectContaining({ direction: 'in', port: 'items.item0', ghost: undefined, type: { kind: 'concrete', name: 'FLOAT' } }),
+    expect.objectContaining({ direction: 'in', port: 'items.item1', ghost: true, type: { kind: 'concrete', name: 'FLOAT' } }),
     expect.objectContaining({ direction: 'out', type: { kind: 'list', element: { kind: 'concrete', name: 'FLOAT' } } }),
   ]))
   expect(collapsed.widgetLink).toMatchObject({

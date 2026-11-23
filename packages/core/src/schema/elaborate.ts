@@ -39,6 +39,8 @@ import {
   memberKeyAt,
   memberLimitOf,
   memberRowsOf,
+  optionRows,
+  scopeNamesOf,
 } from './body.js'
 import type {
   BodyRow,
@@ -69,8 +71,8 @@ import { scopeRowsOf } from './model.js'
  * by design.
  */
 export interface Connectivity {
-  isInputConnected(port: string, members?: readonly string[]): boolean
-  isOutputConnected(port: string, members?: readonly string[]): boolean
+  isInputConnected(port: string): boolean
+  isOutputConnected(port: string): boolean
   /** Enumerable document input ports with a link or net endpoint. */
   inputPorts?(): readonly string[]
 }
@@ -88,8 +90,7 @@ export function buildGraphConnectivity(def: GraphDef): (node: NodeId) => Connect
   const inputs = new Map<NodeId, Set<string>>()
   const outputs = new Map<NodeId, Set<string>>()
   const inputPorts = new Map<NodeId, Set<string>>()
-  const producerKey = (kind: 'port' | 'tap', port: string, members?: readonly string[]): string =>
-    JSON.stringify([kind, port, members ?? []])
+  const producerKey = (kind: 'port' | 'tap', port: string): string => JSON.stringify([kind, port])
   const add = (map: Map<NodeId, Set<string>>, node: NodeId, key: string): void => {
     let set = map.get(node)
     if (!set) map.set(node, (set = new Set()))
@@ -97,22 +98,22 @@ export function buildGraphConnectivity(def: GraphDef): (node: NodeId) => Connect
   }
   for (const link of Object.values(def.links)) {
     if (isPortEndpoint(link.from))
-      add(outputs, link.from.node, producerKey('port', link.from.port, link.from.members))
+      add(outputs, link.from.node, producerKey('port', link.from.port))
     else if (
       isExactWidgetTapRef(link.from) &&
       def.nodes[link.from.node] !== undefined
     )
       add(outputs, link.from.node, producerKey('tap', link.from.tap))
     if (isPortEndpoint(link.to)) {
-      add(inputs, link.to.node, portAddressKey(link.to.port, link.to.members))
-      if (link.to.members === undefined || link.to.members.length === 0) add(inputPorts, link.to.node, link.to.port)
+      add(inputs, link.to.node, portAddressKey(link.to.port))
+      add(inputPorts, link.to.node, link.to.port)
     }
   }
   for (const net of Object.values(def.nets)) {
-    add(outputs, net.source.node, producerKey('port', net.source.port, net.source.members))
+    add(outputs, net.source.node, producerKey('port', net.source.port))
     for (const sink of net.sinks) {
-      add(inputs, sink.node, portAddressKey(sink.port, sink.members))
-      if (sink.members === undefined || sink.members.length === 0) add(inputPorts, sink.node, sink.port)
+      add(inputs, sink.node, portAddressKey(sink.port))
+      add(inputPorts, sink.node, sink.port)
     }
   }
   const cache = new Map<NodeId, Connectivity>()
@@ -123,10 +124,9 @@ export function buildGraphConnectivity(def: GraphDef): (node: NodeId) => Connect
     const outs = outputs.get(node)
     if (!ins && !outs) return EMPTY_CONNECTIVITY
     c = {
-      isInputConnected: (port, members) => ins?.has(portAddressKey(port, members)) ?? false,
-      isOutputConnected: (port, members) =>
-        outs?.has(producerKey('port', port, members)) === true ||
-        ((members === undefined || members.length === 0) && outs?.has(producerKey('tap', port)) === true),
+      isInputConnected: (port) => ins?.has(portAddressKey(port)) ?? false,
+      isOutputConnected: (port) =>
+        outs?.has(producerKey('port', port)) === true || outs?.has(producerKey('tap', port)) === true,
       inputPorts: () => [...(inputPorts.get(node) ?? [])],
     }
     cache.set(node, c)
@@ -140,33 +140,11 @@ export function buildGraphConnectivity(def: GraphDef): (node: NodeId) => Connect
 
 /**
  * Document-identity address of an elaborated port: what PortRef stores.
- * `port` is the flattened id. `members` is never set by elaboration; it
- * remains in the type for subgraph boundary addresses.
+ * `port` is the flattened id; it also keys the port's stored value, its
+ * layout row and its pin.
  */
 export interface PortAddress {
   readonly port: string
-  readonly members?: readonly DynamicMemberId[]
-}
-
-/**
- * Unique string key of an address (map keys, layout row ids). For an
- * elaborated port it is the flattened id itself. Components are minimally
- * escaped ('%' then '#') so the packing stays injective.
- */
-const escapeElabSeg = (s: string): string => s.replace(/%/g, '%25').replace(/#/g, '%23')
-
-export const elabKeyOf = (a: PortAddress): string =>
-  a.members === undefined || a.members.length === 0
-    ? escapeElabSeg(a.port)
-    : [a.port, ...a.members].map(escapeElabSeg).join('#')
-
-/** Decode a canonical value key, optionally including memberless inputs. */
-export const addressOfElabKey = (key: string, includeMemberless = false): PortAddress | undefined => {
-  const unescape = (s: string): string => s.replace(/%23/g, '#').replace(/%25/g, '%')
-  const parts = key.split('#').map(unescape)
-  if (parts.length < 2 && !includeMemberless) return undefined
-  const address: PortAddress = { port: parts[0]!, ...(parts.length > 1 ? { members: parts.slice(1) as DynamicMemberId[] } : {}) }
-  return elabKeyOf(address) === key ? address : undefined
 }
 
 /**
@@ -298,6 +276,11 @@ export interface ElaboratedInterface {
    * leader, with the start key the node shows for each (view mode only).
    */
   readonly unstoredChoices?: Readonly<Record<string, string>>
+  /**
+   * Groups that grow by hand and take part in the node with fewer stored
+   * members than their minimum, with the members that reach it (view mode only).
+   */
+  readonly unstoredMinimums?: Readonly<Record<string, MaterializeFrame>>
   /** Flattened id of every group, choice and type choice the node holds (not offered members). */
   readonly constructs: readonly string[]
   readonly diagnostics: readonly Diagnostic[]
@@ -387,6 +370,8 @@ interface FormulaFrame {
   readonly rows: readonly OptionRow[]
   readonly index?: number
   readonly key?: string
+  /** Names of this scope under the options of its choice that are not chosen. */
+  readonly hidden?: ReadonlySet<string>
 }
 
 interface Scope {
@@ -461,6 +446,9 @@ function formulaValueOf(raw: unknown, kind: FormulaNameKind): FormulaValue | Unk
 
 const defaultOf = (row: InputSpec): unknown => row.widget?.default ?? row.ext?.['default']
 
+/** Passes a node's choice keys take to settle; a longer chain of formulas is refused. */
+const MAX_CHOICE_PASSES = 8
+
 /**
  * Elaborate one node's effective interface. Pure and deterministic over
  * (schema, node.values/node.dynamic/node.additionalInputs, connectivity).
@@ -471,6 +459,33 @@ export function elaborateInterface(
   connectivity: Connectivity = EMPTY_CONNECTIVITY,
   options: ElaborateOptions = {},
 ): ElaboratedInterface {
+  // A formula may read a choice the walk has not reached yet, such as a led
+  // choice declared later. Such a read takes the key the previous pass
+  // settled, and the passes repeat until every key read is the key settled,
+  // so declaration order does not change the result.
+  let settled: ReadonlyMap<string, string | null> = new Map()
+  for (let pass = 1; ; pass++) {
+    const result = elaboratePass(schema, node, connectivity, options, settled)
+    const unsettled = [...result.early].filter((path) => (result.chosen.get(path) ?? null) !== (settled.get(path) ?? null))
+    if (unsettled.length === 0) return result.elaborated
+    if (pass === MAX_CHOICE_PASSES) {
+      return {
+        ...result.elaborated,
+        diagnostics: [...result.elaborated.diagnostics, diag('error', 'schema', 'elab.choice.unsettled',
+          `${schema.type}: the keys of ${unsettled.map((path) => `'${path}'`).join(', ')} depend on each other and never settle`)],
+      }
+    }
+    settled = result.chosen
+  }
+}
+
+function elaboratePass(
+  schema: NodeSchema,
+  node: Pick<NodeData, 'values' | 'dynamic' | 'additionalInputs'>,
+  connectivity: Connectivity,
+  options: ElaborateOptions,
+  settled: ReadonlyMap<string, string | null>,
+): { readonly elaborated: ElaboratedInterface; readonly chosen: ReadonlyMap<string, string | null>; readonly early: ReadonlySet<string> } {
   const budget: ElabBudget = { ...DEFAULT_ELAB_BUDGET, ...options.budget }
   const view = options.promoteGhosts ?? true
   const census = options.includeDormant ?? false
@@ -478,15 +493,38 @@ export function elaborateInterface(
   const outputMembers: Record<string, string[]> = {}
   const choices: Record<string, string> = {}
   const unstoredChoices: Record<string, string> = {}
+  const unstoredMinimums: Record<string, MaterializeFrame> = {}
   const constructs = new Set<string>()
   const diagnostics: Diagnostic[] = []
   const emittedInputs = new Set<string>()
   const emittedOutputs = new Set<string>()
+  // A dormant census visits every option and variant, so a row they share, or
+  // a row id two variants both declare, is emitted once per visit. Only rows
+  // in the chosen interface must have unique ids.
+  const activeInputs = new Set<string>()
+  const activeOutputs = new Set<string>()
+  const claim = (emitted: Set<string>, active: Set<string>, path: string, scope: Scope): boolean => {
+    if (!scope.dormant) {
+      if (active.has(path)) return false
+      active.add(path)
+    }
+    emitted.add(path)
+    return true
+  }
   const readState = new Set<string>()
   const tables = formulaTablesOf(schema.tables)
   const derived = new Map(Object.entries(schema.derived ?? {}))
   /** Choice keys this elaboration settled, which formulas read before the run stores them. */
   const chosen = new Map<string, string | null>()
+  /** Choices a formula read before the walk settled them. */
+  const early = new Set<string>()
+  /** The key of a choice the walk has not settled: the stored one, else the previous pass's. */
+  const unsettledKey = (path: string): string | null | undefined => {
+    const selected = stateOf(path)?.selected
+    if (selected !== undefined) return selected
+    early.add(path)
+    return settled.get(path)
+  }
   let depth = 0
   let membersVisited = 0
   let halted = false
@@ -525,7 +563,10 @@ export function elaborateInterface(
   /** The value a formula reads for one flattened id, and whether a wire feeds it. */
   const valueFor = (path: string, kind: FormulaNameKind, fallback: unknown): FormulaValue | Unknown => {
     if (chosen.has(path)) return chosen.get(path)!
-    if (kind === 'choice' && stateOf(path)?.selected !== undefined) return stateOf(path)!.selected!
+    if (kind === 'choice') {
+      const key = unsettledKey(path)
+      if (key !== undefined) return key
+    }
     if (linked(path)) return UNKNOWN
     return formulaValueOf(Object.hasOwn(node.values, path) ? node.values[path] : fallback, kind)
   }
@@ -533,15 +574,84 @@ export function elaborateInterface(
   /** Member keys a formula counts for a group: the stored ones, or a count group's own. */
   const membersFor = (path: string): readonly string[] => stateOf(path)?.members ?? []
 
+  /**
+   * Names, as a formula in this scope writes them, of rows under an option
+   * that is not chosen: a formula reads them as unknown, with no wire.
+   */
+  const unchosen = (rows: readonly OptionRow[], prefix: string): Set<string> => {
+    const hidden = new Set<string>()
+    for (const row of scopeRowsOf(rows)) {
+      if (row.kind === 'choice') {
+        const path = prefix + row.id
+        const key = chosen.has(path) ? chosen.get(path) : unsettledKey(path)
+        const live = key === undefined || key === null ? [] : optionRows(row, key)
+        const kept = scopeNamesOf(live).names
+        for (const name of scopeNamesOf(choiceScopeRows(row)).names.keys()) if (!kept.has(name)) hidden.add(`${row.id}.${name}`)
+        for (const name of unchosen(live, `${path}.`)) hidden.add(`${row.id}.${name}`)
+      } else if (row.kind === 'typeChoice') {
+        for (const name of unchosen(row.rows, `${prefix}${row.id}.`)) hidden.add(`${row.id}.${name}`)
+      }
+    }
+    return hidden
+  }
+
+  /**
+   * The default of each field by flattened id, under the chosen options and
+   * the members the node stores, with each Use's override, as the engine
+   * gives a formula reading a field with nothing stored.
+   */
+  const defaultsUnder = (list: readonly OptionRow[], prefix: string, found: Map<string, unknown>, shared?: ReadonlyMap<string, BodyRow>): void => {
+    for (const row of list) {
+      if (row.kind === 'use') {
+        const target = shared?.get(row.id)
+        if (target !== undefined) defaultsUnder([applyUse(target, row)], prefix, found)
+      } else if (row.kind === 'section' || row.kind === 'row') {
+        defaultsUnder(row.rows, prefix, found, shared)
+      } else if (row.kind === 'input') {
+        found.set(prefix + row.id, defaultOf(row))
+      } else if (row.kind === 'state') {
+        found.set(prefix + row.id, row.default)
+      } else if (row.kind === 'choice') {
+        const path = prefix + row.id
+        const key = chosen.has(path) ? chosen.get(path) : unsettledKey(path)
+        const option = row.options.find((item) => item.key === key)
+        if (option !== undefined) {
+          defaultsUnder(option.rows, `${path}.`, found,
+            new Map(row.shared.filter((item) => item.kind !== 'row').map((item) => [(item as { id: string }).id, item])))
+        }
+      } else if (row.kind === 'typeChoice') {
+        const path = prefix + row.id
+        const variant = row.variants?.find((item) => item.key === stateOf(path)?.selected)
+        defaultsUnder([...row.rows, ...(variant?.rows ?? [])], `${path}.`, found)
+      } else if (row.kind === 'group') {
+        const path = prefix + row.id
+        for (const key of membersFor(path)) {
+          if (row.value !== undefined) found.set(`${path}.${key}`, row.value.kind === 'input' ? defaultOf(row.value) : undefined)
+          else defaultsUnder(row.member ?? [], `${path}.${key}.`, found)
+        }
+      }
+    }
+  }
+
   const evaluate = (text: string, scope: Scope): ReturnType<Formula['evaluate']> => {
     const names = framesNamesOf(scope.formulaFrames.map((frame) => frame.rows))
     const where = new Map<string, string>()
     const defaults = new Map<string, unknown>()
+    defaultsUnder(schema.body, '', defaults)
+    const unknown = new Set<string>()
     for (const frame of scope.formulaFrames) {
-      for (const name of framesNamesOf([frame.rows]).names.keys()) where.set(name, frame.prefix + name)
+      const hidden = unchosen(frame.rows, frame.prefix)
+      for (const name of frame.hidden ?? []) hidden.add(name)
+      for (const name of framesNamesOf([frame.rows]).names.keys()) {
+        where.set(name, frame.prefix + name)
+        if (hidden.has(name)) unknown.add(name)
+        else unknown.delete(name)
+      }
+      // A member the node shows but does not store reads its own rows' defaults.
       for (const row of scopeRowsOf(frame.rows)) {
-        if (row.kind === 'input') defaults.set(frame.prefix + row.id, defaultOf(row))
-        else if (row.kind === 'state') defaults.set(frame.prefix + row.id, row.default)
+        if (row.kind !== 'input' && row.kind !== 'state') continue
+        const path = frame.prefix + row.id
+        if (!defaults.has(path)) defaults.set(path, row.kind === 'input' ? defaultOf(row) : row.default)
       }
     }
     const member = [...scope.formulaFrames].reverse().find((frame) => frame.index !== undefined)
@@ -550,7 +660,11 @@ export function elaborateInterface(
     const sizes = new Map<string, number>()
     for (const [name, kind] of names.names) {
       const path = where.get(name)!
-      if (kind === 'group') {
+      if (unknown.has(name)) {
+        // A group's size with no entry in `sizes` reads unknown.
+        if (kind !== 'opaque' && kind !== 'group') values.set(name, UNKNOWN)
+        if (names.inputs.has(name)) wired.set(name, false)
+      } else if (kind === 'group') {
         sizes.set(name, membersFor(path).length)
       } else if (kind.endsWith('[]')) {
         const dot = path.lastIndexOf('.')
@@ -600,11 +714,10 @@ export function elaborateInterface(
   })
 
   const emitInput = (row: InputSpec, path: string, scope: Scope, label?: string, extra: Partial<ElaboratedInput> = {}): void => {
-    if (emittedInputs.has(path)) {
+    if (!claim(emittedInputs, activeInputs, path, scope)) {
       exhaust('elab.projectedNamespaceCollision', `projected input namespace collision at '${path}'`)
       return
     }
-    emittedInputs.add(path)
     let spec: InputSpec = {
       ...row,
       id: path,
@@ -619,28 +732,6 @@ export function elaborateInterface(
       const stored = stateOf(path)?.options
       if (stored !== undefined) spec = { ...spec, widget: { ...widget, options: { ...widget.options, options: stored } } }
     }
-    const source = widget?.optionSource
-    if (widget !== undefined && source !== undefined) {
-      const group = `${scope.prefix}${source.inputFamily}`
-      const state = stateOf(group)
-      const members = state?.members ?? []
-      const labels = members.map((member) => state?.memberLabels?.[member] ?? member)
-      const duplicate = new Set(labels.filter((label, index) => labels.indexOf(label) !== index))
-      spec = {
-        ...spec,
-        widget: {
-          ...widget,
-          optionSource: { inputFamily: group },
-          options: {
-            ...widget.options,
-            options: members.map((member, index) => ({
-              value: member,
-              label: duplicate.has(labels[index]!) ? `${labels[index]} (${member})` : labels[index]!,
-            })),
-          },
-        },
-      }
-    }
     push({
       kind: 'input',
       address: { port: path },
@@ -652,11 +743,10 @@ export function elaborateInterface(
   }
 
   const emitOutput = (row: OutputSpec, path: string, scope: Scope, label?: string): void => {
-    if (emittedOutputs.has(path)) {
+    if (!claim(emittedOutputs, activeOutputs, path, scope)) {
       exhaust('elab.projectedNamespaceCollision', `projected output namespace collision at '${path}'`)
       return
     }
-    emittedOutputs.add(path)
     push({
       kind: 'output',
       address: { port: path },
@@ -739,6 +829,7 @@ export function elaborateInterface(
         described(row, scope.prefix + row.id, scope)
         return
       case 'note':
+      case 'editor':
       case 'button':
         return
     }
@@ -877,7 +968,7 @@ export function elaborateInterface(
     })
 
     /** Emit one member; returns whether it is in use (a stored value or a wire). */
-    const member = (position: number, key: string, ghost: boolean): boolean => {
+    const member = (position: number, key: string, ghost: boolean, dormant = false): boolean => {
       membersVisited++
       const frames = ghost ? [...(scope.frames ?? []), frameFor(offered.slice(0, position - storedCount + 1))] : scope.frames
       const required = scope.required && (!row.optionalAfterMinimum || position < row.minMembers)
@@ -886,6 +977,7 @@ export function elaborateInterface(
         ...scope,
         required,
         ghost: scope.ghost || ghost,
+        dormant: scope.dormant || dormant,
         origin: { kind: 'member', construct: path, ordinal: position, key, ...(ghost ? { ghost: true } : {}) },
         ancestry: [...scope.ancestry, {
           construct: path,
@@ -935,6 +1027,21 @@ export function elaborateInterface(
       if (halted) return
       if (!member(position, key, false)) allUsed = false
     }
+    // A count that shrank leaves its later members stored: the census reads
+    // them as dormant, as it reads an option that is not chosen.
+    if (census && typeof grows === 'object' && 'count' in grows) {
+      const later = new Map<number, string>()
+      for (const stored of [...Object.keys(node.values), ...Object.keys(node.dynamic ?? {})]) {
+        if (!stored.startsWith(`${path}.`)) continue
+        const key = stored.slice(path.length + 1).split('.')[0]!
+        const position = keyPosition(row.keys, key)
+        if (position !== undefined && position >= keys.length && position < limit) later.set(position, key)
+      }
+      for (const [position, key] of [...later.entries()].sort(([a], [b]) => a - b)) {
+        if (halted) return
+        member(position, key, false, true)
+      }
+    }
 
     // Members the node offers beyond the stored ones: up to the minimum, and
     // one spare once every member of a group that grows by link or by a
@@ -948,6 +1055,9 @@ export function elaborateInterface(
       if (key === undefined) break
       offered.push(key)
     }
+    // A member the node always shows is not the user's to add: the editor stores it.
+    const missing = Math.min(row.minMembers, storedCount + offered.length) - storedCount
+    if (!scope.ghost && missing > 0) unstoredMinimums[path] = frameFor(offered.slice(0, missing))
     if (membersVisited + offered.length > budget.maxMembers) {
       exhaust('elab.budget.members', `group members exceed ${budget.maxMembers}; elaboration stopped`)
       return
@@ -1003,8 +1113,8 @@ export function elaborateInterface(
       key = storedKey
     } else if (row.required && !view && !scope.ghost && !scope.dormant) {
       // The editor stores a required choice's start key on every command
-      // (storeStartChoices); a run never makes one up.
-      report('prompt.bad_dynamic_choice', `required choice '${path}' has no stored option`, path)
+      // (storeStartState); a run never makes one up.
+      report('prompt.missing_dynamic_choice', `required choice '${path}' has no stored option`, path)
       return
     } else {
       key = row.required ? row.default ?? keys[0] : undefined
@@ -1034,11 +1144,10 @@ export function elaborateInterface(
         ...(row.hidden ? { hidden: true as const } : {}),
         ...(literalText(row.tooltip) !== undefined ? { tooltip: literalText(row.tooltip)! } : {}),
       }
-      if (emittedInputs.has(path)) {
+      if (!claim(emittedInputs, activeInputs, path, scope)) {
         exhaust('elab.projectedNamespaceCollision', `projected input namespace collision at '${path}'`)
         return
       }
-      emittedInputs.add(path)
       push({
         kind: 'input',
         address: { port: path },
@@ -1056,13 +1165,21 @@ export function elaborateInterface(
       })
     }
     const shared = new Map(row.shared.filter((item) => item.kind !== 'row').map((item) => [(item as { id: string }).id, item]))
-    const frame: FormulaFrame = { prefix: `${path}.`, rows: choiceScopeRows(row) }
+    const every = choiceScopeRows(row)
     for (const option of row.options) {
       const active = option.key === key
       if (!active && !census) continue
+      // The option's formulas read the other options' rows as unknown.
+      const kept = scopeNamesOf(optionRows(row, option.key)).names
+      const frame: FormulaFrame = {
+        prefix: `${path}.`, rows: every,
+        hidden: new Set([...scopeNamesOf(every).names.keys()].filter((name) => !kept.has(name))),
+      }
       rows(option.rows, {
         ...scope,
         prefix: `${path}.`,
+        // A hidden choice hides its option's rows too; they are still stored and run.
+        hidden: scope.hidden || row.hidden === true,
         dormant: scope.dormant || !active,
         origin: { kind: 'branch', construct: path, option: option.key },
         shared,
@@ -1121,11 +1238,11 @@ export function elaborateInterface(
     }
     const inRun = !scope.ghost && !scope.dormant
     if (variant !== undefined && inRun) choices[path] = variant.key
-    if (variant !== undefined || row.required || view || census) {
+    if (variant !== undefined || row.required || view || census || linked(path)) {
       emitInput(
         { ...base, type: variant?.type ?? base.type, optional: variant === undefined ? !row.required : false },
         path,
-        variant === undefined && !census ? { ...scope, dormant: true } : scope,
+        variant === undefined && !census && !linked(path) ? { ...scope, dormant: true } : scope,
         undefined,
         {
           origin: {
@@ -1139,7 +1256,11 @@ export function elaborateInterface(
       )
     }
     if (variant !== undefined) dependents([...row.rows, ...variant.rows], variant.key, false)
-    else if (census) for (const item of row.variants) dependents([...row.rows, ...item.rows], item.key, true)
+    if (census) {
+      for (const item of row.variants) {
+        if (item !== variant) dependents([...(variant === undefined ? row.rows : []), ...item.rows], item.key, true)
+      }
+    }
   }
 
   /** The description stored under the row's own id, and one row per entry. */
@@ -1235,14 +1356,6 @@ export function elaborateInterface(
   }
 
   const project = (type: TypeExpr): TypeExpr => {
-    if (type.kind === 'family_tuple') {
-      return {
-        kind: 'tuple',
-        elements: elabInputsOf({ items })
-          .filter((input) => input.apiName !== undefined && input.origin.kind === 'member' && input.origin.construct === type.input)
-          .map((input) => input.spec.type),
-      }
-    }
     if (type.kind === 'tuple_element') {
       const input = items.find((item) => item.kind === 'input' && item.spec.id === type.input)
       const element = type.element ?? (input?.kind === 'input' ? input.spec.type : undefined)
@@ -1277,7 +1390,7 @@ export function elaborateInterface(
       items[index] = { ...item, spec }
     }
   }
-  return {
+  const elaborated: ElaboratedInterface = {
     items,
     submissionValues: [],
     ...(chunkSafe && covered ? { chunkSafe: {
@@ -1287,9 +1400,11 @@ export function elaborateInterface(
     ...(Object.keys(outputMembers).length > 0 ? { outputMembers } : {}),
     ...(Object.keys(choices).length > 0 ? { choices } : {}),
     ...(Object.keys(unstoredChoices).length > 0 ? { unstoredChoices } : {}),
+    ...(Object.keys(unstoredMinimums).length > 0 ? { unstoredMinimums } : {}),
     constructs: [...constructs],
     diagnostics,
   }
+  return { elaborated, chosen, early }
 }
 
 // ---------------------------------------------------------------------------

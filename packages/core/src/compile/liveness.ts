@@ -88,7 +88,7 @@ export class LivenessDerivation {
   recordSuccessfulDestination(runtimeId: string, address: PortAddress): void {
     let addresses = this.#successful.get(runtimeId)
     if (!addresses) this.#successful.set(runtimeId, (addresses = new Map()))
-    addresses.set(portAddressKey(address.port, address.members), address)
+    addresses.set(portAddressKey(address.port), address)
   }
 
   derive(

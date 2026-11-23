@@ -917,7 +917,14 @@ export interface PackPreparationProgress {
 }
 
 export type PackInstallPlan = {
-  readonly plan: Readonly<Record<string, unknown>>
+  readonly plan: Readonly<Record<string, unknown>> & {
+    readonly packChanges?: readonly {
+      readonly pack: string
+      readonly kind: 'added' | 'removed' | 'changed'
+      readonly sourceChanged: boolean
+      readonly dependenciesChanged: boolean
+    }[] | null
+  }
   readonly review: string
   readonly expiresInSeconds: number
 } & (
@@ -1362,12 +1369,24 @@ export function retainedAssetAcknowledgment(value: unknown, owner: RetainedAsset
   }
 }
 
+export interface ProjectNeeds {
+  readonly packs: readonly { readonly pack: string; readonly version: string | null }[]
+  readonly installed: readonly { readonly pack: string; readonly version: string | null }[]
+  readonly extra: readonly string[]
+  readonly unknown: readonly { readonly scope: string; readonly id: string }[]
+}
+
 export interface LibraryProject {
   readonly id: string
+  readonly uid?: string
   readonly name: string
   readonly created: string
   readonly revision: number
   readonly deleted: boolean
+  readonly environment?: { readonly id: string } & (
+    { readonly lastSnapshot: string; readonly lastRunAt: string } |
+    { readonly lastSnapshot: null; readonly lastRunAt: null }
+  ) | null
 }
 
 function decodeLibraryProject(value: unknown): LibraryProject {
@@ -1379,7 +1398,28 @@ function decodeLibraryProject(value: unknown): LibraryProject {
     !Number.isSafeInteger(row['revision']) || Number(row['revision']) < 1 || typeof row['deleted'] !== 'boolean') {
     throw new Error('Malformed library project')
   }
-  return { id: row['id'], name: row['name'], created: row['created'], revision: row['revision'] as number, deleted: row['deleted'] }
+  const uid = row['uid']
+  if (uid !== undefined && (typeof uid !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(uid))) {
+    throw new Error('Malformed library project identity')
+  }
+  const environment = row['environment']
+  if (environment !== undefined && environment !== null) {
+    if (typeof environment !== 'object' || Array.isArray(environment)) {
+      throw new Error('Malformed library project environment')
+    }
+    const binding = environment as Record<string, unknown>
+    if (typeof binding['id'] !== 'string' || binding['id'].length === 0 ||
+      !((binding['lastSnapshot'] === null && binding['lastRunAt'] === null) ||
+        (typeof binding['lastSnapshot'] === 'string' && binding['lastSnapshot'].length > 0 &&
+          typeof binding['lastRunAt'] === 'string' && binding['lastRunAt'].length > 0))) {
+      throw new Error('Malformed library project environment')
+    }
+  }
+  return {
+    id: row['id'], name: row['name'], created: row['created'], revision: row['revision'] as number, deleted: row['deleted'],
+    ...(uid === undefined ? {} : { uid: uid as string }),
+    ...(environment === undefined ? {} : { environment: environment as Exclude<LibraryProject['environment'], undefined> }),
+  }
 }
 
 /**
@@ -2068,7 +2108,8 @@ export class DinksterConnection {
     signal: AbortSignal,
     pairingAttempts = 3,
   ): Promise<SchemaRegistry> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/nodes`, { signal })
+    const query = this.project === undefined ? '' : `?${new URLSearchParams({ project: this.project })}`
+    const res = await this.fetchFn(`${this.baseUrl}/api/nodes${query}`, { signal })
     if (res.status === 503) {
       // A supervisor gates every proxied route with 503 engine-not-ready
       // until the engine answers healthy. Surface that as its own error so
@@ -3277,7 +3318,7 @@ export class DinksterConnection {
 
   /** Request a review with terminal commands or a gateway confirmation; never apply. */
   async planPackInstall(packs: readonly { readonly pack: string; readonly version: string }[], signal?: AbortSignal,
-    onProgress?: (progress: PackPreparationProgress) => void): Promise<PackInstallPlan> {
+    onProgress?: (progress: PackPreparationProgress) => void, scope?: 'every-project' | 'only-project'): Promise<PackInstallPlan> {
     let preparation: string | undefined
     let abandoned = false
     let cancelSent = false
@@ -3290,7 +3331,7 @@ export class DinksterConnection {
     let body: Record<string, unknown>
     try {
       let snapshot = await requestWithDeadline(async (deadline) => {
-        const started = await this.packInstallRequest('prepare', { packs: packs.map(({ pack, version }) => ({ pack, version })) }, deadline)
+        const started = await this.packInstallRequest('prepare', { packs: packs.map(({ pack, version }) => ({ pack, version })), ...(scope === undefined ? {} : { scope }) }, deadline)
         if (typeof started['preparation'] === 'string') preparation = started['preparation']
         if (abandoned || signal?.aborted) cancel()
         return started
@@ -3346,7 +3387,18 @@ export class DinksterConnection {
       cancel()
       throw new Error('Malformed pack installation plan response')
     }
-    return { ...(terminal ? { commands: commands as string[] } : { confirmation: confirmation as string }), plan: plan as Record<string, unknown>,
+    const changes = (plan as Record<string, unknown>)['packChanges']
+    if (changes !== undefined && changes !== null && (!Array.isArray(changes) || changes.some((raw: unknown) => {
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return true
+      const row = raw as Record<string, unknown>
+      return typeof row['pack'] !== 'string' || row['pack'].length === 0 ||
+        typeof row['kind'] !== 'string' || !['added', 'removed', 'changed'].includes(row['kind']) ||
+        typeof row['sourceChanged'] !== 'boolean' || typeof row['dependenciesChanged'] !== 'boolean'
+    }) || new Set(changes.map((row: { pack: string }) => row.pack)).size !== changes.length)) {
+      cancel()
+      throw new Error('Malformed pack installation impact')
+    }
+    return { ...(terminal ? { commands: commands as string[] } : { confirmation: confirmation as string }), plan: plan as PackInstallPlan['plan'],
       review: body['review'], expiresInSeconds: body['expiresInSeconds'] as number }
   }
 
@@ -3375,7 +3427,7 @@ export class DinksterConnection {
   async planWorkflowRequirements(document: WorkflowDocument): Promise<WorkflowRequirementPlan> {
     const res = await this.fetchFn(`${this.baseUrl}/api/workflows/plan`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workflows: [document] }),
+      body: JSON.stringify({ workflows: [document], ...(this.project === undefined ? {} : { project: this.project }) }),
     })
     if (!res.ok) throw new Error(`POST /api/workflows/plan failed: ${res.status}`)
     const raw: unknown = await res.json()
@@ -3989,13 +4041,27 @@ export class DinksterConnection {
     return `${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/docs/assets/${encodeURIComponent(digest)}`
   }
 
+  async activeEnvironment(signal?: AbortSignal): Promise<{ readonly id: string; readonly snapshot: string } | null> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/environment`, { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
+    if (!res.ok) throw new Error(`GET /api/environment failed: ${res.status}`)
+    const payload: unknown = await res.json()
+    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) throw new Error('Malformed active environment')
+    const value = (payload as Record<string, unknown>)['environment']
+    if (value === null) return null
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Malformed active environment')
+    const row = value as Record<string, unknown>
+    if (typeof row['id'] !== 'string' || !/^[0-9a-f]{32}$/.test(row['id']) ||
+      typeof row['snapshot'] !== 'string' || !/^[1-9][0-9]*$/.test(row['snapshot'])) throw new Error('Malformed active environment')
+    return { id: row['id'], snapshot: row['snapshot'] }
+  }
+
   async listProjects(cursor?: string, signal?: AbortSignal): Promise<{
     readonly items: readonly LibraryProject[]
     readonly cursor: string | null
   }> {
     const query = new URLSearchParams({ limit: '100' })
     if (cursor !== undefined) query.set('cursor', cursor)
-    const res = await this.fetchFn(`${this.baseUrl}/api/projects?${query}`, signal === undefined ? undefined : { signal })
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects?${query}`, { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
     if (!res.ok) throw new Error(`GET /api/projects failed: ${res.status}`)
     const payload = await res.json() as Record<string, unknown> | null
     if (!payload || !Array.isArray(payload['items']) ||
@@ -4011,6 +4077,10 @@ export class DinksterConnection {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, name }), ...(signal === undefined ? {} : { signal }),
     })
+    if (res.status === 503) {
+      const gate = parseEngineNotReady(await res.json().catch(() => undefined))
+      if (gate) throw new EngineNotReadyError(gate.state)
+    }
     if (!res.ok) throw new Error(`POST /api/projects failed: ${res.status}`)
     const payload = await res.json() as { project?: unknown } | null
     const project = decodeLibraryProject(payload?.project)
@@ -4018,12 +4088,62 @@ export class DinksterConnection {
     return project
   }
 
-  async renameProject(id: string, name: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+  async getProject(id: string, signal?: AbortSignal): Promise<LibraryProject> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}`, { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
+    if (!res.ok) throw new Error(`GET /api/projects failed: ${res.status}`)
+    const payload = await res.json() as { project?: unknown } | null
+    const project = decodeLibraryProject(payload?.project)
+    if (project.id !== id) throw new Error('Library returned another project')
+    if (project.deleted) throw new Error('Project is unavailable')
+    return project
+  }
+
+  async projectNeeds(id: string, signal?: AbortSignal): Promise<ProjectNeeds> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}/needs`, { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
+    if (!res.ok) throw new Error(`GET /api/projects/needs failed: ${res.status}`)
+    const invalid = () => new Error('Malformed project needs')
+    const raw: unknown = await res.json()
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
+    const body = raw as Record<string, unknown>
+    if (!Array.isArray(body['packs']) || !Array.isArray(body['extra']) ||
+      !body['extra'].every((pack) => typeof pack === 'string' && pack.length > 0) || !Array.isArray(body['unknown'])) throw invalid()
+    const readPacks = (rows: unknown): ProjectNeeds['packs'] => {
+      if (!Array.isArray(rows)) throw invalid()
+      return rows.map((raw: unknown) => {
+        if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
+        const pack = raw as Record<string, unknown>
+        if (typeof pack['pack'] !== 'string' || pack['pack'].length === 0 ||
+          !(pack['version'] === null || typeof pack['version'] === 'string' && pack['version'].length > 0)) throw invalid()
+        return { pack: pack['pack'], version: pack['version'] as string | null }
+      })
+    }
+    const packs = readPacks(body['packs'])
+    const installed = readPacks(body['installed'])
+    if (new Set(installed.map(({ pack }) => pack)).size !== installed.length) throw invalid()
+    const unknown = body['unknown'].map((raw: unknown) => {
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
+      const record = raw as Record<string, unknown>
+      if (typeof record['scope'] !== 'string' || record['scope'].length === 0 ||
+        typeof record['id'] !== 'string' || record['id'].length === 0) throw invalid()
+      return { scope: record['scope'], id: record['id'] }
+    })
+    return { packs, installed, extra: body['extra'] as string[], unknown }
+  }
+
+  renameProject(id: string, name: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    return this.patchProject(id, revision, { name }, signal)
+  }
+
+  setProjectExtraPacks(id: string, extra: readonly string[], revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    return this.patchProject(id, revision, { packs: { extra } }, signal)
+  }
+
+  private async patchProject(id: string, revision: number, patch: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<LibraryProject> {
     const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ revision, patch: { name } }), ...(signal === undefined ? {} : { signal }),
+      body: JSON.stringify({ revision, patch }), ...(signal === undefined ? {} : { signal }),
     })
-    if (res.status === 409) throw new Error('Project changed elsewhere. Refresh before renaming.')
+    if (res.status === 409) throw new Error('Project changed elsewhere. Refresh before saving.')
     if (!res.ok) throw new Error(`PATCH /api/projects failed: ${res.status}`)
     const payload = await res.json() as { project?: unknown } | null
     const project = decodeLibraryProject(payload?.project)

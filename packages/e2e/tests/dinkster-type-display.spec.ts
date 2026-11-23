@@ -1,7 +1,7 @@
 /**
  * Native built-in pins display their canonical identities and palette colors.
  */
-import { expect, test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page } from './fixtures.js'
 
 const schema = {
   type: 'TypeDisplayNative',
@@ -9,7 +9,7 @@ const schema = {
   category: 'test',
   source: 'v3',
   isOutputNode: false,
-  items: [
+  body: [
     { kind: 'input', id: 'te', displayName: 'text encoder', type: { kind: 'concrete', name: 'CLIP' }, optional: false },
     { kind: 'input', id: 'codec', displayName: 'codec', type: { kind: 'concrete', name: 'VAE' }, optional: false },
     { kind: 'input', id: 'control', displayName: 'control', type: { kind: 'concrete', name: 'CONTROL_NET' }, optional: false },
@@ -35,7 +35,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   if (testInfo.title === 'tuple pins retain positional types in the tooltip') {
     await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
     await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'tuple-e2e', schemaWire: 1 }, nodes: {},
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'tuple-e2e', schemaWire: 2 }, nodes: {},
     } }))
     await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   }
@@ -54,7 +54,7 @@ test('tuple pins retain positional types in the tooltip', async ({ page }, testI
   await page.evaluate((schema) => {
     window.__dinksterTest!.app.registerSchemas([{
       ...schema,
-      items: [{ kind: 'output', id: 'tuple', type: { kind: 'tuple', elements: [
+      body: [{ kind: 'output', id: 'tuple', type: { kind: 'tuple', elements: [
         { kind: 'concrete', name: 'INT' },
         { kind: 'concrete', name: 'STRING' },
       ] } }],
@@ -82,7 +82,7 @@ const imageSchemas = [
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'image', displayName: 'image', type: { kind: 'concrete', name: 'IMAGE' } }],
+    body: [{ kind: 'output', id: 'image', displayName: 'image', type: { kind: 'concrete', name: 'IMAGE' } }],
   },
   {
     type: 'ComfyImageConsumer',
@@ -90,7 +90,7 @@ const imageSchemas = [
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'image', displayName: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
       { kind: 'input', id: 'mask', displayName: 'mask', type: { kind: 'concrete', name: 'MASK' }, optional: false },
     ],
@@ -198,7 +198,7 @@ const maskSchemas = [
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [{ kind: 'output', id: 'mask', displayName: 'mask', type: { kind: 'concrete', name: 'MASK' } }],
+    body: [{ kind: 'output', id: 'mask', displayName: 'mask', type: { kind: 'concrete', name: 'MASK' } }],
   },
   {
     type: 'ComfyMaskConsumer',
@@ -206,7 +206,7 @@ const maskSchemas = [
     category: 'test',
     source: 'v3',
     isOutputNode: false,
-    items: [
+    body: [
       { kind: 'input', id: 'mask', displayName: 'mask', type: { kind: 'concrete', name: 'MASK' }, optional: false },
       { kind: 'input', id: 'image', displayName: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
     ],

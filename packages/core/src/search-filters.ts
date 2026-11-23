@@ -116,7 +116,6 @@ export function typeMatchesToken(t: TypeExpr, token: string): boolean {
       return t.allowedTypes === undefined || t.allowedTypes.some((a) => typeMatchesToken(a, token))
     case 'tuple':
       return t.elements.some((element) => typeMatchesToken(element, token))
-    case 'family_tuple':
     case 'tuple_element':
       return false
     case 'concrete':
@@ -211,7 +210,6 @@ export const hasKnownLinkDropAnchorType = (type: TypeExpr): boolean => {
   switch (type.kind) {
     case 'tuple':
       return type.elements.every(hasKnownLinkDropAnchorType)
-    case 'family_tuple':
     case 'tuple_element':
       return false
     case 'concrete':
@@ -265,10 +263,8 @@ export function schemaMatchesLinkDrop(
  * goes through dynamic.selectOption, never link.connect) is never a target. Undefined = insert unconnected.
  */
 export interface AutoConnectTarget {
-  /** link.connect endpoint port (family slot path for dynamic members). */
+  /** link.connect endpoint port: the row's flattened id. */
   readonly port: string
-  /** link.connect endpoint members, when the target is a family member. */
-  readonly members?: readonly string[]
   /** dynamic.materialize frames the connect must batch with, when the target is synthetic. */
   readonly materialize?: readonly MaterializeFrame[]
 }
@@ -300,7 +296,6 @@ export function autoConnectTarget(
     const frames = materializeFramesOf(items, item)
     const target: AutoConnectTarget = {
       port: item.address.port,
-      ...(item.address.members !== undefined ? { members: item.address.members } : {}),
       ...(frames !== undefined ? { materialize: frames } : {}),
     }
     if (hasKnownLinkDropAnchorType(item.spec.type)) return target

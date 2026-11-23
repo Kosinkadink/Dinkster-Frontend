@@ -16,7 +16,7 @@ const workflow = {
 test.beforeEach(async ({ page }) => {
   await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'app-view-flag-test', schemaWire: 1 }, packs: {}, nodes: {},
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'app-view-flag-test', schemaWire: 2 }, packs: {}, nodes: {},
   } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated fixture' }))
@@ -35,7 +35,7 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(() => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'FlagInput', displayName: 'Flag input', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'steps', type: { kind: 'concrete', name: 'INT' }, optional: false,
+      body: [{ kind: 'input', id: 'steps', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: { min: 0, max: 100, step: 1 }, default: 7 } }],
     }])
   })

@@ -1,5 +1,4 @@
 import type { Page } from '@playwright/test'
-import type { NodeSchema } from '@dinkster/core'
 import { expect, test, waitForStartupOwnership as waitForOwnership } from './fixtures.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json' with { type: 'json' }
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json' with { type: 'json' }
@@ -23,7 +22,7 @@ async function waitForStartupOwnership(page: Page): Promise<void> {
   await waitForOwnership(page)
   await page.evaluate(() => window.__dinksterTest!.app.registerSchemas(
     ['TestNode', 'NewLocalNode'].map((type) => ({
-      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, items: [],
+      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, body: [],
     })),
   ))
 }
@@ -75,71 +74,6 @@ test('worker saves retain concurrent edits and merge more than sixteen recovery 
     return Object.values(tab.store.doc.graphs[tab.store.doc.root]!.nodes).map((node) => node.title)
   })).toContain('Newer worker snapshot')
 })
-
-for (const accepted of [true, false]) {
-  test(`image session waits for editor ownership: ${accepted ? 'accepted' : 'refused'}`, async ({ page }, info) => {
-    await disableSupervisorDiscovery(page)
-    const png = await page.evaluate(() => {
-      const canvas = document.createElement('canvas')
-      canvas.width = 128
-      canvas.height = 96
-      const context = canvas.getContext('2d')!
-      context.fillStyle = '#3c91d2'
-      context.fillRect(0, 0, 128, 96)
-      return canvas.toDataURL('image/png').split(',')[1]!
-    })
-    await page.route('**/api/assets/**', (route) => route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') }))
-    await page.goto('/')
-    await waitForStartupOwnership(page)
-    await page.evaluate(async () => {
-      const app = window.__dinksterTest!.app
-      const schema: NodeSchema = {
-        type: 'ImageLoader', displayName: 'Image Loader', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'image', optional: false,
-          type: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } },
-          widget: { widgetType: 'ASSET', options: { accept: ['image/png'] } } }],
-      }
-      app.registerSchemas([schema])
-      await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'editor-assets', root: 'g0',
-        graphs: { g0: { id: 'g0', name: 'Root', nodes: { n0: { id: 'n0', type: 'ImageLoader', values: {
-          image: { digest: `blake3:${'a'.repeat(64)}`, name: 'source.png', size: 100,
-            mediaType: 'image/png', virtualPath: '' },
-        } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: {} },
-      }, 'Retained image editor')
-    })
-    await page.waitForFunction(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)
-    let release!: () => void
-    const barrier = new Promise<void>((resolve) => { release = resolve })
-    let requests = 0
-    await page.route('**/api/library/retentions/document/*?scope=local', async (route) => {
-      if (route.request().method() === 'GET') return route.fulfill({ status: 404 })
-      const declaration = route.request().postDataJSON()
-      requests++
-      await barrier
-      if (!accepted) return route.fulfill({ status: 409, json: { error: 'Editor ownership refused' } })
-      await route.fulfill({ json: { ...declaration, scope: 'local', ownerKind: 'document',
-        ownerId: decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!), revision: 1 } })
-    })
-    expect(await page.evaluate(() => {
-      const app = window.__dinksterTest!.app
-      const editor = app as unknown as {
-        imageTargetForInput(tab: unknown, graph: string, node: string, input: string): unknown
-        openImageEditor(target: unknown): boolean
-      }
-      return editor.openImageEditor(editor.imageTargetForInput(app.activeTab(), 'g0', 'n0', 'image'))
-    })).toBe(true)
-    await expect.poll(() => requests).toBeGreaterThan(0)
-    await expect(page.getByRole('button', { name: 'Bake to asset' })).toBeDisabled()
-    await page.screenshot({ path: info.outputPath('image-editor-pending.png') })
-    release()
-    if (accepted) await expect(page.getByRole('button', { name: 'Bake to asset' })).toBeEnabled()
-    else {
-      await expect(page.locator('.image-editor-error')).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Bake to asset' })).toBeDisabled()
-    }
-    await page.screenshot({ path: info.outputPath(`image-editor-${accepted ? 'accepted' : 'refused'}.png`) })
-  })
-}
 
 for (const accepted of [true, false]) {
 }

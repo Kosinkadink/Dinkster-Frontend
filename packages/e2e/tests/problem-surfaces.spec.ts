@@ -1,7 +1,10 @@
 import { mkdirSync } from 'node:fs'
 import type { Locator, Page } from '@playwright/test'
-import { expect, test, waitForStartupOwnership } from './fixtures.js'
+import { expect, mockProjectPacks, nativeTest as base, waitForStartupOwnership } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
+
+const test = base.extend<{ proofDocument: boolean }>({ proofDocument: [true, { option: true }] })
+const residentTest = test.extend({ proofDocument: false })
 
 const capture = async (page: Page, name: string): Promise<void> => {
   if (process.env['DINKSTER_CAPTURE_ISSUE_22'] !== '1') return
@@ -50,11 +53,12 @@ const reportTwoProblems = (page: Page): Promise<void> =>
     ])
   })
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, proofDocument }) => {
   await page.route('/system_stats', (route) =>
     route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }),
   )
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
+  if (!proofDocument) return
   await page.goto('/')
   await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
   await waitForStartupOwnership(page)
@@ -62,7 +66,7 @@ test.beforeEach(async ({ page }) => {
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'ProofNode', displayName: 'Proof Node', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'steps', displayName: 'Steps', type: { kind: 'concrete', name: 'INT' }, optional: false }],
+        body: [{ kind: 'input', id: 'steps', displayName: 'Steps', type: { kind: 'concrete', name: 'INT' }, optional: false }],
       },
     ])
     // Two disconnected nodes: no links, so the solver contributes no
@@ -84,7 +88,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 for (const state of ['shared', 'isolated', 'host-refused'] as const) {
-  test(`resident process availability is visible before Run (${state})`, async ({ page }) => {
+  residentTest(`resident process availability is visible before Run (${state})`, async ({ page }) => {
     let submissions = 0
     page.on('request', (request) => {
       if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/jobs') submissions++
@@ -94,18 +98,19 @@ for (const state of ['shared', 'isolated', 'host-refused'] as const) {
       : "Pack 'modifier' cannot receive a resident value from pack 'models' in another process; admit the pack to the shared inference process or use the owner's node through an engine-run node on a reference."
     await page.route('/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1,
-      dinkster: { version: 'resident-process-test', schemaWire: 1, graphFeatures: ['regions', 'typedLiteral'] },
+      dinkster: { version: 'resident-process-test', schemaWire: 2, graphFeatures: ['regions', 'typedLiteral'] },
       nodes: {
-        'proof.model': { displayName: 'Loaded model', pack: 'models', interface: [
-          { role: 'output', id: 'model', type: { kind: 'concrete', types: ['MODEL'] } },
+        'proof.model': { displayName: 'Loaded model', pack: 'models', body: [
+          { kind: 'output', id: 'model', type: { kind: 'concrete', types: ['MODEL'] } },
         ], residentAffinity: { types: ['MODEL'], routes: [{ process: 'models', pack: 'models', worker: 'local' }] } },
-        'proof.modify': { displayName: 'Model modifier', pack: 'modifier', outputNode: true, interface: [
-          { role: 'input', id: 'model', required: true, type: { kind: 'concrete', types: ['MODEL'] } },
+        'proof.modify': { displayName: 'Model modifier', pack: 'modifier', outputNode: true, body: [
+          { kind: 'input', id: 'model', required: true, type: { kind: 'concrete', types: ['MODEL'] } },
         ], ...(state === 'host-refused' ? { unavailableReason: reason } : {}),
         residentAffinity: { types: ['MODEL'], routes: [{ process: state === 'isolated' ? 'isolated' : 'models', pack: 'modifier', worker: 'local' }] } },
       },
     } }))
-    await page.reload()
+    await mockProjectPacks(page, ['models', 'modifier'])
+    await page.goto('/')
     await expect(page.getByTestId('status-bar')).toContainText('2 node schemas')
     await waitForStartupOwnership(page)
     await page.evaluate(async () => {

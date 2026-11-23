@@ -1,6 +1,6 @@
 /**
- * DinksterConnection unit tests: native schema registry from the real
- * /api/nodes fixture, V1-prompt -> native graph conversion, submit
+ * DinksterConnection unit tests: native schema registry from an /api/nodes
+ * payload, V1-prompt -> native graph conversion, submit
  * accept/reject mapping, job hydration/replay, WS framing, and native
  * reconciliation.
  */
@@ -9,8 +9,8 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  DINKSTER_SCHEMA_WIRE_VERSION,
   asConnectionId,
-  asDynamicMemberId,
   asNodeId,
   asPortId,
   asPromptId,
@@ -32,18 +32,41 @@ import { uuidv4 } from '../src/dinkster-connection.js'
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
 
-const nodesPayload = readJson('fixtures/dinkster-nodes.json') as DinksterNodesPayload
+const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
+const nodesPayload: DinksterNodesPayload = {
+  schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+  nodes: {
+    'std.math.add_ints': {
+      nodeType: 'std.math.add_ints', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1,
+      displayName: 'Add Ints', category: 'math', description: '', idempotent: true,
+      body: [
+        { kind: 'input', id: 'a', required: true, type: concrete('INT') },
+        { kind: 'input', id: 'b', required: true, default: 1, type: concrete('INT') },
+        { kind: 'output', id: 'sum', type: concrete('INT') },
+      ],
+    },
+    'test.types': {
+      nodeType: 'test.types', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1,
+      displayName: 'Types', category: 'test', description: '', idempotent: false,
+      body: [
+        { kind: 'input', id: 'either', required: true, type: { kind: 'union', types: ['INT', 'FLOAT'] } },
+        { kind: 'input', id: 'anything', required: true, type: { kind: 'wildcard' } },
+        { kind: 'input', id: 't_in', required: true, type: { kind: 'variable', templateId: 'T' } },
+        { kind: 'input', id: 'c_in', required: true, type: { kind: 'variable', templateId: 'C', allowed: ['INT', 'FLOAT'] } },
+        { kind: 'input', id: 'ints', required: true, type: { kind: 'list', element: concrete('INT') } },
+        { kind: 'input', id: 'matrix', required: true, type: { kind: 'list', element: { kind: 'list', element: concrete('INT') } } },
+        { kind: 'input', id: 'items', required: true, type: { kind: 'list', element: { kind: 'variable', templateId: 'T' } } },
+        { kind: 'output', id: 't_out', type: { kind: 'variable', templateId: 'T' } },
+      ],
+    },
+  },
+}
 const docsPageFixture = JSON.parse(readFileSync(new URL('./fixtures/docs-page.json', import.meta.url), 'utf8')) as unknown
 const currentNodesPayload = (
   dinkster?: Record<string, unknown>,
 ): DinksterNodesPayload => ({
   ...nodesPayload,
-  schemaVersion: 1,
-  ...(dinkster === undefined ? {} : { dinkster: { ...dinkster, schemaWire: 1 } }),
-  nodes: Object.fromEntries(
-    Object.entries(nodesPayload.nodes as Record<string, Record<string, unknown>>)
-      .map(([type, schema]) => [type, { ...schema, schemaVersion: 1 }]),
-  ),
+  ...(dinkster === undefined ? {} : { schemaVersion: 1, dinkster: { ...dinkster, schemaWire: DINKSTER_SCHEMA_WIRE_VERSION } }),
 })
 const liveNodesPayload = currentNodesPayload()
 const C0 = asConnectionId('c0')
@@ -58,9 +81,9 @@ it('decodes and revalidates static registry import metadata without backend cred
   const row = { pack: 'dinkster-text', version: '0.0.1',
     rule: { from: 'StringLength', cases: [{ to: 'dinkster.text.string_length',
       inputs: { string: { kind: 'copy', input: 'string' } }, outputs: { length: 'length' } }] },
-    schema: { schemaVersion: 1, nodeType: 'dinkster.text.string_length', interface: [
-      { role: 'input', id: 'string', type: { kind: 'concrete', types: ['STRING'] } },
-      { role: 'output', id: 'length', type: { kind: 'concrete', types: ['INT'] } },
+    schema: { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'dinkster.text.string_length', body: [
+      { kind: 'input', id: 'string', type: { kind: 'concrete', types: ['STRING'] } },
+      { kind: 'output', id: 'length', type: { kind: 'concrete', types: ['INT'] } },
     ] } }
   const indexRow = (version = '0.0.1') => ({ from: 'StringLength', candidates: [{ ...row, version, target: row.schema.nodeType }] })
   let payload: unknown = { schemaVersion: 1, items: [indexRow()] }
@@ -74,7 +97,7 @@ it('decodes and revalidates static registry import metadata without backend cred
       expect(init?.credentials).toBe('omit')
       if (url.endsWith('/schemas.json')) return jsonResponse(200, { packName: row.pack,
         version: url.includes('/0.0.2/') ? '0.0.2' : '0.0.1', schemas: [{ nodeType: row.schema.nodeType,
-          schemaWireVersion: 1, schema: row.schema }] })
+          schemaWireVersion: DINKSTER_SCHEMA_WIRE_VERSION, schema: row.schema }] })
       calls.push({ url, etag: new Headers(init?.headers).get('If-None-Match') })
       return new Response(status === 304 ? null : JSON.stringify(payload), { status, headers: { ETag: etag } })
     }, webSocketFactory: () => ({}) as WebSocketLike })
@@ -123,8 +146,8 @@ it('retains the newer import catalog when an older refresh completes last', asyn
     registryStaticUrl: () => 'https://mirror.example/static',
     fetchFn: async (url, init) => {
       if (url.endsWith('/schemas.json')) return jsonResponse(200, { packName: 'dinkster-text',
-        version: url.includes('/0.0.2/') ? '0.0.2' : '0.0.1', schemas: [{ nodeType: 'dinkster.text.string_length', schemaWireVersion: 1,
-          schema: { schemaVersion: 1, interface: [] } }] })
+        version: url.includes('/0.0.2/') ? '0.0.2' : '0.0.1', schemas: [{ nodeType: 'dinkster.text.string_length', schemaWireVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+          schema: { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [] } }] })
       etags.push(new Headers(init?.headers).get('If-None-Match'))
       if (etags.length === 1) return new Promise<Response>((resolve) => { releaseOlder = resolve })
       if (etags.length === 2) return new Response(JSON.stringify(snapshot('0.0.2')), { headers: { ETag: '"newer"' } })
@@ -146,6 +169,14 @@ function preparedReview(result: unknown) {
 it.each([
   { format: 'dinkster.plan/1', base: null },
   { format: 'desktop.project-software/1', retained: { engine: 'sealed', constraints: ['cpu'] } },
+  { format: 'dinkster.project-pack-plan/1', packChanges: null },
+  { format: 'dinkster.project-pack-plan/1', packChanges: [] },
+  { format: 'dinkster.project-pack-plan/1', packChanges: [
+    { pack: 'image', kind: 'changed', sourceChanged: true, dependenciesChanged: false },
+    { pack: 'shared', kind: 'changed', sourceChanged: false, dependenciesChanged: true },
+    { pack: 'old', kind: 'removed', sourceChanged: true, dependenciesChanged: false },
+    { pack: 'new', kind: 'added', sourceChanged: true, dependenciesChanged: true },
+  ] },
 ])('plans exact pack selections with an opaque host plan and applies only confirmation', async (hostPlan) => {
   const plan = { confirmation: 'opaque-review-token', plan: hostPlan,
     review: 'Install sampling 2.1 and image 3.2', expiresInSeconds: 900 }
@@ -169,6 +200,48 @@ it.each([
   expect(await connection.applyPackInstall(reviewed.confirmation)).toEqual({ generation: 3,
     activation: { epoch: 7, added: ['sampling', 'image'], removed: [], reloaded: ['models'], unchanged: ['base'] } })
   expect(calls[1]).toEqual({ url: '/selected/api/packs/install/apply', body: { confirmation: 'opaque-review-token' } })
+})
+
+it.each(['every-project', 'only-project'] as const)('retains explicit %s consent in preparation, not status or Apply', async (scope) => {
+  const packs = [{ pack: 'image', version: '3.2' }]
+  const plan = { confirmation: 'retained-scope-token', plan: { format: 'dinkster.project-pack-plan/1' },
+    review: 'Reviewed project scope', expiresInSeconds: 900 }
+  const calls: { action: string; body: unknown }[] = []
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer',
+    fetchFn: async (url, init) => {
+      const action = url.split('/install/')[1]!
+      calls.push({ action, body: JSON.parse(init!.body as string) })
+      if (action === 'prepare') return jsonResponse(202, { preparation: 'preparation-1', state: 'preparing',
+        progress: { sequence: 1, stage: 'resolving', completed: 0, total: 1 } })
+      if (action === 'preparation/status') return jsonResponse(200, preparedReview(plan))
+      return jsonResponse(200, { generation: 3, activation: { generation: 3, epoch: 7, added: ['image'],
+        removed: [], reloaded: [], unchanged: [], failed: {}, rolledBack: false } })
+    }, webSocketFactory: () => ({}) as WebSocketLike })
+  const reviewed = await connection.planPackInstall(packs, undefined, undefined, scope)
+  expect(reviewed).toEqual(plan)
+  if (reviewed.commands !== undefined) throw new Error('Expected a gateway confirmation')
+  expect((await connection.applyPackInstall(reviewed.confirmation)).activation.added).toEqual(['image'])
+  expect(calls).toEqual([
+    { action: 'prepare', body: { packs, scope } },
+    { action: 'preparation/status', body: { preparation: 'preparation-1' } },
+    { action: 'apply', body: { confirmation: 'retained-scope-token' } },
+  ])
+})
+
+it.each([
+  {}, 'unknown', [null],
+  [{ pack: '', kind: 'added', sourceChanged: true, dependenciesChanged: false }],
+  [{ pack: 'image', kind: 'unchanged', sourceChanged: false, dependenciesChanged: false }],
+  [{ pack: 'image', kind: ['changed'], sourceChanged: true, dependenciesChanged: false }],
+  [{ pack: 'image', kind: 'changed', sourceChanged: true }],
+  [{ pack: 'image', kind: 'changed', sourceChanged: 'true', dependenciesChanged: false }],
+  Array(2).fill({ pack: 'image', kind: 'changed', sourceChanged: true, dependenciesChanged: false }),
+])('refuses malformed retained impact rather than claiming no affected projects: %j', async (packChanges) => {
+  const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer',
+    fetchFn: async () => jsonResponse(200, preparedReview({ confirmation: 'token',
+      plan: { format: 'dinkster.project-pack-plan/1', packChanges }, review: 'Review', expiresInSeconds: 900 })),
+    webSocketFactory: () => ({}) as WebSocketLike })
+  await expect(connection.planPackInstall([{ pack: 'image', version: '3.2' }])).rejects.toThrow('Malformed pack installation impact')
 })
 
 it('retains terminal-only installation commands without granting HTTP confirmation', async () => {
@@ -245,21 +318,22 @@ it('bounds install planning and forwards cancellation without retrying apply', a
 
 it('cancels a late preparation acknowledgement after the caller stops waiting', async () => {
   let acknowledge!: (response: Response) => void
-  const calls: string[] = []
-  const fetchFn: FetchLike = async (url) => {
-    calls.push(url)
+  const calls: { url: string; body: unknown }[] = []
+  const fetchFn: FetchLike = async (url, init) => {
+    calls.push({ url, body: JSON.parse(init!.body as string) })
     if (url.endsWith('/prepare')) return new Promise((resolve) => { acknowledge = resolve })
     return jsonResponse(200, { state: 'cancelled' })
   }
   const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'installer', fetchFn,
     webSocketFactory: () => ({}) as WebSocketLike })
   const controller = new AbortController()
-  const stopped = expect(connection.planPackInstall([{ pack: 'image', version: '1' }], controller.signal)).rejects.toThrow('Aborted')
+  const stopped = expect(connection.planPackInstall([{ pack: 'image', version: '1' }], controller.signal, undefined, 'only-project')).rejects.toThrow('Aborted')
   controller.abort(new Error('Aborted'))
   await stopped
   acknowledge(jsonResponse(202, { preparation: 'late-preparation', state: 'preparing' }))
   await vi.waitFor(() => expect(calls).toEqual([
-    '/selected/api/packs/install/prepare', '/selected/api/packs/install/preparation/cancel',
+    { url: '/selected/api/packs/install/prepare', body: { packs: [{ pack: 'image', version: '1' }], scope: 'only-project' } },
+    { url: '/selected/api/packs/install/preparation/cancel', body: { preparation: 'late-preparation' } },
   ]))
 })
 
@@ -995,15 +1069,15 @@ function chainArtifact(): CompileArtifact {
 describe('promptToDinksterGraph', () => {
   it('lowers heterogeneous compiler outputs without reconstructing the static catalog order', () => {
     const output = (id: string, type: string) => ({
-      role: 'output', id, type: { kind: 'concrete', types: [type] },
+      kind: 'output', id, type: { kind: 'concrete', types: [type] },
     })
     const effective = buildDinksterRegistry(C0, {
-      schemaVersion: 1,
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
       nodes: {
-        Source: { schemaVersion: 1, nodeType: 'Source', interface: [output('caption', 'core.str'), output('total', 'INT')] },
-        Sink: { schemaVersion: 1, nodeType: 'Sink', interface: [
-          { role: 'input', id: 'text', required: true, type: { kind: 'concrete', types: ['core.str'] } },
-          { role: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['INT'] } },
+        Source: { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'Source', body: [output('caption', 'core.str'), output('total', 'INT')] },
+        Sink: { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'Sink', body: [
+          { kind: 'input', id: 'text', required: true, type: { kind: 'concrete', types: ['core.str'] } },
+          { kind: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['INT'] } },
         ] },
       },
     })
@@ -1038,8 +1112,8 @@ describe('promptToDinksterGraph', () => {
       [output('total', 'INT'), output('caption', 'core.str')],
     ]) {
       const catalog = buildDinksterRegistry(C0, {
-        schemaVersion: 1,
-        nodes: { Source: { schemaVersion: 1, nodeType: 'Source', interface: declared } },
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+        nodes: { Source: { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'Source', body: declared } },
       })
       const native = promptToDinksterGraph(compiled.artifact.prompt, catalog.resolve)
       expect(native.ok).toBe(true)
@@ -1075,43 +1149,34 @@ describe('promptToDinksterGraph', () => {
     { count: undefined, members: [] },
     { count: undefined, members: ['left', 'right'] },
     { count: 2, members: ['0', '1'] },
-  ])('lowers output-family members $members with count $count by canonical ID', ({ count, members }) => {
+  ])('lowers output group members $members with count $count by canonical ID', ({ count, members }) => {
     const dynamicRegistry = buildDinksterRegistry(C0, {
-      schemaVersion: 1,
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
       nodes: {
         Splitter: {
-          schemaVersion: 1,
+          schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
           nodeType: 'Splitter',
-          interface: [
+          body: [
             ...(count === undefined ? [] : [{
-              role: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['INT'] },
+              kind: 'input', id: 'count', required: true, type: { kind: 'concrete', types: ['INT'] },
             }]),
-            { role: 'output', id: 'before', type: { kind: 'concrete', types: ['INT'] } },
+            { kind: 'output', id: 'before', type: { kind: 'concrete', types: ['INT'] } },
             {
-              role: 'outputFamily', id: 'parts', minMembers: 1, maxMembers: 4,
-              type: { kind: 'concrete', types: ['INT'] },
-              ...(count === undefined ? {} : { count: { input: 'count', suffix: 'index' } }),
+              kind: 'group', id: 'parts', minMembers: 1,
+              value: { kind: 'output', id: 'part', type: { kind: 'concrete', types: ['INT'] } },
+              ...(count === undefined
+                ? { keys: { named: ['left', 'right'] }, grows: 'link' }
+                : { keys: { numbered: { prefix: '', start: 0, pad: 0 } }, grows: { count: 'count' }, maxMembers: 4 }),
             },
-            { role: 'output', id: 'after', type: { kind: 'concrete', types: ['INT'] } },
+            { kind: 'output', id: 'after', type: { kind: 'concrete', types: ['INT'] } },
           ],
         },
       },
     })
     expect(dynamicRegistry.diagnostics).toEqual([])
     const resolve = (type: string) => dynamicRegistry.resolve(type) ?? registry.resolve(type)
-    const result = promptToDinksterGraph({
-      source: { class_type: 'Splitter', inputs: {}, outputMembers: { parts: ['left', 'right'] } },
-      sink: { class_type: 'std.math.add_ints', inputs: { a: ['source', 2], b: 0 } },
-    }, resolve)
-    expect(result.ok).toBe(true)
-    if (!result.ok) throw new Error('unreachable')
-    expect(result.graph.nodes.source).toEqual({
-      nodeType: 'Splitter', inputs: {}, outputMembers: { parts: ['left', 'right'] },
-    })
-    expect(result.graph.nodes.sink).toMatchObject({ inputs: { a: { $link: { node: 'source', output: 'parts.right' } } } })
-
     const loaded = loadDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'manual-output-family', root: 'g0',
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'manual-output-group', root: 'g0',
       graphs: {
         g0: {
           id: 'g0', name: 'root',
@@ -1124,7 +1189,7 @@ describe('promptToDinksterGraph', () => {
           links: {
             l0: { id: 'l0', from: { node: 'source', port: 'after' }, to: { node: 'sink', port: 'a' } },
             ...(members.length === 0 ? {} : { l1: {
-              id: 'l1', from: { node: 'source', port: count === undefined ? 'parts.parts' : 'parts', members: [members[1]] },
+              id: 'l1', from: { node: 'source', port: `parts.${members[1]}` },
               to: { node: 'sink', port: 'b' },
             } }),
           },
@@ -1143,7 +1208,8 @@ describe('promptToDinksterGraph', () => {
     if (!compiled.ok) throw new Error('unreachable')
     expect(compiled.artifact.prompt.source).toEqual({
       class_type: 'Splitter', inputs: count === undefined ? {} : { count },
-      outputIds: ['before', ...members.map((member) => `parts.${member}`), 'after'], outputMembers: { parts: members },
+      outputIds: ['before', ...members.map((member) => `parts.${member}`), 'after'],
+      ...(count === undefined && members.length > 0 ? { outputMembers: { parts: members } } : {}),
     })
     expect(compiled.artifact.prompt.sink?.inputs.a).toEqual(['source', members.length + 1])
     const native = promptToDinksterGraph(compiled.artifact.prompt, resolve)
@@ -1154,118 +1220,6 @@ describe('promptToDinksterGraph', () => {
         a: { $link: { node: 'source', output: 'after' } },
         b: members.length === 0 ? 0 : { $link: { node: 'source', output: `parts.${members[1]}` } },
       },
-    })
-  })
-
-  it('moves recursive DynamicCombo selectors out of native inputs without removing DynamicSlot sockets', () => {
-    const dynamicRegistry = buildDinksterRegistry(C0, {
-      schemaVersion: 1,
-      nodes: {
-        Dynamic: {
-          schemaVersion: 1,
-          nodeType: 'Dynamic',
-          interface: [
-            {
-              role: 'dynamicCombo', id: 'mode', required: true,
-              options: [{ key: 'batch', inputs: [{
-                role: 'dynamicCombo', id: 'quality', required: true,
-                options: [{ key: 'full', inputs: [{
-                  role: 'input', id: 'steps', required: false,
-                  type: { kind: 'concrete', types: ['INT'] },
-                }] }],
-              }] }, {
-                key: 'plain', inputs: [{
-                  role: 'input', id: 'quality', required: false,
-                  type: { kind: 'concrete', types: ['STRING'] },
-                }],
-              }],
-            },
-            {
-              role: 'inputFamily', id: 'items', memberPrefix: 'item',
-              template: [{
-                role: 'dynamicCombo', id: 'mode', required: true,
-                options: [{ key: 'a', inputs: [{
-                  role: 'input', id: 'x', required: false,
-                  type: { kind: 'concrete', types: ['INT'] },
-                }] }],
-              }],
-            },
-            {
-              role: 'dynamicSlot', id: 'source', required: false,
-              variants: [
-                {
-                  key: 'text', type: { kind: 'concrete', types: ['STRING'] },
-                  inputs: [{
-                    role: 'input', id: 'mode', required: false,
-                    type: { kind: 'concrete', types: ['STRING'] },
-                  }],
-                },
-                {
-                  key: 'advanced', type: { kind: 'concrete', types: ['STRING'] },
-                  inputs: [{
-                    role: 'dynamicCombo', id: 'mode', required: true,
-                    options: [{ key: 'one', inputs: [] }],
-                  }],
-                },
-              ],
-              inputs: [],
-            },
-          ],
-        },
-      },
-    } as unknown as DinksterNodesPayload)
-    const prompt: Prompt = {
-      n: {
-        class_type: 'Dynamic',
-        inputs: {
-          mode: 'batch',
-          'mode.quality': 'full',
-          'mode.quality.steps': 2,
-          'items.item0.mode': 'a',
-          'items.item0.mode.x': 1,
-          source: 'text',
-          'source.mode': 'ordinary',
-        },
-        slotVariants: {
-          mode: 'batch',
-          'mode.quality': 'full',
-          'items.item0.mode': 'a',
-          source: 'text',
-        },
-      },
-    }
-    const result = promptToDinksterGraph(prompt, dynamicRegistry.resolve)
-    expect(result.ok).toBe(true)
-    if (!result.ok) throw new Error('unreachable')
-    expect(result.graph.nodes.n).toEqual({
-      nodeType: 'Dynamic',
-      inputs: {
-        'mode.quality.steps': 2,
-        'items.item0.mode.x': 1,
-        source: 'text',
-        'source.mode': 'ordinary',
-      },
-      slotVariants: {
-        mode: 'batch',
-        'mode.quality': 'full',
-        'items.item0.mode': 'a',
-        source: 'text',
-      },
-    })
-
-    const reusedPath = promptToDinksterGraph({
-      n: {
-        class_type: 'Dynamic',
-        inputs: { mode: 'plain', 'mode.quality': 'ordinary' },
-        slotVariants: { mode: 'plain' },
-      },
-    }, dynamicRegistry.resolve)
-    expect(reusedPath.ok).toBe(true)
-    if (!reusedPath.ok) throw new Error('unreachable')
-    expect(reusedPath.graph.nodes.n).toEqual({
-      nodeType: 'Dynamic',
-      inputs: { 'mode.quality': 'ordinary' },
-      slotVariants: { mode: 'plain' },
     })
   })
 
@@ -1289,14 +1243,14 @@ describe('promptToDinksterGraph', () => {
       virtualPath: '',
     }
     const assetRegistry = buildDinksterRegistry(C0, {
-      schemaVersion: 1,
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
       nodes: {
         'comfy.LoadImage': {
-          schemaVersion: 1,
+          schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
           nodeType: 'comfy.LoadImage',
           idempotent: false,
-          interface: [{
-            role: 'input',
+          body: [{
+            kind: 'input',
             id: 'image',
             required: true,
             type: { kind: 'concrete', types: ['ASSET'] },
@@ -1641,12 +1595,12 @@ describe('retained asset ownership', () => {
 })
 
 const regionNodesPayload = currentNodesPayload({
-  version: 'test', schemaWire: 1, graphFeatures: ['regions'],
+  version: 'test', graphFeatures: ['regions'],
 })
 const regionNodesRoute = (url: string): Response | undefined =>
   url.includes('/api/nodes') ? jsonResponse(200, regionNodesPayload) : undefined
 const placementNodesPayload = currentNodesPayload({
-  version: 'test', schemaWire: 1, graphFeatures: ['placement'],
+  version: 'test', graphFeatures: ['placement'],
 })
 const placementNodesRoute = (url: string): Response | undefined =>
   url.includes('/api/nodes') ? jsonResponse(200, placementNodesPayload) : undefined
@@ -1661,17 +1615,22 @@ describe('worker catalog', () => {
 })
 
 describe('fetchSchemas wire contract', () => {
+  it.each([undefined, 'default', 'p-film'])('keeps schema requests in the configured project %s', async (project) => {
+    const { conn, requests } = submitHarness(nodesRoute, project)
+    await conn.fetchSchemas()
+    expect(requests[0]?.url).toBe(`http://test/api/nodes${project === undefined ? '' : `?project=${project}`}`)
+  })
 
   it('refuses a backend selecting another wire version', async () => {
     const { conn } = submitHarness((url) => url.includes('/api/nodes')
       ? jsonResponse(200, {
           schemaVersion: 1,
-          dinkster: { version: 'incompatible', schemaWire: 2 },
+          dinkster: { version: 'incompatible', schemaWire: 3 },
           nodes: {},
         })
       : undefined)
     await expect(conn.fetchSchemas()).rejects.toThrow(
-      'schema wire version mismatch: this build decodes 1; the server encodes 2',
+      'schema wire version mismatch: this build decodes 2; the server encodes 3',
     )
     expect(conn.currentRegistry).toBeUndefined()
   })
@@ -1683,8 +1642,8 @@ describe('fetchSchemas payload validation (CL5)', () => {
     const exports = readJson('fixtures/dinkster-wire41.json') as Record<string, unknown>[]
     const payload = {
       schemaVersion: 1,
-      dinkster: { version: 'fixture', schemaWire: 1 },
-      nodes: Object.fromEntries(exports.map((schema) => [schema['nodeType'], { ...schema, schemaVersion: 1 }])),
+      dinkster: { version: 'fixture', schemaWire: 2 },
+      nodes: Object.fromEntries(exports.map((schema) => [schema['nodeType'], { ...schema, schemaVersion: 2 }])),
     }
     const { conn } = submitHarness((url) =>
       url.includes('/api/nodes') ? jsonResponse(200, payload) : undefined,
@@ -1703,7 +1662,7 @@ describe('fetchSchemas payload validation (CL5)', () => {
 
   it('rejects a malformed nodes table instead of installing an empty registry', async () => {
     const { conn } = submitHarness((url) =>
-      url.includes('/api/nodes') ? jsonResponse(200, { schemaVersion: 1, nodes: 'bad' }) : undefined,
+      url.includes('/api/nodes') ? jsonResponse(200, { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: 'bad' }) : undefined,
     )
     await expect(conn.fetchSchemas()).rejects.toThrow('malformed or unsupported')
     expect(conn.currentRegistry).toBeUndefined()
@@ -1724,7 +1683,7 @@ describe('fetchSchemas payload validation (CL5)', () => {
     const fresh = conn.fetchSchemas()
     resolvers[1]!(jsonResponse(200, liveNodesPayload)) // newest request resolves first
     const freshRegistry = await fresh
-    resolvers[0]!(jsonResponse(200, { schemaVersion: 1, nodes: {} })) // superseded response lands late
+    resolvers[0]!(jsonResponse(200, { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {} })) // superseded response lands late
     // The superseded invocation must return the committed registry too: its
     // own decode is stale and would split compile state from submit state.
     expect(await stale).toBe(freshRegistry)
@@ -2183,8 +2142,7 @@ describe('submit', () => {
             ...artifact.provenance.inputSources?.['n1'],
             'items.item0.image': {
               node: asNodeId('n1'),
-              port: asPortId('items.image'),
-              members: [asDynamicMemberId('m0')],
+              port: asPortId('items.item0.image'),
             },
           },
         },
@@ -2197,7 +2155,7 @@ describe('submit', () => {
     expect(d.code).toBe('validation.missing-input')
     expect(d.message).toBe("input 'a' is not connected")
     expect(d.anchor?.occurrence).toEqual({ instancePath: [], node: 'n1' })
-    expect(d.anchor?.port).toEqual({ node: 'n1', port: 'items.image', members: ['m0'] })
+    expect(d.anchor?.port).toEqual({ node: 'n1', port: 'items.item0.image' })
     expect(d.data).toEqual({ runtimeId: 'n1', inputId: 'items.item0.image' })
   })
 
@@ -3536,8 +3494,35 @@ describe('workflow library wire', () => {
     await expect(cancelled.fetchLocalAssetBytes('cancelled', abort.signal)).rejects.toThrow()
   })
 
-  it('reads paginated engine projects and preserves library authority during registration and rename', async () => {
-    const project = { id: 'p-film', name: 'Engine name', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false }
+  it('reads explicit managed identity without caching and preserves standalone null', async () => {
+    const environment = { id: '0123456789abcdef'.repeat(2), snapshot: '17' }
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { environment }))
+    const controller = new AbortController()
+    expect(await conn.activeEnvironment(controller.signal)).toEqual(environment)
+    expect(requests[0]).toEqual({ url: 'http://test/api/environment', init: { cache: 'no-store', signal: controller.signal } })
+    const { conn: standalone } = submitHarness(() => jsonResponse(200, { environment: null }))
+    expect(await standalone.activeEnvironment()).toBeNull()
+    const { conn: denied } = submitHarness(() => jsonResponse(403, {}))
+    await expect(denied.activeEnvironment()).rejects.toThrow('403')
+  })
+
+  it.each([
+    {}, { environment: [] }, { environment: { id: 'main', snapshot: '1' } },
+    { environment: { id: 'a'.repeat(32), snapshot: '0' } },
+    { environment: { id: 'a'.repeat(32), snapshot: 2 } },
+  ])('rejects malformed managed identity rather than treating it as standalone', async (body) => {
+    const { conn } = submitHarness(() => jsonResponse(200, body))
+    await expect(conn.activeEnvironment()).rejects.toThrow('Malformed active environment')
+  })
+
+  it.each([
+    undefined,
+    null,
+    { id: 'stable-environment', lastSnapshot: '17', lastRunAt: '2026-11-19T15:00:00Z' },
+    { id: 'fork-environment', lastSnapshot: null, lastRunAt: null },
+  ])('reads paginated engine projects and preserves library authority during registration and rename (%j)', async (environment) => {
+    const project = { id: 'p-film', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Engine name', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false,
+      ...(environment === undefined ? {} : { environment }) }
     const { conn, requests } = submitHarness((url, init) => {
       if (init?.method === 'POST') return jsonResponse(200, { project })
       if (init?.method === 'PATCH') return jsonResponse(200, { project: { ...project, name: 'Renamed', revision: 8 } })
@@ -3556,9 +3541,58 @@ describe('workflow library wire', () => {
     await expect(stale.renameProject('p-film', 'Other', 6)).rejects.toThrow('changed elsewhere')
   })
 
+  it('reads project needs without dropping unknown workflows and enables only the revision-reviewed project', async () => {
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false }
+    const needs = { packs: [{ pack: 'tools-a', version: '1.2.3' }, { pack: 'tools-b', version: null }], installed: [{ pack: 'tools-a', version: '1.0.0' }, { pack: 'tools-c', version: null }], extra: ['extra-c'], unknown: [{ scope: 'local', id: 'unreadable' }] }
+    const { conn, requests } = submitHarness((url, init) => {
+      if (url.endsWith('/needs')) return jsonResponse(200, needs)
+      return jsonResponse(200, { project: { ...project, revision: init?.method === 'PATCH' ? 8 : 7 } })
+    })
+    const controller = new AbortController()
+    expect(await conn.getProject('p-film', controller.signal)).toEqual(project)
+    expect(await conn.projectNeeds('p-film', controller.signal)).toEqual(needs)
+    expect(requests[1]?.url).toBe('http://test/api/projects/p-film/needs')
+    expect(requests[1]?.init?.cache).toBe('no-store')
+    expect(requests[1]?.init?.signal).toBe(controller.signal)
+    expect(await conn.setProjectExtraPacks('p-film', ['extra-c', 'tools-b'], 7, controller.signal)).toEqual({ ...project, revision: 8 })
+    expect(requests[2]?.url).toBe('http://test/api/projects/p-film')
+    expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 7, patch: { packs: { extra: ['extra-c', 'tools-b'] } } })
+    const { conn: stale, requests: rejected } = submitHarness(() => jsonResponse(409, { error: 'stale' }))
+    await expect(stale.setProjectExtraPacks('p-film', ['tools-b'], 6)).rejects.toThrow('changed elsewhere')
+    expect(rejected).toHaveLength(1)
+  })
+
+  it.each([
+    { packs: [{ pack: 'tools-a', version: 2 }], installed: [], extra: [], unknown: [] },
+    { packs: [], installed: [], extra: [null], unknown: [] },
+    { packs: [], installed: [], extra: [], unknown: [{ scope: 'local' }] },
+    { packs: [], installed: [], extra: [] },
+    { packs: [], extra: [], unknown: [] },
+    { packs: [], installed: [{ pack: 'tools-a', version: 2 }], extra: [], unknown: [] },
+    { packs: [], installed: [{ pack: 'tools-a', version: null }, { pack: 'tools-a', version: '1.0' }], extra: [], unknown: [] },
+  ])('rejects malformed needs rather than assuming the project needs nothing', async (needs) => {
+    const { conn } = submitHarness(() => jsonResponse(200, needs))
+    await expect(conn.projectNeeds('p-film')).rejects.toThrow('Malformed project needs')
+  })
+
+  it('refuses deleted or mismatched project reads instead of supplying an enablement revision', async () => {
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: true }
+    const { conn } = submitHarness(() => jsonResponse(200, { project }))
+    await expect(conn.getProject('p-film')).rejects.toThrow('unavailable')
+    await expect(conn.getProject('p-other')).rejects.toThrow('another project')
+  })
+
   it.each([
     { items: [{ id: 'p-film', name: 'Film', created: 'invalid', revision: 1, deleted: false }], cursor: null },
     { items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 0, deleted: false }], cursor: null },
+    ...[
+      { id: 'another-environment', lastSnapshot: '3' },
+      { id: 'another-environment', lastSnapshot: null, lastRunAt: '2026-11-19T15:00:00Z' },
+      { id: 'another-environment', lastSnapshot: '3', lastRunAt: null },
+      { id: '', lastSnapshot: null, lastRunAt: null },
+      { id: 'another-environment', lastSnapshot: '', lastRunAt: '2026-11-19T15:00:00Z' },
+    ].map((environment) => ({ items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false,
+      environment }], cursor: null })),
     { items: [], cursor: 2 },
   ])('rejects malformed project pages instead of silently dropping projects', async (page) => {
     const { conn } = submitHarness(() => jsonResponse(200, page))
@@ -3835,7 +3869,11 @@ describe('memory telemetry transport', () => {
 
 })
 
-it('reads workflow plans without sending a hardware guess or acquisition consent', async () => {
+it.each([
+  [undefined, {}],
+  ['default', { project: 'default' }],
+  ['p-film', { project: 'p-film' }],
+] as const)('reads workflow plans for project %s without a hardware guess or acquisition consent', async (project, scope) => {
   const workflow = loadDocument(readJson('fixtures/workflows/minimal.json')).document
   expect(workflow).toBeDefined()
   const plan = {
@@ -3844,9 +3882,9 @@ it('reads workflow plans without sending a hardware guess or acquisition consent
     errors: [],
   }
   let payload: unknown = plan
-  const { conn, requests } = submitHarness(() => jsonResponse(200, payload))
+  const { conn, requests } = submitHarness(() => jsonResponse(200, payload), project)
   await expect(conn.planWorkflowRequirements(workflow!)).resolves.toEqual(plan)
-  expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ workflows: [workflow] })
+  expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ workflows: [workflow], ...scope })
   payload = { ...plan, packs: [{ pack: 'tools-a', version: 123 }] }
   await expect(conn.planWorkflowRequirements(workflow!)).rejects.toThrow('invalid workflow requirement plan')
   payload = { ...plan, assets: [{ ...plan.assets[0], sources: 'not-a-list' }] }

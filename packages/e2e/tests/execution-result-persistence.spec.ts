@@ -8,31 +8,31 @@ const PRINCIPAL = { principalId: 'issue-347-user', kind: 'human' }
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'issue-347-runtime', schemaWire: 1 },
+  dinkster: { version: 'issue-347-runtime', schemaWire: 2 },
   nodes: {
     RuntimeScalar: {
-      schemaVersion: 1, nodeType: 'RuntimeScalar', displayName: 'Runtime Scalar',
+      schemaVersion: 2, nodeType: 'RuntimeScalar', displayName: 'Runtime Scalar',
       category: 'test', signature: 'runtime-scalar-v1',
-      interface: [{ role: 'output', id: 'value', type: { kind: 'concrete', types: ['FLOAT'] } }],
+      body: [{ kind: 'output', id: 'value', type: { kind: 'concrete', types: ['FLOAT'] } }],
     },
     MathExpression: {
-      schemaVersion: 1, nodeType: 'MathExpression', displayName: 'Math Expression',
+      schemaVersion: 2, nodeType: 'MathExpression', displayName: 'Math Expression',
       category: 'test', outputNode: true, signature: 'math-expression-v1',
-      interface: [
-        { role: 'input', id: 'x', required: true, type: { kind: 'concrete', types: ['FLOAT'] },
+      body: [
+        { kind: 'input', id: 'x', required: true, type: { kind: 'concrete', types: ['FLOAT'] },
           default: 0, widget: { type: 'NUMBER', min: -1_000_000, max: 1_000_000 } },
-        { role: 'input', id: 'expression', required: true, type: { kind: 'concrete', types: ['STRING'] },
+        { kind: 'input', id: 'expression', required: true, type: { kind: 'concrete', types: ['STRING'] },
           default: 'x * 2', widget: { type: 'STRING', multiline: false } },
-        { role: 'output', id: 'value', type: { kind: 'concrete', types: ['FLOAT'] } },
+        { kind: 'output', id: 'value', type: { kind: 'concrete', types: ['FLOAT'] } },
       ],
     },
     OtherBranch: {
-      schemaVersion: 1, nodeType: 'OtherBranch', displayName: 'Other Branch',
+      schemaVersion: 2, nodeType: 'OtherBranch', displayName: 'Other Branch',
       category: 'test', outputNode: true, signature: 'other-branch-v1',
-      interface: [
-        { role: 'input', id: 'value', required: true, type: { kind: 'concrete', types: ['INT'] },
+      body: [
+        { kind: 'input', id: 'value', required: true, type: { kind: 'concrete', types: ['INT'] },
           default: 3, widget: { type: 'NUMBER', min: -1_000_000, max: 1_000_000 } },
-        { role: 'output', id: 'value', type: { kind: 'concrete', types: ['INT'] } },
+        { kind: 'output', id: 'value', type: { kind: 'concrete', types: ['INT'] } },
       ],
     },
   },

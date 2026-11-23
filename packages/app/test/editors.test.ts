@@ -7,9 +7,9 @@ import { prepareWorkflowApp } from './fixtures/workflow-app.js'
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { JSX } from 'solid-js'
-import { asConnectionId, asPromptId, EMPTY_COMPOSITOR_RECIPE, type DinksterNodesPayload, type ExecutionRef } from '@dinkster/core'
+import { asConnectionId, asPromptId, type DinksterNodesPayload, type ExecutionRef } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, IMAGE_EDITOR_KIND } from '../src/editors.js'
+import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND } from '../src/editors.js'
 import { AppState } from '../src/app-state.js'
 import { historicalRegistry } from './historical-schemas.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
@@ -32,75 +32,44 @@ const makeStorage = (): Storage => {
 
 const TABS_KEY = 'dinkster.openTabs'
 
-const compositorPayload = (): DinksterNodesPayload => ({
-  schemaVersion: 1,
-  nodes: {
-    Compositor: {
-      schemaVersion: 1,
-      displayName: 'Create Layered Image',
-      category: 'image/compositing',
-      editorRole: 'compositor',
-      idempotent: false,
-      interface: [
-        {
-          role: 'input', id: 'recipe', required: false,
-          type: { kind: 'concrete', types: ['COMPOSITOR'] },
-          default: EMPTY_COMPOSITOR_RECIPE,
-          widget: { type: 'COMPOSITOR' },
-        },
-        { role: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } },
-      ],
-    },
-    Source: {
-      schemaVersion: 1,
-      displayName: 'Source',
-      category: 'test',
-      idempotent: true,
-      interface: [
-        { role: 'output', id: 'out', type: { kind: 'concrete', types: ['COMPOSITOR'] } },
-      ],
-    },
-  },
-}) as unknown as DinksterNodesPayload
-
 const curvePayload = (): DinksterNodesPayload => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodes: {
     'dinkster.curve.editor': {
-      schemaVersion: 1, displayName: 'Curve editor', category: 'curve', idempotent: true, editorRole: 'curve',
-      interface: [
+      schemaVersion: 2, displayName: 'Curve editor', category: 'curve', idempotent: true, editorRole: 'curve',
+      body: [
         {
-          role: 'input', id: 'curve', required: false,
+          kind: 'input', id: 'curve', required: false,
           type: { kind: 'concrete', types: ['CURVE'] }, widget: { type: 'CURVE' },
           default: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] },
         },
-        { role: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } },
+        { kind: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } },
       ],
     },
     OtherCurve: {
-      schemaVersion: 1, displayName: 'Other curve', category: 'test', idempotent: true,
-      interface: [{ role: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } }],
+      schemaVersion: 2, displayName: 'Other curve', category: 'test', idempotent: true,
+      body: [{ kind: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } }],
     },
   },
 }) as unknown as DinksterNodesPayload
 
 const glslPayload = (): DinksterNodesPayload => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   nodes: {
     'synthetic.shader': {
-      schemaVersion: 1,
+      schemaVersion: 2,
       displayName: 'GLSL Shader',
       category: 'image/shader',
       editorRole: 'glsl',
       idempotent: false,
-      interface: [
+      body: [
         {
-          role: 'input', id: 'fragment_shader', required: false,
+          kind: 'input', id: 'fragment_shader', required: false,
           type: { kind: 'concrete', types: ['STRING'] },
           default: '#version 300 es\nvoid main() {}',
           widget: { type: 'STRING', multiline: true },
         },
-        { role: 'output', id: 'image0', type: { kind: 'concrete', types: ['IMAGE'] } },
+        { kind: 'output', id: 'image0', type: { kind: 'concrete', types: ['IMAGE'] } },
       ],
     },
   },
@@ -249,50 +218,6 @@ describe('Tab editorKind', () => {
     expect(app.tabs.get().find((t) => t.id === tab.id)!.appArrange).toBe(false)
   })
 
-  it('admits only an unchanged, undriven COMPOSITOR input into image-editor mode', async () => {
-    const app = createWorkflowApp(null)
-    retainedApps.push(app)
-    const tab = app.tabs.get()[0]!
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), compositorPayload()))
-    const graphId = tab.store.doc.root
-    const before = new Set(Object.keys(tab.store.doc.graphs[graphId]!.nodes))
-    expect((await app.dispatchTo(tab, {
-      command: 'node.add',
-      params: { graphId, type: 'Compositor', position: { x: 40, y: 50 } },
-    })).ok).toBe(true)
-    const nodeId = Object.keys(tab.store.doc.graphs[graphId]!.nodes).find((id) => !before.has(id))!
-    const target = app.compositorTargetForInput(tab, graphId, nodeId, 'recipe')
-    expect(target).toEqual({
-      mode: 'compositor', tabId: tab.id, graphId, nodeId, inputId: 'recipe',
-      instancePath: [], openedStoredValue: undefined,
-    })
-    expect(app.openCompositorEditor(target!)).toBe(true)
-    expect(app.imageEditorTarget.get()).toEqual(target)
-    expect(app.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(IMAGE_EDITOR_KIND)
-
-    expect((await app.dispatchTo(tab, {
-      command: 'node.move', params: { graphId, positions: { [nodeId]: { x: 45, y: 57 } } },
-    })).ok).toBe(true)
-    expect(app.validateCompositorTarget(target!)).toEqual(target)
-
-    const recipe = {
-      version: 2,
-      documentDigest: `blake3:${'a'.repeat(64)}`,
-      commands: [{ op: 'layer', id: 'layer-0', changes: { visible: false } }],
-    }
-    expect((await app.dispatchTo(tab, {
-      command: 'node.setValue', params: { graphId, nodeId, inputId: 'recipe', value: recipe },
-    })).ok).toBe(true)
-    expect(app.validateCompositorTarget(target!)).toBeUndefined()
-    const current = app.compositorTargetForInput(tab, graphId, nodeId, 'recipe')
-    expect(current?.openedStoredValue).toEqual(recipe)
-    app.closeImageEditor(target!)
-    expect(app.imageEditorTarget.get()).toEqual(target)
-    app.closeImageEditor(app.imageEditorTarget.get()!)
-    expect(app.imageEditorTarget.get()).toBeUndefined()
-    expect(app.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(GRAPH_EDITOR_KIND)
-  })
-
   it.each(['link', 'net'] as const)('refuses editing a curve driven through a %s', async (topology) => {
     const app = prepareWorkflowApp(new AppState())
     app.registry.set(buildDinksterRegistry(asConnectionId('local'), curvePayload()))
@@ -323,42 +248,6 @@ describe('Tab editorKind', () => {
       nodeId: 'editable', inputId: 'curve', instancePath: [],
     })
     expect(app.curveTargetForInput(tab, 'g0', 'editor', 'curve')).toBeUndefined()
-    app.dispose()
-  })
-
-  it('refuses pending image asset admission after closing the editor', async () => {
-    const app = createWorkflowApp(null)
-    retainedApps.push(app)
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), {
-      schemaVersion: 1,
-      nodes: { ImageInput: {
-        schemaVersion: 1, displayName: 'Image input', category: 'test', idempotent: true,
-        interface: [{ role: 'input', id: 'image', required: true,
-          type: { kind: 'asset', element: { kind: 'concrete', types: ['IMAGE'] } },
-          widget: { type: 'ASSET', accept: ['image/png'] } }],
-      } },
-    } as unknown as DinksterNodesPayload))
-    expect((await app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'image-admission', root: 'g0',
-      graphs: { g0: { id: 'g0', name: 'root', nodes: {
-        image: { id: 'image', type: 'ImageInput', values: { image: { digest: `blake3:${'a'.repeat(64)}`, name: 'a.png', size: 10, mediaType: 'image/png', virtualPath: '' } } },
-      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: {} },
-    }, 'Image admission'))).toEqual([])
-    const tab = app.activeTab()!
-    const target = app.imageTargetForInput(tab, 'g0', 'image', 'image')!
-    expect(app.openImageEditor(target)).toBe(true)
-    const opened = app.imageEditorTarget.get()!
-    let accept!: () => void
-    const acknowledgment = new Promise<void>((resolve) => { accept = resolve })
-    vi.mocked(app.connection.retainAssets).mockImplementationOnce(async (owner, declaration) => {
-      await acknowledgment
-      return { ...owner, ...declaration, revision: declaration.revision + 1 }
-    })
-    const admission = app.retainEditorAssets(opened, app.backendForTab(tab), target.sourceRef, () => true)
-    const refused = expect(admission).rejects.toThrow('Editor source changed')
-    app.closeImageEditor(opened)
-    accept()
-    await refused
     app.dispose()
   })
 
@@ -405,10 +294,6 @@ describe('Tab editorKind', () => {
   it('clears session-only editor targets on editor switch or tab close', () => {
     const app = prepareWorkflowApp(new AppState())
     const tab = app.tabs.get()[0]!
-    const imageTarget = {
-      tabId: tab.id, graphId: tab.store.doc.root, nodeId: 'n0', inputId: 'image',
-      sourceRef: { digest: `blake3:${'a'.repeat(64)}`, name: 'a.png', size: 1, mediaType: 'image/png', virtualPath: '' },
-    }
     const curveTarget = {
       tabId: tab.id, graphId: tab.store.doc.root, nodeId: 'n0', inputId: 'curve', instancePath: [],
       openedStoredValue: undefined,
@@ -419,11 +304,6 @@ describe('Tab editorKind', () => {
       tabId: tab.id, graphId: tab.store.doc.root, nodeId: 'n0', inputId: 'fragment_shader' as const,
       instancePath: [], openedStoredValue: undefined, openedSchemaDefault: '', openedValue: '',
     }
-    app.imageEditorTarget.set(imageTarget)
-    app.setTabEditorKind(tab.id, IMAGE_EDITOR_KIND)
-    expect(app.imageEditorTarget.get()).toBe(imageTarget)
-    app.setTabEditorKind(tab.id, GRAPH_EDITOR_KIND)
-    expect(app.imageEditorTarget.get()).toBeUndefined()
     app.curveEditorTarget.set(curveTarget)
     app.setTabEditorKind(tab.id, CURVE_EDITOR_KIND)
     expect(app.curveEditorTarget.get()).toBe(curveTarget)
@@ -434,28 +314,21 @@ describe('Tab editorKind', () => {
     expect(app.glslEditorTarget.get()).toBe(glslTarget)
     app.setTabEditorKind(tab.id, GRAPH_EDITOR_KIND)
     expect(app.glslEditorTarget.get()).toBeUndefined()
-    app.imageEditorTarget.set(imageTarget)
     app.curveEditorTarget.set(curveTarget)
     app.glslEditorTarget.set(glslTarget)
     app.closeTab(tab.id)
-    expect(app.imageEditorTarget.get()).toBeUndefined()
     expect(app.curveEditorTarget.get()).toBeUndefined()
     expect(app.glslEditorTarget.get()).toBeUndefined()
   })
 
-  it.each([IMAGE_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND])('clears a %s session when another tab activates and never persists it', (kind) => {
+  it.each([CURVE_EDITOR_KIND, GLSL_EDITOR_KIND])('clears a %s session when another tab activates and never persists it', (kind) => {
     g.localStorage = makeStorage()
     const app = prepareWorkflowApp(new AppState())
     app.createWorkflow()
     const [tab, other] = app.tabs.get()
     if (!tab || !other) throw new Error('fixture needs two tabs')
     app.activeTabId.set(tab.id)
-    const target = {
-      tabId: tab.id, graphId: tab.store.doc.root, nodeId: 'n0', inputId: 'image',
-      sourceRef: { digest: `blake3:${'a'.repeat(64)}`, name: 'a.png', size: 1, mediaType: 'image/png', virtualPath: '' },
-    }
-    if (kind === IMAGE_EDITOR_KIND) app.imageEditorTarget.set(target)
-    else if (kind === CURVE_EDITOR_KIND) app.curveEditorTarget.set({
+    if (kind === CURVE_EDITOR_KIND) app.curveEditorTarget.set({
       tabId: tab.id, graphId: tab.store.doc.root, nodeId: 'n0', inputId: 'curve', instancePath: [],
       openedStoredValue: undefined,
       openedSchemaDefault: undefined,
@@ -470,7 +343,6 @@ describe('Tab editorKind', () => {
     const stored = JSON.parse(globalThis.localStorage!.getItem(TABS_KEY)!) as { tabs: { title: string; editorKind?: string }[] }
     expect(stored.tabs.find((record) => record.title === tab.title)?.editorKind).toBeUndefined()
     app.activeTabId.set(other.id)
-    expect(app.imageEditorTarget.get()).toBeUndefined()
     expect(app.curveEditorTarget.get()).toBeUndefined()
     expect(app.glslEditorTarget.get()).toBeUndefined()
     expect(app.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(GRAPH_EDITOR_KIND)

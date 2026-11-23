@@ -106,6 +106,47 @@ export function ProductButton(
   )
 }
 
+export function ProductWindowAction(
+  props: Omit<ButtonAttributes, 'children' | 'aria-label' | 'title'> & {
+    label: string
+    icon: LucideIcon
+    shortcut?: string
+    intent?: ProductRole
+    pending?: boolean
+  },
+) {
+  const [local, button] = splitProps(props, [
+    'label',
+    'icon',
+    'shortcut',
+    'intent',
+    'pending',
+  ])
+  return (
+    <span class="dinkster-window-action">
+      <ProductButton
+        {...button}
+        intent={local.intent ?? 'neutral'}
+        pending={local.pending ?? false}
+        aria-label={local.label}
+        title={
+          local.shortcut ? `${local.label} (${local.shortcut})` : local.label
+        }
+      >
+        <span class="dinkster-window-action-icon" aria-hidden="true">
+          <ProductIcon icon={local.icon} />
+        </span>
+        <span class="dinkster-window-action-label">{local.label}</span>
+        <Show when={local.shortcut}>
+          {(shortcut) => (
+            <kbd class="dinkster-window-action-shortcut">{shortcut()}</kbd>
+          )}
+        </Show>
+      </ProductButton>
+    </span>
+  )
+}
+
 export function ProductProviderButton(
   props: ButtonAttributes & {
     provider: 'github' | 'google'

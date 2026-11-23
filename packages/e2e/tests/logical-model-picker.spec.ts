@@ -1,4 +1,4 @@
-import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, type Page } from './fixtures.js'
 
 const MOCK = 'http://logical-model-picker.test'
 const A = `blake3:${'a'.repeat(64)}`
@@ -23,7 +23,7 @@ async function installRoutes(page: Page): Promise<void> {
   await page.route('**/api/nodes*', (route) => void route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'test', schemaWire: 1 },
+    dinkster: { version: 'test', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('**/api/mounts**', async (route) => {
@@ -71,12 +71,12 @@ test('uses one collection shell for grouped models and media', async ({ page }) 
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'ModelPickerProof', displayName: 'Model picker proof', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'model', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+        body: [{ kind: 'input', id: 'model', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
           widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: { accept: ['application/x-safetensors'] }, default: null } }],
       },
       {
         type: 'MediaPickerProof', displayName: 'Media picker proof', category: 'test', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+        body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
           widget: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] }, default: null } }],
       },
     ])

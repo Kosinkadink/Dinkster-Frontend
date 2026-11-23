@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const activeDoc = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
@@ -70,11 +70,11 @@ async function openProof(page: Page) {
     window.__dinksterTest!.app.registerSchemas([
       {
         type: 'MinimizeSource', displayName: 'Image source', category: 'proof', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'image', type: image }],
+        body: [{ kind: 'output', id: 'image', type: image }],
       },
       {
         type: 'MinimizeTarget', displayName: 'Mix', category: 'proof', source: 'v3', isOutputNode: false,
-        items: [
+        body: [
           { kind: 'input', id: 'image', displayName: 'Image', type: image, optional: false },
           { kind: 'input', id: 'strength', displayName: 'Strength', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
             widget: { widgetType: 'FLOAT', options: { min: 0, max: 1 }, default: 0.5 } },
@@ -83,7 +83,7 @@ async function openProof(page: Page) {
       },
       {
         type: 'MinimizeSink', displayName: 'Image sink', category: 'proof', source: 'v3', isOutputNode: true,
-        items: [{ kind: 'input', id: 'image', type: image, optional: false }],
+        body: [{ kind: 'input', id: 'image', type: image, optional: false }],
       },
     ] as never)
     await window.__dinksterTest!.app.openDocument({
@@ -123,11 +123,11 @@ test.beforeEach(async ({ context, page }) => {
     : route.fulfill({ status: 503, body: 'Frontend contract fixture' }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 503 }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-    schemaVersion: 1, epoch: 1, dinkster: { version: 'minimized-import-contract', schemaWire: 1 },
-    nodes: { CLIPTextEncode: { displayName: 'CLIP Text Encode', interface: [
-      { role: 'input', id: 'text', type: { kind: 'concrete', types: ['STRING'] } },
-      { role: 'input', id: 'clip', type: { kind: 'concrete', types: ['CLIP'] } },
-      { role: 'output', id: 'CONDITIONING', type: { kind: 'concrete', types: ['CONDITIONING'] } },
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'minimized-import-contract', schemaWire: 2 },
+    nodes: { CLIPTextEncode: { displayName: 'CLIP Text Encode', body: [
+      { kind: 'input', id: 'text', type: { kind: 'concrete', types: ['STRING'] } },
+      { kind: 'input', id: 'clip', type: { kind: 'concrete', types: ['CLIP'] } },
+      { kind: 'output', id: 'CONDITIONING', type: { kind: 'concrete', types: ['CONDITIONING'] } },
     ] } },
   } }))
   await page.routeWebSocket('**/api/events?*', () => {})

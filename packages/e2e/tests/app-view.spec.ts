@@ -6,7 +6,7 @@
  * identical document write a canvas widget edit would produce - then the
  * stale/remove recovery path and the round trip back to the graph editor.
  */
-import { expect, appViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeAppViewTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const REMOTE_ROUTE = '/api/choices/dinkster-test-app-view-options'
 
@@ -66,7 +66,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   if (mockRename) {
     await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$))).*/, (route) => route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'rename-fixture', schemaWire: 1 }, nodes: {},
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'rename-fixture', schemaWire: 2 }, nodes: {},
     } }))
     await page.routeWebSocket('**/api/events?*', () => {})
   }
@@ -88,7 +88,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AppViewTest', displayName: 'App View Test', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         widget('count', 'INT', 5, { min: 0, max: 100, step: 5 }),
         widget('title', 'STRING', 'old'),
         widget('enabled', 'BOOLEAN', false),
@@ -292,7 +292,7 @@ test('custom WidgetView drawCompact renders in the graph and App view adapter', 
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
     app.registerSchemas([{
       type: 'AppViewLiteralTest', displayName: 'App View Literal Test', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'literal', type: { kind: 'concrete', name: 'app-view-literal-proof.kind' }, optional: false,
         widget: { widgetType: 'app-view-literal-proof.kind', options: {}, default: 7 },
       }],

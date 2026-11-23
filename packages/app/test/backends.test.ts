@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, asPromptId, resolveImportedNodePacks, setLocale, type ComfyTranslation, type DinksterNodesPayload, type ExecutionRef, type NodeSchema } from '@dinkster/core'
+import { asConnectionId, asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, resolveImportedNodePacks, setLocale, type ComfyTranslation, type DinksterNodesPayload, type ExecutionRef, type NodeSchema } from '@dinkster/core'
 import { buildDinksterRegistry, EngineNotReadyError, type DinksterJobRecord, type SchemaRegistry, type WorkerInfo } from '@dinkster/client'
 import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { AppState, type Backend, type Tab } from '../src/app-state.js'
@@ -19,7 +19,29 @@ import { createWorkflowApp } from './fixtures/workflow-app.js'
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../core')
-const nodesPayload = JSON.parse(readFileSync(join(root, 'fixtures/dinkster-nodes-comfy.json'), 'utf8')) as DinksterNodesPayload
+const INT = { kind: 'concrete', types: ['INT'] }
+const IMAGE = { kind: 'concrete', types: ['comfy.IMAGE'] }
+const nodesPayload: DinksterNodesPayload = {
+  schemaVersion: 1,
+  epoch: 2,
+  dinkster: { version: '0.0.1', schemaWire: DINKSTER_SCHEMA_WIRE_VERSION },
+  packs: { core: { displayName: 'Dinkster Core' }, comfy: { displayName: 'ComfyUI Compat', abbr: 'C1', color: '#4a7ab5' } },
+  nodes: {
+    'comfy.EmptyImage': {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'comfy.EmptyImage', version: 1, displayName: 'Empty Image',
+      category: 'comfy/image', description: '', idempotent: true, aliases: ['EmptyImage'], pack: 'comfy',
+      body: [
+        ...['width', 'height', 'batch_size', 'color'].map((id) => ({ kind: 'input', id, type: INT, required: false, default: id === 'batch_size' ? 1 : id === 'color' ? 0 : 512 })),
+        { kind: 'output', id: 'image', type: IMAGE },
+      ],
+    },
+    'comfy.PreviewImage': {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'comfy.PreviewImage', version: 1, displayName: 'Preview Image',
+      category: 'comfy/image', description: '', idempotent: false, aliases: ['PreviewImage'], outputNode: true, pack: 'comfy',
+      body: [{ kind: 'input', id: 'images', type: IMAGE, required: true }],
+    },
+  },
+}
 
 let app: AppState
 let basic: Tab
@@ -231,7 +253,9 @@ describe('addBackend / removeBackend', () => {
     })
 
     const first = app.refreshBackendSchemas(backend)
+    await vi.waitFor(() => expect(resolveFirst).toBeTypeOf('function'))
     const second = app.refreshBackendSchemas(backend)
+    await vi.waitFor(() => expect(resolveSecond).toBeTypeOf('function'))
     const newest = buildDinksterRegistry(backend.id, nodesPayload)
     resolveSecond(newest)
     await second
@@ -355,9 +379,9 @@ describe('addBackend / removeBackend', () => {
       if (url.endsWith('/api/library/retention-clients')) return new Response('{}', { status: 404 })
       const displayName = url.endsWith(encodeURIComponent(digest('b'))) ? 'Localized label' : 'English label'
       return new Response(JSON.stringify(url.includes('/api/nodes') ? {
-        schemaVersion: 1, dinkster: { version: 'locale-test', schemaWire: 1 },
+        schemaVersion: 1, dinkster: { version: 'locale-test', schemaWire: 2 },
         packs: { demo: { displayName: 'Demo', locales: { en: digest('a'), zh: digest('b') } } },
-        nodes: { 'demo.localized': { schemaVersion: 1, displayName: 'Raw label', pack: 'demo', interface: [] } },
+        nodes: { 'demo.localized': { schemaVersion: 2, displayName: 'Raw label', pack: 'demo', body: [] } },
       } : { nodes: { 'demo.localized': { displayName } }, searchTerms: { 'demo.localized': [displayName] } }),
       { status: 200, headers: { 'Content-Type': 'application/json' } })
     })
@@ -388,7 +412,7 @@ describe('addBackend / removeBackend', () => {
       expect(backend.registry.get()?.resolve('demo.localized')?.searchTerms).toContain('Localized label')
       if (scenario === 'schema') {
         const registry = backend.registry.get()!
-        const changed = { ...registry.resolve('demo.localized')!, items: [{
+        const changed = { ...registry.resolve('demo.localized')!, body: [{
           kind: 'input' as const, id: 'asset', optional: false,
           type: { kind: 'asset' as const, element: { kind: 'concrete' as const, name: 'IMAGE' } },
         }] }
@@ -424,14 +448,14 @@ describe('addBackend / removeBackend', () => {
       requests.push(url)
       if (url.includes('/api/nodes')) return new Response(JSON.stringify({
         schemaVersion: 1,
-        dinkster: { version: 'locale-test', schemaWire: 1 },
+        dinkster: { version: 'locale-test', schemaWire: 2 },
         packs: { demo: { displayName: 'Demo', locales: { en: digest('a'), de: digest('b') } } },
         nodes: {
           'demo.localized': {
-            schemaVersion: 1,
+            schemaVersion: 2,
             displayName: 'RAW pack node',
             pack: 'demo',
-            interface: [],
+            body: [],
           },
         },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } })
@@ -559,6 +583,7 @@ describe('addBackend / removeBackend', () => {
     let rejectRequest!: (reason: Error) => void
     vi.spyOn(retired.connection, 'fetchSchemas').mockImplementation(() => new Promise((_resolve, reject) => { rejectRequest = reject }))
     const request = app.refreshBackendSchemas(retired)
+    await vi.waitFor(() => expect(rejectRequest).toBeTypeOf('function'))
     app.removeBackend(retired.id)
     const replacement = app.addBackend('http://native:8000', 'Replacement', false, 'dinkster')!
     const problemsBefore = app.problems.get().length

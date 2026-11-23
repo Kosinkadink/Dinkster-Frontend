@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, test } from './fixtures.js'
+import { expect, nativeTest as test } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_PACK_ASSETS_SETTINGS_PROOF_DIR']
 
@@ -49,7 +49,7 @@ test('declared pack settings are editable through the native connection', async 
       json: {
         schemaVersion: 1,
         epoch: 1,
-        dinkster: { version: 'pack-assets-settings-e2e', schemaWire: 1 },
+        dinkster: { version: 'pack-assets-settings-e2e', schemaWire: 2 },
         packs: {
           'render.pack': { displayName: 'Render Pack', settings: true },
         },

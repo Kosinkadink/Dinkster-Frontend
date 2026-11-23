@@ -6,10 +6,10 @@
  * - Runtime node id = occurrenceKey(): source node id for root nodes ('n1'),
  *   instance-path-qualified inside subgraph instances ('n0.n0').
  * - The compiler reasons over elaborated interfaces: values and links
- *   resolve by document identity ({port, members} / elaborated key), the
- *   prompt is keyed by elaborated apiName (positional wire names for family
- *   members - compiler OUTPUT, never identity). Static nodes are unchanged:
- *   apiName = elaborated key = schema input id.
+ *   resolve by document identity (the flattened port id), the prompt is
+ *   keyed by elaborated apiName (positional wire names for group members -
+ *   compiler OUTPUT, never identity). Static nodes are unchanged:
+ *   apiName = flattened id = schema input id.
  * - Links lower to [producerRuntimeId, outputIndex] (index = producer's
  *   position among its non-ghost elaborated outputs; compiler OUTPUT only).
  * - Subgraph instances flatten away. Boundary ports resolve through to the
@@ -17,13 +17,11 @@
  *   boundary input overrides the inner node's stored value; an OUTER
  *   instance's override beats an inner instance's (first-write-wins while
  *   walking outside-in).
- * - Whole-family forwarding lowers per occurrence: compilation
- *   is phased - (1) discover every graph occurrence and its family crossings
- *   outside-in, deriving occurrence-local dynamic-state overlays and
- *   projected connectivity for forwarded targets; (2) resolve promoted
- *   values (including suffix-member values held by instances); (3) lower
- *   values/links/nets. All boundary address interpretation goes through the
- *   ONE crossing abstraction (crossing.ts); nothing re-parses paths.
+ * - Compilation is phased: (1) discover every graph occurrence outside-in,
+ *   deriving occurrence-local editable-menu overlays and input connectivity
+ *   projected through boundary inputs; (2) resolve promoted values; (3)
+ *   lower values/links/nets. Boundary item selection goes through the ONE
+ *   matcher (crossing.ts); nothing re-parses paths.
  * - Named nets expand to direct links.
  * - Muted nodes and links touching them are omitted (warning when that leaves
  *   a required input dangling). Bypassed nodes lower to a type-matched
@@ -41,9 +39,7 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
-  isForwardingBinding,
   suppressedDeliveryKey,
-  type BoundaryItem,
   type BoundaryRouteLeg,
   type DynamicPortState,
   type GraphDef,
@@ -79,7 +75,6 @@ import { deriveBoundarySchema, type SchemaResolver } from '../schema/derive-boun
 import {
   buildGraphConnectivity,
   elabInputsOf,
-  elabKeyOf,
   elabOutputsOf,
   elaborateInterface,
   valueKeyOf,
@@ -90,18 +85,7 @@ import {
   type PortAddress,
 } from '../schema/elaborate.js'
 import { solveGraphTypes } from '../schema/solve.js'
-import {
-  buildBoundaryCrossings,
-  crossingTargets,
-  isSubtreeCrossing,
-  projectCrossingValues,
-  matchBoundaryItem,
-  overlayNodeDynamic,
-  projectEditableOptions,
-  translateThroughCrossing,
-  type BoundaryCrossing,
-} from './crossing.js'
-import { boundaryStateResolver } from './boundary-state.js'
+import { boundaryOutputFanOutProblems, matchBoundaryItem, projectEditableOptions } from './crossing.js'
 import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
@@ -337,19 +321,15 @@ interface NodeElab {
   readonly submissionValues: readonly { readonly path: string; readonly apiPath: string; readonly value: Json }[]
   /**
    * PERSISTED value key -> input: the key under which a document stores this
-   * input's value. For top-level static inputs that is the RAW schema id
-   * (what migration and static commands write - it may contain '#'/'%' that
-   * the elaborated spec.id escapes, 'x#y' -> 'x%23y'); for dynamic-derived
-   * inputs (member/branch/selector/slot/dependent) it is the elaborated
-   * spec.id. ONE map, so a raw static id colliding with another input's
-   * elaborated id is a detectable duplicate, never a silent mis-route.
+   * input's value, its flattened id. A collision between two inputs is a
+   * detectable duplicate, never a silent mis-route.
    */
   readonly inputsByValueKey: ReadonlyMap<string, ElaboratedInput>
-  /** portAddressKey(port, members) -> input (for link/bind targets). */
+  /** portAddressKey(port) -> input (for link/bind targets). */
   readonly inputsByAddr: ReadonlyMap<string, ElaboratedInput>
-  /** portAddressKey(port, members) -> output, wireable or not. */
+  /** portAddressKey(port) -> output, wireable or not. */
   readonly outputsByAddr: ReadonlyMap<string, ElaboratedOutput>
-  /** portAddressKey(port, members) -> wire index (wireable outputs only). */
+  /** portAddressKey(port) -> wire index (wireable outputs only). */
   readonly outputIndexByAddr: ReadonlyMap<string, number>
 }
 
@@ -358,19 +338,18 @@ const hasSyntheticAncestor = (ancestry?: readonly { readonly synthetic?: boolean
   ancestry?.some((a) => a.synthetic) ?? false
 
 /**
- * Dynamic-scoped value keys (member `#`, branch `.[`, or any dotted path -
- * static input ids never contain '.') may be DORMANT by design: inactive
+ * Dynamic-scoped value keys (any dotted path - static input ids never
+ * contain '.') may be DORMANT by design: inactive
  * combo branches, hidden DynamicSlot dependents, and removed members keep
  * their values so switching back restores them. Never warn about those;
  * only a plain top-level key matching no input is junk worth flagging.
  */
-const isDynamicScopedValueKey = (key: string): boolean =>
-  key.includes('#') || key.includes('.')
+const isDynamicScopedValueKey = (key: string): boolean => key.includes('.')
 
 interface ResolvedNodeInput {
   readonly runtimeId: string
-  /** Elaborated key (= spec.id): the FlatNode.inputs staging key. */
-  readonly elabKey: string
+  /** The input's flattened id (= spec.id): the FlatNode.inputs staging key. */
+  readonly inputId: string
   readonly input: ElaboratedInput
 }
 type ResolvedInput = ResolvedNodeInput | {
@@ -519,8 +498,8 @@ function compileImpl(
     if (widget?.controller !== 'after_generate') return
     let byInput = controllerSources.get(target.runtimeId)
     if (!byInput) controllerSources.set(target.runtimeId, (byInput = new Map()))
-    let sources = byInput.get(target.elabKey)
-    if (!sources) byInput.set(target.elabKey, (sources = []))
+    let sources = byInput.get(target.inputId)
+    if (!sources) byInput.set(target.inputId, (sources = []))
     if (sources.some((candidate) =>
       candidate.source.graph === source.graph &&
       candidate.source.occurrence.node === source.occurrence.node &&
@@ -601,26 +580,21 @@ function compileImpl(
   if (!queryingSources && diags.some((diagnostic) => diagnostic.severity === 'error')) {
     return { result: { ok: false, diagnostics: diags } }
   }
-  // -- Occurrence contexts and forwarding state
+  // -- Occurrence contexts
   //
-  // One context per GRAPH OCCURRENCE. Family forwarding makes a node's
-  // effective interface occurrence-dependent: an inner node targeted by a
-  // forwarded family gains that occurrence's instance-appended suffix
-  // members. The merged member list exists only here - derived
+  // One context per GRAPH OCCURRENCE. A promoted editable menu and input
+  // connectivity projected through a boundary make an inner node's
+  // interface occurrence-dependent; that state exists only here - derived
   // per compile, never persisted, never shared between occurrences.
 
   interface OccCtx {
     readonly defId: GraphDefId
     readonly path: readonly NodeId[]
-    /** nodeId -> occurrence-local merged dynamic state (forwarded targets only). */
+    /** nodeId -> occurrence-local dynamic state (promoted editable menus). */
     readonly overlays: Map<NodeId, Readonly<Record<string, DynamicPortState>>>
-    /** nodeId -> values that determine an occurrence-local elaborated interface. */
-    readonly values: Map<NodeId, Readonly<Record<string, Json>>>
-    readonly controllers: Map<NodeId, NonNullable<NodeData['controllers']>>
     readonly sourceValues: Map<string, Json>
-    /** nodeId -> input/output addresses projected through crossings from outer graphs. */
+    /** nodeId -> input addresses projected through boundaries from outer graphs. */
     readonly extraIn: Map<NodeId, ProjectedAddress[]>
-    readonly extraOut: Map<NodeId, ProjectedAddress[]>
   }
   // Node ids may contain every separator character, including NUL. Encode the
   // segment array itself so distinct occurrence paths cannot share a cache
@@ -629,12 +603,10 @@ function compileImpl(
   const topologyKey = (path: readonly NodeId[], defId: string): string => JSON.stringify([defId, path])
   const occCtxByPath = new Map<string, OccCtx>()
   const newOccCtx = (defId: GraphDefId, path: readonly NodeId[]): OccCtx => {
-    const ctx: OccCtx = { defId, path, overlays: new Map(), values: new Map(), controllers: new Map(), sourceValues: new Map(), extraIn: new Map(), extraOut: new Map() }
+    const ctx: OccCtx = { defId, path, overlays: new Map(), sourceValues: new Map(), extraIn: new Map() }
     occCtxByPath.set(pathKey(path), ctx)
     return ctx
   }
-  /** Instance occurrence key -> boundaryId -> crossing. */
-  const crossingsByInstance = new Map<string, ReadonlyMap<string, BoundaryCrossing>>()
   const projectedLegSuppressions = new Set(
     Object.values(doc.occurrenceTopologies ?? {}).flatMap((topology) =>
       (topology.suppressedDeliveries ?? [])
@@ -758,17 +730,15 @@ function compileImpl(
   const withExtraConnectivity = (
     base: Connectivity,
     ins: readonly ProjectedAddress[] | undefined,
-    outs: readonly ProjectedAddress[] | undefined,
   ): Connectivity => {
-    if (!ins?.length && !outs?.length) return base
-    const inKeys = new Set((ins ?? []).map(({ address }) => portAddressKey(address.port, address.members)))
-    const outKeys = new Set((outs ?? []).map(({ address }) => portAddressKey(address.port, address.members)))
+    if (!ins?.length) return base
+    const inKeys = new Set(ins.map(({ address }) => portAddressKey(address.port)))
     return {
-      isInputConnected: (p, m) => inKeys.has(portAddressKey(p, m)) || base.isInputConnected(p, m),
-      isOutputConnected: (p, m) => outKeys.has(portAddressKey(p, m)) || base.isOutputConnected(p, m),
+      isInputConnected: (p) => inKeys.has(portAddressKey(p)) || base.isInputConnected(p),
+      isOutputConnected: base.isOutputConnected,
       inputPorts: () => [
         ...(base.inputPorts?.() ?? []),
-        ...(ins ?? []).map(({ address }) => address).filter((address) => address.members === undefined || address.members.length === 0).map((address) => address.port),
+        ...ins.map(({ address }) => address.port),
       ],
     }
   }
@@ -777,23 +747,21 @@ function compileImpl(
   const occElabCache = new Map<string, NodeElab>()
   const elabAt = (ctx: OccCtx, node: NodeData, schema: NodeSchema): NodeElab => {
     const overlay = ctx.overlays.get(node.id)
-    const values = ctx.values.get(node.id)
     const extraIn = ctx.extraIn.get(node.id)
-    const extraOut = ctx.extraOut.get(node.id)
     const runtimeId = occurrenceKey({ instancePath: ctx.path, node: node.id })
-    if (doc.occurrenceTopologies === undefined && overlay === undefined && values === undefined && extraIn === undefined && extraOut === undefined) {
+    if (doc.occurrenceTopologies === undefined && overlay === undefined && extraIn === undefined) {
       return elabOf(ctx.defId, node, schema)
     }
     const hit = occElabCache.get(runtimeId)
     if (hit) return hit
-    const state = overlay === undefined && values === undefined
+    const state = overlay === undefined
       ? node
       : {
-          values: values ?? node.values,
+          values: node.values,
           ...(node.additionalInputs !== undefined ? { additionalInputs: node.additionalInputs } : {}),
           ...(overlay !== undefined ? { dynamic: overlay } : node.dynamic !== undefined ? { dynamic: node.dynamic } : {}),
         }
-    const connectivity = withExtraConnectivity(connectivityFor(ctx.path, ctx.defId)(node.id), extraIn, extraOut)
+    const connectivity = withExtraConnectivity(connectivityFor(ctx.path, ctx.defId)(node.id), extraIn)
     const elab = buildElab(
       `${ctx.defId}/${node.id} @ ${runtimeId}`,
       node.id,
@@ -866,13 +834,9 @@ function compileImpl(
     const inputsByAddr = new Map<string, ElaboratedInput>()
     const apiNames = new Set<string>()
     for (const i of inputs) {
-      const addr = portAddressKey(i.address.port, i.address.members)
+      const addr = portAddressKey(i.address.port)
       if (inputsByAddr.has(addr)) dup('compile.interface.duplicatePort', `input '${i.spec.id}'`)
       inputsByAddr.set(addr, i)
-      // Top-level static inputs persist values under the RAW schema id (which
-      // '#'/'%' escaping may differ from spec.id); everything dynamic-derived
-      // persists under elaborated identity. A collision across the two (a raw
-      // 'a%23b' vs an escaped 'a#b') is a genuinely ambiguous document key.
       const valueKey = valueKeyOf(i)
       if (inputsByValueKey.has(valueKey)) dup('compile.interface.duplicateValueKey', `value key '${valueKey}'`)
       inputsByValueKey.set(valueKey, i)
@@ -889,7 +853,7 @@ function compileImpl(
     const outputIndexByAddr = new Map<string, number>()
     let outputIndex = 0
     for (const o of outputs) {
-      const addr = portAddressKey(o.address.port, o.address.members)
+      const addr = portAddressKey(o.address.port)
       if (outputsByAddr.has(addr)) dup('compile.interface.duplicatePort', `output '${o.spec.id}'`)
       outputsByAddr.set(addr, o)
       if (o.wireable !== false) outputIndexByAddr.set(addr, outputIndex++)
@@ -944,19 +908,16 @@ function compileImpl(
         }
         const ctx = occCtxByPath.get(pathKey(path))
         const elab = ctx ? elabAt(ctx, node, schema) : elabOf(defId, node, schema)
-        const input = elab.inputsByAddr.get(portAddressKey(ref.port, ref.members))
+        const input = elab.inputsByAddr.get(portAddressKey(ref.port))
         if (!input || input.apiName === undefined) {
-          sink.push(diag('error', 'compile', 'compile.port.unknownInput', `'${node.type}' has no wireable input '${ref.port}'${ref.members ? ` member '${ref.members.join('.')}'` : ''}`, { anchor: anchorOf(path, node.id) }))
+          sink.push(diag('error', 'compile', 'compile.port.unknownInput', `'${node.type}' has no wireable input '${ref.port}'`, { anchor: anchorOf(path, node.id) }))
           return undefined
         }
         if (routeIsSuppressed(path, delivery, boundaryRoute)) return []
-        return [{ runtimeId: regionRuntimeId, elabKey: input.spec.id, input }]
+        return [{ runtimeId: regionRuntimeId, inputId: input.spec.id, input }]
       }
       const child = graphOf(childId)
-      // Boundary item selection goes through the ONE matcher (crossing.ts):
-      // ids may legally contain '.', so a forwarded family's stamped
-      // addresses ('pics', 'pics.slot') are matched by enumeration, never by
-      // first-segment shortcuts.
+      // Boundary item selection goes through the ONE matcher (crossing.ts).
       const match = matchBoundaryItem(child?.boundary?.inputs ?? [], ref)
       if (!child || !match.ok) {
         const ambiguous = child && !match.ok && match.code === 'ambiguous'
@@ -966,45 +927,12 @@ function compileImpl(
           ambiguous ? 'compile.boundary.ambiguousAddress' : 'compile.boundary.missingInput',
           ambiguous && !match.ok
             ? `subgraph '${childId}': ${match.message}`
-            : `subgraph '${childId}' has no boundary input '${ref.port}'${ref.members ? ` member '${ref.members.join('.')}'` : ''}`,
+            : `subgraph '${childId}' has no boundary input '${ref.port}'`,
           { anchor: anchorOf(path, node.id) },
         ))
         return undefined
       }
       const item = match.item
-      if (isForwardingBinding(item.binds)) {
-        // Whole-family forwarding: translate the instance address to the
-        // inner endpoint through the crossing (the one address interpreter
-        // in crossing.ts), then resolve recursively
-        // (chained forwarding re-enters this branch on the inner instance).
-        const crossing = crossingsByInstance.get(occurrenceKey({ instancePath: path, node: node.id }))?.get(item.id)
-        if (!crossing) {
-          sink.push(diag('error', 'compile', 'compile.boundary.forwardUnresolved', `subgraph '${childId}' boundary input '${item.id}' forwards a family but its crossing did not resolve`, { anchor: anchorOf(path, node.id) }))
-          return undefined
-        }
-        const targets: ResolvedInput[] = []
-        let sawMuted = false
-        let sawBypassed = false
-        for (const targetCrossing of crossingTargets(crossing)) {
-          const t = translateThroughCrossing(targetCrossing, ref)
-          if (!t.ok) {
-            sink.push(diag('error', 'compile', t.code, `subgraph '${childId}' boundary input '${item.id}': ${t.message}`, { anchor: anchorOf(path, node.id) }))
-            return undefined
-          }
-          const bindingIndex = crossingTargets(crossing).indexOf(targetCrossing)
-          const binding = [item.binds, ...(item.alsoBinds ?? [])][bindingIndex]!
-          const route = [...boundaryRoute, { graph: child.id, boundaryId: item.id, binding }]
-          if (routeIsSuppressed([...path, node.id], delivery, route)) continue
-          const resolved = resolveInputPort([...path, node.id], childId, t.ref, sink, delivery, route, openRegion)
-          if (resolved === 'muted') sawMuted = true
-          else if (resolved === 'bypassed') sawBypassed = true
-          else if (resolved !== undefined) targets.push(...resolved)
-        }
-        if (targets.length > 0) return targets
-        if (sawMuted) return 'muted'
-        if (sawBypassed) return 'bypassed'
-        return undefined
-      }
       // Fan-out (alsoBinds): one boundary input drives EVERY bound inner
       // input. Each binding resolves independently; muted/bypassed targets
       // drop out (their local edge is dead) while the edge stays alive for
@@ -1049,9 +977,9 @@ function compileImpl(
     }
     const ctx = occCtxByPath.get(pathKey(path))
     const elab = ctx ? elabAt(ctx, node, schema) : elabOf(defId, node, schema)
-    const input = elab.inputsByAddr.get(portAddressKey(ref.port, ref.members))
+    const input = elab.inputsByAddr.get(portAddressKey(ref.port))
     if (!input) {
-      sink.push(diag('error', 'compile', 'compile.port.unknownInput', `'${node.type}' has no input '${ref.port}'${ref.members ? ` member '${ref.members.join('.')}'` : ''}`, { anchor: anchorOf(path, node.id) }))
+      sink.push(diag('error', 'compile', 'compile.port.unknownInput', `'${node.type}' has no input '${ref.port}'`, { anchor: anchorOf(path, node.id) }))
       return undefined
     }
     if (input.apiName === undefined) {
@@ -1076,7 +1004,7 @@ function compileImpl(
       return undefined
     }
     if (routeIsSuppressed(path, delivery, boundaryRoute)) return []
-    return [{ runtimeId: occurrenceKey({ instancePath: path, node: node.id }), elabKey: input.spec.id, input }]
+    return [{ runtimeId: occurrenceKey({ instancePath: path, node: node.id }), inputId: input.spec.id, input }]
   }
 
   function resolveOutputPort(
@@ -1111,10 +1039,10 @@ function compileImpl(
         }
         const ctx = occCtxByPath.get(pathKey(path))
         const elab = ctx ? elabAt(ctx, node, schema) : elabOf(defId, node, schema)
-        const addr = portAddressKey(ref.port, ref.members)
+        const addr = portAddressKey(ref.port)
         const outputIndex = elab.outputIndexByAddr.get(addr)
         if (outputIndex === undefined) {
-          sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `'${node.type}' has no wireable output '${ref.port}'${ref.members ? ` member '${ref.members.join('.')}'` : ''}`, { anchor: anchorOf(path, node.id) }))
+          sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `'${node.type}' has no wireable output '${ref.port}'`, { anchor: anchorOf(path, node.id) }))
           return undefined
         }
         return { runtimeId: regionRuntimeId, outputIndex }
@@ -1130,7 +1058,7 @@ function compileImpl(
           ambiguous ? 'compile.boundary.ambiguousAddress' : 'compile.boundary.missingOutput',
           ambiguous && !match.ok
             ? `subgraph '${childId}': ${match.message}`
-            : `subgraph '${childId}' has no boundary output '${ref.port}'${ref.members ? ` member '${ref.members.join('.')}'` : ''}`,
+            : `subgraph '${childId}' has no boundary output '${ref.port}'`,
           { anchor: anchorOf(path, node.id) },
         ))
         return undefined
@@ -1166,22 +1094,6 @@ function compileImpl(
           },
         }
       }
-      if (item.binds.kind === 'family') {
-        // Symmetric with the input side: one crossing, one translator.
-        const crossing = crossingsByInstance.get(occurrenceKey({ instancePath: path, node: node.id }))?.get(item.id)
-        if (!crossing) {
-          sink.push(diag('error', 'compile', 'compile.boundary.forwardUnresolved', `subgraph '${childId}' boundary output '${item.id}' forwards a family but its crossing did not resolve`, { anchor: anchorOf(path, node.id) }))
-          return undefined
-        }
-        const t = translateThroughCrossing(crossing, ref)
-        if (!t.ok) {
-          sink.push(diag('error', 'compile', t.code, `subgraph '${childId}' boundary output '${item.id}': ${t.message}`, { anchor: anchorOf(path, node.id) }))
-          return undefined
-        }
-        const route = [...boundaryRoute, { graph: child.id, boundaryId: item.id, binding: item.binds }]
-        if (routeIsSuppressed([...path, node.id], delivery, route)) return undefined
-        return resolveOutputPort([...path, node.id], childId, t.ref, sink, delivery, route, openRegion)
-      }
       const route = [...boundaryRoute, { graph: child.id, boundaryId: item.id, binding: item.binds }]
       if (routeIsSuppressed([...path, node.id], delivery, route)) return undefined
       return resolveOutputPort([...path, node.id], childId, item.binds, sink, delivery, route, openRegion)
@@ -1193,10 +1105,10 @@ function compileImpl(
     }
     const ctx = occCtxByPath.get(pathKey(path))
     const elab = ctx ? elabAt(ctx, node, schema) : elabOf(defId, node, schema)
-    const addr = portAddressKey(ref.port, ref.members)
+    const addr = portAddressKey(ref.port)
     const output = elab.outputsByAddr.get(addr)
     if (!output) {
-      sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `'${node.type}' has no output '${ref.port}'${ref.members ? ` member '${ref.members.join('.')}'` : ''}`, { anchor: anchorOf(path, node.id) }))
+      sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `'${node.type}' has no output '${ref.port}'`, { anchor: anchorOf(path, node.id) }))
       return undefined
     }
     if (hasSyntheticAncestor(output.ancestry)) {
@@ -1362,7 +1274,7 @@ function compileImpl(
       if (!byAddr.has(addrKey)) byAddr.set(addrKey, from)
     }
     for (const connection of topologyFor(path, defId)) {
-      if (isPortEndpoint(connection.to)) record(connection.to.node, portAddressKey(connection.to.port, connection.to.members), connection.from)
+      if (isPortEndpoint(connection.to)) record(connection.to.node, portAddressKey(connection.to.port), connection.from)
     }
     inputDriverCache.set(key, built)
     return built
@@ -1381,9 +1293,6 @@ function compileImpl(
    * bound by one of this definition's boundary INPUT items ('port' kind),
    * climb to the parent occurrence and look for a driver of the instance's
    * corresponding port - repeatedly, so chained boundary bindings resolve.
-   * Family-bound (forwarded) member inputs do not climb in v1: their parent
-   * addresses need crossing translation, and an unrouted WARNING is strictly
-   * safer than a misrouted passthrough.
    */
   function driverOfInput(
     path: readonly NodeId[],
@@ -1394,7 +1303,7 @@ function compileImpl(
     let curPath = path
     let curDefId = defId
     let curNode = node
-    let curAddrKey = portAddressKey(address.port, address.members)
+    let curAddrKey = portAddressKey(address.port)
     for (;;) {
       const drv = inputDriverIndexFor(curPath, curDefId as GraphDefId).get(curNode)?.get(curAddrKey)
       if (drv) return { endpoint: drv, path: curPath, defId: curDefId }
@@ -1404,7 +1313,7 @@ function compileImpl(
         (i) => [i.binds, ...(i.alsoBinds ?? [])].some(
           (b) => b.kind === 'port'
             && b.node === curNode
-            && portAddressKey(b.port, b.members) === curAddrKey,
+            && portAddressKey(b.port) === curAddrKey,
         ),
       )
       if (!item) return undefined
@@ -1415,7 +1324,7 @@ function compileImpl(
       curPath = parentPath
       curDefId = parentCtx.defId
       curNode = instanceNode
-      curAddrKey = portAddressKey(item.id, undefined)
+      curAddrKey = portAddressKey(item.id)
     }
   }
 
@@ -1457,7 +1366,7 @@ function compileImpl(
     if (!node || !schema) return undefined
     const ctx = occCtxByPath.get(pathKey(at.path))
     const elab = ctx ? elabAt(ctx, node, schema) : elabOf(at.defId, node, schema)
-    const address = portAddressKey(at.ref.port, at.ref.members)
+    const address = portAddressKey(at.ref.port)
     const output = elab.outputsByAddr.get(address)
     const outputIndex = elab.outputIndexByAddr.get(address)
     if (!output || outputIndex === undefined) return undefined
@@ -1493,7 +1402,7 @@ function compileImpl(
   ): readonly BypassTrace[] {
     const result = traverseRoutedProjection<RouteAt, SelectedBypassHop, BypassTrace>(start, projection, {
       key: (at) => at.kind === 'bypass'
-        ? JSON.stringify(['bypass', occurrenceKey({ instancePath: at.bypass.path, node: at.bypass.ref.node }), portAddressKey(at.bypass.ref.port, at.bypass.ref.members)])
+        ? JSON.stringify(['bypass', occurrenceKey({ instancePath: at.bypass.path, node: at.bypass.ref.node }), portAddressKey(at.bypass.ref.port)])
         : JSON.stringify(['endpoint', at.path, at.defId, at.endpoint]),
       cycle: (at) => {
         if (projection === 'exact') {
@@ -1603,9 +1512,9 @@ function compileImpl(
           } else {
             const ctx = occCtxByPath.get(pathKey(bypass.path))
             const elab = ctx ? elabAt(ctx, node, schema) : elabOf(bypass.defId, node, schema)
-            const requested = elab.outputsByAddr.get(portAddressKey(bypass.ref.port, bypass.ref.members))
-            if (!requested || !elab.outputIndexByAddr.has(portAddressKey(bypass.ref.port, bypass.ref.members))) {
-              sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `${node.type}.${portAddressKey(bypass.ref.port, bypass.ref.members)}: bypass output is not wireable`, { anchor: anchorOf(bypass.path, bypass.ref.node) }))
+            const requested = elab.outputsByAddr.get(portAddressKey(bypass.ref.port))
+            if (!requested || !elab.outputIndexByAddr.has(portAddressKey(bypass.ref.port))) {
+              sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `${node.type}.${portAddressKey(bypass.ref.port)}: bypass output is not wireable`, { anchor: anchorOf(bypass.path, bypass.ref.node) }))
             } else {
               sink.push(diag('warning', 'compile', 'compile.bypass.unrouted', `${node.type}.${requested.spec.id}: bypass has no matching driven input`, { anchor: anchorOf(bypass.path, bypass.ref.node) }))
             }
@@ -1627,43 +1536,38 @@ function compileImpl(
     return result.terminals
   }
 
-  // -- Pass 1: discover occurrences + crossings, derive overlays, collect ----
+  // -- Pass 1: discover occurrences, derive overlays, collect ---------------
   //
   // Outside-in, so an instance's OWN occurrence-local state (overlay from
-  // ITS parent, for chained forwarding) exists before its crossings are
-  // built. Promoted values are NOT resolved here: value resolution needs the
-  // complete crossing/occurrence index (a chained value can cross several
-  // boundaries), so it runs as a separate pass over `pendingPromotions`.
+  // ITS parent) exists before its child context is built. Promoted values
+  // are NOT resolved here: value resolution needs the complete occurrence
+  // index (a chained value can cross several boundaries), so it runs as a
+  // separate pass over `pendingPromotions`.
   // Promoted output counts are the exception: they determine interface
   // shape and must enter the child context before its nodes elaborate.
 
-  /** Per-definition index of link/net endpoint addresses by node (for projection). */
-  const addrIndexCache = new Map<string, Map<NodeId, { ins: ProjectedAddress[]; outs: ProjectedAddress[] }>>()
-  const addrIndexFor = (path: readonly NodeId[], defId: GraphDefId): Map<NodeId, { ins: ProjectedAddress[]; outs: ProjectedAddress[] }> => {
+  /** Per-definition index of link/net input endpoint addresses by node (for projection). */
+  const addrIndexCache = new Map<string, Map<NodeId, ProjectedAddress[]>>()
+  const addrIndexFor = (path: readonly NodeId[], defId: GraphDefId): Map<NodeId, ProjectedAddress[]> => {
     const key = topologyKey(path, defId)
     let idx = addrIndexCache.get(key)
     if (idx) return idx
-    const built = new Map<NodeId, { ins: ProjectedAddress[]; outs: ProjectedAddress[] }>()
-    const at = (node: NodeId): { ins: ProjectedAddress[]; outs: ProjectedAddress[] } => {
-      let e = built.get(node)
-      if (!e) built.set(node, (e = { ins: [], outs: [] }))
-      return e
-    }
-    const asAddr = (p: PortRef, connection: TopologyConnection): ProjectedAddress => ({
-      address: { port: p.port, ...(p.members ? { members: p.members } : {}) },
-      ...(connection.delivery ? { delivery: connection.delivery } : {}),
-      route: [],
-    })
+    const built = new Map<NodeId, ProjectedAddress[]>()
     for (const connection of topologyFor(path, defId)) {
-      if (isPortEndpoint(connection.from)) at(connection.from.node).outs.push(asAddr(connection.from, connection))
-      if (isPortEndpoint(connection.to)) at(connection.to.node).ins.push(asAddr(connection.to, connection))
+      if (!isPortEndpoint(connection.to)) continue
+      let ins = built.get(connection.to.node)
+      if (!ins) built.set(connection.to.node, (ins = []))
+      ins.push({
+        address: { port: connection.to.port },
+        ...(connection.delivery ? { delivery: connection.delivery } : {}),
+        route: [],
+      })
     }
     addrIndexCache.set(key, built)
     return built
   }
 
   const pendingPromotions: { parentCtx: OccCtx; node: NodeData; childId: GraphDefId }[] = []
-  const effectiveBoundaryState = boundaryStateResolver(doc, resolveNode)
 
   function collectNodes(defId: GraphDefId, path: readonly NodeId[], ctx: OccCtx): void {
     const def = graphOf(defId)
@@ -1674,20 +1578,7 @@ function compileImpl(
     graphOccurrences.push({ defId, path })
     for (const authored of Object.values(def.nodes)) {
       const overlay = ctx.overlays.get(authored.id)
-      const values = ctx.values.get(authored.id)
-      const controllers = ctx.controllers.get(authored.id)
-      const state = effectiveBoundaryState(defId, authored, overlay === undefined && values === undefined && controllers === undefined ? authored : {
-        ...authored,
-        ...(values !== undefined ? { values } : {}),
-        ...(overlay !== undefined ? { dynamic: overlay } : {}),
-        ...(controllers !== undefined ? { controllers } : {}),
-      })
-      const node = state === authored ? authored : { ...authored, ...state }
-      if (state !== authored) {
-        ctx.values.set(node.id, node.values)
-        if (node.dynamic !== undefined) ctx.overlays.set(node.id, node.dynamic)
-        if (node.controllers !== undefined) ctx.controllers.set(node.id, node.controllers)
-      }
+      const node = overlay === undefined ? authored : { ...authored, dynamic: overlay }
       if (isVirtualNode(defId, node)) continue
       const mode = node.mode ?? 'active'
       // Muted and bypassed nodes never enter the prompt. A bypassed subgraph
@@ -1732,15 +1623,9 @@ function compileImpl(
               role.kind === 'state' ? [[outputId, role.statePort] as const] : [])),
           })
         }
-        // The instance's OWN occurrence-local state: its parent's overlay
-        // when this instance is itself a forwarded target (chained
-        // forwarding), otherwise its persisted state. Every member in it is
-        // a suffix member relative to the child definition.
         const instanceDynamic = ctx.overlays.get(node.id) ?? node.dynamic
-        const instanceValues = ctx.values.get(node.id) ?? node.values
         const resolveChildNode = (inner: NodeData): NodeSchema | undefined => resolveNode(child.id, inner)
-        const instanceInputs = withExtraConnectivity(connectivityFor(path, defId)(node.id), ctx.extraIn.get(node.id), undefined)
-        const { crossings, problems } = buildBoundaryCrossings(child, resolve, instanceDynamic, resolveChildNode, instanceValues, instanceInputs.inputPorts?.())
+        const problems = boundaryOutputFanOutProblems(child)
         if (problems.length > 0) {
           for (const p of problems) {
             diags.push(diag('error', 'compile', p.code, `${p.message} (node '${node.id}')`, { anchor: anchorOf(path, node.id) }))
@@ -1751,68 +1636,10 @@ function compileImpl(
         for (const [target, dynamic] of projectEditableOptions(child, instanceDynamic, resolveChildNode)) {
           childCtx.overlays.set(target, dynamic)
         }
-        if (crossings.size > 0) {
-          crossingsByInstance.set(occurrenceKey({ instancePath: path, node: node.id }), crossings)
-          // Occurrence-local dynamic-state overlays: definition
-          // prefix + instance suffix merge into DERIVED state on the target
-          // node, at the exact scope the crossing's route names. Cumulative:
-          // two forwarded families on one inner node overlay in sequence.
-          for (const crossing of crossings.values()) {
-            for (const targetCrossing of crossingTargets(crossing)) {
-              if (!isSubtreeCrossing(targetCrossing) && targetCrossing.countBound) continue
-              const target = child.nodes[targetCrossing.targetNode]!
-              childCtx.values.set(target.id, { ...(childCtx.values.get(target.id) ?? target.values), ...projectCrossingValues(instanceValues, targetCrossing) })
-              childCtx.controllers.set(target.id, { ...(childCtx.controllers.get(target.id) ?? target.controllers), ...projectCrossingValues(node.controllers, targetCrossing) })
-              const base = childCtx.overlays.get(targetCrossing.targetNode) ?? child.nodes[targetCrossing.targetNode]?.dynamic
-              childCtx.overlays.set(
-                targetCrossing.targetNode,
-                overlayNodeDynamic(base, targetCrossing, instanceDynamic),
-              )
-            }
-          }
-          // Connectivity projection: edges attached to the instance's
-          // forwarded-family addresses exist, structurally, on the inner
-          // target too - DynamicSlot dependents inside a forwarded template
-          // elaborate from link EXISTENCE, which must not stop at the
-          // boundary. Only family addresses project: concrete bindings
-          // cannot target dynamic constructs (derive rejects them), so no
-          // compile-relevant elaboration reads their connectivity.
-          // Untranslatable addresses are skipped silently here: the link
-          // pass diagnoses each endpoint it RESOLVES with full context. An
-          // edge whose lowering never resolves this endpoint (orphan/undriven
-          // reroute chain, muted far side) stays undiagnosed by design - the
-          // dead-edge policy; a skipped projection then cannot alter any
-          // compiled elaboration either.
-          const idx = addrIndexFor(path, defId).get(node.id)
-          const project = (addrs: readonly ProjectedAddress[], side: 'input' | 'output', into: Map<NodeId, ProjectedAddress[]>, boundaryItems: readonly BoundaryItem[]): void => {
-            for (const projected of addrs) {
-              const m = matchBoundaryItem(boundaryItems, projected.address)
-              if (!m.ok || !isForwardingBinding(m.item.binds)) continue
-              const crossing = crossings.get(m.item.id)
-              if (!crossing || crossing.side !== side) continue
-              for (const [index, targetCrossing] of crossingTargets(crossing).entries()) {
-                const binding = [m.item.binds, ...(m.item.alsoBinds ?? [])][index]!
-                const route = [...projected.route, { graph: child.id, boundaryId: m.item.id, binding }]
-                if (routeIsSuppressed(childPath, projected.delivery, route)) continue
-                const t = translateThroughCrossing(targetCrossing, projected.address)
-                if (!t.ok) continue
-                let list = into.get(t.ref.node)
-                if (!list) into.set(t.ref.node, (list = []))
-                list.push({
-                  address: { port: t.ref.port, ...(t.ref.members ? { members: t.ref.members } : {}) },
-                  ...(projected.delivery ? { delivery: projected.delivery } : {}),
-                  route,
-                })
-              }
-            }
-          }
-          project([...(idx?.ins ?? []), ...(ctx.extraIn.get(node.id) ?? [])], 'input', childCtx.extraIn, child.boundary.inputs)
-          project([...(idx?.outs ?? []), ...(ctx.extraOut.get(node.id) ?? [])], 'output', childCtx.extraOut, child.boundary.outputs)
-        }
         // Concrete input connectivity also crosses the boundary. DynamicSlot
         // reads link existence during elaboration, before ordinary endpoint
         // lowering, so project every primary and fan-out target now.
-        const connected = [...(addrIndexFor(path, defId).get(node.id)?.ins ?? []), ...(ctx.extraIn.get(node.id) ?? [])]
+        const connected = [...(addrIndexFor(path, defId).get(node.id) ?? []), ...(ctx.extraIn.get(node.id) ?? [])]
         for (const projected of connected) {
           const match = matchBoundaryItem(child.boundary.inputs, projected.address)
           if (!match.ok || match.item.binds.kind !== 'port') continue
@@ -1827,7 +1654,7 @@ function compileImpl(
               let list = childCtx.extraIn.get(binding.node)
               if (!list) childCtx.extraIn.set(binding.node, (list = []))
               list.push({
-                address: { port: binding.port, ...(binding.members ? { members: binding.members } : {}) },
+                address: { port: binding.port },
                 ...(projected.delivery ? { delivery: projected.delivery } : {}),
                 route,
               })
@@ -1877,10 +1704,9 @@ function compileImpl(
 
   // -- Pass 1.5: promoted-value overrides (outside-in; first write wins) -----
   //
-  // Runs only after EVERY occurrence and crossing exists: a value held by an
-  // outer instance for a chained-forwarded member resolves through several
-  // crossings, all of which must already be indexed. Both binding kinds use
-  // the same resolver links use - one address interpreter, no special path.
+  // Runs only after EVERY occurrence exists: a value held by an outer
+  // instance resolves through every nested boundary it is promoted across.
+  // Values use the same resolver links use - one address interpreter.
 
   for (const { parentCtx, node, childId } of pendingPromotions) {
     const child = graphOf(childId)
@@ -1897,9 +1723,8 @@ function compileImpl(
       }
       let byInput = overrides.get(target.runtimeId)
       if (!byInput) overrides.set(target.runtimeId, (byInput = new Map()))
-      if (!byInput.has(target.elabKey)) byInput.set(target.elabKey, v)
+      if (!byInput.has(target.inputId)) byInput.set(target.inputId, v)
     }
-    let hasFamilyItem = false
     for (const item of child.boundary.inputs) {
       if (item.binds.kind === 'valueSource') {
         const value = node.values[item.id]
@@ -1909,10 +1734,7 @@ function compileImpl(
         if (value !== undefined) record(target, value)
         continue
       }
-      if (item.binds.kind !== 'port') {
-        hasFamilyItem = true
-        continue
-      }
+      if (item.binds.kind !== 'port') continue
       const v = node.values[item.id]
       const ownerInput = item.promoted === true ? parentElab?.inputsByValueKey.get(item.id) : undefined
       if (v === undefined && ownerInput === undefined) continue
@@ -1936,37 +1758,6 @@ function compileImpl(
           if (v !== undefined) record(target, v)
           ownerPriority += 1
         }
-      }
-    }
-    if (!hasFamilyItem) continue
-    // Whole-family forwarding: suffix members live on the INSTANCE, so their
-    // widget values (and dependent/branch values beneath them) are stored
-    // there under the instance's elaborated keys. ONE pass over the stored
-    // values, ONE matcher call per address (F7): a value whose address is
-    // ambiguous must fail loudly - silently dropping it would compile the
-    // inner default in place of a persisted value.
-    if (!parentElab) continue // already diagnosed at collection
-    const elab = parentElab
-    for (const [key, input] of elab.inputsByValueKey) {
-      if (input.apiName === undefined || hasSyntheticAncestor(input.ancestry)) continue
-      const v = node.values[key]
-      if (v === undefined && input.spec.widget?.controller !== 'after_generate') continue
-      const m = matchBoundaryItem(child.boundary.inputs, input.address)
-      if (!m.ok) {
-        if (v !== undefined && m.code === 'ambiguous') {
-          diags.push(diag('error', 'compile', 'compile.boundary.ambiguousAddress', `subgraph '${childId}' value '${key}': ${m.message}`, { anchor: anchorOf(parentCtx.path, node.id) }))
-        }
-        continue
-      }
-      // Concrete items were handled above (their values live under the item
-      // id itself); only family-owned addresses lower through the resolver.
-      if (!isForwardingBinding(m.item.binds)) continue
-      const ref: PortRef = { node: node.id, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef
-      const targets = resolveInputPort(parentCtx.path, parentCtx.defId, ref)
-      if (!targets || targets === 'muted' || targets === 'bypassed') continue
-      for (const [ownerPriority, target] of targets.entries()) {
-        recordControllerSource(target, parentCtx.defId, ownerOccurrence, input, ownerPriority)
-        if (v !== undefined) record(target, v)
       }
     }
   }
@@ -2035,18 +1826,18 @@ function compileImpl(
     if (emitRegions && type.kind === 'union' && type.names.length === 2 &&
       type.names.includes('FLOAT') && type.names.includes('INT') && input.spec.widget !== undefined) {
       if (emitTypedLiterals) return typedLiteralWire('FLOAT', value) as Json
-      sink.push(diag('error', 'compile', 'compile.value.numericUnionUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve the numeric widget type`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef } }))
+      sink.push(diag('error', 'compile', 'compile.value.numericUnionUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve the numeric widget type`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef } }))
       return undefined
     }
     if (canonicalTypeIdOf(input.spec.type) === 'INT' && isCanonicalUnsafeInteger(value)) {
       if (emitDecimalInts) return decimalIntegerWire(value)
-      sink.push(diag('error', 'compile', 'compile.value.decimalIntUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve this large integer`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef } }))
+      sink.push(diag('error', 'compile', 'compile.value.decimalIntUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve this large integer`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef } }))
       return undefined
     }
     const sourceType = assetSourceTypeOf(input, value)
     if (sourceType === undefined) return value
     if (emitTypedLiterals) return typedLiteralWire(sourceType, value) as Json
-    sink.push(diag('error', 'compile', 'compile.value.assetSourceUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve the asset source type`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef } }))
+    sink.push(diag('error', 'compile', 'compile.value.assetSourceUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve the asset source type`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef } }))
     return undefined
   }
 
@@ -2064,8 +1855,7 @@ function compileImpl(
         continue
       }
       if (input.apiName === undefined) continue
-      // Stage under the ELABORATED id (identical to the persisted value key
-      // except for '#'/'%'-escaped static ids).
+      // Stage under the ELABORATED id (identical to the persisted value key).
       const lowered = lowerWidgetLiteral(fn, input, value, nodeDiags)
       if (lowered !== undefined) fn.inputs[input.spec.id] = lowered
     }
@@ -2118,10 +1908,10 @@ function compileImpl(
     const schema = node && resolveNode(defId, node)
     const ctx = occCtxByPath.get(pathKey(path))
     const input = node && schema
-      ? (ctx ? elabAt(ctx, node, schema) : elabOf(defId, node, schema)).inputsByAddr.get(portAddressKey(ref.port, ref.members))
+      ? (ctx ? elabAt(ctx, node, schema) : elabOf(defId, node, schema)).inputsByAddr.get(portAddressKey(ref.port))
       : undefined
     if (!node || !input) return undefined
-    return [{ runtimeId: occurrenceKey({ instancePath: path, node: nodeId }), elabKey: input.spec.id, input }]
+    return [{ runtimeId: occurrenceKey({ instancePath: path, node: nodeId }), inputId: input.spec.id, input }]
   }
 
   /**
@@ -2148,8 +1938,8 @@ function compileImpl(
     // scalar-T decode/merge arms lower through lowerWidgetLiteral before
     // links) - unwrap it instead of double-wrapping; raw stored/override/
     // fallback refs on those inputs re-derive the same source type.
-    const staged = flat.get(input.runtimeId)?.inputs[input.elabKey]
-      ?? overrides.get(input.runtimeId)?.get(input.elabKey)
+    const staged = flat.get(input.runtimeId)?.inputs[input.inputId]
+      ?? overrides.get(input.runtimeId)?.get(input.inputId)
     if (staged !== undefined) {
       const decimalInteger = parseDecimalIntegerWire(staged)
       if (decimalInteger !== undefined) return { value: decimalInteger, typeId: 'INT' }
@@ -2186,8 +1976,8 @@ function compileImpl(
       for (const destination of live) {
         let byInput = wouldRunInputEdges.get(destination.runtimeId)
         if (!byInput) wouldRunInputEdges.set(destination.runtimeId, (byInput = new Map()))
-        let producers = byInput.get(destination.elabKey)
-        if (!producers) byInput.set(destination.elabKey, (producers = new Set()))
+        let producers = byInput.get(destination.inputId)
+        if (!producers) byInput.set(destination.inputId, (producers = new Set()))
         const vias = new Map<string, TraceVia>()
         const viaFor = (routeDefId: string): TraceVia => {
           let via = vias.get(routeDefId)
@@ -2197,7 +1987,7 @@ function compileImpl(
         const all = projectRoute({ kind: 'endpoint', path, defId, endpoint: from }, queryingSources ? 'spec' : 'would-run', scratch, destination.input.spec.type, viaFor, delivery)
         const connections = wouldRunVia.get(destination.runtimeId)
         const recorded = [...vias].map(([routeDefId, via]) => ({ defId: routeDefId, via }))
-        const record = { inputKey: destination.elabKey, entries: recorded }
+        const record = { inputKey: destination.inputId, entries: recorded }
         if (connections) connections.push(record)
         else wouldRunVia.set(destination.runtimeId, [record])
         let anyCandidateDelivers = false
@@ -2277,7 +2067,7 @@ function compileImpl(
       const enclosingRegion = regionPseudoRef !== undefined
         ? [...regions.values()].find((region) => region.childId === defId && pathKey(region.childPath) === pathKey(path))
         : undefined
-      const regionIndexRef = regionPseudoRef?.port === 'index' && regionPseudoRef.members === undefined && enclosingRegion !== undefined
+      const regionIndexRef = regionPseudoRef?.port === 'index' && enclosingRegion !== undefined
         ? regionPseudoRef
         : undefined
       if (regionPseudoRef !== undefined && regionIndexRef === undefined) {
@@ -2305,8 +2095,8 @@ function compileImpl(
         if (regionIndexRef !== undefined) {
           const consumer = flat.get(dst.runtimeId)
           if (!consumer) continue
-          consumer.inputs[dst.elabKey] = { $link: { node: DINKSTER_REGION_PSEUDO_NODE, output: 'index' } }
-          consumer.linkedInputs.add(dst.elabKey)
+          consumer.inputs[dst.inputId] = { $link: { node: DINKSTER_REGION_PSEUDO_NODE, output: 'index' } }
+          consumer.linkedInputs.add(dst.inputId)
           recordSuccessfulDelivery(dst)
           continue
         }
@@ -2336,7 +2126,7 @@ function compileImpl(
           if (routedRandomSelectors.size > 0) {
             let inputs = randomSelectorInputs.get(dst.runtimeId)
             if (!inputs) randomSelectorInputs.set(dst.runtimeId, (inputs = new Set()))
-            inputs.add(dst.elabKey)
+            inputs.add(dst.inputId)
           }
           attachUnknownSchemaDependents(routeDiagnostics, [dst.runtimeId])
           if (trace.kind === 'muted') {
@@ -2353,7 +2143,7 @@ function compileImpl(
             if (trace.controllerSources !== undefined) {
               let byInput = literalControllers.get(dst.runtimeId)
               if (!byInput) literalControllers.set(dst.runtimeId, (byInput = new Map()))
-              byInput.set(dst.elabKey, { sources: trace.controllerSources, ...(trace.controllerWidget !== undefined ? { widget: trace.controllerWidget } : {}) })
+              byInput.set(dst.inputId, { sources: trace.controllerSources, ...(trace.controllerWidget !== undefined ? { widget: trace.controllerWidget } : {}) })
             }
           } else src = trace.src
         }
@@ -2383,12 +2173,12 @@ function compileImpl(
             if (baked.typeId === 'INT' && dstTypeId === 'INT') {
               const lowered = lowerWidgetLiteral(consumer, dst.input, baked.value)
               if (lowered !== undefined) {
-                consumer.inputs[dst.elabKey] = lowered
-                consumer.linkedInputs.delete(dst.elabKey)
+                consumer.inputs[dst.inputId] = lowered
+                consumer.linkedInputs.delete(dst.inputId)
                 recordSuccessfulDelivery(dst)
               }
             } else {
-              diags.push(diag('error', 'compile', 'compile.tap.decimalIntNonConcreteTarget', `${consumer.node.type}.${dst.input.spec.id}: large integer requires an INT input`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port, ...(dst.input.address.members ? { members: dst.input.address.members } : {}) } as PortRef } }))
+              diags.push(diag('error', 'compile', 'compile.tap.decimalIntNonConcreteTarget', `${consumer.node.type}.${dst.input.spec.id}: large integer requires an INT input`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port } as PortRef } }))
             }
             continue
           }
@@ -2396,29 +2186,29 @@ function compileImpl(
             (baked.typeId !== undefined && isAssetSourceTypeId(baked.typeId) &&
               baked.typeId !== dstTypeId && !isAssetRefDestinationTypeId(dstTypeId))) {
             if (emitTypedLiterals && baked.typeId !== undefined) {
-              consumer.inputs[dst.elabKey] = typedLiteralWire(baked.typeId, baked.value)
-              consumer.linkedInputs.delete(dst.elabKey)
+              consumer.inputs[dst.inputId] = typedLiteralWire(baked.typeId, baked.value)
+              consumer.linkedInputs.delete(dst.inputId)
               recordSuccessfulDelivery(dst)
               continue
             }
-            diags.push(diag('error', 'compile', 'compile.tap.nonConcreteTarget', `${consumer.node.type}.${dst.input.spec.id}: literal type cannot be resolved on this backend`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port, ...(dst.input.address.members ? { members: dst.input.address.members } : {}) } as PortRef } }))
+            diags.push(diag('error', 'compile', 'compile.tap.nonConcreteTarget', `${consumer.node.type}.${dst.input.spec.id}: literal type cannot be resolved on this backend`, { anchor: { occurrence: consumer.occ, port: { node: consumer.occ.node, port: dst.input.address.port } as PortRef } }))
             continue
           }
-          consumer.inputs[dst.elabKey] = baked.value
-          consumer.linkedInputs.delete(dst.elabKey)
+          consumer.inputs[dst.inputId] = baked.value
+          consumer.linkedInputs.delete(dst.inputId)
           recordSuccessfulDelivery(dst)
           continue
         }
         if (!src) continue // unreachable (guarded above); narrows the type
-        consumer.inputs[dst.elabKey] = [src.runtimeId, src.outputIndex] as const
-        consumer.linkedInputs.add(dst.elabKey)
+        consumer.inputs[dst.inputId] = [src.runtimeId, src.outputIndex] as const
+        consumer.linkedInputs.add(dst.inputId)
         recordSuccessfulDelivery(dst)
       }
     }
   }
 
   // Region boundary inputs are body-local reads from the reserved pseudo
-  // node. Resolve each boundary item through the same crossing and fan-out
+  // node. Resolve each boundary item through the same matcher and fan-out
   // machinery as ordinary parent deliveries, but open only this region so a
   // nested region remains an opaque entry in its enclosing body.
   for (const region of regions.values()) {
@@ -2439,10 +2229,10 @@ function compileImpl(
         if (!isNodeInput(target)) continue
         const bodyNode = flat.get(target.runtimeId)
         if (!bodyNode) continue
-        bodyNode.inputs[target.elabKey] = {
+        bodyNode.inputs[target.inputId] = {
           $link: { node: DINKSTER_REGION_PSEUDO_NODE, output: item.id },
         }
-        bodyNode.linkedInputs.add(target.elabKey)
+        bodyNode.linkedInputs.add(target.inputId)
         recordSuccessfulDelivery(target)
       }
     }
@@ -2703,7 +2493,7 @@ function compileImpl(
         // Server-side validation is authoritative; surface early as a warning.
         diags.push(diag('warning', 'compile', 'compile.input.missing', `'${fn.node.type}' required input '${spec.id}' has no value or connection`, {
           blocksExecution: true,
-          anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port, ...(input.address.members ? { members: input.address.members } : {}) } as PortRef },
+          anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef },
         }))
       }
     }
@@ -2799,7 +2589,7 @@ function compileImpl(
     const slotVariants: Record<string, string> = { ...fn.elab.choices }
     const successful = new Set(
       (successfulDestinations.get(fn.runtimeId) ?? [])
-        .map((address) => portAddressKey(address.port, address.members)),
+        .map((address) => portAddressKey(address.port)),
     )
     for (const input of fn.elab.inputs) {
       if (input.apiName === undefined) continue
@@ -2823,14 +2613,13 @@ function compileImpl(
           ownerPriority: sources[0]?.ownerPriority ?? 0,
           widget: literal?.widget ?? sources[0]?.widget ?? widget,
           optional: input.spec.optional,
-          driven: literal === undefined && successful.has(portAddressKey(input.address.port, input.address.members)),
+          driven: literal === undefined && successful.has(portAddressKey(input.address.port)),
         })
       }
       const submissionName = input.apiName
       sourceInputs[submissionName] = {
         node: fn.occ.node,
         port: input.address.port as PortRef['port'],
-        ...(input.address.members === undefined ? {} : { members: input.address.members }),
       }
       const v = fn.inputs[input.spec.id]
       if (v !== undefined && fn.node.additionalInputs?.includes(input.address.port) &&
@@ -2961,7 +2750,7 @@ function compileImpl(
       const type = parent && nativeInputType(parent, port.output)
       return owner?.node.region?.elementPorts?.includes(port.output) && type?.kind === 'list' ? type.element : type
     }
-    return fn.elab.inputs.find((input) => elabKeyOf(input.address) === key)?.spec.type
+    return fn.elab.inputs.find((input) => input.address.port === key)?.spec.type
   }
   const nativeOutputType = (runtimeId: string, index: number): TypeExpr | undefined => {
     const key = `${runtimeId}/${index}`
@@ -2986,9 +2775,9 @@ function compileImpl(
         ...fn.elab.inputs.map((input, i) => ({ kind: 'input' as const, id: `input_${i}`, type: input.spec.type, optional: input.spec.optional })),
         ...fn.elab.outputs.map((item, i) => ({ kind: 'output' as const, id: `output_${i}`, type: item.spec.type })),
       ]
-      const schema = { ...resolveNode(fn.graphId, fn.node)!, items }
+      const schema = { ...resolveNode(fn.graphId, fn.node)!, body: items }
       const projectedInputs = fn.elab.inputs.flatMap((input, i) => {
-        const type = nativeInputType(fn, elabKeyOf(input.address))
+        const type = nativeInputType(fn, input.address.port)
         return type ? [{ type, to: { node: fn.node.id, port: `input_${i}` as PortRef['port'] } }] : []
       })
       const graph = { ...doc.graphs[fn.graphId]!, nodes: { [fn.node.id]: fn.node }, links: {}, nets: {}, reroutes: {} }
@@ -3008,7 +2797,6 @@ function compileImpl(
       inputPorts[inputId] = {
         node: fn.occ.node,
         port: input.address.port as PortRef['port'],
-        ...(input.address.members !== undefined ? { members: input.address.members } : {}),
       }
     }
     const outputTypes: Record<string, TypeExpr> = {}
@@ -3032,7 +2820,7 @@ function compileImpl(
     for (const output of fn.elab.outputs) {
       if (output.wireable === false) continue
       const outputId = nativeOutputId(fn.runtimeId, output)
-      const solved = solvedTypes.get(fn.graphId)?.portTypeOf(fn.node.id, 'output', elabKeyOf(output.address))
+      const solved = solvedTypes.get(fn.graphId)?.portTypeOf(fn.node.id, 'output', output.address.port)
       const native = nativeOutputType(fn.runtimeId, fn.elab.outputs.filter((item) => item.wireable !== false).indexOf(output))
       outputTypes[outputId] = output.spec.type.kind === 'variable' && selectorOutputType !== undefined
         ? selectorOutputType
@@ -3040,7 +2828,6 @@ function compileImpl(
       outputPorts[outputId] = {
         node: fn.occ.node,
         port: output.address.port as PortRef['port'],
-        ...(output.address.members !== undefined ? { members: output.address.members } : {}),
       }
     }
     return {

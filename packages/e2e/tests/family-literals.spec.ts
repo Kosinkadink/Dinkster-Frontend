@@ -1,90 +1,4 @@
-import { expect, test, waitForStartupOwnership, type Page } from './fixtures.js'
-
-for (const named of [false, true]) {
-  test(`canonical forwarded family edits its instance in a drilled view (named=${named})`, async ({ page }, testInfo) => {
-    const names = named ? ['head', 'middle', 'tail', 'last'] : ['item0', 'item1', 'item2', 'item3']
-    await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
-    await page.route('/api/nodes*', (route) => route.fulfill({ json: {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'family-proof', schemaWire: 1 }, packs: {}, nodes: {},
-    } }))
-    await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
-    await page.goto('/')
-    await waitForStartupOwnership(page)
-    await page.evaluate(async ({ names, named }) => {
-      const app = window.__dinksterTest!.app
-      app.registerSchemas([{
-        type: 'CanonicalProof', displayName: 'Forwarded weights', category: 'proof', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'input', id: 'weights', type: { kind: 'wildcard' }, optional: true,
-          dynamic: { kind: 'autogrow', materialization: 'wire15', optionalAfterMinimum: true,
-            naming: named ? { kind: 'names', names } : { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-            template: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
-              widget: { widgetType: 'FLOAT', options: {}, default: 0 } }],
-          },
-        }],
-      }, {
-        type: 'CanonicalSource', displayName: 'Number source', category: 'proof', source: 'v3', isOutputNode: false,
-        items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }],
-      }] as never)
-      const graph = (id: string, nodes: unknown, boundary?: unknown) => ({
-        id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3, ...(boundary ? { boundary } : {}),
-      })
-      const diagnostics = (await app.openDocument({
-        format: 'dinkster-workflow', formatVersion: 1, lineage: 'canonical-drilled-proof', root: 'g0',
-        graphs: {
-          g0: graph('g0', { instance: { id: 'instance', type: '#sub', values: { [`forwarded.${names[1]}`]: 22 }, dynamic: { forwarded: { members: [names[1]] } } } }),
-          sub: graph('sub', {
-            source: { id: 'source', type: 'CanonicalSource', values: {} },
-            n: { id: 'n', type: 'CanonicalProof', values: { [`weights.${names[0]}`]: 11 }, dynamic: { weights: { members: [names[0]] } } },
-          },
-            { inputs: [{ id: 'forwarded', binds: { kind: 'family', node: 'n', port: 'weights' } }], outputs: [] }),
-        },
-        view: { graphs: { g0: { nodes: { instance: { position: { x: 250, y: 160 } } } }, sub: { nodes: {
-          n: { position: { x: 250, y: 160 } }, source: { position: { x: 50, y: 360 } },
-        } } } },
-      } as never, 'Canonical family proof'))
-      if (diagnostics.length) throw new Error(JSON.stringify(diagnostics))
-      window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-    }, { names, named })
-    const header = await page.evaluate(() => {
-      const renderer = window.__dinksterTest!.renderer!
-      const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'instance')!
-      const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-      const viewport = renderer.getViewport()
-      return { x: rect.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
-        y: rect.top + (node.y + 14) * viewport.scale + viewport.y }
-    })
-    await page.mouse.dblclick(header.x, header.y)
-    await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
-    await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'n'))
-    await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1.4 }))
-    for (const [index, value] of [[1, 33], [2, 44]] as const) {
-      const point = await nodePoint(page, 'n', { kind: 'widget', inputId: `weights.${names[index]}` })
-      await page.mouse.click(point.x, point.y)
-      const editor = page.locator('#widget-editor-value')
-      await expect(editor).toBeVisible()
-      await editor.fill(String(value))
-      await editor.press('Enter')
-      await expect.poll(() => page.evaluate(({ name }) => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.instance!.values[`forwarded.${name}`], { name: names[index] })).toBe(value)
-    }
-    await expect.poll(() => page.evaluate(({ name }) => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.sub!.nodes.n!.values[`weights.${name}`], { name: names[0] })).toBe(11)
-    const from = await nodePoint(page, 'source', { kind: 'pin', direction: 'out', portId: 'out' })
-    const to = await nodePoint(page, 'n', { kind: 'pin', direction: 'in', portId: `weights.${names[3]}` })
-    await drag(page, named ? to : from, named ? from : to)
-    await expect.poll(() => page.evaluate(() => {
-      const doc = window.__dinksterTest!.app.activeTab()!.store.doc
-      return {
-        members: doc.graphs.g0!.nodes.instance!.dynamic?.forwarded?.members,
-        links: Object.values(doc.occurrenceTopologies ?? {}).flatMap((topology) => Object.values(topology.links)).length,
-        prefix: doc.graphs.sub!.nodes.n!.dynamic?.weights?.members,
-      }
-    })).toEqual({ members: names.slice(1), links: 1, prefix: [names[0]] })
-    await page.keyboard.press('Control+Z')
-    await expect.poll(() => page.evaluate(() => Object.values(window.__dinksterTest!.app.activeTab()!.store.doc.occurrenceTopologies ?? {}).flatMap((topology) => Object.values(topology.links)).length)).toBe(0)
-    await page.keyboard.press('Control+Shift+Z')
-    await expect.poll(() => page.evaluate(() => Object.values(window.__dinksterTest!.app.activeTab()!.store.doc.occurrenceTopologies ?? {}).flatMap((topology) => Object.values(topology.links)).length)).toBe(1)
-    await page.screenshot({ path: testInfo.outputPath(`canonical-drilled-${named ? 'named' : 'numeric'}.png`) })
-  })
-}
+import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 async function nodePoint(
   page: Page,
@@ -129,13 +43,13 @@ async function drag(
   await page.mouse.up()
 }
 
-test('legacy named family literal editing advances the ghost through compaction', async ({ page }, testInfo) => {
+test('typing into the spare member of a named group adds it and offers the next spare', async ({ page }, testInfo) => {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'proof' }, devices: [] } }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'family-literal-proof', schemaWire: 1 },
+    dinkster: { version: 'family-literal-proof', schemaWire: 2 },
     packs: {},
     nodes: {},
   } }))
@@ -144,7 +58,6 @@ test('legacy named family literal editing advances the ghost through compaction'
   await waitForStartupOwnership(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    const scalar = { kind: 'union', names: ['FLOAT', 'INT', 'BOOLEAN'] }
     app.registerSchemas([
       {
         type: 'FamilyLiteralProof',
@@ -152,17 +65,16 @@ test('legacy named family literal editing advances the ghost through compaction'
         category: 'proof',
         source: 'v3',
         isOutputNode: false,
-        items: [{
-          kind: 'input',
+        body: [{
+          kind: 'group',
           id: 'values',
-          type: { kind: 'wildcard' },
-          optional: false,
-          dynamic: {
-            kind: 'autogrow',
-            materialization: 'wire15',
-            naming: { kind: 'names', names: ['a', 'b', 'c'], min: 1 },
-            template: [{ kind: 'input', id: 'value', type: scalar, optional: false }],
+          value: {
+            kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+            widget: { widgetType: 'FLOAT', options: {}, default: 0 },
           },
+          keys: { kind: 'named', names: ['a', 'b', 'c'] },
+          grows: 'filled',
+          minMembers: 1,
         }],
       },
       {
@@ -171,7 +83,7 @@ test('legacy named family literal editing advances the ghost through compaction'
         category: 'proof',
         source: 'v3',
         isOutputNode: false,
-        items: [{ kind: 'output', id: 'value', type: { kind: 'concrete', name: 'FLOAT' } }],
+        body: [{ kind: 'output', id: 'value', type: { kind: 'concrete', name: 'FLOAT' } }],
       },
     ] as never)
     const diagnostics = (await app.openDocument({
@@ -188,7 +100,7 @@ test('legacy named family literal editing advances the ghost through compaction'
             math: {
               id: 'math',
               type: 'FamilyLiteralProof',
-              values: {},
+              values: { 'values.a': 1 },
               dynamic: { values: { members: ['a'] } },
             },
           },
@@ -266,8 +178,9 @@ test('legacy named family literal editing advances the ghost through compaction'
         .map((pin) => ({ port: pin.portId, ghost: pin.ghost === true })),
     }
   })).toEqual({
-    state: { members: ['b'], seq: 0 },
+    state: { members: ['a', 'b'], seq: 0 },
     pins: [
+      { port: 'values.a', ghost: false },
       { port: 'values.b', ghost: false },
       { port: 'values.c', ghost: true },
     ],
@@ -292,12 +205,13 @@ test('legacy named family literal editing advances the ghost through compaction'
     }
   })
   expect(reloaded).toEqual({
-    members: ['b'],
+    members: ['a', 'b'],
     literal: 2.5,
     target: { node: 'math', port: 'values.b' },
     pins: [
-      { port: 'values.b', ghost: false, widgetBacked: false },
-      { port: 'values.c', ghost: true, widgetBacked: false },
+      { port: 'values.a', ghost: false, widgetBacked: true },
+      { port: 'values.b', ghost: false, widgetBacked: true },
+      { port: 'values.c', ghost: true, widgetBacked: true },
     ],
   })
 

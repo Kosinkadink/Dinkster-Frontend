@@ -50,7 +50,6 @@ export function widgetEditorAnchorAlive(
   const sameContract = JSON.stringify(row.spec) === JSON.stringify(ed.anchorSpec ?? ed.spec) &&
     JSON.stringify(row.type) === JSON.stringify(ed.declaredType) &&
     JSON.stringify(row.familyOwner ?? null) === JSON.stringify(target.familyOwner ?? null) &&
-    JSON.stringify(row.inputFamilyOwner ?? null) === JSON.stringify(target.inputFamilyOwner ?? null) &&
     JSON.stringify(row.materialize ?? null) === JSON.stringify(target.materialize ?? null) &&
     JSON.stringify(row.selector ?? null) === JSON.stringify(target.selector ?? null) &&
     JSON.stringify(row.sourceFilename ?? null) === JSON.stringify(ed.sourceFilename ?? null)

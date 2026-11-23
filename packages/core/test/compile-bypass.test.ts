@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { compile, scopeClosure, type CompileInput } from '../src/compile/compile.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
-import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
+import type { BodyRow, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
 const T = (name: string): TypeExpr => ({ kind: 'concrete', name })
 const IMAGE = T('IMAGE')
@@ -25,7 +25,18 @@ const inp = (id: string, type: TypeExpr, extra?: Partial<InputSpec>): InputSpec 
   ...extra,
 })
 const out = (id: string, type: TypeExpr): OutputSpec => ({ kind: 'output', id, type })
-const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema => ({
+/** A group of optional inputs named by the keys the tests store. */
+const items = (type: TypeExpr): GroupSpec => ({
+  kind: 'group',
+  id: 'items',
+  value: inp('value', type, { optional: true }),
+  keys: { kind: 'named', names: ['first', 'second', 'selected', 'dead', 'live', 'route', 'forwarded', 'result'] },
+  grows: 'link',
+  minMembers: 0,
+})
+/** Stored members of the `items` group. */
+const members = (...keys: string[]) => ({ items: { members: keys } })
+const schemaOf = (type: string, items: BodyRow[]): NodeSchema => ({
   type,
   displayName: type,
   category: 'test',
@@ -56,72 +67,43 @@ const schemas: Record<string, NodeSchema> = {
   ]),
   FSink: schemaOf('FSink', [inp('in', FLOAT, { widget: { widgetType: 'FLOAT', options: {}, default: 9 } })]),
   NWidget: schemaOf('NWidget', [inp('value', INT, { widget: { widgetType: 'INT', options: {}, default: 17 } })]),
-  // Autogrow IMAGE family: dynamic members as passthrough candidates.
+  // IMAGE group: member connections as passthrough candidates.
   Batcher: schemaOf('Batcher', [
     {
-      ...inp('images', IMAGE),
-      dynamic: {
-        kind: 'autogrow',
-        template: [inp('image', IMAGE)],
-        naming: { kind: 'prefix', prefix: 'image', min: 1, max: 4 },
-      },
+      kind: 'group',
+      id: 'images',
+      value: inp('image', IMAGE),
+      keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 },
+      grows: 'link',
+      minMembers: 1,
+      maxMembers: 4,
     },
     out('out', IMAGE),
   ]),
   SlotSink: schemaOf('SlotSink', [{
-    ...inp('slot', IMAGE, { optional: true }),
-    dynamic: {
-      kind: 'dynamicSlot', slotType: IMAGE,
-      inputs: [inp('gain', FLOAT, { optional: true, widget: { widgetType: 'FLOAT', options: {}, default: 0.5 } })],
-    },
+    kind: 'typeChoice',
+    id: 'slot',
+    type: IMAGE,
+    rows: [inp('gain', FLOAT, { optional: true, widget: { widgetType: 'FLOAT', options: {}, default: 0.5 } })],
+    required: false,
   }]),
-  Wire15Relay: schemaOf('Wire15Relay', [
-    {
-      ...inp('items', IMAGE, { optional: true }),
-      dynamic: {
-        kind: 'autogrow', materialization: 'wire15',
-        template: [inp('value', IMAGE, { optional: true })],
-        naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-      },
-    },
-    out('out', IMAGE),
-  ]),
-  Wire15Sink: schemaOf('Wire15Sink', [{
-    ...inp('items', IMAGE, { optional: true }),
-    dynamic: {
-      kind: 'autogrow', materialization: 'wire15',
-      template: [inp('value', IMAGE, { optional: true })],
-      naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-    },
-  }]),
-  Wire15LatentSink: schemaOf('Wire15LatentSink', [{
-    ...inp('items', LATENT, { optional: true }),
-    dynamic: {
-      kind: 'autogrow', materialization: 'wire15',
-      template: [inp('value', LATENT, { optional: true })],
-      naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-    },
-  }]),
-  Wire15NRelay: schemaOf('Wire15NRelay', [{
-    ...inp('items', INT, { optional: true }),
-    dynamic: { kind: 'autogrow', materialization: 'wire15', template: [inp('value', INT, { optional: true })], naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } },
-  }, out('out', INT)]),
-  Wire15NSink: schemaOf('Wire15NSink', [{
-    ...inp('items', INT, { optional: true }),
-    dynamic: { kind: 'autogrow', materialization: 'wire15', template: [inp('value', INT, { optional: true })], naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 } },
-  }]),
+  Relay: schemaOf('Relay', [items(IMAGE), out('out', IMAGE)]),
+  GroupSink: schemaOf('GroupSink', [items(IMAGE)]),
+  GroupLatentSink: schemaOf('GroupLatentSink', [items(LATENT)]),
+  NRelay: schemaOf('NRelay', [items(INT), out('out', INT)]),
+  NGroupSink: schemaOf('NGroupSink', [items(INT)]),
 }
 const resolve = (type: string): NodeSchema | undefined => schemas[type]
 
 // -- Document builder (links may reference reroutes/value sources) -----------
 
 type End =
-  | { node: string; port: string; members?: string[] }
+  | { node: string; port: string }
   | { reroute: string }
   | { valueSource: string }
   | { selector: string; candidate?: string }
   | { node: string; tap: string }
-const P = (node: string, port: string, members?: string[]): End => ({ node, port, ...(members ? { members } : {}) })
+const P = (node: string, port: string): End => ({ node, port })
 
 interface BNode {
   type: string
@@ -186,13 +168,13 @@ const input = (doc: WorkflowDocument, scope: CompileInput['scope'] = { kind: 'fu
 const codesOf = (diags: readonly { code: string }[]): string[] => diags.map((d) => d.code)
 
 describe('bypass passthrough basics', () => {
-  it('expands every random selector branch reached behind a wire-15 bypass hop', () => {
+  it('expands every random selector branch reached behind a bypass hop through a group member', () => {
     const doc = docOf({
       nodes: {
         first: { type: 'ISrc' },
         second: { type: 'ISrc' },
-        relay: { type: 'Wire15Relay', mode: 'bypassed' },
-        sink: { type: 'Wire15Sink' },
+        relay: { type: 'Relay', mode: 'bypassed', dynamic: members('selected') },
+        sink: { type: 'GroupSink', dynamic: members('result') },
       },
       selectors: {
         choose: {
@@ -221,13 +203,13 @@ describe('bypass passthrough basics', () => {
     expect(closure).not.toHaveProperty('diagnostics')
   })
 
-  it('keeps a dead first structural wire-15 route selected without fallback and warns', () => {
+  it('keeps a dead first structural route selected without fallback and warns', () => {
     const make = (deadMode: 'active' | 'muted') => docOf({
       nodes: {
         dead: { type: 'ISrc', mode: deadMode },
         live: { type: 'ISrc' },
-        relay: { type: 'Wire15Relay', mode: 'bypassed' },
-        sink: { type: 'Wire15Sink' },
+        relay: { type: 'Relay', mode: 'bypassed', dynamic: members('dead', 'live') },
+        sink: { type: 'GroupSink', dynamic: members('result') },
       },
       links: [
         [P('dead', 'out'), P('relay', 'items.dead')],
@@ -251,7 +233,7 @@ describe('bypass passthrough basics', () => {
     expect(warning?.anchor?.occurrence).toEqual({ instancePath: [], node: 'relay' })
   })
 
-  it('preserves wire-14 DynamicSlot dependents through reroutes and bypassed producers', () => {
+  it('preserves type choice dependents through reroutes and bypassed producers', () => {
     const result = compile(input(docOf({
       nodes: {
         a: { type: 'ISrc' },
@@ -457,15 +439,15 @@ describe('bypass with structural constructs', () => {
     expect(result.artifact.prompt['k']!.inputs['in']).toEqual(['a', 0])
   })
 
-  it('dynamic autogrow member connections are passthrough candidates', () => {
+  it('group member connections are passthrough candidates', () => {
     const result = compile(input(docOf({
       nodes: {
         a: { type: 'ISrc' },
-        g: { type: 'Batcher', mode: 'bypassed', dynamic: { images: { members: ['m0'] } } },
+        g: { type: 'Batcher', mode: 'bypassed', dynamic: { images: { members: ['image0'] } } },
         k: { type: 'ISink' },
       },
       links: [
-        [P('a', 'out'), P('g', 'images.image', ['m0'])],
+        [P('a', 'out'), P('g', 'images.image0')],
         [P('g', 'out'), P('k', 'in')],
       ],
     })))
@@ -687,18 +669,18 @@ describe('bypass and execution scope', () => {
   })
 })
 
-describe('wire-15 I1 dedicated proof matrix', () => {
+describe('bypass routes through group members', () => {
   const recursiveTerminalDoc = (from: End, extra: Partial<BGraph> = {}) => docOf({
     ...extra,
-    nodes: { relay: { type: 'Wire15NRelay', mode: 'bypassed' }, sink: { type: 'Wire15NSink' }, ...(extra.nodes ?? {}) },
+    nodes: { relay: { type: 'NRelay', mode: 'bypassed', dynamic: members('route') }, sink: { type: 'NGroupSink', dynamic: members('result') }, ...(extra.nodes ?? {}) },
     links: [...(extra.links ?? []), [from, P('relay', 'items.route')], [P('relay', 'out'), P('sink', 'items.result')]],
   })
   const recursiveTerminal = (from: End, extra: Partial<BGraph> = {}) =>
     compile(input(recursiveTerminalDoc(from, extra)))
 
-  it('Real two-occurrence compile fixture: structurally identical sibling subgraph occurrences preserve materialized input order/index semantics and differ only in delivery membership', () => {
+  it('structurally identical sibling subgraph occurrences keep input order and index and differ only in delivery', () => {
     const sub: BGraph = {
-      nodes: { relay: { type: 'Wire15Relay', mode: 'bypassed' }, sink: { type: 'Wire15Sink' } },
+      nodes: { relay: { type: 'Relay', mode: 'bypassed', dynamic: members('first', 'second') }, sink: { type: 'GroupSink', dynamic: members('result') } },
       links: [[P('relay', 'out'), P('sink', 'items.result')]],
       boundary: { inputs: [
         { id: 'first', binds: { kind: 'port', node: 'relay', port: 'items.first' } },
@@ -727,13 +709,13 @@ describe('wire-15 I1 dedicated proof matrix', () => {
     expect(result.artifact.prompt['right.sink']!.inputs['items.second']).toBeUndefined()
   })
 
-  it('Recursive wire15 successful multi-hop route preserves reroute, net fanout, relay, and destination semantics', () => {
+  it('a successful multi-hop route preserves reroute, net fanout, relay, and destination semantics', () => {
     const result = compile(input(docOf({
       nodes: {
         source: { type: 'ISrc' },
-        upstream: { type: 'Wire15Relay', mode: 'bypassed' },
-        downstream: { type: 'Wire15Relay', mode: 'bypassed' },
-        first: { type: 'Wire15Sink' }, second: { type: 'Wire15Sink' },
+        upstream: { type: 'Relay', mode: 'bypassed', dynamic: members('route') },
+        downstream: { type: 'Relay', mode: 'bypassed', dynamic: members('forwarded') },
+        first: { type: 'GroupSink', dynamic: members('result') }, second: { type: 'GroupSink', dynamic: members('result') },
       },
       reroutes: ['route'],
       links: [
@@ -749,7 +731,7 @@ describe('wire-15 I1 dedicated proof matrix', () => {
     expect(result.artifact.prompt.second!.inputs['items.result']).toEqual(['source', 0])
   })
 
-  it('One dedicated recursive-wire15 route test for driven widget tap terminal', () => {
+  it('a recursive route ends at a driven widget tap', () => {
     const extra: Partial<BGraph> = {
       nodes: { source: { type: 'NSrc' }, widget: { type: 'NWidget' } },
       links: [[P('source', 'out'), P('widget', 'value')]],
@@ -760,7 +742,7 @@ describe('wire-15 I1 dedicated proof matrix', () => {
     expect(scopeClosure(input(recursiveTerminalDoc({ node: 'widget', tap: 'value' }, extra)))?.included.has('source')).toBe(true)
   })
 
-  it('One dedicated recursive-wire15 route test for undriven widget tap stored/default literal terminal', () => {
+  it('a recursive route ends at an undriven widget tap stored literal', () => {
     const extra: Partial<BGraph> = { nodes: { widget: { type: 'NWidget', values: { value: 23 } } } }
     const result = recursiveTerminal({ node: 'widget', tap: 'value' }, extra)
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
@@ -768,7 +750,7 @@ describe('wire-15 I1 dedicated proof matrix', () => {
     expect(scopeClosure(input(recursiveTerminalDoc({ node: 'widget', tap: 'value' }, extra)))).toBeDefined()
   })
 
-  it('One dedicated recursive-wire15 route test for value source terminal', () => {
+  it('a recursive route ends at a value source', () => {
     const extra: Partial<BGraph> = { valueSources: { literal: { id: 'literal', value: 31, spec: { widgetType: 'INT' } } } }
     const result = recursiveTerminal({ valueSource: 'literal' }, extra)
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
@@ -776,7 +758,7 @@ describe('wire-15 I1 dedicated proof matrix', () => {
     expect([...scopeClosure(input(recursiveTerminalDoc({ valueSource: 'literal' }, extra)))!.structural.get('g0')!.valueSources]).toEqual(['literal'])
   })
 
-  it('One dedicated recursive-wire15 route test for fixed graph selector', () => {
+  it('a recursive route ends at a fixed graph selector', () => {
     const result = recursiveTerminal({ selector: 'pick' }, {
       nodes: { source: { type: 'NSrc' } },
       selectors: { pick: { id: 'pick', candidates: [{ id: 'chosen' }], policy: { kind: 'fixed', candidate: 'chosen' } } },
@@ -816,7 +798,7 @@ describe('wire-15 I1 dedicated proof matrix', () => {
       nodes: {
         imageA: { type: 'ISrc' }, latentA: { type: 'LSrc' },
         imageB: { type: 'ISrc' }, first: { type: 'Cross', mode: 'bypassed' },
-        second: { type: 'Cross', mode: 'bypassed' }, sink: { type: 'Wire15LatentSink' },
+        second: { type: 'Cross', mode: 'bypassed' }, sink: { type: 'GroupLatentSink', dynamic: members('result') },
       },
       links: [
         [P('imageA', 'out'), P('first', 'img')], [P('latentA', 'out'), P('first', 'lat')],

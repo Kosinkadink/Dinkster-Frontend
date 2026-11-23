@@ -119,7 +119,7 @@ describe('controllerAdvancement', () => {
     }
     const consumers = Object.fromEntries<NodeSchema>(([
       ['Left', { min: 3, max: 17, step: 2 }], ['Right', { min: 10, max: 20, step: 7 }],
-    ] as const).map(([type, options]) => [type, { ...schema, type, items: schema.body.map((item) =>
+    ] as const).map(([type, options]) => [type, { ...schema, type, body: schema.body.map((item) =>
       item.kind === 'input' && item.id === 'up' ? { ...item, widget: { ...item.widget!, options } } : item) }]))
     for (const arrangement of ['fanout', 'shared', 'promoted']) {
       document.graphs.g0.nodes.i1 = { id: 'i1', type: '#body', values: { value: 10 }, controllers: { value: 'increment' } }
@@ -366,21 +366,11 @@ describe('compiled occurrence controller ownership', () => {
   const dynamicSchema: NodeSchema = {
     type: 'DynamicControllers', displayName: 'Dynamic', category: 'test', source: 'v3', isOutputNode: true,
     body: [
+      { kind: 'choice', id: 'mode', options: [{ key: 'a', rows: [controlled('seed', 1)] }], shared: [], required: false },
+      { kind: 'typeChoice', id: 'slot', type: INT, rows: [controlled('seed', 1)], required: false },
       {
-        kind: 'input', id: 'mode', type: INT, optional: true,
-        dynamic: { kind: 'dynamicCombo', options: [{ key: 'a', inputs: [controlled('seed', 1)] }] },
-      },
-      {
-        kind: 'input', id: 'slot', type: INT, optional: true,
-        dynamic: { kind: 'dynamicSlot', slotType: INT, inputs: [controlled('seed', 1)] },
-      },
-      {
-        kind: 'input', id: 'items', type: INT, optional: true,
-        dynamic: {
-          kind: 'autogrow',
-          template: [controlled('seed', 1)],
-          naming: { kind: 'prefix', prefix: 'item', min: 0, max: 4 },
-        },
+        kind: 'group', id: 'items', value: controlled('seed', 1),
+        keys: { kind: 'numbered', prefix: 'item', start: 1, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 4,
       },
       { kind: 'output', id: 'out', type: INT },
     ],
@@ -414,15 +404,15 @@ describe('compiled occurrence controller ownership', () => {
     outputs: [{ id: 'out', binds: { kind: 'port', node, port: 'out' } }],
   })
 
-  it('advances controllers inside combo branches, slot dependents, and family members', () => {
+  it('advances controllers inside choice options, type choice rows, and group members', () => {
     const doc = document({
       g0: graph('g0', {
         src: { id: 'src', type: sourceSchema.type, values: {} },
         dynamic: {
           id: 'dynamic', type: dynamicSchema.type,
-          values: { 'mode.[a].seed': 3, 'slot.seed': 4, 'items.seed#m0': 5 },
-          dynamic: { mode: { selected: 'a' }, items: { members: ['m0'] } },
-          controllers: { 'mode.[a].seed': 'increment', 'slot.seed': 'increment', 'items.seed#m0': 'increment' },
+          values: { 'mode.seed': 3, 'slot.seed': 4, 'items.item1': 5 },
+          dynamic: { mode: { selected: 'a' }, items: { members: ['item1'] } },
+          controllers: { 'mode.seed': 'increment', 'slot.seed': 'increment', 'items.item1': 'increment' },
         },
       }, {
         slot: { id: 'slot', from: { node: 'src', port: 'out' }, to: { node: 'dynamic', port: 'slot' } },
@@ -430,9 +420,9 @@ describe('compiled occurrence controller ownership', () => {
     }) as any
     expect(controllerAdvancement(doc, compileControllers(doc), () => 0)).toEqual({
       command: 'batch', params: { invocations: [
-        { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'dynamic', inputId: 'mode.[a].seed', value: 4 } },
+        { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'dynamic', inputId: 'mode.seed', value: 4 } },
         { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'dynamic', inputId: 'slot.seed', value: 5 } },
-        { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'dynamic', inputId: 'items.seed#m0', value: 6 } },
+        { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'dynamic', inputId: 'items.item1', value: 6 } },
       ] },
     })
   })
@@ -443,8 +433,8 @@ describe('compiled occurrence controller ownership', () => {
         src: { id: 'src', type: sourceSchema.type, values: {} },
         dynamic: {
           id: 'dynamic', type: dynamicSchema.type,
-          values: { 'mode.[a].seed': 3, 'slot.seed': 4, 'items.seed#m0': 5 },
-          dynamic: { mode: { selected: 'a' }, items: { members: ['m0'] } },
+          values: { 'mode.seed': 3, 'slot.seed': 4, 'items.item1': 5 },
+          dynamic: { mode: { selected: 'a' }, items: { members: ['item1'] } },
         },
       }, {
         slot: { id: 'slot', from: { node: 'src', port: 'out' }, to: { node: 'dynamic', port: 'slot' } },
@@ -455,16 +445,16 @@ describe('compiled occurrence controller ownership', () => {
     app.registerSchemas([sourceSchema, dynamicSchema])
     expect((await app.openDocument(doc, 'Dynamic Controllers'))).toEqual([])
     const tab = app.activeTab()!
-    for (const inputId of ['mode.[a].seed', 'slot.seed', 'items.seed#m0']) {
+    for (const inputId of ['mode.seed', 'slot.seed', 'items.item1']) {
       expect((await app.dispatchTo(tab, {
         command: 'node.setController',
         params: { graphId: 'g0', nodeId: 'dynamic', inputId, mode: 'increment' },
       })).ok).toBe(true)
     }
     expect(tab.store.doc.graphs.g0!.nodes.dynamic!.controllers).toEqual({
-      'mode.[a].seed': 'increment',
+      'mode.seed': 'increment',
       'slot.seed': 'increment',
-      'items.seed#m0': 'increment',
+      'items.item1': 'increment',
     })
   })
 

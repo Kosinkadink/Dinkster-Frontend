@@ -2,7 +2,9 @@
  * A required choice always has a stored key: the editor stores it, and a run
  * never makes one up. Storing the start key (the choice's default, else its
  * first option) keeps a saved node's rows, wires and cache key the same when
- * a pack later changes a default or reorders options.
+ * a pack later changes a default or reorders options. A group that grows by
+ * hand stores its minimum members the same way: the node always shows them,
+ * so they are not the user's to add.
  */
 
 import type { DynamicPortState, Json, WorkflowDocument } from '../format/document.js'
@@ -20,11 +22,12 @@ export interface NodeAt {
 }
 
 /**
- * Store the start key of every required choice that exists on the given
- * nodes with nothing stored. Storing one key can bring a choice inside that
- * option into being, so each node repeats until nothing changes.
+ * Store the start key of every required choice, and the minimum members of
+ * every group that grows by hand, that exist on the given nodes with nothing
+ * stored. Storing one can bring another into being, so each node repeats
+ * until nothing changes.
  */
-export function storeStartChoices(tx: TransactionBuilder, resolve: SchemaResolver, nodes: Iterable<NodeAt>): void {
+export function storeStartState(tx: TransactionBuilder, resolve: SchemaResolver, nodes: Iterable<NodeAt>): void {
   for (const { graphId, nodeId } of nodes) {
     for (let pass = 0; pass < DEFAULT_ELAB_BUDGET.maxItems; pass++) {
       const graph = tx.current.graphs[graphId]
@@ -38,12 +41,19 @@ export function storeStartChoices(tx: TransactionBuilder, resolve: SchemaResolve
         buildGraphConnectivity(graph)(asNodeId(nodeId)),
         { promoteGhosts: true },
       )
-      const unstored = Object.entries(elaborated.unstoredChoices ?? {})
-      if (unstored.length === 0) break
+      const choices = Object.entries(elaborated.unstoredChoices ?? {})
+      const minimums = Object.entries(elaborated.unstoredMinimums ?? {})
+      if (choices.length === 0 && minimums.length === 0) break
       const nodePath = ['graphs', graphId, 'nodes', nodeId]
       if (node.dynamic === undefined) tx.set([...nodePath, 'dynamic'], {})
-      for (const [path, key] of unstored) {
+      for (const [path, key] of choices) {
         const state: DynamicPortState = { ...node.dynamic?.[path], selected: key }
+        tx.set([...nodePath, 'dynamic', path], state as unknown as Json)
+      }
+      for (const [path, frame] of minimums) {
+        const stored = node.dynamic?.[path]
+        const seq = Math.max(stored?.seq ?? 0, frame.seq ?? 0)
+        const state: DynamicPortState = { ...stored, members: [...(stored?.members ?? []), ...frame.members], ...(seq > 0 ? { seq } : {}) }
         tx.set([...nodePath, 'dynamic', path], state as unknown as Json)
       }
     }

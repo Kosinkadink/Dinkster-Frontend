@@ -96,7 +96,7 @@ async function mockBackend(page: Page): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'model3d-proof', schemaWire: 1 },
+    dinkster: { version: 'model3d-proof', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('/api/assets/**', (route) => {
@@ -130,7 +130,7 @@ async function installGraph(page: Page, artifact: ProofArtifact): Promise<void> 
       category: 'proof',
       source: 'v3' as const,
       isOutputNode: true,
-      items: [{ kind: 'output' as const, id: 'saved', type: { kind: 'concrete' as const, name: typeName }, preview: true }],
+      body: [{ kind: 'output' as const, id: 'saved', type: { kind: 'concrete' as const, name: typeName }, preview: true }],
     }])
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'model3d-proof', root: 'g0',

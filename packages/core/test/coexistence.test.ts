@@ -3,17 +3,15 @@
  * kind at once, validated end to end (load -> invariants -> solve ->
  * compile). Pairwise interactions each have focused suites; this file exists
  * because real workflows combine everything simultaneously and past bugs
- * (subgraph pseudonode input bound to a DynamicCombo branch widget) lived
+ * (subgraph pseudonode input bound to a widget of a choice's option) lived
  * exactly in untested combinations.
  *
  * The document under test:
- * - a subgraph whose boundary simultaneously forwards a DynamicCombo
- *   selector (one combo), promotes a branch-local widget (a SECOND combo -
- *   one construct has ONE boundary owner, so both settled conditional
- *   patterns appear side by side rather than stacked on one construct),
- *   forwards an Autogrow family, and promotes a DynamicSlot dependent
- *   (slot connected inside)
- * - a root reroute CHAIN feeding one forwarded family member
+ * - a subgraph whose boundary simultaneously promotes a row of a choice's
+ *   chosen option, forwards two stored members of a group, and promotes a
+ *   type choice's row (type choice connected inside), each by its
+ *   flattened id
+ * - a root reroute CHAIN feeding one forwarded group member
  * - a named net feeding the sibling member
  * - a value source driving the promoted branch widget
  * - a selector (fixed policy) feeding a root sink
@@ -23,9 +21,8 @@ import { compile, documentResolver, type CompileInput } from '../src/compile/com
 import { loadDocument } from '../src/format/migrate.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId } from '../src/ids.js'
-import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
-import type { InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
+import type { BodyRow, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 
 const IMAGE: TypeExpr = { kind: 'concrete', name: 'IMAGE' }
 const FLOAT: TypeExpr = { kind: 'concrete', name: 'FLOAT' }
@@ -35,40 +32,39 @@ const output = (id: string, type: TypeExpr = IMAGE): OutputSpec => ({ kind: 'out
 const widget = (id: string, value: number): InputSpec => input(id, {
   type: FLOAT, optional: true, widget: { widgetType: 'FLOAT', options: {}, default: value },
 })
-const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema =>
+const schemaOf = (type: string, items: BodyRow[]): NodeSchema =>
   ({ type, displayName: type, category: 'test', source: 'v3', isOutputNode: true, body: items })
 
 const schemas: Record<string, NodeSchema> = {
   Src: schemaOf('Src', [output('out')]),
   Combo: schemaOf('Combo', [
     {
-      ...input('mode', { optional: true }),
-      dynamic: {
-        kind: 'dynamicCombo',
-        options: [
-          { key: 'a', inputs: [widget('amount', 1)] },
-          { key: 'b', inputs: [widget('amount', 2), widget('bias', 3)] },
-        ],
-      },
+      kind: 'choice',
+      id: 'mode',
+      required: true,
+      default: 'a',
+      shared: [widget('amount', 1)],
+      options: [
+        { key: 'a', rows: [{ kind: 'use', id: 'amount', default: 1 }] },
+        { key: 'b', rows: [{ kind: 'use', id: 'amount', default: 2 }, widget('bias', 3)] },
+      ],
     },
     output('out'),
   ]),
   Fam: schemaOf('Fam', [
     {
-      ...input('images'),
-      dynamic: {
-        kind: 'autogrow',
-        template: [input('img', { optional: true })],
-        naming: { kind: 'prefix', prefix: 'image', min: 0, max: 4 },
-      },
+      kind: 'group',
+      id: 'images',
+      value: input('img', { optional: true }),
+      keys: { kind: 'numbered', prefix: 'image', start: 0, pad: 0 },
+      grows: 'link',
+      minMembers: 0,
+      maxMembers: 4,
     },
     output('out'),
   ]),
   Slot: schemaOf('Slot', [
-    {
-      ...input('slot', { optional: true }),
-      dynamic: { kind: 'dynamicSlot', slotType: IMAGE, inputs: [widget('gain', 4)] },
-    },
+    { kind: 'typeChoice', id: 'slot', type: IMAGE, rows: [widget('gain', 4)], required: false },
     output('out'),
   ]),
   Sink: schemaOf('Sink', [input('in')]),
@@ -94,20 +90,18 @@ const coexistenceJson = () => ({
         inst: {
           id: 'inst',
           type: '#sub',
-          // Branch choice, materialized family members, and the promoted
-          // slot-dependent value all live INSTANCE-side at once.
-          dynamic: { choice: { selected: 'a' }, images: { members: ['m0', 'm1'] } },
+          // The promoted type-choice row's value lives INSTANCE-side.
           values: { gain: 8 },
         },
         snk: { id: 'snk', type: 'Sink', values: {} },
         snk2: { id: 'snk2', type: 'Sink', values: {} },
       },
       links: {
-        // Reroute CHAIN into a forwarded dynamic member (member m0).
+        // Reroute CHAIN into a forwarded group member (image0).
         l1: { id: 'l1', from: { node: 'src1', port: 'out' }, to: { reroute: 'r1' } },
         l2: { id: 'l2', from: { reroute: 'r1' }, to: { reroute: 'r2' } },
-        l3: { id: 'l3', from: { reroute: 'r2' }, to: { node: 'inst', port: 'images.img', members: ['m0'] } },
-        // Value source into the promoted branch-local widget.
+        l3: { id: 'l3', from: { reroute: 'r2' }, to: { node: 'inst', port: 'img0' } },
+        // Value source into the promoted option row.
         l4: { id: 'l4', from: { valueSource: 'vs' }, to: { node: 'inst', port: 'amount' } },
         // Instance result into a root sink.
         l5: { id: 'l5', from: { node: 'inst', port: 'result' }, to: { node: 'snk', port: 'in' } },
@@ -116,12 +110,12 @@ const coexistenceJson = () => ({
         l7: { id: 'l7', from: { node: 'src2', port: 'out' }, to: { selector: 'sel', candidate: 'c2' } },
         l8: { id: 'l8', from: { selector: 'sel' }, to: { node: 'snk2', port: 'in' } },
       },
-      // Named net feeding the SIBLING forwarded member (member m1).
+      // Named net feeding the SIBLING forwarded member (image1).
       nets: {
         n1: {
           id: 'n1', name: 'feed',
           source: { node: 'src2', port: 'out' },
-          sinks: [{ node: 'inst', port: 'images.img', members: ['m1'] }],
+          sinks: [{ node: 'inst', port: 'img1' }],
         },
       },
       reroutes: { r1: { id: 'r1' }, r2: { id: 'r2' } },
@@ -133,12 +127,11 @@ const coexistenceJson = () => ({
       id: 'sub',
       name: 'sub',
       nodes: {
-        cmb: { id: 'cmb', type: 'Combo', values: {} },
-        // Second combo: selection stays DEFINITION-side ('b') so its
-        // branch-local widget can be promoted; a construct's selector and
-        // its branch interiors have one boundary owner, never two.
+        // The chosen option ('b') is stored DEFINITION-side, so a row of it
+        // can be promoted.
         cmb2: { id: 'cmb2', type: 'Combo', values: {}, dynamic: { mode: { selected: 'b' } } },
-        fam: { id: 'fam', type: 'Fam', values: {} },
+        // Members are stored DEFINITION-side, so each one can be forwarded.
+        fam: { id: 'fam', type: 'Fam', values: {}, dynamic: { images: { members: ['image0', 'image1'], seq: 2 } } },
         slot: { id: 'slot', type: 'Slot', values: {} },
       },
       // Slot connected INSIDE the definition, so its dependent is live and
@@ -150,11 +143,11 @@ const coexistenceJson = () => ({
       reroutes: {},
       boundary: {
         inputs: [
-          { id: 'choice', binds: { kind: 'port', node: 'cmb', port: 'mode' } },
           // promoted: the instance renders these as real widget rows (an
           // unpromoted widget-backed target derives socket-only).
-          { id: 'amount', promoted: true, binds: { kind: 'port', node: 'cmb2', port: 'mode.[b].amount' } },
-          { id: 'images', binds: { kind: 'family', node: 'fam', port: 'images' } },
+          { id: 'amount', promoted: true, binds: { kind: 'port', node: 'cmb2', port: 'mode.amount' } },
+          { id: 'img0', binds: { kind: 'port', node: 'fam', port: 'images.image0' } },
+          { id: 'img1', binds: { kind: 'port', node: 'fam', port: 'images.image1' } },
           { id: 'gain', promoted: true, binds: { kind: 'port', node: 'slot', port: 'slot.gain' } },
         ],
         outputs: [{ id: 'result', binds: { kind: 'port', node: 'slot', port: 'out' } }],
@@ -195,7 +188,7 @@ describe('coexistence: all constructs in one document', () => {
     // reroute chain delivers a concrete IMAGE into the forwarded member.
     expect(resolve('#sub')).toBeDefined()
     const root = solveGraphTypes(doc.graphs.g0!, resolve)
-    expect(root.portTypeOf('inst' as never, 'input', 'images.img#m0')).toEqual(IMAGE)
+    expect(root.portTypeOf('inst' as never, 'input', 'img0')).toEqual(IMAGE)
   })
 
   it('compiles to the exact expected prompt with every construct lowered', () => {
@@ -206,27 +199,23 @@ describe('coexistence: all constructs in one document', () => {
     if (!result.ok) throw new Error('unreachable')
     const prompt = result.artifact.prompt
 
-    // First combo: the forwarded selector takes the INSTANCE branch choice
-    // 'a'; branch-a's widget keeps its schema default.
-    expect(prompt['inst.cmb']!.inputs).toEqual({ mode: 'a', 'mode.amount': 1 })
+    // Choice: the definition-side key 'b' travels in slotVariants, and the
+    // promoted option row takes the value-source literal (baked, not
+    // linked - value sources compile away). The unpromoted row of option
+    // 'b' keeps its schema default.
+    expect(prompt['inst.cmb2']!.inputs).toEqual({ 'mode.amount': 2.5, 'mode.bias': 3 })
+    expect(prompt['inst.cmb2']!.slotVariants).toEqual({ mode: 'b' })
 
-    // Second combo: definition-side selection 'b' holds, and the promoted
-    // branch widget takes the value-source literal (baked, not linked -
-    // value sources compile away). Branch-b's unpromoted widget keeps its
-    // schema default.
-    expect(prompt['inst.cmb2']!.inputs).toEqual({ mode: 'b', 'mode.amount': 2.5, 'mode.bias': 3 })
-
-    // Forwarded family: member m0 arrives through the dissolved reroute
-    // chain, m1 through the compiled-away named net - both as direct links.
-    // Single-slot families lower to bare wire names (images.image0), no
-    // template-input suffix.
+    // Forwarded group members: image0 arrives through the dissolved
+    // reroute chain, image1 through the compiled-away named net - both as
+    // direct links under their flattened ids.
     expect(prompt['inst.fam']!.inputs).toEqual({
       'images.image0': ['src1', 0],
       'images.image1': ['src2', 0],
     })
 
-    // Slot connected inside the definition; dependent promoted to the
-    // instance and stored there.
+    // Type choice connected inside the definition; its row promoted to
+    // the instance and stored there.
     expect(prompt['inst.slot']!.inputs).toEqual({ slot: ['inst.fam', 0], 'slot.gain': 8 })
 
     // Boundary output reaches the root sink; the selector resolves to its
@@ -241,31 +230,10 @@ describe('coexistence: all constructs in one document', () => {
     expect(JSON.stringify(doc)).toBe(before)
   })
 
-  it('rejects a second boundary owner beneath an already-forwarded selector', () => {
-    // A conditional construct has ONE boundary owner: 'choice' forwards
-    // cmb's selector, so a sibling item may not also expose a widget inside
-    // one of cmb's branches. This is the exact shape the fixture avoids by
-    // using a second combo; pin the rejection so the rule cannot silently
-    // regress into either direction (accepting the conflict, or rejecting
-    // the legal two-combo split).
-    const json = coexistenceJson()
-    const boundary = (json.graphs.sub as { boundary: { inputs: { id: string; binds: unknown }[] } }).boundary
-    boundary.inputs = boundary.inputs.map((item) =>
-      item.id === 'amount' ? { id: 'amount', binds: { kind: 'port', node: 'cmb', port: 'mode.[a].amount' } } : item)
-    const loaded = loadDocument(json)
-    expect(loaded.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    const doc = loaded.document as WorkflowDocument
-    const resolve = documentResolver(doc, resolveBase)
-    const derived = deriveBoundarySchema(doc.graphs.sub!, resolve)
-    expect(derived.schema).toBeUndefined()
-    expect(derived.diagnostics.map((d) => d.code)).toContain('boundary.selectorConflict')
-  })
-
-  it('a variant-bearing DynamicSlot in the same document lowers with a slotVariants entry, changing nothing else', () => {
-    // Settled contract (Dinkster c2ac572, wire v6) INSIDE the coexistence
-    // shape: the specialized slot lowers construct-locally with the stored
-    // choice riding slotVariants, without corrupting or silently dropping
-    // the rest of the document.
+  it('a type choice with variants in the same document lowers with a slotVariants entry, changing nothing else', () => {
+    // INSIDE the coexistence shape: the type choice lowers
+    // construct-locally with the stored variant riding slotVariants,
+    // without corrupting or silently dropping the rest of the document.
     const json = coexistenceJson()
     const g0 = json.graphs.g0 as unknown as {
       nodes: Record<string, unknown>
@@ -279,11 +247,8 @@ describe('coexistence: all constructs in one document', () => {
       ...schemas,
       VariantSlot: schemaOf('VariantSlot', [
         {
-          ...input('vs', { optional: true }),
-          dynamic: {
-            kind: 'dynamicSlot', slotType: { kind: 'wildcard' }, inputs: [],
-            variants: [{ key: 'image', type: IMAGE, inputs: [widget('strength', 1)] }],
-          },
+          kind: 'typeChoice', id: 'vs', rows: [], required: false,
+          variants: [{ key: 'image', type: IMAGE, rows: [widget('strength', 1)] }],
         },
         output('out'),
       ]),

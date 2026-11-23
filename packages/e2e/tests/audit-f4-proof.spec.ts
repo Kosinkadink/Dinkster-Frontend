@@ -1,11 +1,11 @@
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, mockProjectPacks, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
 
 const digest = (character: string): string => `blake3:${character.repeat(64)}`
 
 const catalog = {
   schemaVersion: 1,
   epoch: 1,
-  dinkster: { version: 'audit-f4-proof', schemaWire: 1 },
+  dinkster: { version: 'audit-f4-proof', schemaWire: 2 },
   packs: {},
   nodes: {},
 }
@@ -19,7 +19,7 @@ async function installAssetDocument(page: Page, multi: boolean): Promise<void> {
       : { kind: 'asset', element: { kind: 'concrete', name: 'comfy.IMAGE' } }
     app.registerSchemas([{
       type: 'FileAcquisitionProof', displayName: 'File acquisition proof', category: 'proof', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'image', type, optional: false,
+      body: [{ kind: 'input', id: 'image', type, optional: false,
         widget: { widgetType: 'ASSET', options: { accept: ['image/png'] }, default: null } }],
     }])
     await app.openDocument({
@@ -48,6 +48,7 @@ async function openAsset(page: Page): Promise<void> {
 
 test('proves product upload control and hidden workflow picker lifecycle', async ({ page }) => {
   await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$))).*/, (route) => { throw new Error(`unexpected unmocked API request: ${route.request().url()}`) })
+  await mockProjectPacks(page)
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.route('/api/settings', (route) => route.fulfill({ json: { categories: { granted: [], available: [] }, settings: {} } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))

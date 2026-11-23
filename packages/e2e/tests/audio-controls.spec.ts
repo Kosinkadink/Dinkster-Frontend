@@ -20,7 +20,7 @@ test.beforeEach(async ({ page }) => {
   await page.route(/\/api\/(?!library\/retentions\/)/, (route) => route.fulfill({ status: 404, json: { error: 'Not part of this isolated fixture' } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'isolated test' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'test' }, devices: [] } }))
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'audio-test', schemaWire: 1 }, nodes: {} } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, dinkster: { version: 'audio-test', schemaWire: 2 }, nodes: {} } }))
   await page.route('/api/mounts*', (route) => route.fulfill({ json: { mounts: [] } }))
   await page.routeWebSocket('**/api/events?*', () => {})
 })
@@ -32,7 +32,7 @@ async function graph(page: Page, recorded = false) {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'AudioControlsTest', displayName: 'Audio waveform and recording', category: 'test', source: 'v3', isOutputNode: true,
-      items: [
+      body: [
         { kind: 'input', id: 'clip', type: { kind: 'asset', element: { kind: 'concrete', name: 'AUDIO' } }, optional: true, widget: { widgetType: 'ASSET', kind: 'media/audio', allowUpload: true, options: { accept: ['audio/wav', 'audio/flac', 'audio/mpeg', 'audio/ogg', 'audio/webm', 'video/mp4'] } } },
         { kind: 'output', id: 'audio', type: { kind: 'concrete', name: 'AUDIO' }, preview: true },
       ],

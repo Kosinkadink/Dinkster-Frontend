@@ -5,7 +5,7 @@
  * narrow side sheets preserve tabs and status. The thin status bar is not
  * the bottom panel and never toggles with it.
  */
-import { expect, test, waitForStartupOwnership, type Locator } from './fixtures.js'
+import { expect, nativeTest as test, waitForStartupOwnership, type Locator } from './fixtures.js'
 
 async function expectWholeTabs(tablist: Locator, tabs: Locator): Promise<void> {
   const strip = (await tablist.boundingBox())!
@@ -329,7 +329,7 @@ test('a panel floated and docked back finishes loading and keeps reacting', asyn
   await page.route('/api/nodes*', (route) => void route.fulfill({ json: {
     schemaVersion: 1,
     epoch: 1,
-    dinkster: { version: 'shell-dock-e2e', schemaWire: 1 },
+    dinkster: { version: 'shell-dock-e2e', schemaWire: 2 },
     nodes: {},
   } }))
   await page.route('**/api/mounts', (route) => void route.fulfill({ json: { mounts: [

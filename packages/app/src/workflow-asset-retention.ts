@@ -4,7 +4,6 @@ import {
   EMPTY_CONNECTIVITY,
   EXPOSED_EXT_KEY,
   EXPOSED_PREVIEWS_EXT_KEY,
-  MAX_DYNAMIC_STATE_DEPTH,
   appLayout,
   appLayoutItemToJson,
   applyCompositorCommands,
@@ -57,9 +56,14 @@ import {
   inputsOf,
 } from '@dinkster/core'
 import { isSaveTarget } from '@dinkster/widgets'
-import { isAssetRef } from './image-editor.js'
+import { blake3 } from '@noble/hashes/blake3.js'
+import { bytesToHex } from '@noble/hashes/utils.js'
+import { isAssetRef } from './workflow-asset-locations.js'
 import { activeProjectId, scopedStorageKey } from './projects.js'
-import { imageDocumentDigest } from './image-document-local.js'
+
+export function imageDocumentDigest(bytes: Uint8Array): `blake3:${string}` {
+  return `blake3:${bytesToHex(blake3(bytes))}`
+}
 
 interface CompositorInventory {
   readonly complete: boolean
@@ -116,8 +120,8 @@ function widgetBindingSupported(type: TypeExpr, widgetType: string): boolean {
     contract.asset === true && type.kind === 'asset'
 }
 
-function assetFreeDynamicState(value: unknown, depth = 0): boolean {
-  if (depth > MAX_DYNAMIC_STATE_DEPTH || typeof value !== 'object' || value === null || Array.isArray(value)) return false
+function assetFreeDynamicState(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   return Object.entries(value).every(([key, entry]) => {
     if (key === 'selected') return typeof entry === 'string'
     if (key === 'seq') return Number.isSafeInteger(entry) && entry >= 0
@@ -126,9 +130,6 @@ function assetFreeDynamicState(value: unknown, depth = 0): boolean {
       typeof option === 'string' || typeof option === 'boolean' || (typeof option === 'number' && Number.isFinite(option)))
     if (key === 'memberLabels') return typeof entry === 'object' && entry !== null && !Array.isArray(entry) &&
       Object.values(entry).every((label) => typeof label === 'string')
-    if (key === 'memberState') return typeof entry === 'object' && entry !== null && !Array.isArray(entry) &&
-      Object.values(entry).every((constructs) => typeof constructs === 'object' && constructs !== null && !Array.isArray(constructs) &&
-        Object.values(constructs).every((state) => assetFreeDynamicState(state, depth + 1)))
     return false
   })
 }
@@ -342,32 +343,20 @@ function censusWorkflowAssetRoots(
     const active = elaborateInterface(schema, node, connectivity, { promoteGhosts: false })
     const stored = dynamic || Object.keys(node.dynamic ?? {}).length > 0
       ? elaborateInterface(schema, node, connectivity, { promoteGhosts: false, includeDormant: true }) : active
-    const unsupportedDormant = stored.diagnostics.filter((diagnostic) => diagnostic.code === 'elab.dormant.unsupported')
-    if (unsupportedDormant.length > 0) {
-      complete = false
-      for (const diagnostic of unsupportedDormant) incompleteDiagnostics.push({ ...diagnostic,
-        refs: [{ graphId: graph.id, nodeId: node.id }],
-        message: `${node.title ?? node.type} (${node.id}): ${diagnostic.message}`,
-      })
-    }
     const missingChoices = active.diagnostics.filter((diagnostic) => diagnostic.code === 'prompt.missing_dynamic_choice')
     if (missingChoices.length > 0) {
       complete = false
       incompleteDiagnostics.push(...missingChoices)
     }
-    // An absent required choice is editable, but cannot certify ownership or execute.
+    // An absent required choice is editable, but cannot certify ownership or
+    // execute. A group below its minimum refuses a run, not the document.
     const invalidIdentity = (diagnostic: Diagnostic): boolean => diagnostic.severity === 'error' &&
+      diagnostic.code !== 'elab.autogrow.underMin' &&
       !(purpose === 'admission' && diagnostic.code === 'prompt.missing_dynamic_choice')
-    if (active.diagnostics.some(invalidIdentity) ||
-      stored.diagnostics.some((diagnostic) => invalidIdentity(diagnostic) &&
-        (purpose === 'publication' || diagnostic.code !== 'elab.dormant.unsupported'))) {
+    if (active.diagnostics.some(invalidIdentity) || stored.diagnostics.some(invalidIdentity)) {
       complete = false
       const invalidIdentities = [...active.diagnostics, ...stored.diagnostics].some((diagnostic) =>
-        diagnostic.severity === 'error' && diagnostic.code !== 'elab.dormant.unsupported' &&
-        (purpose !== 'admission' || ![
-          'elab.outputDescriptors.invalid', 'elab.outputFamily.badCount',
-          'elab.outputFamily.linkedCount', 'elab.outputFamily.countOutOfRange',
-        ].includes(diagnostic.code)))
+        invalidIdentity(diagnostic) && (purpose !== 'admission' || diagnostic.code !== 'elab.outputDescriptors.invalid'))
       // A planned historical migration can consume state the current schema
       // no longer describes. Retain its opaque roots, never certify it complete.
       const migrates = purpose === 'admission' && [...active.diagnostics, ...stored.diagnostics]
@@ -378,7 +367,7 @@ function censusWorkflowAssetRoots(
       })
       if (!migrates && (invalidIdentities || purpose !== 'admission')) refusal = 'Workflow dynamic identities are invalid'
     }
-    const inputs = unsupportedDormant.length > 0 ? [...elabInputsOf(stored), ...elabInputsOf(active)] : elabInputsOf(stored)
+    const inputs = elabInputsOf(stored)
     for (const input of inputs) {
       const { spec } = input
       if (spec.ext !== undefined && Object.keys(spec.ext).some((key) => key !== 'default')) complete = false
@@ -471,7 +460,7 @@ function censusWorkflowAssetRoots(
             const node = graph.nodes[consumer.node]
             const schema = node === undefined ? undefined : schemas(graph.id, node)
             const input = schema === undefined ? undefined : inputsOf(schema).find((item) => item.id === consumer.port)
-            if (consumer.members !== undefined || input === undefined) complete = false
+            if (input === undefined) complete = false
             else valueRoots(source.value, input.type)
           }
         }
@@ -557,7 +546,7 @@ export function workflowAssetRootsUnchanged(
       if (node.type.startsWith('#') || node.virtual || node.region || !schema || schema.virtual ||
           allRowsOf(schema.body).some((row) => row.kind === 'input' || row.kind === 'output'
             ? row.type.kind !== 'concrete' && row.type.kind !== 'asset'
-            : !['section', 'row', 'note', 'button'].includes(row.kind))) return false
+            : !['section', 'row', 'note', 'editor', 'button'].includes(row.kind))) return false
     }
   }
   return prepared.forward.every((op) => {
