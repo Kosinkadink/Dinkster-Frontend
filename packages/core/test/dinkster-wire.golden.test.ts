@@ -484,6 +484,38 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('carries a number field\'s step offset, special values and reason to the schema model', () => {
+    const decoded = parseDinksterSchema('Frames', {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      body: [
+        {
+          kind: 'input', id: 'frames', type: concrete('INT'), required: true, default: 0,
+          widget: { type: 'NUMBER', min: 1, step: 4, offset: 1, special: [[-1, 'all'], [0, 'off'], ['18446744073709551615', 'top']], reason: 'Up to 8' },
+        },
+        { kind: 'input', id: 'plain', type: concrete('INT'), required: true, default: 0, widget: { type: 'NUMBER', min: 0 } },
+      ],
+    })
+    expect(decoded.diagnostics).toEqual([])
+    const [frames, plain] = inputsOf(decoded.schema!)
+    expect(frames!.widget!.options).toEqual({
+      min: 1, step: 4, offset: 1, reason: 'Up to 8',
+      special: [{ value: -1, label: 'all' }, { value: 0, label: 'off' }, { value: '18446744073709551615', label: 'top' }],
+    })
+    expect(plain!.widget!.options).toEqual({ min: 0 })
+    for (const widget of [
+      { type: 'NUMBER', special: { 0: 'off' } },
+      { type: 'NUMBER', special: [[0, '']] },
+      { type: 'NUMBER', reason: 7 },
+    ]) {
+      const rejected = parseDinksterSchema('BadFrames', {
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+        body: [{ kind: 'input', id: 'frames', type: concrete('INT'), required: true, widget }],
+      })
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error' })])
+    }
+  })
+
   it('carries a color field that uses opacity to the schema model, and only that field', () => {
     const decoded = parseDinksterSchema('Colors', {
       schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
