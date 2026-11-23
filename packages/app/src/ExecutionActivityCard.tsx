@@ -4,6 +4,9 @@ import { isDinksterRegionEntry, type DinksterGraphWire } from '@dinkster/core'
 import { runAttributionLabel } from './run-attribution.js'
 import type { JSX } from 'solid-js'
 import { t } from '@dinkster/core'
+import Snowflake from 'lucide-solid/icons/snowflake'
+import { ProductButton } from './ProductControls.js'
+import { Icon } from './Icon.js'
 
 export type ExecutionActivityRelation = 'latest' | 'pinned'
 
@@ -212,15 +215,16 @@ export function ExecutionActivityCard(props: {
       </Show>
       <div class="execution-activity-actions">
         {props.cancelControl}
-        <button
+        <ProductButton
           type="button"
+          variant="ghost"
+          size="compact"
           class="execution-open"
-          aria-label={props.entry.artifact ? openLabel() : undefined}
+          aria-label={props.entry.artifact ? openLabel() : 'Snapshot unavailable - submitted by another client'}
+          data-tooltip-label={props.entry.artifact ? 'Open frozen view' : 'Snapshot unavailable - submitted by another client'}
           disabled={!props.entry.artifact}
           onClick={props.onOpen}
-        >
-          {props.entry.artifact ? 'Open snapshot' : 'Snapshot unavailable'}
-        </button>
+        ><Icon icon={Snowflake} /></ProductButton>
         <Show when={props.onPin}>
           {(pin) => (
             <button
