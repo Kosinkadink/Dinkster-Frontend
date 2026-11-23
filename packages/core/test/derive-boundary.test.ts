@@ -624,6 +624,69 @@ describe('type choice boundary bindings', () => {
 
 })
 
+describe('whole constructs on the subgraph node', () => {
+  const defWith = (nodes: Record<string, unknown>, inputs: readonly unknown[], outputs: readonly unknown[] = []): GraphDef =>
+    asDef({ id: 'gW', name: 'whole', nodes, links: {}, nets: {}, boundary: { inputs, outputs }, nextOrdinal: 1 })
+  const errors = (def: GraphDef) => deriveBoundarySchema(def, resolve).diagnostics.filter((d) => d.severity === 'error').map((d) => d.code)
+
+  it('a whole group keeps its template, growth and the definition members inside, and nested members stay per member', () => {
+    const def = defWith(
+      { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['item0', 'item1'] } } } },
+      [{ id: 'stack', displayName: 'Stack rows', binds: { kind: 'construct', node: 'n0', port: 'items' } }],
+    )
+    const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
+    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    const row = schema!.body[0]!
+    // Five members at most and one at least: two stay in the definition.
+    expect(row).toMatchObject({ kind: 'group', id: 'stack', displayName: 'Stack rows', grows: 'button', minMembers: 0, maxMembers: 3, interiorMembers: 2 })
+    // A subgraph node with two members of its own, the first holding nested members.
+    const elab = elaborateInterface(schema!, {
+      values: { 'stack.item0.name': 'a' },
+      dynamic: { stack: { members: ['item0', 'item1'] }, 'stack.item0.sub': { members: ['sub0', 'sub1'] } },
+    })
+    expect(elabInputsOf(elab).filter((input) => input.apiName !== undefined).map((input) => input.spec.id)).toEqual([
+      'stack.item0.name', 'stack.item0.sub.sub0', 'stack.item0.sub.sub1', 'stack.item1.name',
+    ])
+    // Type variables in the template stay the inner node's own.
+    expect(elabInputsOf(elab).find((input) => input.spec.id === 'stack.item0.sub.sub0')!.spec.type)
+      .toEqual({ kind: 'variable', templateId: 'n0:T' })
+  })
+
+  it('a whole choice starts on the option the definition stores and carries every option', () => {
+    const def = defWith(
+      { n0: { id: 'n0', type: 'ComboNode', values: { 'mode.x': 4 }, dynamic: { mode: { selected: 'a' } } } },
+      [{ id: 'look', binds: { kind: 'construct', node: 'n0', port: 'mode' } }],
+    )
+    const { schema } = deriveBoundarySchema(def, resolve)
+    expect(schema!.body[0]).toMatchObject({ kind: 'choice', id: 'look', default: 'a', options: [{ key: 'a', rows: [{ id: 'x', ext: { default: 4 } }] }] })
+  })
+
+  it('refuses two owners of one construct, a row inside a construct shown whole, and a port binding to a construct', () => {
+    const node = { n0: { id: 'n0', type: 'ComboNode', values: {}, dynamic: { mode: { selected: 'a' } } } }
+    expect(errors(defWith(node, [
+      { id: 'one', binds: { kind: 'construct', node: 'n0', port: 'mode' } },
+      { id: 'two', binds: { kind: 'construct', node: 'n0', port: 'mode' } },
+    ]))).toContain('boundary.constructConflict')
+    expect(errors(defWith(node, [
+      { id: 'look', binds: { kind: 'construct', node: 'n0', port: 'mode' } },
+      { id: 'x', binds: { kind: 'port', node: 'n0', port: 'mode.x' } },
+    ]))).toEqual(['boundary.constructOwned'])
+    expect(errors(defWith(node, [{ id: 'look', binds: { kind: 'port', node: 'n0', port: 'mode' } }]))).toEqual(['boundary.familyBind'])
+    expect(errors(defWith(node, [{ id: 'x', binds: { kind: 'construct', node: 'n0', port: 'mode.x' } }]))).toEqual(['boundary.notAConstruct'])
+  })
+
+  it('one row drives two constructs only when their shapes match', () => {
+    const nodes = {
+      n0: { id: 'n0', type: 'ComboNode', values: {}, dynamic: { mode: { selected: 'a' } } },
+      n1: { id: 'n1', type: 'ComboNode', values: {}, dynamic: { mode: { selected: 'a' } } },
+      n2: { id: 'n2', type: 'Stack', values: {} },
+    }
+    expect(errors(defWith(nodes, [{ id: 'look', binds: { kind: 'construct', node: 'n0', port: 'mode' }, alsoBinds: [{ kind: 'construct', node: 'n1', port: 'mode' }] }]))).toEqual([])
+    expect(errors(defWith(nodes, [{ id: 'look', binds: { kind: 'construct', node: 'n0', port: 'mode' }, alsoBinds: [{ kind: 'construct', node: 'n2', port: 'items' }] }])))
+      .toEqual(['boundary.constructShapeMismatch'])
+  })
+})
+
 describe('derivation failures produce diagnostics, never partial schemas', () => {
   const base: GraphDef = asDef({
     id: 'gE',

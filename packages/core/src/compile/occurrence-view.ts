@@ -1,8 +1,8 @@
 import { boundaryBindingKey, suppressedDeliveryKey, type BoundaryRouteLeg, type DynamicPortState, type GraphDef, type Json, type NodeData, type ParentDeliveryIdentity, type WorkflowDocument } from '../format/document.js'
-import { asNodeId, isOccurrenceAncestorOrSelf, isPortEndpoint, occurrenceKey, type PortRef } from '../ids.js'
+import { asNodeId, asPortId, isOccurrenceAncestorOrSelf, isPortEndpoint, occurrenceKey, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
-import { boundaryOutputFanOutProblems, projectEditableOptions } from './crossing.js'
+import { boundaryOutputFanOutProblems, innerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
 import { documentNodeResolver } from './compile.js'
 
 export interface ValueOwner {
@@ -97,14 +97,19 @@ export function occurrenceDynamicView(
     const childOwner = { instancePath: traversedPath.map(asNodeId), node: asNodeId(hop) }
     const suppressed = new Set((doc.occurrenceTopologies?.[occurrenceKey(childOwner)]?.suppressedDeliveries ?? []).map(suppressedDeliveryKey))
     for (const evidence of instanceEvidence) for (const item of child.boundary.inputs) {
-      if (evidence.ref.port !== item.id) continue
+      const whole = item.binds.kind === 'construct'
+      if (evidence.ref.port !== item.id && !(whole && evidence.ref.port.startsWith(`${item.id}.`))) continue
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
-        if (binding.kind !== 'port') continue
+        if (binding.kind !== 'port' && binding.kind !== 'construct') continue
+        const port = binding.kind === 'construct'
+          ? innerConstructAddress(child, binding, item.id, evidence.ref.port, (inner) => resolveNode(child.id, inner))
+          : binding.port
+        if (port === undefined) continue
         const leg = evidence.route?.[0]
         if (leg && (leg.graph !== child.id || leg.boundaryId !== item.id || boundaryBindingKey(leg.binding) !== boundaryBindingKey(binding))) continue
         const projectedRoute = [...(evidence.projectedRoute ?? []), { graph: child.id, boundaryId: item.id, binding }]
         if (evidence.delivery && suppressed.has(suppressedDeliveryKey({ kind: 'projectedLeg', delivery: evidence.delivery, route: projectedRoute }))) continue
-        childEvidence.push({ ...evidence, ref: binding, projectedRoute, ...(evidence.route !== undefined ? { route: evidence.route.slice(1) } : {}) })
+        childEvidence.push({ ...evidence, ref: { node: binding.node, port: asPortId(port) }, projectedRoute, ...(evidence.route !== undefined ? { route: evidence.route.slice(1) } : {}) })
       }
     }
     for (const item of child.boundary.inputs) {
@@ -127,6 +132,18 @@ export function occurrenceDynamicView(
         if (Object.hasOwn(instanceControllers ?? {}, item.id)) childControllers.set(target.id, {
           ...(childControllers.get(target.id) ?? target.controllers), [valueKey]: instanceControllers![item.id]!,
         })
+      }
+    }
+    // A construct the subgraph node shows whole: its members, picks and
+    // values reach the inner node, and an edit there is written back outside.
+    const constructs = projectConstructs(child, { values: instanceValues, ...(instanceDynamic !== undefined ? { dynamic: instanceDynamic } : {}) }, (inner) => resolveNode(child.id, inner), childOverlays)
+    for (const [target, dynamic] of constructs.dynamic) childOverlays.set(target, dynamic)
+    for (const [target, projected] of constructs.values) {
+      childValues.set(target, { ...projected, ...childValues.get(target) })
+      const targetOwners = childValueOwners.get(target) ?? new Map<string, ValueOwner>()
+      childValueOwners.set(target, targetOwners)
+      for (const [valueKey, outerKey] of constructs.owners.get(target) ?? []) {
+        if (!targetOwners.has(valueKey)) targetOwners.set(valueKey, valueOwners.get(hop)?.get(outerKey) ?? { graphId: def.id, nodeId: hop, valueKey: outerKey })
       }
     }
     def = child

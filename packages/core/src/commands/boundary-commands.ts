@@ -185,6 +185,12 @@ const bindingMatchesEndpoint = (binding: BoundaryBinding, target: BoundaryBindin
 
 const bindingFromParams = (params: JsonObject, side: Side): NodeBoundaryBinding | undefined => {
   if (typeof params.node !== 'string') return undefined
+  if (params.whole !== undefined) {
+    return params.whole === true && typeof params.port === 'string' && params.port.length > 0 &&
+      params.tap === undefined && params.viaReroute === undefined
+      ? { kind: 'construct', node: asNodeId(params.node), port: asPortId(params.port) }
+      : undefined
+  }
   if (typeof params.tap === 'string' && params.tap.length > 0 && params.port === undefined) {
     return side === 'outputs' && params.viaReroute === undefined
       ? { kind: 'widgetTap', node: asNodeId(params.node), tap: asPortId(params.tap) } : undefined
@@ -201,12 +207,26 @@ const bindingFromParams = (params: JsonObject, side: Side): NodeBoundaryBinding 
 }
 
 // ---------------------------------------------------------------------------
-// boundary.addItem {graphId, side, node, port?, tap?, itemId?, displayName?}
+// boundary.addItem {graphId, side, node, port?, tap?, whole?, itemId?, displayName?}
 //
 // Appends one endpoint exposure. IDs are allocated deterministically from the
 // target when omitted. Input targets are globally unique across primary and
-// fan-out bindings; outputs may re-expose a source.
+// fan-out bindings; outputs may re-expose a source. `whole: true` shows the
+// group, choice, type choice or described row at `port` whole; it owns every
+// row inside it, so it is refused while a row inside it is shown, and a row
+// inside a construct shown whole is refused.
 // ---------------------------------------------------------------------------
+
+/** The item that already shows `binding`'s row through a construct, or a row inside it. */
+function ownershipConflict(def: GraphDef, binding: NodeBoundaryBinding): BoundaryItem | undefined {
+  if (binding.kind === 'widgetTap') return undefined
+  const items = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
+  return items.find((item) => [item.binds, ...(item.alsoBinds ?? [])].some((other) => {
+    if ((other.kind !== 'port' && other.kind !== 'construct') || other.node !== binding.node) return false
+    if (other.kind === 'construct' && (binding.port === other.port || binding.port.startsWith(`${other.port}.`))) return true
+    return binding.kind === 'construct' && (other.port === binding.port || other.port.startsWith(`${binding.port}.`))
+  }))
+}
 
 const boundaryAddItem: CommandDefinition = {
   id: 'boundary.addItem',
@@ -216,7 +236,7 @@ const boundaryAddItem: CommandDefinition = {
       typeof params.node !== 'string' || bindingFromParams(params, params.side) === undefined ||
       (params.itemId !== undefined && (typeof params.itemId !== 'string' || params.itemId.length === 0)) ||
       (params.displayName !== undefined && typeof params.displayName !== 'string')
-    ) return [err('params.invalid', "boundary.addItem: params must identify one port binding, or one outputs-side widget tap")]
+    ) return [err('params.invalid', "boundary.addItem: params must identify one port binding, one construct shown whole, or one outputs-side widget tap")]
     const def = graphOf(doc, params.graphId)
     if (!def) return [err('graph.missing', `boundary.addItem: unknown graph '${params.graphId}'`)]
     if (!def.nodes[params.node]) return [err('node.missing', `boundary.addItem: no node '${params.node}' in graph '${params.graphId}'`)]
@@ -225,6 +245,9 @@ const boundaryAddItem: CommandDefinition = {
     if (params.itemId !== undefined && allItems.some((item) => item.id === params.itemId))
       return [err('boundary.duplicateId', `boundary.addItem: boundary item '${params.itemId}' already exists in graph '${params.graphId}'`)]
     const binding = bindingFromParams(params, params.side)!
+    const owner = ownershipConflict(def, binding)
+    if (owner !== undefined)
+      return [err('boundary.constructOwned', `boundary.addItem: '${params.port}' is already shown through '${owner.id}'`)]
     if (params.side === 'inputs' && items.some((item) =>
       [item.binds, ...(item.alsoBinds ?? [])].some((candidate) => bindingMatchesEndpoint(candidate, binding))))
       return [err('boundary.duplicateBind', `boundary.addItem: inner input '${params.node}/${params.port}' is already bound by another boundary input`)]

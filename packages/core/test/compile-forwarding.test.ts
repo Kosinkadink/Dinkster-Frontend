@@ -505,6 +505,30 @@ describe('whole constructs shown on a subgraph node', () => {
     expect(prompt['third.d.n']!.inputs).toEqual({ 'mode.strength': 0.6 })
   })
 
+  it('matching input group fanout preserves one member order and one owner per target', () => {
+    const doc = docOf({
+      g0: {
+        nodes: { a: { type: 'Src' }, b: { type: 'Src' }, s: { type: '#sub', dynamic: { imgs: { members: ['image1', 'image0'] } } } },
+        links: [[['a', 'out'], ['s', 'imgs.image0']], [['b', 'out'], ['s', 'imgs.image1']]],
+      },
+      sub: {
+        nodes: {
+          first: { type: 'Batch', dynamic: { images: { members: ['image0'] } } },
+          second: { type: 'Batch' },
+        },
+        boundary: {
+          inputs: [{ id: 'imgs', binds: { kind: 'construct', node: 'first', port: 'images' }, alsoBinds: [{ kind: 'construct', node: 'second', port: 'images' }] }],
+        },
+      },
+    })
+    const prompt = okConstructPrompt(doc)
+    // Each target keeps its own definition members first; the outer stream follows in one order.
+    expect(prompt['s.first']!.inputs).toEqual({ 'images.image1': ['a', 0], 'images.image2': ['b', 0] })
+    expect(prompt['s.first']!.outputMembers?.['images']).toEqual(['image0', 'image2', 'image1'])
+    expect(prompt['s.second']!.inputs).toEqual({ 'images.image0': ['a', 0], 'images.image1': ['b', 0] })
+    expect(prompt['s.second']!.outputMembers?.['images']).toEqual(['image1', 'image0'])
+  })
+
   it('a counted output group follows the outer count, and its third output reaches the sink', () => {
     const doc = docOf({
       g0: {

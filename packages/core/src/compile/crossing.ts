@@ -157,7 +157,7 @@ export function projectConstructs(
   child: GraphDef,
   instance: Pick<NodeData, 'values' | 'dynamic'>,
   resolveNode: (node: NodeData) => NodeSchema | undefined,
-  base: ReadonlyMap<NodeId, Readonly<Record<string, DynamicPortState>>> = new Map(),
+  base: ReadonlyMap<string, Readonly<Record<string, DynamicPortState>>> = new Map(),
 ): ConstructProjection {
   const dynamic = new Map<NodeId, Record<string, DynamicPortState>>()
   const values = new Map<NodeId, Record<string, Json>>()

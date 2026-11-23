@@ -169,6 +169,8 @@ export function canvasMenuContext(input: {
   readonly previewCapable?: (nodeType: string) => boolean
   /** Mirror-estimate capability by node type; omitted = unknown (menu hidden). */
   readonly mirrorCapable?: (nodeType: string) => boolean
+  /** Node schemas by type, for items that read a node's rows. */
+  readonly resolve?: (nodeType: string) => NodeSchema | undefined
   readonly shortcuts?: Readonly<Record<string, string>>
 }): MenuContext {
   return {
@@ -178,6 +180,7 @@ export function canvasMenuContext(input: {
     ...(input.nodeHasDocs !== undefined ? { nodeHasDocs: input.nodeHasDocs } : {}),
     ...(input.previewCapable !== undefined ? { previewCapable: input.previewCapable } : {}),
     ...(input.mirrorCapable !== undefined ? { mirrorCapable: input.mirrorCapable } : {}),
+    ...(input.resolve !== undefined ? { resolve: input.resolve } : {}),
     ...(input.shortcuts !== undefined ? { shortcuts: input.shortcuts } : {}),
     graphId: input.graphId,
     target: input.target,

@@ -2872,6 +2872,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ...(targetSchema?.hasDocs === true ? { nodeHasDocs: true } : {}),
         ...(previewCapable !== undefined ? { previewCapable } : {}),
         ...(mirrorCapable !== undefined ? { mirrorCapable } : {}),
+        ...(menuResolve !== undefined ? { resolve: menuResolve } : {}),
         shortcuts: Object.fromEntries([
           'edit.delete',
           'node.mute',

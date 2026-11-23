@@ -259,6 +259,27 @@ describe('boundary item lifecycle commands', () => {
     expect(store.canUndo).toBe(false)
   })
 
+  it('exposing a choice descendant twice is refused without changing the document', () => {
+    // The choice is shown whole: it owns every row inside it.
+    const store = makeStore(subDoc([]))
+    expect(store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'mode', whole: true } }).ok).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'mode', binds: { kind: 'construct', node: 'n1', port: 'mode' } }])
+    const shown = structuredClone(store.doc)
+    const child = store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'mode.strength' } })
+    expect(!child.ok && child.diagnostics[0]!.code).toBe('boundary.constructOwned')
+    expect(!child.ok && child.diagnostics[0]!.message).toContain("already shown through 'mode'")
+    expect(store.doc).toEqual(shown)
+    // And the other way round: a row already shown keeps the construct from being shown whole.
+    const other = makeStore(subDoc([{ id: 'strength', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('mode.strength') } }]))
+    const before = structuredClone(other.doc)
+    const whole = other.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'mode', whole: true } })
+    expect(!whole.ok && whole.diagnostics[0]!.code).toBe('boundary.constructOwned')
+    expect(other.doc).toEqual(before)
+    expect(other.canUndo).toBe(false)
+    // A sibling whose id only starts the same way is not inside the choice.
+    expect(store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'modeless' } }).ok).toBe(true)
+  })
+
   it('adds items with deterministic IDs and creates an absent boundary', () => {
     const d = subDoc([])
     const sub = d.graphs.sub!

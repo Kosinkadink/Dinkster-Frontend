@@ -403,6 +403,50 @@ export function constructRowOf(route: BoundaryRoute): GroupSpec | ChoiceSpec | T
   return undefined
 }
 
+/** A construct a row sits in, as a subgraph can show it whole. */
+export interface EnclosingConstruct {
+  readonly path: string
+  readonly kind: 'group' | 'choice' | 'typeChoice' | 'described'
+  readonly label: string
+  /** Where it sits among a subgraph node's rows: a group of outputs only is an output. */
+  readonly side: 'inputs' | 'outputs'
+}
+
+/**
+ * The constructs a row is in, outermost first, the row itself included when
+ * it is one: what "Show on subgraph node" offers to show whole from it.
+ */
+export function constructsAround(schema: NodeSchema, port: string): readonly EnclosingConstruct[] {
+  const found: EnclosingConstruct[] = []
+  const segs = port.split('.')
+  let rows: readonly OptionRow[] = schema.body
+  let prefix = ''
+  const holdsInput = (list: readonly OptionRow[]): boolean => scopeRowsOf(list).some((entry) =>
+    entry.kind === 'input' || entry.kind === 'choice' || entry.kind === 'typeChoice' || entry.kind === 'use' ||
+    (entry.kind === 'described' && entry.kinds.some((kind) => kind.kind === 'input')) ||
+    (entry.kind === 'group' && holdsInput(memberRowsOf(entry))))
+  for (let index = 0; index < segs.length; index++) {
+    const row = rowById(rows, segs[index]!)
+    if (row === undefined) break
+    const full = `${prefix}${row.id}`
+    if (row.kind === 'group' || row.kind === 'choice' || row.kind === 'typeChoice' || row.kind === 'described') {
+      const label = typeof row.displayName === 'string' && row.displayName !== '' ? row.displayName : row.id
+      found.push({ path: full, kind: row.kind, label, side: holdsInput([row]) ? 'inputs' : 'outputs' })
+    }
+    if (row.kind === 'group') {
+      rows = memberRowsOf(row)
+      prefix = `${full}.${segs[++index]}.`
+    } else if (row.kind === 'choice') {
+      rows = choiceScopeRows(row)
+      prefix = `${full}.`
+    } else if (row.kind === 'typeChoice') {
+      rows = [...row.rows, ...(row.variants ?? []).flatMap((variant) => variant.rows)]
+      prefix = `${full}.`
+    } else break
+  }
+  return found
+}
+
 /** Find a row of one scope by id, looking through layout boxes. */
 const rowById = (rows: readonly OptionRow[], id: string): Exclude<BodyRow, { kind: 'row' }> | undefined =>
   scopeRowsOf(rows).find((row): row is Exclude<BodyRow, { kind: 'row' }> => row.kind !== 'use' && row.kind !== 'row' && row.id === id)
