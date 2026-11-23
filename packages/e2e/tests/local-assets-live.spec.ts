@@ -37,7 +37,6 @@ test('reopened workflow checks exact asset presence without acquiring or rewriti
     if (decodeURIComponent(request.url()).includes(`/api/assets/${missing.digest}`)) missingReads.push(request.url())
   })
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
   await waitForWorkspaceReady(page)
   await page.evaluate(async ({ available, missing }) => {
     const app = window.__dinksterTest!.app
@@ -111,7 +110,6 @@ for (const state of ['retired', 'inactive', 'linked'] as const) {
       finishPlan = () => route.fulfill({ status: 503, json: { error: 'Requirements service unavailable' } })
     })
     await page.goto('/')
-    await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
     await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.schemaState.get().status)).toBe('ready')
     await waitForWorkspaceReady(page)
     await page.evaluate(async (state) => {
@@ -219,7 +217,7 @@ for (const fixture of [
       }))
     }
     await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.protocol)).toBe('dinkster')
-    await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/)
+    await waitForWorkspaceReady(page)
     await page.evaluate(async ({ kind, mime }) => {
       const app = window.__dinksterTest!.app
       app.registerSchemas([{

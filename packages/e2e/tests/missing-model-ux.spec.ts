@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const REQUESTED = 'models/checkpoints/audit-definitely-missing-model.safetensors'
 
@@ -40,7 +40,7 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
   })
 
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
   const checkpointResponse = await page.request.get('/api/mounts/checkpoints/entries?kind=model/checkpoint')
   expect(checkpointResponse.ok()).toBe(true)
   const checkpointEntries = await checkpointResponse.json() as { entries: Array<Record<string, unknown>> }

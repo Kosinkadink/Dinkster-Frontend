@@ -212,7 +212,8 @@ the importer does not guess-assign that tail. DynamicSlot is not traversed or
 treated as a stop boundary; if ComfyUI
 serializes connected slot dependents positionally, later values may still be
 misaligned. Its foreign positional/connectivity semantics and LiteGraph
-subgraph definitions are deferred; see `rework-queue.md`.
+subgraph definitions are tracked in
+[ComfyUI dynamic construct import](https://github.com/Kosinkadink/comfy-vibe-station/issues/1203).
 
 ## Backend compat-boundary porting (server-side, informational)
 

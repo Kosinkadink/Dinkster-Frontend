@@ -909,9 +909,8 @@ and 200 percent, for a default box, a box made taller and a box that scrolls.
 
 ### Text box height
 
-A text box's text starts 2 units left of the label over it (the label at 6,
-the text at 4), so the box's text reads apart from the labels, which stay in
-one column down the node; the open editor uses the same inset.
+A text box's text starts at the same x as the label over it (both at 6); the
+open editor uses the same inset.
 
 Each multiline text box has its own height, in whole lines, from 2 to 16. A
 new node starts at the height the widget declares. A short bar in the middle
@@ -1264,14 +1263,10 @@ File. Component and client tests pin object identity, bytes, metadata, and the
 absence of a document write before upload success. The separate native browser
 arm in `packages/e2e/tests/image-upload-byte-proof.spec.ts` uses a deterministic
 valid PNG larger than 256 KiB and proves POST, vault GET, graph, export/reopen,
-and Load Image -> Preview Image execution. Historical job
-`019fd935047563a88365345d68d1cd8a` recorded a 300047-byte source AssetRef
-for digest `blake3:b584866aabc7b7bb0c4c1016b809254d71261e15db24b392a3cb15bb62398b07`
-while the vault held 78840 bytes because a single request-stream read did not
-guarantee EOF. Backend commit `6a5a1c23a25d7b24b8c01c49eec021d513eb4910`
-fixed the read by draining chunks to EOF, and `0313abfefc96ac037591d25879bd11d2eb831a01`
-made reads and execution verify content against the digest. No frontend
-truncation workaround is part of this contract.
+and Load Image -> Preview Image execution. The backend drains request chunks
+to EOF and verifies stored content against its digest on reads and execution.
+A single request-stream read does not guarantee EOF. No frontend truncation
+workaround is part of this contract.
 
 A typed ASSET whose semantic or MIME-derived browse kind is exactly
 `media/image`, `media/audio`, or `media/video` uses the bounded media-ingest

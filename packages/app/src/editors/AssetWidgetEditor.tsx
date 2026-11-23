@@ -32,6 +32,7 @@ import { readUploadDestination, saveUploadDestination } from '../upload-destinat
 import { AssetFileLocation } from '../AssetFileLocation.js'
 import { resolveDroppedAsset } from '../desktop-bridge.js'
 import { useAppMessage } from '../locale.js'
+import { tabDocumentUnchanged } from '../widget-editor-anchor.js'
 
 interface AssetRef extends JsonObject {
   readonly digest: string
@@ -155,10 +156,12 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const unsubscribeConnection = uploadBackend.connection.status.subscribe(() => { connectionChanged = true })
   onCleanup(unsubscribeConnection)
   const pickerContextCurrent = (): boolean =>
-    live && !connectionChanged && ed.tab === openedTab && openedTab.store === openedStore &&
+    live && !connectionChanged && openedTab.store === openedStore &&
     openedStore.doc === openedDocument && openedStore.revision === openedRevision &&
-    props.app.tabs.get().includes(openedTab) && props.app.backendForTab(openedTab) === uploadBackend &&
-    props.app.registryForTab(openedTab) === openedRegistry && activeProjectId() === project
+    (ed.tab === openedTab || props.app.liveTabContinuing(openedStore) === ed.tab) &&
+    tabDocumentUnchanged(openedTab, openedRevision, ed.tab) &&
+    props.app.tabs.get().includes(ed.tab) && props.app.backendForTab(ed.tab) === uploadBackend &&
+    props.app.registryForTab(ed.tab) === openedRegistry && activeProjectId() === project
   const [destination, setDestination] = createSolidSignal(readUploadDestination(String(uploadBackend.id), project))
   const [uploadedLocation, setUploadedLocation] = createSolidSignal('')
   let assetUploadInput: HTMLInputElement | undefined

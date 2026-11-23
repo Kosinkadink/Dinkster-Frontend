@@ -16,7 +16,7 @@ async function openPainter(page: Page, nodeId = 'paint'): Promise<void> {
 for (const connected of [false, true]) test(`Painter ${connected ? 'connected first frame' : 'background'} uploads, reopens, executes and undoes`, async ({ page }, testInfo) => {
   test.skip(!process.env['DINKSTER_NATIVE_BACKEND'], 'requires an isolated native backend')
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText('connected', { timeout: 20_000 })
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 20_000 })
   await waitForWorkspaceReady(page)
   await page.evaluate(async (connected) => {
     await window.__dinksterTest!.app.openDocument({

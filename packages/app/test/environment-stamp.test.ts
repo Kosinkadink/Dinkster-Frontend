@@ -269,6 +269,69 @@ describe('workflow-open requirements', () => {
     expect(savedExtra).toEqual(['other-window-choice'])
   })
 
+  it('retains an explicitly selected catalog pack without registering its preview or changing other project extras', async () => {
+    app = prepareWorkflowApp(new AppState())
+    loadDinksterSchemas()
+    const backend = app.backends.get()[0]!
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'planWorkflowRequirements').mockResolvedValue({ packs: [], assets: [], errors: [] })
+    const project = { id: 'default', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false }
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue(project)
+    const installed = [{ pack: 'selected', version: '2.0' }, { pack: 'kept', version: '1.0' }]
+    vi.spyOn(backend.connection, 'projectNeeds').mockResolvedValue({ packs: [], extra: ['kept'], unknown: [], installed })
+    const tab = await open(docJson('catalog-selection', ['std.a']))
+    await app.checkProjectNeeds(backend, [{ pack: 'selected', version: '2.0' }])
+    expect(app.projectNeedsReview.get()).toMatchObject({ enable: ['selected'], changes: [], errors: [] })
+    await app.checkProjectNeeds(backend)
+    const review = app.projectNeedsReview.get()!
+    expect(review.enable).toEqual(['selected'])
+    let extras: readonly string[] = ['kept']
+    vi.spyOn(backend.connection, 'setProjectExtraPacks').mockImplementation(async (id, values, revision) => {
+      expect({ id, revision }).toEqual({ id: 'default', revision: 7 })
+      extras = values
+      return { ...project, revision: 8 }
+    })
+    vi.spyOn(app, 'refreshBackendSchemas').mockResolvedValue()
+    await app.enableReviewedProjectPacks(review)
+    expect(extras).toEqual(['kept', 'selected'])
+    expect(tab.store.doc.graphs['g0']!.nodes['n0']!.type).toBe('std.a')
+    expect(backend.registry.get()?.resolve('selected.preview')).toBeUndefined()
+
+    await app.checkProjectNeeds(backend, [{ pack: 'absent', version: '3.0' }], () => false)
+    expect(app.projectNeedsReview.get()).toBeUndefined()
+    await app.checkProjectNeeds(backend, [{ pack: 'absent', version: '3.0' }])
+    const selected = app.projectNeedsReview.get()!
+    expect(selected.changes).toEqual([{ pack: 'absent', version: '3.0' }])
+    await open(docJson('other-active-document', ['std.a']))
+    expect(selected.owned()).toBe(false)
+    await expect(app.enableReviewedProjectPacks(selected)).rejects.toThrow('changed')
+    expect(extras).toEqual(['kept', 'selected'])
+  })
+
+  it('uses actual importer pack provenance but keeps truly unknown nodes blocking preparation', async () => {
+    app = prepareWorkflowApp(new AppState())
+    loadDinksterSchemas()
+    const backend = app.backends.get()[0]!
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'planWorkflowRequirements').mockResolvedValue({ packs: [], assets: [], errors: [] })
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue({ id: 'default', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false })
+    vi.spyOn(backend.connection, 'projectNeeds').mockResolvedValue({ packs: [], extra: [], unknown: [], installed: [] })
+    const document = docJson('translated-pack', ['translated.image']) as { graphs: { g0: { nodes: Record<string, unknown> } } }
+    document.graphs.g0.nodes['n0'] = { id: 'n0', type: 'translated.image', values: {},
+      ext: { 'importer.comfyTranslation': { pack: 'image-tools', version: '1.2.0', sourceClass: 'LegacyImage' } } }
+    await open(document)
+    await app.checkProjectNeeds(backend)
+    expect(app.projectNeedsReview.get()).toMatchObject({ changes: [{ pack: 'image-tools', version: '1.2.0' }], errors: [] })
+    expect(backend.registry.get()?.resolve('translated.image')).toBeUndefined()
+    await open(docJson('genuine-unknown', ['unidentified.image']))
+    await app.checkProjectNeeds(backend)
+    const review = app.projectNeedsReview.get()!
+    expect(review.changes).toEqual([{ pack: 'image-tools', version: '1.2.0' }])
+    expect(review.errors).toEqual(['unidentified.image'])
+    await expect(app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined, 'only-project'))
+      .rejects.toThrow('no unidentified workflow needs')
+  })
+
   it('separates missing and version-conflicting packs from project-only enablement', async () => {
     app = prepareWorkflowApp(new AppState())
     loadDinksterSchemas()
@@ -383,14 +446,15 @@ describe('workflow-open requirements', () => {
       vi.spyOn(backend.connection, 'activeEnvironment').mockImplementation(async () => ({ id: environmentId(),
         snapshot: activated ? scenario === 'wrong-snapshot' ? '5' : '4' : '2' }))
       vi.spyOn(backend.connection, 'projectNeeds').mockImplementation(async () => ({
-        packs: [{ pack: 'newpack', version: '2.1' }], extra: activated ? ['kept', 'other-window'] : ['kept'],
+        packs: scenario === 'shared' || scenario === 'isolated' ? [] : [{ pack: 'newpack', version: '2.1' }],
+        extra: activated ? ['kept', 'other-window'] : ['kept'],
         unknown: refreshed || activated && scenario === 'unknown-needs' ? [{ scope: 'local', id: 'unreadable' }] : [],
         installed: [{ pack: 'kept', version: '1.0' }, ...(activated ? [{ pack: 'newpack', version: scenario === 'wrong-version' ? '2.0' : '2.1' }] : [])],
       }))
       vi.spyOn(backend.connection, 'planPackInstall').mockResolvedValue({ plan: { format: 'dinkster.project-pack-plan/1' },
         confirmation: 'opaque', review: 'Reviewed software', expiresInSeconds: 900 })
       const tab = await open(docJson('apply-project', ['std.a']))
-      await app.checkProjectNeeds(backend)
+      await app.checkProjectNeeds(backend, scenario === 'shared' || scenario === 'isolated' ? [{ pack: 'newpack', version: '2.1' }] : undefined)
       const review = app.projectNeedsReview.get()!
       const prepared = await app.reviewProjectPackInstallation(review, new AbortController().signal, () => undefined,
         scenario === 'unscoped' ? undefined : scenario.startsWith('isolated') ? 'only-project' : 'every-project')

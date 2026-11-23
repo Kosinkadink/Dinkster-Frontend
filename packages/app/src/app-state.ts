@@ -84,6 +84,7 @@ import {
   schemaForEditorRole,
   scopeClosure,
   resolvePreviewPolicy,
+  resolveImportedNodePacks,
   semanticHashOf,
   validateDocumentShape,
   type PreviewAnimation,
@@ -178,7 +179,8 @@ import {
 } from '@dinkster/widgets'
 import { BYPASSED_BADGE, boundaryPositions, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Viewport } from '@dinkster/canvas'
 import { canvasMeasures } from './canvas-measures.js'
-import { createComponent } from 'solid-js'
+import { batch, createComponent } from 'solid-js'
+import { layoutGroups, moveTabToGroup, repairEditorLayout } from './editor-layout.js'
 import pkg from '../package.json'
 import { WorkflowPersistenceCodec } from './workflow-persistence-codec.js'
 import { parsePersistenceJson, persistenceJson, persistenceValuePrepared, persistedWorkflowDigest, persistedWorkflowDocument, withPersistenceSources } from './workflow-persistence-value.js'
@@ -1294,6 +1296,8 @@ export interface Tab {
    * truthful no matter what happens to the live document afterwards.
    */
   readonly execution?: ExecutionRef
+  /** Canvas ownership handoff when Open as copy replaces a frozen tab. */
+  readonly replacesFrozenTabId?: string
 }
 
 export interface CurveEditorTarget {
@@ -2340,6 +2344,7 @@ export interface ProjectNeedsReview {
   readonly needs: ProjectNeeds
   readonly enable: readonly string[]
   readonly changes: ProjectNeeds['packs']
+  readonly requested?: ProjectNeeds['packs']
   readonly errors: readonly string[]
   readonly current: () => boolean
   /** Document and project ownership survives an expected registry replacement. */
@@ -2522,7 +2527,7 @@ export class AppState {
       runtimeNodeIds,
       token: ++this.executionLogFocusToken,
     })
-    setPanelOpen(this.panels, this.dock, 'execution-log', 'bottom', true)
+    setPanelOpen(this.panels, this.dock, 'logs', 'bottom', true)
   }
 
   /** The panel applied this focus request; stop it from replaying. */
@@ -2736,7 +2741,7 @@ export class AppState {
     const existing = worlds?.get(pair.digest)
     if (existing) return this.extensionWorldLoads.get(existing)
     const world = new ExtensionWorld(connection, pair.digest, { ...this.extensionTargets, initialGates: loadGates() },
-      (diagnostic) => this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diagnostic]), globalThis.fetch)
+      (diagnostic) => this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diagnostic]))
     if (worlds === undefined) {
       worlds = new Map()
       this.extensionWorlds.set(connection, worlds)
@@ -2846,6 +2851,7 @@ export class AppState {
   /** Session-only open-time migration summaries; never stored in documents. */
   readonly migrationNotices = createSignal<ReadonlyMap<string, MigrationNotice>>(new Map())
   readonly queueRefusal = createSignal<Tab | undefined>(undefined)
+  readonly frozenEditRefusal = createSignal<{ readonly tabId: string } | undefined>(undefined)
   readonly cancellingExecutions = createSignal<ReadonlySet<string>>(new Set())
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
   readonly importAssetResolution: Signal<ImportAssetResolutionRequest | undefined> = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
@@ -2905,6 +2911,8 @@ export class AppState {
    * rebinding per backend). Same pattern as CanvasHost's docTick.
    */
   readonly backendsTick: Signal<number> = createSignal(0)
+  /** Confirmed-deleted history rows stay out of run lists without clearing canvas results. */
+  readonly hiddenHistoryExecutions: Signal<ReadonlySet<string>> = createSignal(new Set<string>())
 
   /**
    * Tabs currently joined to a shared session, keyed by tab id. Session-only
@@ -3042,6 +3050,13 @@ export class AppState {
       type: 'boolean',
       defaultValue: false,
     })
+    this.settings.register({
+      id: 'execution.reviewUpgrades',
+      get name() { return t('shell.reviewUpgrades.label') },
+      get description() { return t('settings.execution.reviewUpgrades.description') },
+      type: 'boolean',
+      defaultValue: false,
+    })
     this.settings.register({ id: 'canvas.bookmarkTransitions', get name() { return t('settings.canvas.bookmarkTransitions') }, type: 'boolean', defaultValue: true })
     this.settings.register({
       id: 'canvas.smoothWheelZoom',
@@ -3060,6 +3075,19 @@ export class AppState {
         return [
           { value: 'zoom', label: t('settings.canvas.scrollBehavior.option.zoom') },
           { value: 'pan', label: t('settings.canvas.scrollBehavior.option.pan') },
+        ]
+      },
+    })
+    this.settings.register({
+      id: 'canvas.minimap.size',
+      get name() { return t('settings.canvas.minimap.size') },
+      type: 'combo',
+      defaultValue: 'small',
+      get options() {
+        return [
+          { value: 'small', label: t('settings.canvas.minimap.size.small') },
+          { value: 'medium', label: t('settings.canvas.minimap.size.medium') },
+          { value: 'large', label: t('settings.canvas.minimap.size.large') },
         ]
       },
     })
@@ -4918,6 +4946,12 @@ export class AppState {
     if (persist) this.persistBackendRemove(id)
   }
 
+  /** Stop transport and supervisor polling without forgetting the server or its targets. */
+  disconnectBackend(backend: Backend): void {
+    this.supervisorPolls.get(backend.id)?.()
+    backend.connection.disconnect()
+  }
+
   /** Removed backends, retained only so their executions' /view URLs resolve. */
   private readonly retiredBackends = new Map<ConnectionId, Backend>()
 
@@ -5051,7 +5085,6 @@ export class AppState {
 
   // -- Schema arrival -------------------------------------------------------
 
-  readonly reviewReplacements = createSignal(false)
   private readonly extraRules: { layer: 'pack' | 'core'; rule: ReplacementRule }[] = []
   private extraRulesVersion = 0
   private readonly replacementRegistries = new WeakMap<SchemaRegistry, { registry: ReplacementRegistry; version: number }>()
@@ -5164,7 +5197,7 @@ export class AppState {
   }
 
   private upgradeOnOpen(tab: Tab): Promise<void> | undefined {
-    if (this.reviewReplacements.get()) return
+    if (this.settings.get<boolean>('execution.reviewUpgrades')) return
     const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
     if (items.length === 0) return
     const store = tab.store
@@ -5445,7 +5478,7 @@ export class AppState {
     this.tabs.update((list) => list.map((candidate) => candidate === tab ? { ...tab, title } : candidate))
   }
 
-  async duplicateTab(tabId: string): Promise<Tab | undefined> {
+  async duplicateTab(tabId: string, replaceFrozen = false): Promise<Tab | undefined> {
     const source = this.tabs.get().find((candidate) => candidate.id === tabId)
     if (!source || ![GRAPH_EDITOR_KIND, APP_EDITOR_KIND].includes(source.editorKind)) return undefined
     const title = source.execution
@@ -5459,7 +5492,10 @@ export class AppState {
     while (this.tabs.get().some((tab) => tab.id === lineage))
     const backend = this.backendForTab(source)
     const stillWanted = this.beginWorkflowOpen()
-    const copy = await this.openDocumentOnBackend({ ...source.store.doc, lineage }, copyTitle, backend, stillWanted, false, undefined, backend)
+    const prepared = this.prepareDocumentOpen({ ...source.store.doc, lineage }, copyTitle, backend)
+    if (!prepared.ok) return undefined
+    const copy = await this.publishOpenedDocument(prepared, backend, stillWanted, backend, true,
+      replaceFrozen && source.execution ? source : undefined)
     if (copy && !source.execution && source.editorKind === APP_EDITOR_KIND) this.setTabEditorKind(copy.id, APP_EDITOR_KIND)
     return copy && this.tabs.get().find((tab) => tab.id === copy.id)
   }
@@ -5860,14 +5896,34 @@ export class AppState {
       : { command: 'batch', params: { invocations: normalized } as unknown as Json }
   }
 
-  /**
-   * Dispatch a document command to a tab's store. Rejections land in
-   * Problems (append; they do not clobber compile/submit diagnostics).
-   * Frozen tabs reject everything silently: read-only is a mode the UI
-   * communicates with a banner, not a per-gesture error.
-   */
+  refuseFrozenEdit(tab: Tab): CommandOutcome {
+    this.frozenEditRefusal.set({ tabId: tab.id })
+    return { ok: false, diagnostics: [] }
+  }
+
+  /** Frozen layout changes stay in the tab's local session, never its run artifact or persistence. */
+  private frozenPresentationCommand(invocation: CommandInvocation): boolean {
+    if (invocation.command === 'batch') {
+      const params = invocation.params
+      if (!params || typeof params !== 'object' || Array.isArray(params)) return false
+      const invocations = (params as JsonObject).invocations
+      if (!Array.isArray(invocations)) return false
+      return invocations.every((item: Json) => item !== null && typeof item === 'object' && !Array.isArray(item) &&
+        typeof (item as JsonObject).command === 'string' && this.frozenPresentationCommand(item as unknown as CommandInvocation))
+    }
+    return [
+      'node.move', 'selection.move', 'reroute.move', 'valueSource.move', 'selector.move',
+      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed',
+      'view.moveBoundaryNode', 'view.moveGroup', 'view.setGroupBounds',
+      'view.setNetCollapsed', 'view.setNetDisplay', 'view.setAllNetsDisplay',
+      'view.setNodeVideo', 'view.setNodeColor', 'view.setGroupColor', 'view.setWidgetRepresentation',
+      'view.setBookmark', 'view.clearBookmark',
+    ].includes(invocation.command)
+  }
+
+  /** Dispatch to the tab's session; ordinary command failures append to Problems. */
   dispatchTo(tab: Tab, invocation: CommandInvocation): CommandOutcome | Promise<CommandOutcome> {
-    if (tab.execution) return { ok: false, diagnostics: [] }
+    if (tab.execution && !this.frozenPresentationCommand(invocation)) return this.refuseFrozenEdit(tab)
     const effective = this.countAwareValueInvocation(tab, invocation)
     const outcome = tab.store.dispatch(effective)
     if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
@@ -6567,12 +6623,12 @@ export class AppState {
 
   private async publishOpenedDocument(
     prepared: Extract<ReturnType<AppState['prepareDocumentOpen']>, { readonly ok: true }>,
-    backend: Backend, stillWanted: () => boolean, target: Backend | null, awaitPromotion = true,
+    backend: Backend, stillWanted: () => boolean, target: Backend | null, awaitPromotion = true, replaceFrozen?: Tab,
   ): Promise<Tab | undefined> {
     const destination = target ?? this.backends.get()[0]!
     if (this.disposed || !stillWanted() || !this.backends.get().includes(backend) ||
       !this.backends.get().includes(destination)) return undefined
-    const tab = prepared.publish(target ?? undefined)
+    const tab = prepared.publish(target ?? undefined, replaceFrozen)
     if (!awaitPromotion) return tab
     const intent = this.workflowOpenIntent
     if (this.workspaceAuthorityEnabled) await this.startWorkspaceTabPromotion(tab)
@@ -6583,7 +6639,7 @@ export class AppState {
 
   private prepareDocumentOpen(json: unknown, title: string, importVia?: Backend, forkOnCollision = false, originalPrompt?: JsonObject):
     { readonly ok: false; readonly diagnostics: readonly Diagnostic[] } |
-    { readonly ok: true; readonly document: WorkflowDocument; readonly publish: (target?: Backend) => Tab } {
+    { readonly ok: true; readonly document: WorkflowDocument; readonly publish: (target?: Backend, replaceFrozen?: Tab) => Tab } {
     const legacy = detectFormat(json) === 'litegraph-workflow'
     const digestHints = legacy ? legacyAssetDigestHints(json) : []
     // A legacy document is translated through the schemas of the backend it
@@ -6623,12 +6679,17 @@ export class AppState {
       while (this.tabs.get().some((tab) => tab.id === lineage))
       document = { ...document, lineage }
     }
-    return { ok: true, document, publish: (target) => {
+    return { ok: true, document, publish: (target, replaceFrozen) => {
       const replacesExisting = this.tabs.get().some((candidate) => !candidate.execution && candidate.id === document.lineage)
       if (replacesExisting) {
         this.markDocumentPersistenceDirty(document.lineage)
       }
-      const tab = this.makeTab(document, title, undefined, GRAPH_EDITOR_KIND, undefined, importRegistry)
+      const created = this.makeTab(document, title, undefined, GRAPH_EDITOR_KIND, undefined, importRegistry)
+      const tab = replaceFrozen ? { ...created, replacesFrozenTabId: replaceFrozen.id } : created
+      if (replaceFrozen) {
+        tab.graphStack.set(replaceFrozen.graphStack.get())
+        tab.instancePath.set(replaceFrozen.instancePath.get())
+      }
       if (replacesExisting) this.workspaceReplacements.add(tab)
       this.dismissMigrationNotice(tab.id)
       // Load/translation warnings belong to the tab they describe: a
@@ -6643,8 +6704,22 @@ export class AppState {
       // Session-keyed caches (sourceDocCache etc.) die with the replaced Tab.
       this.templateGalleryOpen.set(false)
       if (target !== undefined) this.tabTargets.update((targets) => new Map(targets).set(tab.id, target.id))
-      this.tabs.update((tabs) => [...tabs.filter((t) => t.id !== tab.id), tab])
-      this.activeTabId.set(tab.id)
+      batch(() => {
+        if (replaceFrozen) {
+          const ids = this.tabs.get().map((candidate) => candidate.id)
+          const layout = repairEditorLayout(this.editorSplits.layout.get(), ids)
+          const group = layoutGroups(layout.root).find((candidate) => candidate.tabIds.includes(replaceFrozen.id))!
+          const withCopy = repairEditorLayout(layout, [...ids, tab.id])
+          this.editorSplits.layout.set(repairEditorLayout(
+            moveTabToGroup(withCopy, tab.id, group.id, group.tabIds.indexOf(replaceFrozen.id)),
+            ids.map((id) => id === replaceFrozen.id ? tab.id : id),
+          ))
+          this.releaseFrozenPin(replaceFrozen.id)
+          this.cleanupClosedTab(replaceFrozen.id)
+          this.tabs.update((tabs) => tabs.map((candidate) => candidate === replaceFrozen ? tab : candidate))
+        } else this.tabs.update((tabs) => [...tabs.filter((t) => t.id !== tab.id), tab])
+        this.activeTabId.set(tab.id)
+      })
       this.schemaDiagnosticsPending.add(tab.id)
       this.legacyBooleanPending.add(tab.id)
       this.drainLegacyBooleans() // immediate when schemas are already loaded
@@ -6658,8 +6733,11 @@ export class AppState {
     } }
   }
 
-  async checkProjectNeeds(backend: Backend): Promise<void> {
+  async checkProjectNeeds(backend: Backend, requestedPacks?: ProjectNeeds['packs'], stillWanted: () => boolean = () => true): Promise<void> {
     if (backend.connection.status.get() !== 'connected' || this.projectPackInstallations.get(backend) === 'applying') return
+    const previous = this.projectNeedsReview.get()
+    const requested = requestedPacks ?? (previous?.backend === backend && previous.owned() ? previous.requested : undefined)
+    const selectedStore = requested === undefined ? undefined : this.activeTab()?.store
     const projectId = activeProjectId()
     const registry = backend.registry.get()
     const generation = this.assetConnectionGenerations.get(backend.connection)
@@ -6668,6 +6746,7 @@ export class AppState {
     const documents = this.tabs.get().filter((tab) => this.backendForTab(tab) === backend)
       .map((tab) => ({ store: tab.store, revision: tab.store.revision, document: tab.store.doc }))
     const owned = (): boolean => !this.disposed && activeProjectId() === projectId &&
+      (selectedStore === undefined || this.activeTab() === this.liveTabContinuing(selectedStore)) &&
       this.backends.get().includes(backend) &&
       documents.every(({ store, revision, document }) => {
         const tab = this.liveTabContinuing(store)
@@ -6681,21 +6760,24 @@ export class AppState {
     try {
       const project = await backend.connection.getProject(projectId)
       const needs = await backend.connection.projectNeeds(projectId)
-      if (!current()) return
+      if (!current() || !stillWanted()) return
       const required = new Map<string, { pack: string; version: string | null }>()
       const add = (pack: string, version: string | null): void => { required.set(JSON.stringify([pack, version]), { pack, version }) }
       for (const pack of needs.packs) add(pack.pack, pack.version)
       for (const pack of needs.extra) add(pack, null)
+      for (const pack of requested ?? []) add(pack.pack, pack.version)
       const errors = new Set(needs.unknown.map(({ scope, id }) => `${scope}/${id}`))
       for (const { document } of documents) {
-        for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+        for (const imported of resolveImportedNodePacks(document, registry?.resolve ?? (() => undefined))) {
+          const node = document.graphs[imported.graphId]!.nodes[imported.nodeId]!
           if (node.virtual === true || node.type.startsWith('#')) continue
           const saved = document.environment?.nodes[node.type]
           const schema = registry?.resolve(node.type)
-          const pack = saved?.pack ?? schema?.pack ?? (schema === undefined ? undefined : 'core')
+          const pack = saved?.pack ?? schema?.pack ?? (schema === undefined ? imported.pack : 'core')
           if (pack === undefined) { errors.add(node.type); continue }
-          const provenance = saved?.pack !== undefined ? document.environment?.packs[pack] : registry?.packs?.get(pack)
-          if (pack !== 'core') add(pack, provenance?.version ?? null)
+          const version = saved?.pack !== undefined ? document.environment?.packs[pack]?.version
+            : schema === undefined ? imported.version : registry?.packs?.get(pack)?.version
+          if (pack !== 'core') add(pack, version ?? null)
         }
       }
       const installed = new Map(needs.installed.map(({ pack, version }) => [pack, version]))
@@ -6706,7 +6788,8 @@ export class AppState {
       const enable = [...new Set([...required.values()].map(({ pack }) => pack))]
         .filter((pack) => !enabled.has(pack) && !changing.has(pack)).sort()
       if (enable.length === 0 && changes.length === 0 && errors.size === 0) return
-      this.projectNeedsReview.set({ backend, project, needs, enable, changes, errors: [...errors].sort(), current, owned })
+      this.projectNeedsReview.set({ backend, project, needs, enable, changes, errors: [...errors].sort(), current, owned,
+        ...(requested === undefined ? {} : { requested }) })
     } catch (error) {
       if (!current()) return
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('warning', 'validation', 'project.needsUnavailable',
@@ -7529,6 +7612,21 @@ export class AppState {
     return true
   }
 
+  private async confirmRemovedHistoryExecutions(backend: Extract<Backend, { protocol: 'dinkster' }>, runId?: string): Promise<void> {
+    const candidates = this.executionList().filter((execution) => execution.ref.connection === backend.id &&
+      execution.status !== 'queued' && execution.status !== 'running' && execution.jobRef !== undefined &&
+      (runId === undefined || execution.jobRef === runId))
+    const removed = await Promise.all(candidates.map(async (execution) => {
+      try {
+        return await backend.connection.getHistoryRun(execution.jobRef!, LIBRARY_SCOPE) === undefined ? execution.key : undefined
+      } catch {
+        return undefined
+      }
+    }))
+    if (!this.ownerStillLive(backend)) return
+    this.hiddenHistoryExecutions.update((keys) => new Set([...keys, ...removed.filter((key) => key !== undefined)]))
+  }
+
   /**
    * Delete ONE durable run record (never asset bytes or library records,
    * by contract). False on miss - already gone elsewhere is not an error.
@@ -7540,7 +7638,6 @@ export class AppState {
       const deleted = await backend.connection.deleteHistoryRun(runId, LIBRARY_SCOPE)
       if (deleted) {
         clearExecutionResultJobRef(backend.id, runId)
-        this.backendsTick.update((v) => v + 1) // an open Runs collection re-pages
       }
       return deleted
     } catch (e) {
@@ -7548,6 +7645,9 @@ export class AppState {
         diag('error', 'validation', 'history.deleteFailed', `failed to delete run record: ${e instanceof Error ? e.message : String(e)}`),
       ])
       return false
+    } finally {
+      await this.confirmRemovedHistoryExecutions(backend, runId)
+      this.backendsTick.update((v) => v + 1)
     }
   }
 
@@ -7562,13 +7662,15 @@ export class AppState {
     try {
       const deleted = await backend.connection.clearHistory({ scope: LIBRARY_SCOPE })
       clearExecutionResults(backend.id)
-      if (deleted > 0) this.backendsTick.update((v) => v + 1)
       return deleted
     } catch (e) {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         diag('error', 'validation', 'history.clearFailed', `failed to clear run history: ${e instanceof Error ? e.message : String(e)}`),
       ])
       return 0
+    } finally {
+      await this.confirmRemovedHistoryExecutions(backend)
+      this.backendsTick.update((v) => v + 1)
     }
   }
 
@@ -7757,7 +7859,7 @@ export class AppState {
   }
 
   /** Connect a backend and load its schema registry; failures land in Problems. */
-  private async startBackend(backend: Backend): Promise<void> {
+  async startBackend(backend: Backend): Promise<void> {
     backend.connection.connect()
     if (backend.protocol === 'dinkster') this.superviseBackend(backend)
     await this.loadBackendSchemas(backend)

@@ -180,7 +180,11 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
 /** Whether a name from outside the canvas, such as an extension badge's icon, is one the canvas paints. */
 export const isCanvasIconName = (name: string): name is NonNullable<ToolboxButton['icon']> => Object.hasOwn(ICONS, name)
 
-/** Paint Lucide's 24px SVG node data into a square canvas button. */
+/**
+ * Paint a Lucide icon with its 24-unit box drawn at exactly `size` px from
+ * (x, y). A caller that sets an icon inside a larger box, such as a button,
+ * works out the icon's size and place itself.
+ */
 export function paintToolboxIcon(
   ctx: CanvasRenderingContext2D,
   icon: NonNullable<ToolboxButton['icon']>,
@@ -227,10 +231,9 @@ export function paintSeedModeIcon(
 }
 
 function paintIcon(ctx: CanvasRenderingContext2D, nodes: IconNode, x: number, y: number, size: number, color: string): void {
-  const pad = size * canvasPaintTokens.icon.paddingRatio
-  const scale = (size - pad * 2) / canvasPaintTokens.icon.viewBoxSize
+  const scale = size / canvasPaintTokens.icon.viewBoxSize
   ctx.save()
-  ctx.translate(x + pad, y + pad)
+  ctx.translate(x, y)
   ctx.scale(scale, scale)
   ctx.strokeStyle = color
   ctx.lineWidth = canvasPaintTokens.icon.stroke

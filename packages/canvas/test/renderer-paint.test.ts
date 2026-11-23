@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, compile, documentResolver, loadDocument, type InputSpec, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, selectorBadgeRect, valueSourceBadgeRect, VS_BADGE_SIZE, type Scene, type SceneNode } from '../src/scene.js'
+import { paintToolboxIcon } from '../src/icons.js'
 import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
 import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
@@ -1854,7 +1855,7 @@ describe('node chrome paint on the live renderer', () => {
       renderer.setNodeOutputTexts({ [node.id]: { text: 'hidden by image' } })
       renderer.setNodePreviews({ [node.id]: { status: 'loading' } })
     })
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'loading')).toBe(true)
+    expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], 'loading...'))).toBe(true)
     expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'hidden by image')).toBe(false)
     const projectedLayout = nodeOf((() => {
       const { ctx } = recordingCtx()
@@ -1870,10 +1871,36 @@ describe('node chrome paint on the live renderer', () => {
     expect(projectedLayout).not.toHaveProperty('textOutput')
   })
 
+  it('keeps the checker under a preview picture one device pixel inside the picture', () => {
+    // At 1.5 device pixels per screen pixel and zoom 2, a device pixel is a third of a world unit.
+    // A checker reaching the picture's edges shows through their partly covered pixels as dashes.
+    const scene = fixtureScene('withMismatch')
+    const node = nodeOf(scene, 'img')
+    const image = {} as CanvasImageSource
+    Object.assign(globalThis, { devicePixelRatio: 1.5 })
+    try {
+      const calls = paintWith(scene, (renderer) => {
+        renderer.setViewport({ x: 0, y: 0, scale: 2 })
+        renderer.setNodePreviews({ [node.id]: { image, width: 320, height: 240 } })
+      })
+      const at = calls.findIndex((call) => call.method === 'drawImage' && call.args[0] === image)
+      const [x, y, width, height] = calls[at]!.args.slice(1).map(Number) as [number, number, number, number]
+      const checker = calls[at - 1]!
+      expect(checker).toMatchObject({ method: 'fillRect', fillStyle: 'checkerboard' })
+      const [cx, cy, cw, ch] = checker.args.map(Number) as [number, number, number, number]
+      expect(cx).toBeCloseTo(x + 1 / 3)
+      expect(cy).toBeCloseTo(y + 1 / 3)
+      expect(cx + cw).toBeCloseTo(x + width - 1 / 3)
+      expect(cy + ch).toBeCloseTo(y + height - 1 / 3)
+    } finally {
+      delete (globalThis as { devicePixelRatio?: number }).devicePixelRatio
+    }
+  })
+
   it('says loading, failed or unavailable in the caption row and keeps a list page\'s panel', () => {
     const scene = fixtureScene('withMismatch')
     const node = nodeOf(scene, 'img')
-    for (const [status, word] of [['loading', 'loading'], ['failed', 'failed'], ['unavailable', 'unavailable']] as const) {
+    for (const [status, word] of [['loading', 'loading...'], ['failed', 'failed'], ['unavailable', 'unavailable']] as const) {
       const calls = paintWith(scene, (renderer) => renderer.setNodePreviews({ [node.id]: { status } }))
       expect(calls.some((call) => call.method === 'fillText' && fitted(call.args[0], word))).toBe(true)
       // A page of a list output keeps its panel, so its paging controls stay.
@@ -2037,7 +2064,7 @@ describe('node chrome paint on the live renderer', () => {
     const fs = nodeOf(scene, 'fs')
     const row = fs.layout.rows.find((candidate) => candidate.kind === 'widget')!
     const calls = paint(scene)
-    const connectedText = calls.find((c) => c.method === 'fillText' && c.args[1] === fs.x + row.inset + 6)
+    const connectedText = calls.find((c) => c.method === 'fillText' && c.args[0] === row.label && c.args[1] === fs.x + row.inset + 6)
     expect(connectedText?.globalAlpha).toBeCloseTo(0.45)
     const valueText = calls.find((c) => c.method === 'fillText' && c.args[0] === '3.5')!
     const strike = calls.slice(calls.indexOf(valueText) + 1).find((c) => c.method === 'stroke')!
@@ -2524,6 +2551,65 @@ describe('node chrome paint on the live renderer', () => {
     )).toBe(false)
   })
 
+  it('a pin name starts where a text or choice field\'s label starts and centers its capitals on the pin', () => {
+    const scene = constructsScene()
+    const calls = paint(scene)
+    // Noto Sans capitals are 0.714 em tall; their middle is half that above the baseline.
+    const capitalsMiddle = defaultTokens.fontSize * 0.714 / 2
+    // A text or choice field's box sits 8 px inside the node and its label 6 px inside the box.
+    const fieldLabelInset = 8 + 6
+    const sink = nodeOf(scene, 'c1')
+    const input = sink.layout.pins.find((p) => p.direction === 'in')!
+    const inputLabel = calls.find((c) => c.method === 'fillText' && c.args[0] === 'in')
+    expect(inputLabel?.args[1]).toBe(sink.x + fieldLabelInset)
+    expect(inputLabel?.args[2]).toBeCloseTo(sink.y + input.y + PIN_DROP + capitalsMiddle, 9)
+    const source = nodeOf(scene, 'lat')
+    const output = source.layout.pins.find((p) => p.direction === 'out')!
+    const outputLabel = calls.find((c) => c.method === 'fillText' && c.args[0] === 'out')
+    expect(outputLabel?.args[1]).toBe(source.x + source.layout.width - fieldLabelInset)
+    expect(outputLabel?.args[2]).toBeCloseTo(source.y + output.y + PIN_DROP + capitalsMiddle, 9)
+  })
+
+  it('an input that takes one value or a list paints the list diamond behind a smaller ringed circle', () => {
+    const base = constructsScene()
+    const variable = { kind: 'variable' as const, templateId: 'T' }
+    const scene: Scene = {
+      ...base,
+      nodes: base.nodes.map((n) => n.id === 'c1'
+        ? { ...n, layout: { ...n.layout, pins: n.layout.pins.map((p) => ({ ...p, type: variable })) } }
+        : n),
+    }
+    const n = nodeOf(scene, 'c1')
+    const pin = n.layout.pins.find((p) => p.direction === 'in')!
+    const px = n.x + PIN_INSET
+    const py = n.y + pin.y + PIN_DROP
+    const calls = paint(scene)
+    // Sizes picked on 2026-11-19 as multiples of an ordinary pin's radius.
+    const diamond = defaultTokens.pinRadius * 1.65
+    const top = calls.findIndex((c) => c.method === 'moveTo' && c.args[0] === px && c.args[1] === py - diamond)
+    expect(top).toBeGreaterThanOrEqual(0)
+    expect(calls[top + 1]).toMatchObject({ method: 'lineTo', args: [px + diamond, py] })
+    expect(calls[top + 2]).toMatchObject({ method: 'lineTo', args: [px, py + diamond] })
+    expect(calls[top + 3]).toMatchObject({ method: 'lineTo', args: [px - diamond, py] })
+    const diamondFill = paintedAfter(calls, top, 'fill')!
+    const circle = calls.findIndex((c, index) => index > top &&
+      c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === defaultTokens.pinRadius * 0.75)
+    expect(circle).toBeGreaterThan(top)
+    expect(paintedAfter(calls, circle, 'fill')?.fillStyle).toBe(diamondFill.fillStyle)
+    const ring = paintedAfter(calls, calls.indexOf(paintedAfter(calls, circle, 'fill')!), 'stroke')
+    expect(ring?.strokeStyle).toBe(defaultTokens.colors.canvasBackground)
+    expect(ring?.lineWidth).toBeCloseTo(defaultTokens.pinRadius * 0.22, 9)
+    // No square: no path corner sits diagonally off the pin center.
+    expect(calls.some((c) => (c.method === 'moveTo' || c.method === 'lineTo') &&
+      c.args[0] !== px && c.args[1] !== py &&
+      Math.abs(Math.abs(Number(c.args[0]) - px) - Math.abs(Number(c.args[1]) - py)) < 1e-9 &&
+      Math.abs(Number(c.args[0]) - px) <= diamond)).toBe(false)
+    // As a drop target its ring clears the diamond's corners by the ring gap every pin gets.
+    const target = paintWith(scene, (renderer) => renderer.setOverlay({ dropTargets: new Set([dropTargetKey('c1', pin.portId, 'in')]) }))
+    expect(target.some((c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py &&
+      Math.abs(Number(c.args[2]) - (diamond + canvasPaintTokens.pin.statusRingGap)) < 1e-9)).toBe(true)
+  })
+
   it('Any input and output pins use a neutral fill and dashed outer ring', () => {
     const base = constructsScene()
     const scene: Scene = {
@@ -2792,10 +2878,10 @@ describe('badge and toolbox paint on the live renderer', () => {
       const call = calls.find((candidate) => candidate.method === 'fillText' && candidate.args[0] === word)!
       expect(side === 'above' ? Number(call.args[2]) < header.top : Number(call.args[2]) > n.y + n.layout.height).toBe(true)
     }
-    // The mark: 3 px padding, a 10 px icon, a 3 px gap and "12" (6 px a character here), ending padX before the right edge.
-    const markX = n.x + n.layout.width - defaultTokens.padX - (3 + 10 + 3 + 12 + 3)
+    // The mark: 3 px padding, a 14 px icon, a 3 px gap and "12" (6 px a character here), ending padX before the right edge.
+    const markX = n.x + n.layout.width - defaultTokens.padX - (3 + 14 + 3 + 12 + 3)
     const count = calls.find((call) => call.method === 'fillText' && call.args[0] === '12')!
-    expect(count.args[1]).toBe(markX + 3 + 10 + 3)
+    expect(count.args[1]).toBe(markX + 3 + 14 + 3)
     expect(Number(count.args[2])).toBeGreaterThan(header.top)
     expect(Number(count.args[2])).toBeLessThan(header.bottom)
     const title = calls.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && call.args[2] === titleY)!
@@ -2805,6 +2891,42 @@ describe('badge and toolbox paint on the live renderer', () => {
     const unmarked = paintWith(scene, (renderer) => renderer.setBadges({ c1: [MUTED_BADGE, ERROR_BADGE] }))
     const fullWidth = unmarked.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && call.args[2] === titleY)!
     expect(String(fullWidth.args[0]).length).toBeGreaterThan(String(title.args[0]).length)
+  })
+
+  it('paints an icon at exactly the size it is given; a toolbox button sets its own icon inside it', () => {
+    // Lucide's 24-unit box, moved to the given corner and scaled to the given size, with nothing kept clear.
+    for (const size of [7, 14, 20]) {
+      const { ctx, calls } = recordingCtx()
+      paintToolboxIcon(ctx, 'boxes', 3, 5, size, '#fff')
+      const at = calls.findIndex((call) => call.method === 'translate')
+      expect(calls[at]!.args).toEqual([3, 5])
+      expect(calls[at + 1]).toMatchObject({ method: 'scale', args: [size / 24, size / 24] })
+    }
+    // A 28 px toolbox button draws its icon 16.8 px, centered: 5.6 px clear on each side.
+    const calls = paintWith(fixtureScene('clean'), (r) => {
+      r.setOverlay({ selection: new Set(['c1']) })
+      r.setToolbox([[{ kind: 'button' as const, button: { id: 'core.delete', icon: 'trash-2' as const, label: 'Delete' } }]])
+    })
+    const button = [...calls].reverse().find((call) => call.method === 'roundRect' && call.args[2] === 28)!
+    const at = calls.findIndex((call) => call.method === 'translate' &&
+      Math.abs(Number(call.args[0]) - (Number(button.args[0]) + 5.6)) < 1e-9 &&
+      Math.abs(Number(call.args[1]) - (Number(button.args[1]) + 5.6)) < 1e-9)
+    expect(calls[at + 1]).toMatchObject({ method: 'scale', args: [16.8 / 24, 16.8 / 24] })
+  })
+
+  it('draws a tab\'s icon 14 px in its 20 px tab and the title mark\'s 14 px in its 20 px box', () => {
+    const n = nodeOf(fixtureScene('clean'), 'c1')
+    const calls = paintWith(emptyScene({ nodes: [n] }), (renderer) => renderer.setBadges({ c1: [MUTED_BADGE, SUBGRAPH_BADGE] }))
+    // An icon is drawn by moving to its corner, then scaling Lucide's 24-unit box.
+    const scaleAfter = (x: number, y: number) =>
+      calls[calls.findIndex((call) => call.method === 'translate' && call.args[0] === x && call.args[1] === y) + 1]
+    const markX = n.x + n.layout.width - defaultTokens.padX - 20
+    const markY = n.y + n.layout.headerHeight / 2 - 10
+    expect(scaleAfter(markX + 3, markY + 3)).toMatchObject({ method: 'scale', args: [14 / 24, 14 / 24] })
+    // The tab's words follow its 14 px icon and a 4 px gap; the tab's top is 10.5 above them.
+    const words = calls.find((call) => call.method === 'fillText' && call.args[0] === 'Muted')!
+    const tabTop = Number(words.args[2]) - canvasPaintTokens.badge.baselineOffset - 10
+    expect(scaleAfter(Number(words.args[1]) - 4 - 14, tabTop + 3)).toMatchObject({ method: 'scale', args: [14 / 24, 14 / 24] })
   })
 
   it('paints the minimize arrow before the title, down when open and right when minimized', () => {

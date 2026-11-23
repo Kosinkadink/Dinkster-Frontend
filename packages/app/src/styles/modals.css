@@ -366,6 +366,18 @@
   pointer-events: auto;
 }
 
+.gesture-refusal-toast[data-frozen] {
+  align-items: center;
+  gap: var(--dinkster-space-4);
+  width: max-content;
+  max-width: calc(100vw - var(--dinkster-space-24));
+  padding: var(--dinkster-space-4) var(--dinkster-space-8);
+  border-color: var(--dinkster-border-strong);
+  background: var(--dinkster-surface-raised);
+  color: var(--dinkster-text-primary);
+  font: var(--dinkster-type-metadata-size)/var(--dinkster-type-metadata-line) var(--dinkster-font-family);
+}
+.gesture-refusal-toast[data-frozen] > span { display: flex; align-items: center; gap: var(--dinkster-space-4); }
 .gesture-refusal-toast span { min-height: 0; flex: 1; overflow: auto; overflow-wrap: anywhere; }
 .gesture-refusal-toast button {
   display: grid;

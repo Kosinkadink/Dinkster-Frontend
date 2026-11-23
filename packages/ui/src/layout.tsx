@@ -5,9 +5,12 @@ import {
   createSignal,
   createUniqueId,
   onCleanup,
+  onMount,
+  type Accessor,
   type JSX,
 } from 'solid-js'
 import { ChevronRight, Menu, type LucideIcon } from 'lucide-solid'
+import components from '@dinkster/branding/components' with { type: 'json' }
 import symbolUrl from '../../../branding/svg/dinkster-symbol-color.svg?url'
 import wordmarkUrl from '../../../branding/svg/dinkster-wordmark-color-dark.svg?url'
 import lightWordmarkUrl from '../../../branding/svg/dinkster-wordmark-color-light.svg?url'
@@ -55,18 +58,61 @@ export function ProductPanel(props: { children: JSX.Element }) {
 export function ProductWindowIdentity(props: {
   qa?: boolean
   development?: boolean
+  service?: 'qa' | 'custom' | undefined
 }) {
+  const strings = useProductStrings()
+  const service = () => props.service ?? (props.qa ? 'qa' : undefined)
+  const description = () =>
+    [
+      service() === 'qa'
+        ? strings.qaServices
+        : service() === 'custom'
+          ? strings.customServices
+          : '',
+      props.development ? strings.developmentProject : '',
+    ]
+      .filter(Boolean)
+      .join(', ')
+  const marking = () =>
+    [
+      service() === 'qa'
+        ? 'QA'
+        : service() === 'custom'
+          ? strings.customServiceShort
+          : '',
+      props.development ? strings.developmentShort : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
   return (
-    <Show when={props.qa || props.development}>
+    <Show when={service() || props.development}>
       <span class="dinkster-window-identity">
-        <Show when={props.qa}>
-          <span>[QA]</span>
-        </Show>
-        <Show when={props.development}>
-          <span title="Development project - unpublished sources">
-            Development
-          </span>
-        </Show>
+        <span class="dinkster-window-identity-wide">
+          <Show when={service() === 'qa'}>
+            <span>[QA]</span>
+          </Show>
+          <Show when={service() === 'custom'}>
+            <span
+              class="dinkster-window-identity-custom"
+              title={strings.customServices}
+            >
+              {strings.customServiceShort}
+            </span>
+          </Show>
+          <Show when={props.development}>
+            <span title={strings.developmentProject}>
+              {strings.development}
+            </span>
+          </Show>
+        </span>
+        <span
+          class="dinkster-window-identity-compact"
+          role="note"
+          title={description()}
+          aria-label={description()}
+        >
+          {marking()}
+        </span>
       </span>
     </Show>
   )
@@ -98,28 +144,70 @@ export function ProductWindowToolbar(props: {
   platform: 'darwin' | 'win32' | 'linux'
   brand: JSX.Element
   search: JSX.Element
-  actions: JSX.Element
+  actions: JSX.Element | ((narrow: Accessor<boolean>) => JSX.Element)
   service?: string | undefined
+  serviceKind?: 'qa' | 'custom' | undefined
+  account?: JSX.Element
   qa?: boolean
   development?: boolean
 }) {
+  let host!: HTMLElement
+  let search!: HTMLDivElement
+  const [narrow, setNarrow] = createSignal(false)
+  onMount(() => {
+    const observer = new ResizeObserver(() => {
+      const frame = host.getBoundingClientRect()
+      const slot = search.getBoundingClientRect()
+      const action = search.firstElementChild as HTMLElement | null
+      const width = action?.getBoundingClientRect().width ?? 0
+      const left = Math.max(
+        0,
+        Math.min(
+          slot.width - width,
+          frame.left + (frame.width - width) / 2 - slot.left,
+        ),
+      )
+      if (action) action.style.left = `${left}px`
+      setNarrow(
+        frame.width -
+          parseFloat(getComputedStyle(host).paddingLeft) -
+          parseFloat(getComputedStyle(host).paddingRight) <
+          components.layout.toolbarFullRowWidth,
+      )
+    })
+    observer.observe(host)
+    observer.observe(search)
+    onCleanup(() => observer.disconnect())
+  })
   return (
     <header
+      ref={host}
       class="dinkster-desktop-bar dinkster-window-toolbar-host"
       data-platform={props.platform}
+      data-service-kind={props.serviceKind}
       aria-label={props.title}
     >
       <div class="dinkster-window-toolbar">
         <div class="dinkster-window-toolbar-brand">{props.brand}</div>
-        <div class="dinkster-window-toolbar-search">{props.search}</div>
-        <div class="dinkster-window-toolbar-actions">{props.actions}</div>
+        <div ref={search} class="dinkster-window-toolbar-search">
+          {props.search}
+        </div>
+        <div class="dinkster-window-toolbar-actions">
+          {typeof props.actions === 'function'
+            ? props.actions(narrow)
+            : props.actions}
+        </div>
         <Show when={props.service}>
           <span class="dinkster-window-toolbar-service">{props.service}</span>
         </Show>
         <ProductWindowIdentity
           qa={props.qa ?? false}
           development={props.development ?? false}
+          service={props.serviceKind}
         />
+        <Show when={props.account}>
+          <div class="dinkster-window-toolbar-account">{props.account}</div>
+        </Show>
       </div>
     </header>
   )
@@ -470,7 +558,6 @@ export function ProductEmptyState(props: {
 }) {
   return (
     <div class="dinkster-empty">
-      <ProductBrandMark />
       <p class="dinkster-description">{props.message}</p>
       {props.action}
     </div>

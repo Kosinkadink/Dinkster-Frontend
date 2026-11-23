@@ -79,7 +79,7 @@ test('recorded audio downloads only on click in Canvas and App View', async ({ p
     expect(requests).toBe(appView ? 1 : 0)
     if (!appView) {
       await link.click()
-      await expect(page.getByRole('alert')).toHaveText('Download failed: Recorded output is unavailable')
+      await expect(page.getByRole('alert')).toHaveText('Download failed: Recorded output request failed (404)')
       await page.locator('.node-media-overlay').screenshot({ path: info.outputPath('audio-download-refusal.png') })
       refuse = false
     }
