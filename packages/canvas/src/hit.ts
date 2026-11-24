@@ -17,6 +17,7 @@ import {
   selectorCandidatePinPosition,
   selectorOutPinPosition,
   valueSourceBadgeRect,
+  valueSourceBoxHeight,
   valueSourcePinPosition,
   type Scene,
   type SceneBoundaryNode,
@@ -396,7 +397,7 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
   // Value source pills: badge wins over body (details click before drag).
   for (let i = scene.valueSources.length - 1; i >= 0; i--) {
     const vs = scene.valueSources[i]!
-    if (wx < vs.x || wx > vs.x + vs.width || wy < vs.y || wy > vs.y + vs.height) continue
+    if (wx < vs.x || wx > vs.x + vs.width || wy < vs.y || wy > vs.y + valueSourceBoxHeight(vs)) continue
     if (contentDetail) {
       const badge = valueSourceBadgeRect(vs)
       if (wx >= badge.x && wx <= badge.x + badge.width && wy >= badge.y && wy <= badge.y + badge.height) {

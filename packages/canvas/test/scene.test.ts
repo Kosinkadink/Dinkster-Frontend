@@ -29,7 +29,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { historicalSchemas as schemas } from './historical-schemas.js'
-import { buildScene, boundaryPositions, boundaryNodesInGroup, nodesInGroup, selectorsInGroup, nodeStatesForGraph, scenesEqual, selectorBadgeRect, selectorCandidatePinPosition, selectorOutPinPosition, updateSceneNodePositions, updateSceneNodeValues, valueSourcesInGroup, valueSourcePinPosition, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, SELECTOR_MIN_WIDTH, VS_MIN_WIDTH, type Scene } from '../src/scene.js'
+import { buildScene, boundaryPositions, boundaryNodesInGroup, nodesInGroup, selectorsInGroup, nodeStatesForGraph, scenesEqual, selectorBadgeRect, selectorCandidatePinPosition, selectorOutPinPosition, updateSceneNodePositions, updateSceneNodeValues, valueSourceBoxHeight, valueSourcesInGroup, valueSourcePinPosition, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, SELECTOR_MIN_WIDTH, VS_MIN_WIDTH, type Scene } from '../src/scene.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 
@@ -2135,5 +2135,53 @@ describe('an editor on the Inputs panel', () => {
     // The panel grows downward by the space; the add slot moves below it.
     expect(open.height - folded.height).toBe(space.height)
     expect(open.width).toBeGreaterThanOrEqual(canvasPaintTokens.node.editorSpace.minWidth + space.inset * 2)
+  })
+})
+
+describe('an editor under a value source', () => {
+  const curve: NodeSchema = {
+    type: 'Shape', displayName: 'Shape', category: 'test', outputNode: false,
+    body: [{ kind: 'input', id: 'curve', type: { kind: 'concrete', name: 'CURVE' }, widget: { widgetType: 'CURVE', options: {} } }],
+  } as unknown as NodeSchema
+  const editorMeasure: WidgetMeasure = (spec) => spec.widgetType === 'CURVE' ? { viewId: 'core.curve', rows: 1 } : undefined
+  const sourceOf = (view: Json) => {
+    const sub = {
+      id: 'g1', name: 'Sub', nextOrdinal: 2, nets: {}, reroutes: {},
+      nodes: { inner: { id: 'inner', type: 'Shape', values: {} } },
+      valueSources: { vs: { id: 'vs', title: 'Short', value: { interpolation: 'linear', points: [] } } },
+      links: { l: { id: 'l', from: { valueSource: 'vs' }, to: { node: 'inner', port: 'curve' } } },
+    }
+    const document = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'source-editor', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'Root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: { outer: { id: 'outer', type: '#g1', values: {} } } },
+        g1: sub,
+      },
+      view: { graphs: {
+        g0: { nodes: { outer: { position: { x: 0, y: 0 } } } },
+        g1: { nodes: { inner: { position: { x: 300, y: 0 } } }, valueSources: { vs: { position: { x: 10, y: 20 }, ...(view as object) } } },
+      } },
+    } as never).document as WorkflowDocument
+    const scene = buildScene({
+      document, graphId: 'g1', resolve: documentResolver(document, (type) => type === 'Shape' ? curve : undefined),
+      // The value's JSON takes no room, so the pill is as wide as its title.
+      tokens: defaultTokens, measure: (text, role) => role === 'value' ? 0 : text.length * 6, widgetMeasure: editorMeasure,
+    })
+    return scene.valueSources[0]!
+  }
+
+  it('folds out under the pill line from its own view state, keeping the line, pin and badge where they were', () => {
+    const folded = sourceOf({})
+    expect(folded.editor).toBeUndefined()
+    const open = sourceOf({ editorUnfolded: true, pictureHeight: 90 })
+    if (open.editor === undefined) throw new Error('expected the editor under the pill')
+    expect(open.height).toBe(folded.height)
+    expect(valueSourcePinPosition(open).y).toBe(valueSourcePinPosition(folded).y)
+    expect(open.editor.space).toMatchObject({ viewId: 'core.curve', y: folded.height, picture: { height: 90 } })
+    expect(open.editor.field.valueSourceOwner).toEqual({ graphId: 'g1', valueSourceId: 'vs' })
+    // A short pill grows to the editor's least width.
+    expect(folded.width).toBeLessThan(canvasPaintTokens.node.editorSpace.minWidth)
+    expect(open.width).toBe(canvasPaintTokens.node.editorSpace.minWidth + open.editor.space.inset * 2)
+    expect(valueSourceBoxHeight(open)).toBe(open.height + open.editor.space.height)
   })
 })

@@ -40,6 +40,7 @@ import {
   selectorCandidatePinPosition,
   selectorOutPinPosition,
   valueSourceBadgeRect,
+  valueSourceBoxHeight,
   valueSourceMarkRect,
   type Scene,
   type SceneBoundaryNode,
@@ -934,7 +935,7 @@ export function sceneVisualBounds(
     )
   }
   for (const r of scene.reroutes) include(r.x - REROUTE_RADIUS, r.y - REROUTE_RADIUS, REROUTE_RADIUS * 2, REROUTE_RADIUS * 2)
-  for (const v of scene.valueSources) include(v.x, v.y, v.width, v.height)
+  for (const v of scene.valueSources) include(v.x, v.y, v.width, valueSourceBoxHeight(v))
   for (const s of scene.selectors) include(s.x, s.y, s.width, s.height)
   for (const g of scene.groups) include(g.x, g.y, g.width, g.height)
   for (const s of scene.netStubs) include(s.x, s.y, s.width, s.height)
@@ -1513,7 +1514,8 @@ export class CanvasRenderer {
         ('effective' in item ? this.overlay.valueSourceSelection : this.overlay.selectorSelection)?.has(item.id) ?? false
       if (!selected) continue
       const o = off(item.id)
-      boxes.push({ x1: item.x + o.dx, y1: item.y + o.dy, x2: item.x + o.dx + item.width, y2: item.y + o.dy + item.height })
+      boxes.push({ x1: item.x + o.dx, y1: item.y + o.dy, x2: item.x + o.dx + item.width,
+        y2: item.y + o.dy + ('effective' in item ? valueSourceBoxHeight(item) : item.height) })
     }
     for (const stub of this.scene.netStubs) {
       if (!this.overlay.netViewSelection?.has(stub.id)) continue
@@ -2765,7 +2767,7 @@ export class CanvasRenderer {
       if (
         vx + vs.width + structurePad < view.x ||
         vx - structurePad > view.x + view.w ||
-        vy + vs.height + structurePad < view.y ||
+        vy + valueSourceBoxHeight(vs) + structurePad < view.y ||
         vy - structurePad > view.y + view.h
       ) {
         continue
@@ -4758,17 +4760,13 @@ export class CanvasRenderer {
   }
 
   /**
-   * A boundary pseudo-node: same design language as drawNode (body, header
-   * band, port rows, pins) but visually tagged as a derived construct with a
-   * dashed border and no execution state, badges, widgets, or resize
-   * affordance. dx/dy is the live drag offset.
-   */
-  /**
    * The unfolded editor and its row are one open box: one outline runs from
    * the row's top around the space, so the editor's own rows sit on the
    * body as the node's rows do. Its controls are the host's, laid over it;
-   * the picture's place is drawn inset. `left` is the node's or panel's left
-   * edge and `rowY` the space's top, in world coordinates.
+   * the picture's place is drawn inset. Under a value source's pill line
+   * (`rowAbove` 0) the outline is the space's own. `left` is the node's,
+   * panel's or value source's left edge and `rowY` the space's top, in world
+   * coordinates.
    */
   private paintEditorSpace(
     ctx: CanvasRenderingContext2D,
@@ -4798,6 +4796,12 @@ export class CanvasRenderer {
     }
   }
 
+  /**
+   * A boundary pseudo-node: same design language as drawNode (body, header
+   * band, port rows, pins) but visually tagged as a derived construct with a
+   * dashed border and no execution state, badges, widgets, or resize
+   * affordance. dx/dy is the live drag offset.
+   */
   private drawBoundaryNode(
     ctx: CanvasRenderingContext2D,
     bnode: SceneBoundaryNode,
@@ -4953,9 +4957,10 @@ export class CanvasRenderer {
     const contentDetail = detailLevel !== 'overview'
     const pinRadius = detailRadius(t.pinRadius, scale, detailLevel)
 
-    // Body.
+    // Body. An editor folded out under the pill line keeps the line's round
+    // ends on top and closes below it with a node's corners.
     ctx.beginPath()
-    ctx.roundRect(x, y, vs.width, vs.height, r)
+    ctx.roundRect(x, y, vs.width, valueSourceBoxHeight(vs), vs.editor === undefined ? r : [r, r, t.cornerRadius, t.cornerRadius])
     ctx.fillStyle = t.colors.nodeBody
     ctx.fill()
     ctx.strokeStyle = selected ? t.colors.nodeSelectedBorder : vs.conflict ? conflictColor : t.colors.nodeOutline
@@ -5023,6 +5028,8 @@ export class CanvasRenderer {
         ctx.stroke()
       }
     }
+
+    if (vs.editor !== undefined) this.paintEditorSpace(ctx, x, y + vs.editor.space.y, vs.editor.space, vs.width)
 
     // Output pin (drop-target ring during input-seeking drags).
     const px = x + vs.width

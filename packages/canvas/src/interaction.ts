@@ -101,6 +101,7 @@ import {
   selectorOutPinPosition,
   previewFoldedOf,
   valueSourceBadgeRect,
+  valueSourceBoxHeight,
   valueSourceMarkRect,
   valueSourcePinPosition,
   type Scene,
@@ -3739,7 +3740,7 @@ export class InteractionController {
           return cx >= x1 && cx <= x2 && cy >= y1 && cy <= y2
         }).map((n) => boundarySceneId(n.side))
         const reroutes = scene.reroutes.filter((r) => r.x >= x1 && r.x <= x2 && r.y >= y1 && r.y <= y2).map((r) => r.id)
-        const valueSources = scene.valueSources.filter((v) => overlaps(v.x, v.y, v.width, v.height)).map((v) => v.id)
+        const valueSources = scene.valueSources.filter((v) => overlaps(v.x, v.y, v.width, valueSourceBoxHeight(v))).map((v) => v.id)
         const selectors = scene.selectors.filter((s) => overlaps(s.x, s.y, s.width, s.height)).map((s) => s.id)
         const netViews = scene.netStubs.filter((stub) => overlaps(stub.x, stub.y, stub.width, stub.height)).map((stub) => stub.id)
         const groups = scene.groups.filter((group) => {
@@ -3897,7 +3898,7 @@ export class InteractionController {
           const valueSource = g.pressedValueSourceId === undefined
             ? undefined
             : scene.valueSources.find((candidate) => candidate.id === g.pressedValueSourceId)
-          if (valueSource) this.host.onValueSourceActivate?.(valueSource, clientX, clientY)
+          if (valueSource && g.startWY <= valueSource.y + valueSource.height) this.host.onValueSourceActivate?.(valueSource, clientX, clientY)
           return
         }
         if (
@@ -4045,10 +4046,11 @@ export class InteractionController {
         if (!g.moved) {
           // Click without drag: open the value editor (the pill IS the widget),
           // or on its subgraph mark select the input that shows it.
+          // A click on its folded-out editor's space is the editor's, not the pill's.
           const vs = scene.valueSources.find((sv) => sv.id === g.pressedId)
           const mark = vs === undefined ? undefined : this.valueSourceMarkAt(vs, g.startWX, g.startWY)
           if (mark !== undefined) this.host.onSubgraphMarkActivate?.(mark.item)
-          else if (vs) this.host.onValueSourceActivate?.(vs, clientX, clientY)
+          else if (vs && g.startWY <= vs.y + vs.height) this.host.onValueSourceActivate?.(vs, clientX, clientY)
         }
         return
       }

@@ -8,6 +8,7 @@ import {
   canvasTypePaintForTheme,
   createRegistryPainter,
   defaultTokens,
+  valueSourceBoxHeight,
   type DesignTokens,
   type LayoutRow,
   type Scene,
@@ -355,13 +356,24 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
   }
 }
 
-/** One example: the production renderer's node with each unfolded editor's controls over its space. */
-/** The box the example's editors are in: its node, or the Inputs panel that shows them. */
-function boxOf(scene: Scene, example: InNodeEditorExample): Pick<SceneNode, 'x' | 'y' | 'layout'> | undefined {
+/**
+ * The box the example's editors are in: its node, the Inputs panel that
+ * shows them, or a value source with its editor folded out, as the app
+ * lays each one out.
+ */
+function boxOf(scene: Scene, example: InNodeEditorExample):
+  { readonly x: number; readonly y: number; readonly layout: Pick<SceneNode['layout'], 'width' | 'height' | 'rows'> } | undefined {
+  if (example.place === 'valueSource') {
+    const vs = scene.valueSources[0]
+    return vs?.editor === undefined ? undefined
+      : { x: vs.x, y: vs.y, layout: { width: vs.width, height: valueSourceBoxHeight(vs), rows: [vs.editor.field, vs.editor.space] } }
+  }
   if (example.place !== 'inputsPanel') return scene.nodes.find((item) => item.id === example.id)
   const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')
   return panel === undefined ? undefined : boundaryFieldNode(panel)
 }
+
+/** One example: the production renderer's node with each unfolded editor's controls over its space. */
 
 function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'light'; registry: WidgetRegistry }) {
   let canvas!: HTMLCanvasElement

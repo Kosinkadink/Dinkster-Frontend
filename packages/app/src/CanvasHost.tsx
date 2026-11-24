@@ -23,6 +23,7 @@ import {
   hitTest,
   InteractionController,
   boundaryFieldNode,
+  valueSourceBoxHeight,
   nodesInGroup,
   partialExecutionButtons,
   scenesEqual,
@@ -854,7 +855,7 @@ export async function flattenSubgraphThroughBridge(args: {
 const geometryOfLifecycleScene = (source: Scene): readonly ResolvedGeometryItem[] => [
   ...source.nodes.map((node): ResolvedGeometryItem => ({ id: node.id, kind: 'node', x: node.x, y: node.y, width: node.layout.width, height: node.layout.height })),
   ...source.reroutes.map((item): ResolvedGeometryItem => ({ id: item.id, kind: 'reroute', x: item.x, y: item.y, width: 0, height: 0 })),
-  ...source.valueSources.map((item): ResolvedGeometryItem => ({ id: item.id, kind: 'valueSource', x: item.x, y: item.y, width: item.width, height: item.height })),
+  ...source.valueSources.map((item): ResolvedGeometryItem => ({ id: item.id, kind: 'valueSource', x: item.x, y: item.y, width: item.width, height: valueSourceBoxHeight(item) })),
   ...source.selectors.map((item): ResolvedGeometryItem => ({ id: item.id, kind: 'selector', x: item.x, y: item.y, width: item.width, height: item.height })),
   ...source.groups.map((item): ResolvedGeometryItem => ({ id: item.id, kind: 'group', x: item.x, y: item.y, width: item.width, height: item.height })),
 ]
@@ -5041,7 +5042,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             link.to.kind === 'port' && link.to.node === nodeId && link.to.port === inputId),
         carried: (nodeId, valueKey) => nodeId === panelFace?.id ? panel!.fields!.wired[valueKey]?.value : companionDisplays[nodeId]?.[valueKey]?.value,
       }
-      setEditorSpaces(editorSpaceItems([...renderer.getScene().nodes, ...(panelFace === undefined ? [] : [panelFace])], editorWires))
+      // A value source's editor folded out under its pill is laid out as a node face holding the source's value.
+      const sourceFaces = renderer.getScene().valueSources.flatMap((vs) => vs.editor === undefined ? [] : [{
+        id: vs.id, x: vs.x, y: vs.y,
+        layout: { width: vs.width, height: valueSourceBoxHeight(vs), rows: [vs.editor.field, vs.editor.space] },
+        node: { values: { [vs.editor.field.valueKey]: vs.source.value } },
+      }])
+      setEditorSpaces(editorSpaceItems([...renderer.getScene().nodes, ...(panelFace === undefined ? [] : [panelFace]), ...sourceFaces], editorWires))
       setNodeBoxes(renderer.getScene().nodes.map((node) => ({ id: node.id, box: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height } })))
       renderer.setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown')))
       setMediaPreviews(renderer.getScene().nodes.flatMap((node) => {
@@ -5624,11 +5631,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
     ): void {
       const tab = activeTab()
-      if (!tab || refuseFrozenEdit()) return
+      if (!tab) return
       const graphId = currentGraphId(tab)
+      const spec = vs.effective.spec
+      // Editor kind mirrors what a node input with this spec would use.
+      const viewId = spec ? widgetRegistry().kind(spec.widgetType)?.defaultView(spec) : undefined
+      // One of the editors shown in a node folds out under the pill and back,
+      // also while a run holds the workflow.
+      if (viewId !== undefined && IN_NODE_EDITORS[viewId] !== undefined) {
+        void props.app.dispatchTo(tab, { command: 'view.setEditorUnfolded', params: { graphId, valueSourceId: vs.id, unfolded: vs.editor === undefined } })
+        return
+      }
+      if (refuseFrozenEdit()) return
       const source = tab.store.doc.graphs[graphId]?.valueSources?.[vs.id]
       if (!source) return
-      const spec = vs.effective.spec
 
       // Booleans toggle in place; no overlay needed.
       if (spec?.widgetType === 'BOOLEAN') {
@@ -5639,8 +5655,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         return
       }
 
-      // Editor kind mirrors what a node input with this spec would use.
-      const viewId = spec ? widgetRegistry().kind(spec.widgetType)?.defaultView(spec) : undefined
       canvasEl.focus()
       editorDocumentRevision = tab.store.revision
       editorExtensionsGeneration = props.app.extensions.changed.get()
@@ -6923,6 +6937,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
         // While anything in front overlaps the editor, a live view shows its still picture.
         const covered = () => covers().length > 0
+        /** The value source whose editor this is, folded out under its pill. */
+        const sourceFace = (): string | undefined => {
+          const owner = item()?.field.valueSourceOwner
+          return owner !== undefined && owner.valueSourceId === item()?.nodeId ? owner.valueSourceId : undefined
+        }
         /** Where the editor's value is written: a group member's goes to its family's owner. */
         const valueTarget = () => {
           const current = item()
@@ -7005,7 +7024,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               upload: native === undefined ? undefined
                 : (file: File, signal: AbortSignal) => native.uploadMediaAsset(file, { scope: 'local', kind: 'media/video', name: file.name, signal }),
               commit: at.commit,
-              setSection: (id: string, open: boolean) => void props.app.dispatchTo(at.tab, { command: 'view.setSectionCollapsed',
+              // A value source keeps no sections: its editor's stay closed.
+              setSection: (id: string, open: boolean) => sourceFace() !== undefined ? undefined : void props.app.dispatchTo(at.tab, { command: 'view.setSectionCollapsed',
                 params: { graphId: at.graphId, nodeId: at.current.nodeId, sectionId: `${at.current.row.valueKey}.${id}`, collapsed: open ? false : null } }),
             },
           }
@@ -7044,13 +7064,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         return (
           <Show when={item() !== undefined && projected() !== undefined}>
             <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl} covers={covers()}
-              pictureHeight={item()!.nodeId === boundarySceneId('inputs') ? {
-                // The panel has no stored size: its picture's new height is stored when the drag ends.
+              pictureHeight={item()!.nodeId === boundarySceneId('inputs') || sourceFace() !== undefined ? {
+                // The panel and a value source have no stored size: the picture's new height is stored when the drag ends.
                 preview: () => {},
                 commit: (height) => {
                   const tab = activeTab()
+                  const source = sourceFace()
                   if (tab !== undefined) void props.app.dispatchTo(tab, { command: 'view.setPictureHeight',
-                    params: { graphId: currentGraphId(tab), inputsPanel: true, valueKey: item()!.row.valueKey, height } })
+                    params: source !== undefined ? { graphId: currentGraphId(tab), valueSourceId: source, height }
+                      : { graphId: currentGraphId(tab), inputsPanel: true, valueKey: item()!.row.valueKey, height } })
                 },
               } : {
                 preview: (height) => editorPictureHeights?.previewPictureHeight(height === undefined ? undefined
