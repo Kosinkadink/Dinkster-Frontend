@@ -646,6 +646,11 @@
   transform-origin: 0 0;
 }
 
+/* The picture is as tall as the node's layout gives it, or as its bottom edge is being dragged. */
+.node-editor-space-world .dinkster-canvas-editor-picture {
+  height: var(--node-editor-picture-height);
+}
+
 /* The 3D view's editor: one box for pressing a still view anywhere to make it live. */
 .node-load3d-editor {
   display: contents;

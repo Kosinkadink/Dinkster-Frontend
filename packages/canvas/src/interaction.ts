@@ -70,7 +70,7 @@ import { subgraphMarkRect } from './registry-painter.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
 import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, minimizeArrowRect, pinPosition, previewEdgeShown, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
 import { canvasPaintTokens, type DesignTokens } from './tokens.js'
-import { BOUNDARY_ADD_SLOT, clampTextBoxLines, memberSpans, multilineWidgetHeight, projectTextBoxLines, type LayoutRow, type MemberGrip, type PinLayout } from './layout.js'
+import { BOUNDARY_ADD_SLOT, clampTextBoxLines, memberSpans, multilineWidgetHeight, projectPictureHeight, projectTextBoxLines, type LayoutRow, type MemberGrip, type PinLayout } from './layout.js'
 import { PointerTrace, type PointerTraceEntry, type PointerTraceReason } from './pointer-trace.js'
 import { touchNavViewport } from './touch-nav.js'
 import { wheelNavigationViewport, type WheelNavigationMode } from './zoom.js'
@@ -5117,6 +5117,7 @@ export class InteractionController {
         hoveredWidget: { nodeId: this.hoveredWidgetNode, valueKey: this.hoveredWidgetValue! },
       } : {}),
       ...(this.activeTextEdge() !== undefined ? { textBoxEdge: this.activeTextEdge()! } : {}),
+      ...(this.pictureHeightPreview !== undefined ? { pictureHeight: this.pictureHeightPreview } : {}),
       ...(this.hoveredPreviewCaption !== undefined ? { hoveredPreviewCaption: this.hoveredPreviewCaption } : {}),
       ...(this.activePreviewEdge() !== undefined ? { previewEdge: this.activePreviewEdge()! } : {}),
       ...(this.hoveredMinimize !== undefined ? { hoveredMinimize: this.hoveredMinimize } : {}),
@@ -5298,6 +5299,46 @@ export class InteractionController {
     if (nodeId === this.hoveredPreviewCaption) return
     this.hoveredPreviewCaption = nodeId
     this.pushOverlay()
+  }
+
+  private pictureHeightPreview: { readonly nodeId: string; readonly valueKey: string; readonly height: number } | undefined
+
+  /**
+   * Paint an unfolded editor's picture at `height` while its bottom edge is
+   * dragged, without storing it; `undefined` drops the preview.
+   */
+  previewPictureHeight(preview: { readonly nodeId: string; readonly valueKey: string; readonly height: number } | undefined): void {
+    this.pictureHeightPreview = preview
+    this.pushOverlay()
+  }
+
+  /**
+   * Store one unfolded editor's picture height. Every other row keeps its
+   * height: a node with a manual size moves its stored height by the same
+   * amount in the same undo step.
+   */
+  commitPictureHeight(nodeId: string, valueKey: string, height: number): void {
+    this.pictureHeightPreview = undefined
+    this.pushOverlay()
+    const scene = this.renderer.getScene()
+    const node = scene.nodes.find((candidate) => candidate.id === nodeId)
+    if (node === undefined) return
+    const projected = projectPictureHeight(node.layout, valueKey, height)
+    if (projected === node.layout) return
+    const space = projected.rows.find((row) => row.kind === 'editorSpace' && row.valueKey === valueKey)
+    const setHeight: CommandInvocation = {
+      command: 'view.setPictureHeight',
+      params: { graphId: scene.graphId, nodeId, valueKey, height: space?.kind === 'editorSpace' ? space.picture?.height ?? null : null },
+    }
+    const size = node.layout.sizeOverride
+    this.host.dispatch(composeBatch(scene.graphId, [], size === undefined ? [setHeight] : [setHeight, {
+      command: 'view.setNodeSize',
+      params: {
+        graphId: scene.graphId,
+        nodeId,
+        size: { width: size.width, height: Math.max(0, Math.round(size.height + projected.height - node.layout.height)) },
+      },
+    }]))
   }
 
   private setFocusedTextEdge(edge: { readonly nodeId: string; readonly valueKey: string } | undefined): void {

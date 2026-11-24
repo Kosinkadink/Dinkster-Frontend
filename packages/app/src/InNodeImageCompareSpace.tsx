@@ -55,6 +55,7 @@ export function ImageCompareSpace(props: {
       })
     }
     split()
+    props.pictureHeight
     untrack(redraw)
   })
   onCleanup(() => { for (const side of IMAGE_COMPARE_SIDES) loaded[side]?.image.close() })
@@ -69,7 +70,7 @@ export function ImageCompareSpace(props: {
     message('inNodeCompare.frame', { index: (frame.frameIndex ?? 0) + 1, count: frame.frameCount ?? 1 })
   return (
     <>
-      <CanvasEditorPicture ref={(element) => { element.style.height = `${props.pictureHeight}px` }}
+      <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}
         {...(count() === 0 ? { message: message('inNodeCompare.runToCompare') } : {})}>
         <canvas class="node-image-compare" data-images={count()} role="img" aria-label={message('imageCompareWidget.preview')}
           ref={(element) => { canvas = element }}

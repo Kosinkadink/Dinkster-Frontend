@@ -1,5 +1,5 @@
 import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
-import { defaultTokens, type LayoutRow } from '@dinkster/canvas'
+import { canvasPaintTokens, clampPictureHeight, defaultTokens, type LayoutRow } from '@dinkster/canvas'
 import { audioRecordKind, curveInterpolator, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
   CanvasAnglePicture,
@@ -101,8 +101,50 @@ export function NodeEditorSpaceOverlay(props: {
   readonly rect: EditorWorldRect
   readonly scale: number
   readonly canvas: HTMLCanvasElement
+  /** The canvas paints the node at a dragged picture height, and stores it when the drag ends. */
+  readonly pictureHeight: {
+    readonly preview: (height: number | undefined) => void
+    readonly commit: (height: number) => void
+  }
   readonly children: JSX.Element
 }) {
+  // The picture's bottom edge is dragged, or stepped with the arrow keys, like a text box's.
+  const [dragged, setDragged] = createSignal<number>()
+  const stored = () => props.item.row.picture?.height ?? 0
+  const shown = () => dragged() ?? stored()
+  const grown = () => shown() - stored()
+  let drag: { readonly pointerId: number; readonly y: number; readonly height: number } | undefined
+  const resizeBar = (event: Event): HTMLElement | undefined =>
+    event.target instanceof Element ? event.target.closest<HTMLElement>('.dinkster-canvas-editor-resize') ?? undefined : undefined
+  const press = (event: PointerEvent): void => {
+    const bar = resizeBar(event)
+    if (bar === undefined || event.button !== 0 || props.item.row.picture === undefined) return
+    event.preventDefault()
+    event.stopPropagation()
+    bar.setPointerCapture(event.pointerId)
+    drag = { pointerId: event.pointerId, y: event.clientY, height: stored() }
+  }
+  const move = (event: PointerEvent): void => {
+    if (drag?.pointerId !== event.pointerId) return
+    const height = clampPictureHeight(drag.height + (event.clientY - drag.y) / props.scale)
+    setDragged(height)
+    props.pictureHeight.preview(height)
+  }
+  const release = (event: PointerEvent): void => {
+    if (drag?.pointerId !== event.pointerId) return
+    drag = undefined
+    const height = dragged()
+    setDragged(undefined)
+    if (height === undefined || height === stored()) props.pictureHeight.preview(undefined)
+    else props.pictureHeight.commit(height)
+  }
+  const step = (event: KeyboardEvent): void => {
+    if (resizeBar(event) === undefined || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
+    event.preventDefault()
+    event.stopPropagation()
+    const height = clampPictureHeight(stored() + (event.key === 'ArrowDown' ? 1 : -1) * canvasPaintTokens.node.previewEdge.keyStep)
+    if (height !== stored()) props.pictureHeight.commit(height)
+  }
   const forwardWheel = (event: WheelEvent): void => {
     event.preventDefault()
     event.stopPropagation()
@@ -120,12 +162,18 @@ export function NodeEditorSpaceOverlay(props: {
   }
   return (
     <div class="node-editor-space-overlay" data-node-id={props.item.nodeId} data-value-key={props.item.row.valueKey}
-      data-view-id={props.item.row.viewId} style={overlayClipStyle(props.rect, props.canvas)}
-      ref={(element) => element.addEventListener('wheel', forwardWheel, { capture: true, passive: false })}>
+      data-view-id={props.item.row.viewId}
+      style={overlayClipStyle({ ...props.rect, height: props.rect.height + grown() * props.scale }, props.canvas)}
+      ref={(element) => {
+        element.addEventListener('wheel', forwardWheel, { capture: true, passive: false })
+        element.addEventListener('pointerdown', press, { capture: true })
+      }}
+      onPointerMove={move} onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release} onKeyDown={step}>
       <div class="node-editor-space-world" style={{
         width: `${props.item.space.width}px`,
-        height: `${props.item.space.height}px`,
+        height: `${props.item.space.height + grown()}px`,
         transform: `scale(${props.scale})`,
+        '--node-editor-picture-height': `${shown()}px`,
       }}>
         <CanvasEditorSpace ref={(element) => {
           element.style.inset = '0'
@@ -570,7 +618,6 @@ const stripOf = (colors: unknown): CanvasCurveStrip | undefined =>
  */
 export function CurveSpace(props: {
   readonly value: CurveValue
-  readonly pictureHeight: number
   /** The curve widget's declared options, which name its strips. */
   readonly options: Readonly<Record<string, unknown>>
   /** The latest run's histogram bins, when it sent one. */
@@ -621,7 +668,7 @@ export function CurveSpace(props: {
   const cubic = () => message('inNodeCurve.monotoneCubic')
   return (
     <>
-      <CanvasEditorPicture ref={(element) => { element.style.height = `${props.pictureHeight}px` }}>
+      <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}>
         <CanvasCurvePlot
           label={message('inNodeCurve.plot')}
           points={points()}
@@ -729,7 +776,6 @@ type CameraState = 'off' | 'starting' | 'live' | 'capturing' | 'error'
  */
 export function WebcamSpace(props: {
   readonly value: Json | undefined
-  readonly pictureHeight: number
   readonly ports: WebcamPorts
   readonly wired: boolean
   /** What the wire brought in the last run, when it is known. */
@@ -815,7 +861,7 @@ export function WebcamSpace(props: {
       : camera() !== 'error' && error() !== undefined ? 'problem' : undefined
   return (
     <>
-      <CanvasEditorPicture ref={(element) => { element.style.height = `${props.pictureHeight}px` }}
+      <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}
         loading={camera() === 'starting'}
         {...(pictureMessage() === undefined ? {} : { message: pictureMessage()! })}>
         <Show when={live()} fallback={
@@ -875,7 +921,6 @@ export function cameraAngleWords(message: ReturnType<typeof useAppMessage>, hori
  */
 export function CameraAngleSpace(props: {
   readonly fields: Readonly<Record<CameraAnglePart, CameraAngleField>>
-  readonly pictureHeight: number
   readonly commit: (part: 'horizontal_angle' | 'vertical_angle', value: number) => void
 }) {
   const message = useAppMessage()
@@ -892,7 +937,7 @@ export function CameraAngleSpace(props: {
   }
   return (
     <>
-      <CanvasEditorPicture ref={(element) => { element.style.height = `${props.pictureHeight}px` }}>
+      <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}>
         <CanvasAnglePicture label={message('cameraAngleWidget.preview')}
           horizontal={angle('horizontal_angle')} vertical={angle('vertical_angle')}
           onMove={(part, degrees) => setDraft({ part: part === 'horizontal' ? 'horizontal_angle' : 'vertical_angle', value: degrees })}

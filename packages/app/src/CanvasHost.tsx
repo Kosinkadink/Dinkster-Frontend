@@ -1602,6 +1602,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }[]>([])
   const [activeCanvasMedia, setActiveCanvasMedia] = createSolidSignal<ReadonlySet<string>>(new Set())
   const [editorSpaces, setEditorSpaces] = createSolidSignal<readonly EditorSpaceItem[]>([])
+  let editorPictureHeights: Pick<InteractionController, 'previewPictureHeight' | 'commitPictureHeight'> | undefined
   const editorSpaceByKey = createMemo(() => new Map(editorSpaces().map((item) => [item.key, item])))
   const audioRecorders = createAudioRecorders()
   const visibleEditorSpaceKeys = (): readonly string[] => {
@@ -3035,7 +3036,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             : undefined
       renderer.setScopeHighlight(scope ? selectionScopeHighlight(scope) : undefined)
     }
-    controller = new InteractionController(canvasEl, renderer, {
+    controller = editorPictureHeights = new InteractionController(canvasEl, renderer, {
       dispatch: (invocation) => {
         const tab = activeTab()
         if (!tab) return { ok: false }
@@ -6395,6 +6396,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (traceWindow.__dinksterPointerTrace === pointerTraceConsole)
         delete traceWindow.__dinksterPointerTrace
       controller.dispose()
+      editorPictureHeights = undefined
       renderer.dispose()
       previewLoader.dispose()
       imageEstimator.dispose()
@@ -6782,20 +6784,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
         return (
           <Show when={item() !== undefined && projected() !== undefined}>
-            <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl}>
+            <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl}
+              pictureHeight={{
+                preview: (height) => editorPictureHeights?.previewPictureHeight(height === undefined ? undefined
+                  : { nodeId: item()!.nodeId, valueKey: item()!.row.valueKey, height }),
+                commit: (height) => editorPictureHeights?.commitPictureHeight(item()!.nodeId, item()!.row.valueKey, height),
+              }}>
               <Show when={recorder()}>
                 {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} />}
               </Show>
               <Show when={webcam()}>
-                {(ports) => <WebcamSpace value={item()?.value} pictureHeight={item()?.row.picture?.height ?? 0} ports={ports()}
+                {(ports) => <WebcamSpace value={item()?.value} ports={ports()}
                   wired={item()?.wired === true} carried={item()?.carried} />}
               </Show>
               <Show when={curve()}>
                 {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wiredLine={item()?.row.wiredLine === true}
-                  pictureHeight={item()?.row.picture?.height ?? 0} options={item()?.field.spec.options ?? {}} />}
+                  options={item()?.field.spec.options ?? {}} />}
               </Show>
               <Show when={load3d()}>
-                {(at) => <Load3dSpace value={item()?.value} pictureHeight={item()?.row.picture?.height ?? 0}
+                {(at) => <Load3dSpace value={item()?.value}
                   sourceKey={at().sourceKey} ports={at().ports} captures={at().captures}
                   live={liveModelViews().has(key)}
                   onWake={() => setWokenModelViews((woken) => [key, ...woken.filter((other) => other !== key)].slice(0, LIVE_MODEL_VIEWS))}
@@ -6804,7 +6811,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   placementWired={item()?.wiredParts.has('model_3d_info') === true} />}
               </Show>
               <Show when={cameraAngle()}>
-                {(at) => <CameraAngleSpace fields={at().fields} commit={at().commit} pictureHeight={item()?.row.picture?.height ?? 0} />}
+                {(at) => <CameraAngleSpace fields={at().fields} commit={at().commit} />}
               </Show>
               <Show when={compare() !== undefined}>
                 <ImageCompareSpace frames={compare() ?? { image_a: [], image_b: [] }} pictureHeight={item()?.row.picture?.height ?? 0} />
