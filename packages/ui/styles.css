@@ -567,3 +567,23 @@
 .problem-box-action { flex: none; margin-left: var(--dinkster-space-4); padding: calc((var(--dinkster-input-canvas-height) - var(--dinkster-type-canvas-line)) / 2) 0; border: 0; border-radius: var(--dinkster-radius-small); background: transparent; color: var(--dinkster-text-primary); font: inherit; white-space: nowrap; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
 .problem-box-action:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .dinkster-problem-box-frame { position: relative; }
+/* Shared chrome for bounded menus, listboxes, and expanded editors. */
+.floating-surface { box-sizing: border-box; color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-card); box-shadow: var(--dinkster-elevation-high); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); }
+/* Context menu: the canvas and shell right-click menus and their submenus. */
+.context-menu-cascade { position: absolute; inset: 0; z-index: 11; pointer-events: none; outline: none; }
+.context-menu { position: absolute; box-sizing: border-box; min-width: min(180px, calc(100% - var(--dinkster-space-16))); max-height: 400px; overflow: auto; pointer-events: auto; padding: var(--dinkster-space-4) 0; outline: none; }
+.context-submenu { z-index: 1; }
+.menu-item { display: flex; align-items: center; gap: var(--dinkster-space-8); padding: var(--dinkster-space-4) var(--dinkster-space-12) var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-primary); cursor: pointer; user-select: none; }
+.menu-item.active { color: var(--dinkster-text-on-selected); background: var(--dinkster-surface-selected); }
+.menu-item.disabled { color: var(--dinkster-text-disabled); cursor: default; }
+.menu-label { min-width: 0; overflow-wrap: anywhere; }
+.menu-icon { display: inline-flex; width: 14px; height: 14px; flex: none; color: var(--dinkster-text-secondary); }
+.menu-shortcut { margin-left: auto; padding: 0 var(--dinkster-space-4); color: var(--dinkster-text-muted); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); white-space: nowrap; }
+.menu-item.disabled .menu-icon, .menu-item.disabled .menu-shortcut { color: var(--dinkster-text-disabled); }
+.menu-hint { margin-left: auto; padding-left: var(--dinkster-space-16); color: var(--dinkster-text-muted); white-space: nowrap; }
+.menu-item.disabled .menu-hint { color: var(--dinkster-text-disabled); }
+.menu-submenu-caret { width: 0; height: 0; margin-left: auto; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid currentColor; }
+.menu-hint + .menu-submenu-caret, .menu-shortcut + .menu-submenu-caret { margin-left: var(--dinkster-space-4); }
+.menu-check { width: 6px; height: 6px; border-radius: var(--dinkster-radius-capsule); flex: none; }
+.menu-item.checked .menu-check { background: var(--dinkster-accent-border); }
+.menu-separator { height: 1px; margin: var(--dinkster-space-4) var(--dinkster-space-8); background: var(--dinkster-border-subtle); }
