@@ -274,7 +274,9 @@ function Environments() {
     else if ((field('host') === 'wsl2') !== isWsl(field('root')))
       errors.root =
         'Choose a folder on the selected engine host. For WSL2, use the Linux environment folder button.'
-    if (!field('engine')) errors.engine = 'Enter an engine name.'
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(field('engine')))
+      errors.engine =
+        'Use 1-64 lowercase letters, numbers or hyphens, starting with a letter or number.'
     if (
       !/^\d+$/.test(field('port')) ||
       Number(field('port')) < 1 ||
@@ -470,6 +472,7 @@ function Environments() {
     description?: string
     multiline?: boolean
     placeholder?: string
+    maxLength?: number
   }) {
     return (
       <ProductField
@@ -487,6 +490,7 @@ function Environments() {
               disabled={busy()}
               rows={3}
               placeholder={props.placeholder}
+              maxLength={props.maxLength}
               onInput={(event) =>
                 change(props.field, event.currentTarget.value)
               }
@@ -497,6 +501,7 @@ function Environments() {
               value={values()[props.field]}
               disabled={busy()}
               placeholder={props.placeholder}
+              maxLength={props.maxLength}
               onInput={(event) =>
                 change(props.field, event.currentTarget.value)
               }
@@ -640,14 +645,23 @@ function Environments() {
                   )
                 }
               >
-                <option value="">New local environment</option>
+                <option value="" selected={!values().selected}>
+                  New local environment
+                </option>
                 <For each={environments().filter((entry) => entry.root)}>
-                  {(entry) => <option value={entry.id}>{entry.name}</option>}
+                  {(entry) => (
+                    <option
+                      value={entry.id}
+                      selected={values().selected === entry.id}
+                    >
+                      {entry.name}
+                    </option>
+                  )}
                 </For>
               </ProductSelect>
             )}
           </ProductField>
-          <Text field="name" label="Environment name" />
+          <Text field="name" label="Environment name" maxLength={128} />
           <Select field="channel" label="Channel" options={channels} />
           <Select
             field="kind"
@@ -767,7 +781,7 @@ function Environments() {
                   </div>
                 </ProductSection>
               </Show>
-              <Text field="engine" label="Engine name" />
+              <Text field="engine" label="Engine name" maxLength={64} />
               <Text
                 field="gpus"
                 label="Assigned NVIDIA devices"
@@ -1103,6 +1117,7 @@ function Environments() {
               <ProductTextInput
                 {...attrs}
                 value={remote().name}
+                maxLength={128}
                 disabled={busy()}
                 onInput={(event) =>
                   setRemote({ ...remote(), name: event.currentTarget.value })
