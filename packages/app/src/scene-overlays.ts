@@ -43,12 +43,15 @@ import {
   diag,
   deriveGlslMirrorBindings,
   deriveMirrorEstimates,
+  documentPrimitiveResolver,
   elabInputsOf,
   elaborateInterface,
   isDeprecated,
   outputsOf,
   parseOccurrenceKey,
+  primitiveOf,
   supportsOutputRepresentation,
+  withPrimitiveValue,
   effectiveWidgetDefault,
   occurrencesForView,
   runtimeIdsFor,
@@ -58,6 +61,8 @@ import {
   type Diagnostic,
   type GraphDef,
   type Json,
+  type NodeData,
+  type NodeId,
   type NodeProgress,
   type NodeSchema,
   type NodeDecoration,
@@ -816,14 +821,25 @@ export function deriveSceneOverlays(args: {
   // Resolve tap defaults from the elaborated interface, not only top-level
   // schema items: a persisted dynamic member is a real widget source too.
   // Cache one elaboration per source node for this overlay pass.
+  // A primitive's value field takes the widget its own row draws, so a field
+  // it feeds shows the value an empty primitive passes on in a run.
   const tapDefaults = new Map<string, ReadonlyMap<string, Json | undefined>>()
   let connectivity: ReturnType<typeof buildGraphConnectivity> | undefined
+  let resolvePrimitive: ReturnType<typeof documentPrimitiveResolver> | undefined
+  const tapSchemaOf = (node: NodeData): NodeSchema | undefined => {
+    const schema = args.resolveSchema?.(node.type)
+    const shape = schema && args.doc !== undefined ? primitiveOf(schema) : undefined
+    if (schema === undefined || shape === undefined) return schema
+    resolvePrimitive ??= documentPrimitiveResolver(args.doc!, args.resolveSchema!)
+    const effective = resolvePrimitive(gid, node, instancePath as readonly NodeId[] | undefined)
+    return effective === undefined ? schema : withPrimitiveValue(schema, shape, effective)
+  }
   const tapValueOf = (nodeId: string, inputId: string) => {
     let defaults = tapDefaults.get(nodeId)
     if (defaults === undefined) {
       const resolved = new Map<string, Json | undefined>()
       const node = args.def?.nodes[nodeId]
-      const schema = node === undefined ? undefined : args.resolveSchema?.(node.type)
+      const schema = node === undefined ? undefined : tapSchemaOf(node)
       if (node !== undefined && schema !== undefined) {
         const items = elabInputsOf(elaborateInterface(
           schema,

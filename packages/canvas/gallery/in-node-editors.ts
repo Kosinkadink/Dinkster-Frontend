@@ -182,6 +182,7 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
     members: { colors: ['color0', 'color1', 'color2'] },
     values: { 'colors.color0': '#ff6600', 'colors.color1': '#2255aa', 'colors.color2': '#33cc99' },
     wired: { 'colors.color2': 'COLOR' } },
+  { id: 'palette-fresh', card: 7, caption: 'A fresh palette: no colors yet, only the add member', type: 'Palette' },
   { id: 'webcam-folded', summaries: { image: { text: 'webcam.png' } }, thumbnails: { image: 'frame' }, card: 8, caption: 'Folded: the editor button row with the stored frame', type: 'Webcam Capture',
     values: { image: frame } },
   { id: 'webcam-unfolded', summaries: { image: { text: 'webcam.png' } }, thumbnails: { image: 'frame' }, card: 8, caption: 'Clicked: the webcam folds out under the same row and the rows below move down', type: 'Webcam Capture',

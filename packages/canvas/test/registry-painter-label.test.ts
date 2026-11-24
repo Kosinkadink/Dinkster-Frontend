@@ -8,7 +8,7 @@
 import type { WidgetKind, WidgetRegistry, WidgetView } from '@dinkster/core'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createRegistryPainter, subgraphMarkRect } from '../src/registry-painter.js'
-import { fitItems, paintSwatchRow } from '../src/renderer.js'
+import { fitItems } from '../src/renderer.js'
 import type { WidgetPaintArgs } from '../src/renderer.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import { widgetChromeRect, type LayoutRow } from '../src/layout.js'
@@ -677,19 +677,5 @@ describe('a row of items shows as many as fit and counts the rest', () => {
     const cut = fitItems(ctx, ['checkpoint-name', 'x'], 60)
     expect(cut.endsWith('... +1')).toBe(true)
     expect(cut.length * 6).toBeLessThanOrEqual(60)
-  })
-
-  it('draws the color squares that fit in order, then +N for the rest', () => {
-    const painted = fakeCtx()
-    const colors = ['#111111', '#222222', '#333333', '#444444', '#555555']
-    // Two 10 px squares, two 4 px gaps and '+3' (12 px) fill exactly 40 px.
-    paintSwatchRow(painted.ctx, colors, 100, 12, 40, defaultTokens, '#eeeeee')
-    const squares = painted.fills.filter((fill) => colors.includes(fill.fillStyle))
-    expect(squares.map((fill) => fill.fillStyle)).toEqual(['#222222', '#111111'])
-    expect(squares[1]!.x).toBeLessThan(squares[0]!.x)
-    expect(painted.textCalls).toEqual([expect.objectContaining({ text: '+3', x: 100, align: 'right', fill: '#eeeeee' })])
-    const all = fakeCtx()
-    paintSwatchRow(all.ctx, colors.slice(0, 2), 100, 12, 40, defaultTokens, '#eeeeee')
-    expect(all.textCalls).toEqual([])
   })
 })

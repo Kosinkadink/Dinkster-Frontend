@@ -461,7 +461,11 @@ function compileImpl(
   const scope: ExecutionScope = queryingSources ? { kind: 'full' } : input.scope
   const sourceConsumers: FedConsumer[] = []
   const resolve = documentResolver(doc, input.resolve)
-  const resolveNode = documentNodeResolver(doc, input.resolve)
+  // A primitive's value field is the widget the canvas draws for it, so an
+  // empty primitive passes on the value its row shows. Working out which
+  // fields it feeds is itself a query and sees the declared fields.
+  const resolveNode = documentNodeResolver(doc, input.resolve,
+    queryingSources ? undefined : documentPrimitiveResolver(doc, input.resolve))
   const isVirtualNode = (graphId: string, node: NodeData): boolean =>
     node.virtual === true && resolveNode(graphId, node)?.virtual === true
   /**
@@ -1770,6 +1774,27 @@ function compileImpl(
     return listTypeId(assetTypeId(element ?? dstTypeId))
   }
 
+  const solvedTypeCache = new Map<string, ReturnType<typeof solveGraphTypes>>()
+  const solvedTypesOf = (graphId: string): ReturnType<typeof solveGraphTypes> | undefined => {
+    const graph = doc.graphs[graphId]
+    if (graph === undefined) return undefined
+    let solved = solvedTypeCache.get(graphId)
+    if (!solved) solvedTypeCache.set(graphId, (solved = solveGraphTypes(graph, resolve, { resolveNode: (node) => resolveNode(graph.id, node) })))
+    return solved
+  }
+  /**
+   * The type a primitive typed by a type variable holds: the one the fields
+   * it feeds bind the variable to. Its value is a plain literal, so it is
+   * stamped with that type, as the engine binds the variable from it. A
+   * backend without typed literals keeps receiving the plain value.
+   */
+  const primitiveValueTypeOf = (fn: FlatNode, input: ElaboratedInput, value: Json): string | undefined => {
+    if (!emitTypedLiterals || input.spec.type.kind !== 'variable' || parseTypedLiteralWire(value) !== undefined) return undefined
+    if (!fn.elab.outputs.some((output) => output.spec.knownValue?.input === input.spec.id)) return undefined
+    const bound = solvedTypesOf(fn.graphId)?.portTypeOf(fn.node.id, 'input', input.address.port)
+    return bound === undefined ? undefined : canonicalTypeIdOf(bound)
+  }
+
   /**
    * Lower ONE widget-held literal onto its own declared input: stamp $typed
    * for a numeric-union widget or an asset source differing from the declared
@@ -1807,7 +1832,7 @@ function compileImpl(
       sink.push(diag('error', 'compile', 'compile.value.decimalIntUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve this large integer`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef } }))
       return undefined
     }
-    const sourceType = assetSourceTypeOf(input, value)
+    const sourceType = assetSourceTypeOf(input, value) ?? primitiveValueTypeOf(fn, input, value)
     if (sourceType === undefined) return value
     if (emitTypedLiterals) return typedLiteralWire(sourceType, value) as Json
     sink.push(diag('error', 'compile', 'compile.value.assetSourceUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve the asset source type`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef } }))
@@ -2532,6 +2557,8 @@ function compileImpl(
       // An automatic field with nothing stored stays out of the prompt: the
       // engine works it out when the run is queued.
       if (spec.automatic !== undefined) continue
+      // A primitive's empty limit only shows the limit worked out for it.
+      if (spec.widget?.automatic === true) continue
       if (spec.widget) {
         // Explicit schema default first, then the widget kind's intrinsic
         // value (an INT shows 0/min, a STRING shows '', ...): what the
@@ -2814,9 +2841,7 @@ function compileImpl(
       : { node: localRuntimeId(outputs[0]!.src.runtimeId, region), output }
   }
   const validationContext = new Map<string, DinksterGraphValidationNode>()
-  const solvedTypes = new Map(Object.values(doc.graphs).map((graph) => [graph.id,
-    solveGraphTypes(graph, resolve, { resolveNode: (node) => resolveNode(graph.id, node) }),
-  ]))
+  const solvedTypes = new Map(Object.values(doc.graphs).map((graph) => [graph.id, solvedTypesOf(graph.id)!]))
   const nativeTypes = new Map<string, TypeExpr>()
   const resolvingNativeTypes = new Set<string>()
   const nativeInputType = (fn: FlatNode, key: string): TypeExpr | undefined => {

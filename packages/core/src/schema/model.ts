@@ -424,6 +424,8 @@ export function resolveWidgetRepresentation(
     id: representation.id,
     spec: {
       ...representation.widget,
+      // The value's default is the same however the value is drawn.
+      ...(spec.default !== undefined ? { default: spec.default } : {}),
       representations: set,
     },
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DEPRECATED_BADGE, executionErrorBadge, LAST_RUN_BADGE, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, UNAVAILABLE_BADGE, type Scene } from '@dinkster/canvas'
-import { asGraphDefId, asLinkId, asNodeId, asPortId, occurrenceKey, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
+import { asConnectionId, asGraphDefId, asLinkId, asNodeId, asPortId, compile, occurrenceKey, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, representedPreviewAssetForNode, withRecordedAutomaticValues, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
@@ -1000,6 +1000,64 @@ describe('deriveSceneOverlays', () => {
       resolveSchema: (type) => type === 'Source' ? source : undefined,
     })
     expect(m.companions).toEqual({ sink: { number: { value: 0 }, text: { value: '' } } })
+  })
+
+  it('shows on a field an empty primitive feeds the default of the first field it feeds, and a run sends it', () => {
+    const variable = { kind: 'variable', templateId: 'value' }
+    const curve = { interpolation: 'monotone_cubic', points: [[0, 0], [1, 1]] }
+    const twoPoints = { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }
+    const input = (id: string, types: string[], extra: Record<string, unknown>) =>
+      ({ kind: 'input', id, type: { kind: 'concrete', types }, required: true, ...extra })
+    const output = (id: string, types: string[], extra: Record<string, unknown> = {}) =>
+      ({ kind: 'output', id, type: { kind: 'concrete', types }, ...extra })
+    const wire = (nodeType: string, body: unknown[]) =>
+      [nodeType, { schemaVersion: 2, nodeType, version: 1, displayName: nodeType, category: 'test', body }]
+    const { schemas } = parseDinksterNodes({
+      schemaVersion: 2,
+      dinkster: { schemaWire: 2 },
+      nodes: Object.fromEntries([
+        wire('test.primitive', [
+          { kind: 'input', id: 'value', type: variable, required: true },
+          { kind: 'output', id: 'value', type: variable, knownValue: { input: 'value' } },
+        ]),
+        wire('test.int', [
+          input('value', ['INT'], { widget: { type: 'NUMBER', min: -1000, max: 1000 } }),
+          output('INT', ['INT'], { knownValue: { input: 'value' } }),
+        ]),
+        wire('test.count', [input('count', ['INT'], { default: 50, widget: { type: 'NUMBER', min: 1, max: 100 } }), output('count', ['INT'])]),
+        wire('test.small', [input('count', ['INT'], { default: 3, widget: { type: 'NUMBER', min: 1, max: 100 } }), output('count', ['INT'])]),
+        wire('test.curve', [input('curve', ['CURVE'], { default: curve, widget: { type: 'CURVE' } }), output('curve', ['CURVE'])]),
+      ]),
+    } as never)
+    const node = (id: string, type: string) => [id, { id, type, values: {} }]
+    const link = (id: string, from: string, port: string, to: string, input: string) =>
+      [id, { id, from: { node: from, port }, to: { node: to, port: input } }]
+    // `number` feeds a and then b, whose defaults are 50 and 3: the first, a, decides.
+    const def = {
+      id: 'g0', name: 'root', nets: {}, reroutes: {}, nextOrdinal: 20,
+      nodes: Object.fromEntries([node('number', 'test.primitive'), node('int', 'test.int'), node('shape', 'test.primitive'),
+        node('a', 'test.count'), node('b', 'test.small'), node('c', 'test.count'), node('editor', 'test.curve')]),
+      links: Object.fromEntries([link('l1', 'number', 'value', 'a', 'count'), link('l2', 'number', 'value', 'b', 'count'),
+        link('l3', 'int', 'INT', 'c', 'count'), link('l4', 'shape', 'value', 'editor', 'curve')]),
+    } as unknown as GraphDef
+    const doc = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'empty-primitives', root: 'g0', graphs: { g0: def }, view: { graphs: {} } } as unknown as WorkflowDocument
+    const resolveSchema = (type: string) => schemas.get(type)
+
+    const compiled = compile({ document: doc, revision: 1, resolve: resolveSchema, scope: { kind: 'full' },
+      connection: asConnectionId('c0'), schemaHash: 'h', graphFeatures: ['regions', 'typedLiteral'] })
+    expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+    if (!compiled.ok) return
+    const sent = compiled.artifact.dinksterGraph!.nodes as Record<string, { inputs: Record<string, unknown> }>
+    expect(sent['number']!.inputs).toEqual({ value: { $typed: { type: 'INT', value: 50 } } })
+    expect(sent['c']!.inputs).toEqual({ count: 50 })
+    expect(sent['shape']!.inputs).toEqual({ value: { $typed: { type: 'CURVE', value: twoPoints } } })
+
+    expect(deriveSceneOverlays({ ...base, doc, def, resolveSchema }).companions).toEqual({
+      a: { count: { value: 50 } },
+      b: { count: { value: 50 } },
+      c: { count: { value: 50 } },
+      editor: { curve: { value: twoPoints } },
+    })
   })
 
   it('adds counted document problem tabs without replacing the runtime error badge', () => {

@@ -11,7 +11,7 @@
 import { formatWidgetValue, type Json, type WidgetRegistry, type WidgetSpec, type WidgetView } from '@dinkster/core'
 import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
-import { defaultWidgetPainter, fitItems, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintSwatchRow, paintValueSwatch, type CompanionSummary, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
+import { defaultWidgetPainter, fitItems, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
 import type { DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
@@ -56,7 +56,6 @@ function compactSummary(view: WidgetView, value: Json, spec: WidgetSpec): RowSum
           placeholder: style['placeholder'] === true,
           ...(typeof style['swatch'] === 'string' ? { swatch: style['swatch'] } : {}),
           ...(stringList(style['items']) !== undefined ? { items: stringList(style['items'])! } : {}),
-          ...(stringList(style['swatches']) !== undefined ? { swatches: stringList(style['swatches'])! } : {}),
         }
       },
       hitRegion: () => {},
@@ -78,7 +77,6 @@ const RAISED_ROW_ICONS: Readonly<Record<string, NonNullable<ToolboxButton['icon'
   'core.saveTarget': 'folder-output',
   'core.videoEdit': 'film',
   'core.list': 'list',
-  'core.colors': 'palette',
   'core.curve': 'spline',
   'core.cameraAngle': 'rotate-3d',
   'core.compositor': 'layers',
@@ -439,7 +437,6 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             const marked = valueWord !== undefined && (role === undefined || role === 'widgetValue')
             const swatch = typeof style['swatch'] === 'string' && alignRight ? style['swatch'] : undefined
             const items = stringList(style['items'])
-            const swatches = alignRight ? stringList(style['swatches']) : undefined
             // Unfolded, the editor shows the picture itself, so the row drops its small copy.
             const thumbnail = alignRight && !row.unfolded ? summary?.thumbnail : undefined
             const markReserve = (modeIcon !== undefined && role === 'widgetValue' && alignRight ? modeIconReserve : 0)
@@ -447,8 +444,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               + (thumbnail !== undefined ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
             const iconReserve = markReserve + (marked ? wordReserve : 0)
             const fitWidth = Math.max(0, availableWidth - iconReserve)
-            const text = swatches !== undefined ? ''
-              : items !== undefined ? fitItems(ctx, items, fitWidth)
+            const text = items !== undefined ? fitItems(ctx, items, fitWidth)
               : ellipsize(ctx, run.split('\n')[0] ?? '', fitWidth)
             // A folded curve's count sits beside its square, in the middle of the row.
             const centered = sketch !== undefined && style['role'] === 'widgetValue'
@@ -473,7 +469,6 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               const textY = centered ? chrome.y + chrome.height / 2 : y + (ty + 0.5) * rowHeight
               ctx.fillText(text, textX, textY)
               if (centered) sketchValueWidth = measureWidth(ctx, text) + TEXT_PAD * 2
-              if (swatches !== undefined) paintSwatchRow(ctx, swatches, textX, textY, fitWidth, tokens, ctx.fillStyle as string)
               if (modeIcon !== undefined && role === 'widgetValue' && alignRight) {
                 // Marks about a value come before it, so values line up at the right.
                 paintSeedModeIcon(ctx, modeIcon, textX - measureWidth(ctx, text) - paint.modeIconGap - modeIconSize,
