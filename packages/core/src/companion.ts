@@ -73,10 +73,6 @@ export function companionSourceOf(
       const value = stored !== undefined ? stored : resolveTapValue?.(trace.node, trace.input)
       return value === undefined ? undefined : { kind: 'literal', value }
     }
-    if (trace.kind === 'valueSource') {
-      const source = def.valueSources?.[trace.id]
-      return source === undefined ? undefined : { kind: 'literal', value: source.value }
-    }
     if (trace.kind !== 'output') return undefined
     const node = def.nodes[trace.ref.node]
     const schema = node === undefined ? undefined : resolveSchema?.(node.type)

@@ -26,12 +26,6 @@ export type LinkId = Brand<string, 'LinkId'>
 export type NetId = Brand<string, 'NetId'>
 /** ID of a reroute (structural junction vertex) within one graph definition. */
 export type RerouteId = Brand<string, 'RerouteId'>
-/** ID of a value source (literal producer) within one graph definition. */
-export type ValueSourceId = Brand<string, 'ValueSourceId'>
-/** ID of a selector (compile-time branch chooser) within one graph definition. */
-export type SelectorId = Brand<string, 'SelectorId'>
-/** ID of one selector candidate, unique within its owning selector. */
-export type SelectorCandidateId = Brand<string, 'SelectorCandidateId'>
 /** ID of a graph definition (the root graph or a subgraph definition). */
 export type GraphDefId = Brand<string, 'GraphDefId'>
 /** Schema-declared id of an input or output (V3 input/output id string). */
@@ -51,9 +45,6 @@ export const asNodeId = (s: string): NodeId => s as NodeId
 export const asLinkId = (s: string): LinkId => s as LinkId
 export const asNetId = (s: string): NetId => s as NetId
 export const asRerouteId = (s: string): RerouteId => s as RerouteId
-export const asValueSourceId = (s: string): ValueSourceId => s as ValueSourceId
-export const asSelectorId = (s: string): SelectorId => s as SelectorId
-export const asSelectorCandidateId = (s: string): SelectorCandidateId => s as SelectorCandidateId
 export const asGraphDefId = (s: string): GraphDefId => s as GraphDefId
 export const asPortId = (s: string): PortId => s as PortId
 export const asDynamicMemberId = (s: string): DynamicMemberId => s as DynamicMemberId
@@ -79,26 +70,6 @@ export interface RerouteRef {
 }
 
 /**
- * Reference to a value source (used only as a link `from` endpoint - value
- * sources produce, never consume).
- */
-export interface ValueSourceRef {
-  readonly valueSource: ValueSourceId
-}
-
-/**
- * Reference to a selector (compile-time branch chooser). `candidate` present
- * = one candidate input (legal only as a link `to` endpoint); absent = the
- * selector's single output (legal only as a link `from` endpoint). Same
- * structural-junction discipline as reroutes: no fake port ids, no stored
- * reverse lists - a candidate's upstream is the unique link targeting it.
- */
-export interface SelectorRef {
-  readonly selector: SelectorId
-  readonly candidate?: SelectorCandidateId
-}
-
-/**
  * Producer reference to the effective value of a node input: a field's
  * output. `tap` is the field's flattened id, so a field in a group's member
  * carries the member key (`items.item1.amount`) and follows its member when
@@ -110,18 +81,15 @@ export interface WidgetTapRef {
 }
 
 /**
- * A link endpoint: a node port, a reroute junction, a value source, or a
- * selector. Discriminated structurally (`'reroute' in e` / `'valueSource'
- * in e` / `'selector' in e`) so plain port-to-port links serialize exactly
- * as PortRef pairs. Direction comes from the link (`from` = output side,
- * `to` = input side), so none of the junction kinds need fake port ids.
- * Value sources are legal only on the `from` side (validator I10).
+ * A link endpoint: a node port, a reroute junction, or a widget tap.
+ * Discriminated structurally (`'reroute' in e` / `'tap' in e`) so plain
+ * port-to-port links serialize exactly as PortRef pairs. Direction comes
+ * from the link (`from` = output side, `to` = input side), so junctions
+ * need no fake port ids.
  */
-export type LinkEndpoint = PortRef | RerouteRef | ValueSourceRef | SelectorRef | WidgetTapRef
+export type LinkEndpoint = PortRef | RerouteRef | WidgetTapRef
 
 export const isRerouteRef = (e: LinkEndpoint): e is RerouteRef => 'reroute' in e
-export const isValueSourceRef = (e: LinkEndpoint): e is ValueSourceRef => 'valueSource' in e
-export const isSelectorRef = (e: LinkEndpoint): e is SelectorRef => 'selector' in e
 export const isWidgetTapRef = (e: LinkEndpoint): e is WidgetTapRef => 'tap' in e
 /** Exact persisted widget-tap shape; rejects dynamic/member/path lookalikes. */
 export const isExactWidgetTapRef = (e: LinkEndpoint): e is WidgetTapRef =>
@@ -130,7 +98,7 @@ export const isExactWidgetTapRef = (e: LinkEndpoint): e is WidgetTapRef =>
   typeof e.tap === 'string' && e.tap.length > 0 &&
   Object.keys(e).length === 2
 export const isPortEndpoint = (e: LinkEndpoint): e is PortRef =>
-  !('reroute' in e) && !('valueSource' in e) && !('selector' in e) && !('tap' in e)
+  !('reroute' in e) && !('tap' in e)
 
 // ---------------------------------------------------------------------------
 // Canonical endpoint equality and keys (hazard N6)
@@ -165,9 +133,6 @@ export const portRefKey = (p: PortRef): string =>
 /** Structural identity across the LinkEndpoint union. */
 export const sameEndpoint = (a: LinkEndpoint, b: LinkEndpoint): boolean => {
   if (isRerouteRef(a)) return isRerouteRef(b) && a.reroute === b.reroute
-  if (isValueSourceRef(a)) return isValueSourceRef(b) && a.valueSource === b.valueSource
-  if (isSelectorRef(a))
-    return isSelectorRef(b) && a.selector === b.selector && a.candidate === b.candidate
   if (isWidgetTapRef(a)) return isWidgetTapRef(b) && a.node === b.node && a.tap === b.tap
   return isPortEndpoint(b) && samePortRef(a, b)
 }
