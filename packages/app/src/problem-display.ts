@@ -308,6 +308,13 @@ export const problemSectionForOrigin = {
   collab: 'collaboration',
 } as const satisfies Readonly<Record<DiagnosticOrigin, ProblemSection>>
 
+/**
+ * The section a problem is listed under. The type check reports with the
+ * schema origin, but its problems are fixed by changing this workflow's wires.
+ */
+const problemSectionOf = (diagnostic: Diagnostic): ProblemSection =>
+  diagnostic.code.startsWith('solve.') ? 'workflow' : problemSectionForOrigin[diagnostic.origin]
+
 /** Group by the action a user can take, keeping source order within each section. */
 export function groupProblemDiagnostics(
   diagnostics: readonly Diagnostic[],
@@ -315,7 +322,7 @@ export function groupProblemDiagnostics(
 ): readonly ProblemGroup[] {
   const groups: ProblemGroup[] = []
   for (const section of problemSections) {
-    const entries = diagnostics.filter((diagnostic) => problemSectionForOrigin[diagnostic.origin] === section)
+    const entries = diagnostics.filter((diagnostic) => problemSectionOf(diagnostic) === section)
     if (entries.length === 0) continue
     groups.push({
       key: JSON.stringify([section, document?.lineage ?? null]),

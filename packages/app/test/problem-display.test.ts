@@ -111,6 +111,18 @@ describe('groupProblemDiagnostics', () => {
     expect(groupProblemDiagnostics([])).toEqual([])
   })
 
+  it('lists type check problems under this workflow, where their wires are fixed', () => {
+    const groups = groupProblemDiagnostics([
+      diag('error', 'schema', 'solve.varConflict', 'These inputs must be the same type: a is INT, b is STRING.'),
+      diag('warning', 'schema', 'solve.linkMismatch', 'a.b: INT cannot feed STRING'),
+      diag('warning', 'schema', 'schema.unresolvedType', 'EmptyImage: not available on backend Local'),
+    ])
+    expect(groups.map((group) => [group.title, group.diagnostics.map((d) => d.code)])).toEqual([
+      ['workflow', ['solve.varConflict', 'solve.linkMismatch']],
+      ['packs', ['schema.unresolvedType']],
+    ])
+  })
+
   it('groups command diagnostics in Packs and backend and computes maximum severity', () => {
     const first = diag('info', 'command', 'first', 'first', { refs: [{ graphId: 'g0', nodeId: 'n5-a1b2' }] })
     const second = diag('error', 'command', 'second', 'second', { refs: [

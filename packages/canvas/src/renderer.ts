@@ -2350,7 +2350,7 @@ export class CanvasRenderer {
       const batches = new Map<string | undefined, Array<readonly [number, number, number, number]>>()
       for (const link of scene.links) {
         if (link.hidden === true || this.overlay.hiddenLinkIds?.has(link.id) === true ||
-            this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || link.mismatch === true) continue
+            this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || link.dimmed === true || link.mismatch === true) continue
         const bounds = linkBounds(link.x1, link.y1, link.x2, link.y2)
         if (bounds.maxX + paintPad < view.x || bounds.minX - paintPad > view.x + view.w ||
             bounds.maxY + paintPad < view.y || bounds.minY - paintPad > view.y + view.h) continue
@@ -2408,6 +2408,7 @@ export class CanvasRenderer {
         (this.scopeHighlight !== undefined || this.inactiveNodes !== undefined) &&
         (this.endOutOfScope(link.from) || this.endOutOfScope(link.to))
       if (outOfScope) ctx.globalAlpha = SCOPE_DIM
+      if (link.dimmed === true) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
       if (this.overlay.linkSelection?.has(link.id)) {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName, {
           color: this.tokens.colors.nodeSelectedBorder,
@@ -4126,6 +4127,9 @@ export class CanvasRenderer {
         ctx.stroke()
         ctx.globalAlpha = pinAlpha
       } else {
+        // A kept row's pin is dimmed with its row and wire.
+        const pinAlpha = ctx.globalAlpha
+        if (pin.kept !== undefined) ctx.globalAlpha = pinAlpha * canvasPaintTokens.widget.inactiveOpacity
         paintTypedPin(
           ctx,
           t,
@@ -4139,6 +4143,7 @@ export class CanvasRenderer {
           radius,
           acceptsList,
         )
+        ctx.globalAlpha = pinAlpha
       }
     }
 

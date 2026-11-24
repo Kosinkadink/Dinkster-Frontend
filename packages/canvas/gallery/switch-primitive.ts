@@ -60,13 +60,13 @@ const pin = (id: string, type: string, displayName = id): InputSpec => ({
   type: concrete(type),
   optional: false,
 })
-const out = (id: string, type: string, displayName = id): OutputSpec => ({
+export const out = (id: string, type: string, displayName = id): OutputSpec => ({
   kind: 'output',
   id,
   displayName,
   type: concrete(type),
 })
-const schema = (
+export const schema = (
   type: string,
   displayName: string,
   body: NodeSchema['body'],
@@ -224,7 +224,7 @@ export interface Graph {
 }
 
 const NODE_WIDTH = 200
-const COLUMN = 230
+export const COLUMN = 230
 
 /**
  * Builds a document of the given graphs and paints one of them the way the
@@ -657,6 +657,29 @@ export function switchPrimitiveGallery(
   // 8. A wired text picks a branch by its name.
   {
     const graph = pickGraph(quickDetailed, 'Quick', ['Quick', 'Detailed'])
+    const askModel = schema('Ask a Model', 'Ask a Model', [
+      field('question', 'Question', 'STRING', 'Which mode fits this photo?'),
+      out('STRING', 'STRING', 'Answer'),
+    ])
+    cards.push({
+      caption:
+        "A wired text picks the branch whose name is exactly that text; case matters and nothing is trimmed. A branch's id is accepted too, tried after the names. Here a model's answer arrives during the run, so the pick is not known before the run: every branch stays in the submitted graph with the branch names beside it, and the Switch picks when the answer arrives.",
+      scene: scene({
+        root: {
+          ...graph,
+          nodes: {
+            ask: { type: askModel, x: 0, y: -110, width: 170 },
+            ...graph.nodes,
+          },
+          links: [...graph.links!, ['ask', 'STRING', 'sw', 'pick']],
+        },
+      }),
+    })
+  }
+
+  // 9. A Custom Combo on Pick.
+  {
+    const graph = pickGraph(quickDetailed, 'Quick', ['Quick', 'Detailed'])
     const customCombo = schema('Custom Combo', 'Custom Combo', [
       field('choice', 'Choice', 'COMBO', 'Detailed', {
         options: ['Quick', 'Detailed'],
@@ -666,7 +689,7 @@ export function switchPrimitiveGallery(
     ])
     cards.push({
       caption:
-        'A wired text picks the branch whose name is exactly that text; case matters and nothing is trimmed. A branch\'s id is accepted too, tried after the names. Here Custom Combo\'s text output sends "Detailed". It runs, so the pick is not known before the run and every branch stays in the submitted graph; a Text primitive holding "Detailed" is known before the run and drops the Quick path, as for a typed pick.',
+        "A Custom Combo's text output is the choice stored on it, so it is known before the run, as a primitive's value is: wired to Pick, it drops the Quick path. Its options are the ones typed into it, and its INDEX output is the choice's position among them, counting from 0.",
       scene: scene({
         root: {
           ...graph,
@@ -677,10 +700,11 @@ export function switchPrimitiveGallery(
           links: [...graph.links!, ['combo', 'STRING', 'sw', 'pick']],
         },
       }),
+      inactive: new Set(['in0']),
     })
   }
 
-  // 9. A Choice primitive on Pick.
+  // 10. A Choice primitive on Pick.
   {
     const graph = pickGraph(quickDetailed, 'Quick', ['Quick', 'Detailed'])
     const choice = plainPrimitive(
@@ -709,7 +733,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 10. A wired text that names no branch.
+  // 11. A wired text that names no branch.
   {
     const graph = pickGraph(quickDetailed, 'Quick', ['Quick', 'Detailed'])
     cards.push({
@@ -735,7 +759,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 11. Rename and random.
+  // 12. Rename and random.
   {
     const randomPick = switchSchema(
       'Switch random',
@@ -829,7 +853,7 @@ export function switchPrimitiveGallery(
     },
   }
 
-  // 12. One promoted choice drives two Switches.
+  // 13. One promoted choice drives two Switches.
   {
     const graphs = {
       root: finishRoot,
@@ -845,7 +869,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 13. The shared Switches' branches no longer agree.
+  // 14. The shared Switches' branches no longer agree.
   {
     const graphs = { root: finishRoot, pass: finishPass(['Quick', 'Final']) }
     cards.push({
@@ -882,7 +906,7 @@ export function switchPrimitiveGallery(
     ],
   })
 
-  // 14. A Primitive feeding two fields that overlap.
+  // 15. A Primitive feeding two fields that overlap.
   cards.push({
     caption:
       'A Primitive feeds two fields that allow 0 to 8 and 4 to 12, so it allows 4 to 8. The range is worked out from the fields it feeds on every change, and the empty limits in its open Limits section show the derived values in quiet text; nothing is copied onto the Primitive. Each field shows the arriving 6, dimmed.',
@@ -898,7 +922,7 @@ export function switchPrimitiveGallery(
     },
   })
 
-  // 15. The fields it feeds share no value.
+  // 16. The fields it feeds share no value.
   cards.push({
     caption:
       'The two fields share no value: Steps A allows 0 to 3 and Steps B 8 to 12. The value and both wires stay, and a problem names both fields. Nothing is reset or removed; whether those nodes can queue is decided by their own fields as today.',
@@ -911,7 +935,7 @@ export function switchPrimitiveGallery(
     companions: { a: { steps: { value: 6 } }, b: { steps: { value: 6 } } },
   })
 
-  // 16. Explicit and pinned limits.
+  // 17. Explicit and pinned limits.
   cards.push({
     caption:
       'Limits sit below the value in the ordinary node body. A limit the author types is used as given, here minimum 4, maximum 8, step 1 and default 6. "Pin the range" stores the current derived range the same way in one undo step, and "Use connected fields" empties them again. A subgraph node may narrow them, never widen them.',
@@ -932,7 +956,7 @@ export function switchPrimitiveGallery(
     companions: { b: { steps: { value: 6 } } },
   })
 
-  // 17. The typed primitives beside the general one.
+  // 18. The typed primitives beside the general one.
   cards.push({
     caption:
       'Int, Float, Text, Boolean and Choice are the Primitive with its type fixed: one node, six entries in the add-node search, which also finds them as "integer", "number", "decimal", "string", "bool", "toggle", "dropdown" and "combo". A typed primitive has its value field from the start and needs no wire to become something; the general Primitive takes its type, label and widget from the first field it is wired to. Text shown as a multiline box is the same Text node. Text and Boolean have only a Default limit, and Choice offers the options the fields it feeds share. Dragging off a field makes the typed primitive for that field\'s type when there is one.',
@@ -1029,7 +1053,7 @@ export function switchPrimitiveGallery(
     companions: { sampler: { sampler: { value: 'euler' } } },
   })
 
-  // 18. The definition opened with no subgraph node.
+  // 19. The definition opened with no subgraph node.
   {
     const graphs = {
       root: { nodes: { fresh: softenNode('Soften', 230, 330, {}) } },
@@ -1042,7 +1066,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 19. Amount wired from outside, entered through that subgraph node.
+  // 20. Amount wired from outside, entered through that subgraph node.
   {
     const graphs = {
       root: {
@@ -1072,7 +1096,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 20. One number drives two Picks in a plain graph.
+  // 21. One number drives two Picks in a plain graph.
   {
     const index = numberPrimitive('Primitive index', 'Value', 'INT', 1, {
       min: 0,
@@ -1109,7 +1133,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 21. A refused link and a refused name.
+  // 22. A refused link and a refused name.
   {
     const refused = scene({
       root: {
@@ -1149,7 +1173,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 22. Plugging in corrects the value in the same undo step.
+  // 23. Plugging in corrects the value in the same undo step.
   {
     const p = stepsPrimitive()
     const stage = (
@@ -1196,7 +1220,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 23. Pinned range, disconnected and conflicting dropdowns.
+  // 24. Pinned range, disconnected and conflicting dropdowns.
   {
     const conflict = plainPrimitive(
       'Primitive conflict',
@@ -1260,7 +1284,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 24. A wired Primitive passes its producer on.
+  // 25. A wired Primitive passes its producer on.
   cards.push({
     caption:
       'A Primitive whose value arrives on a wire is read-only, with its stored 0.4 struck through, and passes the wire on: the submitted graph links Runtime number straight to Blend, and the Primitive itself does not run. Its stored value is not written into Blend; it is used again once the wire is removed.',

@@ -97,6 +97,8 @@ import {
   type ControllerInputProvenance,
   type ControllerInputSource,
   type ControllerNodeInputSource,
+  inGoneMember,
+  wiresFromNode,
   type ControllerMode,
   type Diagnostic,
   type DiagnosticAnchor,
@@ -5172,6 +5174,34 @@ export class AppState {
     }
     const invocations: CommandInvocation[] = []
     const entries: Diagnostic[] = []
+    const anchorOf = (graphId: string, nodeId: NodeId) => {
+      const instancePath = paths.get(graphId)
+      return instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: nodeId } } }
+    }
+    // The members a node has are the ones its elaboration gives on open: a
+    // wire, named net or subgraph output forward from any other member goes.
+    const what = { link: 'the wire', net: 'the named net', forward: 'the subgraph output' } as const
+    for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+      const wires = wiresFromNode(graph, node.id)
+      const schema = wires.length === 0 ? undefined : resolve(graph.id, node)
+      if (schema === undefined) continue
+      const elaborated = elaborateInterface(schema, node, buildGraphConnectivity(graph)(node.id))
+      const gone = wires.filter((wire) => inGoneMember(elaborated, wire.address))
+      if (gone.length === 0) continue
+      for (const wire of gone) {
+        if (wire.kind === 'link') invocations.push({ command: 'link.disconnect', params: { graphId: graph.id, linkId: wire.id } })
+        else if (wire.kind === 'net') invocations.push({ command: 'net.remove', params: { graphId: graph.id, netId: wire.id } })
+        else {
+          const binds = graph.boundary?.outputs.find((item) => item.id === wire.id)?.binds
+          invocations.push({ command: 'boundary.unbind', params: { graphId: graph.id, side: 'outputs', itemId: wire.id, node: node.id,
+            ...(binds?.kind === 'widgetTap' ? { tap: wire.address } : { port: wire.address }) } })
+        }
+      }
+      entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
+        `${node.title ?? schema.displayName}: ${gone.map((wire) =>
+          `${what[wire.kind]} from '${wire.address}' is removed, because its member is no longer part of the node.`).join(' ')}`,
+        { refs: [{ graphId: graph.id, nodeId: node.id }], ...anchorOf(graph.id, node.id) }))
+    }
     for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
       const schema = resolve(graph.id, node)
       if (schema === undefined || node.dynamic === undefined) continue
@@ -5193,11 +5223,10 @@ export class AppState {
           ...(selected === null ? { variant: null } : { option: selected }),
         } as Json })
       }
-      const instancePath = paths.get(graph.id)
       entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
         `${node.title ?? schema.displayName}: ${[...new Set(changes.map((entry) => entry.message))].join(' ')}`, {
           refs: [{ graphId: graph.id, nodeId: node.id }],
-          ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: node.id } } }),
+          ...anchorOf(graph.id, node.id),
         }))
     }
     if (invocations.length > 0) return Promise.resolve(this.dispatchTo(tab,

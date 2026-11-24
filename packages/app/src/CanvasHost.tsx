@@ -332,7 +332,7 @@ export const clipboardSceneEndpointTypes = (source: Scene): ReadonlyMap<string, 
     // flip the type representation and falsely reject a stub.
     for (const pin of node.layout.pins) {
       if (pin.widgetTap === true) {
-        if (node.missingSchema !== true && pin.staticWidgetTap === true)
+        if (node.missingSchema !== true)
           result.set(clipboardEndpointKey('tap', node.id, pin.address.port), JSON.stringify(pin.type))
         continue
       }
