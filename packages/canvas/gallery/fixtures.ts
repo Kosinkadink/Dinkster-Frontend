@@ -40,6 +40,7 @@ import {
   toolboxButton,
   toolboxSeparator,
   type BadgeMap,
+  type PortProblemMap,
   type NodeBadge,
   type CompanionMap,
   type RowMarkMap,
@@ -58,6 +59,7 @@ import {
 } from './structure.js'
 import { smallFlowNodesGallery } from './small-flow-nodes.js'
 import { switchPrimitiveGallery } from './switch-primitive.js'
+import { typeConflictGallery } from './type-conflict.js'
 import { widgetTapGallery } from './widget-taps.js'
 
 export const canvasGalleryPages = [
@@ -99,6 +101,7 @@ export const canvasGalleryPages = [
   ['minimap', 'Minimap'],
   ['switch-primitive', 'Switch and Primitive'],
   ['small-flow-nodes', 'Or else, Has value and Only if'],
+  ['type-conflict', 'Type conflicts'],
 ] as const
 export type CanvasGalleryPage = (typeof canvasGalleryPages)[number][0]
 
@@ -261,6 +264,8 @@ export interface CanvasGalleryFixture {
     companions?: CompanionMap
     rowMarks?: RowMarkMap
     inactive?: ReadonlySet<string>
+    badges?: BadgeMap
+    portProblems?: PortProblemMap
   }[]
 }
 
@@ -975,6 +980,12 @@ export function createCanvasGalleryFixture(
     fixture.scene.nodes = [...first.nodes]
     fixture.scene.links = [...first.links]
     fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
+  } else if (page === 'type-conflict') {
+    const cards = typeConflictGallery(tokens, measure, widgetMeasure)
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
     examples.push(...cards)
   } else if (page === 'widget-taps') {
     const gallery = widgetTapGallery(tokens, measure, widgetMeasure)

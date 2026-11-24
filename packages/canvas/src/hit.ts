@@ -361,7 +361,8 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     const node = scene.nodes[i]!
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {
-      if (pin.widgetTap !== true || pin.stacked === true || !opts?.widgetTaps?.has(`${node.id}:${pin.portId}:out:tap`)) continue
+      // A kept row's pin keeps its wire; no wire starts or ends on it.
+      if (pin.widgetTap !== true || pin.stacked === true || pin.kept !== undefined || !opts?.widgetTaps?.has(`${node.id}:${pin.portId}:out:tap`)) continue
       const x = node.x + node.layout.width
       const y = node.y + pin.y
       const distance = Math.hypot(wx - x, wy - y)

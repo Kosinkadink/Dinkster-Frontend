@@ -191,7 +191,7 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
     expect(outs[0]!.type).toEqual({ kind: 'concrete', name: 'IMAGE' })
   })
 
-  it('derives a widget output from one exact static widget-backed input and fails closed otherwise', () => {
+  it('derives a widget output from one exact widget-backed input and fails closed otherwise', () => {
     const tapped = asDef({
       ...def,
       boundary: {
@@ -219,17 +219,12 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
     const seed = innerSchemas.KSampler!.body[0]!
     const malformed = [
       {
-        code: 'boundary.tapAmbiguous',
-        tap: 'seed',
-        schema: { ...innerSchemas.KSampler!, body: [...innerSchemas.KSampler!.body, seed] },
-      },
-      {
         code: 'boundary.tapUnsupported',
         tap: 'latent_image',
         schema: innerSchemas.KSampler!,
       },
       {
-        // A group is not an input, so a tap naming it finds no static input.
+        // A group is not an input, so a tap naming it finds no input.
         code: 'boundary.tapMissing',
         tap: 'seed',
         schema: {
@@ -257,6 +252,23 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
       expect(result.schema).toBeUndefined()
       expect(result.diagnostics).toContainEqual(expect.objectContaining({ code }))
     }
+  })
+
+  it("derives a widget output from a member field's output while the member is stored", () => {
+    const seed = innerSchemas.KSampler!.body[0]!
+    const grouped = { ...innerSchemas.KSampler!, body: [{
+      kind: 'group', id: 'seeds', value: seed, keys: { kind: 'numbered', prefix: 'seed', start: 0, pad: 0 }, grows: 'hand', minMembers: 0,
+    }] } as unknown as NodeSchema
+    const withMembers = (members: string[]) => asDef({
+      ...def,
+      nodes: { ...def.nodes, n0: { ...def.nodes.n0!, dynamic: { seeds: { members } } } },
+      boundary: { inputs: [], outputs: [{ id: 'second', binds: { kind: 'widgetTap', node: 'n0', tap: 'seeds.seed1' } }] },
+    })
+    const valid = deriveBoundarySchema(withMembers(['seed0', 'seed1']), () => grouped)
+    expect(valid.diagnostics).toEqual([])
+    expect(outputsOf(valid.schema!)).toEqual([expect.objectContaining({ id: 'second', type: { kind: 'concrete', name: 'INT' } })])
+    const removed = deriveBoundarySchema(withMembers(['seed0']), () => grouped)
+    expect(removed.diagnostics).toContainEqual(expect.objectContaining({ code: 'boundary.tapMissing' }))
   })
 
   it('aggregates emitsPreviews from any inner node, nested instances included', () => {

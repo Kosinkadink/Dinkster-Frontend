@@ -372,6 +372,8 @@ export interface SceneLink {
    * DISTINCT from error/conflict styling - maybe-absent is normal.
    */
   readonly maybeAbsent?: true
+  /** The wire leaves a kept row (a field no longer part of its node): drawn dimmed, it gives nothing. */
+  readonly dimmed?: true
   /**
    * Set when this noodle renders a named-net fan-out rather than a document
    * link. Its `id` is synthetic (`netId:index`); deletion must go through
@@ -868,6 +870,7 @@ function projectedTypeConstraints(
         isOutputConnected: (port: string) =>
           projectedOutputKeys.get(nodeId)?.has(port) || base.isOutputConnected(port),
         inputPorts: () => [...new Set([...(base.inputPorts?.() ?? []), ...(projectedInputPortKeys.get(nodeId) ?? [])])],
+        outputPorts: () => [...new Set([...(base.outputPorts?.() ?? []), ...(projectedOutputKeys.get(nodeId) ?? [])])],
       }
     }
     const result = solveGraphTypes(solveGraph, resolve, {
@@ -1269,6 +1272,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       isOutputConnected: (port: string) =>
         projectedOutputs.get(nodeId)?.has(port) || base.isOutputConnected(port),
       inputPorts: () => [...new Set([...(base.inputPorts?.() ?? []), ...(projectedInputPorts.get(nodeId) ?? [])])],
+      outputPorts: () => [...new Set([...(base.outputPorts?.() ?? []), ...(projectedOutputs.get(nodeId) ?? [])])],
     }
   }
 
@@ -1701,7 +1705,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   }
 
   // A link end's anchor point: pin center for ports, dot center for reroutes.
-  const endPoint = (end: LinkEndpoint, direction: 'in' | 'out'): { x: number; y: number; end: SceneLinkEnd; type?: TypeExpr } | undefined => {
+  const endPoint = (end: LinkEndpoint, direction: 'in' | 'out'): { x: number; y: number; end: SceneLinkEnd; type?: TypeExpr; kept?: true } | undefined => {
     if (isRerouteRef(end)) {
       const r = rerouteById.get(end.reroute)
       return r ? { x: r.x, y: r.y, end: { kind: 'reroute', reroute: r.id }, ...(r.typeName ? { type: typeExprFromTypeId(r.typeName) } : {}) } : undefined
@@ -1735,6 +1739,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         y: node.y + pin.y,
         end: { kind: 'widgetTap', node: end.node, input: end.tap },
         type: pin.type,
+        ...(pin.kept !== undefined ? { kept: true as const } : {}),
       } : undefined
     }
     const node = byId.get(end.node)
@@ -1837,6 +1842,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(to.type !== undefined ? { toType: to.type } : typeName !== undefined ? { toType: typeExprFromTypeId(typeName) } : {}),
       ...(typeName !== undefined ? { typeName } : {}),
       ...(tracedMaybeAbsent(c.from) ? { maybeAbsent: true as const } : {}),
+      ...(from.kept === true ? { dimmed: true as const } : {}),
       ...(c.mismatch === true ? { mismatch: true as const } : {}),
       ...(c.diagnostics !== undefined && c.diagnostics.length > 0 ? { diagnostics: c.diagnostics } : {}),
       ...(c.netId !== undefined ? { netId: c.netId } : {}),
