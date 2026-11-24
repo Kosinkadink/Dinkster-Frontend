@@ -44,8 +44,6 @@ import {
   type Scene,
   type SceneNetStub,
   type SceneNode,
-  type SceneSelector,
-  type SceneValueSource,
   type ScopeHighlight,
   type ToolboxRow,
   type ToolboxButtonRect,
@@ -81,13 +79,10 @@ import {
   elabOutputsOf,
   effectiveOccurrenceTopology,
   effectiveWidgetDefault,
-  documentValueSourceResolver,
   elabInputsOf,
   formatWidgetValue,
   flattenShellRefusalDiagnostic,
-  pinnedSpecOf,
   scopeClosure,
-  selectorCandidateKey,
   parseOccurrenceKey,
   asPortId,
   asNodeId,
@@ -848,8 +843,6 @@ export async function flattenSubgraphThroughBridge(args: {
 const geometryOfLifecycleScene = (source: Scene): readonly ResolvedGeometryItem[] => [
   ...source.nodes.map((node): ResolvedGeometryItem => ({ id: node.id, kind: 'node', x: node.x, y: node.y, width: node.layout.width, height: node.layout.height })),
   ...source.reroutes.map((item): ResolvedGeometryItem => ({ id: item.id, kind: 'reroute', x: item.x, y: item.y, width: 0, height: 0 })),
-  ...source.valueSources.map((item): ResolvedGeometryItem => ({ id: item.id, kind: 'valueSource', x: item.x, y: item.y, width: item.width, height: item.height })),
-  ...source.selectors.map((item): ResolvedGeometryItem => ({ id: item.id, kind: 'selector', x: item.x, y: item.y, width: item.width, height: item.height })),
   ...source.groups.map((item): ResolvedGeometryItem => ({ id: item.id, kind: 'group', x: item.x, y: item.y, width: item.width, height: item.height })),
 ]
 
@@ -864,8 +857,6 @@ export function occurrenceDeleteDecision<Identity>(args: {
   readonly boundaryCount: number
   readonly nodeCount: number
   readonly rerouteCount: number
-  readonly valueSourceCount: number
-  readonly selectorCount: number
   readonly groupCount: number
   readonly netViewCount?: number
   readonly drilled: boolean
@@ -873,7 +864,7 @@ export function occurrenceDeleteDecision<Identity>(args: {
   const onlyEffectiveLinks =
     args.effectiveLinks.length > 0 && args.effectiveLinks.every((identity) => identity !== undefined) &&
     args.boundaryCount === 0 && args.nodeCount === 0 && args.rerouteCount === 0 &&
-    args.valueSourceCount === 0 && args.selectorCount === 0 && args.groupCount === 0 &&
+    args.groupCount === 0 &&
     (args.netViewCount ?? 0) === 0
   if (!onlyEffectiveLinks || !args.drilled) return { kind: 'mixed' }
   const identities = args.effectiveLinks.flatMap((items) => items ?? [])
@@ -884,10 +875,9 @@ export function occurrenceDeleteDecision<Identity>(args: {
 }
 
 export function lifecycleOtherSelectionCount(controller: Pick<InteractionController,
-  'getLinkSelection' | 'getRerouteSelection' | 'getValueSourceSelection' | 'getSelectorSelection' | 'getGroupSelection' | 'getNetViewSelection'
+  'getLinkSelection' | 'getRerouteSelection' | 'getGroupSelection' | 'getNetViewSelection'
 >): number {
   return controller.getLinkSelection().size + controller.getRerouteSelection().size +
-    controller.getValueSourceSelection().size + controller.getSelectorSelection().size +
     controller.getGroupSelection().size + controller.getNetViewSelection().size
 }
 
@@ -898,15 +888,11 @@ export function selectionDeleteInvocation(args: {
   readonly nodeIds: readonly string[]
   readonly selectedLinks: readonly string[]
   readonly rerouteIds?: readonly string[]
-  readonly valueSourceIds?: readonly string[]
-  readonly selectorIds?: readonly string[]
   readonly groupIds?: readonly string[]
   readonly selectedNetViews?: readonly SceneNetStub[]
 }): CommandInvocation | undefined {
   const { graphId, def, scene, nodeIds, selectedLinks } = args
   const rerouteIds = [...(args.rerouteIds ?? [])]
-  const valueSourceIds = [...(args.valueSourceIds ?? [])]
-  const selectorIds = [...(args.selectorIds ?? [])]
   const groupIds = [...(args.groupIds ?? [])]
   const selectedNetViews = [...(args.selectedNetViews ?? [])]
   const deletedNodes = new Set(nodeIds)
@@ -968,17 +954,17 @@ export function selectionDeleteInvocation(args: {
       for (const sink of net.sinks) if (!deletedNodes.has(sink.node)) freedNodes.add(sink.node)
     }
     for (const item of def.boundary?.inputs ?? []) {
-      if (item.binds.kind === 'unbound' || item.binds.kind === 'valueSource') continue
+      if (item.binds.kind === 'unbound') continue
       if (!deletedNodes.has(item.binds.node)) continue
       for (const binding of item.alsoBinds ?? []) {
-        if (binding.kind === 'unbound' || binding.kind === 'valueSource') continue
+        if (binding.kind === 'unbound') continue
         if (!deletedNodes.has(binding.node)) freedNodes.add(binding.node)
       }
     }
   }
   const hasDeleteItems =
     nodeIds.length > 0 || linkIds.length > 0 || netSinks.length > 0 ||
-    rerouteIds.length > 0 || valueSourceIds.length > 0 || selectorIds.length > 0
+    rerouteIds.length > 0
   const removedNets = new Set(selectedNetViews.filter((stub) => stub.role === 'source').map((stub) => stub.netId))
   const graphDeletesNet = (netId: string): boolean => {
     const net = def.nets[netId]
@@ -991,7 +977,7 @@ export function selectionDeleteInvocation(args: {
   const invocations: { command: string; params: JsonObject }[] = [
     ...(hasDeleteItems ? [{
       command: 'graph.deleteItems',
-      params: { graphId, nodeIds: [...nodeIds], linkIds, netSinks, rerouteIds, valueSourceIds, selectorIds } as JsonObject,
+      params: { graphId, nodeIds: [...nodeIds], linkIds, netSinks, rerouteIds } as JsonObject,
     }] : []),
     ...boundaryOps,
     ...groupIds.map((groupId) => ({
@@ -1032,7 +1018,7 @@ export function reportBoundaryExposureRefusal(args: {
   if (args.tabId === undefined) return
   const producer = args.source.kind === 'widgetTap'
     ? `widget tap '${args.source.node}.${args.source.tap}'`
-    : `${args.source.kind === 'valueSource' ? 'value source' : args.source.kind} '${args.source.id}'`
+    : `${args.source.kind} '${args.source.id}'`
   const reason = args.source.kind === 'widgetTap'
     ? 'widget taps are output bindings only'
     : 'structural producers require stamped public output types'
@@ -1794,8 +1780,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly graphId: string
     readonly nodeId: string
     readonly inputId: string
-    /** Set for an Inputs panel field whose value is this value source's own. */
-    readonly valueSourceId?: string
     readonly mode: ControllerMode
     readonly trigger: 'after_generate' | 'after_refresh'
     readonly lifetime: object
@@ -1855,14 +1839,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     setPendingController(controller.lifetime)
     setControllerMenu((current) => current?.lifetime === controller.lifetime ? { ...current, refusal: undefined } : current)
     try {
-      const outcome = await props.app.dispatchTo(controller.tab, controller.valueSourceId !== undefined
-        ? { command: 'valueSource.setController', params: { graphId: controller.graphId, valueSourceId: controller.valueSourceId, mode } }
-        : { command: 'node.setController', params: {
-          graphId: controller.graphId,
-          nodeId: controller.nodeId,
-          inputId: controller.inputId,
-          mode,
-        } })
+      const outcome = await props.app.dispatchTo(controller.tab, { command: 'node.setController', params: {
+        graphId: controller.graphId,
+        nodeId: controller.nodeId,
+        inputId: controller.inputId,
+        mode,
+      } })
       if (!isCurrent()) return
       if (outcome.ok) setControllerMenu(undefined)
       else setControllerMenu((current) => current === undefined ? current : { ...current, refusal: outcome.diagnostics[0] })
@@ -1873,8 +1855,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [selectionSize, setSelectionSize] = createSolidSignal(0)
   const [linkSelectionSize, setLinkSelectionSize] = createSolidSignal(0)
   const [rerouteSelectionSize, setRerouteSelectionSize] = createSolidSignal(0)
-  const [valueSourceSelectionSize, setValueSourceSelectionSize] = createSolidSignal(0)
-  const [selectorSelectionSize, setSelectorSelectionSize] = createSolidSignal(0)
   const [groupSelectionSize, setGroupSelectionSize] = createSolidSignal(0)
   // Bumped on EVERY selection change (size alone misses same-size swaps);
   // the partial-scope preview effect keys off it.
@@ -2032,86 +2012,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     })
   })
 
-  // -- value source popover ---------------------------------------------------
-  // Opened by clicking a value source's spec badge. Shows the effective
-  // spec's provenance (declared/derived/raw), conflicts, and pin/unpin.
-  interface ValueSourcePopoverState {
-    readonly x: number
-    readonly y: number
-    readonly valueSourceId: string
-  }
-  const [vsPopover, setVsPopover] = createSolidSignal<ValueSourcePopoverState | undefined>(undefined)
-
-  interface SelectorExecPopoverState {
-    readonly x: number
-    readonly y: number
-    readonly selectorId: string
-  }
-  /** Frozen-view selector badge popover: the branch this execution ACTUALLY ran. */
-  const [selExecPopover, setSelExecPopover] = createSolidSignal<SelectorExecPopoverState | undefined>(undefined)
-
-  /**
-   * Execution-recorded resolution of one selector on a frozen tab, resolved
-   * lazily at render from the artifact (authoritative) plus the snapshot
-   * document (titles/ordinals) - never stored.
-   */
-  const selectorExecInfoFor = (id: string) => {
-    executions()
-    const tab = activeTab()
-    if (!tab?.execution) return undefined
-    const gid = currentGraphId(tab)
-    const sel = tab.store.doc.graphs[gid]?.selectors?.[id]
-    if (!sel) return undefined
-    const exec = props.app.executionForTab(tab)
-    const choice = exec?.artifact?.choices?.find((c) => c.graph === gid && c.selector === id)
-    const index = choice ? sel.candidates.findIndex((c) => c.id === choice.candidate) : -1
-    return { sel, choice, index, candidate: index >= 0 ? sel.candidates[index] : undefined }
-  }
-
-  /**
-   * Value source popover content, resolved lazily at render from the live
-   * document (the popover survives value edits; the spec is derived fresh -
-   * never stored - exactly like the scene build does).
-   */
-  const valueSourceInfoFor = (id: string) => {
-    docTick()
-    const tab = activeTab()
-    const reg = registry()
-    if (!tab) return undefined
-    const graphId = currentGraphId(tab)
-    const def = tab.store.doc.graphs[graphId]
-    const vs = def?.valueSources?.[id]
-    if (!def || !vs) return undefined
-    const resolveSource = documentValueSourceResolver(tab.store.doc, reg?.resolve ?? (() => undefined))
-    const effective = resolveSource(graphId, id, viewInstancePath(tab)?.map(asNodeId))!
-    const specState: 'declared' | 'derived' | 'raw' = vs.spec ? 'declared' : effective.spec ? 'derived' : 'raw'
-    return { graphId, vs, effective, specState }
-  }
-
-  /** Pin the CURRENT effective spec as declared (derivation stops moving). */
-  const pinValueSourceSpec = (id: string): void => {
-    const tab = activeTab()
-    const info = valueSourceInfoFor(id)
-    if (!tab || tab.execution || !info) return
-    const spec = pinnedSpecOf(info.effective)
-    if (!spec) return
-    props.app.dispatchTo(tab, {
-      command: 'valueSource.setSpec',
-      params: { graphId: info.graphId, valueSourceId: id, spec },
-    })
-  }
-
-  /** Clear the declared spec back to fully derived. Never touches the value. */
-  const unpinValueSourceSpec = (id: string): void => {
-    const tab = activeTab()
-    const info = valueSourceInfoFor(id)
-    if (!tab || tab.execution || !info) return
-    props.app.dispatchTo(tab, {
-      command: 'valueSource.setSpec',
-      params: { graphId: info.graphId, valueSourceId: id, spec: null },
-    })
-  }
-
   // -- net name prompt --------------------------------------------------------
   // App-owned text popover for the two net actions that need a name (create,
   // rename). Everything else about nets is plain commands.
@@ -2193,30 +2093,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     if (invocation) return props.app.dispatchTo(p.tab, invocation)
   }
 
-  // -- selector rename prompt -------------------------------------------------
-  // Same shape as the group prompt: a text popover anchored at the menu point.
-  interface SelectorPromptState {
-    readonly x: number
-    readonly y: number
-    readonly selectorId: string
-    readonly initial: string
-  }
-  const [selectorPrompt, setSelectorPrompt] = createSolidSignal<SelectorPromptState | undefined>(undefined)
-
-  const selectorPromptCommit = (title: string): CommandOutcome | Promise<CommandOutcome> | undefined => {
-    const p = selectorPrompt()
-    const tab = activeTab()
-    if (!p || !tab || tab.execution) return
-    const trimmed = title.trim()
-    if (trimmed.length === 0) return
-    return props.app.dispatchTo(tab, {
-      command: 'selector.setTitle',
-      params: { graphId: currentGraphId(tab), selectorId: p.selectorId, title: trimmed },
-    })
-  }
-
   // -- boundary slot rename prompt --------------------------------------------
-  // Same shape as the selector prompt. Committing an empty string CLEARS the
+  // Same shape as the group prompt. Committing an empty string CLEARS the
   // display name (the slot falls back to its stable item id).
   interface BoundaryPromptState {
     readonly x: number
@@ -2246,7 +2124,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     setNetPrompt(undefined)
     setGroupPrompt(undefined)
     setNodePrompt(undefined)
-    setSelectorPrompt(undefined)
     setBoundaryPrompt(undefined)
   })
 
@@ -2804,8 +2681,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const lifecycleSelection = (): LifecycleSelectionSnapshot => ({
       nodeIds: [...controller.getSelection()].filter((id) => scene.nodes.some((node) => node.id === id)),
       rerouteIds: [...controller.getRerouteSelection()],
-      valueSourceIds: [...controller.getValueSourceSelection()],
-      selectorIds: [...controller.getSelectorSelection()],
       groupIds: [...controller.getGroupSelection()],
       geometry: geometryOfLifecycleScene(scene),
     })
@@ -2921,8 +2796,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           nodes: [...controller.getSelection()],
           links: [...controller.getLinkSelection()],
           reroutes: [...controller.getRerouteSelection()],
-          valueSources: [...controller.getValueSourceSelection()],
-          selectors: [...controller.getSelectorSelection()],
         },
         worldX: node.x + row.inset,
         worldY: node.y + row.y,
@@ -2942,8 +2815,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           nodes: [...controller.getSelection()],
           links: [...controller.getLinkSelection()],
           reroutes: [...controller.getRerouteSelection()],
-          valueSources: [...controller.getValueSourceSelection()],
-          selectors: [...controller.getSelectorSelection()],
         },
         worldX: node.x + node.layout.width / 2,
         worldY: node.y + node.layout.height / 2,
@@ -3009,8 +2880,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           nodes: [...controller.getSelection()],
           links: [...controller.getLinkSelection()],
           reroutes: [...controller.getRerouteSelection()],
-          valueSources: [...controller.getValueSourceSelection()],
-          selectors: [...controller.getSelectorSelection()],
         },
         worldX,
         worldY,
@@ -3135,13 +3004,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           side,
         })
       },
-      onSelectionChange: (nodes, links, reroutes, valueSources, selectors, groups) => {
+      onSelectionChange: (nodes, links, reroutes, groups) => {
         setSelectedNodeIds(new Set(nodes))
         setSelectionSize(nodes.size)
         setLinkSelectionSize(links.size)
         setRerouteSelectionSize(reroutes.size)
-        setValueSourceSelectionSize(valueSources.size)
-        setSelectorSelectionSize(selectors.size)
         setGroupSelectionSize(groups.size)
         setSelVersion((v) => v + 1)
         instanceSelection = { nodes: [...nodes], links: [...links], groups: [...groups] }
@@ -3205,7 +3072,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           graphId: hit.row.familyOwner?.graphId ?? currentGraphId(tab),
           nodeId: hit.row.familyOwner?.nodeId ?? hit.node.id,
           inputId: hit.row.familyOwner?.valueKey ?? hit.row.valueKey,
-          ...(hit.row.valueSourceOwner !== undefined ? { valueSourceId: hit.row.valueSourceOwner.valueSourceId } : {}),
           mode: hit.row.controllerMode,
           trigger: hit.row.spec.controller ?? 'after_generate',
         })
@@ -3235,73 +3101,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           y: (rect.y + rect.height) * vp.scale + vp.y + 6,
           nodeId: node.id,
           badge,
-        })
-      },
-      // While a subgraph node is entered, its value through a source is
-      // edited on the Inputs panel, not on the pill.
-      onValueSourceActivate: (vs) => { if (vs.arriving === undefined) openValueSourceEditor(vs) },
-      onValueSourceBadgeClick: (vs, rect) => {
-        closePalette()
-        setEditor(undefined)
-        setMenu(undefined)
-        setBadgePopover(undefined)
-        const vp = renderer.getViewport()
-        setVsPopover({
-          x: rect.x * vp.scale + vp.x,
-          y: (rect.y + rect.height) * vp.scale + vp.y + 6,
-          valueSourceId: vs.id,
-        })
-      },
-      onSelectorBadgeClick: (sel, rect) => {
-        const tab = activeTab()
-        if (!tab) return
-        closePalette()
-        setEditor(undefined)
-        setBadgePopover(undefined)
-        // Frozen views are read-only: the badge answers "which branch did THIS
-        // execution take?" from the artifact, never the (uneditable) policy menu.
-        if (tab.execution) {
-          setMenu(undefined)
-          setVsPopover(undefined)
-          const vp = renderer.getViewport()
-          setSelExecPopover({
-            x: rect.x * vp.scale + vp.x,
-            y: (rect.y + rect.height) * vp.scale + vp.y + 6,
-            selectorId: sel.id,
-          })
-          return
-        }
-        // Editable tabs: the policy badge opens the selector's resolved menu
-        // (policy items live there) anchored under the badge: details +
-        // actions, one surface.
-        const worldX = rect.x + rect.width / 2
-        const worldY = rect.y + rect.height
-        const ctx: MenuContext = {
-          doc: tab.store.doc,
-          features: { namedNets: props.app.settings.get<boolean>('features.namedNets.enabled') },
-          graphId: currentGraphId(tab),
-          target: { kind: 'selector', selectorId: sel.id },
-          selection: {
-            nodes: [...controller.getSelection()],
-            links: [...controller.getLinkSelection()],
-            reroutes: [...controller.getRerouteSelection()],
-            valueSources: [...controller.getValueSourceSelection()],
-            selectors: [...controller.getSelectorSelection()],
-          },
-          worldX,
-          worldY,
-        }
-        const groups = props.app.menuRegistry.resolve(ctx)
-        if (groups.length === 0) {
-          setMenu(undefined)
-          return
-        }
-        const vp = renderer.getViewport()
-        setMenu({
-          x: worldX * vp.scale + vp.x, y: worldY * vp.scale + vp.y + 6, worldX, worldY, groups,
-          tab, graphId: currentGraphId(tab), pathKey: (viewInstancePath(tab) ?? []).join('/'),
-          documentRevision: tab.store.revision, schemaRegistry: registry(),
-          extensionsGeneration: props.app.extensions.changed.get(),
         })
       },
       onOpenSubgraph: (node) => {
@@ -3654,8 +3453,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (target.kind === 'minimize') return false
       if (target.kind === 'link') return controller.getLinkSelection().has(target.id)
       if (target.kind === 'reroute') return controller.getRerouteSelection().has(target.id)
-      if (target.kind === 'valueSource') return controller.getValueSourceSelection().has(target.id)
-      if (target.kind === 'selector') return controller.getSelectorSelection().has(target.id)
       if (target.kind === 'net') return controller.getNetViewSelection().has(target.id)
       return controller.getGroupSelection().has(target.id)
     }
@@ -3696,25 +3493,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (reroute === undefined) return
         controller.setSelection([], [], [target.id])
         rect = { x: reroute.x - 1, y: reroute.y - 1, width: 2, height: 2 }
-      } else if (target.kind === 'valueSource') {
-        const valueSource = source.valueSources.find((candidate) => candidate.id === target.id)
-        if (valueSource === undefined) return
-        controller.setSelection([], [], [], [target.id])
-        rect = { x: valueSource.x, y: valueSource.y, width: valueSource.width, height: valueSource.height }
-      } else if (target.kind === 'selector') {
-        const selector = source.selectors.find((candidate) => candidate.id === target.id)
-        if (selector === undefined) return
-        controller.setSelection([], [], [], [], [target.id])
-        rect = { x: selector.x, y: selector.y, width: selector.width, height: selector.height }
       } else if (target.kind === 'group') {
         const group = source.groups.find((candidate) => candidate.id === target.id)
         if (group === undefined) return
-        controller.setSelection([], [], [], [], [], [target.id])
+        controller.setSelection([], [], [], [target.id])
         rect = { x: group.x, y: group.y, width: group.width, height: group.height }
       } else {
         const stub = source.netStubs.find((candidate) => candidate.id === target.id)
         if (stub === undefined) return
-        controller.setSelection([], [], [], [], [], [], [target.id])
+        controller.setSelection([], [], [], [], [target.id])
         rect = { x: stub.x, y: stub.y, width: stub.width, height: stub.height }
       }
       camera.animateTo(viewportCenteredOnNode(
@@ -3774,8 +3561,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const preservedBoundarySelection = selectedItems.filter((id) => boundaryIds.has(id))
       const selectedLinks = [...controller.getLinkSelection()]
       const rerouteIds = [...controller.getRerouteSelection()]
-      const valueSourceIds = [...controller.getValueSourceSelection()]
-      const selectorIds = [...controller.getSelectorSelection()]
       const groupIds = [...controller.getGroupSelection()]
       const selectedNetViews = [...controller.getNetViewSelection()]
         .flatMap((id) => scene.netStubs.find((stub) => stub.id === id) ?? [])
@@ -3783,8 +3568,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         nodeIds.length === 0 &&
         selectedLinks.length === 0 &&
         rerouteIds.length === 0 &&
-        valueSourceIds.length === 0 &&
-        selectorIds.length === 0 &&
         groupIds.length === 0 &&
         selectedNetViews.length === 0
       )
@@ -3799,8 +3582,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           boundaryCount: preservedBoundarySelection.length,
           nodeCount: nodeIds.length,
           rerouteCount: rerouteIds.length,
-          valueSourceCount: valueSourceIds.length,
-          selectorCount: selectorIds.length,
           groupCount: groupIds.length,
           netViewCount: selectedNetViews.length,
           drilled: scene.occurrence !== undefined,
@@ -3842,7 +3623,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const invocation = selectionDeleteInvocation({
         graphId: currentGraphId(tab), def: tab.store.doc.graphs[currentGraphId(tab)]!,
         scene, nodeIds, selectedLinks,
-        rerouteIds, valueSourceIds, selectorIds, groupIds, selectedNetViews,
+        rerouteIds, groupIds, selectedNetViews,
       })
       if (invocation === undefined) return
       const target = captureLifecycleTarget(tab, currentGraphId(tab))
@@ -4005,18 +3786,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           x: m.x, y: m.y, nodeId, initial: node.title ?? originalTitle, originalTitle,
           tab: m.tab, graphId: m.graphId,
         })
-      },
-      renameSelector: (params, m) => {
-        if (refuseFrozenEdit()) return
-        const tab = activeTab()
-        const selectorId =
-          params && typeof params === 'object' && !Array.isArray(params)
-            ? (params as JsonObject)['selectorId']
-            : undefined
-        if (!tab || typeof selectorId !== 'string') return
-        const sel = tab.store.doc.graphs[currentGraphId(tab)]?.selectors?.[selectorId]
-        if (!sel) return
-        setSelectorPrompt({ x: m.x, y: m.y, selectorId, initial: sel.title ?? 'Select' })
       },
       copySelection: () => { void copySelection() },
       pasteSelection: (_params, m) => { void pasteFromClipboard({ x: m.worldX, y: m.worldY }) },
@@ -4238,7 +4007,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       return { width: layout.width, height: layout.height, headerHeight: layout.headerHeight }
     }
 
-    let scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
+    let scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
 
     problemBoxHost = {
       owner: () => {
@@ -4444,8 +4213,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (tab.replacesFrozenTabId !== undefined) transferredFrozenViews.add(tab.id)
       const keptSelection = continuesFrozenView ? [
         controller.getSelection(), controller.getLinkSelection(), controller.getRerouteSelection(),
-        controller.getValueSourceSelection(), controller.getSelectorSelection(), controller.getGroupSelection(),
-        controller.getNetViewSelection(),
+        controller.getGroupSelection(), controller.getNetViewSelection(),
       ] as const : undefined
       const replaced = key !== sceneKey || (repositioned !== undefined ? scene !== built : !scenesEqual(scene, built))
       if (replaced) {
@@ -4494,7 +4262,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         editorExtensionsGeneration === extensionsGeneration
       // A subgraph's Inputs panel carries field rows too, edited like a node's.
       const fieldNodes = [...scene.nodes, ...scene.boundaryNodes.flatMap((bnode) => boundaryFieldNode(bnode) ?? [])]
-      if (widgetEditorAnchorAlive(ed, fieldNodes, tab.id, graphId, reg?.mergeableTypes, documentUnchanged, scene.valueSources) &&
+      if (widgetEditorAnchorAlive(ed, fieldNodes, tab.id, graphId, reg?.mergeableTypes, documentUnchanged) &&
         inRowValueKept(ed, tab.store.doc)) {
         // A workspace promotion replaces the Tab wrapper. Rebind in place so
         // the keyed editor keeps its draft and commits to the live store.
@@ -4547,13 +4315,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (!anchorAlive) setControllerMenu(undefined)
         else if (openController.tab !== tab) setControllerMenu({ ...openController, tab })
       }
-      // vsPopover stays: it anchors to a stable id and re-resolves its content
-      // (pin/unpin mutates the doc; closing here would eat the interaction).
 
       if (key !== sceneKey) {
         flushViewport()
-        setVsPopover(undefined) // different graph: the anchor means nothing
-        setSelExecPopover(undefined)
         sceneKey = key
         sceneViewportOwner = { tabId: tab.id, graphId }
         const saved = props.app.graphViewport(tab.id, graphId)
@@ -4687,7 +4451,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     function refreshSceneOverlays(tab: Tab | undefined): void {
       if (!tab) {
         setBadgePopover(undefined)
-        renderer.setSelectorResolutions(undefined)
         renderer.setInactiveNodes(undefined)
         companionInputs = new Map()
         companionDisplays = {}
@@ -4836,7 +4599,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (!companion && !linked) return []
         return [{
           id: `${node.id}:${row.valueKey}`,
-          label: `${node.layout.title}, ${row.label}`,
+          label: `${node.layout.title}, ${row.name ?? row.label}`,
           target: { kind: 'widget', hit: { node, row }, ...(companion ? { companion } : {}), connected: true },
         }]
       }))
@@ -4872,7 +4635,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               ? []
               : [{
                   id: `exposure:${node.id}:${row.inputId}`,
-                  label: `${node.layout.title}, ${row.label}: ${item.label}`,
+                  label: `${node.layout.title}, ${row.name ?? row.label}: ${item.label}`,
                   pressed: item.checked === true,
                   disabled: frozen || item.disabled === true,
                   activate: () => {
@@ -4933,7 +4696,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           : {}),
       })
 
-      renderer.setSelectorResolutions(model.selectorResolutions)
       const decorations = applyNodeDecorations({
         scene,
         documentId: String(tab.store.doc.lineage),
@@ -5074,22 +4836,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const occ = parseOccurrenceKey(k)
         rootIds.add(occ.instancePath[0] ?? occ.node)
       }
-      // Structural traversal of the displayed (root) graph: reroutes,
-      // selector branches, and value sources on in-closure wires. Random
-      // selectors contribute EVERY candidate ("may run" superset) - their
-      // '?' badge already tells the user the branch is rolled at queue time.
-      const structural = closure.structural.get(graphId)
-      const candidateKeys = new Set<string>()
-      for (const [sid, cands] of structural?.selectors ?? []) {
-        for (const c of cands) candidateKeys.add(selectorCandidateKey(sid, c))
-      }
-      return {
-        nodes: rootIds,
-        reroutes: structural?.reroutes ?? new Set(),
-        selectors: new Set(structural?.selectors.keys() ?? []),
-        selectorCandidates: candidateKeys,
-        valueSources: structural?.valueSources ?? new Set(),
-      }
+      // Reroutes on in-closure wires of the displayed (root) graph.
+      return { nodes: rootIds, reroutes: closure.structural.get(graphId)?.reroutes ?? new Set() }
     }
 
     // Selection toolbox: mode toggles + actions floating above the selected
@@ -5188,14 +4936,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string, caret?: { x: number; y: number }): void {
       const tab = activeTab()
       if (!tab || refuseFrozenEdit()) return
-      // An Inputs panel field holding a value source's own value edits that
-      // source, as a click on its pill does.
-      const sourceOwner = hit.row.valueSourceOwner
-      if (sourceOwner !== undefined) {
-        const vs = renderer.getScene().valueSources.find((candidate) => candidate.id === sourceOwner.valueSourceId)
-        if (vs !== undefined) openValueSourceEditor(vs, { label: hit.row.label, rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height } })
-        return
-      }
       const graphId = currentGraphId(tab)
       const nodeId = hit.node.id
       const valueGraphId = hit.row.familyOwner?.graphId ?? graphId
@@ -5284,7 +5024,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         tab,
         graphId,
         // An editor row has no label of its own; its editor is titled by its node.
-        label: hit.row.editor === true ? hit.node.layout.title : hit.row.label,
+        label: hit.row.editor === true ? hit.node.layout.title : hit.row.name ?? hit.row.label,
         target: {
           kind: 'input',
           nodeId,
@@ -5526,53 +5266,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         detailLevel: renderer.getDetailLevel(),
       })
       if (hit.kind === 'widget' && hit.row.spec.widgetType === 'ASSET') openWidgetEditor(hit)
-    }
-
-    /**
-     * Click on a value source pill: the pill IS the widget, so open its
-     * editor. The effective spec decides the editor kind; without one the
-     * raw JSON fallback renders (the value is always editable - P2). An
-     * Inputs panel field holding the source's value opens it over the field.
-     */
-    function openValueSourceEditor(
-      vs: SceneValueSource,
-      at: { readonly label: string; readonly rect: { x: number; y: number; width: number; height: number } } = {
-        label: vs.title, rect: { x: vs.x, y: vs.y, width: vs.width, height: vs.height },
-      },
-    ): void {
-      const tab = activeTab()
-      if (!tab || refuseFrozenEdit()) return
-      const graphId = currentGraphId(tab)
-      const source = tab.store.doc.graphs[graphId]?.valueSources?.[vs.id]
-      if (!source) return
-      const spec = vs.effective.spec
-
-      // Booleans toggle in place; no overlay needed.
-      if (spec?.widgetType === 'BOOLEAN') {
-        props.app.dispatchTo(tab, {
-          command: 'valueSource.setValue',
-          params: { graphId, valueSourceId: vs.id, value: source.value !== true },
-        })
-        return
-      }
-
-      // Editor kind mirrors what a node input with this spec would use.
-      const viewId = spec ? widgetRegistry().kind(spec.widgetType)?.defaultView(spec) : undefined
-      canvasEl.focus()
-      editorDocumentRevision = tab.store.revision
-      editorExtensionsGeneration = props.app.extensions.changed.get()
-      setEditor({
-        tab,
-        graphId,
-        label: at.label,
-        target: { kind: 'valueSource', valueSourceId: vs.id },
-        spec,
-        ...(viewId === undefined ? {} : { viewId }),
-        // Raw fallback edits JSON text, which wants a multiline field.
-        multiline: spec ? viewId === 'core.text' : true,
-        rect: at.rect,
-        initial: spec ? source.value : JSON.stringify(source.value, null, 2),
-      })
     }
 
     // -- camera bookmarks ------------------------------------------------------
@@ -6414,10 +6107,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const group = scene.groups.find((g) => g.id === groupId)
         return group ? nodesInGroup(scene, group) : undefined
       },
-      showValueSource: (tabId, graphId, valueSourceId) => {
-        if (activeTab()?.id !== tabId || scene.graphId !== graphId) return
-        activateSemanticTarget({ kind: 'valueSource', id: valueSourceId })
-      },
       deleteSelection,
       selectAll: () => controller.selectAll(),
       setSelectedMode: (mode) => {
@@ -6674,11 +6363,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         data-testid="graph-canvas"
         onPointerMove={(event) => { lastCanvasPointer = { x: event.clientX, y: event.clientY } }}
         data-lens={activeLens().id}
-        data-selection={selectionSize() + rerouteSelectionSize() + valueSourceSelectionSize() + selectorSelectionSize() + groupSelectionSize()}
+        data-selection={selectionSize() + rerouteSelectionSize() + groupSelectionSize()}
         data-link-selection={linkSelectionSize()}
         data-reroute-selection={rerouteSelectionSize()}
-        data-value-source-selection={valueSourceSelectionSize()}
-        data-selector-selection={selectorSelectionSize()}
         data-group-selection={groupSelectionSize()}
       />
       <Show when={canvasListsShown()}>
@@ -7282,135 +6969,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         )}
       </Show>
 
-      <Show when={vsPopover()}>
-        {(p) => (
-          <div
-            class="badge-popover"
-            data-testid="value-source-popover"
-            tabindex="-1"
-            ref={(el) => queueMicrotask(() => el.focus())}
-            style={{ left: `${p().x}px`, top: `${p().y}px` }}
-            onFocusOut={(e) => {
-              // Stay open while focus moves within the popover (buttons).
-              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setVsPopover(undefined)
-            }}
-          >
-            <Show
-              when={valueSourceInfoFor(p().valueSourceId)}
-              fallback={<ProductEmptyState title="Value source missing." />}
-            >
-              {(info) => (
-                <>
-                  <div class="badge-popover-title">
-                    Value Source: {info().vs.title ?? info().effective.spec?.widgetType ?? 'value'}
-                  </div>
-                  <p
-                    class="badge-popover-line"
-                    data-testid="value-source-spec-state"
-                    data-state={info().specState}
-                  >
-                    {info().specState === 'declared'
-                      ? 'spec: declared (pinned)'
-                      : info().specState === 'derived'
-                        ? 'spec: derived from consumers'
-                        : 'spec: none (raw value)'}
-                    {info().effective.spec ? ` - ${info().effective.spec!.widgetType}` : ''}
-                    {` - drives ${info().effective.consumers.length} input${
-                      info().effective.consumers.length === 1 ? '' : 's'
-                    }`}
-                  </p>
-                  <For each={info().effective.diagnostics}>
-                    {(d) => (
-                      <p class="badge-popover-line" data-testid="value-source-conflict">
-                        {d.message}
-                      </p>
-                    )}
-                  </For>
-                  <Show when={!frozen() && info().specState === 'derived' && info().effective.spec}>
-                    <ProductButton size="compact"
-                      class="banner-button"
-                      data-testid="value-source-pin-spec"
-                      // mousedown, not click: fires before the popover blurs.
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        pinValueSourceSpec(p().valueSourceId)
-                      }}
-                    >
-                      Pin Current Spec
-                    </ProductButton>
-                  </Show>
-                  <Show when={!frozen() && info().specState === 'declared'}>
-                    <ProductButton size="compact"
-                      class="banner-button"
-                      data-testid="value-source-unpin-spec"
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        unpinValueSourceSpec(p().valueSourceId)
-                      }}
-                    >
-                      Unpin Spec
-                    </ProductButton>
-                  </Show>
-                </>
-              )}
-            </Show>
-          </div>
-        )}
-      </Show>
-
-      <Show when={selExecPopover()}>
-        {(p) => (
-          <div
-            class="badge-popover"
-            data-testid="selector-exec-popover"
-            tabindex="-1"
-            ref={(el) => queueMicrotask(() => el.focus())}
-            style={{ left: `${p().x}px`, top: `${p().y}px` }}
-            onFocusOut={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setSelExecPopover(undefined)
-            }}
-          >
-            <Show
-              when={selectorExecInfoFor(p().selectorId)}
-              fallback={<ProductEmptyState title="Selector missing." />}
-            >
-              {(info) => (
-                <>
-                  <div class="badge-popover-title">Selector: {info().sel.title ?? 'Select'}</div>
-                  <Show
-                    when={info().choice}
-                    fallback={
-                      <p class="badge-popover-line" data-testid="selector-exec-no-choice">
-                        Not resolved by this execution (branch not reached).
-                      </p>
-                    }
-                  >
-                    {(choice) => (
-                      <>
-                        <p
-                          class="badge-popover-line"
-                          data-testid="selector-exec-choice"
-                          data-policy={choice().policy}
-                          data-candidate={choice().candidate}
-                        >
-                          {choice().policy === 'random' ? 'Random pick' : 'Fixed pick'}
-                          {': '}
-                          {info().candidate?.title ??
-                            (info().index >= 0 ? `candidate ${info().index + 1}` : choice().candidate)}
-                        </p>
-                        <p class="badge-popover-line">
-                          This execution used this branch; the recorded choice never changes.
-                        </p>
-                      </>
-                    )}
-                  </Show>
-                </>
-              )}
-            </Show>
-          </div>
-        )}
-      </Show>
-
       <Show when={netPrompt()} keyed>
         {(p) => (
           <NamePrompt
@@ -7449,20 +7007,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             initial={p.initial}
             onCommit={nodePromptCommit}
             onCancel={() => setNodePrompt(undefined)}
-          />
-        )}
-      </Show>
-
-      <Show when={selectorPrompt()} keyed>
-        {(p) => (
-          <NamePrompt
-            x={p.x}
-            y={p.y}
-            testid="selector-prompt"
-            placeholder="Selector title..."
-            initial={p.initial}
-            onCommit={selectorPromptCommit}
-            onCancel={() => setSelectorPrompt(undefined)}
           />
         )}
       </Show>

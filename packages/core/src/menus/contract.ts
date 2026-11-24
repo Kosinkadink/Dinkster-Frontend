@@ -42,15 +42,12 @@ export type MenuTarget =
       readonly linkId: string
       /** Set when the noodle renders a named-net fan-out (synthetic link id). */
       readonly netId?: string
-      /** Consumer end: a real input, a reroute junction, or a selector branch (nets are port-only). */
+      /** Consumer end: a real input or a reroute junction (nets are port-only). */
       readonly to:
         | { readonly node: string; readonly port: string }
         | { readonly reroute: string }
-        | { readonly selector: string; readonly candidate: string }
     }
   | { readonly kind: 'reroute'; readonly rerouteId: string }
-  | { readonly kind: 'valueSource'; readonly valueSourceId: string }
-  | { readonly kind: 'selector'; readonly selectorId: string }
   | {
       readonly kind: 'pin'
       readonly nodeId: string
@@ -140,8 +137,6 @@ export interface MenuContext {
     readonly nodes: readonly string[]
     readonly links: readonly string[]
     readonly reroutes: readonly string[]
-    readonly valueSources: readonly string[]
-    readonly selectors: readonly string[]
   }
   /** Menu anchor in world coordinates (e.g. where 'Add Node' places a node). */
   readonly worldX: number

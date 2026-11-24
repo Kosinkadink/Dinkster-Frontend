@@ -5,8 +5,7 @@
  * links so the renderer can dash "this value may legitimately not exist"
  * noodles - distinctly from error/mismatch styling, because skipped is a
  * NORMAL state. Propagation must survive the same indirections everything
- * else does: reroute chains, named-net fan-out, and selectors (any
- * maybe-absent candidate marks the selector's output). And 'skipped' ranks
+ * else does: reroute chains and named-net fan-out. And 'skipped' ranks
  * between pending and cached in subgraph state aggregation.
  */
 import { describe, expect, it } from 'vitest'
@@ -72,20 +71,17 @@ const schemas: Record<string, NodeSchema> = {
 }
 
 // ---------------------------------------------------------------------------
-// Document builder (same dialect as dynamic-scene.test.ts, plus selectors)
+// Document builder (same dialect as dynamic-scene.test.ts)
 // ---------------------------------------------------------------------------
 
 type End =
   | [node: string, port: string]
   | { reroute: string }
-  | { selector: string; candidate?: string }
 type GraphSpec = {
   nodes: Record<string, { type: string; mode?: 'muted' | 'bypassed' }>
   links?: [from: End, to: End][]
   reroutes?: string[]
   nets?: Record<string, { source: End; sinks: End[] }>
-  /** Selector id -> candidate ids (policy: fixed on the first). */
-  selectors?: Record<string, string[]>
   /** Boundary output id -> the inner node port it shows. */
   outputs?: Record<string, [node: string, port: string]>
 }
@@ -111,20 +107,6 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
         ]),
       ),
       reroutes: Object.fromEntries((g.reroutes ?? []).map((r) => [r, { id: r }])),
-      ...(g.selectors
-        ? {
-            selectors: Object.fromEntries(
-              Object.entries(g.selectors).map(([sid, candidates]) => [
-                sid,
-                {
-                  id: sid,
-                  candidates: candidates.map((c) => ({ id: c })),
-                  policy: { kind: 'fixed', candidate: candidates[0] },
-                },
-              ]),
-            ),
-          }
-        : {}),
       ...(g.outputs
         ? {
             boundary: {
@@ -213,27 +195,6 @@ describe('maybe-absent scene links', () => {
     const netLinks = scene.links.filter((l) => l.netId === 'latents')
     expect(netLinks).toHaveLength(2)
     for (const link of netLinks) expect(link.maybeAbsent, link.id).toBe(true)
-  })
-
-  it('a selector output is marked when ANY driven candidate may be absent, unmarked otherwise', () => {
-    const graph = (srcForC0: string): GraphSpec => ({
-      nodes: { p: { type: srcForC0 }, q: { type: 'Src' }, k: { type: 'Sink' } },
-      links: [
-        [['p', 'out'], { selector: 's0', candidate: 'c0' }],
-        [['q', 'out'], { selector: 's0', candidate: 'c1' }],
-        [{ selector: 's0' }, ['k', 'in']],
-      ],
-      selectors: { s0: ['c0', 'c1'] },
-    })
-    const mixed = sceneOf(docOf({ g0: graph('MaybeSrc') }))
-    const outLink = (s: Scene) => s.links.find((l) => l.from.kind === 'selector')!
-    expect(outLink(mixed).maybeAbsent).toBe(true)
-    // Feed links into the candidates reflect their own producers.
-    expect(mixed.links.find((l) => l.id === 'l0')!.maybeAbsent).toBe(true)
-    expect(mixed.links.find((l) => l.id === 'l1')!.maybeAbsent).toBeUndefined()
-
-    const allSolid = sceneOf(docOf({ g0: graph('Src') }))
-    expect(outLink(allSolid).maybeAbsent).toBeUndefined()
   })
 
   it('crosses subgraph boundaries at every level of nesting', () => {

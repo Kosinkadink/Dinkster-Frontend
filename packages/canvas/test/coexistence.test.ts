@@ -4,7 +4,7 @@
  * pipeline contract, this file owns the visuals), rendered through
  * buildScene. Every construct must appear simultaneously - instance pins for
  * forwarded group members, promoted widget rows, reroutes,
- * a value-source pill, a selector box, net stubs, boundary pseudo-nodes in
+ * a primitive node, net stubs, boundary pseudo-nodes in
  * the definition - with zero diagnostics and no swallowed elements: every
  * noodle anchors at a real laid-out pin.
  */
@@ -73,6 +73,15 @@ const schemas: Record<string, NodeSchema> = {
     output('out'),
   ]),
   Sink: schemaOf('Sink', [input('in')]),
+  // The fixed-type Float primitive dinkster-nodes declares.
+  'dinkster.utilities.primitive_float': {
+    ...schemaOf('dinkster.utilities.primitive_float', [
+      input('value', { type: FLOAT, widget: { widgetType: 'FLOAT', options: {}, default: 0 } }),
+      { kind: 'output', id: 'value', type: FLOAT, knownValue: { input: 'value' } },
+    ]),
+    displayName: 'Float',
+    isOutputNode: false,
+  },
 }
 
 const coexistenceJson = () => ({
@@ -93,17 +102,14 @@ const coexistenceJson = () => ({
           values: { gain: 8 },
         },
         snk: { id: 'snk', type: 'Sink', values: {} },
-        snk2: { id: 'snk2', type: 'Sink', values: {} },
+        prim: { id: 'prim', type: 'dinkster.utilities.primitive_float', values: { value: 2.5 } },
       },
       links: {
         l1: { id: 'l1', from: { node: 'src1', port: 'out' }, to: { reroute: 'r1' } },
         l2: { id: 'l2', from: { reroute: 'r1' }, to: { reroute: 'r2' } },
         l3: { id: 'l3', from: { reroute: 'r2' }, to: { node: 'inst', port: 'img0' } },
-        l4: { id: 'l4', from: { valueSource: 'vs' }, to: { node: 'inst', port: 'amount' } },
+        l4: { id: 'l4', from: { node: 'prim', port: 'value' }, to: { node: 'inst', port: 'amount' } },
         l5: { id: 'l5', from: { node: 'inst', port: 'result' }, to: { node: 'snk', port: 'in' } },
-        l6: { id: 'l6', from: { node: 'src1', port: 'out' }, to: { selector: 'sel', candidate: 'c1' } },
-        l7: { id: 'l7', from: { node: 'src2', port: 'out' }, to: { selector: 'sel', candidate: 'c2' } },
-        l8: { id: 'l8', from: { selector: 'sel' }, to: { node: 'snk2', port: 'in' } },
       },
       nets: {
         n1: {
@@ -113,8 +119,6 @@ const coexistenceJson = () => ({
         },
       },
       reroutes: { r1: { id: 'r1' }, r2: { id: 'r2' } },
-      valueSources: { vs: { id: 'vs', value: 2.5, spec: { widgetType: 'FLOAT' } } },
-      selectors: { sel: { id: 'sel', candidates: [{ id: 'c1' }, { id: 'c2' }], policy: { kind: 'fixed', candidate: 'c1' } } },
       nextOrdinal: 100,
     },
     sub: {
@@ -235,7 +239,7 @@ describe('coexistence: every construct renders in one scene', () => {
     expect(root.links.find((l) => l.id === 'l5')!.from).toMatchObject({ kind: 'port', node: 'inst', port: 'result' })
   })
 
-  it('reroute chain, value-source pill, selector box, and net stubs all coexist', () => {
+  it('reroute chain, primitive node, and net stubs all coexist', () => {
     // Reroute chain: both hops render and the final hop lands on the
     // forwarded member image0's pin, carrying the traced IMAGE type.
     expect(root.reroutes.map((r) => r.id).sort()).toEqual(['r1', 'r2'])
@@ -244,23 +248,11 @@ describe('coexistence: every construct renders in one scene', () => {
     expect(l3.to).toMatchObject({ kind: 'port', node: 'inst', port: 'img0' })
     expect(l3.typeName).toBe('IMAGE')
 
-    // Value source: a FLOAT pill with its declared spec and literal text,
-    // wired into the promoted option row.
-    expect(root.valueSources.map((v) => v.id)).toEqual(['vs'])
-    const vs = root.valueSources[0]!
-    expect(vs.effective.spec?.widgetType).toBe('FLOAT')
-    expect(vs.valueText).toBe('2.5')
-    expect(root.links.find((l) => l.id === 'l4')!.to).toMatchObject({ kind: 'port', node: 'inst', port: 'amount' })
-
-    // Selector: both candidates driven (homogeneous IMAGE), fixed policy
-    // marks the active candidate, output feeds the second sink.
-    expect(root.selectors.map((s) => s.id)).toEqual(['sel'])
-    const sel = root.selectors[0]!
-    expect(sel.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'IMAGE'])
-    expect(sel.typeName).toBe('IMAGE')
-    expect(sel.activeCandidate).toBe('c1')
-    expect(sel.random).toBe(false)
-    expect(root.links.find((l) => l.id === 'l8')!.from).toEqual({ kind: 'selector', selector: 'sel' })
+    // Primitive: an ordinary FLOAT node wired into the promoted option row.
+    const l4 = root.links.find((l) => l.id === 'l4')!
+    expect(l4.from).toEqual({ kind: 'port', node: 'prim', port: 'value' })
+    expect(l4.to).toMatchObject({ kind: 'port', node: 'inst', port: 'amount' })
+    expect(l4.typeName).toBe('FLOAT')
 
     // Named net (uncollapsed): renders as a real tagged noodle into the
     // instance's img1 pin - coexisting with the DIRECT link into sibling
@@ -289,8 +281,7 @@ describe('coexistence: every construct renders in one scene', () => {
     for (const stub of stubs) expect(stub.name).toBe('feed')
     // Everything else survives the view change untouched.
     expectNoDanglingEndpoints(scene)
-    expect(scene.selectors).toHaveLength(1)
-    expect(scene.valueSources).toHaveLength(1)
+    expect(scene.nodes.some((node) => node.id === 'prim')).toBe(true)
     expect(scene.reroutes).toHaveLength(2)
   })
 

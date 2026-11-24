@@ -7,7 +7,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, compile, documentResolver, loadDocument, type InputSpec, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
-import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, selectorBadgeRect, valueSourceBadgeRect, VS_BADGE_SIZE, type Scene, type SceneNode } from '../src/scene.js'
+import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, type Scene, type SceneNode } from '../src/scene.js'
 import { paintToolboxIcon } from '../src/icons.js'
 import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
 import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, outputRowKey, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
@@ -172,6 +172,10 @@ const synthetic = new Map<string, NodeSchema>([
     type: 'PLAT', displayName: 'LatSrc', category: 'test', source: 'v3', isOutputNode: false,
     body: [{ kind: 'output', id: 'out', type: typed('LATENT') }],
   }],
+  ['PFLT', {
+    type: 'PFLT', displayName: 'FloatSrc', category: 'test', source: 'v3', isOutputNode: false,
+    body: [{ kind: 'output', id: 'out', type: typed('FLOAT') }],
+  }],
   ['dinkster.string_to_combo', {
     type: 'dinkster.string_to_combo', displayName: 'Convert String to Combo', category: 'string', source: 'v3', isOutputNode: false,
     body: [
@@ -303,7 +307,7 @@ const paintWith = (scene: Scene, setup?: (r: CanvasRenderer) => void): PaintCall
 const paint = (scene: Scene): PaintCall[] => paintWith(scene)
 
 const emptyScene = (parts: Partial<Scene> = {}): Scene => ({
-  graphId: 'bounds', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [],
+  graphId: 'bounds', nodes: [], links: [], reroutes: [],
   netStubs: [], groups: [], boundaryNodes: [], diagnostics: [], ...parts,
 })
 
@@ -807,7 +811,6 @@ describe('graph image reuse', () => {
       renderer.setNodePreviews({})
       renderer.setNodeOutputTexts({})
       renderer.setInactiveNodes(undefined)
-      renderer.setSelectorResolutions(undefined)
       renderer.setScopeHighlight(undefined)
       renderer.setToolbox([])
       renderer.setPresence([])
@@ -896,11 +899,9 @@ describe('scene visual bounds and fitting', () => {
     })
   })
 
-  it('includes reroutes, groups, value sources, selectors, net stubs, and boundary nodes', () => {
+  it('includes reroutes, groups, net stubs, and boundary nodes', () => {
     const reroute = { id: 'r', x: -100, y: 50 }
     const group = { id: 'g', title: 'g', x: 10, y: -80, width: 900, height: 700 }
-    const valueSource = { x: 950, y: 10, width: 20, height: 20 }
-    const selector = { x: 20, y: 750, width: 30, height: 40 }
     const netStub = { x: 1000, y: 800, width: 50, height: 10 }
     const boundary = { ...base.nodes[1]!, side: 'inputs' as const }
     expect(sceneVisualBounds(emptyScene({ reroutes: [reroute] }))).toEqual({
@@ -908,10 +909,6 @@ describe('scene visual bounds and fitting', () => {
       maxX: -100 + REROUTE_RADIUS, maxY: 50 + REROUTE_RADIUS,
     })
     expect(sceneVisualBounds(emptyScene({ groups: [group] }))).toEqual({ minX: 10, minY: -80, maxX: 910, maxY: 620 })
-    expect(sceneVisualBounds(emptyScene({ valueSources: [valueSource as Scene['valueSources'][number]] })))
-      .toEqual({ minX: 950, minY: 10, maxX: 970, maxY: 30 })
-    expect(sceneVisualBounds(emptyScene({ selectors: [selector as Scene['selectors'][number]] })))
-      .toEqual({ minX: 20, minY: 750, maxX: 50, maxY: 790 })
     expect(sceneVisualBounds(emptyScene({ netStubs: [netStub as Scene['netStubs'][number]] })))
       .toEqual({ minX: 1000, minY: 800, maxX: 1050, maxY: 810 })
     expect(sceneVisualBounds(emptyScene({ boundaryNodes: [boundary] }))).toEqual({
@@ -919,8 +916,7 @@ describe('scene visual bounds and fitting', () => {
       maxX: boundary.x + boundary.layout.width, maxY: boundary.y + boundary.layout.height,
     })
     const bounds = sceneVisualBounds(emptyScene({
-      reroutes: [reroute], groups: [group], valueSources: [valueSource as Scene['valueSources'][number]],
-      selectors: [selector as Scene['selectors'][number]], netStubs: [netStub as Scene['netStubs'][number]],
+      reroutes: [reroute], groups: [group], netStubs: [netStub as Scene['netStubs'][number]],
       boundaryNodes: [boundary],
     }))!
     expect(bounds).toEqual({ minX: -100 - REROUTE_RADIUS, minY: -80, maxX: 1050, maxY: 810 })
@@ -970,7 +966,7 @@ describe('scene visual bounds and fitting', () => {
       const drop = renderer.getNodeBadgeLayout(node)
       const dropOutset = scale === 0.5 ? 3.5 : 2.75
       expect(drop[0]!.y + drop[0]!.height).toBe(node.y - dropOutset - 3)
-      renderer.setScopeHighlight({ nodes: new Set([node.id]), reroutes: new Set(), selectors: new Set(), selectorCandidates: new Set(), valueSources: new Set() })
+      renderer.setScopeHighlight({ nodes: new Set([node.id]), reroutes: new Set() })
       const scoped = renderer.getNodeBadgeLayout(node)
       const scopeOutset = scale === 0.5 ? 7 : 6.25
       expect(scoped[0]!.y + scoped[0]!.height).toBe(node.y - scopeOutset - 3)
@@ -1318,8 +1314,7 @@ describe('diagnostic paint on the live renderer', () => {
     // Empty scene: every painted arc is a grid dot, so geometry assertions
     // need no filtering.
     const empty: Scene = {
-      graphId: 'g0', nodes: [], links: [], reroutes: [], valueSources: [],
-      selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
+      graphId: 'g0', nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
     }
     const gridDot = defaultTokens.colors.gridDot
     const frame = (setup?: (r: CanvasRenderer) => void) => {
@@ -1468,9 +1463,9 @@ describe('diagnostic paint on the live renderer', () => {
 
 // ---------------------------------------------------------------------------
 // Construct fixture: one real document carrying every non-node construct
-// (reroute chain, value source, selector, collapsed net, view groups) so
+// (reroute chain, float source, collapsed net, view groups) so
 // each paint contract is proven against buildScene output, not hand-cast
-// scene objects. Variants (derived spec, random policy) clone-and-tweak.
+// scene objects. Variants clone-and-tweak.
 // ---------------------------------------------------------------------------
 
 const constructsJson = () => ({
@@ -1487,16 +1482,15 @@ const constructsJson = () => ({
         lat2: { id: 'lat2', type: 'PLAT', values: {} },
         c1: { id: 'c1', type: 'SinkLatent', values: {} },
         c2: { id: 'c2', type: 'SinkLatent', values: {} },
+        flt: { id: 'flt', type: 'PFLT', values: {} },
         fs: { id: 'fs', type: 'FSink', values: {} },
         fs2: { id: 'fs2', type: 'FSink', values: {} },
         opt: { id: 'opt', type: 'SinkOpt', values: {} },
         opt2: { id: 'opt2', type: 'SinkOpt', values: {} },
       },
       links: {
-        lv: { id: 'lv', from: { valueSource: 'vs' }, to: { node: 'fs', port: 'f' } },
-        s1: { id: 's1', from: { node: 'lat', port: 'out' }, to: { selector: 'sel', candidate: 'p1' } },
-        s2: { id: 's2', from: { node: 'lat2', port: 'out' }, to: { selector: 'sel', candidate: 'p2' } },
-        s3: { id: 's3', from: { selector: 'sel' }, to: { node: 'c1', port: 'in' } },
+        lv: { id: 'lv', from: { node: 'flt', port: 'out' }, to: { node: 'fs', port: 'f' } },
+        s3: { id: 's3', from: { node: 'lat', port: 'out' }, to: { node: 'c1', port: 'in' } },
         ra: { id: 'ra', from: { node: 'lat', port: 'out' }, to: { reroute: 'rr' } },
         rb: { id: 'rb', from: { reroute: 'rr' }, to: { node: 'c2', port: 'in' } },
       },
@@ -1504,10 +1498,6 @@ const constructsJson = () => ({
         n1: { id: 'n1', name: 'feed', source: { node: 'lat2', port: 'out' }, sinks: [{ node: 'opt', port: 'in' }] },
       },
       reroutes: { rr: { id: 'rr' } },
-      valueSources: { vs: { id: 'vs', value: 2.5, spec: { widgetType: 'FLOAT' } } },
-      selectors: {
-        sel: { id: 'sel', candidates: [{ id: 'p1' }, { id: 'p2' }], policy: { kind: 'fixed', candidate: 'p1' } },
-      },
       nextOrdinal: 100,
     },
   },
@@ -1523,13 +1513,12 @@ const constructsJson = () => ({
           fs2: { position: { x: 760, y: 640 } },
           opt: { position: { x: 460, y: 640 } },
           opt2: { position: { x: 60, y: 640 } },
+          flt: { position: { x: 460, y: 470 } },
         },
         groups: {
           ga: { id: 'ga', title: 'Stage A', bounds: { x: 20, y: 20, width: 380, height: 320 }, color: '#3fa34d' },
           gb: { id: 'gb', title: 'Stage B', bounds: { x: 20, y: 380, width: 200, height: 150 } },
         },
-        valueSources: { vs: { position: { x: 460, y: 470 } } },
-        selectors: { sel: { position: { x: 460, y: 80 } } },
         reroutes: { rr: { position: { x: 460, y: 300 } } },
         collapsedNets: ['n1'],
       },
@@ -2802,7 +2791,7 @@ describe('node chrome paint on the live renderer', () => {
 
   it('a widget-backed pin hides until connected or the node is selected', () => {
     const scene = constructsScene()
-    // fs is driven by the value source (pin shows); fs2 is dormant (hidden).
+    // fs is driven by the float source (pin shows); fs2 is dormant (hidden).
     const hidden = nodeOf(scene, 'fs2')
     const shown = nodeOf(scene, 'fs')
     const hPin = hidden.layout.pins.find((p) => p.widgetBacked === true)!
@@ -2928,9 +2917,6 @@ describe('badge and toolbox paint on the live renderer', () => {
     const calls = paintWith(scene, (r) => r.setScopeHighlight({
       nodes: new Set(['c1']),
       reroutes: new Set(),
-      selectors: new Set(),
-      selectorCandidates: new Set(),
-      valueSources: new Set(),
     }))
     expect(calls.some((c) =>
       c.method === 'stroke' &&
@@ -3302,114 +3288,6 @@ describe('construct paint on the live renderer', () => {
     expect(tagStroke(sink)).toMatchObject({ strokeStyle: LATENT, lineWidth: 1 })
   })
 
-  it('a declared value source pills with a FILLED spec badge, its value text, and a typed output pin', () => {
-    const scene = constructsScene()
-    const vs = scene.valueSources[0]!
-    expect(vs.specState).toBe('declared')
-    const calls = paint(scene)
-    expect(calls.some((c) => c.method === 'fillText' && c.args[0] === vs.title)).toBe(true)
-    expect(calls.some((c) => c.method === 'fillText' && c.args[0] === vs.valueText)).toBe(true)
-    // Declared spec: the badge dot fills with the selection color.
-    const badge = valueSourceBadgeRect(vs)
-    const badgeIdx = calls.findIndex(
-      (c) => c.method === 'arc' && c.args[2] === VS_BADGE_SIZE / 2 - 2 && c.args[0] === badge.x + badge.width / 2,
-    )
-    expect(badgeIdx).toBeGreaterThanOrEqual(0)
-    const dot = calls.slice(badgeIdx + 1).find((c) => c.method === 'fill' || c.method === 'stroke')
-    expect(dot?.method).toBe('fill')
-    expect(dot?.fillStyle).toBe(SEL)
-    // Output pin in the derived FLOAT color.
-    const pinIdx = calls.findIndex(
-      (c) =>
-        c.method === 'arc' &&
-        c.args[0] === vs.x + vs.width &&
-        c.args[1] === vs.y + vs.height / 2 &&
-        c.args[2] === defaultTokens.pinRadius,
-    )
-    expect(pinIdx).toBeGreaterThanOrEqual(0)
-    expect(paintedAfter(calls, pinIdx, 'fill')?.fillStyle).toBe(FLOATC)
-  })
-
-  it('a derived spec renders the badge HOLLOW; a conflict renders "!" over an error border', () => {
-    // Derived: same document, spec removed - consumers still imply FLOAT.
-    const derived = constructsScene((json) => {
-      delete (json.graphs.g0.valueSources.vs as { spec?: unknown }).spec
-    })
-    const dvs = derived.valueSources[0]!
-    expect(dvs.specState).toBe('derived')
-    const dCalls = paint(derived)
-    const dBadge = valueSourceBadgeRect(dvs)
-    const dIdx = dCalls.findIndex(
-      (c) => c.method === 'arc' && c.args[2] === VS_BADGE_SIZE / 2 - 2 && c.args[0] === dBadge.x + dBadge.width / 2,
-    )
-    expect(dIdx).toBeGreaterThanOrEqual(0)
-    const dDot = dCalls.slice(dIdx + 1).find((c) => c.method === 'fill' || c.method === 'stroke')
-    expect(dDot?.method).toBe('stroke')
-    expect(dDot?.strokeStyle).toBe(defaultTokens.colors.label)
-
-    // Conflict derivation is proven in scene tests; inject the flag to pin
-    // the renderer's warning paint.
-    const base = constructsScene()
-    const scene: Scene = { ...base, valueSources: base.valueSources.map((v) => ({ ...v, conflict: true })) }
-    const cCalls = paint(scene)
-    expect(cCalls.some((c) => c.method === 'fillText' && c.args[0] === '!')).toBe(true)
-    expect(
-      cCalls.some((c) => c.method === 'stroke' && c.strokeStyle === defaultTokens.stateColors.error && c.lineWidth === 2),
-    ).toBe(true)
-  })
-
-  it('a fixed selector badges the active ordinal and accents only the active candidate row', () => {
-    const scene = constructsScene()
-    const sel = scene.selectors[0]!
-    expect(sel.random).toBe(false)
-    expect(sel.typeName).toBe('LATENT')
-    const calls = paint(scene)
-    const badge = selectorBadgeRect(sel)
-    expect(
-      calls.some((c) => c.method === 'fillText' && c.args[0] === '1' && c.args[1] === badge.x + badge.width / 2),
-    ).toBe(true)
-    // Exactly one accent bar: the active candidate's.
-    const accents = calls.filter((c) => c.method === 'fillRect' && c.args[0] === sel.x + 1.5 && c.fillStyle === SEL)
-    expect(accents).toHaveLength(1)
-    const active = sel.candidates.find((c) => c.id === 'p1')!
-    expect(accents[0]!.args[1]).toBeCloseTo(sel.y + active.y - (defaultTokens.rowHeight / 2 - 3))
-    // Candidate and output pins carry the traced type color.
-    for (const [px, py] of [
-      [sel.x, sel.y + sel.candidates[0]!.y],
-      [sel.x + sel.width, sel.y + sel.headerHeight / 2],
-    ] as const) {
-      const pinIdx = calls.findIndex(
-        (c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === defaultTokens.pinRadius,
-      )
-      expect(pinIdx).toBeGreaterThanOrEqual(0)
-      expect(paintedAfter(calls, pinIdx, 'fill')?.fillStyle).toBe(LATENT)
-    }
-  })
-
-  it('a random selector badges "?" until a recorded resolution names the branch that ran', () => {
-    const scene = constructsScene((json) => {
-      json.graphs.g0.selectors.sel.policy = { kind: 'random' } as never
-    })
-    const sel = scene.selectors[0]!
-    expect(sel.random).toBe(true)
-    const badge = selectorBadgeRect(sel)
-    const atBadge = (calls: PaintCall[], glyph: string) =>
-      calls.find((c) => c.method === 'fillText' && c.args[0] === glyph && c.args[1] === badge.x + badge.width / 2)
-
-    const unresolved = paint(scene)
-    expect(atBadge(unresolved, '?')).toBeDefined()
-    // Random badge keeps its accent tint (distinct from fixed's flat chip).
-    const chipIdx = unresolved.findIndex(
-      (c) => c.method === 'roundRect' && c.args[0] === badge.x && c.args[1] === badge.y && c.args[2] === badge.width,
-    )
-    expect(paintedAfter(unresolved, chipIdx, 'fill')?.fillStyle).toBe(SEL)
-
-    // A frozen/execution view's recorded resolution replaces '?' with the
-    // ordinal of the branch that ACTUALLY ran.
-    const resolved = paintWith(scene, (r) => r.setSelectorResolutions(new Map([['sel', 'p2']])))
-    expect(atBadge(resolved, '2')).toBeDefined()
-    expect(atBadge(resolved, '?')).toBeUndefined()
-  })
 })
 
 // ---------------------------------------------------------------------------

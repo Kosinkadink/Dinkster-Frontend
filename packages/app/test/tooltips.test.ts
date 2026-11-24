@@ -276,6 +276,13 @@ describe('canvas tooltip provider', () => {
     ])
   })
 
+  it('titles a row inside its member box with its full name, as for a kept row', () => {
+    const row = { inputId: 'loras.lora0.name', valueKey: 'loras.lora0.name', label: 'name', name: 'lora 1 name', spec: { widgetType: 'STRING', options: {} } }
+    const node = { node: { type: 'Stack', values: {} } }
+    expect(resolveCanvasTooltip({ kind: 'widget', hit: { node, row } }, { detailed: false })?.title).toBe('lora 1 name')
+    expect(resolveCanvasTooltip({ kind: 'widget', hit: { node, row: { ...row, kept: 'Kept for its wire.' } } }, { detailed: false })?.title).toBe('lora 1 name')
+  })
+
   it('exposes the full stored value and the intrinsic default for clipped numeric rows', () => {
     const row = {
       inputId: 'seed', valueKey: 'seed', label: 'seed',

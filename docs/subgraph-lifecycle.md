@@ -21,17 +21,15 @@ when its candidate requires it.
 ## Create a subgraph from a selection
 
 Use **Create subgraph** in the selection toolbox when two or more nodes are
-selected, or in a node, group, reroute, value-source, or selector context
-menu, find **Create subgraph from selection** in universal search, or press
-**Ctrl+Shift+E**. Element-row menus
-such as widgets, pins, sections, nets, and links stay scoped to that element.
+selected, or in a node, group, or reroute context menu, find **Create
+subgraph from selection** in universal search, or press **Ctrl+Shift+E**.
+Element-row menus such as widgets, pins, sections, nets, and links stay scoped to that element.
 Extraction submits without a naming prompt. The definition uses
 the shared collision-safe default (`New Subgraph`, then `New Subgraph 2`, and
 so on). The created occurrence remains renameable later through the normal
 node **Rename** action.
 
-The gesture snapshots selected nodes, reroutes, value sources, selectors,
-and groups. A selected group includes every supported item spatially inside
+The gesture snapshots selected nodes, reroutes, and groups. A selected group includes every supported item spatially inside
 the group at gesture time. Selecting the contents without selecting the
 group does not move the group.
 
@@ -133,8 +131,8 @@ undo/redo, and boundary editing. The Boundary panel labels these endpoints as
 **Widget output**.
 
 Only static widget-backed inputs can supply this endpoint. Missing, ambiguous,
-dynamic, or non-widget tap targets fail closed. Value-source, selector, and
-reroute output cuts remain unsupported rather than being encoded as fake
+dynamic, or non-widget tap targets fail closed. Reroute output cuts remain
+unsupported rather than being encoded as fake
 ports.
 
 ## Browser proof status

@@ -136,7 +136,7 @@ const endpoint = (node: string, port: string) => ({ node, port })
  * and default are ordinary fields of its own. An empty limit is derived from
  * the fields the Primitive feeds.
  */
-const numberPrimitive = (
+export const numberPrimitive = (
   type: string,
   label: string,
   kind: 'INT' | 'FLOAT',
@@ -219,7 +219,7 @@ export interface Graph {
   readonly boundary?: Json
   /** Where the boundary panels sit when the graph is entered. */
   readonly panels?: { readonly inputs: number; readonly outputs: number }
-  /** Extra graph fields, such as today's value sources and selectors. */
+  /** Extra graph fields. */
   readonly extra?: Record<string, Json>
   readonly extraView?: Record<string, Json>
 }
@@ -522,65 +522,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 2. What the Switch and the Primitive replace.
-  cards.push({
-    caption:
-      'Today, for comparison: a value source pill and a separate selector box, each with its own look and its own hit area. The selector resolves once for the whole subgraph definition. Both go; the Switch and the Primitive below are ordinary nodes.',
-    scene: scene({
-      root: {
-        nodes: {
-          quick: { type: quick, x: 0, y: 20, width: 150 },
-          detailed: { type: detailed, x: 0, y: 100, width: 150 },
-          blend: { type: blend, x: 470, y: 20, width: 170 },
-        },
-        links: [
-          {
-            from: { node: 'quick', port: 'IMAGE' },
-            to: { selector: 's', candidate: 'quick' },
-          },
-          {
-            from: { node: 'detailed', port: 'IMAGE' },
-            to: { selector: 's', candidate: 'detailed' },
-          },
-          { from: { selector: 's' }, to: { node: 'blend', port: 'image' } },
-          {
-            from: { valueSource: 'grain' },
-            to: { node: 'blend', port: 'amount' },
-          },
-        ],
-        extra: {
-          valueSources: {
-            grain: {
-              id: 'grain',
-              value: 0.4,
-              title: 'Grain',
-              spec: {
-                widgetType: 'FLOAT',
-                options: { min: 0, max: 1, step: 0.05 },
-              },
-            },
-          },
-          selectors: {
-            s: {
-              id: 's',
-              title: 'Selector',
-              candidates: [
-                { id: 'quick', title: 'Quick' },
-                { id: 'detailed', title: 'Detailed' },
-              ],
-              policy: { kind: 'fixed', candidate: 'quick' },
-            },
-          },
-        },
-        extraView: {
-          selectors: { s: { position: { x: 220, y: 20 } } },
-          valueSources: { grain: { position: { x: 250, y: 190 } } },
-        },
-      },
-    }),
-  })
-
-  // 3. A pick known before the run.
+  // 2. A pick known before the run.
   cards.push({
     caption:
       'The pick is known before the run. Pick is the Switch\'s own dropdown and stores the branch\'s id; "Quick" is its name. The Detailed path is dimmed: it is left out of the submitted graph, so a missing model used only there does not block the run.',
@@ -590,7 +532,7 @@ export function switchPrimitiveGallery(
     inactive: new Set(['in1']),
   })
 
-  // 4. A pick that arrives during the run.
+  // 3. A pick that arrives during the run.
   {
     const graph = pickGraph(quickDetailed, 'Quick', ['Quick', 'Detailed'])
     cards.push({
@@ -614,7 +556,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 5. The picked branch has nothing plugged in.
+  // 4. The picked branch has nothing plugged in.
   cards.push({
     caption:
       'The picked branch has nothing plugged in. The Switch passes nothing on, the same for a typed and a wired pick, and Save Image does not run; Detailed is shown as "Nothing plugged in". No warning is added before the run, and it is not a missing-branch error.',
@@ -624,7 +566,7 @@ export function switchPrimitiveGallery(
     inactive: new Set(['in0', 'save']),
   })
 
-  // 6. A stored branch was removed.
+  // 5. A stored branch was removed.
   cards.push({
     caption:
       "The branch the pick stored was removed. The first branch is used, and Pick shows it dimmed until a branch is chosen again; choosing Detailed clears it. Removing or renaming a branch never reinterprets another branch's id.",
@@ -635,7 +577,7 @@ export function switchPrimitiveGallery(
     inactive: new Set(['in1']),
   })
 
-  // 7. A wired position outside the branch list.
+  // 6. A wired position outside the branch list.
   {
     const graph = pickGraph(quickDetailed, 'Quick', ['Quick', 'Detailed'])
     cards.push({
@@ -656,7 +598,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 8. A wired text picks a branch by its name.
+  // 7. A wired text picks a branch by its name.
   {
     const graph = pickGraph(quickDetailed, 'Quick', ['Quick', 'Detailed'])
     const askModel = schema('Ask a Model', 'Ask a Model', [
@@ -679,7 +621,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 9. A Custom Combo on Pick.
+  // 8. A Custom Combo on Pick.
   {
     const graph = pickGraph(quickDetailed, 'Quick', ['Quick', 'Detailed'])
     const customCombo = schema('Custom Combo', 'Custom Combo', [
@@ -706,7 +648,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 10. A Choice primitive on Pick.
+  // 9. A Choice primitive on Pick.
   {
     const graph = pickGraph(quickDetailed, 'Quick', ['Quick', 'Detailed'])
     const choice = plainPrimitive(
@@ -735,7 +677,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 11. A wired text that names no branch.
+  // 10. A wired text that names no branch.
   {
     const graph = pickGraph(quickDetailed, 'Quick', ['Quick', 'Detailed'])
     cards.push({
@@ -761,7 +703,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 12. Rename and random.
+  // 11. Rename and random.
   {
     const randomPick = switchSchema(
       'Switch random',
@@ -855,7 +797,7 @@ export function switchPrimitiveGallery(
     },
   }
 
-  // 13. One promoted choice drives two Switches.
+  // 12. One promoted choice drives two Switches.
   {
     const graphs = {
       root: finishRoot,
@@ -871,7 +813,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 14. The shared Switches' branches no longer agree.
+  // 13. The shared Switches' branches no longer agree.
   {
     const graphs = { root: finishRoot, pass: finishPass(['Quick', 'Final']) }
     cards.push({
@@ -908,7 +850,7 @@ export function switchPrimitiveGallery(
     ],
   })
 
-  // 15. A Primitive feeding two fields that overlap.
+  // 14. A Primitive feeding two fields that overlap.
   cards.push({
     caption:
       'A Primitive feeds two fields that allow 0 to 8 and 4 to 12, so it allows 4 to 8. The range is worked out from the fields it feeds on every change, and the empty limits in its open Limits section show the derived values in quiet text; nothing is copied onto the Primitive. Each field shows the arriving 6, dimmed.',
@@ -924,7 +866,7 @@ export function switchPrimitiveGallery(
     },
   })
 
-  // 16. The fields it feeds share no value.
+  // 15. The fields it feeds share no value.
   cards.push({
     caption:
       'The two fields share no value: Steps A allows 0 to 3 and Steps B 8 to 12. The value and both wires stay, and a problem names both fields. Nothing is reset or removed; whether those nodes can queue is decided by their own fields as today.',
@@ -937,7 +879,7 @@ export function switchPrimitiveGallery(
     companions: { a: { steps: { value: 6 } }, b: { steps: { value: 6 } } },
   })
 
-  // 17. Explicit and pinned limits.
+  // 16. Explicit and pinned limits.
   cards.push({
     caption:
       'Limits sit below the value in the ordinary node body. A limit the author types is used as given, here minimum 4, maximum 8, step 1 and default 6. "Pin the range" stores the current derived range the same way in one undo step, and "Use connected fields" empties them again. A subgraph node may narrow them, never widen them.',
@@ -958,7 +900,7 @@ export function switchPrimitiveGallery(
     companions: { b: { steps: { value: 6 } } },
   })
 
-  // 18. The typed primitives beside the general one.
+  // 17. The typed primitives beside the general one.
   cards.push({
     caption:
       'Int, Float, Text, Boolean and Choice are the Primitive with its type fixed: one node, six entries in the add-node search, which also finds them as "integer", "number", "decimal", "string", "bool", "toggle", "dropdown" and "combo". A typed primitive has its value field from the start and needs no wire to become something; the general Primitive takes its type, label and widget from the first field it is wired to. Text shown as a multiline box is the same Text node. Text and Boolean have only a Default limit, and Choice offers the options the fields it feeds share. Dragging off a field makes the typed primitive for that field\'s type when there is one.',
@@ -1055,7 +997,7 @@ export function switchPrimitiveGallery(
     companions: { sampler: { sampler: { value: 'euler' } } },
   })
 
-  // 19. The definition opened with no subgraph node.
+  // 18. The definition opened with no subgraph node.
   {
     const graphs = {
       root: { nodes: { fresh: softenNode('Soften', 230, 330, {}) } },
@@ -1068,7 +1010,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 20. Amount wired from outside, entered through that subgraph node.
+  // 19. Amount wired from outside, entered through that subgraph node.
   {
     const graphs = {
       root: {
@@ -1098,7 +1040,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 21. One number drives two Picks in a plain graph.
+  // 20. One number drives two Picks in a plain graph.
   {
     const index = numberPrimitive('Primitive index', 'Value', 'INT', 1, {
       min: 0,
@@ -1135,7 +1077,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 22. A refused link and a refused name.
+  // 21. A refused link and a refused name.
   {
     const refused = scene({
       root: {
@@ -1175,7 +1117,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 23. Plugging in corrects the value in the same undo step.
+  // 22. Plugging in corrects the value in the same undo step.
   {
     const p = stepsPrimitive()
     const stage = (
@@ -1222,7 +1164,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 24. Pinned range, disconnected and conflicting dropdowns.
+  // 23. Pinned range, disconnected and conflicting dropdowns.
   {
     const conflict = plainPrimitive(
       'Primitive conflict',
@@ -1286,7 +1228,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 25. A wired Primitive passes its producer on.
+  // 24. A wired Primitive passes its producer on.
   cards.push({
     caption:
       'A Primitive whose value arrives on a wire is read-only, with its stored 0.4 struck through, and passes the wire on: the submitted graph links Runtime number straight to Blend, and the Primitive itself does not run. Its stored value is not written into Blend; it is used again once the wire is removed.',

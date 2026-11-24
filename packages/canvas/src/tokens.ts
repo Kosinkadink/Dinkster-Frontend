@@ -39,9 +39,7 @@ export const canvasPaintTokens = {
   scene: {
     nodeFallbackX: 40,
     nodeFallbackStepY: 120,
-    valueSourceFallbackStepY: 60,
     rerouteFallbackStepY: 60,
-    selectorFallbackStepY: 100,
     emptyGraphWidth: 320,
     boundaryGap: 120,
     fallbackValueMaxCharacters: 42,
@@ -182,17 +180,24 @@ export const canvasPaintTokens = {
       stroke: 1,
       radius: 5,
       /** Each box inside a box steps in this far from the outline around it. */
-      step: 6,
+      step: 8,
       /**
        * A field inside a box sits this far inside its outline, and the
        * outline's inner side lines up with a field outside any box, so a
-       * field in one box is this much narrower on each side.
+       * field in one box is this much narrower on each side. Equal to
+       * `step`, so a field is as wide as a box beside it in the same box.
        */
-      fieldGap: 3,
+      fieldGap: 8,
       /** The open header is this much shorter than the closed row, inside the outline. */
       headerShrink: 2,
       /** From the last field in a box to its outline. */
-      bottomGap: 3,
+      bottomGap: 4,
+      /** Between two member boxes, so their outlines do not read as one thick line. */
+      memberGap: 4,
+      /** From a field or pin row to the outline of a box header under it. */
+      headerGap: 4,
+      /** From a box's outline to the box header, field or pin row after it. */
+      boxGap: 4,
       /** An open box with no name: room above its outline for the tab, and below it. */
       tabGap: 6,
       tabPad: 4,
@@ -330,40 +335,6 @@ export const canvasPaintTokens = {
     labelPinGap: canvasSemanticTokens.space[4],
     /** Space between the panel title and the quieter text naming whose values its fields carry. */
     subtitleGap: canvasSemanticTokens.space[4],
-  },
-  valueSource: {
-    heightPadding: 8,
-    minWidth: 90,
-    badgeSize: 14,
-    badgeInset: 6,
-    stroke: 1,
-    strongStroke: 2,
-    badgeGap: canvasSemanticTokens.space[4],
-    valueGap: canvasSemanticTokens.space[8],
-    baselineOffset: 0.5,
-    badgeRadiusInset: 2,
-    badgeFontWeight: 700,
-    badgeFontReduction: 2,
-    badgeStroke: 1.5,
-  },
-  selector: {
-    widthPadding: canvasSemanticTokens.space[8],
-    minWidth: 110,
-    badgeSize: 14,
-    badgeInset: 6,
-    selectionOutset: 3,
-    selectionStroke: 2,
-    stroke: 1.25,
-    minScreenStroke: 1,
-    badgeGap: canvasSemanticTokens.space[4],
-    badgeRadius: 3,
-    badgeStroke: 1,
-    badgeFontSize: 9,
-    baselineOffset: 0.5,
-    accentInset: 1.5,
-    accentVerticalInset: 3,
-    accentWidth: 2.5,
-    labelPinGap: canvasSemanticTokens.space[4],
   },
   net: {
     gap: 10,
@@ -555,7 +526,7 @@ export const canvasPaintTokens = {
     valueWidthPadding: canvasSemanticTokens.space[16],
     swatchReserve: canvasSemanticTokens.space[16],
     toggleReserve: canvasSemanticTokens.space[12],
-    /** Room between a word about a value ("wired") and the value. */
+    /** Room between a word about a value ("inactive") and the value. */
     valueWordGap: canvasSemanticTokens.space[8],
     toggle: {
       trailingInset: 22,

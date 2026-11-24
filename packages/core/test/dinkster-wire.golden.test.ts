@@ -4,6 +4,7 @@ import { importLitegraph, resolveImportedAssetLiterals } from '../src/format/imp
 import { asConnectionId, asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 import { DINKSTER_SCHEMA_WIRE_VERSION, parseDinksterNodes, parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { inputsOf } from '../src/schema/model.js'
+import { PRIMITIVE_SCHEMAS, withPrimitives } from './fixtures/primitive-schemas.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
@@ -204,11 +205,11 @@ describe('Dinkster schema wire', () => {
         const linked = importLitegraph({ nodes: [
           { id: 1, type: 'SourceSelection', inputs: [{ name: 'source', type: 'COMBO', link: 7 }], widgets_values: [source, 'ordinary.vae'] },
           { id: 2, type: 'PrimitiveNode', outputs: [{ name: 'COMBO', type: 'COMBO', links: [7] }], widgets_values: [source] },
-        ], links: [[7, 2, 0, 1, 0, 'COMBO']] }, (nodeType) => nodeType === 'SourceSelection' ? result.schema : undefined)
+        ], links: [[7, 2, 0, 1, 0, 'COMBO']] }, withPrimitives(resolve), undefined, [], PRIMITIVE_SCHEMAS)
         expect(linked.document).toBeDefined()
-        const linkedResolved = resolveImportedAssetLiterals(linked.document!, resolve, () => descriptor)
+        const linkedResolved = resolveImportedAssetLiterals(linked.document!, withPrimitives(resolve), () => descriptor)
         expect(linkedResolved.unresolved).toEqual([])
-        expect(Object.values(linkedResolved.document.graphs.g0!.valueSources!)[0]!.value).toBe(source)
+        expect(linkedResolved.document.graphs.g0!.nodes.n2!.values).toEqual({ value: source })
       }
     }
   })
