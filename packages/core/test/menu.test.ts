@@ -62,7 +62,7 @@ function ctx(target: MenuTarget, extra?: Partial<MenuContext>): MenuContext {
     doc: docWith(),
     graphId: 'g0',
     target,
-    selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] },
+    selection: { nodes: [], links: [], reroutes: [] },
     worldX: 10,
     worldY: 20,
     ...extra,
@@ -180,7 +180,7 @@ describe('core contributions', () => {
   })
 
   it('mode acts on the whole selection when the target rides it', () => {
-    const c = ctx({ kind: 'node', nodeId: 'n1' }, { selection: { nodes: ['n1', 'n2'], links: [], reroutes: [], valueSources: [], selectors: [] } })
+    const c = ctx({ kind: 'node', nodeId: 'n1' }, { selection: { nodes: ['n1', 'n2'], links: [], reroutes: [] } })
     const groups = coreRegistry().resolve(c)
     const mode = groups.find((g) => g.group === '20-mode')!.items[0]!
     const active = requireAction(mode.children![0]!)
@@ -196,7 +196,7 @@ describe('core contributions', () => {
   })
 
   it('minimizes or restores the whole selected node set with one command', () => {
-    const selection = { nodes: ['n1', 'n2'], links: [], reroutes: [], valueSources: [], selectors: [] }
+    const selection = { nodes: ['n1', 'n2'], links: [], reroutes: [] }
     const initial = coreRegistry().resolve(ctx({ kind: 'node', nodeId: 'n1' }, { selection }))
       .flatMap((group) => group.items)
       .find((item) => item.id === 'core.node.minimize')!
@@ -249,7 +249,7 @@ describe('core contributions', () => {
         },
       },
     })
-    const selection = { nodes: ['n1', 'n2'], links: [], reroutes: [], valueSources: [], selectors: [] }
+    const selection = { nodes: ['n1', 'n2'], links: [], reroutes: [] }
     const groups = coreRegistry().resolve(ctx({ kind: 'node', nodeId: 'n1' }, { doc: document, selection }))
     const compact = requireAction(groups.flatMap((group) => group.items)
       .find((entry) => entry.id === 'core.node.compactDynamic')!)
@@ -307,7 +307,7 @@ describe('core contributions', () => {
   })
 
   it('node color batches every selected node when the target rides the selection', () => {
-    const selection = { nodes: ['n1', 'n2'], links: [], reroutes: [], valueSources: [], selectors: [] }
+    const selection = { nodes: ['n1', 'n2'], links: [], reroutes: [] }
     const groups = coreRegistry().resolve(ctx({ kind: 'node', nodeId: 'n1' }, { selection }))
     const blue = menuDescendants(groups.flatMap((group) => group.items))
       .find((item) => item.id === 'core.node.color.blue')!
@@ -425,7 +425,7 @@ describe('core contributions', () => {
     })
 
     // Node target offers grouping the selection as a host action.
-    const nodeMenu = reg.resolve(ctx({ kind: 'node', nodeId: 'n1' }, { selection: { nodes: ['n1', 'n2'], links: [], reroutes: [], valueSources: [], selectors: [] } }))
+    const nodeMenu = reg.resolve(ctx({ kind: 'node', nodeId: 'n1' }, { selection: { nodes: ['n1', 'n2'], links: [], reroutes: [] } }))
     const groupSel = nodeMenu.flatMap((g) => g.items).find((i) => i.id === 'core.node.groupSelection')!
     expect(groupSel.label).toBe('Group 2 nodes')
     expect(groupSel.action).toEqual({ kind: 'host', action: 'groupSelection' })
@@ -509,7 +509,7 @@ describe('core contributions', () => {
   it('queue-selection rides the selection and drops unknown nodes', () => {
     const reg = coreRegistry()
     const groups = reg.resolve(
-      ctx({ kind: 'node', nodeId: 'n1' }, { selection: { nodes: ['n1', 'n2', 'ghost'], links: [], reroutes: [], valueSources: [], selectors: [] } }),
+      ctx({ kind: 'node', nodeId: 'n1' }, { selection: { nodes: ['n1', 'n2', 'ghost'], links: [], reroutes: [] } }),
     )
     const item = groups.flatMap((g) => g.items).find((i) => i.id === 'core.node.queueSelection')
     expect(item).toMatchObject({
@@ -735,7 +735,7 @@ describe('value source contributions', () => {
       .resolve(
         ctx(
           { kind: 'valueSource', valueSourceId: 'v1' },
-          { doc: vsDoc(), selection: { nodes: [], links: [], reroutes: [], valueSources: ['v1', 'v2', 'ghost'], selectors: [] } },
+          { doc: vsDoc(), selection: { nodes: [], links: [], reroutes: [], valueSources: ['v1', 'v2', 'ghost'] } },
         ),
       )
       .flatMap((g) => g.items)
@@ -830,7 +830,7 @@ describe('selector contributions', () => {
       action: { kind: 'host', action: 'deleteSelection' },
     })
     const riding = selItems('s1', {
-      selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: ['s1', 's2', 'ghost'] },
+      selection: { nodes: [], links: [], reroutes: [], selectors: ['s1', 's2', 'ghost'] },
     })
     expect(riding.find((i) => i.id === 'core.selector.delete')!.label).toBe('Delete 2 selectors')
   })

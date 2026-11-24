@@ -262,7 +262,7 @@ describe('a primitive\'s range from its menu', () => {
   const [widgetReset, , , primitiveRange] = resetMenuContributions(() => resolve)
   const menu = (doc: WorkflowDocument): MenuContext => ({
     doc, graphId: 'g0', target: { kind: 'widget', nodeId: 'prim', inputId: 'value' },
-    selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] }, worldX: 0, worldY: 0,
+    selection: { nodes: [], links: [], reroutes: [] }, worldX: 0, worldY: 0,
   })
   const run = (store: DocumentStore, item: MenuItem) => {
     const action = (item as MenuActionItem).action
