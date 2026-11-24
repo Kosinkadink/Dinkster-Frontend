@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TestInfo } from '@playwright/test'
-import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, setShellRegion, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_CANVAS_SEMANTIC_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -93,8 +93,7 @@ test('semantic scene navigation stays virtual until focused and pans only on act
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(before.document)
 
   await page.setViewportSize({ width: 390, height: 844 })
-  const railToggle = page.getByRole('button', { name: 'Toggle right rail' })
-  if (await railToggle.getAttribute('aria-pressed') === 'true') await railToggle.click()
+  await setShellRegion(page, 'right', false)
   await navigator.focus()
   await expect(navigator).toBeFocused()
   await expect(navigator.getByRole('option')).toHaveCount(5)

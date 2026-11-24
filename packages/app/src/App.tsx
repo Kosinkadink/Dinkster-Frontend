@@ -2311,10 +2311,26 @@ export function App(props: {
   ]
   let layoutMenu!: HTMLSpanElement
   const layoutMenuRequests = useSignal(app.layoutMenuRequests)
-  createEffect(on(layoutMenuRequests, () => {
-    // A menu item that runs the command restores focus to its own trigger first.
-    queueMicrotask(() => layoutMenu.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]:not([aria-expanded="true"])')?.click())
-  }, { defer: true }))
+  // The command opens the layout menu like a click, or focuses its first item when it is open,
+  // and focus goes back to where it was when the menu closes. A menu item that runs the
+  // command restores focus to its own trigger first, so this waits for that.
+  createEffect(on(layoutMenuRequests, () => queueMicrotask(() => {
+    const trigger = layoutMenu.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')
+    if (trigger === null) return
+    if (trigger.getAttribute('aria-expanded') === 'true') {
+      document.getElementById(trigger.getAttribute('aria-controls') ?? '')
+        ?.querySelector<HTMLElement>('[role^="menuitem"]:not(:disabled)')?.focus()
+      return
+    }
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
+    trigger.click()
+    const observer = new MutationObserver(() => {
+      if (trigger.getAttribute('aria-expanded') === 'true') return
+      observer.disconnect()
+      if (previous?.isConnected && (document.activeElement === trigger || document.activeElement === document.body)) previous.focus()
+    })
+    observer.observe(trigger, { attributes: true, attributeFilter: ['aria-expanded'] })
+  }), { defer: true }))
   const [projectName, setProjectName] = createSolidSignal<string>()
   const primaryConnected = createMemo(() => {
     const backend = backends()[0]

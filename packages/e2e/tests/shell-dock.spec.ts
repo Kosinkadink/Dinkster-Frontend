@@ -5,7 +5,7 @@
  * narrow side sheets preserve tabs and status. The thin status bar is not
  * the bottom panel and never toggles with it.
  */
-import { expect, nativeTest as test, toggleShellRegion, waitForWorkspaceReady, type Locator } from './fixtures.js'
+import { expect, nativeTest as test, setShellRegion, waitForWorkspaceReady, type Locator } from './fixtures.js'
 
 async function expectWholeTabs(tablist: Locator, tabs: Locator): Promise<void> {
   const strip = (await tablist.boundingBox())!
@@ -531,7 +531,7 @@ test('narrow side surfaces preserve tabs and status without document overflow', 
   expect(inspectorBox.y).toBeGreaterThanOrEqual(dockBox.y + dockBox.height - 1)
   expect(inspectorBox.x + inspectorBox.width).toBeLessThanOrEqual(480)
 
-  await toggleShellRegion(page, 'right')
+  await setShellRegion(page, 'right', false)
   await expect(inspector).toBeHidden()
   await expect(dock).toBeVisible()
   const expandedDockBox = (await dock.boundingBox())!
@@ -685,10 +685,17 @@ test('layout menu switches persist and Reset layout restores the bars and region
   await page.locator('[data-item-id="layout.customize"]').click()
   await expect(item('Left bar')).toBeFocused()
   await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu', { name: 'Customize layout' })).toBeHidden()
+  await expect(page.getByTestId('dinkster-menu-button')).toBeFocused()
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('> Customize layout')
   await page.getByTestId('universal-search-input').press('Enter')
   await expect(item('Left bar')).toBeFocused()
+  await item('Status bar').focus()
+  await page.evaluate(() => (window.__dinksterTest!.app.commands.get('layout.customize') as unknown as { run(): void }).run())
+  await expect(item('Left bar')).toBeFocused()
+  await page.mouse.click(700, 500)
+  await expect(page.getByRole('menu', { name: 'Customize layout' })).toBeHidden()
 })
 
 test('right-zone tab strip shrinks tabs with ellipsis instead of a native scrollbar', async ({ page }) => {
