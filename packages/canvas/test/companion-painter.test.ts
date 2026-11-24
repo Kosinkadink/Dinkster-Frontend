@@ -189,38 +189,30 @@ describe('companion value painting', () => {
   })
 
   it('registry painter shows a passed value as its own row would summarize it, a color code after its square', () => {
-    const curveView: WidgetView = {
-      ...stubView, id: 'core.curve', kind: 'CURVE',
-      drawCompact: (scene, value) => scene.text(1, 0, `${(value as { points: unknown[] }).points.length} points`, { role: 'widgetValue', align: 'right', width: 1 }),
-    }
     const colorView: WidgetView = {
       ...stubView, id: 'core.color', kind: 'COLOR',
       drawCompact: (scene, value) => scene.text(1, 0, String(value), { role: 'widgetValue', align: 'right', width: 1, swatch: value }),
     }
-    const views = [curveView, colorView]
     const summaries: WidgetRegistry = {
       ...registry,
       kind: (type) => ({ ...stubKind, type }),
-      viewsFor: (type) => views.filter((view) => view.kind === type),
+      viewsFor: (type) => type === colorView.kind ? [colorView] : [],
     }
-    const paintPassed = (view: WidgetView, value: Json, look: DesignTokens['widgetRowLook']) => {
+    const paintPassed = (value: Json, look: DesignTokens['widgetRowLook']) => {
       const painted = fakeCtx()
       const fills: string[] = []
       const ctx = painted.ctx as unknown as { fillRect: () => void; fillStyle: string }
       ctx.fillRect = () => fills.push(ctx.fillStyle)
       createRegistryPainter(summaries)({
         ...argsWith(painted.ctx, { companion: { value }, connected: true, tokens: { ...defaultTokens, widgetRowLook: look } }),
-        row: { ...row, viewId: view.id, spec: { widgetType: view.kind, options: {} } },
+        row: { ...row, viewId: colorView.id, spec: { widgetType: colorView.kind, options: {} } },
       })
       return { texts: painted.calls.map((call) => call.text), fills }
     }
-    const curve = { points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }
-    expect(paintPassed(curveView, curve, 'raised-editors').texts).toContain('2 points')
-    expect(paintPassed(curveView, curve, 'inset-raised').texts.some((text) => text.startsWith('{"points"'))).toBe(true)
-    const color = paintPassed(colorView, '#3366cc80', 'raised-editors')
+    const color = paintPassed('#3366cc80', 'raised-editors')
     expect(color.texts).toContain('#3366cc80')
     expect(color.fills).toContain('#3366cc80')
-    expect(paintPassed(colorView, '#3366cc80', 'inset-raised').fills).not.toContain('#3366cc80')
+    expect(paintPassed('#3366cc80', 'inset-raised').fills).not.toContain('#3366cc80')
   })
 
   it('registry painter strikes compact-view value text when connected without a companion', () => {

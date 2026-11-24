@@ -6,9 +6,11 @@
  * file owns "given those flags, the right pixels get the right color".
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, compile, documentResolver, loadDocument, type InputSpec, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
+import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, compile, documentResolver, loadDocument, type InputSpec, type Json, type NodeSchema, type WidgetKind, type WidgetRegistry, type WidgetView, type WorkflowDocument } from '@dinkster/core'
 import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, type Scene, type SceneNode } from '../src/scene.js'
 import { paintToolboxIcon } from '../src/icons.js'
+import { createRegistryPainter } from '../src/registry-painter.js'
+import { createInNodeEditorScene, inNodeEditorExamples } from '../gallery/in-node-editors.js'
 import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
 import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, outputRowKey, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
@@ -3614,5 +3616,61 @@ describe('presence paint (remote participants)', () => {
     const colorsByRadius = new Map(rerouteHalos.map((i) => [calls[i]?.args[2], paintedAfter(calls, i, 'stroke')?.strokeStyle]))
     expect(colorsByRadius.get(REROUTE_RADIUS + 6)).toBe(CURSOR_COLOR)
     expect(colorsByRadius.get(REROUTE_RADIUS + 9)).toBe(otherColor)
+  })
+})
+
+describe('an editor row fed a value known before a run', () => {
+  // Stand-ins for the widgets package's views, drawing what they draw: a
+  // curve's square, its point count and how its points are joined; a frame's name.
+  const views: readonly WidgetView[] = [
+    {
+      id: 'core.curve', kind: 'CURVE', isCompatible: () => true, measure: () => ({ rows: 2 }),
+      drawCompact: (scene, value) => {
+        const points = (value as { points?: unknown[] } | null)?.points
+        scene.rect(0, 0, 1, 2, { role: 'curveSketch', samples: [], points: [], held: [] })
+        scene.text(1, 0, `${points?.length ?? 0} points`, { role: 'widgetValue', align: 'right', width: 1 })
+        if (points !== undefined) scene.text(0, 1, 'Monotone cubic', { role: 'curveJoin' })
+      },
+    },
+    {
+      id: 'core.webcam', kind: 'WEBCAM', isCompatible: () => true, measure: () => ({ rows: 1 }),
+      drawCompact: (scene) => scene.text(1, 0, 'No frame yet', { role: 'widgetValue', align: 'right', width: 1, placeholder: true }),
+    },
+  ]
+  const kindOf = (type: string): WidgetKind => ({
+    type, valueSchema: { version: 1, validate: (v): v is Json => v !== undefined }, defaultValue: () => null, validate: () => [], defaultView: () => views.find((view) => view.kind === type)!.id,
+  })
+  const registry: WidgetRegistry = {
+    registerKind: () => () => {}, registerView: () => () => {}, registerEditor: () => () => {}, registerPreviewRenderer: () => () => {},
+    kind: (type) => views.some((view) => view.kind === type) ? kindOf(type) : undefined,
+    viewsFor: (type) => views.filter((view) => view.kind === type),
+    editorFor: () => undefined, previewRendererFor: () => undefined,
+  }
+  const editorMeasure: WidgetMeasure = (spec) => {
+    const view = views.find((candidate) => candidate.kind === spec.widgetType)
+    return view === undefined ? { viewId: 'core.line', rows: 1 } : { viewId: view.id, rows: view.measure(spec).rows }
+  }
+  const curve: Json = { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] }
+  const frame: Json = { name: 'webcam.png', mediaType: 'image/png' }
+
+  it.each([
+    ['curve-folded-wired-before', 'curve', curve, {}, '3 points'],
+    ['webcam-wired-before', 'image', frame, { text: 'webcam.png' }, 'webcam.png'],
+  ] as const)('%s with a carried value reads as the row does after a run', (exampleId, key, value, named, shown) => {
+    const { view: _unfolded, summaries: _summaries, ...example } = inNodeEditorExamples.find((item) => item.id === exampleId)!
+    const scene = createInNodeEditorScene(defaultTokens, measure, editorMeasure, example, { x: 0, y: 0 })
+    const { ctx, calls } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens, createRegistryPainter(registry))
+    renderer.setScene(scene)
+    // A Primitive or a widget tap: the host shows the value as a companion and summarizes the editor row from it.
+    renderer.setCompanions({ [example.id]: { [key]: { value } } })
+    renderer.setEditorSummaries({ [example.id]: { [key]: { ...named, value } } })
+    renderer.renderNow()
+    renderer.dispose()
+    const text = calls.find((call) => call.method === 'fillText' && call.args[0] === shown)
+    expect(text).toBeDefined()
+    expect(text!.font.startsWith('italic')).toBe(false)
+    expect(text!.fillStyle).toBe(defaultTokens.colors.value)
+    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'Monotone cubic')).toBe(key === 'curve')
   })
 })

@@ -14,7 +14,7 @@ import { widgetChromeRect } from './layout.js'
 import { defaultWidgetPainter, fitItems, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
 import type { DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
-import { canvasPaintTokens } from './tokens.js'
+import { canvasPaintTokens, IN_NODE_EDITORS } from './tokens.js'
 import { paintSeedModeIcon, paintToolboxIcon } from './icons.js'
 import type { ToolboxButton } from './toolbox.js'
 
@@ -92,6 +92,14 @@ function openerIconOf(row: WidgetRow, tokens: DesignTokens): NonNullable<Toolbox
       : undefined
 }
 
+/**
+ * Whether a row draws a value arriving by wire with its own view, as it draws
+ * what a run brought, rather than in the shared read-only style of a field:
+ * an editor shown in the node does, so its look does not depend on how the
+ * value became known.
+ */
+const carriesOwnLook = (row: WidgetRow): boolean => IN_NODE_EDITORS[row.viewId] !== undefined
+
 /** Space a field's name gives up to the subgraph mark before it. */
 const subgraphMarkReserve = (row: WidgetRow): number =>
   row.subgraphMark === undefined ? 0 : paint.subgraphMark.size + paint.subgraphMark.gap
@@ -112,7 +120,7 @@ export function subgraphMarkRect(
 ): { readonly x: number; readonly y: number; readonly size: number } {
   const geometry = tokens.rowGeometry
   const size = paint.subgraphMark.size
-  if (companion) {
+  if (companion && !carriesOwnLook(row)) {
     const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, geometry)
     return { x: field.left + (numeric ? geometry.stepperLabelInset : paint.labelInset), y: (rowHeight - size) / 2, size }
   }
@@ -142,12 +150,19 @@ function paintSubgraphMark(args: WidgetPaintArgs, companion: boolean, numeric: b
 export const ellipsize = fitText
 
 export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
-  return (args) => {
+  const painter: WidgetPainter = (args) => {
     const { ctx, row, value, x, y, width, rowHeight, tokens } = args
     const view = registry.viewsFor(row.spec.widgetType).find((v) => v.id === row.viewId)
     const kind = registry.kind(row.spec.widgetType)
     if (!view || !kind) {
       defaultWidgetPainter(args)
+      return
+    }
+    if (args.companion !== undefined && carriesOwnLook(row)) {
+      // An editor shown in the node draws a value its wire brings before a run
+      // as it draws what a run brought: its own view of that value, muted.
+      const { companion, companionAlpha: _alpha, ...wired } = args
+      painter({ ...wired, value: companion.value, editorSummary: args.editorSummary ?? { value: companion.value } })
       return
     }
     if (args.companion !== undefined) {
@@ -564,6 +579,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.fill()
     }
   }
+  return painter
 }
 
 /**

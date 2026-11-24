@@ -4401,7 +4401,7 @@ export class CanvasRenderer {
       ...(drag !== undefined ? { dragging: true } : {}),
       ...(companion !== undefined ? { companion } : {}),
       ...(companion !== undefined ? { companionAlpha } : {}),
-      ...(companion === undefined && this.editorSummaries[sceneNode.id]?.[row.valueKey] !== undefined
+      ...(this.editorSummaries[sceneNode.id]?.[row.valueKey] !== undefined
         ? { editorSummary: this.editorSummaries[sceneNode.id]![row.valueKey]! } : {}),
       ...(row.subgraphMark !== undefined ? { markAlpha: companionAlpha } : {}),
       x: node.x + row.inset,

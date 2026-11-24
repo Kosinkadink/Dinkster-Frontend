@@ -150,6 +150,8 @@ export interface InNodeEditorExample {
   readonly states?: Readonly<Record<string, EditorExampleState>>
   /** Per editor value key: what its folded row reads, as the host derives it. */
   readonly summaries?: EditorSummaryMap[string]
+  /** Per wired value key: the value its wire carries before a run, from a Primitive or a widget tap. */
+  readonly carried?: Readonly<Record<string, Json>>
   /** Per editor value key: the small picture its row shows before the text. */
   readonly thumbnails?: Readonly<Record<string, 'frame' | 'view'>>
   readonly width?: number
@@ -284,6 +286,9 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
   { id: 'curve-folded-wired-after', card: 35, caption: 'Folded, fed by a wire, after a run: the curve the wire brought, its points muted with the row', type: 'Curve editor',
     wired: { curve: 'CURVE' },
     summaries: { curve: { value: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.8 }, { position: 1, value: 0.6 }] } } } },
+  { id: 'curve-folded-primitive', card: 35, caption: 'Folded, fed by a Primitive holding 3 points, before a run: the curve it holds, muted with the row', type: 'Curve editor',
+    wired: { curve: 'CURVE' },
+    carried: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0.2 }, { position: 0.6, value: 0.4 }, { position: 1, value: 0.9 }] } } },
   { id: 'curve-histogram-before', card: 36, caption: 'A histogram wired in, before a run: its line reads Histogram: not known yet', type: 'Curve editor',
     values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } },
     wired: { histogram: 'HISTOGRAM' }, view: unfold('curve') },
