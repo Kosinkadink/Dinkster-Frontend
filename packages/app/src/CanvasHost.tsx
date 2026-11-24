@@ -183,6 +183,8 @@ import {
 } from './CanvasSemanticNavigator.js'
 import { AudioRecordSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, type EditorSpaceItem } from './InNodeEditorSpaces.js'
 import { Load3dSpace } from './InNodeLoad3dSpace.js'
+import { ImageCompareSpace } from './InNodeImageCompareSpace.js'
+import { imageCompareFrames } from './image-compare-frames.js'
 import { openLoad3dSource } from './load3d-source.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
@@ -1608,7 +1610,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const canvas = canvasClientRect()
     return boundedVisibleOverlayKeys(
       // The editors whose controls the app lays over their space.
-      editorSpaces().filter((item) => ['core.audioRecord', 'core.curve', 'core.webcam', 'core.load3d'].includes(item.row.viewId)),
+      editorSpaces().filter((item) => ['core.audioRecord', 'core.curve', 'core.webcam', 'core.load3d', 'core.imageCompare'].includes(item.row.viewId)),
       (item) => item.key,
       (item) => mediaScreenRect(item.node, item.space, viewport, canvas) !== undefined,
       (item) => selectedNodeIds().has(item.nodeId),
@@ -6747,6 +6749,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             },
           }
         }
+        const compare = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.imageCompare') return undefined
+          executions()
+          return imageCompareFrames(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts: at.current.field.parts })
+        }
         return (
           <Show when={item() !== undefined && projected() !== undefined}>
             <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl}>
@@ -6769,6 +6777,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   openSections={item()?.row.openSections ?? []}
                   cameraWired={item()?.wiredParts.has('camera_info') === true}
                   placementWired={item()?.wiredParts.has('model_3d_info') === true} />}
+              </Show>
+              <Show when={compare() !== undefined}>
+                <ImageCompareSpace frames={compare() ?? { image_a: [], image_b: [] }} pictureHeight={item()?.row.picture?.height ?? 0} />
               </Show>
             </NodeEditorSpaceOverlay>
           </Show>

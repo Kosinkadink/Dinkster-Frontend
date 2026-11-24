@@ -661,6 +661,12 @@
   pointer-events: none;
 }
 
+/* The comparison's divider is dragged across its picture once both images are there. */
+.node-image-compare[data-images='2'] {
+  cursor: ew-resize;
+  touch-action: none;
+}
+
 .node-load3d-view > canvas {
   display: block;
   width: 100%;
