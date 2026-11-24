@@ -75,6 +75,7 @@ import {
   ProductToast,
   reportProductEvent,
   type ProductRole,
+  type ProductAttention,
 } from '../src/index.js'
 import '../dist/dinkster.css'
 import {
@@ -1061,6 +1062,15 @@ function WindowToolbarGallery() {
   const [brand, setBrand] = createSignal('menu')
   const [projectName, setProjectName] = createSignal('Sample project')
   const [account, setAccount] = createSignal('none')
+  const [rightAttention, setRightAttention] = createSignal('none')
+  const rightPanelAttention = (): ProductAttention | undefined =>
+    rightAttention() === 'info'
+      ? { count: 1, tone: 'info', label: '1 message' }
+      : rightAttention() === 'warning'
+        ? { count: 2, tone: 'warning', label: '2 warnings' }
+        : rightAttention() === 'problem'
+          ? { count: 3, tone: 'problem', label: '3 problems' }
+          : undefined
   const [visible, setVisible] = createSignal<Record<string, boolean>>({
     'Left panel': true,
     'Bottom panel': false,
@@ -1154,6 +1164,20 @@ function WindowToolbarGallery() {
               <option value="signed-in">Signed in</option>
               <option value="signed-in-email">Email only</option>
               <option value="signed-in-empty">No profile</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <ProductField label="Right panel attention">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={rightAttention()}
+              onChange={(event) => setRightAttention(event.currentTarget.value)}
+            >
+              <option value="none">None</option>
+              <option value="info">One message</option>
+              <option value="warning">Two warnings</option>
+              <option value="problem">Three problems</option>
             </ProductSelect>
           )}
         </ProductField>
@@ -1294,6 +1318,9 @@ function WindowToolbarGallery() {
                           <ProductMenu
                             label="Customize layout"
                             icon={Settings}
+                            attention={
+                              narrow() ? rightPanelAttention() : undefined
+                            }
                             items={[
                               ...[
                                 ...(narrow()
@@ -1304,6 +1331,10 @@ function WindowToolbarGallery() {
                               ].map((label) => ({
                                 label,
                                 checked: visible()[label]!,
+                                attention:
+                                  label === 'Right panel'
+                                    ? rightPanelAttention()
+                                    : undefined,
                                 onSelect: () => toggle(label),
                               })),
                               {

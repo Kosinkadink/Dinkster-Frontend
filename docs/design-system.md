@@ -154,7 +154,9 @@ every core tab once.
   messages are off; field problems are shown by `ProductField`.
   Changing to another record mounts a new form.
 - `ProductMenu` owns click, outside-click, focus-leave and Escape dismissal,
-  keyboard item movement and opener focus restoration. Disabled items are
+  keyboard item movement and opener focus restoration. Items keep their buttons
+  by position, so a host that passes new item objects while the menu is open
+  (a count arriving) does not move focus or close it. Disabled items are
   skipped; a disabled-only menu remains keyboard-dismissable. The menu aligns
   to its trigger's left edge, or to its right edge when it would not fit, and
   then uses the app's viewport algorithm from `@dinkster/core/floating-surface`
