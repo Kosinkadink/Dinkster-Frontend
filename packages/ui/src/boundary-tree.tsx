@@ -56,7 +56,6 @@ export interface BoundaryTreeConstruct {
   readonly construct: 'group' | 'choice' | 'typeChoice' | 'described'
   readonly side: 'input' | 'output'
   readonly label: string
-  readonly color?: string
   readonly target?: string
   /** What the construct is, in quiet text, such as "growing group". */
   readonly note: string
@@ -322,12 +321,19 @@ export function BoundaryTree(props: {
     )
   }
 
+  // A group or choice is one face: its header line and its fixed lines, which
+  // move only with it.
   const Construct = (constructProps: {
     construct: BoundaryTreeConstruct
     level: number
+    lifted?: boolean
   }) => (
     <div
-      class="boundary-tree-box"
+      class={
+        constructProps.lifted
+          ? 'boundary-tree-box boundary-tree-lifted'
+          : 'boundary-tree-box'
+      }
       role="treeitem"
       aria-level={constructProps.level}
       aria-selected={props.selected === constructProps.construct.id}
@@ -344,7 +350,6 @@ export function BoundaryTree(props: {
         onClick={select(constructProps.construct.id)}
       >
         <Grip />
-        <Dot color={constructProps.construct.color} />
         <span class="boundary-tree-label boundary-tree-name">
           {constructProps.construct.label}
         </span>
@@ -448,10 +453,19 @@ export function BoundaryTree(props: {
   }
 
   const Slot = () => (
-    <div class="boundary-tree-slot">
-      <Show when={dragged()?.kind === 'row'}>
-        <Row row={dragged() as BoundaryTreeRow} level={1} lifted />
-      </Show>
+    <div class="boundary-tree-slot" data-kind={dragged()?.kind}>
+      <Switch>
+        <Match when={dragged()?.kind === 'row'}>
+          <Row row={dragged() as BoundaryTreeRow} level={1} lifted />
+        </Match>
+        <Match when={dragged()?.kind === 'construct'}>
+          <Construct
+            construct={dragged() as BoundaryTreeConstruct}
+            level={1}
+            lifted
+          />
+        </Match>
+      </Switch>
     </div>
   )
 

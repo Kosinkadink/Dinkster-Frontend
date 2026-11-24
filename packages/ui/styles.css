@@ -558,6 +558,9 @@
 .boundary-tree-row { position: relative; display: flex; align-items: center; gap: var(--dinkster-space-4); min-width: 0; height: 24px; padding: 0 var(--dinkster-space-8) 0 var(--dinkster-space-4); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-raised); cursor: grab; }
 .boundary-tree-row:hover { background-image: linear-gradient(var(--dinkster-interaction-hover), var(--dinkster-interaction-hover)); }
 .boundary-tree-row[aria-selected='true'] { background: var(--dinkster-surface-selected); }
+/* A filled face is one thing that moves; an outline holds things that move. A section's header and a group's or choice's header line have no face of their own. */
+.boundary-tree-box > .boundary-tree-header, .boundary-tree-box > .boundary-tree-header[aria-selected='true'] { background: transparent; }
+.boundary-tree-box[data-construct] > .boundary-tree-header:hover { background-image: none; }
 .boundary-tree-row[aria-selected='true']::before, .boundary-tree-cell[aria-selected='true']::before { content: ''; position: absolute; left: 0; top: calc(50% - 7px); width: 3px; height: 14px; border-top-right-radius: var(--dinkster-radius-small); border-bottom-right-radius: var(--dinkster-radius-small); background: var(--dinkster-accent-foreground); }
 .boundary-tree-spacer { flex: 1; min-width: 0; }
 .boundary-tree-row[data-inert] .boundary-tree-label, .boundary-tree-cell[data-inert] .boundary-tree-label { color: var(--dinkster-text-muted); }
@@ -569,6 +572,7 @@
 .boundary-tree-row:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-accent-border); outline-offset: -1px; }
 .boundary-tree-target[data-align='start'] { margin-left: 0; margin-right: auto; padding-left: 0; padding-right: var(--dinkster-space-8); }
 .boundary-tree-note { flex: none; color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); white-space: nowrap; }
+.boundary-tree-name + .boundary-tree-note { margin-left: var(--dinkster-space-4); }
 .boundary-tree-dot { flex: none; width: 8px; height: 8px; }
 .boundary-tree-grip { display: inline-flex; flex: none; color: var(--dinkster-text-disabled); cursor: grab; }
 .boundary-tree-grip .dinkster-icon { width: 14px; height: 14px; }
@@ -582,27 +586,32 @@
 /* A line's cells keep at least 10 characters of their names; when they do not fit the panel they wrap onto another row inside the same line, under one grip. */
 .boundary-tree-line { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--dinkster-border-width); min-width: 0; min-height: 24px; padding: 1px var(--dinkster-space-4) 1px calc(var(--dinkster-space-4) + 14px + var(--dinkster-space-4)); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-raised); cursor: grab; }
 .boundary-tree-line-grip { position: absolute; top: 5px; left: var(--dinkster-space-4); display: inline-flex; }
-.boundary-tree-cell, .boundary-tree-pocket { position: relative; display: flex; flex: 1 0 calc(10ch + 8px + 2 * var(--dinkster-space-8) + var(--dinkster-space-4)); align-items: center; gap: var(--dinkster-space-4); min-width: 0; height: 22px; padding: 0 var(--dinkster-space-8); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-panel); cursor: grab; }
+.boundary-tree-cell, .boundary-tree-pocket { position: relative; display: flex; flex: 1 0 calc(10ch + 8px + 2 * var(--dinkster-space-8) + var(--dinkster-space-4)); align-items: center; gap: var(--dinkster-space-4); min-width: 0; height: 22px; padding: 0 var(--dinkster-space-8); border-radius: var(--dinkster-radius-control); cursor: grab; }
 .boundary-tree-cell:hover { background-image: linear-gradient(var(--dinkster-interaction-hover), var(--dinkster-interaction-hover)); }
-.boundary-tree-cell[aria-selected='true'] { background: var(--dinkster-surface-selected); }
 .boundary-tree-pocket { border: var(--dinkster-border-width) dashed var(--dinkster-accent-border); background: var(--dinkster-accent-background); color: var(--dinkster-accent-foreground); }
 /* A section or a whole construct is a box; its rows sit 6 px inside it. */
 .boundary-tree-box { position: relative; display: grid; gap: var(--boundary-tree-gap); min-width: 0; padding: 0 0 var(--boundary-tree-gap); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
 .boundary-tree-box:not([data-open]):not([data-construct]) { padding-bottom: 0; }
 .boundary-tree-box[aria-selected='true'] { border-color: var(--dinkster-border-strong); }
+.boundary-tree-box[data-construct] { border: 0; background: var(--dinkster-surface-raised); cursor: grab; }
+.boundary-tree-box[data-construct]:hover { background-image: linear-gradient(var(--dinkster-interaction-hover), var(--dinkster-interaction-hover)); }
+.boundary-tree-box[data-construct][aria-selected='true'] { background: var(--dinkster-surface-selected); }
+.boundary-tree-box.boundary-tree-lifted { height: auto; border: var(--dinkster-border-width) solid var(--dinkster-border-strong); }
 .boundary-tree-box:not([data-named]):not([data-construct]) { padding-top: var(--dinkster-space-12); }
 .boundary-tree-tab { position: absolute; top: calc(-1 * var(--dinkster-border-width)); left: var(--dinkster-space-8); justify-content: center; width: 24px; height: 10px; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-top: 0; border-radius: 0 0 var(--dinkster-radius-small) var(--dinkster-radius-small); background: var(--dinkster-surface-panel); }
 .boundary-tree-tab .dinkster-icon { width: 10px; height: 10px; }
 /* Every child of a box, of any kind, starts one 16 px step in from the box and ends a small inset from its right side. */
-.boundary-tree-children { display: grid; gap: var(--boundary-tree-gap); min-width: 0; padding: 0 var(--dinkster-space-4) 0 var(--dinkster-space-16); }
+.boundary-tree-children { display: grid; gap: var(--boundary-tree-gap); min-width: 0; padding: 0 var(--boundary-tree-gap) 0 var(--dinkster-space-16); }
 .boundary-tree-header { margin: 0 var(--dinkster-border-width); }
-/* A construct's fixed rows cannot move one by one, so they share one face as lines of text, and a press on it takes the whole construct. */
-.boundary-tree-template { display: grid; margin: 0 var(--dinkster-space-4) 0 var(--dinkster-space-16); padding: 2px 0; border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-raised); cursor: grab; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
-.boundary-tree-template-row { display: flex; align-items: center; gap: var(--dinkster-space-4); min-width: 0; height: 20px; padding: 0 var(--dinkster-space-8) 0 calc(var(--dinkster-space-4) + 14px + var(--dinkster-space-4)); }
+.boundary-tree-box[data-construct] > .boundary-tree-header { margin: 0; }
+/* A construct's fixed lines cannot move one by one: they are lines of text in the construct's face, their dots in the dot column of plain rows. */
+.boundary-tree-template { display: grid; min-width: 0; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-body-size); line-height: 20px; }
+.boundary-tree-template-row { display: flex; align-items: center; gap: var(--dinkster-space-4); min-width: 0; height: 22px; padding: 0 var(--dinkster-space-8) 0 calc(var(--dinkster-space-4) + 14px + var(--dinkster-space-4)); }
 .boundary-tree-template-row[data-side='output'] { justify-content: flex-end; padding-right: var(--dinkster-space-8); }
 .boundary-tree-template-row[data-side='output'] .boundary-tree-dot { order: 1; }
 /* Dragging: the row lifts out and the rows open an empty slot where it would land; no insertion line. */
 .boundary-tree-slot { min-width: 0; height: 24px; border: var(--dinkster-border-width) dashed var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-inset); }
+.boundary-tree-slot[data-kind='construct'] { height: auto; }
 .boundary-tree-lifted { height: 24px; border: var(--dinkster-border-width) solid var(--dinkster-border-strong); background: var(--dinkster-surface-raised); box-shadow: var(--dinkster-elevation-low); transform: translate(8px, -4px); cursor: grabbing; }
 /* The Boundary panel frame the tree sits in: head, rows, and the fixed settings area. */
 .boundary-tree-panel { display: flex; flex-direction: column; gap: var(--dinkster-space-4); width: 320px; min-height: 560px; padding: var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); }

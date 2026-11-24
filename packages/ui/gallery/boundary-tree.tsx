@@ -85,7 +85,6 @@ const detailPass = (
     construct: 'group',
     side: 'input',
     label: 'Images',
-    color: color('IMAGE'),
     target: 'Stack',
     note: 'growing group',
     template: [
@@ -100,7 +99,6 @@ const detailPass = (
     construct: 'choice',
     side: 'input',
     label: 'Style',
-    color: color('COMBO'),
     target: 'Stylize',
     note: 'choice',
     template: [
@@ -114,7 +112,6 @@ const detailPass = (
     construct: 'group',
     side: 'output',
     label: 'Parts',
-    color: color('INT'),
     target: 'Split',
     note: 'counted by split count',
     template: [{ label: 'part', side: 'output', color: color('INT') }],
@@ -389,6 +386,50 @@ export function BoundaryTreeGallery() {
             id: 'mask',
             drop: { kind: 'slot', section: 'look', index: 1 },
           }}
+        />
+      </Example>
+      <Example
+        caption="Moving a group"
+        note="Style lifts out whole, with its lines, and the rows open a slot as tall as it where it would land."
+      >
+        <Panel
+          title="Detail pass"
+          uses="used in 2 places"
+          entries={detailPass({ lookOpen: false })}
+          drag={{ id: 'style', drop: { kind: 'slot', index: 4 } }}
+        />
+      </Example>
+      <Example
+        caption="Boxes inside a section"
+        note="A choice and a section inside Finish take the same 16 px step as its rows. Only a section has an outline; a group or choice is one face."
+      >
+        <Panel
+          title="Detail pass"
+          uses="used in 2 places"
+          entries={[
+            input('image', 'image', 'IMAGE', 'Blend'),
+            {
+              kind: 'section',
+              id: 'finish',
+              label: 'Finish',
+              open: true,
+              rows: [
+                input('grain', 'grain', 'FLOAT', 'Grain'),
+                detailPass().find((entry) => entry.id === 'style')!,
+                {
+                  kind: 'section',
+                  id: 'detail',
+                  label: 'Detail',
+                  open: true,
+                  rows: [
+                    input('seed', 'seed', 'INT', 'Grain'),
+                    input('sharpen', 'sharpen', 'FLOAT', 'Sharpen'),
+                  ],
+                },
+              ],
+            },
+            output('result', 'result', 'IMAGE', 'Blend'),
+          ]}
         />
       </Example>
       <Example
