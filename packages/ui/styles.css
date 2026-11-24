@@ -136,6 +136,7 @@
 .dinkster-button[data-role='remove'][data-fill='solid'] { color: var(--dinkster-action-remove-text); background: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); }
 .dinkster-button[data-fill='quiet'] { border-color: transparent; }
 .dinkster-button[data-icon-only] { width: var(--dinkster-control-compact-height); padding: 0; }
+.dinkster-button[data-density='canvas'] { height: var(--dinkster-input-canvas-height); min-height: 0; padding: 0 var(--dinkster-space-8); }
 .dinkster-button:not(:disabled, [aria-disabled='true']):hover { background: var(--dinkster-interaction-hover); }
 .dinkster-button:not(:disabled, [aria-disabled='true']):active { background: var(--dinkster-interaction-pressed); }
 .dinkster-button[data-fill='solid']:not(:disabled, [aria-disabled='true']):hover { background: var(--dinkster-action-primary-bg); filter: brightness(0.9); }
@@ -624,11 +625,10 @@
 .boundary-tree-settings > * { grid-column: 1 / -1; }
 .boundary-tree-settings > .dinkster-button, .boundary-tree-settings > .dinkster-choice { justify-self: start; }
 .boundary-tree-settings > .dinkster-choice > .dinkster-check { margin-left: 0; }
-/* A name is level with the first line of its value: the row aligns to the top and the name fills one line as high as the control it sits beside. */
+/* A name is level with the first line of its value: the row aligns to the top and the name fills one line as high as the canvas-density controls beside it. */
 .boundary-tree-setting { display: grid; grid-template-columns: subgrid; align-items: start; min-width: 0; }
-.boundary-tree-setting-label { color: var(--dinkster-text-muted); line-height: var(--dinkster-control-compact-height); white-space: nowrap; }
-.boundary-tree-setting:has(> .boundary-tree-setting-value > .dinkster-input:first-child) > .boundary-tree-setting-label { line-height: var(--dinkster-input-primary-height); }
-.boundary-tree-setting-value { display: flex; flex-wrap: wrap; align-items: center; min-height: var(--dinkster-control-compact-height); gap: var(--dinkster-space-4) var(--dinkster-space-8); min-width: 0; color: var(--dinkster-text-secondary); }
+.boundary-tree-setting-label { color: var(--dinkster-text-muted); line-height: var(--dinkster-input-canvas-height); white-space: nowrap; }
+.boundary-tree-setting-value { display: flex; flex-wrap: wrap; align-items: center; min-height: var(--dinkster-input-canvas-height); gap: var(--dinkster-space-4) var(--dinkster-space-8); min-width: 0; color: var(--dinkster-text-secondary); }
 .boundary-tree-setting-value > .dinkster-input { flex: 1 1 140px; min-width: 0; }
 /* A link to what a row reads or feeds, drawn as a node's open-field panel draws its links: secondary text over a dotted line. */
 .boundary-tree-setting-value > .dinkster-link { color: var(--dinkster-text-secondary); text-decoration: none; border-bottom: var(--dinkster-border-width) dotted var(--dinkster-text-muted); }

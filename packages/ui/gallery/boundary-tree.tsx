@@ -230,13 +230,13 @@ const fieldSettings = () => (
       </span>
     </div>
     <Setting label="Label">
-      <ProductTextInput value="strength" aria-label="Label" />
+      <ProductTextInput density="canvas" value="strength" aria-label="Label" />
     </Setting>
     <Setting label="Goes to">
       <ProductLink href="#canvas">strength on Blend</ProductLink>
     </Setting>
     <Setting label="Default">
-      <ProductTextInput value="0.45" aria-label="Default" />
+      <ProductTextInput density="canvas" value="0.45" aria-label="Default" />
     </Setting>
   </>
 )
@@ -248,7 +248,7 @@ const outputSettings = (forced: boolean) => (
       <span class="boundary-tree-quiet">output</span>
     </div>
     <Setting label="Label">
-      <ProductTextInput value="preview" aria-label="Label" />
+      <ProductTextInput density="canvas" value="preview" aria-label="Label" />
     </Setting>
     <Setting label="From">
       <ProductLink href="#canvas">preview on Blend</ProductLink>
@@ -264,11 +264,11 @@ const sectionSettings = () => (
       <span class="boundary-tree-quiet">section, 6 rows</span>
     </div>
     <Setting label="Name">
-      <ProductTextInput value="Look" aria-label="Name" />
+      <ProductTextInput density="canvas" value="Look" aria-label="Name" />
     </Setting>
     <ProductCheckbox label="Show the name while open" checked />
     <ProductCheckbox label="Start closed on new nodes" />
-    <ProductButton intent="remove">Remove section</ProductButton>
+    <ProductButton density="canvas" intent="remove">Remove section</ProductButton>
     <span class="boundary-tree-quiet">
       Its rows stay, in the section's place.
     </span>
@@ -282,7 +282,7 @@ const groupSettings = () => (
       <span class="boundary-tree-quiet">whole group</span>
     </div>
     <Setting label="Label">
-      <ProductTextInput value="Images" aria-label="Label" />
+      <ProductTextInput density="canvas" value="Images" aria-label="Label" />
     </Setting>
     <Setting label="Goes to">
       <ProductLink href="#canvas">images on Stack</ProductLink>
@@ -302,7 +302,7 @@ const problemSettings = () => (
         Its row inside "Detail pass" was removed, so it sends nothing.
       </span>
     </div>
-    <ProductButton intent="remove">Remove row</ProductButton>
+    <ProductButton density="canvas" intent="remove">Remove row</ProductButton>
   </>
 )
 
@@ -556,7 +556,7 @@ export function BoundaryTreeGallery() {
               right-click menu inside, or drop a wire on the Inputs or Outputs
               panel.
             </span>
-            <ProductButton intent="add">Add section</ProductButton>
+            <ProductButton density="canvas" intent="add">Add section</ProductButton>
           </div>
         </Panel>
       </Example>

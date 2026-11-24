@@ -134,12 +134,20 @@ export function ProductButton(
     intent?: ProductRole
     fill?: ProductFill
     pending?: boolean
+    /** canvas: as tall as a canvas-density text field, for dense panels. */
+    density?: 'canvas'
   },
 ) {
-  const [local, button] = splitProps(props, ['intent', 'fill', 'pending'])
+  const [local, button] = splitProps(props, [
+    'intent',
+    'fill',
+    'pending',
+    'density',
+  ])
   return (
     <Button
       {...button}
+      data-density={local.density}
       intent={local.intent}
       fill={local.fill ?? 'outline'}
       pending={local.pending}
