@@ -563,6 +563,12 @@ export interface InputSpec extends PortSpecBase {
    * to the run and outside both signatures. Always socketless.
    */
   readonly sent?: false
+  /**
+   * On a subgraph node's field whose widget is worked out from lookups: what
+   * the names its lookup arguments read mean there. They keep the inner
+   * node's scope, as a construct shown whole does.
+   */
+  readonly lookupScope?: OuterScope
   /** Backend computation-semantic demand marker (wire 16); true or omitted. */
   readonly lazy?: true
   /** Execution binding for a staged Comfy source filename (wire 22). */

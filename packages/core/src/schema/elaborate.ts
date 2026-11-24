@@ -1338,7 +1338,8 @@ function elaboratePass(
       if (stored !== undefined) spec = { ...spec, widget: { ...widget, options: { ...widget.options, options: stored } } }
     }
     const declared = spec.widget
-    const looked = declared?.looked === undefined ? undefined : lookedWidget({ ...declared, looked: declared.looked }, scope)
+    const lookupScope = row.lookupScope === undefined ? scope : { ...scope, formulaFrames: outerFrames(row.lookupScope) }
+    const looked = declared?.looked === undefined ? undefined : lookedWidget({ ...declared, looked: declared.looked }, lookupScope)
     if (looked !== undefined) spec = { ...spec, widget: looked.widget }
     const parts = row.widget === undefined ? undefined : partsAt(row.widget, scope)
     push({

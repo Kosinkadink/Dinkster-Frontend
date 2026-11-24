@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
+import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { inputsOf, outputsOf, type GroupSpec, type NodeSchema } from '../src/schema/model.js'
 import { MAX_GROUP_MEMBERS, memberLimitOf } from '../src/schema/body.js'
 
@@ -702,6 +703,35 @@ describe('whole constructs on the subgraph node', () => {
     expect(elab.items.filter((item) => item.kind === 'note')).toEqual([])
     expect(elabInputsOf(elab).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName))
       .toEqual(['item 1 name'])
+  })
+
+  it("a field's lookup on a subgraph node two levels out reads that node's rows, else the definition's values", () => {
+    const { schema: picker } = parseDinksterSchema('Picker', { body: [
+      { kind: 'input', id: 'category', type: { kind: 'concrete', types: ['COMBO'] }, pin: false, sent: false, widget: { type: 'COMBO', options: ['sd', 'sdxl'] } },
+      { kind: 'input', id: 'lora', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', options: { lookup: 'pack.loras', args: ['category'] } } },
+    ] } as never)
+    const port = (id: string, node: string, at: string) => ({ id, binds: { kind: 'port', node, port: at }, promoted: true })
+    const inner = defWith({ p0: { id: 'p0', type: 'Picker', values: { category: 'sd' } } }, [port('kind', 'p0', 'category'), port('pick', 'p0', 'lora')])
+    const innerSchema = deriveBoundarySchema(inner, (type) => (type === 'Picker' ? picker : resolve(type))).schema!
+    const outerOf = (shown: readonly unknown[]) => deriveBoundarySchema(asDef({
+      id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { s0: { id: 's0', type: '#gW', values: { kind: 'sdxl' } } },
+      boundary: { inputs: shown, outputs: [] },
+    }), (type) => (type === '#gW' ? innerSchema : resolve(type))).schema!
+    const callOf = (schema: NodeSchema, values: Record<string, unknown>, wired: readonly string[] = []) => {
+      const elab = elaborateInterface(schema, { values }, {
+        isInputConnected: (id) => wired.includes(id), isOutputConnected: () => false, inputPorts: () => [...wired], outputPorts: () => [],
+      }, { lookupAnswers: () => undefined })
+      return elabInputsOf(elab).find((input) => input.spec.id === 'list')!.looked!.options
+    }
+    const both = outerOf([port('category', 's0', 'kind'), port('list', 's0', 'pick')])
+    // Two instances with their own category each ask for their own list; the face's row ids differ from the inner node's.
+    expect(callOf(both, { category: 'sd' })).toMatchObject({ state: 'loading', call: { args: ['sd'] } })
+    expect(callOf(both, { category: 'sdxl' })).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
+    // A wire into the category from outside is not known, so nothing is called.
+    expect(callOf(both, { category: 'sd' }, ['category'])).toMatchObject({ state: 'waiting' })
+    // Not shown on this node: the inner subgraph node's stored category is used.
+    expect(callOf(outerOf([port('list', 's0', 'pick')]), {})).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
   })
 
   it('a group with no declared maximum gets none on the subgraph node, and its members inside still share the cap', () => {
