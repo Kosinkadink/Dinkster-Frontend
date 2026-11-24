@@ -2409,6 +2409,8 @@ export class CanvasRenderer {
         (this.endOutOfScope(link.from) || this.endOutOfScope(link.to))
       if (outOfScope) ctx.globalAlpha = SCOPE_DIM
       if (link.dimmed === true) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
+      // A wire out of a muted node fades with it; it gains no dashes.
+      if (link.sourceMuted === true) ctx.globalAlpha *= canvasPaintTokens.node.modeOpacity
       if (this.overlay.linkSelection?.has(link.id)) {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName, {
           color: this.tokens.colors.nodeSelectedBorder,

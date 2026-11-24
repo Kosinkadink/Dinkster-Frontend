@@ -379,6 +379,8 @@ export interface SceneLink {
   readonly maybeAbsent?: true
   /** The wire leaves a kept row (a field no longer part of its node): drawn dimmed, it gives nothing. */
   readonly dimmed?: true
+  /** The traced producer is a muted node: the wire is drawn faded like that node. */
+  readonly sourceMuted?: true
   /**
    * Set when this noodle renders a named-net fan-out rather than a document
    * link. Its `id` is synthetic (`netId:index`); deletion must go through
@@ -1639,6 +1641,15 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
     return false
   }
+  /**
+   * True when every real producer behind `from` is an output of a muted
+   * node, traced like {@link tracedMaybeAbsent}. A selector counts only when
+   * all its driven branches come from muted nodes.
+   */
+  const tracedSourceMuted = (from: LinkEndpoint): boolean => {
+    const traces = traceEndpointAll(def, from, rerouteIndex)
+    return traces.length > 0 && traces.every((t) => t.kind === 'output' && byId.get(t.ref.node)?.node.mode === 'muted')
+  }
   for (const reroute of Object.values(def.reroutes)) {
     const pos = viewReroutes[reroute.id]?.position ?? { x: 0, y: (rerouteFallbackY += canvasPaintTokens.scene.rerouteFallbackStepY) }
     const typeName = tracedTypeName({ reroute: reroute.id })
@@ -1838,6 +1849,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(to.type !== undefined ? { toType: to.type } : typeName !== undefined ? { toType: typeExprFromTypeId(typeName) } : {}),
       ...(typeName !== undefined ? { typeName } : {}),
       ...(tracedMaybeAbsent(c.from) ? { maybeAbsent: true as const } : {}),
+      ...(tracedSourceMuted(c.from) ? { sourceMuted: true as const } : {}),
       ...(from.kept === true ? { dimmed: true as const } : {}),
       ...(c.mismatch === true ? { mismatch: true as const } : {}),
       ...(c.diagnostics !== undefined && c.diagnostics.length > 0 ? { diagnostics: c.diagnostics } : {}),
@@ -2279,6 +2291,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           : undefined
       const typeName = traced ?? (pinType === undefined ? undefined : canonicalTypeIdOf(pinType))
       const maybeAbsent = item.binds.kind === 'port' && tracedMaybeAbsent({ node: item.binds.node, port: item.binds.port })
+      const sourceMuted = item.binds.kind === 'port' && tracedSourceMuted({ node: item.binds.node, port: item.binds.port })
       const projected = projectedAnchors('out', item, item.binds)
       const fallback = innerAnchor(item.binds, 'out')
       const sources = projected.length > 0 ? projected : fallback === undefined ? [] : [{ anchor: fallback, identities: [] }]
@@ -2293,6 +2306,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           y2: to.y,
           ...(typeName !== undefined ? { typeName } : {}),
           ...(maybeAbsent ? { maybeAbsent: true as const } : {}),
+          ...(sourceMuted ? { sourceMuted: true as const } : {}),
           boundary: true,
           ...(identities.length === 1 ? { effectiveIdentity: identities[0] } : {}),
           ...(identities.length > 0 ? { effectiveIdentities: identities } : {}),

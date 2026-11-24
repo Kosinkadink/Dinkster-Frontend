@@ -66,7 +66,7 @@ type End =
   | { reroute: string }
   | { selector: string; candidate?: string }
 type GraphSpec = {
-  nodes: Record<string, { type: string }>
+  nodes: Record<string, { type: string; mode?: 'muted' | 'bypassed' }>
   links?: [from: End, to: End][]
   reroutes?: string[]
   nets?: Record<string, { source: End; sinks: End[] }>
@@ -85,7 +85,7 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
       id,
       name: id,
       nodes: Object.fromEntries(
-        Object.entries(g.nodes).map(([nid, n]) => [nid, { id: nid, type: n.type, values: {} }]),
+        Object.entries(g.nodes).map(([nid, n]) => [nid, { id: nid, type: n.type, values: {}, ...(n.mode ? { mode: n.mode } : {}) }]),
       ),
       links: Object.fromEntries(
         (g.links ?? []).map((l, i) => [`l${i}`, { id: `l${i}`, from: end(l[0]), to: end(l[1]) }]),
@@ -258,6 +258,66 @@ describe('maybe-absent scene links', () => {
     expect(pins.find((p) => p.portId === 'plain')!.maybeAbsent).toBeUndefined()
     expect(root.links.find((l) => l.id === 'l0')!.maybeAbsent).toBe(true)
     expect(root.links.find((l) => l.id === 'l1')!.maybeAbsent).toBeUndefined()
+  })
+})
+
+describe('wires out of muted nodes', () => {
+  it('marks a wire out of a muted node through reroutes and named nets, and out of a muted subgraph node', () => {
+    const doc = docOf({
+      g0: {
+        nodes: {
+          m: { type: 'Src', mode: 'muted' },
+          a: { type: 'Src' },
+          b: { type: 'Src', mode: 'bypassed' },
+          o: { type: '#sub', mode: 'muted' },
+          n: { type: 'MaybeSrc', mode: 'muted' },
+          k1: { type: 'Sink' },
+          k2: { type: 'Sink' },
+          k3: { type: 'Sink' },
+          k4: { type: 'Sink' },
+          k5: { type: 'Sink', mode: 'muted' },
+          k6: { type: 'Sink' },
+          k7: { type: 'Sink' },
+        },
+        links: [
+          [['m', 'out'], { reroute: 'r0' }],
+          [{ reroute: 'r0' }, ['k1', 'in']],
+          [['a', 'out'], ['k2', 'in']],
+          [['b', 'out'], ['k3', 'in']],
+          [['o', 'out'], ['k4', 'in']],
+          [['a', 'out'], ['k5', 'in']],
+        ],
+        reroutes: ['r0'],
+        nets: { faces: { source: ['n', 'out'], sinks: [['k6', 'in'], ['k7', 'in']] } },
+      },
+      sub: { nodes: { s: { type: 'Src' } }, outputs: { out: ['s', 'out'] } },
+    })
+    const muted = (id: string) => sceneOf(doc).links.find((l) => l.id === id)!.sourceMuted
+    expect(muted('l0'), 'into a reroute').toBe(true)
+    expect(muted('l1'), 'out of a reroute').toBe(true)
+    expect(muted('l2'), 'active').toBeUndefined()
+    expect(muted('l3'), 'bypassed').toBeUndefined()
+    expect(muted('l4'), 'muted subgraph node').toBe(true)
+    expect(muted('l5'), 'into a muted node').toBeUndefined()
+    const net = sceneOf(doc).links.filter((l) => l.netId === 'faces')
+    expect(net).toHaveLength(2)
+    for (const link of net) {
+      expect(link.sourceMuted, link.id).toBe(true)
+      expect(link.maybeAbsent, link.id).toBe(true)
+    }
+  })
+
+  it('marks the wire into Outputs from a muted node inside a subgraph', () => {
+    const doc = docOf({
+      g0: { nodes: { o: { type: '#sub' } } },
+      sub: {
+        nodes: { s: { type: 'Src', mode: 'muted' }, t: { type: 'Src' } },
+        outputs: { quiet: ['s', 'out'], loud: ['t', 'out'] },
+      },
+    })
+    const scene = sceneOf(doc, 'sub')
+    expect(scene.links.find((l) => l.id === 'boundary:outputs:quiet')!.sourceMuted).toBe(true)
+    expect(scene.links.find((l) => l.id === 'boundary:outputs:loud')!.sourceMuted).toBeUndefined()
   })
 })
 

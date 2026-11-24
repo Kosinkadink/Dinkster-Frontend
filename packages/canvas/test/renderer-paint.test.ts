@@ -3473,6 +3473,11 @@ describe('wire dashes', () => {
     expect(move).toBeGreaterThanOrEqual(0)
     return calls.slice(move).find((call) => call.method === 'bezierCurveTo')!
   }
+  const linkTarget = (): string => {
+    const to = fixtureScene('clean').links.find((candidate) => candidate.id === 'good')!.to
+    if (to.kind !== 'port') throw new Error('fixture wire must end at a node')
+    return to.node
+  }
   const wire = (over: Partial<Scene['links'][number]>, modes: Readonly<Record<string, 'muted' | 'bypassed'>> = {}) => {
     const scene = fixtureScene('clean')
     const link = scene.links.find((candidate) => candidate.id === 'good')!
@@ -3500,18 +3505,20 @@ describe('wire dashes', () => {
     expect(curve.globalAlpha).toBeCloseTo(canvasPaintTokens.widget.inactiveOpacity)
   })
 
-  it('draws a wire the same whatever the mode of the node at either end', () => {
-    const link = fixtureScene('clean').links.find((candidate) => candidate.id === 'good')!
-    const ends = [link.from, link.to].map((end) => (end.kind === 'port' ? end.node : undefined))
-    expect(ends).toEqual(['lat', expect.any(String)])
-    for (const over of [{}, { maybeAbsent: true as const }]) {
-      const active = wire(over)
-      for (const mode of ['muted', 'bypassed'] as const) {
-        for (const node of ends) {
-          const curve = wire(over, { [node!]: mode })
-          expect([curve.lineDash, curve.globalAlpha], `${mode} ${node}`).toEqual([active.lineDash, active.globalAlpha])
-        }
-      }
+  it('draws a wire out of a muted node at that node\'s opacity, in its type\'s color, with no dashes of its own', () => {
+    const plain = wire({})
+    const muted = wire({ sourceMuted: true })
+    expect(muted.globalAlpha).toBeCloseTo(plain.globalAlpha * canvasPaintTokens.node.modeOpacity)
+    expect(muted.strokeStyle).toBe(plain.strokeStyle)
+    expect(muted.lineDash).toEqual([])
+    expect(wire({ sourceMuted: true, maybeAbsent: true }).lineDash).toEqual(maybeDash)
+  })
+
+  it('does not fade a wire into a muted or bypassed node, or out of a bypassed one', () => {
+    const plain = wire({})
+    for (const modes of [{ lat: 'bypassed' }, { [linkTarget()]: 'muted' }, { [linkTarget()]: 'bypassed' }] as const) {
+      const curve = wire({}, modes)
+      expect([curve.lineDash, curve.globalAlpha], JSON.stringify(modes)).toEqual([plain.lineDash, plain.globalAlpha])
     }
   })
 

@@ -89,8 +89,8 @@ export function wireLooksGallery(
       'node' in link.from && 'node' in link.to && keptIds.has(link.from.node) && keptIds.has(link.to.node)),
   }
 
-  // Muted and bypassed sources, each with a wire out, under the wire that
-  // gives nothing.
+  // A muted and a bypassed source, each with a wire out, under the wire
+  // that gives nothing.
   const keptBottom = Math.max(...keptNodes.map((node) => node.y + node.layout.height))
   const keptLeft = Math.min(...keptNodes.map((node) => node.x))
   const modePair = (mode: 'muted' | 'bypassed', y: number): Graph => {
@@ -133,7 +133,7 @@ export function wireLooksGallery(
     },
     {
       caption:
-        'A wire that gives nothing, from a row kept for its wire under an option not chosen, has the same dashes and stays faded (top). A wire out of a muted node or a bypassed node is drawn as it would be from an active node: the node is dimmed, the wire is not, and it is dashed only when the output may carry nothing.',
+        'A wire that gives nothing, from a row kept for its wire under an option not chosen, has the same dashes and stays faded (top). A wire out of a muted node is faded like the node, in its type\'s color, and gains no dashes. A wire out of a bypassed node is drawn as it would be from an active node.',
       scene: besideKept,
     },
     {
