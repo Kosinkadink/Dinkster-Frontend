@@ -4250,6 +4250,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }, 100)
     })
 
+    // The scene rebuilds when the active backend's lookup client holds new answers.
+    const [lookupTick, setLookupTick] = createSolidSignal(0)
+    createEffect(() => {
+      backendsTick()
+      const tab = activeTab()
+      if (tab === undefined) return
+      const unsubscribe = props.app.backendForTab(tab).lookupGeneration.subscribe(() => setLookupTick((tick) => tick + 1))
+      onCleanup(unsubscribe)
+    })
+
     // Scene: rebuilt when the tab, graph stack, document, or schemas change.
     createEffect(() => {
       docTick() // track document + graph-stack changes
@@ -4283,6 +4293,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // A frozen view of a run calls no lookups.
       const lookupBackend = tab.execution === undefined ? props.app.backendForTab(tab) : undefined
       const lookups = lookupBackend?.lookups
+      lookupTick()
       const lookupGeneration = lookupBackend?.lookupGeneration.get() ?? 0
       const lookupAnswers = lookups === undefined ? undefined : lookupAnswersOf(lookups)
       const currentExtensionRevision = props.app.extensionRevision.get()
