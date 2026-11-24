@@ -60,10 +60,7 @@ export interface BoundaryTreeConstruct {
   readonly target?: string
   /** What the construct is, in quiet text, such as "growing group". */
   readonly note: string
-  /** A line before the template, such as the definition's own members. */
-  readonly interior?: string
-  /** The heading of the template, such as "Each member" or "Options". */
-  readonly templateLabel: string
+  /** What each member or option holds, listed under the header. */
   readonly template: readonly BoundaryTreeTemplateRow[]
   readonly problem?: string
 }
@@ -359,15 +356,7 @@ export function BoundaryTree(props: {
           </span>
         </Show>
       </div>
-      <Show when={constructProps.construct.interior}>
-        <div class="boundary-tree-interior">
-          {constructProps.construct.interior}
-        </div>
-      </Show>
       <div class="boundary-tree-template" role="group">
-        <span class="boundary-tree-template-label">
-          {constructProps.construct.templateLabel}
-        </span>
         <For each={constructProps.construct.template}>
           {(row) => (
             <span class="boundary-tree-template-row" data-side={row.side}>

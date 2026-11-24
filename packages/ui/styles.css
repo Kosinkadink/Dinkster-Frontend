@@ -595,9 +595,7 @@
 /* Every child of a box, of any kind, starts one 16 px step in from the box and ends a small inset from its right side. */
 .boundary-tree-children { display: grid; gap: var(--dinkster-border-width); min-width: 0; padding: 0 var(--dinkster-space-4) 0 var(--dinkster-space-16); }
 .boundary-tree-header { margin: 0 var(--dinkster-border-width); }
-.boundary-tree-interior { padding: 0 var(--dinkster-space-4) 0 var(--dinkster-space-16); color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
-.boundary-tree-template { display: grid; gap: var(--dinkster-border-width); margin: var(--dinkster-space-4) var(--dinkster-space-4) 0 var(--dinkster-space-16); color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
-.boundary-tree-template-label { color: var(--dinkster-text-muted); }
+.boundary-tree-template { display: grid; gap: var(--dinkster-border-width); margin: 0 var(--dinkster-space-4) 0 var(--dinkster-space-16); color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .boundary-tree-template-row { display: flex; align-items: center; gap: var(--dinkster-space-4); min-width: 0; height: 20px; padding: 0 var(--dinkster-space-8); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-raised); }
 .boundary-tree-template-row[data-side='output'] { justify-content: flex-end; padding-right: var(--dinkster-space-8); }
 .boundary-tree-template-row[data-side='output'] .boundary-tree-dot { order: 1; }

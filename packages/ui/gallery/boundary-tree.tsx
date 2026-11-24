@@ -88,8 +88,6 @@ const detailPass = (
     color: color('IMAGE'),
     target: 'Stack',
     note: 'growing group',
-    interior: '2 members inside the definition come first',
-    templateLabel: 'Each member',
     template: [
       { label: 'image', side: 'input', color: color('IMAGE') },
       { label: 'strength', side: 'input', color: color('FLOAT') },
@@ -105,7 +103,6 @@ const detailPass = (
     color: color('COMBO'),
     target: 'Stylize',
     note: 'choice',
-    templateLabel: 'Options',
     template: [
       { label: 'image: image, strength', side: 'input', color: color('IMAGE') },
       { label: 'text: words, strength', side: 'input', color: color('STRING') },
@@ -120,7 +117,6 @@ const detailPass = (
     color: color('INT'),
     target: 'Split',
     note: 'counted by split count',
-    templateLabel: 'Each member',
     template: [{ label: 'part', side: 'output', color: color('INT') }],
   },
   output('preview', 'preview', 'IMAGE', 'Blend'),
