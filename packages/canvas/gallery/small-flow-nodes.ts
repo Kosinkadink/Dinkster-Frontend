@@ -69,8 +69,8 @@ const schema = (
 /**
  * Or else as `dinkster.utilities.or_else` declares it: a group of inputs of
  * one type variable that grows from Add input, starts with two and can be
- * reordered, then one output of that type. The first row is First and every
- * later row Next.
+ * reordered, then one output of that type that may be nothing. The first row
+ * is First and every later row Next.
  */
 const orElse = schema('dinkster.utilities.or_else', 'Or else', [
   {
@@ -85,7 +85,7 @@ const orElse = schema('dinkster.utilities.or_else', 'Or else', [
     memberLabel: { formula: '"First" if index() == 0 else "Next"' },
     openName: false,
   },
-  out('value', T, 'Value'),
+  { ...out('value', T, 'Value'), optional: true },
 ])
 const members = (...keys: string[]) => ({
   values: { members: keys, seq: Math.max(...keys.map(Number)) },
@@ -100,7 +100,7 @@ const onlyIf = schema('dinkster.utilities.only_if', 'Only if', [
     labelOn: 'Yes',
     labelOff: 'No',
   }),
-  out('value', T, 'Value'),
+  { ...out('value', T, 'Value'), optional: true },
 ])
 
 const loadImage = schema('Load Image', 'Load image', [
@@ -568,7 +568,7 @@ export function smallFlowNodesGallery(
   // 17. Condition itself is nothing.
   cards.push({
     caption:
-      'Condition is needed and is nothing, so Only if is skipped like any node that misses a needed input, and its output is nothing. An empty Condition is never turned into a made-up No.',
+      'Condition is needed and is nothing, so Only if is skipped like any node that misses a needed input, and its output is nothing. An empty Condition is never turned into a made-up No. The wired Condition still shows its stored Yes struck through: the canvas does not draw the value a wire carries yet.',
     scene: scene({
       root: {
         nodes: {
