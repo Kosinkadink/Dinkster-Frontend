@@ -36,14 +36,17 @@ const rowsOf = (page: Page, nodeId: string) =>
       : { kind: row.kind, key: row.construct ?? row.label })
   }, nodeId)
 
-/** The text each note and field row of a scene node draws for its label. */
+/** The text each note, member box header and field row of a scene node draws for its label. */
 const labelsOf = (page: Page, nodeId: string) =>
   page.evaluate((nodeId) => {
     type Row = { kind: string; label?: string; text?: string }
     const node = window.__dinksterTest!.renderer!.getScene().nodes.find((n) => n.id === nodeId)!
     return (node.layout.rows as unknown as Row[]).flatMap((row) =>
-      row.kind === 'note' ? [row.text!] : row.kind === 'widget' ? [row.label!] : [])
+      row.kind === 'note' ? [row.text!] : row.kind === 'widget' || row.kind === 'member' ? [row.label!] : [])
   }, nodeId)
+
+/** The first layer's box header: "1", or "layer 1" where the pack names its members. */
+const FIRST_MEMBER = /^(layer )?1$/
 
 /** Page point at the middle of the first row of `nodeId` that `match` accepts. */
 async function rowPoint(page: Page, nodeId: string, match: { kind: string; inputId?: string }): Promise<{ x: number; y: number }> {
@@ -153,8 +156,8 @@ test.beforeEach(async ({ page }) => {
   await waitForWorkspaceReady(page)
 })
 
-/** Queue `nodeId` of the shown tab and return the submitted graph and the engine's job record. */
-async function runNode(page: Page, request: import('@playwright/test').APIRequestContext, nodeId: string) {
+/** Queue the nodes `nodeIds` of the shown tab and return the submitted graph and the engine's job record. */
+async function runNode(page: Page, request: import('@playwright/test').APIRequestContext, ...nodeIds: string[]) {
   let submitted: { clientId: string; jobId: string; graph: { nodes: Record<string, { inputs: Record<string, unknown> }> } } | undefined
   const listener = (outgoing: import('@playwright/test').Request) => {
     if (outgoing.method() !== 'POST' || new URL(outgoing.url()).pathname !== '/api/jobs') return
@@ -162,10 +165,10 @@ async function runNode(page: Page, request: import('@playwright/test').APIReques
   }
   page.on('request', listener)
   const before = await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)
-  await page.evaluate(async (nodeId) => {
+  await page.evaluate(async (nodeIds) => {
     const app = window.__dinksterTest!.app
-    await app.queueSelection(app.activeTab()!, [nodeId])
-  }, nodeId)
+    await app.queueSelection(app.activeTab()!, nodeIds)
+  }, nodeIds)
   await expect.poll(() => page.evaluate((before) => {
     const executions = [...window.__dinksterTest!.app.store.executions.get().values()]
     return executions.length > before ? executions.sort((a, b) => b.queuedAt - a.queuedAt)[0]?.status : undefined
@@ -234,7 +237,8 @@ test('the layers task: add, close, forward through two subgraphs, add and edit o
   await showFromAdd.click()
   await expect.poll(async () => (await activeDoc(page)).graphs[await graphIdOfView(page)]!.boundary?.inputs.map((item) => item.binds))
     .toEqual([{ kind: 'construct', node: inner, port: 'layers' }])
-  // The inner subgraph node counts its own layers from 1.
+  // The inner subgraph node counts its own layers from 1; rows inside the
+  // member's box draw only their own labels.
   await page.mouse.click(addInner.x, addInner.y)
   await expect.poll(async () => (await rowsOf(page, inner)).filter((row) => row.kind !== 'growth')).toEqual([
     { kind: 'section', key: 'Layers' },
@@ -242,7 +246,7 @@ test('the layers task: add, close, forward through two subgraphs, add and edit o
     { kind: 'widget', key: 'layers.1.name', value: 'layer' },
     { kind: 'widget', key: 'layers.1.strength', value: 1 },
   ])
-  expect(await labelsOf(page, inner)).toEqual(['1 name', '1 strength'])
+  expect(await labelsOf(page, inner)).toEqual([expect.stringMatching(FIRST_MEMBER), 'name', 'strength'])
   await shot(page, '05b-inner-face-own-layer')
   await leaveToRoot(page)
   expect((await rowsOf(page, outer)).map((row) => row.kind)).toEqual(['section', 'growth'])
@@ -255,7 +259,7 @@ test('the layers task: add, close, forward through two subgraphs, add and edit o
   await editField(page, outer, 'layers.1.strength', '1.75')
   await editField(page, outer, 'layers.1.name', 'glaze')
   // Glaze is the fifth layer the node runs, and the first of its own: it reads 1.
-  expect(await labelsOf(page, outer)).toEqual(['1 name', '1 strength'])
+  expect(await labelsOf(page, outer)).toEqual([expect.stringMatching(FIRST_MEMBER), 'name', 'strength'])
   await shot(page, '07-outer-added-edited')
   const doc = await activeDoc(page)
   expect(doc.graphs[doc.root]!.nodes[outer]!.values).toEqual({ 'layers.1.name': 'glaze', 'layers.1.strength': 1.75 })
@@ -301,9 +305,12 @@ test('a wire from a field whose option is no longer chosen gives nothing, and it
   await expect.poll(async () => (await activeDoc(page)).graphs['g0']!.nodes['opt']!.dynamic?.['mode']?.selected).toBe('none')
   await shot(page, '12-amount-not-chosen-wired')
 
-  const second = await runNode(page, request, 'req')
+  // A run that asks only for the skipped node could do nothing and is not
+  // queued, so this one also asks for the node the wire comes from.
+  const second = await runNode(page, request, 'req', 'opt')
   expect(second.submitted.graph.nodes['req']!.inputs['value']).toEqual({ $absent: { reason: expect.any(String) } })
   expect(second.job.executed).not.toContain('req')
+  expect(second.job.executed).toContain('opt')
   expect(second.job.skipped).toContain('req')
   await shot(page, '13-ran-skipped')
 })
@@ -353,8 +360,10 @@ test('a wire from a field under a type-led pin whose type is gone gives nothing,
   await expect.poll(async () => (await activeDoc(page)).graphs['g0']!.nodes['opt']!.dynamic?.['source']?.selected).toBe('text')
   await shot(page, '22-pin-text-wired')
 
-  const second = await runNode(page, request, 'req')
+  // Lead, which still runs, keeps the run from asking only for the skipped node.
+  const second = await runNode(page, request, 'req', 'lead')
   expect(second.submitted.graph.nodes['req']!.inputs['value']).toEqual({ $absent: { reason: expect.any(String) } })
+  expect(second.job.executed).toContain('lead')
   expect(second.job.skipped).toContain('req')
   await shot(page, '23-ran-skipped')
 })

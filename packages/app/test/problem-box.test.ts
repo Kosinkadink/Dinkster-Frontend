@@ -49,6 +49,17 @@ describe('problemBoxLines', () => {
     ])
   })
 
+  it('names a row inside its member box by its full name', () => {
+    const boxed = {
+      ...node,
+      layout: { ...node.layout, rows: [
+        { kind: 'widget', y: 30, height: 20, inset: 8, inputId: 'loras.lora0.name', valueKey: 'loras.lora0.name', label: 'name', name: 'lora 1 name' },
+        { kind: 'ports', y: 50, height: 20, input: { portId: 'loras.lora0.clip', label: 'clip', name: 'lora 1 clip' } },
+      ] },
+    } as unknown as SceneNode
+    expect(problemBoxRows(boxed).map((row) => row.name)).toEqual(['lora 1 name', 'lora 1 clip'])
+  })
+
   it('offers Edit field only on a field and Locate or replace for a missing asset', () => {
     const missing: NodeProblemLine = {
       kind: 'warning',

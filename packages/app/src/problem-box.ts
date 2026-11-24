@@ -28,11 +28,11 @@ export function problemBoxRows(node: SceneNode): readonly ProblemBoxRow[] {
   const rows: ProblemBoxRow[] = []
   for (const row of node.layout.rows) {
     if (row.kind === 'widget') {
-      rows.push({ key: row.valueKey, name: row.label, field: true })
-      if (row.inputId !== row.valueKey) rows.push({ key: row.inputId, name: row.label, field: true })
+      rows.push({ key: row.valueKey, name: row.name ?? row.label, field: true })
+      if (row.inputId !== row.valueKey) rows.push({ key: row.inputId, name: row.name ?? row.label, field: true })
     } else if (row.kind === 'ports') {
-      if (row.input !== undefined) rows.push({ key: row.input.portId, name: row.input.label, field: false })
-      if (row.output !== undefined) rows.push({ key: outputRowKey(row.output.portId), name: row.output.label, field: false })
+      if (row.input !== undefined) rows.push({ key: row.input.portId, name: row.input.name ?? row.input.label, field: false })
+      if (row.output !== undefined) rows.push({ key: outputRowKey(row.output.portId), name: row.output.name ?? row.output.label, field: false })
     } else if (row.kind === 'fallback') {
       rows.push({ key: row.label, name: row.label, field: false })
     }
