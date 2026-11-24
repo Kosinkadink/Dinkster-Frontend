@@ -105,6 +105,27 @@ export function wireLooksGallery(
     links: moded.links.map((link) => ({ ...link, x1: link.x1 + dx, x2: link.x2 + dx })),
   })
 
+  // A subgraph node whose output shows Find Face's: outside, then entered.
+  const faces: Record<string, Graph> = {
+    root: {
+      nodes: {
+        sub: { type: findFace, instanceOf: 'faces', title: 'Faces', x: 0, y: 200, width: SOURCE_WIDTH },
+        retouch: { type: retouch, x: COLUMN + 120, y: 200, width: SOURCE_WIDTH },
+      },
+      links: [['sub', 'face', 'retouch', 'face']],
+    },
+    faces: {
+      name: 'Faces',
+      nodes: { find: { type: findFace, x: 190, y: 30, width: SOURCE_WIDTH } },
+      boundary: { inputs: [], outputs: [{ id: 'face', displayName: 'face', binds: { kind: 'port', node: 'find', port: 'IMAGE' } }] },
+      panels: { inputs: 0, outputs: 450 },
+    },
+  }
+  const acrossBoundary = joined(
+    sceneOf(tokens, measure, widgetMeasure, faces, { graph: 'root' }),
+    sceneOf(tokens, measure, widgetMeasure, faces, { graph: 'faces', through: 'sub' }),
+  )
+
   const apart = (wired = false) => pair(loadImage, 'IMAGE', blur, 'image', 0, wired, '', 160, 70)
   const dragged = scene(apart())
   const drag = held(dragged)
@@ -130,6 +151,11 @@ export function wireLooksGallery(
         pair(loadImage, 'IMAGE', blur, 'image', 0, true, 'Ordinary', 120),
         pair(findFace, 'IMAGE', retouch, 'face', 110, true, 'Maybe', 120),
       )),
+    },
+    {
+      caption:
+        'The hint crosses a subgraph: inside Faces (top), the wire from Find Face into Outputs is dashed; outside (below), the Faces node\'s face output has the dark dot and its wire to Retouch is dashed.',
+      scene: acrossBoundary,
     },
     {
       caption:
