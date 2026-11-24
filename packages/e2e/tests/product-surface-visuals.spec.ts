@@ -150,20 +150,22 @@ for (const theme of ['dark', 'light'] as const) {
       const app = window.__dinksterTest!.app
       app.reportProblems(app.activeTab()!.id, [{ severity: 'error', origin: 'runtime', code: 'toolbar.attention', message: 'Toolbar attention fixture.' }])
     })
-    // The narrow row keeps the right panel switch in the layout menu, so its attention badge is on the layout button.
+    // The narrow row keeps the right panel switch in the layout menu, so the layout button and
+    // its Right panel item carry the attention, and both names read it after the control's name.
     await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
-    const layout = page.getByRole('button', { name: 'Customize layout' })
-    const attention = layout.locator('.panel-indicator')
-    await expect(attention).toBeVisible()
-    await expect(attention).toHaveCSS('position', 'absolute')
-    // The keyed badge can be replaced by a problem-list publication between protocol calls.
-    const { layoutBox, iconBox, badgeBox } = await layout.evaluate((element) => ({
-      layoutBox: element.getBoundingClientRect().toJSON(),
-      iconBox: element.querySelector('svg')!.getBoundingClientRect().toJSON(),
-      badgeBox: element.querySelector('.panel-indicator')!.getBoundingClientRect().toJSON(),
-    }))
+    const layout = page.getByRole('button', { name: /^Customize layout, 1 problem/ })
+    const attention = layout.locator('.dinkster-attention')
+    await expect(attention).toHaveText('1')
+    await expect(attention).toHaveAttribute('data-tone', 'problem')
+    const layoutBox = (await layout.boundingBox())!
+    const badgeBox = (await attention.boundingBox())!
     expect(badgeBox.y).toBeLessThan(layoutBox.y)
-    expect(badgeBox.x).toBeGreaterThan(iconBox.x)
+    expect(badgeBox.x + badgeBox.width).toBeGreaterThan(layoutBox.x + layoutBox.width)
+    await layout.click()
+    const right = page.getByRole('menuitemcheckbox', { name: /^Right panel, 1 problem/ })
+    await expect(right.locator('.dinkster-attention')).toHaveText('1')
+    await page.keyboard.press('Escape')
+    await expect(layout).toBeFocused()
     await trigger.click()
     await expect(trigger).toHaveAttribute('aria-expanded', 'true')
     await page.keyboard.press('Escape')

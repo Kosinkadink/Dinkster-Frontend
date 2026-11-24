@@ -41,7 +41,7 @@ import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductRunActivity, type ProductMenuItem, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductRunActivity, type ProductAttention, type ProductMenuItem, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import { TopBarAccount } from './TopBarAccount.js'
@@ -1970,6 +1970,14 @@ export function App(props: {
   // clipped into the overflow menu.
   const railIndicator = (): PanelIndicator | undefined =>
     aggregatePanelIndicators(railPanels().map((panel) => panel.indicator?.()))
+  const railAttention = (): ProductAttention | undefined => {
+    const indicator = railIndicator()
+    return indicator && {
+      count: indicator.count,
+      tone: indicator.severity === 'error' ? 'problem' : indicator.severity,
+      label: indicator.label,
+    }
+  }
   const railActiveId = () => railView().activeId
   const leftOpen = () => zoneOpen('left') && leftPanels().length > 0
   const bottomOpen = () => zoneOpen('bottom') && bottomZonePanels().length > 0
@@ -2297,7 +2305,7 @@ export function App(props: {
     ...(narrow ? [
       { label: message('shell.layout.leftPanel'), checked: leftOpen(), disabled: leftPanels().length === 0, onSelect: toggleLeftRegion },
       { label: message('shell.layout.bottomPanel'), checked: bottomOpen(), disabled: bottomZonePanels().length === 0, onSelect: toggleBottomRegion },
-      { label: message('shell.layout.rightPanel'), checked: railOpen(), onSelect: () => app.dock.setOpen('right', !railOpen()) },
+      { label: message('shell.layout.rightPanel'), checked: railOpen(), attention: railAttention(), onSelect: () => app.dock.setOpen('right', !railOpen()) },
     ] : []),
     { label: message('shell.layout.leftBar'), checked: activityBarVisible(), onSelect: () => app.shell.activityBarVisible.update((visible) => !visible) },
     { label: message('shell.layout.statusBar'), checked: statusBarVisible(), onSelect: () => app.shell.statusBarVisible.update((visible) => !visible) },
@@ -2862,7 +2870,8 @@ export function App(props: {
           <CancelExecutionButton toolbar app={app} execution={(executions(), activeTab(), app.currentCancellableExecution())} />
           <span class="app-layout-menu" ref={layoutMenu}><ProductMenu
             label={message('command.layout.customize')}
-            icon={() => <><ProductIcon icon={SlidersHorizontal} /><Show when={narrow() ? railIndicator() : undefined} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show></>}
+            icon={SlidersHorizontal}
+            attention={narrow() ? railAttention() : undefined}
             items={layoutMenuItems(narrow())}
           /></span>
           <Show when={!narrow()}>
