@@ -13,6 +13,8 @@ import {
   type MenuTarget,
 } from '../src/menus/contract.js'
 import { coreMenuContributions } from '../src/menus/core-items.js'
+import { coreCommandRegistry } from '../src/commands/core-commands.js'
+import { DocumentStore } from '../src/commands/store.js'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asNodeId, asSelectorCandidateId, asSelectorId, asValueSourceId } from '../src/ids.js'
 import { registerCatalog } from '../src/i18n/index.js'
@@ -74,6 +76,12 @@ function coreRegistry() {
   for (const c of coreMenuContributions()) registry.register(c)
   return registry
 }
+
+/** A disconnect from an input of `nodeId`, batched with compacting that node. */
+const compacting = (nodeId: string, disconnect: { command: string; params: Record<string, unknown> }) => ({
+  command: 'batch',
+  params: { invocations: [disconnect, { command: 'dynamic.compact', params: { graphId: 'g0', nodeId } }] },
+})
 
 function menuDescendants(items: readonly MenuItem[]): MenuItem[] {
   return items.flatMap((item) => [item, ...menuDescendants(item.children ?? [])])
@@ -471,6 +479,52 @@ describe('core contributions', () => {
     expect(ghost.flatMap((g) => g.items)).toEqual([])
   })
 
+  describe('a member of a group freed from the menu', () => {
+    // b stores members image0 and image1 of a group that grows by plugging in;
+    // s1 feeds image0 by a wire, s2 feeds image1 by a wire or a named net.
+    const memberDoc = (byNet: boolean) => ({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'm', root: 'g0', view: { graphs: {} },
+      graphs: { g0: {
+        id: 'g0', name: 'g0', reroutes: {}, nextOrdinal: 100,
+        nodes: {
+          s1: { id: 's1', type: 'Src', values: {} },
+          s2: { id: 's2', type: 'Src', values: {} },
+          b: { id: 'b', type: 'Batch', values: {}, dynamic: { images: { members: ['image0', 'image1'], seq: 2 } } },
+        },
+        links: {
+          l1: { id: 'l1', from: { node: 's1', port: 'out' }, to: { node: 'b', port: 'images.image0' } },
+          ...(byNet ? {} : { l2: { id: 'l2', from: { node: 's2', port: 'out' }, to: { node: 'b', port: 'images.image1' } } }),
+        },
+        nets: byNet
+          ? { n1: { id: 'n1', name: 'pic', source: { node: 's2', port: 'out' }, sinks: [{ node: 'b', port: 'images.image1' }] } }
+          : {},
+      } },
+    }) as unknown as WorkflowDocument
+    const freed = { node: 'b', port: 'images.image1' }
+
+    it.each([
+      { name: 'Delete link on a wire', byNet: false, target: { kind: 'link', linkId: 'l2', to: freed }, item: 'core.link.delete' },
+      { name: 'Delete link on a net wire', byNet: true, target: { kind: 'link', linkId: 'n1:b', netId: 'n1', to: freed }, item: 'core.link.delete' },
+      { name: 'turning Connect to net off', byNet: true, target: { kind: 'pin', nodeId: 'b', portId: freed.port, direction: 'in' }, item: 'core.pin.connectToNet.n1' },
+      { name: 'Disconnect this input on a net tag', byNet: true, target: { kind: 'net', netId: 'n1', role: 'sink', nodeId: 'b', portId: freed.port }, item: 'core.net.stubDisconnect' },
+    ] as const)('$name removes the member, and one undo brings it and its wire back', ({ byNet, target, item }) => {
+      const store = new DocumentStore(memberDoc(byNet), coreCommandRegistry())
+      const action = coreRegistry()
+        .resolve(ctx(target as MenuTarget, { doc: store.doc }))
+        .flatMap((group) => group.items)
+        .find((candidate) => candidate.id === item) as MenuActionItem
+      expect(action.action.kind).toBe('command')
+      if (action.action.kind !== 'command') return
+      expect(store.dispatch(action.action.invocation).ok).toBe(true)
+      const graph = () => store.doc.graphs['g0']!
+      expect(graph().nodes['b']!.dynamic?.['images']?.members).toEqual(['image0'])
+      store.undo()
+      expect(graph().nodes['b']!.dynamic?.['images']?.members).toEqual(['image0', 'image1'])
+      if (byNet) expect(graph().nets['n1']!.sinks).toEqual([freed])
+      else expect(graph().links['l2']).toBeDefined()
+    })
+  })
+
   it('link delete uses link.disconnect for ordinary links and net.disconnectInput for nets', () => {
     const reg = coreRegistry()
     const ordinary = reg.resolve(
@@ -478,14 +532,14 @@ describe('core contributions', () => {
     )
     expect(ordinary[0]!.items[0]!.action).toEqual({
       kind: 'command',
-      invocation: { command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l4' } },
+      invocation: compacting('n2', { command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l4' } }),
     })
     const net = reg.resolve(
       ctx({ kind: 'link', linkId: 'net:t5:0', netId: 't5', to: { node: 'n2', port: 'ctx' } }),
     )
     expect(net[0]!.items[0]!.action).toEqual({
       kind: 'command',
-      invocation: { command: 'net.disconnectInput', params: { graphId: 'g0', to: { node: 'n2', port: 'ctx' } } },
+      invocation: compacting('n2', { command: 'net.disconnectInput', params: { graphId: 'g0', to: { node: 'n2', port: 'ctx' } } }),
     })
   })
 
@@ -598,7 +652,7 @@ describe('named net contributions', () => {
     // Connected input: the item disconnects instead of re-connecting.
     expect(items[0]!.action).toEqual({
       kind: 'command',
-      invocation: { command: 'net.disconnectInput', params: { graphId: 'g0', to: { node: 'n2', port: 'ctx' } } },
+      invocation: compacting('n2', { command: 'net.disconnectInput', params: { graphId: 'g0', to: { node: 'n2', port: 'ctx' } } }),
     })
     // Unconnected input on another node: same net, connect action.
     const other = reg
@@ -655,7 +709,7 @@ describe('named net contributions', () => {
     expect(sink.find((i) => i.id === 'core.net.stubDisconnect')).toMatchObject({
       action: {
         kind: 'command',
-        invocation: { command: 'net.disconnectInput', params: { graphId: 'g0', to: { node: 'n2', port: 'ctx' } } },
+        invocation: compacting('n2', { command: 'net.disconnectInput', params: { graphId: 'g0', to: { node: 'n2', port: 'ctx' } } }),
       },
     })
     const source = reg

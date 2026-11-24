@@ -290,7 +290,7 @@ test('a wire from a field whose option is no longer chosen gives nothing, and it
   expect(first.submitted.graph.nodes['req']!.inputs['value']).toBe(0.65)
   expect(first.job.outputs['req']!['text']!.value).toBe('value=0.65')
 
-  // Choose "No amount": the amount row stays only for its wire, reads "wired", and the wire gives nothing.
+  // Choose "No amount": the amount row stays only for its wire, reads "inactive", and the wire gives nothing.
   await page.getByTestId('graph-canvas').focus()
   const mode = await rowPoint(page, 'opt', { kind: 'widget', inputId: 'mode' })
   await page.mouse.click(mode.x, mode.y)
