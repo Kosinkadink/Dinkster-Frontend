@@ -3473,12 +3473,19 @@ describe('wire dashes', () => {
     expect(move).toBeGreaterThanOrEqual(0)
     return calls.slice(move).find((call) => call.method === 'bezierCurveTo')!
   }
-  const wire = (over: Partial<Scene['links'][number]>) => {
+  const wire = (over: Partial<Scene['links'][number]>, modes: Readonly<Record<string, 'muted' | 'bypassed'>> = {}) => {
     const scene = fixtureScene('clean')
     const link = scene.links.find((candidate) => candidate.id === 'good')!
     const from = nodeOf(scene, 'lat')
     const pin = from.layout.pins.find((candidate) => candidate.direction === 'out')!
-    const calls = paint({ ...scene, links: scene.links.map((candidate) => candidate === link ? { ...candidate, ...over } : candidate) })
+    const calls = paint({
+      ...scene,
+      nodes: scene.nodes.map((node) => {
+        const mode = modes[node.id]
+        return mode === undefined ? node : { ...node, node: { ...node.node, mode } }
+      }),
+      links: scene.links.map((candidate) => candidate === link ? { ...candidate, ...over } : candidate),
+    })
     return curveFrom(calls, from.x + from.layout.width, from.y + pin.y)
   }
 
@@ -3491,6 +3498,21 @@ describe('wire dashes', () => {
     const curve = wire({ dimmed: true })
     expect(curve.lineDash).toEqual(maybeDash)
     expect(curve.globalAlpha).toBeCloseTo(canvasPaintTokens.widget.inactiveOpacity)
+  })
+
+  it('draws a wire the same whatever the mode of the node at either end', () => {
+    const link = fixtureScene('clean').links.find((candidate) => candidate.id === 'good')!
+    const ends = [link.from, link.to].map((end) => (end.kind === 'port' ? end.node : undefined))
+    expect(ends).toEqual(['lat', expect.any(String)])
+    for (const over of [{}, { maybeAbsent: true as const }]) {
+      const active = wire(over)
+      for (const mode of ['muted', 'bypassed'] as const) {
+        for (const node of ends) {
+          const curve = wire(over, { [node!]: mode })
+          expect([curve.lineDash, curve.globalAlpha], `${mode} ${node}`).toEqual([active.lineDash, active.globalAlpha])
+        }
+      }
+    }
   })
 
   it('draws a dragged wire solid, while a group being resized keeps its dashed outline', () => {

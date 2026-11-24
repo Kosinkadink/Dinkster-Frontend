@@ -9,7 +9,7 @@ import {
   type TextMeasurer,
   type WidgetMeasure,
 } from '../src/index.js'
-import { COLUMN, out, schema, sceneOf, type Graph } from './switch-primitive.js'
+import { COLUMN, joined, out, schema, sceneOf, type Graph } from './switch-primitive.js'
 import { widgetTapGallery } from './widget-taps.js'
 
 /** One card of the wire looks page, drawn from a scene of its own. */
@@ -89,6 +89,22 @@ export function wireLooksGallery(
       'node' in link.from && 'node' in link.to && keptIds.has(link.from.node) && keptIds.has(link.to.node)),
   }
 
+  // Muted and bypassed sources, each with a wire out, under the wire that
+  // gives nothing.
+  const keptBottom = Math.max(...keptNodes.map((node) => node.y + node.layout.height))
+  const keptLeft = Math.min(...keptNodes.map((node) => node.x))
+  const modePair = (mode: 'muted' | 'bypassed', y: number): Graph => {
+    const graph = pair(loadImage, 'IMAGE', blur, 'image', y, true, mode, 120)
+    return { ...graph, nodes: { ...graph.nodes, [`from${mode}`]: { ...graph.nodes[`from${mode}`]!, mode, title: mode === 'muted' ? 'Muted source' : 'Bypassed source' } } }
+  }
+  const moded = scene(merged(modePair('muted', keptBottom + 50), modePair('bypassed', keptBottom + 160)))
+  const dx = keptLeft
+  const besideKept = joined(kept, {
+    ...moded,
+    nodes: moded.nodes.map((node) => ({ ...node, x: node.x + dx })),
+    links: moded.links.map((link) => ({ ...link, x1: link.x1 + dx, x2: link.x2 + dx })),
+  })
+
   const apart = (wired = false) => pair(loadImage, 'IMAGE', blur, 'image', 0, wired, '', 160, 70)
   const dragged = scene(apart())
   const drag = held(dragged)
@@ -117,8 +133,8 @@ export function wireLooksGallery(
     },
     {
       caption:
-        'A wire that gives nothing, from a row kept for its wire under an option not chosen, has the same dashes and stays faded.',
-      scene: kept,
+        'A wire that gives nothing, from a row kept for its wire under an option not chosen, has the same dashes and stays faded (top). A wire out of a muted node or a bypassed node is drawn as it would be from an active node: the node is dimmed, the wire is not, and it is dashed only when the output may carry nothing.',
+      scene: besideKept,
     },
     {
       caption:
