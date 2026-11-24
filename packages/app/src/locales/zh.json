@@ -1488,6 +1488,7 @@
   "boundary.region.output.gather.title": "收集输出",
   "boundary.region.output.occurrenceOnly": "仅编辑此区域的出现；共享定义保持不变。",
   "boundary.region.output.state": "状态输出：{statePort} - 返回状态输入\"{statePort}\"的最终值。",
+  "canvas.box.countOfMax": "{count}/{max}",
   "canvas.absence.behavior.accept": "消费者没有值时运行",
   "canvas.absence.behavior.fail": "执行停止并报告缺失来源",
   "canvas.absence.behavior.omit": "输入被视为未连接，在有默认值时使用默认值，并使用相同的缓存条目",

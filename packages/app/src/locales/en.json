@@ -1488,6 +1488,7 @@
   "boundary.region.output.gather.title": "Gather output",
   "boundary.region.output.occurrenceOnly": "Edits this region occurrence only; the shared definition is unchanged.",
   "boundary.region.output.state": "State output: {statePort} - Return the final value carried by state input \"{statePort}\".",
+  "canvas.box.countOfMax": "{count} of {max}",
   "canvas.absence.behavior.accept": "the consumer runs with no value",
   "canvas.absence.behavior.fail": "execution stops and reports the absence origin",
   "canvas.absence.behavior.omit": "the input is treated as unconnected, using its default when present and the same cache entry",
