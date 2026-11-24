@@ -512,7 +512,7 @@ export const canvasPaintTokens = {
      */
     curve: { inset: 5, gap: 8, plotInset: 3, lineWidth: 1.5, pointRadius: 1.75, dash: [2, 2], lineStep: 16, edge: 1 },
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
-    valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3, edge: 1 },
+    valueSwatch: { size: 10, radius: 2, gap: 6, checkerCell: 3, edge: 1 },
     /** A folded editor's small picture before its value, such as the stored frame. */
     valueThumbnail: { size: 16, radius: 2, gap: 6 },
     minLabelWidth: 44,
