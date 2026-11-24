@@ -11,7 +11,7 @@ import {
   type ToolboxRow,
   type WidgetMeasure,
 } from '../src/index.js'
-import { joined, sceneOf, type Graph, type NodeEntry } from './switch-primitive.js'
+import { joined, numberPrimitive, sceneOf, type Graph, type NodeEntry } from './switch-primitive.js'
 
 const concrete = (name: string) => ({ kind: 'concrete' as const, name })
 const field = (id: string, displayName: string, value: Json, options: Record<string, Json>): InputSpec => ({
@@ -38,38 +38,33 @@ const sharpen = schema('Sharpen', [pin('image'), field('amount', 'Amount', 0.4, 
 
 /**
  * Upscale pass: Scale is shown on the subgraph node without a wire, and
- * Strength is a value source inside that the subgraph node also sends.
+ * Strength is a Primitive inside whose value the subgraph node sends.
  */
 const detail: Graph = {
   name: 'Upscale pass',
   nodes: {
     up: { type: upscale, x: 210, y: 20, width: 180 },
     sharp: { type: sharpen, x: 430, y: 20, width: 180 },
+    strength: {
+      type: numberPrimitive('Primitive strength', 'Strength', 'FLOAT', 0.4, { min: 0, max: 1, step: 0.05 }, false, 'Strength'),
+      x: 210,
+      y: 170,
+      width: 180,
+    },
   },
   links: [
     ['up', 'IMAGE', 'sharp', 'image'],
-    { from: { valueSource: 'strength' }, to: { node: 'sharp', port: 'amount' } },
+    ['strength', 'FLOAT', 'sharp', 'amount'],
   ],
   boundary: {
     inputs: [
       { id: 'image', displayName: 'image', binds: { kind: 'port', node: 'up', port: 'image' } },
       { id: 'scale', displayName: 'Scale', binds: { kind: 'port', node: 'up', port: 'scale' }, promoted: true, wireHidden: true },
-      { id: 'strength', displayName: 'Strength', binds: { kind: 'valueSource', valueSource: 'strength', type: { kind: 'concrete', name: 'FLOAT' } }, promoted: true },
+      { id: 'strength', displayName: 'Strength', binds: { kind: 'port', node: 'strength', port: 'value' }, promoted: true, wireHidden: true },
     ],
     outputs: [{ id: 'result', displayName: 'image', binds: { kind: 'port', node: 'sharp', port: 'IMAGE' } }],
   },
   panels: { inputs: 0, outputs: 650 },
-  extra: {
-    valueSources: {
-      strength: {
-        id: 'strength',
-        value: 0.4,
-        title: 'Strength',
-        spec: { widgetType: 'FLOAT', options: { min: 0, max: 1, step: 0.05 } },
-      },
-    },
-  },
-  extraView: { valueSources: { strength: { position: { x: 230, y: 150 } } } },
 }
 
 const instance = (x: number, y: number, title?: string): NodeEntry => ({
@@ -127,7 +122,7 @@ export function subgraphIconGallery(
       badges: { a: [two], b: [two] },
     },
     {
-      caption: 'Fields shown on the subgraph node, entered through it: the cyan mark before Scale on the Inputs panel and on the Upscale node inside, and on the Strength value source the subgraph node sends.',
+      caption: 'Fields shown on the subgraph node, entered through it: the cyan mark before Scale on the Inputs panel and on the Upscale node inside, and on the Strength Primitive whose value the subgraph node sends.',
       scene: joined(
         scene({ root: { nodes: { entered: instance(0, 260, 'Upscale pass') } }, detail }),
         scene({ root: { nodes: { entered: instance(0, 260, 'Upscale pass') } }, detail }, { graph: 'detail', through: 'entered' }),

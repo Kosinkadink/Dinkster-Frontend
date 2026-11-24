@@ -222,12 +222,6 @@ export type LayoutRow =
        * no pin; `inputId` and `valueKey` are its layout id, which stores nothing.
        */
       readonly editor?: true
-      /**
-       * Set for an Inputs panel field whose value is a value source's own
-       * value: edits dispatch valueSource.setValue and
-       * valueSource.setController, never node.setValue.
-       */
-      readonly valueSourceOwner?: { readonly graphId: string; readonly valueSourceId: string }
     } & DynamicAnnotations)
   | {
       /**
