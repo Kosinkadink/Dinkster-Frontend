@@ -102,7 +102,6 @@ export const canvasPaintTokens = {
     marquee: { world: [4, 3], screen: [3, 2] },
     remote: [6, 4],
     blockingWarning: { world: [1, 3], screen: [1, 3] },
-    growth: [3, 3],
     companionUnderline: [1, 2],
     running: { world: [13, 9], screen: [9, 6] },
     boundary: { world: [5, 3], screen: [4, 3] },
