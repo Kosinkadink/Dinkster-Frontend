@@ -234,7 +234,7 @@ export function BoundaryTree(props: {
       role="treeitem"
       aria-level={rowProps.level}
       aria-selected={props.selected === rowProps.row.id}
-      tabIndex={props.selected === rowProps.row.id ? 0 : -1}
+      tabindex={props.selected === rowProps.row.id ? 0 : -1}
       data-side={rowProps.row.side}
       data-inert={rowProps.row.problem ? '' : undefined}
       onPointerDown={press(rowProps.row.id)}
@@ -341,7 +341,7 @@ export function BoundaryTree(props: {
         class="boundary-tree-row boundary-tree-header"
         data-side={constructProps.construct.side}
         aria-selected={props.selected === constructProps.construct.id}
-        tabIndex={props.selected === constructProps.construct.id ? 0 : -1}
+        tabindex={props.selected === constructProps.construct.id ? 0 : -1}
         onPointerDown={press(constructProps.construct.id)}
         onClick={select(constructProps.construct.id)}
       >
@@ -417,7 +417,7 @@ export function BoundaryTree(props: {
             class="boundary-tree-row boundary-tree-header"
             data-side="input"
             aria-selected={props.selected === sectionProps.section.id}
-            tabIndex={props.selected === sectionProps.section.id ? 0 : -1}
+            tabindex={props.selected === sectionProps.section.id ? 0 : -1}
             onPointerDown={press(sectionProps.section.id)}
             onClick={select(sectionProps.section.id)}
           >
