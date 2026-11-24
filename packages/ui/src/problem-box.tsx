@@ -3,7 +3,8 @@
  * problem with the kind's icon, its row's name, the message and its action at
  * the right end, the action drawn as a list status line's action. Only the
  * icon and the message take the problem's color. It hangs below the node
- * as wide as the node, its lines wrapping; the caller places and sizes it.
+ * as wide as its longest line up to a limit, where its lines wrap; the caller
+ * places it and sets the limit.
  */
 import { createEffect, For, Show } from 'solid-js'
 import { CircleX, TriangleAlert } from 'lucide-solid'
