@@ -13,12 +13,13 @@ import {
   MUTED_BADGE,
   nodeBadgeBounds,
   type BadgePlacement,
-  PROBLEM_BLOCKING_WARNING_BADGE,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
+  outputRowKey,
   type BadgeMap,
   type NodeBadge,
-  type PortProblemMap,
+  type ProblemKind,
+  type RowProblemMap,
 } from './badges.js'
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
@@ -320,11 +321,12 @@ export interface CompanionDisplay {
 export type CompanionMap = Readonly<Record<string, Readonly<Record<string, CompanionDisplay>>>>
 
 /**
- * node id -> value keys of rows carrying an anchored diagnostic. Widget rows
- * key by valueKey; fallback rows (unresolved schema) key by their stored
- * value key. Derived per scene build, never stored.
+ * node id -> row key -> strongest problem on that row. Widget rows key by
+ * valueKey, fallback rows (unresolved schema) by their stored value key, and
+ * inputs drawn without a field by their port id. Derived per scene build,
+ * never stored.
  */
-export type RowMarkMap = Readonly<Record<string, ReadonlySet<string>>>
+export type RowMarkMap = RowProblemMap
 
 /**
  * One row of a data-lens panel: label left, text right. Tones follow the
@@ -1219,14 +1221,62 @@ export class CanvasRenderer {
   private rowMarks: RowMarkMap = {}
 
   /**
-   * Diagnostic-anchored row marks per node/valueKey (fallback rows key by
-   * their stored value key). A marked row paints a red outline so the
-   * Problems entry is actionable at the widget the user must fix -
-   * mirroring (not replacing) the panel entry, like the pin warn ring.
-   * Derived per scene build, never stored.
+   * The strongest problem per row. A row with a problem is outlined in that
+   * problem's color: the field, or the input's row when it has no field.
+   * Nothing is drawn at the node's edge for it.
    */
   setRowMarks(marks: RowMarkMap): void {
     this.updateNodePaint(this.rowMarks, marks, () => { this.rowMarks = marks })
+  }
+
+  getRowMarks(): RowMarkMap {
+    return this.rowMarks
+  }
+
+  private problemRowHighlight: { readonly nodeId: string; readonly row: string } | undefined
+
+  getProblemRowHighlight(): { readonly nodeId: string; readonly row: string } | undefined {
+    return this.problemRowHighlight
+  }
+
+  /** The row whose line is pointed at in the node's problem box, drawn stronger. */
+  setProblemRowHighlight(highlight: { readonly nodeId: string; readonly row: string } | undefined): void {
+    const previous = this.problemRowHighlight
+    if (previous?.nodeId === highlight?.nodeId && previous?.row === highlight?.row) return
+    const ids = new Set([previous?.nodeId, highlight?.nodeId].filter((id): id is string => id !== undefined))
+    this.invalidateNodeTiles(ids)
+    this.problemRowHighlight = highlight
+    this.requestRender()
+  }
+
+  private paintRowProblem(
+    ctx: CanvasRenderingContext2D,
+    nodeId: string,
+    key: string,
+    rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number; readonly radius: number },
+  ): void {
+    const color = this.rowProblemColor(nodeId, key)
+    if (color === undefined) return
+    const highlighted = this.problemRowHighlight?.nodeId === nodeId && this.problemRowHighlight.row === key
+    const paint = canvasPaintTokens.widget
+    ctx.strokeStyle = color
+    ctx.fillStyle = color
+    ctx.lineWidth = highlighted ? paint.problemHighlightStroke : paint.diagnosticStroke
+    ctx.beginPath()
+    ctx.roundRect(rect.x, rect.y, rect.width, rect.height, rect.radius)
+    if (highlighted) {
+      const alpha = ctx.globalAlpha
+      ctx.globalAlpha = alpha * paint.problemHighlightOpacity
+      ctx.fill()
+      ctx.globalAlpha = alpha
+    }
+    ctx.stroke()
+  }
+
+  private rowProblemColor(nodeId: string, key: string): string | undefined {
+    const kind: ProblemKind | undefined = this.rowMarks[nodeId]?.[key]
+    return kind === undefined ? undefined
+      : kind === 'error' ? this.tokens.colors.error : PROBLEM_WARNING_BADGE.color
   }
 
   private rowDrags: Readonly<Record<string, RowDrag>> = {}
@@ -1281,13 +1331,6 @@ export class CanvasRenderer {
 
   private badges: BadgeMap = {}
 
-  private portProblems: PortProblemMap = {}
-
-  /** Exact input-pin problem rings, projected by the host's shared resolver. */
-  setPortProblems(problems: PortProblemMap): void {
-    this.updateNodePaint(this.portProblems, problems, () => { this.portProblems = problems })
-  }
-
   /** Header badges per node (subgraph marker, error chip, extensions). */
   setBadges(badges: BadgeMap): void {
     this.updateNodePaint(this.badges, badges, () => { this.badges = badges })
@@ -1303,7 +1346,7 @@ export class CanvasRenderer {
     const state = this.nodeStates[node.id]?.state
     const missing = node.unrecognized === true || node.missingSchema === true
     const strong = missing || state === 'running' || state === 'done' || state === 'error' ||
-      badges.some((badge) => badge.id === PROBLEM_ERROR_BADGE.id || badge.id === PROBLEM_BLOCKING_WARNING_BADGE.id)
+      badges.some((badge) => badge.id === PROBLEM_ERROR_BADGE.id)
     const paint = canvasPaintTokens.node.outline
     const stroke = screenAwareStroke(missing ? paint.idle * paint.unrecognizedFactor : strong ? paint.strong : paint.idle,
       this.viewport.scale, strong ? paint.strongScreen : paint.screen)
@@ -2307,7 +2350,7 @@ export class CanvasRenderer {
       const batches = new Map<string | undefined, Array<readonly [number, number, number, number]>>()
       for (const link of scene.links) {
         if (link.hidden === true || this.overlay.hiddenLinkIds?.has(link.id) === true ||
-            this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || link.mismatch === true) continue
+            this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || link.dimmed === true || link.mismatch === true) continue
         const bounds = linkBounds(link.x1, link.y1, link.x2, link.y2)
         if (bounds.maxX + paintPad < view.x || bounds.minX - paintPad > view.x + view.w ||
             bounds.maxY + paintPad < view.y || bounds.minY - paintPad > view.y + view.h) continue
@@ -2365,6 +2408,7 @@ export class CanvasRenderer {
         (this.scopeHighlight !== undefined || this.inactiveNodes !== undefined) &&
         (this.endOutOfScope(link.from) || this.endOutOfScope(link.to))
       if (outOfScope) ctx.globalAlpha = SCOPE_DIM
+      if (link.dimmed === true) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
       if (this.overlay.linkSelection?.has(link.id)) {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName, {
           color: this.tokens.colors.nodeSelectedBorder,
@@ -3280,12 +3324,11 @@ export class CanvasRenderer {
     ctx.restore()
   }
 
-  /** Core mode and blocking-warning tabs follow the theme; other badges carry their own color. */
+  /** Core mode tabs follow the theme; other badges carry their own color. */
   private badgeColor(badge: NodeBadge): string {
     const t = this.tokens
     return badge.id === MUTED_BADGE.id ? t.colors.mutedBadge
-      : badge.id === BYPASSED_BADGE.id ? t.colors.bypassedBadge
-        : badge.id === PROBLEM_BLOCKING_WARNING_BADGE.id ? t.colors.blockingWarning : badge.color
+      : badge.id === BYPASSED_BADGE.id ? t.colors.bypassedBadge : badge.color
   }
 
   /** The title bar's minimize arrow: down on an open node, right on a minimized one. */
@@ -3353,6 +3396,42 @@ export class CanvasRenderer {
     }
   }
 
+  /** The node whose title is being renamed, which draws no title suffix meanwhile. */
+  private renamingNode: string | undefined
+
+  setRenamingNode(nodeId: string | undefined): void {
+    if (this.renamingNode === nodeId) return
+    this.renamingNode = nodeId
+    this.requestRender()
+  }
+
+  /**
+   * A title suffix one space after the title, in the row names' dim regular
+   * type. It gives way before the title: cut with an ellipsis when `cut`,
+   * dropped whole when it does not fit or fewer than three characters would
+   * show.
+   */
+  private drawTitleSuffix(ctx: CanvasRenderingContext2D, suffix: string | undefined, left: number, right: number, y: number, cut: boolean): void {
+    if (suffix === undefined) return
+    const t = this.tokens
+    ctx.save()
+    ctx.font = `${t.titleFontSize}px ${t.fontFamily}`
+    const x = left + measureWidth(ctx, ' ')
+    const room = right - x
+    let text: string | undefined = suffix
+    if (measureWidth(ctx, suffix) > room) {
+      const fitted = cut ? fitText(ctx, suffix, room) : ''
+      text = fitted.length - '...'.length >= 3 ? fitted : undefined
+    }
+    if (text !== undefined) {
+      ctx.fillStyle = t.colors.label
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'left'
+      ctx.fillText(text, x, y)
+    }
+    ctx.restore()
+  }
+
   private drawNode(
     ctx: CanvasRenderingContext2D,
     sceneNode: SceneNode,
@@ -3364,9 +3443,11 @@ export class CanvasRenderer {
     const l: NodeLayout = sceneNode.layout
     const decoration = this.nodeDecorations[sceneNode.id]
     const nodeColor = decoration?.color ?? sceneNode.color
-    const title = decoration === undefined
-      ? l.title
-      : `${l.title}${decoration.titleSuffix === undefined ? '' : ` ${decoration.titleSuffix}`}${decoration.status === undefined ? '' : ` (${decoration.status})`}`
+    const title = decoration?.status === undefined ? l.title : `${l.title} (${decoration.status})`
+    // The declared suffix first, then an extension's; neither while the title is being renamed.
+    const suffix = this.renamingNode === sceneNode.id
+      ? undefined
+      : [l.titleSuffix, decoration?.titleSuffix].filter((part) => part !== undefined && part !== '').join(' ') || undefined
     const progress = this.nodeStates[sceneNode.id]
     // Local alias with the drag offset applied; everything below reads node.x/y.
     const node = dx === 0 && dy === 0 ? sceneNode : { ...sceneNode, x: sceneNode.x + dx, y: sceneNode.y + dy }
@@ -3431,13 +3512,12 @@ export class CanvasRenderer {
       ctx.fillStyle = t.colors.bypassWash
       ctx.fill()
     }
-    // State/problem border. Problem kinds come from the same host-derived
-    // badge layer used below; the renderer only chooses paint precedence.
-    // Running stays visible over a blocking warning, while document errors
-    // and runtime errors remain stronger execution-stopping signals.
-    const badges = this.badges[node.id] ?? []
-    const hasDocumentError = badges.some((badge) => badge.id === PROBLEM_ERROR_BADGE.id)
-    const hasBlockingWarning = badges.some((badge) => badge.id === PROBLEM_BLOCKING_WARNING_BADGE.id)
+    // State border. A node with a document Error keeps an emphasized red
+    // outline, the one sign that still reads zoomed out or on a minimized
+    // node; a Warning adds nothing to the outline. It is solid, since a
+    // dashed red node reads as one whose type is not installed. Document
+    // errors and runtime errors win over running because they stop execution.
+    const hasDocumentError = (this.badges[node.id] ?? []).some((badge) => badge.id === PROBLEM_ERROR_BADGE.id)
     const runtimeError = progress?.state === 'error'
     const running = progress?.state === 'running'
     const outlineColor = unrecognized
@@ -3448,22 +3528,18 @@ export class CanvasRenderer {
           ? t.colors.error
           : running
             ? t.stateColors.running
-            : hasBlockingWarning
-              ? t.colors.blockingWarning
-              : progress
-                ? t.stateColors[progress.state]
-                : t.colors.nodeIdleOutline
-    const strongOutline = unrecognized || runtimeError || hasDocumentError || running || hasBlockingWarning || progress?.state === 'done'
+            : progress
+              ? t.stateColors[progress.state]
+              : t.colors.nodeIdleOutline
+    const strongOutline = unrecognized || runtimeError || hasDocumentError || running || progress?.state === 'done'
     const outline = canvasPaintTokens.node.outline
     const outlineWidth = unrecognized ? outline.idle * outline.unrecognizedFactor : strongOutline ? outline.strong : t.crispEdges ? outline.crisp : outline.idle
-    const outlineDash = unrecognized || runtimeError || hasDocumentError
+    const outlineDash = unrecognized || runtimeError
       ? nodeStateDash('error', scale)
       : running
         ? undefined
-        : hasBlockingWarning
-          ? screenAwareDash(canvasPaintTokens.dash.blockingWarning.world, canvasPaintTokens.dash.blockingWarning.screen, scale)
-          : nodeStateDash(progress?.state, scale)
-    const outlineOwnsDash = unrecognized || runtimeError || hasDocumentError || running || hasBlockingWarning || progress !== undefined
+        : nodeStateDash(progress?.state, scale)
+    const outlineOwnsDash = unrecognized || runtimeError || hasDocumentError || running || progress !== undefined
     const dash = outlineOwnsDash ? outlineDash : modeDash(mode, scale)
     if (running) this.drawRunningGlow(ctx, node.x, node.y, l.width, l.height)
     if (dash !== undefined) ctx.setLineDash(dash)
@@ -3510,6 +3586,7 @@ export class CanvasRenderer {
         ctx.textBaseline = 'middle'
         ctx.textAlign = 'left'
         ctx.fillText(title, node.x + TITLE_START, node.y + l.headerHeight / 2)
+        this.drawTitleSuffix(ctx, suffix, node.x + TITLE_START + measureWidth(ctx, title), node.x + l.width - t.padX, node.y + l.headerHeight / 2, false)
       }
     }
 
@@ -3545,10 +3622,15 @@ export class CanvasRenderer {
         titleX += paint.labelInset + ctx.measureText(node.regionKind).width + paint.titleGap
         ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       }
+      const titleRoom = Math.max(0, badgeLeft - titleX - canvasPaintTokens.node.titleBadgeGap)
+      const titleWidth = measureWidth(ctx, title)
       if (t.titleOverflow === 'ellipsis') {
-        ctx.fillText(fitText(ctx, title, Math.max(0, badgeLeft - titleX - canvasPaintTokens.node.titleBadgeGap)), titleX, node.y + l.headerHeight / 2)
+        ctx.fillText(fitText(ctx, title, titleRoom), titleX, node.y + l.headerHeight / 2)
       } else {
-        ctx.fillText(title, titleX, node.y + l.headerHeight / 2, Math.max(0, badgeLeft - titleX - canvasPaintTokens.node.titleBadgeGap))
+        ctx.fillText(title, titleX, node.y + l.headerHeight / 2, titleRoom)
+      }
+      if (titleWidth <= titleRoom) {
+        this.drawTitleSuffix(ctx, suffix, titleX + titleWidth, titleX + titleRoom, node.y + l.headerHeight / 2, true)
       }
 
       this.drawBadgeTabs(ctx, node, badgeLayout)
@@ -3624,7 +3706,7 @@ export class CanvasRenderer {
           // A formula note's text is unknown until formulas are evaluated, so
           // it draws dimmed like any other offer that is not settled yet.
           const rowAlpha = ctx.globalAlpha
-          if (row.unknown) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
+          if (row.unknown || row.quiet) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
           const width = row.width ?? l.width - row.inset * 2
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
@@ -3663,17 +3745,26 @@ export class CanvasRenderer {
           ctx.fillText(row.text, node.x + l.width - t.padX - paint.fallback.textInset, rowY + row.height / 2, (l.width - t.padX * 2) * paint.fallback.valueRatio)
           ctx.textAlign = 'left'
           ctx.globalAlpha = rowAlpha
-          if (this.rowMarks[sceneNode.id]?.has(row.label) === true) {
-            // Anchored diagnostic on this stored value: red outline mirrors
-            // the Problems entry at the row (same contract as widget rows).
-            ctx.strokeStyle = t.colors.error
-            ctx.lineWidth = paint.diagnosticStroke
-            ctx.strokeRect(node.x + t.padX, rowY + t.rowGeometry.fieldInsetY, l.width - t.padX * 2, row.height - t.rowGeometry.fieldInsetY * 2)
-          }
+          // A problem on this stored value outlines its row.
+          this.paintRowProblem(ctx, sceneNode.id, row.label, {
+            x: node.x + t.padX, y: rowY + t.rowGeometry.fieldInsetY,
+            width: l.width - t.padX * 2, height: row.height - t.rowGeometry.fieldInsetY * 2, radius: 0,
+          })
         } else if (row.kind === 'ports') {
           // Ghost (dynamic affordance) labels render dimmed: connect/edit
           // materializes them; until then they are an offer, not a member.
           const rowAlpha = ctx.globalAlpha
+          // An input drawn without a field, or an output, outlines its row;
+          // when an input and an output share the line each outlines its half.
+          const innerWidth = l.width - t.padX * 2
+          const halves = row.input !== undefined && row.output !== undefined
+          const outlineSide = (key: string, right: boolean): void => {
+            const width = halves ? innerWidth / 2 : innerWidth
+            this.paintRowProblem(ctx, sceneNode.id, key, widgetChromeRect(node.x + t.padX + (right && halves ? width : 0), rowY, width,
+              row.height, t.rowGeometry.fieldInsetY))
+          }
+          if (row.input !== undefined) outlineSide(row.input.portId, false)
+          if (row.output !== undefined) outlineSide(outputRowKey(row.output.portId), true)
           if (row.input) {
             if (row.input.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
             if (row.input.inactive) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
@@ -4005,7 +4096,6 @@ export class CanvasRenderer {
       const acceptsList = pin.direction === 'in' && pin.acceptsList === true
       const shape = pinShapeOf(pin.type, pin.direction, acceptsList)
       const ringRadius = statusRingRadius(shape, pinRadius, radius)
-      const problemKind = pin.direction === 'in' ? this.portProblems[node.id]?.[pin.portId] : undefined
       if (pin.widgetTap === true &&
           !this.connectedWidgetTaps.has(`${node.id}\u0000${pin.address.port}`) &&
           !isLegalTarget && !nodeHovered)
@@ -4015,7 +4105,7 @@ export class CanvasRenderer {
       if (pin.widgetBacked && pin.direction === 'in' && !isLegalTarget &&
         this.wirelessBoundaryInputPins.has(`${node.id}\u0000${pin.portId}`))
         continue
-      if (pin.widgetBacked && pin.direction === 'in' && !connected && !isLegalTarget && !nodeSelected && !nodeHovered && problemKind === undefined)
+      if (pin.widgetBacked && pin.direction === 'in' && !connected && !isLegalTarget && !nodeSelected && !nodeHovered)
         continue
       // A field row that takes the held wire shows its own outline, so the
       // field's pin, the node's only target then, gets no ring.
@@ -4023,32 +4113,6 @@ export class CanvasRenderer {
         ctx.beginPath()
         ctx.arc(px, py, ringRadius, 0, Math.PI * 2)
         ctx.strokeStyle = t.colors.dropTarget
-        ctx.lineWidth = screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH)
-        ctx.stroke()
-      }
-      if (pin.warn === true && !isTarget) {
-        // Anchored solver warning (e.g. stale specialization): an error ring
-        // makes the advisory actionable at the pin the user must fix,
-        // mirroring (not replacing) the Problems entry. Drop-target rings
-        // win during a drag - the gesture needs the affordance more.
-        ctx.beginPath()
-        ctx.arc(px, py, ringRadius, 0, Math.PI * 2)
-        ctx.strokeStyle = t.colors.error
-        ctx.lineWidth = screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH)
-        ctx.stroke()
-      }
-      if (problemKind !== undefined && !isTarget) {
-        // Host-resolved document problems share the pin-ring channel with
-        // solver warnings. Paint after the legacy solver ring so exact
-        // severity wins; selection/hover affect pin visibility, not this
-        // independent diagnostic signal.
-        ctx.beginPath()
-        ctx.arc(px, py, ringRadius, 0, Math.PI * 2)
-        ctx.strokeStyle = problemKind === 'error'
-          ? t.colors.error
-          : problemKind === 'blocking-warning'
-            ? t.colors.blockingWarning
-            : PROBLEM_WARNING_BADGE.color
         ctx.lineWidth = screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH)
         ctx.stroke()
       }
@@ -4063,6 +4127,9 @@ export class CanvasRenderer {
         ctx.stroke()
         ctx.globalAlpha = pinAlpha
       } else {
+        // A kept row's pin is dimmed with its row and wire.
+        const pinAlpha = ctx.globalAlpha
+        if (pin.kept !== undefined) ctx.globalAlpha = pinAlpha * canvasPaintTokens.widget.inactiveOpacity
         paintTypedPin(
           ctx,
           t,
@@ -4076,6 +4143,7 @@ export class CanvasRenderer {
           radius,
           acceptsList,
         )
+        ctx.globalAlpha = pinAlpha
       }
     }
 
@@ -4212,18 +4280,12 @@ export class CanvasRenderer {
       ctx.fill()
       ctx.globalAlpha = edgeAlpha
     }
-    if (this.rowMarks[sceneNode.id]?.has(row.valueKey) === true) {
-      // Anchored widget-value diagnostic (out-of-range INT, unknown
-      // COMBO option, ...): a red row outline makes the Problems entry
-      // actionable at the widget the user must fix, mirroring (not
-      // replacing) the panel entry - same contract as the pin warn ring.
-      const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY)
-      ctx.strokeStyle = t.colors.error
-      ctx.lineWidth = canvasPaintTokens.widget.diagnosticStroke
-      ctx.beginPath()
-      ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
-      ctx.stroke()
-    }
+    // A problem on this field (out-of-range number, unknown choice, ...)
+    // outlines the field, so the row shows where the user acts without
+    // changing the node's height.
+    this.paintRowProblem(ctx, sceneNode.id,
+      this.rowMarks[sceneNode.id]?.[row.valueKey] !== undefined ? row.valueKey : row.inputId,
+      widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY))
     if (this.overlay.dropRow?.nodeId === sceneNode.id && this.overlay.dropRow.valueKey === row.valueKey) {
       // A held wire takes this field when dropped: the drop-target
       // outline sits inside the chrome, at full strength even on a

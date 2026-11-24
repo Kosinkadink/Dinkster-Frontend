@@ -11,7 +11,11 @@
 
 import { createMemo, createSignal, onCleanup, Show, type Component, type JSX } from 'solid-js'
 import {
+  asNodeId,
+  asPortId,
+  buildRerouteIndex,
   canonicalTypeIdOf,
+  portRefKey,
   semanticDesignTokens,
   type CommandInvocation,
   type EditorSizing,
@@ -20,6 +24,7 @@ import {
   type MaterializeFrame,
   type SourceFilenameSpec,
   type TypeExpr,
+  type WidgetParts,
   type WidgetSpec,
 } from '@dinkster/core'
 import { defaultTokens, typeColor, type DynamicEditOwner } from '@dinkster/canvas'
@@ -62,8 +67,25 @@ export type EditorTarget =
       readonly selector?: {
         readonly construct: string
       }
+      /**
+       * The rows the widget's `writes` and `reads` name, as flattened value
+       * keys of `nodeId`. A part missing here is absent; no editor reads a
+       * row by a fixed name.
+       */
+      readonly parts?: WidgetParts
     }
   | { readonly kind: 'valueSource'; readonly valueSourceId: string }
+
+/**
+ * The node row a widget part names: the row the widget writes or reads under
+ * that part name. Undefined when the widget's mapping lacks the part, which
+ * the editor treats as absent.
+ */
+export function partRow(target: EditorTarget, part: string): string | undefined {
+  const parts = target.kind === 'input' ? target.parts : undefined
+  if (parts === undefined) return undefined
+  return Object.hasOwn(parts.writes, part) ? parts.writes[part] : Object.hasOwn(parts.reads, part) ? parts.reads[part] : undefined
+}
 
 export interface WidgetEditorState {
   /**
@@ -256,6 +278,17 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     window.removeEventListener('resize', clampPopover)
   })
 
+  // An editor that writes another row of its node never writes through that row's wire.
+  const wiredWrite = ((): string | undefined => {
+    const target = ed.target
+    if (target.kind !== 'input' || target.familyOwner !== undefined || target.parts === undefined) return undefined
+    if (!Object.values(target.parts.writes).includes(target.valueKey)) return undefined
+    const graph = ed.tab.store.doc.graphs[ed.graphId]
+    if (graph === undefined) return undefined
+    const index = buildRerouteIndex(graph)
+    const key = portRefKey({ node: asNodeId(target.nodeId), port: asPortId(target.valueKey) })
+    return index.inputDriverOf.has(key) || index.netSourceOf.has(key) ? target.valueKey : undefined
+  })()
   const close = (): void => { live = false; props.onClose() }
   const [commitPending, setCommitPending] = createSignal(false)
   const [commitError, setCommitError] = createSignal<string>()
@@ -290,6 +323,10 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     // (or any unmount) would otherwise re-enter here and commit the discarded
     // text. Closed editors never commit.
     if (!live) return Promise.resolve(false)
+    if (wiredWrite !== undefined) {
+      setCommitError(message('widgetEditor.writeWired', { row: wiredWrite }))
+      return Promise.resolve(false)
+    }
     if (ed.target.kind !== 'input') {
       return commitCommand({
         command: 'valueSource.setValue',
@@ -340,6 +377,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
           <span class="widget-editor-type" data-testid="widget-editor-type" style={pillStyle}>{headerProps.type}</span>
         </span>
       </header>
+      <Show when={wiredWrite}>{(row) => <ProductNotice tone="info" testId="widget-write-wired">{message('widgetEditor.writeWired', { row: row() })}</ProductNotice>}</Show>
       <Show when={props.modal === undefined && commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
       </>
     )

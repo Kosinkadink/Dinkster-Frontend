@@ -97,6 +97,8 @@ import {
   type ControllerInputProvenance,
   type ControllerInputSource,
   type ControllerNodeInputSource,
+  inGoneMember,
+  wiresFromNode,
   type ControllerMode,
   type Diagnostic,
   type DiagnosticAnchor,
@@ -1221,6 +1223,8 @@ export interface DiagnosticFocusRequest {
   readonly anchor: DiagnosticAnchor
   readonly openAssetInput?: string
   readonly missingAssetDigest?: string
+  /** The problem Show on canvas picked; the node's box opens on its line. */
+  readonly diagnostic?: Diagnostic
   /** Current view context for solver anchors that carry only a port. */
   readonly portInstancePath?: readonly string[]
 }
@@ -5170,6 +5174,34 @@ export class AppState {
     }
     const invocations: CommandInvocation[] = []
     const entries: Diagnostic[] = []
+    const anchorOf = (graphId: string, nodeId: NodeId) => {
+      const instancePath = paths.get(graphId)
+      return instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: nodeId } } }
+    }
+    // The members a node has are the ones its elaboration gives on open: a
+    // wire, named net or subgraph output forward from any other member goes.
+    const what = { link: 'the wire', net: 'the named net', forward: 'the subgraph output' } as const
+    for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+      const wires = wiresFromNode(graph, node.id)
+      const schema = wires.length === 0 ? undefined : resolve(graph.id, node)
+      if (schema === undefined) continue
+      const elaborated = elaborateInterface(schema, node, buildGraphConnectivity(graph)(node.id))
+      const gone = wires.filter((wire) => inGoneMember(elaborated, wire.address))
+      if (gone.length === 0) continue
+      for (const wire of gone) {
+        if (wire.kind === 'link') invocations.push({ command: 'link.disconnect', params: { graphId: graph.id, linkId: wire.id } })
+        else if (wire.kind === 'net') invocations.push({ command: 'net.remove', params: { graphId: graph.id, netId: wire.id } })
+        else {
+          const binds = graph.boundary?.outputs.find((item) => item.id === wire.id)?.binds
+          invocations.push({ command: 'boundary.unbind', params: { graphId: graph.id, side: 'outputs', itemId: wire.id, node: node.id,
+            ...(binds?.kind === 'widgetTap' ? { tap: wire.address } : { port: wire.address }) } })
+        }
+      }
+      entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
+        `${node.title ?? schema.displayName}: ${gone.map((wire) =>
+          `${what[wire.kind]} from '${wire.address}' is removed, because its member is no longer part of the node.`).join(' ')}`,
+        { refs: [{ graphId: graph.id, nodeId: node.id }], ...anchorOf(graph.id, node.id) }))
+    }
     for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
       const schema = resolve(graph.id, node)
       if (schema === undefined || node.dynamic === undefined) continue
@@ -5191,11 +5223,10 @@ export class AppState {
           ...(selected === null ? { variant: null } : { option: selected }),
         } as Json })
       }
-      const instancePath = paths.get(graph.id)
       entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
         `${node.title ?? schema.displayName}: ${[...new Set(changes.map((entry) => entry.message))].join(' ')}`, {
           refs: [{ graphId: graph.id, nodeId: node.id }],
-          ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: node.id } } }),
+          ...anchorOf(graph.id, node.id),
         }))
     }
     if (invocations.length > 0) return Promise.resolve(this.dispatchTo(tab,
@@ -6238,9 +6269,11 @@ export class AppState {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
         boundaryPositionsFor: this.boundaryPositionResolver(sessionResolver),
         onConflict: (conflict: SessionConflict) =>
-          report(diag('warning', 'collab', `collab.conflict.${conflict.during}`,
-            `${conflict.invocation.command}: a concurrent edit makes this change inapplicable`,
-            { data: { diagnostics: conflict.diagnostics } })),
+          report(conflict.during === 'refused'
+            ? conflict.diagnostics[0]!
+            : diag('warning', 'collab', `collab.conflict.${conflict.during}`,
+              `${conflict.invocation.command}: a concurrent edit makes this change inapplicable`,
+              { data: { diagnostics: conflict.diagnostics } })),
         onError: (message: string) => report(diag('error', 'collab', 'collab.session', message)),
       })
       owner = session.doc.lineage
@@ -8958,10 +8991,12 @@ export class AppState {
     const captures: { owner: { graphId: string; nodeId: string; valueKey: string }; width: number; height: number }[] = []
     const capturedOwners = new Map<string, { width: number; height: number }>()
     for (const [runtimeId, node] of Object.entries(artifact.prompt)) {
-      if (node.inputs['capture_on_queue'] !== true) continue
       const schema = registry.resolve(node.class_type)
       const input = schema && inputsOf(schema).find((item) => item.widget?.widgetType === webcamKind.type)
       if (input === undefined || Array.isArray(node.inputs[input.id])) continue
+      // Capture on queue is the row the webcam widget reads under that part; without one, it never captures.
+      const captureRow = input.widget?.reads?.['capture_on_queue']
+      if (captureRow === undefined || node.inputs[captureRow] !== true) continue
       const occurrence = parseOccurrenceKey(artifact.provenance.toSource[runtimeId]!)
       const location = resolveNodeOccurrence(document, occurrence)!
       const graph = document.graphs[location.graphId]!
@@ -8982,10 +9017,13 @@ export class AppState {
         graphId: location.graphId, nodeId: occurrence.node, valueKey: input.id,
       }
       const key = JSON.stringify(owner)
-      const dimensions = {
-        width: typeof node.inputs['width'] === 'number' ? node.inputs['width'] : 0,
-        height: typeof node.inputs['height'] === 'number' ? node.inputs['height'] : 0,
+      // The capture size comes from the rows the webcam widget reads; a part it does not name is absent.
+      const dimension = (part: 'width' | 'height'): number => {
+        const row = input.widget?.reads?.[part]
+        const value = row === undefined ? undefined : node.inputs[row]
+        return typeof value === 'number' ? value : 0
       }
+      const dimensions = { width: dimension('width'), height: dimension('height') }
       const previous = capturedOwners.get(key)
       if (previous !== undefined) {
         if (previous.width !== dimensions.width || (dimensions.width !== 0 && previous.height !== dimensions.height)) {

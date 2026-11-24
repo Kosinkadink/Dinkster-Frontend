@@ -1135,17 +1135,78 @@ describe('v14 COMBO layout', () => {
   it('preserves COMBO identity on widget pins, taps, and output slots', () => {
     const l = doLayout([comboWidget('forced', { forceInput: true }), comboWidget('backed'), comboOutput('choice')])
     expect(l.pins.filter((p) => ['forced', 'backed', 'choice'].includes(p.portId)).every((pin) => JSON.stringify(pin.type).includes('COMBO'))).toBe(true)
-    expect(l.pins.find((p) => p.portId === 'backed' && p.direction === 'out')).toMatchObject({ widgetTap: true, staticWidgetTap: true, type: { name: 'COMBO' } })
+    expect(l.pins.find((p) => p.portId === 'backed' && p.direction === 'out')).toMatchObject({ widgetTap: true, type: { name: 'COMBO' } })
     expect(l.rows.find((r) => r.kind === 'ports' && r.output?.portId === 'choice')).toMatchObject({ output: { type: { name: 'COMBO' } } })
   })
 
-  it("does not mark a choice's dropdown or chosen-option widget taps as static", () => {
+  it("draws a field's output on a choice's dropdown and on its chosen option's field", () => {
     const leaf = comboWidget('leaf')
     const schema = schemaOf([{ kind: 'choice', id: 'combo', required: true, shared: [], options: [{ key: 'a', rows: [leaf] }] }])
     const elaborated = elaborateInterface(schema, nodeData)
     const layout = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, { elaborated })
     const taps = layout.pins.filter((pin) => pin.widgetTap === true)
     expect(taps.map((pin) => pin.portId)).toEqual(['combo', 'combo.leaf'])
-    expect(taps.every((pin) => pin.staticWidgetTap !== true)).toBe(true)
+  })
+})
+
+describe('editor rows', () => {
+  const viewport: NodeSchema['body'][number] = {
+    kind: 'editor', id: 'viewport',
+    widget: { widgetType: 'LOAD_3D', options: {}, writes: { state: 'view_state' }, reads: { width: 'width', model: 'model', color: 'mode.tint' } },
+  }
+  const memberRows: NodeSchema['body'] = [
+    widget('width'),
+    { kind: 'state', id: 'view_state', type: { kind: 'concrete', name: 'LOAD_3D' }, partOfRun: true },
+    viewport,
+    widget('height'),
+  ]
+  const schema = schemaOf([
+    input('model'),
+    {
+      kind: 'choice', id: 'mode', required: true, shared: [], options: [
+        { key: 'plain', rows: [] },
+        { key: 'tinted', rows: [widget('tint')] },
+      ],
+    },
+    {
+      kind: 'group', id: 'views', member: memberRows,
+      keys: { kind: 'numbered', prefix: 'view', start: 1, pad: 0 }, grows: 'button', minMembers: 0,
+    },
+  ])
+  const node: NodeData = {
+    ...nodeData,
+    values: { 'views.view2.view_state': { camera: 'stored' } },
+    dynamic: { mode: { selected: 'plain' }, views: { members: ['view2'], seq: 2 } },
+  }
+
+  it('draws the editor where its member writes it, with no label and no pin, and hands it the rows its names reach', () => {
+    const editor = elaborateInterface(schema, node).items.find((item) => item.kind === 'editor')!
+    // The member's own rows resolve inside the member; `model` reaches the node's top scope;
+    // `mode.tint` sits under an option that is not chosen, so that part is absent.
+    expect(editor.parts).toEqual({
+      writes: { state: 'views.view2.view_state' },
+      reads: { width: 'views.view2.width', model: 'model' },
+    })
+    const layout = layoutNode(schema, node, defaultTokens, measure, widgetMeasure)
+    const widgets = layout.rows.filter((row) => row.kind === 'widget')
+    expect(widgets.map((row) => row.inputId)).toEqual(['mode', 'views.view2.width', 'views.view2.viewport', 'views.view2.height'])
+    const row = widgets[2]!
+    expect(row).toMatchObject({ label: '', editor: true, derivedValue: { camera: 'stored' }, parts: editor.parts })
+    expect(row.height).toBe(defaultTokens.rowHeight)
+    expect(layout.pins.some((pin) => pin.portId === 'views.view2.viewport')).toBe(false)
+  })
+
+  it('draws no editor row under an option that is not chosen', () => {
+    const optional = schemaOf([{
+      kind: 'choice', id: 'mode', required: true, shared: [], options: [
+        { key: 'plain', rows: [widget('width')] },
+        { key: 'framed', rows: [{ kind: 'editor', id: 'frame', widget: { widgetType: 'LOAD_3D', options: {}, reads: { width: 'width' } } }] },
+      ],
+    }])
+    const plain = { ...nodeData, dynamic: { mode: { selected: 'plain' } } }
+    expect(layoutNode(optional, plain, defaultTokens, measure, widgetMeasure).rows.some((row) => row.kind === 'widget' && row.editor === true)).toBe(false)
+    const framed = { ...nodeData, dynamic: { mode: { selected: 'framed' } } }
+    expect(layoutNode(optional, framed, defaultTokens, measure, widgetMeasure).rows.filter((row) => row.kind === 'widget' && row.editor === true)
+      .map((row) => row.kind === 'widget' ? row.inputId : '')).toEqual(['mode.frame'])
   })
 })

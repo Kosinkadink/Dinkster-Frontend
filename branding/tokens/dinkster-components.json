@@ -59,6 +59,9 @@
     "railIconSize": 20,
     "menuRowHeight": 28,
     "scrollbarSize": 8,
+    "problemBoxMinWidth": 240,
+    "problemBoxMaxWidth": 400,
+    "problemBoxMaxHeight": 400,
     "fixesReviewWidth": 360,
     "fixesReviewMaxHeight": 320
   },
