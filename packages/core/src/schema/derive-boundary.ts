@@ -50,6 +50,7 @@ import type {
   NodeSchema,
   OptionRow,
   OuterName,
+  OuterScope,
   OutputSpec,
   TypeChoiceSpec,
   TypeExpr,
@@ -857,29 +858,61 @@ export function deriveBoundarySchema(
         ...(count > 0 ? { interiorMembers: (row.interiorMembers ?? 0) + count } : {}),
       }
     }
+    return {
+      ...derived,
+      id: item.id,
+      ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
+      outer: outerScopeOf(binds, node, path, item.id),
+    } as BodyRow
+  }
+
+  /** A lookup argument wired inside the definition is not known, so its name reads nothing. */
+  const unwired = (scope: OuterScope): OuterScope => ({
+    frames: scope.frames.map((frame) => ({
+      rows: frame.rows,
+      names: Object.fromEntries(Object.entries(frame.names).filter(([, meaning]) => !('linked' in meaning && meaning.linked === true))),
+    })),
+  })
+
+  /**
+   * What each name in the scopes around an inner row means on the subgraph
+   * node: the subgraph row that shows it, else the definition's value. On an
+   * inner subgraph node's field that already carries such a scope, its names
+   * are carried out one more level.
+   */
+  const outerScopeOf = (binds: RouteBoundaryBinding, node: NodeData, path: string, shownAs: string, carried?: OuterScope): OuterScope => {
+    const meaningOf = (flat: string, row: () => unknown): OuterName | undefined => {
+      const shown = flat === path ? shownAs : shownRows.get(JSON.stringify([binds.node, flat]))
+      if (shown !== undefined) return { row: shown }
+      const value = Object.hasOwn(node.values, flat) ? node.values[flat] : row()
+      return value === undefined ? undefined : { value, ...(isInternallyConnected(binds, flat) ? { linked: true as const } : {}) }
+    }
+    if (carried !== undefined) {
+      const schema = resolveNode(node)
+      return {
+        frames: carried.frames.map((frame) => {
+          const names: Record<string, OuterName> = {}
+          for (const [name, meaning] of Object.entries(frame.names)) {
+            const outer = 'row' in meaning
+              ? meaningOf(meaning.row, () => ownDefaultOf(schema === undefined ? undefined : rowById(schema.body, meaning.row), node.dynamic?.[meaning.row]))
+              : meaning
+            if (outer !== undefined) names[name] = outer
+          }
+          return { rows: frame.rows, names }
+        }),
+      }
+    }
     const schema = resolveNode(node)!
     const frames = scopesAround(schema.body, path).map((frame) => {
       const names: Record<string, OuterName> = {}
       for (const name of framesNamesOf([frame.rows]).names.keys()) {
         const flat = frame.prefix + name
-        const shown = flat === path ? item.id : shownRows.get(JSON.stringify([binds.node, flat]))
-        if (shown !== undefined) {
-          names[name] = { row: shown }
-          continue
-        }
-        const value = Object.hasOwn(node.values, flat)
-          ? node.values[flat]
-          : ownDefaultOf(name.includes('.') ? undefined : rowById(frame.rows, name), node.dynamic?.[flat])
-        if (value !== undefined) names[name] = { value, ...(isInternallyConnected(binds, flat) ? { linked: true as const } : {}) }
+        const meaning = meaningOf(flat, () => ownDefaultOf(name.includes('.') ? undefined : rowById(frame.rows, name), node.dynamic?.[flat]))
+        if (meaning !== undefined) names[name] = meaning
       }
       return { rows: frame.rows, names }
     })
-    return {
-      ...derived,
-      id: item.id,
-      ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
-      outer: { frames },
-    } as BodyRow
+    return { frames }
   }
 
   for (const item of def.boundary.inputs) {
@@ -982,6 +1015,9 @@ export function deriveBoundarySchema(
           ? { forceInput: true }
           : {}),
       ...(inner.lazy !== undefined ? { lazy: inner.lazy } : {}),
+      ...(promotedWidget?.looked !== undefined
+        ? { lookupScope: unwired(outerScopeOf(item.binds as RouteBoundaryBinding, node, item.binds.port as string, item.id, inner.lookupScope)) }
+        : {}),
     })
   }
 

@@ -336,11 +336,11 @@ const groups: readonly { readonly title: string; readonly examples: readonly Lis
       },
       {
         id: 'paused',
-        title: 'Rate limited',
+        title: 'Paused',
         caption: 'Paused, under the list beside Refresh: the list keeps what it shows and the filter. Refresh can be tried by hand; nothing retries on a timer.',
         node: 'preset',
         open: 'preset',
-        list: { options: presets(), highlight: 0, status: { tone: 'notice', text: 'Rate limited' }, actions: refresh },
+        list: { options: presets(), highlight: 0, status: { tone: 'notice', text: 'Paused' }, actions: refresh },
         side: presetSide,
       },
       {

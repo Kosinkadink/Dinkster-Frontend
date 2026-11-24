@@ -27,6 +27,7 @@ import type {
   InputSpec,
   LookupSpec,
   Looked,
+  LookedNumberField,
   MaskPolarity,
   MaskSemantic,
   MirrorSpec,
@@ -513,7 +514,11 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         throw new Error(`${where}.editableOptions cannot have another option source`)
       }
       const options = descriptor['options']
-      if (options !== undefined) {
+      const lookedOptions = isLookedWire(options)
+      if (lookedOptions && (descriptor['remote'] !== undefined || descriptor['editableOptions'] === true)) {
+        throw new Error(`${where}.options from a formula or a lookup take no other option source`)
+      }
+      if (options !== undefined && !lookedOptions) {
         if (!Array.isArray(options)) throw new Error(`${where}.options must be an array`)
         options.forEach((value, index) => validateComboOption(value, `${where}.options[${index}]`, diags, true))
       }
@@ -531,7 +536,7 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.remote.refreshButton must be a boolean`)
         }
       }
-      if ((!Array.isArray(options) || options.length === 0) && remote === undefined && descriptor['editableOptions'] !== true) {
+      if (!lookedOptions && (!Array.isArray(options) || options.length === 0) && remote === undefined && descriptor['editableOptions'] !== true) {
         throw new Error(`${where} requires options or remote`)
       }
       return
@@ -579,8 +584,8 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         const value = descriptor[key]
         const finiteNumber = typeof value === 'number' && Number.isFinite(value)
         const decimalInteger = isCanonicalUnsafeInteger(value)
-        if (value !== undefined && !finiteNumber && !decimalInteger) {
-          throw new Error(`${where}.${key} must be a finite number or exact decimal integer`)
+        if (value !== undefined && !finiteNumber && !decimalInteger && !isLookedWire(value)) {
+          throw new Error(`${where}.${key} must be a finite number, an exact decimal integer, a formula or a lookup`)
         }
       }
       if (descriptor['min'] !== undefined && descriptor['max'] !== undefined) {
@@ -631,7 +636,9 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       if (descriptor['dynamicPrompts'] !== undefined && typeof descriptor['dynamicPrompts'] !== 'boolean') {
         throw new Error(`${where}.dynamicPrompts must be a boolean`)
       }
-      if (descriptor['completions'] !== undefined) decodeTextCompletions(descriptor['completions'], `${where}.completions`, diags)
+      if (descriptor['completions'] !== undefined && !isLookedWire(descriptor['completions'])) {
+        decodeTextCompletions(descriptor['completions'], `${where}.completions`, diags)
+      }
       if (
         descriptor['multiline'] === undefined &&
         descriptor['placeholder'] === undefined &&
@@ -753,11 +760,11 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
       if (numericKind === 'INT') {
         for (const key of ['min', 'max', 'step']) {
           const value = descriptor[key]
-          if (value !== undefined && !Number.isSafeInteger(value) && !isCanonicalUnsafeInteger(value)) {
+          if (value !== undefined && !Number.isSafeInteger(value) && !isCanonicalUnsafeInteger(value) && !isLookedWire(value)) {
             throw new Error(`${where}.${key} must be an exact integer on INT`)
           }
         }
-      } else if (['min', 'max', 'step'].some((key) => descriptor[key] !== undefined && typeof descriptor[key] !== 'number')) {
+      } else if (['min', 'max', 'step'].some((key) => descriptor[key] !== undefined && typeof descriptor[key] !== 'number' && !isLookedWire(descriptor[key]))) {
         throw new Error(`${where} decimal integer constraints require INT`)
       }
       return
@@ -949,7 +956,10 @@ function widgetFor(
         return undefined
       }
       let options: unknown[] | undefined
-      if (descriptor.options !== undefined) {
+      const lookedOptions = isLookedWire(descriptor.options)
+        ? wireLookedValue(descriptor.options, `${nodeType}.${id} widget.options`)
+        : undefined
+      if (descriptor.options !== undefined && lookedOptions === undefined) {
         if (Array.isArray(descriptor.options)) {
           if (descriptor.options.length > 0 || descriptor.editableOptions === true) options = descriptor.options.map(comboOptionFields)
         } else {
@@ -994,12 +1004,13 @@ function widgetFor(
           diags.push(diag('warning', 'schema', 'schema.dinkster.badComboRemote', `${nodeType}.${id}: COMBO remote requires a route starting with '/'`))
         }
       }
-      if (options === undefined && remote === undefined && descriptor.editableOptions !== true) {
+      if (options === undefined && remote === undefined && lookedOptions === undefined && descriptor.editableOptions !== true) {
         diags.push(diag('warning', 'schema', 'schema.dinkster.badCombo', `${nodeType}.${id}: COMBO has no options or option source`))
       } else {
         return {
           widgetType: 'COMBO',
           options: options !== undefined ? { options } : {},
+          ...(lookedOptions !== undefined ? { looked: { options: lookedOptions } } : {}),
           ...(descriptor.editableOptions === true ? { editableOptions: true as const } : {}),
           ...(typeof descriptor.optionsInput === 'string' ? { optionsInput: descriptor.optionsInput } : {}),
           ...(remote !== undefined ? { remote } : {}),
@@ -1078,9 +1089,14 @@ function widgetFor(
       } else {
         const isInt = numericKind === 'INT'
         const options: Record<string, unknown> = {}
+        const looked: Partial<Record<LookedNumberField, FormulaSpec | LookupSpec>> = {}
         for (const key of ['min', 'max', 'step', 'offset'] as const) {
           const v = descriptor[key]
           if (v === undefined) continue
+          if (isLookedWire(v)) {
+            looked[key] = wireLookedValue(v, `${nodeType}.${id} widget.${key}`)
+            continue
+          }
           const numeric = typeof v === 'number' && Number.isFinite(v)
           const exactInteger = (numeric && Number.isSafeInteger(v)) || isCanonicalUnsafeInteger(v)
           const positiveStep = key !== 'step' || (numeric && v > 0) || (isCanonicalUnsafeInteger(v) && BigInt(v) > 0n)
@@ -1139,6 +1155,7 @@ function widgetFor(
         return {
           widgetType: numericKind,
           options,
+          ...(Object.keys(looked).length > 0 ? { looked } : {}),
           ...(dflt !== undefined ? { default: dflt } : {}),
         }
       }
@@ -1159,12 +1176,18 @@ function widgetFor(
             )
         }
         if (descriptor.dynamicPrompts !== undefined) options['dynamicPrompts'] = descriptor.dynamicPrompts
+        const lookedCompletions = isLookedWire(descriptor.completions)
+          ? wireLookedValue(descriptor.completions, `${nodeType}.${id} widget.completions`)
+          : undefined
         const textCompletions =
-          descriptor.completions === undefined ? undefined : decodeTextCompletions(descriptor.completions, `${nodeType}.${id} widget.completions`)
+          descriptor.completions === undefined || lookedCompletions !== undefined
+            ? undefined
+            : decodeTextCompletions(descriptor.completions, `${nodeType}.${id} widget.completions`)
         return {
           widgetType: 'STRING',
           options,
           ...(textCompletions === undefined ? {} : { textCompletions }),
+          ...(lookedCompletions !== undefined ? { looked: { completions: lookedCompletions } } : {}),
           ...(dflt !== undefined ? { default: dflt } : {}),
         }
       } else {
@@ -1515,6 +1538,15 @@ function wireFormulated<T extends string | boolean>(value: unknown, where: strin
   return wireFormula(value, where)
 }
 
+/** A widget field written as a formula or a lookup instead of its literal. */
+function isLookedWire(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) && ('formula' in value || 'lookup' in value)
+}
+
+function wireLookedValue(value: Record<string, unknown>, where: string): FormulaSpec | LookupSpec {
+  return 'lookup' in value ? wireLookup(value, where) : wireFormula(value, where)
+}
+
 function wireLooked(value: unknown, where: string): Looked<string> {
   if (typeof value === 'string') return value
   const data = wireObject(value, where)
@@ -1558,7 +1590,7 @@ const COMMON_FIELDS = ['label', 'tooltip', 'visible'] as const
 const INPUT_FIELDS = [
   'kind', 'id', 'type', 'required', 'default', 'onAbsent', 'widget', 'tooltip', 'label', 'pinFirst', 'pin',
   'afterRun', 'onEdit', 'hidden', 'lazy', 'acceptsStorage', 'acceptsStream', 'acceptsList', 'sourceFilename',
-  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible',
+  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible', 'sent',
 ]
 
 /** A port's label, literal or worked out by formula, and whether it shows. */
@@ -1577,6 +1609,8 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
   const pinFirst = wireBoolean(entry['pinFirst'], `${where}.pinFirst`, false)
   const pin = wireBoolean(entry['pin'], `${where}.pin`, true)
   if (!pin && pinFirst) throw new Error(`${where}.pin false conflicts with pinFirst`)
+  const sent = wireBoolean(entry['sent'], `${where}.sent`, true)
+  if (!sent && pin) throw new Error(`${where}: a field that is not sent cannot be wired; it needs pin false`)
   const hidden = wireBoolean(entry['hidden'], `${where}.hidden`, false)
   const lazy = wireBoolean(entry['lazy'], `${where}.lazy`, false)
   wireJson(entry['default'], `${where}.default`)
@@ -1625,6 +1659,7 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
     ...(widget !== undefined ? { widget } : {}),
     ...(pinFirst ? { forceInput: true } : {}),
     ...(!pin ? { socketless: true } : {}),
+    ...(!sent ? { sent: false as const } : {}),
     ...(hidden ? { hidden: true } : {}),
     ...(lazy ? { lazy: true } : {}),
     ...(onEdit.length > 0 ? { onEdit } : {}),
