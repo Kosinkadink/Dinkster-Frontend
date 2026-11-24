@@ -559,16 +559,10 @@ describe('dynamic layout on plain nodes', () => {
     })
     const stale = sceneOf(docWith('latent'))
     expect(stale.diagnostics.map((d) => d.code)).toContain('solve.slot.staleSpecialization')
-    // The diagnostic anchors to the type choice's pin, so the pin itself
-    // warns on canvas - the user sees the ring where the problem lives, not
-    // only a Problems-panel row.
-    const stalePin = pinsOf(stale, 's', 'in').find((p) => p.address.port === 'slot')!
-    expect(stalePin.warn).toBe(true)
+    expect(stale.diagnostics.find((d) => d.code === 'solve.slot.staleSpecialization')?.anchor?.port?.port).toBe('slot')
     // Compatible choice: the same graph shape produces a clean scene.
     const fixed = sceneOf(docWith('image'))
     expect(fixed.diagnostics).toEqual([])
-    const fixedPin = pinsOf(fixed, 's', 'in').find((p) => p.address.port === 'slot')!
-    expect(fixedPin.warn).toBeUndefined()
   })
 })
 

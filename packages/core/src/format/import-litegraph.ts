@@ -25,7 +25,6 @@
  */
 
 import { canonicalJson } from '../compile/hash.js'
-import { typedLiteralWire } from '../compile/dinkster-graph.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
   allRowsOf,
@@ -1682,13 +1681,9 @@ function importLitegraphGraph(
         : Object.entries(raw ?? {}).filter(([name]) => name.startsWith('option')).map(([, value]) => value)
       dynamic['choice'] = { options: authored.filter((value) =>
         typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)) }
+      // INDEX is the choice's position among the authored options, so a stored index is not kept.
       if (index !== undefined) {
-        if (typeof index === 'number' && Number.isSafeInteger(index)) {
-          values['index'] = typedLiteralWire('INT', index) as Json
-          additionalInputs.push('index')
-        } else {
-          diags.push(imp('error', 'import.combo.index', `node ${n.id} ('${n.type}'): authored index must be an integer`))
-        }
+        diags.push(imp('info', 'import.combo.index', `node ${n.id} ('${n.type}'): its stored index is not kept; INDEX is the choice's position among its options`))
       }
       if (raw !== undefined) {
         if (Array.isArray(raw)) ext['importer.rawWidgetValues'] = raw

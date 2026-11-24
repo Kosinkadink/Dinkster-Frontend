@@ -363,6 +363,8 @@ export interface ElaboratedNote {
   readonly text: string
   /** The text is the note's "while unknown" answer. */
   readonly unknown?: true
+  /** Drawn dimmed, as a remark about the rows rather than one of them. */
+  readonly quiet?: true
   readonly section?: string
   /** Line key of the cell drawn before this one in a `Row`. */
   readonly adjacentTo?: string
@@ -1423,16 +1425,19 @@ function elaboratePass(
   const memberLabelOf = (group: GroupSpec, path: string, key: string, position: number, scope: Scope): string => {
     const typed = stateOf(path)?.memberLabels?.[key]
     if (typed !== undefined && typed !== '') return typed
+    // A member's number is its position in the run: on a subgraph node's
+    // face the members inside the subgraph come first.
+    const shown = position + (group.interiorMembers ?? 0)
     if (group.memberLabel !== undefined) {
       if (typeof group.memberLabel === 'string') return group.memberLabel
       const outcome = evaluate(group.memberLabel.formula, {
         ...scope,
-        formulaFrames: [...scope.formulaFrames, { prefix: `${path}.`, rows: [], index: position, key }],
+        formulaFrames: [...scope.formulaFrames, { prefix: `${path}.`, rows: [], index: shown, key }],
       })
       if (outcome.kind === 'value' && typeof outcome.value === 'string' && outcome.value !== '') return outcome.value
     }
     if (group.keys.kind === 'named') return key
-    const number = String(position + 1)
+    const number = String(shown + 1)
     return group.keys.prefix === '' ? number : `${group.keys.prefix} ${number}`
   }
 
@@ -1577,6 +1582,14 @@ function elaboratePass(
         (item.kind === 'output' && connectivity.isOutputConnected(item.address.port)))
     }
 
+    // On a subgraph node's face, one quiet line says which numbers are inside.
+    const inside = row.interiorMembers ?? 0
+    if (view && inside > 0 && !scope.ghost && !scope.dormant && !scope.hidden) {
+      push({
+        kind: 'note', id: `${path}:inside`, text: inside === 1 ? '1 is inside' : `1 to ${inside} are inside`, quiet: true,
+        ...(scope.section !== undefined ? { section: scope.section } : {}),
+      })
+    }
     let allUsed = true
     for (const [position, key] of keys.entries()) {
       if (halted) return

@@ -588,10 +588,16 @@ export const supportsOutputRepresentation = (
   represents: OutputRepresents | undefined,
 ): represents is OutputRepresents => represents?.rendition === 'decoded-image'
 
+/** A limit of a known value that one of the node's own inputs may hold. */
+export type KnownValueLimit = 'min' | 'max' | 'step' | 'default'
+export const KNOWN_VALUE_LIMITS: readonly KnownValueLimit[] = ['min', 'max', 'step', 'default']
+
 /** An output equal to one same-typed primitive input before execution. */
 export interface OutputKnownValue {
   /** Top-level input whose resolved value is the output value. */
   readonly input: string
+  /** The node's own optional inputs that hold the value's limits, by limit. */
+  readonly limits?: Readonly<Partial<Record<KnownValueLimit, string>>>
 }
 
 /** An output pin. Inside a group member or an option it exists only with it. */
