@@ -4,7 +4,7 @@ import { type Scene } from '@dinkster/canvas'
 
 vi.mock('lucide-solid', () => ({
   ArrowDown: {}, ArrowUp: {}, Ban: {}, Camera: {}, Check: {}, Circle: {}, CirclePlay: {}, Copy: {}, CopyPlus: {}, Dice5: {}, Eye: {},
-  FolderOpen: {}, Group: {}, Lock: {}, Palette: {}, Play: {}, RotateCcw: {}, SlidersHorizontal: {}, Square: {}, Trash2: {}, Ungroup: {}, VolumeX: {}, X: {},
+  FolderOpen: {}, Group: {}, Lock: {}, Maximize2: {}, Minimize2: {}, Palette: {}, Pencil: {}, Play: {}, RotateCcw: {}, SlidersHorizontal: {}, Square: {}, SquareDashed: {}, Trash2: {}, Ungroup: {}, VolumeX: {}, X: {},
 }))
 
 import { menuStep, rootPanelPosition, submenuPanelPosition } from '../src/ContextMenu.js'

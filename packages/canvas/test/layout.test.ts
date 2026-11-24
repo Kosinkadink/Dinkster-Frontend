@@ -1003,6 +1003,26 @@ describe('sections', () => {
     expect(outer.x - defaultTokens.pinRadius).toBeGreaterThanOrEqual(1)
   })
 
+  it('a row inside its member box draws only its own label; pins and a one-row member keep the full name', () => {
+    const numbered = (prefix: string) => ({ kind: 'numbered' as const, prefix, start: 0, pad: 0 })
+    const l = doLayout([
+      { kind: 'group', id: 'loras', member: [widget('name'), input('clip'), output('out')], keys: numbered('lora'), grows: 'button', minMembers: 1 },
+      { kind: 'group', id: 'ones', member: [widget('w')], keys: numbered('one'), grows: 'button', minMembers: 1 },
+    ])
+    const field = l.rows.find((row) => row.kind === 'widget' && row.inputId === 'loras.lora0.name')
+    expect(field).toMatchObject({ label: 'name', name: 'lora 1 name' })
+    const ports = l.rows.filter((row) => row.kind === 'ports')
+    expect(ports.map((row) => [row.input?.label, row.input?.name, row.output?.label, row.output?.name]))
+      .toEqual([['clip', 'lora 1 clip', 'out', 'lora 1 out']])
+    // A pin is named away from the box: in its tooltip and in wire menus.
+    expect(l.pins.filter((pin) => pin.portId.startsWith('loras.')).map((pin) => pin.label).sort())
+      .toEqual(['lora 1 clip', 'lora 1 name', 'lora 1 name', 'lora 1 out'])
+    // A member of one row has no box to name it, so its row keeps the member's label.
+    const one = l.rows.find((row) => row.kind === 'widget' && row.inputId === 'ones.one0.w')
+    expect(one).toMatchObject({ label: 'one 1 w' })
+    expect(one).not.toHaveProperty('name')
+  })
+
   it('opening or closing a box moves neither its name nor any row above it', () => {
     const nested: NodeSchema['body'] = [
       input('a'),
