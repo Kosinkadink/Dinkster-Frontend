@@ -1096,7 +1096,8 @@ function elaboratePass(
     push({
       kind: 'input',
       address: { port: path },
-      ...(scope.ghost || scope.dormant ? {} : { apiName: path }),
+      // A field that is not sent is drawn and edited but never reaches the run.
+      ...(scope.ghost || scope.dormant || row.sent === false ? {} : { apiName: path }),
       spec,
       ...common(scope),
       ...(parts !== undefined ? { parts } : {}),
