@@ -608,11 +608,14 @@
 .boundary-tree-panel-title { min-width: 0; font-weight: var(--dinkster-weight-bold); overflow-wrap: anywhere; }
 .boundary-tree-panel-heading { margin-top: var(--dinkster-space-8); padding: var(--dinkster-space-4) 0; color: var(--dinkster-text-secondary); }
 .boundary-tree-quiet { min-width: 0; color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
-.boundary-tree-settings { display: grid; gap: var(--dinkster-space-8); margin-top: auto; padding-top: var(--dinkster-space-8); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+.boundary-tree-settings { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--dinkster-space-8); margin-top: auto; padding-top: var(--dinkster-space-8); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+/* Every setting shares one name column as wide as the longest name, so names stay on one line and values start at one edge. */
+.boundary-tree-settings > * { grid-column: 1 / -1; }
 .boundary-tree-settings > .dinkster-button { justify-self: start; }
-.boundary-tree-setting { display: flex; align-items: center; gap: var(--dinkster-space-8); min-width: 0; min-height: var(--dinkster-control-compact-height); }
-.boundary-tree-setting-label { flex: none; width: 64px; color: var(--dinkster-text-muted); }
-.boundary-tree-setting-value { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-4) var(--dinkster-space-8); min-width: 0; color: var(--dinkster-text-secondary); }
+/* A name is level with the first line of its value: the row aligns to the top and the name fills one control-high line. */
+.boundary-tree-setting { display: grid; grid-template-columns: subgrid; align-items: start; min-width: 0; }
+.boundary-tree-setting-label { color: var(--dinkster-text-muted); line-height: var(--dinkster-control-compact-height); white-space: nowrap; }
+.boundary-tree-setting-value { display: flex; flex-wrap: wrap; align-items: center; min-height: var(--dinkster-control-compact-height); gap: var(--dinkster-space-4) var(--dinkster-space-8); min-width: 0; color: var(--dinkster-text-secondary); }
 .boundary-tree-setting-value > .dinkster-input { flex: 1 1 140px; min-width: 0; }
 .boundary-tree-problem { display: flex; align-items: flex-start; gap: var(--dinkster-space-8); padding: var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-warning-border); border-radius: var(--dinkster-radius-control); background: var(--dinkster-warning-background); color: var(--dinkster-warning-foreground); }
 .boundary-tree-empty { display: grid; justify-items: start; gap: var(--dinkster-space-12); padding: var(--dinkster-space-8) 0; color: var(--dinkster-text-secondary); }
