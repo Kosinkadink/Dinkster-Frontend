@@ -124,7 +124,12 @@ test('narrow shell preserves canvas space and keeps search clear of layout contr
   await expect(rail).toBeHidden()
   await expect(dock).toBeVisible()
   await page.setViewportSize({ width: 480, height: 800 })
-  await page.getByTestId('rail-toggle').click()
+  for (const id of ['left-panel-toggle', 'bottom-panel-toggle', 'rail-toggle']) await expect(page.getByTestId(id)).toHaveCount(0)
+  await page.getByRole('button', { name: 'Customize layout' }).click()
+  const layout = page.getByRole('menu', { name: 'Customize layout' })
+  // Right panel carries the right panel's attention count when the engine reports problems.
+  await expect(layout.getByRole('menuitemcheckbox')).toHaveText(['Left panel', 'Bottom panel', /^Right panel\d*$/, 'Left bar', 'Status bar'])
+  await layout.getByRole('menuitemcheckbox', { name: 'Right panel' }).click()
   await expect(rail).toBeVisible()
   await expect(dock).toBeVisible()
   await expect(page.getByTestId('tab-bar')).toBeVisible()
@@ -133,6 +138,18 @@ test('narrow shell preserves canvas space and keeps search clear of layout contr
 })
 
 test('toolbar activity counts all workflows and excludes terminal history', async ({ page }) => {
+  const reconciled = new Set<string>()
+  let completed = false
+  await page.routeWebSocket('**/api/events?*', () => {})
+  // Synthetic store entries need matching server records when schema refresh reconciles them.
+  await page.route('/api/jobs/*/toolbar-*', (route) => {
+    const jobId = new URL(route.request().url()).pathname.split('/').at(-1)!
+    reconciled.add(jobId)
+    return route.fulfill({ json: {
+      jobId, state: jobId === 'toolbar-waiting' ? 'queued' : completed ? 'completed' : 'running',
+      nodeStates: {}, outputs: {}, artifacts: [],
+    } })
+  })
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled()
   const activity = page.locator('.dinkster-window-toolbar-actions .dinkster-run-activity')
@@ -154,10 +171,19 @@ test('toolbar activity counts all workflows and excludes terminal history', asyn
     }
   })
   await expect(activity).toHaveAccessibleName('2 running, 1 queued')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.connection.status.get())).toBe('connected')
+  await page.evaluate(() => {
+    const backend = window.__dinksterTest!.app.backends.get()[0]!
+    backend.registry.set({ ...backend.registry.get()! } as unknown as Parameters<typeof backend.registry.set>[0])
+  })
+  await expect.poll(() => reconciled.size).toBe(3)
+  await expect(activity).toHaveAccessibleName('2 running, 1 queued')
   await expect(activity.locator('.dinkster-run-activity-running')).toHaveText('2')
   await expect(activity.locator('.dinkster-run-activity-waiting')).toHaveText('1')
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 })
+    // The panel switches leave or return once the toolbar observes its new width.
+    await expect(page.getByTestId('rail-toggle')).toHaveCount(width === 390 ? 0 : 1)
     for (const control of await page.locator('.dinkster-window-toolbar-host button:visible, .dinkster-window-toolbar-host .dinkster-run-activity').all()) {
       const bounds = (await control.boundingBox())!
       expect(bounds.x).toBeGreaterThanOrEqual(12)
@@ -165,6 +191,7 @@ test('toolbar activity counts all workflows and excludes terminal history', asyn
     }
     await page.locator('.dinkster-window-toolbar-host').screenshot({ path: `test-results/captures/app-toolbar-activity-${width}.png` })
   }
+  completed = true
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     for (const execution of app.store.executions.get().values()) {

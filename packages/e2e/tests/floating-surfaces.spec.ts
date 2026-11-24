@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TestInfo } from '@playwright/test'
-import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeTest as test, setShellRegion, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_FLOATING_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -132,8 +132,7 @@ test('menus, selects, and widget popovers share contained semantic chrome', asyn
   for (const viewport of viewports) {
     await page.setViewportSize(viewport)
     if (viewport.width === 360) {
-      const railToggle = page.getByRole('button', { name: 'Toggle right rail' })
-      if (await railToggle.getAttribute('aria-pressed') === 'true') await railToggle.click()
+      await setShellRegion(page, 'right', false)
     }
     await moveProofNodeToEdge(page)
 

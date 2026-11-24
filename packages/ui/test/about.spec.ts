@@ -373,6 +373,52 @@ test('narrow toolbar keeps region switches in the checked layout menu', async ({
   await expect(menu).toHaveCount(0)
 })
 
+test('narrow layout menu carries the right panel attention on its trigger and item', async ({
+  page,
+}) => {
+  await page.goto('/#window-toolbar')
+  await page.getByLabel('Right panel attention').selectOption('problem')
+  const bar = page
+    .getByRole('region', { name: 'production dark linux', exact: true })
+    .locator('header')
+  await page.setViewportSize({ width: 484, height: 900 })
+  const full = bar.getByRole('button', { name: 'Customize layout', exact: true })
+  await expect(full).toBeVisible()
+  await expect(full.locator('.dinkster-attention')).toHaveCount(0)
+
+  await page.setViewportSize({ width: 390, height: 900 })
+  const trigger = bar.getByRole('button', {
+    name: 'Customize layout, 3 problems',
+    exact: true,
+  })
+  await trigger.scrollIntoViewIfNeeded()
+  const badge = trigger.locator('.dinkster-attention')
+  await expect(badge).toHaveText('3')
+  await expect(badge).toHaveAttribute('data-tone', 'problem')
+  const triggerBox = (await trigger.boundingBox())!
+  const badgeBox = (await badge.boundingBox())!
+  expect(badgeBox.y).toBeLessThan(triggerBox.y)
+  expect(badgeBox.x + badgeBox.width).toBeGreaterThan(
+    triggerBox.x + triggerBox.width,
+  )
+
+  await trigger.click()
+  const menu = bar.getByRole('menu', { name: 'Customize layout', exact: true })
+  const right = menu.getByRole('menuitemcheckbox', {
+    name: 'Right panel, 3 problems',
+    exact: true,
+  })
+  await expect(right.locator('.dinkster-attention')).toHaveText('3')
+  await expect(menu.locator('.dinkster-attention')).toHaveCount(1)
+  await page.keyboard.press('Escape')
+
+  await page.getByLabel('Right panel attention').selectOption('none')
+  await expect(
+    bar.getByRole('button', { name: 'Customize layout', exact: true }),
+  ).toBeVisible()
+  await expect(bar.locator('.dinkster-attention')).toHaveCount(0)
+})
+
 test('44px toolbar keeps account and full compact metadata in one row', async ({
   page,
 }) => {

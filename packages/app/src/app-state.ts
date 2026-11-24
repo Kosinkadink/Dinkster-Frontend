@@ -5,6 +5,7 @@
  * lineage id, NEVER "the active tab".
  */
 
+import { desktopSaveBridge } from './desktop-bridge.js'
 import {
   CORE_VIRTUAL_NODE_KINDS,
   activeLocale,
@@ -2486,6 +2487,8 @@ export class AppState {
   readonly menuRegistry = createMenuRegistry()
   readonly searchRegistry = createSearchRegistry()
   readonly searchOpen = createSignal(false)
+  /** Incremented to open the top bar's layout menu from a command. */
+  readonly layoutMenuRequests = createSignal(0)
   readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
   readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
@@ -3245,7 +3248,7 @@ export class AppState {
     register('view.fitSelection', 'command.view.fitSelection', '.', () => this.canvasBridge.get()?.fitSelection(), () => this.canvasBridge.get() !== undefined)
     this.frontendDoors.command('layout.customize', {
       get label() { return t('command.layout.customize') },
-      run: () => this.modalPanel.set('customize-layout'),
+      run: () => this.layoutMenuRequests.update((count) => count + 1),
     })
     this.frontendDoors.command('backend.open', {
       get label() { return t('command.backend.open') },
@@ -4761,6 +4764,14 @@ export class AppState {
         handleStatusChange,
       )
       const disposeMountHealth = connection.mountError.subscribe(() => this.backendsTick.update((v) => v + 1))
+      const disposeLibraryChanges = connection.onLibraryChanged(() => {
+        for (const tab of this.tabs.get()) {
+          if (tab.execution || this.backendForTab(tab) !== nativeBackend) continue
+          this.workflowAssetChecks.get(tab.store)?.controller.abort()
+          this.workflowAssetChecks.delete(tab.store)
+        }
+        this.backendsTick.update((v) => v + 1)
+      })
       let catalogPrefix = this.settings.get<string>('search.registryUrl')
       const disposeCatalogSetting = this.settings.changed.subscribe(() => {
         const prefix = this.settings.get<string>('search.registryUrl')
@@ -4795,6 +4806,7 @@ export class AppState {
           this.clearProblems(packProblemsOwner)
           disposeCatalogSetting()
           disposeCompletionHydration()
+          disposeLibraryChanges()
           disposeMountHealth()
           disposeConnection()
           scopedClient.dispose()
@@ -7127,7 +7139,20 @@ export class AppState {
     try {
       const snapshot = await this.documentWithAssetLocations(tab)
       if (this.disposed || !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return false
-      const blob = new Blob([`${JSON.stringify(snapshot, null, 2)}\n`], {
+      const text = `${JSON.stringify(snapshot, null, 2)}\n`
+      const native = desktopSaveBridge()
+      if (native) {
+        const result = await native.saveFile(new TextEncoder().encode(text), filename)
+        if (result.status === 'closed') {
+          this.showTransientStatus(`Save closed: ${filename}`)
+          return false
+        }
+        this.dismissMigrationNotice(tab.id)
+        this.dismissImportProblems(tabId)
+        this.showTransientStatus(`Saved: ${result.name}`)
+        return true
+      }
+      const blob = new Blob([text], {
         type: WORKFLOW_MEDIA_TYPE,
       })
       url = URL.createObjectURL(blob)

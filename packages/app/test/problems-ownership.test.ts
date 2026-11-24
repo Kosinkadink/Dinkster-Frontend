@@ -387,6 +387,48 @@ describe('workflow asset presence', () => {
     app.dispose()
   })
 
+  it('refreshes peer asset changes without replacing dirty documents or unrelated diagnostics', async () => {
+    const { backend } = await nativeSetup()
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    const check = vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: first.digest, status: 'missing' }, { digest: other.digest, status: 'missing' },
+    ])
+    vi.spyOn(backend.connection, 'fetchAssetLocations').mockResolvedValue(['/peer/portrait.png'])
+    await app.openDocument(document, 'Assets')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    await app.dispatchTo(tab, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n0', inputId: 'a', value: 37,
+    } })
+    await vi.waitFor(() => expect(shownCodes(tab.id)).toContain('asset.availability.missing'))
+    app.reportProblems(tab.id, [diag('info', 'command', 'unrelated.notice', 'Keep me')])
+    const before = JSON.stringify(tab.store.doc)
+    const revision = tab.store.revision
+    expect(app.dirtyTabs.get().has(tab.id)).toBe(true)
+
+    const unrelated = app.addBackend('http://other:8000', 'Other library', false, 'dinkster')!
+    if (unrelated.protocol !== 'dinkster') throw new Error('native backend required')
+    check.mockResolvedValue([
+      { digest: first.digest, status: 'available' }, { digest: other.digest, status: 'available' },
+    ])
+    unrelated.connection.ingest({ type: 'library_changed' })
+    expect(shownCodes(tab.id)).toContain('asset.availability.missing')
+    backend.connection.ingest({ type: 'library_changed' })
+    await vi.waitFor(() => expect(shownCodes(tab.id)).not.toContain('asset.availability.missing'))
+    expect(shownCodes(tab.id)).toContain('unrelated.notice')
+    expect(JSON.stringify(tab.store.doc)).toBe(before)
+    expect(tab.store.revision).toBe(revision)
+    expect(app.dirtyTabs.get().has(tab.id)).toBe(true)
+
+    check.mockResolvedValue([
+      { digest: first.digest, status: 'missing' }, { digest: other.digest, status: 'missing' },
+    ])
+    backend.connection.ingest({ type: 'library_changed' })
+    await vi.waitFor(() => expect(shownCodes(tab.id)).toContain('asset.availability.missing'))
+    expect(JSON.stringify(tab.store.doc)).toBe(before)
+    expect(tab.store.revision).toBe(revision)
+  })
+
   it('does not interpret failed checks as missing or publish late responses after edits and close', async () => {
     const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
