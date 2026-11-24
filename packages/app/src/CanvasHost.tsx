@@ -191,6 +191,8 @@ import {
 } from './CanvasSemanticNavigator.js'
 import { AudioRecordSpace, createAudioRecorders, editorSpaceInteractive, editorSpaceItems, NodeEditorSpaceOverlay, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
 import { Load3dSpace } from './InNodeLoad3dSpace.js'
+import { ImageCompareSpace } from './InNodeImageCompareSpace.js'
+import { imageCompareFrames } from './image-compare-frames.js'
 import { openLoad3dSource } from './load3d-source.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
@@ -1048,7 +1050,7 @@ export function reportBoundaryExposureRefusal(args: {
 }
 
 /** The editors shown in the node whose controls the app lays over their space: their rows fold out, the others open their dialogs. */
-const APP_EDITOR_VIEWS: ReadonlySet<string> = new Set(['core.audioRecord', 'core.webcam', 'core.load3d'])
+const APP_EDITOR_VIEWS: ReadonlySet<string> = new Set(['core.audioRecord', 'core.webcam', 'core.load3d', 'core.imageCompare'])
 
 export function NodeMediaOverlay(props: {
   readonly ownerId?: string
@@ -6985,6 +6987,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             },
           }
         }
+        const compare = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.imageCompare') return undefined
+          executions()
+          return imageCompareFrames(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts: at.current.field.parts })
+        }
         return (
           <Show when={item() !== undefined && projected() !== undefined}>
             <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl} covers={covers()}
@@ -7008,6 +7016,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   openSections={item()?.row.openSections ?? []}
                   cameraWired={item()?.wiredParts.has('camera_info') === true}
                   placementWired={item()?.wiredParts.has('model_3d_info') === true} />}
+              </Show>
+              <Show when={compare() !== undefined}>
+                <ImageCompareSpace frames={compare() ?? { image_a: [], image_b: [] }} pictureHeight={item()?.row.picture?.height ?? 0} />
               </Show>
             </NodeEditorSpaceOverlay>
           </Show>
