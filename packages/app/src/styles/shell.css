@@ -10,6 +10,8 @@
 /* Holds the layout menu so a command can open it; it takes no box of its own. */
 .app-layout-menu { display: contents; }
 
+.dinkster-window-toolbar-host { position: relative; z-index: 1; }
+
 .services-badge {
   flex-shrink: 0;
   padding: var(--dinkster-space-4) var(--dinkster-space-8);

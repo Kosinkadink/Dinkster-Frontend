@@ -2874,18 +2874,23 @@ export function App(props: {
             />
           </Show>
           <Show when={managedContext().kind === 'primary'}>
-            <ProductWindowAction
-              label={projectName() ?? message('shell.panel.projects.title')}
-              labelContent={
-                <span class="dinkster-window-project-label">
-                  <ProductIcon icon={FolderOpen} />
-                  <span class="dinkster-window-project-name">{projectName() ?? message('shell.panel.projects.title')}</span>
-                </span>
-              }
-              icon={FolderOpen}
-              data-testid="projects-button"
-              onClick={() => app.modalPanel.set('projects')}
-            />
+            {/* Until the library names the project, the button is the folder alone. */}
+            <Show when={projectName()} keyed fallback={
+              <ProductIconButton label={message('shell.panel.projects.title')} icon={FolderOpen} data-testid="projects-button" data-tooltip-label={message('shell.panel.projects.title')} data-tooltip-detail={message('shell.panel.projects.description')} onClick={() => app.modalPanel.set('projects')} />
+            }>{(name) => (
+              <ProductWindowAction
+                label={name}
+                labelContent={
+                  <span class="dinkster-window-project-label">
+                    <ProductIcon icon={FolderOpen} />
+                    <span class="dinkster-window-project-name">{name}</span>
+                  </span>
+                }
+                icon={FolderOpen}
+                data-testid="projects-button"
+                onClick={() => app.modalPanel.set('projects')}
+              />
+            )}</Show>
           </Show>
           <ProductIconButton label={message('shell.panel.workspace.title')} icon={Users} data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} onClick={() => app.modalPanel.set('collab')} />
         </>}

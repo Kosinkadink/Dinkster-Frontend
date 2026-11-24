@@ -217,6 +217,8 @@
 
 .body {
   position: relative;
+  /* Keeps the workspace's own layers below the top bar, whose menus open over it. */
+  isolation: isolate;
   display: flex;
   flex: 1;
   min-height: 0;
