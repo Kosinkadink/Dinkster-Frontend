@@ -234,14 +234,13 @@ test('diagnostics replace per scene rebuild: unrelated edits never duplicate an 
 test('node problem badges expose friendly details, clear live, and distinguish blocking warnings', async ({ page }) => {
   await openFixture(page, { count: 999 })
 
-  // The widget sweep is advisory: it paints the amber warning badge, not the
-  // explicit execution-blocking warning badge.
+  // The widget sweep is advisory: it paints the warning tab, not the error tab.
   await expect.poll(() => page.evaluate(() =>
     (window.__dinksterTest!.renderer!.getBadges()['widgets'] ?? []).map((badge) => badge.id),
   )).toContain('core.problem.warning')
   await expect.poll(() => page.evaluate(() =>
     (window.__dinksterTest!.renderer!.getBadges()['widgets'] ?? []).map((badge) => badge.id),
-  )).not.toContain('core.problem.blocking-warning')
+  )).not.toContain('core.problem.error')
 
   const advisory = await badgePoint(page, 'widgets', 'core.problem.warning')
   await page.keyboard.down('Alt')
@@ -252,12 +251,13 @@ test('node problem badges expose friendly details, clear live, and distinguish b
   await page.keyboard.up('Alt')
 
   await page.mouse.click(advisory.x, advisory.y)
-  const popover = page.getByTestId('badge-popover')
-  await expect(popover).toHaveAttribute('data-badge', 'core.problem.warning')
-  const detail = popover.getByTestId('badge-problem-detail')
-  await expect(detail).toContainText('Node "Diag Widgets" (widgets)')
-  await expect(detail).toContainText('input "count"')
-  await expect(detail).toContainText('999 > max 100')
+  const box = page.getByTestId('problem-box')
+  await expect(box).toHaveAttribute('data-node', 'widgets')
+  const detail = box.getByTestId('problem-box-line').filter({ hasText: '999 > max 100' })
+  await expect(detail).toHaveAttribute('data-row', 'count')
+  await expect(detail).toContainText('count: 999 > max 100')
+  await page.keyboard.press('Escape')
+  await expect(box).toHaveCount(0)
 
   // Fixing the value replaces solveDiagnostics. The effect dependency must
   // rederive overlays and remove the warning badge without another gesture.
@@ -269,8 +269,8 @@ test('node problem badges expose friendly details, clear live, and distinguish b
   )).not.toContain('core.problem.warning')
 
   // Compile the fixture's unvalued required API input and publish that real
-  // compile sweep under the active tab owner. Its severity remains warning,
-  // but its explicit blocksExecution signal selects the orange badge.
+  // compile sweep under the active tab owner. It stops a run, so it shows on
+  // the Error tab.
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
@@ -282,8 +282,21 @@ test('node problem badges expose friendly details, clear live, and distinguish b
   })
   await expect.poll(() => page.evaluate(() =>
     (window.__dinksterTest!.renderer!.getBadges()['widgets'] ?? []).map((badge) => badge.id),
-  )).toContain('core.problem.blocking-warning')
+  )).toContain('core.problem.error')
   await expect.poll(() => page.evaluate(() =>
     (window.__dinksterTest!.renderer!.getBadges()['widgets'] ?? []).map((badge) => badge.id),
   )).not.toContain('core.problem.warning')
+
+  // Show on canvas opens the node's box with the picked problem's line
+  // highlighted; nothing opened it before the click.
+  await expect(page.getByTestId('problem-box')).toHaveCount(0)
+  await openRailPanel(page, 'Problems')
+  const entry = problemEntries(page, 'compile.input.missing')
+  await entry.locator('summary').click()
+  await entry.getByRole('button', { name: 'Show on canvas' }).click()
+  await expect(box).toHaveAttribute('data-node', 'widgets')
+  await expect(box.locator('[data-highlighted="true"]')).toHaveAttribute('data-row', 'required')
+  // The box words a required input as the row's own sentence; Problems keeps the compile message.
+  await expect(box.locator('[data-highlighted="true"] .problem-box-message')).toHaveText(/^\S.* is required\.$/)
+  await expect(entry).toContainText('has no value or connection')
 })

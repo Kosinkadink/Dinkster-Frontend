@@ -650,7 +650,7 @@ export function switchPrimitiveGallery(
         },
       }),
       states: { sw: failed },
-      rowMarks: { sw: new Set(['pick']) },
+      rowMarks: { sw: { 'pick': 'error' } },
     })
   }
 
@@ -755,7 +755,7 @@ export function switchPrimitiveGallery(
         },
       }),
       states: { sw: failed },
-      rowMarks: { sw: new Set(['pick']) },
+      rowMarks: { sw: { 'pick': 'error' } },
     })
   }
 
@@ -879,7 +879,7 @@ export function switchPrimitiveGallery(
         scene(graphs),
         scene(graphs, { graph: 'pass', through: 'pass' }),
       ),
-      rowMarks: { finish: new Set(['pick']) },
+      rowMarks: { finish: { 'pick': 'error' } },
     })
   }
 
@@ -928,9 +928,9 @@ export function switchPrimitiveGallery(
       'The two fields share no value: Steps A allows 0 to 3 and Steps B 8 to 12. The value and both wires stay, and a problem names both fields. Nothing is reset or removed; whether those nodes can queue is decided by their own fields as today.',
     scene: scene({ root: fanOut([0, 3], [8, 12], 6) }),
     rowMarks: {
-      p: new Set(['value']),
-      a: new Set(['steps']),
-      b: new Set(['steps']),
+      p: { 'value': 'error' },
+      a: { 'steps': 'error' },
+      b: { 'steps': 'error' },
     },
     companions: { a: { steps: { value: 6 } }, b: { steps: { value: 6 } } },
   })
@@ -1275,7 +1275,7 @@ export function switchPrimitiveGallery(
           ],
         },
       }),
-      rowMarks: { b: new Set(['steps']), conflict: new Set(['value']) },
+      rowMarks: { b: { 'steps': 'error' }, conflict: { 'value': 'error' } },
       companions: {
         b: { steps: { value: 6 } },
         s1: { sampler: { value: 'euler' } },

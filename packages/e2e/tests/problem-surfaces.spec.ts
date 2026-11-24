@@ -162,7 +162,7 @@ for (const state of ['shared', 'isolated', 'host-refused'] as const) {
           y: rect.top + (tab.y + tab.height / 2) * viewport.scale + viewport.y }
       })
       await page.mouse.click(point.x, point.y)
-      await expect(page.getByTestId('badge-problem-detail')).toContainText(reason)
+      await expect(page.getByTestId('problem-box-line').first()).toContainText(reason)
     } else await expect(panel).not.toContainText('residentProcessBoundary')
     expect(submissions).toBe(0)
     const path = test.info().outputPath(`resident-${state}.png`)
