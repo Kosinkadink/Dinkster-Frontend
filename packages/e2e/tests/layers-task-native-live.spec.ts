@@ -153,8 +153,8 @@ test.beforeEach(async ({ page }) => {
   await waitForWorkspaceReady(page)
 })
 
-/** Queue `nodeId` of the shown tab and return the submitted graph and the engine's job record. */
-async function runNode(page: Page, request: import('@playwright/test').APIRequestContext, nodeId: string) {
+/** Queue the nodes `nodeIds` of the shown tab and return the submitted graph and the engine's job record. */
+async function runNode(page: Page, request: import('@playwright/test').APIRequestContext, ...nodeIds: string[]) {
   let submitted: { clientId: string; jobId: string; graph: { nodes: Record<string, { inputs: Record<string, unknown> }> } } | undefined
   const listener = (outgoing: import('@playwright/test').Request) => {
     if (outgoing.method() !== 'POST' || new URL(outgoing.url()).pathname !== '/api/jobs') return
@@ -162,10 +162,10 @@ async function runNode(page: Page, request: import('@playwright/test').APIReques
   }
   page.on('request', listener)
   const before = await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)
-  await page.evaluate(async (nodeId) => {
+  await page.evaluate(async (nodeIds) => {
     const app = window.__dinksterTest!.app
-    await app.queueSelection(app.activeTab()!, [nodeId])
-  }, nodeId)
+    await app.queueSelection(app.activeTab()!, nodeIds)
+  }, nodeIds)
   await expect.poll(() => page.evaluate((before) => {
     const executions = [...window.__dinksterTest!.app.store.executions.get().values()]
     return executions.length > before ? executions.sort((a, b) => b.queuedAt - a.queuedAt)[0]?.status : undefined
@@ -301,9 +301,12 @@ test('a wire from a field whose option is no longer chosen gives nothing, and it
   await expect.poll(async () => (await activeDoc(page)).graphs['g0']!.nodes['opt']!.dynamic?.['mode']?.selected).toBe('none')
   await shot(page, '12-amount-not-chosen-wired')
 
-  const second = await runNode(page, request, 'req')
+  // A run that asks only for the skipped node could do nothing and is not
+  // queued, so this one also asks for the node the wire comes from.
+  const second = await runNode(page, request, 'req', 'opt')
   expect(second.submitted.graph.nodes['req']!.inputs['value']).toEqual({ $absent: { reason: expect.any(String) } })
   expect(second.job.executed).not.toContain('req')
+  expect(second.job.executed).toContain('opt')
   expect(second.job.skipped).toContain('req')
   await shot(page, '13-ran-skipped')
 })
@@ -353,8 +356,10 @@ test('a wire from a field under a type-led pin whose type is gone gives nothing,
   await expect.poll(async () => (await activeDoc(page)).graphs['g0']!.nodes['opt']!.dynamic?.['source']?.selected).toBe('text')
   await shot(page, '22-pin-text-wired')
 
-  const second = await runNode(page, request, 'req')
+  // Lead, which still runs, keeps the run from asking only for the skipped node.
+  const second = await runNode(page, request, 'req', 'lead')
   expect(second.submitted.graph.nodes['req']!.inputs['value']).toEqual({ $absent: { reason: expect.any(String) } })
+  expect(second.job.executed).toContain('lead')
   expect(second.job.skipped).toContain('req')
   await shot(page, '23-ran-skipped')
 })
