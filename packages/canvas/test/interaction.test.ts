@@ -4722,3 +4722,31 @@ describe('moving a member by its grip', () => {
     expect(harness.overlays.at(-1)).not.toHaveProperty('memberDrag')
   })
 })
+
+describe("a group's add row", () => {
+  it('lightens under the pointer, sinks while held and adds the member on release', () => {
+    const scene = interactionScene() as any
+    scene.nodes[1].layout.pins = []
+    scene.nodes[1].layout.rows = [{
+      kind: 'growth', y: 30, height: 24, inset: 4, construct: 'loras', label: 'Add LoRA',
+      frames: [{ construct: 'loras', members: ['lora1'], seq: 2 }],
+    }]
+    const harness = interactionHarness(scene)
+    const button = { nodeId: 'n2', key: 'growth:loras' }
+    harness.fire('pointermove', 250, 52)
+    expect((harness.overlays.at(-1) as any).hoveredButton).toEqual(button)
+    harness.fire('pointerdown', 250, 52)
+    expect((harness.overlays.at(-1) as any).pressedButton).toEqual(button)
+    harness.fire('pointerup', 250, 52)
+    expect((harness.overlays.at(-1) as any).pressedButton).toBeUndefined()
+    expect(harness.dispatched.at(-1)).toMatchObject({ command: 'dynamic.materialize', params: { nodeId: 'n2' } })
+
+    // Dragged off before release: no longer pressed, and nothing is added.
+    const count = harness.dispatched.length
+    harness.fire('pointerdown', 250, 52)
+    harness.fire('pointermove', 250, 120)
+    expect((harness.overlays.at(-1) as any).pressedButton).toBeUndefined()
+    harness.fire('pointerup', 250, 120)
+    expect(harness.dispatched).toHaveLength(count)
+  })
+})
