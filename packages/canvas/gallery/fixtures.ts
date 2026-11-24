@@ -150,6 +150,9 @@ const sample = schema('Sampling', [
   }),
 ])
 
+/** Widget kinds of the editors shown in the node. */
+const EDITOR_KINDS = new Set(['CURVE', 'AUDIO_RECORD', 'WEBCAM', 'LOAD_3D', 'IMAGECOMPARE', 'CAMERA_ANGLE_VIEW'])
+
 export const galleryWidgetInputs: readonly InputSpec[] = [
   widget('integer', 'INT', 20, { min: 1, max: 10000 }),
   sample.body[2] as InputSpec,
@@ -882,9 +885,11 @@ export function createCanvasGalleryFixture(
             item.id,
             {
               value: (item.widget?.default ?? null) as Json,
-              state: (['expected', 'cached', 'estimate', 'stale'] as const)[
-                i % 4
-              ]!,
+              // An editor shown in the node is passed a value only by a
+              // Primitive or a widget tap, which is always known exactly.
+              state: EDITOR_KINDS.has(item.widget?.widgetType ?? '')
+                ? 'expected'
+                : (['expected', 'cached', 'estimate', 'stale'] as const)[i % 4]!,
             },
           ]),
         )

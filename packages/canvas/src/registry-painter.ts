@@ -11,10 +11,10 @@
 import { formatWidgetValue, type Json, type WidgetRegistry, type WidgetSpec, type WidgetView } from '@dinkster/core'
 import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
-import { defaultWidgetPainter, fitItems, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
+import { defaultWidgetPainter, drawsPassedValueAsEditor, fitItems, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
 import type { DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
-import { canvasPaintTokens, IN_NODE_EDITORS } from './tokens.js'
+import { canvasPaintTokens } from './tokens.js'
 import { paintSeedModeIcon, paintToolboxIcon } from './icons.js'
 import type { ToolboxButton } from './toolbox.js'
 
@@ -92,15 +92,6 @@ function openerIconOf(row: WidgetRow, tokens: DesignTokens): NonNullable<Toolbox
       : undefined
 }
 
-/**
- * Whether a row draws a value arriving by wire with its own view, as it draws
- * what a run brought, rather than in the shared read-only style of a field:
- * in the raised look an editor shown in the node does, so its look does not
- * depend on how the value became known.
- */
-const carriesOwnLook = (row: WidgetRow, tokens: DesignTokens): boolean =>
-  tokens.widgetRowLook === 'raised-editors' && IN_NODE_EDITORS[row.viewId] !== undefined
-
 /** Space a field's name gives up to the subgraph mark before it. */
 const subgraphMarkReserve = (row: WidgetRow): number =>
   row.subgraphMark === undefined ? 0 : paint.subgraphMark.size + paint.subgraphMark.gap
@@ -121,7 +112,7 @@ export function subgraphMarkRect(
 ): { readonly x: number; readonly y: number; readonly size: number } {
   const geometry = tokens.rowGeometry
   const size = paint.subgraphMark.size
-  if (companion && !carriesOwnLook(row, tokens)) {
+  if (companion) {
     const field = widgetFieldBounds(width, rowHeight, numeric, row.controllerMode !== undefined, geometry)
     return { x: field.left + (numeric ? geometry.stepperLabelInset : paint.labelInset), y: (rowHeight - size) / 2, size }
   }
@@ -159,7 +150,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       defaultWidgetPainter(args)
       return
     }
-    if (args.companion !== undefined && carriesOwnLook(row, tokens)) {
+    if (args.companion !== undefined && drawsPassedValueAsEditor(row, args.companion, tokens)) {
       // An editor shown in the node draws a value its wire brings before a run
       // as it draws what a run brought: its own view of that value, muted.
       const { companion, companionAlpha: _alpha, ...wired } = args

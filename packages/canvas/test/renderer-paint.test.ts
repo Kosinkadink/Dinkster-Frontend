@@ -11,7 +11,7 @@ import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET,
 import { paintToolboxIcon } from '../src/icons.js'
 import { createRegistryPainter } from '../src/registry-painter.js'
 import { createInNodeEditorScene, inNodeEditorExamples } from '../gallery/in-node-editors.js'
-import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
+import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type CompanionDisplay, type PresenceActor } from '../src/renderer.js'
 import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, outputRowKey, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasPaintTokens, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
@@ -3653,24 +3653,38 @@ describe('an editor row fed a value known before a run', () => {
   const curve: Json = { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] }
   const frame: Json = { name: 'webcam.png', mediaType: 'image/png' }
 
-  it.each([
-    ['curve-folded-wired-before', 'curve', curve, {}, '3 points'],
-    ['webcam-wired-before', 'image', frame, { text: 'webcam.png' }, 'webcam.png'],
-  ] as const)('%s with a carried value reads as the row does after a run', (exampleId, key, value, named, shown) => {
+  const paintFed = (exampleId: string, key: string, companion: CompanionDisplay, named: { text?: string }) => {
     const { view: _unfolded, summaries: _summaries, ...example } = inNodeEditorExamples.find((item) => item.id === exampleId)!
     const scene = createInNodeEditorScene(defaultTokens, measure, editorMeasure, example, { x: 0, y: 0 })
     const { ctx, calls } = recordingCtx()
     const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens, createRegistryPainter(registry))
     renderer.setScene(scene)
-    // A Primitive or a widget tap: the host shows the value as a companion and summarizes the editor row from it.
-    renderer.setCompanions({ [example.id]: { [key]: { value } } })
-    renderer.setEditorSummaries({ [example.id]: { [key]: { ...named, value } } })
+    // The host shows the wire's value as a companion and summarizes the editor row from it.
+    renderer.setCompanions({ [example.id]: { [key]: companion } })
+    renderer.setEditorSummaries({ [example.id]: { [key]: { ...named, value: companion.value } } })
     renderer.renderNow()
     renderer.dispose()
+    return calls
+  }
+
+  it.each([
+    ['curve-folded-wired-before', 'curve', curve, {}, '3 points'],
+    ['webcam-wired-before', 'image', frame, { text: 'webcam.png' }, 'webcam.png'],
+  ] as const)('%s with a value known exactly reads as the row does after a run', (exampleId, key, value, named, shown) => {
+    // A Primitive or a widget tap gives a value known exactly.
+    const calls = paintFed(exampleId, key, { value }, named)
     const text = calls.find((call) => call.method === 'fillText' && call.args[0] === shown)
     expect(text).toBeDefined()
     expect(text!.font.startsWith('italic')).toBe(false)
     expect(text!.fillStyle).toBe(defaultTokens.colors.value)
     expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'Monotone cubic')).toBe(key === 'curve')
+  })
+
+  it('keeps the shared italic style and its cue for an estimated value', () => {
+    const calls = paintFed('curve-folded-wired-before', 'curve', { value: curve, state: 'estimate' }, {})
+    const text = calls.find((call) => call.method === 'fillText' && String(call.args[0]).endsWith('3 points'))
+    expect(text?.font.startsWith('italic')).toBe(true)
+    expect(text?.fillStyle).toBe(defaultTokens.colors.companionEstimate)
+    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'Monotone cubic')).toBe(false)
   })
 })

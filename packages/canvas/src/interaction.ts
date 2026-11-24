@@ -78,6 +78,7 @@ import { wheelNavigationViewport, type WheelNavigationMode } from './zoom.js'
 import {
   boundaryTargetKey,
   dropTargetKey,
+  drawsPassedValueAsEditor,
   rerouteTargetKey,
   type CanvasRenderer,
   type GhostLink,
@@ -2949,7 +2950,8 @@ export class InteractionController {
       const width = row.width ?? bnode.layout.width - row.inset * 2
       const localX = wx - bnode.x - row.inset
       const localY = wy - bnode.y - row.y
-      const rect = subgraphMarkRect(row, width, tokens.rowHeight, tokens, driven.value !== undefined, isNumberRow(row))
+      const arriving = driven.value !== undefined && !drawsPassedValueAsEditor(row, { value: driven.value }, tokens)
+      const rect = subgraphMarkRect(row, width, tokens.rowHeight, tokens, arriving, isNumberRow(row))
       if (localX >= rect.x && localX <= rect.x + rect.size && localY >= rect.y && localY <= rect.y + rect.size)
         return { kind: 'widget', node: face, row, bnode, x: bnode.x + row.inset, y: bnode.y + row.y, width, height: row.height, localX, localY }
     }
