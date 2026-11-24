@@ -73,6 +73,11 @@ import {
   initialDynamicStateOf,
   ruleProblemRefs,
   documentResolver,
+  documentNodeResolver,
+  elaborateInterface,
+  primitiveForField,
+  primitiveOf,
+  valueKeyOf,
   elabOutputsOf,
   effectiveOccurrenceTopology,
   effectiveWidgetDefault,
@@ -1444,6 +1449,19 @@ interface CanvasFileDropSurface {
   readonly facts?: readonly { readonly label: string; readonly value: string }[]
   readonly cancelable?: boolean
   readonly location?: { readonly backend: Extract<Backend, { protocol: 'dinkster' }>; readonly digest: string; readonly project: string }
+}
+
+/** The graph with each node's values as the scene's occurrence shows them. */
+function occurrenceValuesDef(def: GraphDef | undefined, scene: Scene): GraphDef | undefined {
+  if (def === undefined) return undefined
+  let nodes: Record<string, GraphDef['nodes'][string]> | undefined
+  for (const sceneNode of scene.nodes) {
+    const node = def.nodes[sceneNode.id]
+    if (node === undefined || node.values === sceneNode.node.values) continue
+    nodes ??= { ...def.nodes }
+    nodes[sceneNode.id] = { ...node, values: sceneNode.node.values }
+  }
+  return nodes === undefined ? def : { ...def, nodes: nodes as GraphDef['nodes'] }
 }
 
 export function CanvasHost(props: { app: AppState; host?: EditorHostContext; tooltips?: TooltipController; occurrencePlanner?: OccurrenceMutationPlanner }) {
@@ -3441,6 +3459,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onLinkDropOnEmpty: (context, worldX, worldY) => {
         if (refuseFrozenEdit()) return // read-only view: no node adds
+        // A wire dragged off a field makes the primitive for that field,
+        // starting with the field's value, instead of opening the search.
+        const tab = activeTab()
+        const fieldPrimitive = tab && fieldDropPrimitive(tab, context)
+        if (tab && fieldPrimitive) {
+          void commitPaletteEntry(fieldPrimitive.entry, { x: 0, y: 0, worldX, worldY, linkDrop: context }, undefined, fieldPrimitive.values)
+          return
+        }
         openPaletteAt(worldX, worldY, context)
         // Keep the dropped noodle visible while the palette is browsed:
         // fixed anchor to drop point, oriented by what the drag was seeking.
@@ -4075,10 +4101,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     clearPaletteGhost = () => controller.setPaletteGhost(undefined)
 
+    const fieldDropPrimitive = (tab: Tab, context: LinkDropContext): { entry: PaletteEntry; values: Record<string, Json> } | undefined => {
+      const into = context.fixedInto
+      const reg = registry()
+      if (context.seeking !== 'out' || reg === undefined || into === undefined ||
+        typeof into['node'] !== 'string' || typeof into['port'] !== 'string') return undefined
+      const graphId = currentGraphId(tab)
+      const node = tab.store.doc.graphs[graphId]?.nodes[into['node']]
+      const schema = node && documentNodeResolver(tab.store.doc, reg.resolve)(graphId, node)
+      const field = schema && node && elabInputsOf(elaborateInterface(schema, node)).find((item) => item.address.port === into['port'])
+      if (!field || field.spec.widget === undefined) return undefined
+      const primitive = primitiveForField(reg.schemas.values(), field.spec)
+      const shape = primitive && primitiveOf(primitive)
+      if (!primitive || !shape) return undefined
+      const value = node.values[valueKeyOf(field)] ?? effectiveWidgetDefault(field.spec.widget)
+      return {
+        entry: { type: primitive.type, name: primitive.displayName, category: primitive.category, kind: 'node', schema: primitive, fields: [] },
+        values: value === undefined ? {} : { [shape.value.id]: value },
+      }
+    }
+
     const commitPaletteEntry = async (
       entry: PaletteEntry,
       p: PaletteAnchor,
       owner?: { readonly tab: Tab; readonly graphId: string },
+      startValues?: Readonly<Record<string, Json>>,
     ): Promise<void> => {
       const tab = owner?.tab ?? activeTab()
       if (!tab) return
@@ -4111,7 +4158,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // Registry state can change after the palette opens. Preserve the old
       // unresolved-node fallback rather than turning that narrow race into a
       // silent no-op; only known schemas can contribute defaults or state.
-      const values = virtualKind?.defaultValues ?? (schema ? (defaultValuesOf(schema) as Record<string, Json>) : {})
+      const values = { ...(virtualKind?.defaultValues ?? (schema ? (defaultValuesOf(schema) as Record<string, Json>) : {})), ...startValues }
       const dynamic = schema ? initialDynamicStateOf(schema) : {}
       const addInvocation = {
         command: 'node.add',
@@ -4727,7 +4774,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         exec,
         graphId: gid,
         doc: tab.store.doc,
-        def: tab.store.doc.graphs[gid],
+        // Inside an entered subgraph node a field fed by a primitive shows
+        // the value that node's occurrence gives the primitive.
+        def: occurrenceValuesDef(tab.store.doc.graphs[gid], scene),
         instancePath: viewInstancePath(tab),
         frozen,
         exactProducer,

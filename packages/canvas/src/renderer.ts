@@ -4442,12 +4442,16 @@ export class CanvasRenderer {
       this.overlay.hoveredWidget?.nodeId === sceneNode.id &&
       this.overlay.hoveredWidget.valueKey === row.valueKey
     const drag = this.rowDrags[sceneNode.id]?.valueKey === row.valueKey ? this.rowDrags[sceneNode.id] : undefined
+    // An empty field with a worked-out value shows it dimmed until edited.
+    const automatic = drag === undefined && row.spec.automatic === true && node.node.values[row.valueKey] === undefined
+    if (automatic) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
     this.paintWidget({
       ctx,
       row,
       // Selector rows (DynamicCombo) carry their value on the row itself;
       // everything else persists under the row's value key.
-      value: drag !== undefined ? drag.value : row.derivedValue !== undefined ? row.derivedValue : node.node.values[row.valueKey],
+      value: drag !== undefined ? drag.value : row.derivedValue !== undefined ? row.derivedValue
+        : automatic ? effectiveWidgetDefault(row.spec) : node.node.values[row.valueKey],
       ...(drag !== undefined ? { dragging: true } : {}),
       ...(companion !== undefined ? { companion } : {}),
       ...(companion !== undefined ? { companionAlpha } : {}),

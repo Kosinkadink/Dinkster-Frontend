@@ -68,9 +68,11 @@ import {
   type PortRef,
   type SelectorCandidateId,
 } from '../ids.js'
+import { companionSourcesOf } from '../companion.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { buildRerouteIndex, rerouteDriverOf, rerouteInputTargets, selectorDriverOf, type RerouteIndex, type SelectorResolution, type TraceVia } from '../reroute.js'
 import { effectiveValueSourceSpec, resolvedValueSourceSpec, valueSourceWidgetSpec, type EffectiveValueSourceSpec } from '../value-source.js'
+import { effectivePrimitiveSpec, explicitPrimitiveDefault, explicitPrimitiveLimits, primitiveOf, withPrimitiveValue, type EffectivePrimitiveSpec, type FedField } from '../primitive.js'
 import { matchBypassInput, type BypassCandidate } from './bypass.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../schema/derive-boundary.js'
 import {
@@ -201,6 +203,57 @@ export function documentValueSourceResolver(doc: WorkflowDocument, base: SchemaR
   }
 }
 
+/**
+ * A primitive's effective value widget in one document snapshot: from the
+ * fields its output feeds in the given occurrence, or in every occurrence
+ * of its definition when `instancePath` is not given.
+ */
+export type DocumentPrimitiveResolver = (
+  graphId: string,
+  node: NodeData,
+  instancePath?: readonly NodeId[],
+) => EffectivePrimitiveSpec | undefined
+
+export function documentPrimitiveResolver(doc: WorkflowDocument, base: SchemaResolver): DocumentPrimitiveResolver {
+  const resolve = documentResolver(doc, base)
+  let consumers: readonly ValueSourceConsumer[] | undefined
+  const cache = new Map<string, EffectivePrimitiveSpec | undefined>()
+  return (graphId, node, instancePath) => {
+    const schema = resolve(node.type)
+    const shape = schema && primitiveOf(schema)
+    if (!shape) return undefined
+    const key = JSON.stringify([graphId, node.id, instancePath ?? null])
+    if (cache.has(key)) return cache.get(key)
+    consumers ??= compileImpl({ query: 'valueSources', document: doc, resolve: base }, true).consumers
+    const samePath = (path: readonly NodeId[]): boolean =>
+      instancePath === undefined || JSON.stringify(path) === JSON.stringify(instancePath)
+    const fed = new Map<string, FedField>()
+    for (const consumer of consumers) {
+      const reaches = consumer.sources.some((source) => 'occurrence' in source && source.graph === graphId &&
+        source.occurrence.node === node.id && source.valueKey === shape.value.id && samePath(source.occurrence.instancePath))
+      if (!reaches) continue
+      fed.set(JSON.stringify([consumer.terminal.graph, occurrenceKey(consumer.terminal.occurrence), consumer.terminal.valueKey]),
+        { name: `${consumer.ref.node}.${consumer.input.displayName ?? consumer.input.id}`, input: consumer.input })
+    }
+    // A limit field holds its typed-in value, or the one its wire brings
+    // when that is known before the run, such as another primitive's.
+    const def = doc.graphs[graphId]
+    const arriving = def === undefined ? undefined : companionSourcesOf(def, undefined, undefined, resolve).get(node.id)
+    const wired = (inputId: string): boolean => def !== undefined && Object.values(def.links).some((link) =>
+      isPortEndpoint(link.to) && link.to.node === node.id && link.to.port === inputId)
+    const limitValue = (inputId: string): Json | undefined => {
+      const source = arriving?.get(inputId)
+      if (source !== undefined) return source.kind === 'literal' ? source.value : undefined
+      return wired(inputId) ? undefined : node.values[inputId]
+    }
+    const effective = effectivePrimitiveSpec(node.id, shape,
+      [...fed.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, field]) => field),
+      explicitPrimitiveLimits(shape, limitValue), explicitPrimitiveDefault(shape, limitValue))
+    cache.set(key, effective)
+    return effective
+  }
+}
+
 export type DocumentNodeResolver = (graphId: string, node: NodeData, instancePath?: readonly NodeId[]) => NodeSchema | undefined
 
 /**
@@ -212,12 +265,18 @@ export function documentNodeResolver(
   doc: WorkflowDocument,
   base: SchemaResolver,
   resolveSource?: ReturnType<typeof documentValueSourceResolver>,
+  resolvePrimitive?: DocumentPrimitiveResolver,
 ): DocumentNodeResolver {
   const definitionResolve = documentResolver(doc, base)
   const cache = new Map<string, NodeSchema | undefined>()
   const resolveNode: DocumentNodeResolver = (graphId, node, instancePath) => {
     const defId = subgraphDefIdOf(node.type)
-    if (defId === undefined) return base(node.type)
+    if (defId === undefined) {
+      const schema = base(node.type)
+      const shape = resolvePrimitive && schema && primitiveOf(schema)
+      const effective = shape && resolvePrimitive(graphId, node, instancePath)
+      return shape && effective ? withPrimitiveValue(schema, shape, effective) : schema
+    }
     const key = JSON.stringify([graphId, node.id, instancePath])
     if (cache.has(key)) return cache.get(key)
     const def = doc.graphs[defId]
@@ -1605,16 +1664,19 @@ function compileImpl(
           if (driver && !deadDriver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: driver.path, defId: driver.defId, endpoint: driver.endpoint } }] }
           const tapped = tapValue(knownPath, knownDefId, knownNode, input.spec.id, sink)
           if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `'${knownNode}' is muted` } }] }
-          if (tapped === undefined) {
-            if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.knownValue.novalue', `${knownNode}.${input.spec.id}: the value it passes on is not set`, { anchor: anchorOf(knownPath, knownNode) }))
-            return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `'${knownNode}.${input.spec.id}' has no value` } }] }
-          }
           const runtimeId = occurrenceKey({ instancePath: knownPath, node: knownNode })
-          const widget = input.spec.widget
           const sources: readonly ControllerInputSource[] = [
             ...(controllerSources.get(runtimeId)?.get(input.spec.id) ?? []).map((source) => source.source),
             { graph: asGraphDefId(knownDefId), occurrence: { instancePath: knownPath, node: knownNode }, valueKey: valueKeyOf(input) },
           ]
+          // Working out a primitive's range needs the fields it feeds whether
+          // or not it holds a value or declares a widget yet.
+          if (selectedProjection === 'spec') return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped?.value ?? null, controllerSources: sources } }] }
+          if (tapped === undefined) {
+            if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.knownValue.novalue', `${knownNode}.${input.spec.id}: the value it passes on is not set`, { anchor: anchorOf(knownPath, knownNode) }))
+            return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `'${knownNode}.${input.spec.id}' has no value` } }] }
+          }
+          const widget = input.spec.widget
           return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped.value, typeId: tapped.typeId,
             ...(widget !== undefined ? { controllerSources: sources, controllerWidget: widget } : {}) } }] }
         }
@@ -2138,10 +2200,15 @@ function compileImpl(
             anyCandidateDelivers = true
             if (queryingSources && terminal.controllerSources !== undefined) {
               const consumer = flat.get(destination.runtimeId)!
+              // A Switch's Pick that takes names offers its branch names, so
+              // a Choice that feeds it lists them.
+              const pickByName = consumer.selector?.names !== undefined && destination.inputId === consumer.selectorInputKey
               sourceConsumers.push({ sources: terminal.controllerSources,
                 terminal: { graph: consumer.graphId, occurrence: consumer.occ, valueKey: valueKeyOf(destination.input) },
                 ref: { node: consumer.occ.node, ...destination.input.address, port: destination.input.address.port as PortRef['port'] },
-                input: destination.input.spec,
+                input: pickByName
+                  ? { ...destination.input.spec, widget: { widgetType: 'COMBO', options: { options: [...branchNamesOf(consumer)] } } }
+                  : destination.input.spec,
               })
             }
             continue
@@ -2150,6 +2217,21 @@ function compileImpl(
           anyCandidateDelivers = true
           if (!flat.has(terminal.src.runtimeId)) continue
           producers.add(terminal.src.runtimeId)
+          // A primitive typed by a variable runs instead of passing on its
+          // value, but its value field still takes its widget from the
+          // fields it feeds.
+          const source = queryingSources ? flat.get(terminal.src.runtimeId)! : undefined
+          const known = source?.elab.outputs.filter((output) => output.wireable !== false)[terminal.src.outputIndex]?.spec.knownValue
+          const knownInput = known === undefined ? undefined : source!.elab.inputsByValueKey.get(known.input)
+          if (source !== undefined && knownInput !== undefined) {
+            const consumer = flat.get(destination.runtimeId)!
+            sourceConsumers.push({
+              sources: [{ graph: source.graphId, occurrence: source.occ, valueKey: valueKeyOf(knownInput) }],
+              terminal: { graph: consumer.graphId, occurrence: consumer.occ, valueKey: valueKeyOf(destination.input) },
+              ref: { node: consumer.occ.node, ...destination.input.address, port: destination.input.address.port as PortRef['port'] },
+              input: destination.input.spec,
+            })
+          }
         }
         if (anyCandidateDelivers) recordSuccessfulDelivery(destination)
       }
