@@ -556,6 +556,17 @@ function compileImpl(
     return [...constructsOf(schema, node.dynamic).keys()].some((construct) => tap.startsWith(`${construct}.`))
   }
 
+  /**
+   * The muted node the last port resolution stopped at, by the name the user
+   * sees: its title, else its type's name, else its id. Set where a
+   * resolution returns 'muted', read right after it.
+   */
+  let lastMuted: string | undefined
+  const markMuted = (defId: string, node: NodeData): 'muted' => {
+    lastMuted = node.title ?? resolveNode(defId, node)?.displayName ?? node.id
+    return 'muted'
+  }
+
   const anchorOf = (path: readonly NodeId[], node: NodeId): { occurrence: Occurrence } => ({
     occurrence: { instancePath: path, node },
   })
@@ -942,7 +953,7 @@ function compileImpl(
       sink.push(diag('error', 'compile', 'compile.link.danglingNode', `input ref names missing node '${ref.node}' in graph '${defId}'`))
       return undefined
     }
-    if ((node.mode ?? 'active') === 'muted') return 'muted'
+    if ((node.mode ?? 'active') === 'muted') return markMuted(defId, node)
     if (node.mode === 'bypassed') return 'bypassed'
     const childId = subgraphDefIdOf(node.type)
     if (childId !== undefined) {
@@ -1082,7 +1093,7 @@ function compileImpl(
       sink.push(diag('error', 'compile', 'compile.link.danglingNode', `output ref names missing node '${ref.node}' in graph '${defId}'`))
       return undefined
     }
-    if ((node.mode ?? 'active') === 'muted') return 'muted'
+    if ((node.mode ?? 'active') === 'muted') return markMuted(defId, node)
     if (node.mode === 'bypassed') return { bypass: { path, defId, ref } }
     const childId = subgraphDefIdOf(node.type)
     if (childId !== undefined) {
@@ -1418,7 +1429,11 @@ function compileImpl(
      * non-concrete destinations.
      */
     | { readonly kind: 'value'; readonly value: Json; readonly typeId?: string; readonly controllerSources?: readonly ControllerInputSource[]; readonly controllerWidget?: WidgetSpec }
-    | { readonly kind: 'muted'; readonly reason: string }
+    /**
+     * `node` names the muted node the route reached, for the reason sent with
+     * $absent; `viaBypass` marks a route that passed through a bypassed node.
+     */
+    | { readonly kind: 'muted'; readonly reason: string; readonly node?: string; readonly viaBypass?: true }
     /** `absent`: the wire gives nothing (its field is no longer part of its node), sent as $absent when the server takes it. */
     | { readonly kind: 'dropped'; readonly reason: string; readonly absent?: true }
 
@@ -1550,7 +1565,7 @@ function compileImpl(
               tapsAbsentRow(at.defId, endpoint.node, endpoint.tap)
             if (absent) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `field '${endpoint.node}.${endpoint.tap}' is no longer part of its node`, absent: true } }] }
             const tapped = tapValue(at.path, at.defId, endpoint.node, endpoint.tap, sink)
-            if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `widget tap '${endpoint.node}.${endpoint.tap}' reaches a muted occurrence` } }] }
+            if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `widget tap '${endpoint.node}.${endpoint.tap}' reaches a muted occurrence`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
             if (tapped === undefined) {
               if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.tap.novalue', `${endpoint.node}.${endpoint.tap}: tapped input has no value`))
               return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `widget tap '${endpoint.node}.${endpoint.tap}' has no value` } }] }
@@ -1582,7 +1597,7 @@ function compileImpl(
               ...(widget !== undefined ? { controllerWidget: widget } : {}), ...(at.typeId !== undefined ? { typeId: at.typeId } : {}) } }] }
           }
           const resolved = resolveOutputPort(at.path, at.defId, endpoint, sink, delivery)
-          if (resolved === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `producer '${endpoint.node}' is muted or in an inactive occurrence` } }] }
+          if (resolved === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `producer '${endpoint.node}' is muted or in an inactive occurrence`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
           if (!resolved) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `producer endpoint ${JSON.stringify(endpoint)} cannot deliver` } }] }
           return 'bypass' in resolved
             ? { steps: [{ kind: 'recurse', at: { kind: 'bypass', bypass: resolved.bypass } }] }
@@ -1604,7 +1619,7 @@ function compileImpl(
             resolveOutputPort(driver.path, driver.defId, driver.endpoint, []) === 'muted'
           if (driver && !deadDriver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: driver.path, defId: driver.defId, endpoint: driver.endpoint } }] }
           const tapped = tapValue(knownPath, knownDefId, knownNode, input.spec.id, sink)
-          if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `'${knownNode}' is muted` } }] }
+          if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `'${knownNode}' is muted`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
           if (tapped === undefined) {
             if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.knownValue.novalue', `${knownNode}.${input.spec.id}: the value it passes on is not set`, { anchor: anchorOf(knownPath, knownNode) }))
             return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `'${knownNode}.${input.spec.id}' has no value` } }] }
@@ -1653,7 +1668,9 @@ function compileImpl(
         data: { reason: dead.reason, inputIndex: first.inputIndex, output: first.output.spec.id, route: result.hops.map((hop) => hop.occurrenceKey) },
       }))
     }
-    return result.terminals
+    return result.hops.length === 0
+      ? result.terminals
+      : result.terminals.map((terminal) => terminal.kind === 'muted' ? { ...terminal, viaBypass: true as const } : terminal)
   }
 
   // -- Pass 1: discover occurrences, derive overlays, collect ---------------
@@ -2204,6 +2221,22 @@ function compileImpl(
       if (queryingSources) continue
       connections.push({ from: link.from, to: link.to, what: link.what, ...(link.delivery ? { delivery: link.delivery } : {}) })
     }
+    /**
+     * A wire whose source is a muted node's output gives nothing: an optional
+     * input is sent $absent when the server takes it. A required input, and
+     * every input on a server without it, is left out as before, with the
+     * warning: the input then sends its field's own value or refuses the run.
+     */
+    const givesNothingFromMuted = (dst: ResolvedNodeInput, muted: string, what: string, defId: string): void => {
+      const receiver = emitAbsentInputs && dst.input.spec.optional ? flat.get(dst.runtimeId) : undefined
+      if (receiver === undefined) {
+        diags.push(diag('warning', 'compile', 'compile.link.dropped', `${what} in graph '${defId}': connected node is muted`))
+        return
+      }
+      receiver.inputs[dst.inputId] = { $absent: { reason: `'${muted}' is muted` } }
+      receiver.linkedInputs.delete(dst.inputId)
+      recordSuccessfulDelivery(dst)
+    }
     for (const c of connections) {
       // Both endpoints resolve into a SCRATCH sink: if either end is muted
       // the edge is dead and NOTHING about it is audited (symmetric policy -
@@ -2226,6 +2259,11 @@ function compileImpl(
       const structuralSrc = isPortEndpoint(c.from) && regionPseudoRef === undefined
         ? resolveOutputPort(path, defId, c.from, scratch, c.delivery)
         : undefined
+      const mutedSource = structuralSrc === 'muted' ? lastMuted : undefined
+      if (structuralSrc === 'muted' && Array.isArray(dsts)) {
+        for (const dst of dsts) if (isNodeInput(dst)) givesNothingFromMuted(dst, mutedSource!, c.what, defId)
+        continue
+      }
       if (structuralSrc === 'muted' || dsts === 'muted') {
         diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is muted`))
         continue
@@ -2283,7 +2321,8 @@ function compileImpl(
           attachUnknownSchemaDependents(routeDiagnostics, [dst.runtimeId])
           if (trace.kind === 'muted') {
             diags.push(...routeDiagnostics)
-            diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is muted`))
+            if (trace.node !== undefined && trace.viaBypass !== true) givesNothingFromMuted(dst, trace.node, c.what, defId)
+            else diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is muted`))
             continue
           }
           if (trace.kind === 'dropped') {
