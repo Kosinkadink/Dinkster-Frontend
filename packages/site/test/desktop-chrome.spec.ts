@@ -229,7 +229,7 @@ for (const existing of [false, true]) {
         dark: { color: '#090D0D', symbolColor: '#F0F5F5', height: 44 },
         light: { color: '#EDEFF2', symbolColor: '#20252A', height: 44 },
       },
-      trafficLightPosition: { x: 14, y: 10 },
+      trafficLightPosition: { x: 14, y: 14 },
     })
     const requests: string[] = []
     page.on('request', (request) => requests.push(request.url()))
