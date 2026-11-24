@@ -965,6 +965,8 @@ export class CanvasRenderer {
   private baseScene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
   private scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
   private connectedInputPins: ReadonlySet<string> = new Set()
+  /** Input pins whose wire comes from a muted node: drawn faded with that wire. */
+  private mutedInputPins: ReadonlySet<string> = new Set()
   private connectedOutputPins: ReadonlySet<string> = new Set()
   private connectedWidgetTaps: ReadonlySet<string> = new Set()
   /** Inputs driven only by a boundary input drawn without its wire. */
@@ -2016,6 +2018,8 @@ export class CanvasRenderer {
   }
 
   private refreshConnectivity(): void {
+    this.mutedInputPins = new Set(this.scene.links.flatMap((link) =>
+      link.sourceMuted === true && link.to.kind === 'port' ? [`${link.to.node}\u0000${link.to.port}`] : []))
     this.connectedInputPins = new Set(
       [
         ...this.scene.links
@@ -2396,6 +2400,8 @@ export class CanvasRenderer {
         (this.endOutOfScope(link.from) || this.endOutOfScope(link.to))
       if (outOfScope) ctx.globalAlpha = SCOPE_DIM
       if (link.dimmed === true) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
+      // A wire out of a muted node fades with it; the mute adds no dashes.
+      if (link.sourceMuted === true) ctx.globalAlpha *= canvasPaintTokens.node.modeOpacity
       if (this.overlay.linkSelection?.has(link.id)) {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName, {
           color: this.tokens.colors.nodeSelectedBorder,
@@ -2403,10 +2409,10 @@ export class CanvasRenderer {
           minScreenWidth: canvasPaintTokens.link.selectedMinScreenStroke,
         })
       }
-      // Maybe-absent (optional producer) links dash long-and-slow: a calm
-      // "this value might legitimately not exist" cue, deliberately distinct
-      // from the short [6,4] ghost-drag dash and from any error styling.
-      if (link.maybeAbsent === true) ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.maybeAbsentLink.world, canvasPaintTokens.dash.maybeAbsentLink.screen, scale))
+      // A dashed wire means only that it may carry nothing (an optional
+      // producer); every other wire, including one being dragged, is solid.
+      const dashed = link.maybeAbsent === true
+      if (dashed) ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.maybeAbsentLink.world, canvasPaintTokens.dash.maybeAbsentLink.screen, scale))
       // A PROVEN type conflict paints the noodle in error red, overriding
       // the type color: the break must be visible where it is, not hunted
       // down from a Problems entry. Slightly wider so red never hides
@@ -2420,7 +2426,7 @@ export class CanvasRenderer {
       } else {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName)
       }
-      if (link.maybeAbsent === true) ctx.setLineDash([])
+      if (dashed) ctx.setLineDash([])
       // Midpoint grab dot: a visible handle for clicking the noodle (and
       // double-click reroute insertion). Boundary noodles carry it too -
       // they select and delete like any noodle (delete lowers to
@@ -2643,7 +2649,6 @@ export class CanvasRenderer {
         })
       }
       ctx.save()
-      ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.netGuide.world, canvasPaintTokens.dash.netGuide.screen, scale))
       for (const stub of guideStubs) {
         if (stub.role !== 'sink') continue
         const source = sources.get(stub.netId)
@@ -2712,14 +2717,12 @@ export class CanvasRenderer {
     if (this.overlay.ghostLink) {
       const g = this.overlay.ghostLink
       ctx.save()
-      ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.ghost.world, canvasPaintTokens.dash.ghost.screen, scale))
       this.drawLink(ctx, g.x1, g.y1, g.x2, g.y2, g.typeName)
       ctx.restore()
     }
 
     if (this.overlay.ghostLinks) {
       ctx.save()
-      ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.ghost.world, canvasPaintTokens.dash.ghost.screen, scale))
       for (const g of this.overlay.ghostLinks) {
         this.drawLink(ctx, g.x1, g.y1, g.x2, g.y2, g.typeName)
       }
@@ -2920,7 +2923,6 @@ export class CanvasRenderer {
           ctx.strokeStyle = actor.color
           ctx.lineWidth = paint.linkStroke
           ctx.globalAlpha = paint.ghostOpacity
-          ctx.setLineDash([...canvasPaintTokens.dash.remote])
           const inputOrigin = origin.kind !== 'widgetTap' && origin.side === 'in'
           this.drawLink(
             ctx,
@@ -4260,9 +4262,11 @@ export class CanvasRenderer {
         ctx.stroke()
         ctx.globalAlpha = pinAlpha
       } else {
-        // A kept row's pin is dimmed with its row and wire.
+        // A kept row's pin is dimmed with its row and wire; an input pin a
+        // muted node's wire enters fades with that wire.
         const pinAlpha = ctx.globalAlpha
         if (pin.kept !== undefined) ctx.globalAlpha = pinAlpha * canvasPaintTokens.widget.inactiveOpacity
+        else if (pin.direction === 'in' && this.mutedInputPins.has(`${node.id}\u0000${pin.portId}`)) ctx.globalAlpha = pinAlpha * canvasPaintTokens.node.modeOpacity
         if (pin.collapsedSection !== undefined) {
           // Each pin of a closed box's cluster cuts the one above it.
           ctx.fillStyle = t.colors.nodeBody

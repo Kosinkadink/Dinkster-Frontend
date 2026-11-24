@@ -1053,6 +1053,8 @@ export function deriveBoundarySchema(
       type: freshenType(inner.type, item.binds.node, typeBindingsFor(node)),
       ...(inner.isList !== undefined ? { isList: inner.isList } : {}),
       ...(inner.preview !== undefined ? { preview: inner.preview } : {}),
+      // An output fed by one that may give nothing may give nothing too.
+      ...(inner.optional === true ? { optional: true } : {}),
     })
   }
 

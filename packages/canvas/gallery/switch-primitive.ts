@@ -206,6 +206,7 @@ export interface NodeEntry {
   readonly width?: number
   /** A subgraph node: an instance of the named graph. */
   readonly instanceOf?: string
+  readonly mode?: 'muted' | 'bypassed'
 }
 export interface Graph {
   readonly name?: string
@@ -265,6 +266,7 @@ export function sceneOf(
                   : { ...defaultValuesOf(node.type), ...node.values },
                 ...(node.dynamic ? { dynamic: node.dynamic } : {}),
                 ...(node.title ? { title: node.title } : {}),
+                ...(node.mode ? { mode: node.mode } : {}),
               },
             ]),
           ),

@@ -90,7 +90,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'text-boxes',
       ],
     ],
-    ['Wires', ['types', 'structure']],
+    ['Wires', ['types', 'structure', 'wire-looks']],
     ['Subgraphs', ['boundary', 'boundary-names', 'subgraph-icon']],
     ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
     ['Problems with fixes', ['problem-box']],
@@ -217,6 +217,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Every place the canvas draws the subgraph icon, a workflow in a frame, at the 14 px it is drawn at 100 percent: the mark in a subgraph node\'s title alone and with a count, the cyan mark on a field shown on the subgraph node, and the Create subgraph button on the toolbox over two plain nodes, which one selected subgraph node does not show. The title mark sits as far from the node\'s right edge as from the top and bottom of the title bar.',
   'small-flow-nodes':
     'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
+  'wire-looks':
+    'Every look a wire has. A dashed wire means only that it may carry nothing; every other wire, including one being dragged, is solid. A wire whose source is switched off is faded.',
   'type-conflict':
     'Inputs that must share one type but are fed two different types: an error on the node, its wires and in Problems, and a refusal before the run. By hand such a wire is not accepted.',
 }
@@ -364,6 +366,7 @@ function ExampleCard(props: {
     renderer.setRowMarks(example.rowMarks ?? fixture.rowMarks)
     renderer.setCompanions(example.companions ?? fixture.companions)
     renderer.setInactiveNodes(example.inactive)
+    renderer.setPresence(example.presence ?? [])
     renderer.setToolbox(example.toolbox ?? fixture.toolbox)
     const image = document.createElement('canvas')
     image.width = 320
