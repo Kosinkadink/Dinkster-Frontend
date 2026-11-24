@@ -22,7 +22,7 @@ const paint = canvasPaintTokens.widget
 /** The word before an automatic value. */
 const AUTOMATIC_WORD = 'auto'
 /** The word before the value of a row that stays only for the wire on its output. */
-const KEPT_WORD = 'wired'
+const KEPT_WORD = 'inactive'
 const TEXT_PAD = paint.textPadding
 
 function compactBooleanValue(value: Json, options: Readonly<Record<string, unknown>>): string {
@@ -181,7 +181,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       return
     }
     // A field with nothing stored that declares automatic shows the value it
-    // has in use, after the word "auto". A kept row shows "wired" before its
+    // has in use, after the word "auto". A kept row shows "inactive" before its
     // value instead, and then no "auto".
     const automatic = value === undefined ? row.automatic : undefined
     const resolved: Json = value !== undefined ? value : automatic !== undefined ? automatic.value : (kind.defaultValue(row.spec) as Json)
@@ -429,7 +429,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               const placeholder = style['placeholder'] === true
               // A dragged plain number shows its moving value in the accent; a slider shows its fill instead.
               const draggedValue = inRow && args.dragging === true && !declaredSlider && role === 'widgetValue'
-              // A value with a word before it ("auto", "wired") is dimmed with its word, as a placeholder is.
+              // A value with a word before it ("auto", "inactive") is dimmed with its word, as a placeholder is.
               ctx.fillStyle = placeholder ? tokens.colors.label : draggedValue ? tokens.colors.widgetAffordanceActive
                 : marked ? tokens.colors.label : tokens.colors.value
               if (placeholder) ctx.font = `italic ${ctx.font}`

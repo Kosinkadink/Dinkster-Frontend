@@ -536,7 +536,7 @@ export const canvasPaintTokens = {
     toggleReserve: canvasSemanticTokens.space[12],
     /** An automatic value's dot, drawn before "auto" when the default is used. */
     automaticDot: { radius: 3, gap: canvasSemanticTokens.space[4] },
-    /** Room between a word about a value ("auto", "wired") and the value: the open field's room between auto and its hint. */
+    /** Room between a word about a value ("auto", "inactive") and the value: the open field's room between auto and its hint. */
     valueWordGap: canvasSemanticTokens.space[8],
     toggle: {
       trailingInset: 22,

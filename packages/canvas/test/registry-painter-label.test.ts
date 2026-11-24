@@ -578,7 +578,7 @@ describe('an automatic value', () => {
       connected: false,
       tokens: defaultTokens,
     })
-    const word = textCalls.find((call) => call.text === 'auto' || call.text === 'wired')
+    const word = textCalls.find((call) => call.text === 'auto' || call.text === 'inactive')
     return { value: textCalls.find((call) => call.text !== 'frame_rate' && call !== word)!, word, arcs }
   }
   const gap = canvasPaintTokens.widget.valueWordGap
@@ -603,9 +603,9 @@ describe('an automatic value', () => {
     expect(arcs[0]!.x).toBeLessThan(word!.x - 4 * 6)
   })
 
-  it('reads wired only, with no auto and no dot, on a row kept for its wire', () => {
+  it('reads inactive only, with no auto and no dot, on a row kept for its wire', () => {
     const { value, word, arcs } = paintAutomatic(undefined, { value: 24, state: 'default', reason: 'failed' }, 'Kept for the wire on its output.')
-    expect([word?.text, value.text]).toEqual(['wired', '24'])
+    expect([word?.text, value.text]).toEqual(['inactive', '24'])
     expect(value.x - 2 * 6 - word!.x).toBe(gap)
     expect(arcs).toEqual([])
   })

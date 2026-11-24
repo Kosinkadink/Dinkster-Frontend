@@ -100,7 +100,9 @@ export function keyPosition(keys: GroupKeysSpec, key: string): number | undefine
 
 /** The most members a group may have: its maximum, its names, and the member budget. */
 export function memberLimitOf(group: GroupSpec): number {
-  let limit = group.maxMembers ?? MAX_GROUP_MEMBERS
+  // A group shown on a subgraph node without a declared maximum shares the
+  // cap with the members inside, which take their places first.
+  let limit = group.maxMembers ?? MAX_GROUP_MEMBERS - (group.interiorMembers ?? 0)
   if (group.keys.kind === 'named') limit = Math.min(limit, group.keys.names.length)
   return Math.min(limit, MAX_GROUP_MEMBERS)
 }

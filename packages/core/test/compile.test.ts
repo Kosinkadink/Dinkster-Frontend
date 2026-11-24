@@ -15,7 +15,7 @@ import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
-import { DINKSTER_GRAPH_FEATURE_ABSENT_INPUT, DINKSTER_GRAPH_FEATURE_DECIMAL_INT } from '../src/compile/dinkster-graph.js'
+import { DINKSTER_GRAPH_FEATURE_ABSENT_INPUT, DINKSTER_GRAPH_FEATURE_DECIMAL_INT, DINKSTER_GRAPH_FEATURE_REGIONS } from '../src/compile/dinkster-graph.js'
 import { coreVirtualNodeKind } from '../src/virtual-node.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
@@ -775,6 +775,7 @@ const dynSchemas: Record<string, NodeSchema> = {
   },
   SamplerSink: dynSchemaOf('SamplerSink', [dynInput('sampler', { type: { kind: 'concrete', name: 'COMBO' }, widget: { widgetType: 'COMBO', options: { options: ['euler', 'dpm'] } } })]),
   IntSrc: { ...dynSchemaOf('IntSrc', [{ kind: 'output', id: 'out', type: INT }]), isOutputNode: false },
+  AnyValue: dynSchemaOf('AnyValue', [dynInput('value', { type: { kind: 'variable', templateId: 'T' }, optional: true })]),
   IntSink: dynSchemaOf('IntSink', [dynInput('steps', { type: INT, widget: { widgetType: 'INT', options: {}, default: 20 } })]),
   Switch: {
     ...dynSchemaOf('Switch', [
@@ -822,6 +823,7 @@ type DynNode = {
   dynamic?: Record<string, unknown>
   controllers?: Record<string, string>
   mode?: 'active' | 'muted' | 'bypassed'
+  title?: string
 }
 type DynEnd =
   | [node: string, port: string]
@@ -859,7 +861,7 @@ const dynDoc = (parts: {
     nodes: Object.fromEntries(
       Object.entries(nodes).map(([nid, n]) => [
         nid,
-        { id: nid, type: n.type, values: n.values ?? {}, ...(n.dynamic ? { dynamic: n.dynamic } : {}), ...(n.controllers ? { controllers: n.controllers } : {}), ...(n.mode ? { mode: n.mode } : {}) },
+        { id: nid, type: n.type, values: n.values ?? {}, ...(n.dynamic ? { dynamic: n.dynamic } : {}), ...(n.controllers ? { controllers: n.controllers } : {}), ...(n.mode ? { mode: n.mode } : {}), ...(n.title ? { title: n.title } : {}) },
       ]),
     ),
     links: Object.fromEntries(links.map((l, i) => [`l${i}`, { id: `l${i}`, from: end(l[0]), to: end(l[1]) }])),
@@ -2019,6 +2021,136 @@ describe('muted endpoints skip port validation', () => {
 
 })
 
+describe("a muted node's outputs give nothing", () => {
+  const target = { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } }
+  const marked = (doc: WorkflowDocument, features: string[] = []) => {
+    const result = compile({ ...compileInput(doc), resolve: dynResolve, graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT, ...features] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return undefined
+    expect(result.artifact.diagnostics.map((d) => d.code)).not.toContain('compile.link.dropped')
+    return result.artifact.prompt
+  }
+  const absent = (reason: string) => ({ 'items.item0': { $absent: { reason } } })
+  const inner = (mode?: 'muted') => ({
+    nodes: { loader: { type: 'ImageSrc', title: 'Inner loader', ...(mode ? { mode } : {}) } },
+    boundary: { outputs: [{ id: 'image', binds: { kind: 'port', node: 'loader', port: 'out' } }] },
+  })
+
+  it('sends $absent naming the muted node, directly, through a reroute, a net and a subgraph boundary', () => {
+    const source = { type: 'ImageSrc', title: 'Loader', mode: 'muted' as const }
+    expect(marked(dynDoc({ nodes: { source, target }, links: [[['source', 'out'], ['target', 'items.item0']]] }))?.['target']!.inputs)
+      .toEqual(absent("'Loader' is muted"))
+    expect(marked(dynDoc({ nodes: { source: { type: 'ImageSrc', mode: 'muted' }, target }, links: [[['source', 'out'], ['target', 'items.item0']]] }))?.['target']!.inputs)
+      .toEqual(absent("'ImageSrc' is muted"))
+    expect(marked(dynDoc({
+      nodes: { source, target },
+      reroutes: ['r'],
+      links: [[['source', 'out'], { reroute: 'r' }], [{ reroute: 'r' }, ['target', 'items.item0']]],
+    }))?.['target']!.inputs).toEqual(absent("'Loader' is muted"))
+    expect(marked(dynDoc({ nodes: { source, target }, nets: [['images', ['source', 'out'], [['target', 'items.item0']]]] }))?.['target']!.inputs)
+      .toEqual(absent("'Loader' is muted"))
+
+    const throughBoundary = marked(dynDoc({
+      nodes: { sub: { type: '#sub' }, target },
+      links: [[['sub', 'image'], ['target', 'items.item0']]],
+      subgraphs: { sub: inner('muted') },
+    }))
+    expect(throughBoundary?.['target']!.inputs).toEqual(absent("'Inner loader' is muted"))
+    expect(Object.keys(throughBoundary ?? {})).toEqual(['target'])
+
+    const mutedSubgraph = marked(dynDoc({
+      nodes: { sub: { type: '#sub', title: 'Image stage', mode: 'muted' }, target },
+      links: [[['sub', 'image'], ['target', 'items.item0']]],
+      subgraphs: { sub: inner() },
+    }))
+    expect(mutedSubgraph?.['target']!.inputs).toEqual(absent("'Image stage' is muted"))
+    expect(Object.keys(mutedSubgraph ?? {})).toEqual(['target'])
+
+    // A bypassed node hands on what it receives, here nothing; the reason names the muted node.
+    expect(marked(dynDoc({
+      nodes: { source, pass: { type: 'Passthrough', title: 'Pass', mode: 'bypassed' }, target },
+      links: [[['source', 'out'], ['pass', 'in']], [['pass', 'out'], ['target', 'items.item0']]],
+    }))?.['target']!.inputs).toEqual(absent("'Loader' is muted"))
+
+    // An input whose type is a variable takes the marker too: it is not a literal needing a type.
+    const anyValue = dynDoc({ nodes: { source, has: { type: 'AnyValue' } }, links: [[['source', 'out'], ['has', 'value']]] })
+    expect(marked(anyValue, [DINKSTER_GRAPH_FEATURE_REGIONS])?.['has']!.inputs)
+      .toEqual({ value: { $absent: { reason: "'Loader' is muted" } } })
+  })
+
+  it("sends $absent for a field's output on a muted node", () => {
+    const prompt = marked(dynDoc({
+      nodes: {
+        source: { type: 'TapChoice', title: 'Amounts', mode: 'muted', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'a' } } },
+        sink: { type: 'TapGroup', dynamic: { items: { members: ['item0'] } } },
+      },
+      links: [[{ node: 'source', tap: 'mode.amount' }, ['sink', 'items.item0']]],
+    }))
+    expect(prompt?.['sink']!.inputs).toEqual(absent("'Amounts' is muted"))
+  })
+
+  it('leaves the input out with a warning on a server without $absent', () => {
+    const plain = dynCompile(dynDoc({
+      nodes: { source: { type: 'ImageSrc', mode: 'muted' }, target },
+      links: [[['source', 'out'], ['target', 'items.item0']]],
+    }))
+    expect(plain.ok && plain.artifact.prompt['target']!.inputs).toEqual({})
+    expect(plain.ok && plain.artifact.diagnostics.map((d) => d.code)).toContain('compile.link.dropped')
+  })
+
+  it('skips a node whose required input receives nothing, and what needs it, with a warning on the first', () => {
+    // k needs the muted image; after needs k's output; maybe takes it only if present.
+    const nodes = {
+      source: { type: 'ImageSrc', title: 'Loader', mode: 'muted' as const },
+      k: { type: 'Passthrough', title: 'Blur' },
+      after: { type: 'Sink', title: 'Save' },
+      maybe: target,
+      other: { type: 'ImageSrc' },
+    }
+    const links: [DynEnd, DynEnd][] = [
+      [['source', 'out'], ['k', 'in']], [['k', 'out'], ['after', 'in']], [['k', 'out'], ['maybe', 'items.item0']],
+    ]
+    const result = compile({ ...compileInput(dynDoc({ nodes, links })), resolve: dynResolve, graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt['k']!.inputs).toEqual({ in: { $absent: { reason: "'Loader' is muted" } } })
+    expect(result.artifact.diagnostics.filter((d) => d.code === 'compile.input.skipped').map((d) => [d.anchor?.occurrence?.node, d.anchor?.port?.port, d.severity, d.message])).toEqual([
+      ['k', 'in', 'warning', "Receives nothing because 'Loader' is muted, so this node is skipped in the run."],
+    ])
+    expect(result.artifact.diagnostics.map((d) => d.code)).not.toContain('compile.link.dropped')
+
+    // When every node the run asks for would be skipped, the run is not sent:
+    // after is skipped only because k is, so the refusal names no warning of its own.
+    const only = compile({
+      ...compileInput(dynDoc({ nodes, links }), { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('after') }] }),
+      resolve: dynResolve,
+      graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT],
+    })
+    expect(only.ok).toBe(false)
+    if (!only.ok) expect(only.diagnostics.map((d) => d.code)).toEqual(expect.arrayContaining(['compile.input.skipped', 'compile.run.allSkipped']))
+    // What such a run would include is still known, so the editor can offer it and say why it is refused.
+    const closure = scopeClosure({
+      ...compileInput(dynDoc({ nodes, links }), { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('after') }] }),
+      resolve: dynResolve,
+      graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT],
+    })
+    expect([...closure?.included ?? []].sort()).toEqual(['after', 'k'])
+  })
+
+  it('keeps a wire into a muted node as before', () => {
+    const into = compile({
+      ...compileInput(dynDoc({
+        nodes: { source: { type: 'ImageSrc' }, pass: { type: 'Passthrough', mode: 'muted' } },
+        links: [[['source', 'out'], ['pass', 'in']]],
+      })),
+      resolve: dynResolve,
+      graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT],
+    })
+    expect(into.ok && Object.keys(into.artifact.prompt)).toEqual(['source'])
+    expect(into.ok && into.artifact.diagnostics.map((d) => d.code)).toContain('compile.link.dropped')
+  })
+})
+
 describe('unresolved nodes outside the executed scope', () => {
   const unknownDiags = (diagnostics: readonly { code: string; severity: string }[]) =>
     diagnostics.filter((diagnostic) => diagnostic.code === 'compile.schema.unknown')
@@ -2356,17 +2488,26 @@ describe('Primitive and Switch as ordinary nodes', () => {
     expect(result.artifact.choices).toEqual([{ graph: 'route', selector: 'random.selector', policy: 'random', candidate: 'b' }])
   })
 
-  it('drops a link into the Primitive from a muted node and passes the Primitive\'s own value on', () => {
-    const result = dynCompile(dynDoc({
-      nodes: {
-        counter: { type: 'IntSrc', mode: 'muted' },
-        prim: { type: 'Primitive', values: { value: 11 } },
-        sink: { type: 'IntSink', values: { steps: 3 } },
-      },
-      links: [[['counter', 'out'], ['prim', 'value']], [['prim', 'INT'], ['sink', 'steps']]],
-    }))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (result.ok) expect(result.artifact.prompt['sink']!.inputs).toEqual({ steps: 11 })
+  it('passes nothing on through the Primitive from a muted node, not the Primitive\'s own value', () => {
+    const doc = (sink: { type: string; values?: Record<string, unknown>; dynamic?: Record<string, unknown> }, port: string) => dynDoc({
+      nodes: { counter: { type: 'IntSrc', title: 'Counter', mode: 'muted' }, prim: { type: 'Primitive', values: { value: 11 } }, sink },
+      links: [[['counter', 'out'], ['prim', 'value']], [['prim', 'INT'], ['sink', port]]],
+    })
+    const marked = compile({
+      ...compileInput(doc({ type: 'TapGroup', dynamic: { items: { members: ['item0'] } } }, 'items.item0')),
+      resolve: dynResolve,
+      graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT],
+    })
+    expect(marked.ok, JSON.stringify(!marked.ok && marked.diagnostics)).toBe(true)
+    if (marked.ok) expect(marked.artifact.prompt['sink']!.inputs).toEqual({ 'items.item0': { $absent: { reason: "'Counter' is muted" } } })
+
+    // Without the marker the input is left out with a warning, and the field sends its own value.
+    const plain = dynCompile(doc({ type: 'IntSink', values: { steps: 3 } }, 'steps'))
+    expect(plain.ok, JSON.stringify(!plain.ok && plain.diagnostics)).toBe(true)
+    if (plain.ok) {
+      expect(plain.artifact.prompt['sink']!.inputs).toEqual({ steps: 3 })
+      expect(plain.artifact.diagnostics.map((d) => d.code)).toContain('compile.link.dropped')
+    }
   })
 })
 
