@@ -468,6 +468,8 @@ export function CanvasCurvePlot(props: {
   /** Where the pointer starts, for a still picture. */
   hover?: CanvasCurvePoint
   label?: string
+  /** The product's tooltip on the plot. */
+  tooltip?: string
   onSelect?: (index: number | undefined) => void
   /** A point dragged to a new place; `onMoveEnd` follows when the drag ends. */
   onMove?: (index: number, point: CanvasCurvePoint) => void
@@ -594,7 +596,7 @@ export function CanvasCurvePlot(props: {
   return (
     <svg ref={svgElement} viewBox={`0 0 ${size().width} ${size().height}`} class="dinkster-canvas-curve"
       tabindex={props.onSelect === undefined ? undefined : 0} role={props.onSelect === undefined ? 'img' : 'application'}
-      aria-label={props.label}
+      aria-label={props.label} data-tooltip-label={props.tooltip}
       onPointerDown={press} onPointerMove={track} onPointerUp={release} onPointerCancel={release}
       onLostPointerCapture={release} onPointerLeave={() => setHover(undefined)} onDblClick={add} on:keydown={key}>
       <defs>

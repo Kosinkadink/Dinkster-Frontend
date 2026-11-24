@@ -668,9 +668,9 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
   'core.imageCompare': { picture: 180, controlRows: 3 },
   // The camera position under the orbit and elevation pictures.
   'core.cameraAngle': { picture: 150, controlRows: 1 },
-  // Interpolation; Position; Value; Delete point; the help note, which wraps onto two lines;
-  // and, while the histogram input has a wire, the histogram's line above the note.
-  'core.curve': { picture: 180, controlRows: 6, wiredLine: 'histogram' },
+  // Interpolation; Position; Value; Delete point; and, while the histogram input has a wire,
+  // the histogram's line.
+  'core.curve': { picture: 180, controlRows: 4, wiredLine: 'histogram' },
 }
 
 /** Minimum zoom for text detail and transient media DOM. */
