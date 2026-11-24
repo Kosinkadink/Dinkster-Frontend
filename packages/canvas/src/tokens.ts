@@ -184,6 +184,8 @@ export const canvasPaintTokens = {
       memberGap: 4,
       /** From a field or pin row to the outline of a box header under it. */
       headerGap: 4,
+      /** From a box's outline to the box header, field or pin row after it. */
+      boxGap: 4,
       /** An open box with no name: room above its outline for the tab, and below it. */
       tabGap: 6,
       tabPad: 4,

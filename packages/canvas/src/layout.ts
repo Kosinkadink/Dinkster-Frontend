@@ -1489,15 +1489,19 @@ export function layoutNode(
     let under: number = box.bottomGap
     // A member box just closed, so a member box after it keeps `memberGap` away.
     let afterMember = false
+    // A box's outline just ended, open or closed: what follows keeps `boxGap` away.
+    let afterOutline = false
     const push = (row: LayoutRow, depth: number): void => {
       rows.push(row)
       rowDepth.push(depth)
       afterMember = false
+      afterOutline = false
     }
     const close = (depth: number): void => {
       while (open.length > depth) {
         const done = open.pop()!
         afterMember = done.decl.kind === 'member'
+        afterOutline = true
         const bottom = y + under - slack + box.stroke
         boxes.push({
           id: done.decl.id,
@@ -1518,11 +1522,14 @@ export function layoutNode(
     }
     /**
      * Where a box header's outline starts: `headerGap` under a field or pin
-     * row, `memberGap` under a member box, and just under any other outline
-     * or header.
+     * row, `memberGap` under a member box, `boxGap` under any other box, and
+     * just under the header of the box it opens in.
      */
     const headerTop = (): number =>
-      afterMember ? y + box.memberGap : slack > 0 ? y - slack + box.headerGap : y + verticalInset
+      afterMember ? y + box.memberGap
+        : slack > 0 ? y - slack + box.headerGap
+        : afterOutline ? y + box.boxGap
+        : y + verticalInset
     /** Close the boxes the row is not in and open the option boxes it is in. */
     const enter = (chain: readonly string[]): void => {
       let shared = 0
@@ -1585,6 +1592,7 @@ export function layoutNode(
           y = top + closedHeight
           under = box.step
           slack = 0
+          afterOutline = true
           continue
         } else if (decl.tab) {
           const top = y + box.tabGap - slack
@@ -1603,6 +1611,8 @@ export function layoutNode(
       }
       enter(row.boxes)
       const depth = open.length
+      // A field or pin row after a box has its face `boxGap` under the outline.
+      if (afterOutline && row.kind !== 'growth') y += box.boxGap - verticalInset
       if (row.kind === 'growth') {
         const g = row.growth!
         const height = tokens.rowHeight

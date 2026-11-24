@@ -1163,6 +1163,19 @@ describe('sections', () => {
       const section = l.boxes!.find((b) => b.id === 's')!
       expect(section.y - (row.y + row.height - inset)).toBe(box.headerGap)
     }
+    // After a box, open or closed, the next box header and the next field stand `boxGap` under its outline.
+    for (const closed of [false, true]) {
+      const l = layoutNode(schemaOf([
+        { kind: 'section', id: 's', displayName: 'S', rows: [widget('a')] },
+        { kind: 'section', id: 't', displayName: 'T', rows: [widget('b')] },
+        { kind: 'section', id: 'u', displayName: 'U', rows: [widget('c')] },
+        widget('after'),
+      ]), nodeData, defaultTokens, measure, widgetMeasure, { sectionOverrides: { s: closed, t: false, u: closed } })
+      const [s, t, u] = ['s', 't', 'u'].map((id) => l.boxes!.find((b) => b.id === id)!)
+      const after = l.rows.find((row) => row.kind === 'widget' && row.inputId === 'after')!
+      expect(t!.y - (s!.y + s!.height)).toBe(box.boxGap)
+      expect(after.y + inset - (u!.y + u!.height)).toBe(box.boxGap)
+    }
   })
 
   it('keeps declared Advanced members continuous without enclosing primary rows or outputs', () => {
