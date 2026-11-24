@@ -135,13 +135,13 @@ export function subgraphIconGallery(
       badges: { entered: [one] },
     },
     {
-      caption: 'One selected subgraph node: its toolbox has Open subgraph and Flatten subgraph one level, and no Create subgraph button.',
+      caption: 'One selected subgraph node: its toolbox has Open subgraph and Flatten subgraph, and no Create subgraph button.',
       scene: scene({ root: { nodes: { picked: instance(0, 60, 'Upscale pass') } }, detail }),
       badges: { picked: [one] },
       overlay: { selection: new Set(['picked']) },
       toolbox: toolboxRow([
         toolboxButton({ id: 'core.openSubgraph', icon: 'group', label: 'Open subgraph' }),
-        toolboxButton({ id: 'core.flattenSubgraph', icon: 'ungroup', label: 'Flatten subgraph one level' }),
+        toolboxButton({ id: 'core.flattenSubgraph', icon: 'ungroup', label: 'Flatten subgraph' }),
       ]),
     },
     {

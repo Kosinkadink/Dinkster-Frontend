@@ -3043,7 +3043,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             // subgraph node, disabled when that node cannot be flattened.
             ...(canFlattenSubgraph() ? [{
               id: 'core.subgraph.flatten',
-              label: 'Flatten subgraph one level',
+              label: 'Flatten subgraph',
               icon: 'ungroup',
               ...(props.app.keybindings.combo('subgraph.flatten') ? { shortcut: props.app.keybindings.combo('subgraph.flatten')! } : {}),
               action: { kind: 'host' as const, action: 'flattenSubgraph' },
@@ -5156,7 +5156,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         modifications.push(toolboxButton({
           id: 'core.flattenSubgraph',
           icon: 'ungroup',
-          label: 'Flatten subgraph one level',
+          label: 'Flatten subgraph',
           ...(flattenRefusal !== undefined ? { disabled: true, reason: flattenRefusal.message } : {}),
         }))
       }

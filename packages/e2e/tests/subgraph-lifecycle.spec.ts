@@ -584,7 +584,7 @@ test('the toolbox draws create for several nodes and open and flatten for one su
   await expect.poll(() => graphCount(page)).toBe(before + 1)
   await expect.poll(() => subgraphToolboxButtons(page)).toEqual([
     { id: 'core.openSubgraph', icon: 'group', label: 'Open subgraph', disabled: false },
-    { id: 'core.flattenSubgraph', icon: 'ungroup', label: 'Flatten subgraph one level', disabled: false },
+    { id: 'core.flattenSubgraph', icon: 'ungroup', label: 'Flatten subgraph', disabled: false },
   ])
   const occurrence = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.findIndex((node) => {
     const tab = window.__dinksterTest!.app.activeTab()!

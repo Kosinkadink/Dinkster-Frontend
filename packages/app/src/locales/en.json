@@ -674,7 +674,7 @@
   "command.settings.open": "Open settings",
   "command.subgraph.createEmpty": "Create empty subgraph",
   "command.subgraph.extract": "Create subgraph from selection",
-  "command.subgraph.flatten": "Flatten selected subgraph one level",
+  "command.subgraph.flatten": "Flatten selected subgraph",
   "command.subgraph.manageDefinitions": "Manage subgraph definitions",
   "command.view.fitSelection": "Fit view to selection",
   "command.view.focusNextEditorGroup": "Focus next editor group",

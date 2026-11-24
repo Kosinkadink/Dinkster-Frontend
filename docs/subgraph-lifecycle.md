@@ -1,7 +1,7 @@
 # Subgraph lifecycle actions
 
 Dinkster exposes actions on the canvas to create an empty subgraph, create a
-subgraph from a selection, and flatten a subgraph one level.
+subgraph from a selection, and flatten a subgraph.
 They use the same serializable lifecycle commands as undo, redo, and shared
 sessions.
 
@@ -60,11 +60,11 @@ An input may fan out to both direct ports and retained junctions through
 authority; suppressing one occurrence delivery does not suppress the other
 bindings or other occurrences.
 
-## Flatten one level
+## Flatten a subgraph
 
-Select exactly one subgraph occurrence. Use **Flatten Subgraph One Level**
-in the toolbox or a node, group, reroute, value-source, or selector context
-menu, find **Flatten selected subgraph one level** in universal search, or
+Select exactly one subgraph occurrence. Use **Flatten subgraph** in its
+selection toolbox or context menu, which show it only for one selected
+subgraph node, find **Flatten selected subgraph** in universal search, or
 press **Ctrl+Shift+F**. Element-row menus such as widgets, pins, sections,
 nets, and links stay scoped to that element. Dinkster removes that occurrence
 and splices one copy of its body into the parent as one undoable operation.

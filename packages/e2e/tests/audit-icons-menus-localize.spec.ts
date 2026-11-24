@@ -89,7 +89,7 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
     .map((entry) => ({ id: entry.button.id, icon: entry.button.icon, name: entry.button.label })))
   expect(toolbox).toEqual([
     { id: 'core.openSubgraph', icon: 'group', name: 'Open subgraph' },
-    { id: 'core.flattenSubgraph', icon: 'ungroup', name: 'Flatten subgraph one level' },
+    { id: 'core.flattenSubgraph', icon: 'ungroup', name: 'Flatten subgraph' },
   ])
 
   await page.mouse.click(...Object.values(await nodePoint(page, 'first')) as [number, number], { button: 'right' })
