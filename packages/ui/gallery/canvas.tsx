@@ -89,7 +89,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
       ],
     ],
     ['Wires', ['types', 'structure']],
-    ['Subgraphs', ['boundary', 'boundary-names']],
+    ['Subgraphs', ['boundary', 'boundary-names', 'subgraph-icon']],
     ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
     ['Problems with fixes', ['problem-box']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
@@ -158,7 +158,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   previews:
     'Every node that can show a preview has a "Preview" caption row: before a picture, with one (open, and folded with the caption under the pointer), loading, failed, cached and estimated, and a text result open and folded. A minimized node keeps the caption folded while it has a picture or a text result; its caption opens the picture at its open height.',
   badges: 'Every badge on a node, and the toolbar above a selected node.',
-  tabs: 'Tabs above a node say what it is and tabs below say what happened, 3 px off the node and flush with its edges, drawn at 75 percent zoom; only the subgraph mark stays in the title bar. Icons: Queued clock, Running play, Finished check, Cached database, Skipped ban, Failed and Error circle-x, Unavailable unplug, Warning triangle-alert, Blocked lock, children list-tree, Log scroll-text, iteration repeat, Muted volume-x, Bypassed forward, Deprecated archive, subgraph boxes.',
+  tabs: 'Tabs above a node say what it is and tabs below say what happened, 3 px off the node and flush with its edges, drawn at 75 percent zoom; only the subgraph mark stays in the title bar. Icons: Queued clock, Running play, Finished check, Cached database, Skipped ban, Failed and Error circle-x, Unavailable unplug, Warning triangle-alert, Blocked lock, children list-tree, Log scroll-text, iteration repeat, Muted volume-x, Bypassed forward, Deprecated archive, subgraph framed workflow.',
   'tabs-content': 'The same tabs at 50 percent zoom.',
   states:
     'Every state a node can show: hover, selection, run states, problems, mode, color, a new title, minimized, the minimize arrow under the pointer and a bad value.',
@@ -209,6 +209,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'The minimap: nodes colored by state, a bypassed node, groups, and the frame of the visible area.',
   'switch-primitive':
     'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields. They replace the value source pill and the selector box shown in the second card.',
+  'subgraph-icon':
+    'Every place the canvas draws the subgraph icon, a workflow in a frame, at the 14 px it is drawn at 100 percent: the mark in a subgraph node\'s title alone and with a count, and the cyan mark on a field shown on the subgraph node. The title mark sits as far from the node\'s right edge as from the top and bottom of the title bar.',
   'small-flow-nodes':
     'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
   'type-conflict':

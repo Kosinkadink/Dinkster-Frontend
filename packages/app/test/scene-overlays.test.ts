@@ -1289,7 +1289,7 @@ describe('deriveSceneOverlays', () => {
       scene: scene([{ id: 'first', isSubgraph: true, type: '#shared' }]),
     })
     expect(model.badges.first).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'core.subgraph', count: 2, icon: 'boxes', placement: 'title' }),
+      expect.objectContaining({ id: 'core.subgraph', count: 2, icon: 'subgraph', placement: 'title' }),
     ]))
   })
 

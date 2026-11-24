@@ -56,6 +56,7 @@ import {
   structuralGalleryScene,
 } from './structure.js'
 import { smallFlowNodesGallery } from './small-flow-nodes.js'
+import { subgraphIconGallery, subgraphToolbox } from './subgraph-icon.js'
 import { switchPrimitiveGallery } from './switch-primitive.js'
 import { typeConflictGallery } from './type-conflict.js'
 import { widgetTapGallery } from './widget-taps.js'
@@ -91,6 +92,7 @@ export const canvasGalleryPages = [
   ['structure', 'Structural parts'],
   ['boundary', 'Subgraph boundaries'],
   ['boundary-names', 'Subgraph names'],
+  ['subgraph-icon', 'Subgraph icon'],
   ['badges', 'Badges and toolbar'],
   ['previews', 'Previews'],
   ['zoom', 'Controls zoom'],
@@ -970,6 +972,11 @@ export function createCanvasGalleryFixture(
     fixture.scene.nodes = [...first.nodes]
     fixture.scene.links = [...first.links]
     fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
+  } else if (page === 'subgraph-icon') {
+    const cards = subgraphIconGallery(tokens, measure, widgetMeasure)
+    fixture.scene.nodes = [...cards[0]!.scene.nodes]
+    fixture.toolbox = subgraphToolbox
     examples.push(...cards)
   } else if (page === 'small-flow-nodes') {
     const cards = smallFlowNodesGallery(tokens, measure, widgetMeasure)
