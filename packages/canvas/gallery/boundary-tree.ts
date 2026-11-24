@@ -286,7 +286,7 @@ export function boundaryTreeGallery(
     },
     {
       caption:
-        "A whole group on a subgraph node: a quiet line for the definition's own members, then this node's members",
+        'A whole group on a subgraph node: this node\'s members, numbered from 1',
       scene: scene({
         fix: {
           schema: images,
