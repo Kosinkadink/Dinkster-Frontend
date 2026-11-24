@@ -621,6 +621,17 @@ export interface NodeViewState {
    * default-collapsed section can also be explicitly expanded.
    */
   readonly sections?: Readonly<Record<string, { readonly collapsed: boolean }>>
+  /**
+   * Per-editor fold OVERRIDES by value key, for editors shown in the node.
+   * Absent = the declaration's starting state (folded unless it declares
+   * `unfolded`; a growing group's members always start folded).
+   */
+  readonly editors?: Readonly<Record<string, { readonly unfolded: boolean }>>
+  /**
+   * Height in canvas units of each unfolded editor's picture the user
+   * dragged, by value key. Absent = the editor's own picture height.
+   */
+  readonly pictureHeights?: Readonly<Record<string, number>>
   readonly color?: string
   readonly ext?: ExtData
 }

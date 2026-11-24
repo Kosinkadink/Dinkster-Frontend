@@ -850,7 +850,8 @@ export function deriveBoundarySchema(
       derived = {
         ...derived,
         minMembers: Math.max(0, derived.minMembers - count),
-        maxMembers: limit - count,
+        // Only a declared maximum is carried: it is the number a header shows.
+        ...(row.maxMembers !== undefined ? { maxMembers: limit - count } : {}),
         ...(derived.keys.kind === 'named' ? { keys: { kind: 'named' as const, names: derived.keys.names.filter((name) => !interior.members.includes(name)) } } : {}),
         // Members inside count through every level: an outer face numbers on from all of them.
         ...(count > 0 ? { interiorMembers: (row.interiorMembers ?? 0) + count } : {}),

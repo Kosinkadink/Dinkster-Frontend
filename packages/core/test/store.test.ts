@@ -1193,6 +1193,42 @@ describe('view.setTextBoxLines', () => {
   })
 })
 
+describe('view.setEditorUnfolded and view.setPictureHeight', () => {
+  const unfold = (nodeId: string, valueKey: string, unfolded: boolean | null) =>
+    ({ command: 'view.setEditorUnfolded', params: { graphId: 'g0', nodeId, valueKey, unfolded } })
+
+  it('keeps each editor fold per node through undo and a save and load, outside the semantic hash', () => {
+    const store = makeStore({
+      ...doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1'), n2: node('n2') } }) }),
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 10, y: 20 } } } } } },
+    })
+    const beforeHash = semanticHashOf(store.doc)
+    expect(store.dispatch(unfold('n1', 'frame', true)).ok).toBe(true)
+    expect(store.dispatch(unfold('n1', 'clip', false)).ok).toBe(true)
+    expect(store.dispatch(unfold('n2', 'frame', false)).ok).toBe(true)
+    expect(store.dispatch({ command: 'view.setPictureHeight', params: { graphId: 'g0', nodeId: 'n1', valueKey: 'frame', height: 240 } }).ok).toBe(true)
+    expect(semanticHashOf(store.doc)).toBe(beforeHash)
+    expect(store.undo()).toBe(true)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.view.graphs.g0!.nodes.n1!.editors).toEqual({ frame: { unfolded: true }, clip: { unfolded: false } })
+    expect(store.doc.view.graphs.g0!.nodes.n2?.editors).toBeUndefined()
+    expect(store.redo()).toBe(true)
+    expect(store.redo()).toBe(true)
+    const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!.view.graphs.g0!.nodes
+    expect(loaded.n1).toMatchObject({ editors: { frame: { unfolded: true }, clip: { unfolded: false } }, pictureHeights: { frame: 240 } })
+    expect(loaded.n2?.editors).toEqual({ frame: { unfolded: false } })
+    expect(store.dispatch(unfold('n1', 'frame', null)).ok).toBe(true)
+    expect(store.doc.view.graphs.g0!.nodes.n1!.editors).toEqual({ clip: { unfolded: false } })
+  })
+
+  it('refuses a fold that is not true, false or null, or names no editor', () => {
+    const store = makeStore()
+    expect(store.dispatch({ ...unfold('n1', 'frame', true), params: { ...unfold('n1', 'frame', true).params, unfolded: 'yes' } }).ok).toBe(false)
+    expect(store.dispatch(unfold('n1', '', true)).ok).toBe(false)
+    expect(store.dispatch(unfold('missing', 'frame', true)).ok).toBe(false)
+  })
+})
+
 describe('view.setPreviewFolded', () => {
   const fold = (folded: boolean) => ({ command: 'view.setPreviewFolded', params: { graphId: 'g0', nodeId: 'n1', folded } })
   const collapse = (collapsed: boolean) => ({ command: 'view.setNodeCollapsed', params: { graphId: 'g0', nodeIds: ['n1'], collapsed } })
