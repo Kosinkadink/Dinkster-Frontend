@@ -228,6 +228,7 @@ describe('core contributions', () => {
       .find((item) => item.id === 'core.node.minimize')!
     expect(restore).toMatchObject({
       label: 'Restore',
+      icon: 'maximize-2',
       action: {
         kind: 'command',
         invocation: {
@@ -435,7 +436,7 @@ describe('core contributions', () => {
     // Node target offers grouping the selection as a host action.
     const nodeMenu = reg.resolve(ctx({ kind: 'node', nodeId: 'n1' }, { selection: { nodes: ['n1', 'n2'], links: [], reroutes: [], valueSources: [], selectors: [] } }))
     const groupSel = nodeMenu.flatMap((g) => g.items).find((i) => i.id === 'core.node.groupSelection')!
-    expect(groupSel.label).toBe('Group 2 nodes')
+    expect(groupSel.label).toBe('Group')
     expect(groupSel.action).toEqual({ kind: 'host', action: 'groupSelection' })
 
     // Group target: rename (host), color presets (checked on current), delete.
