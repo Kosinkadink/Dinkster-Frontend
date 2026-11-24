@@ -323,8 +323,6 @@ export interface ElaboratedBox {
   /** A member: its key in the group. */
   readonly member?: string
   readonly openName?: false
-  /** A group shown whole on a subgraph node: how many members its definition holds before this node's own. */
-  readonly interiorMembers?: number
   readonly boxes?: readonly string[]
 }
 
@@ -1329,7 +1327,6 @@ function elaboratePass(
         ...(row.grows === 'button' ? { byHand: true as const } : {}),
         ...(row.reorderable === true && typeof row.grows === 'string' ? { reorderable: true as const } : {}),
         ...(row.openName === false ? { openName: false as const } : {}),
-        ...(row.interiorMembers !== undefined ? { interiorMembers: row.interiorMembers } : {}),
         ...boxed(scope),
       }, (boxes) => {
         const members = groupBody(row, path, { ...scope, boxes })

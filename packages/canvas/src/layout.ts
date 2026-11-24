@@ -994,7 +994,6 @@ export function layoutNode(
     readonly byHand?: true
     readonly reorderable?: true
     readonly member?: string
-    readonly interiorMembers?: number
   }
   /** A whole member's grip before its place is known. */
   type PendingGrip = Omit<MemberGrip, 'gripX'>
@@ -1085,7 +1084,6 @@ export function layoutNode(
         ...(item.byHand ? { byHand: true as const } : {}),
         ...(item.reorderable ? { reorderable: true as const } : {}),
         ...(item.member !== undefined ? { member: item.member } : {}),
-        ...(item.interiorMembers !== undefined ? { interiorMembers: item.interiorMembers } : {}),
       })
     }
   }
@@ -1201,14 +1199,6 @@ export function layoutNode(
       if (decl.kind === 'option') continue
       if (isHidden(decl.parents)) continue
       pending.push({ kind: decl.kind === 'member' ? 'member' : 'section', boxes: decl.parents, header: decl })
-      // A group shown whole on a subgraph node: its definition's own members
-      // stay inside and run first; one quiet line says so before this node's.
-      if (decl.interiorMembers !== undefined && !isHidden([...decl.parents, decl.id])) {
-        const text = decl.interiorMembers === 1
-          ? '1 member inside the definition comes first'
-          : `${decl.interiorMembers} members inside the definition come first`
-        pending.push({ kind: 'note', boxes: [...decl.parents, decl.id], note: { noteId: `${decl.id}.interior`, text } })
-      }
       continue
     }
     const chain = chainOf(item)
