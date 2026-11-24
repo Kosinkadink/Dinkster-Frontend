@@ -225,18 +225,16 @@ const fieldSettings = () => (
   <>
     <div class="boundary-tree-settings-head">
       <span class="boundary-tree-panel-title">strength</span>
-      <span class="boundary-tree-quiet">
-        field, on a line with radius and feather
-      </span>
+      <span class="boundary-tree-quiet">field</span>
     </div>
     <Setting label="Label">
-      <ProductTextInput density="canvas" value="strength" aria-label="Label" />
+      <ProductTextInput density="panel" value="strength" aria-label="Label" />
     </Setting>
     <Setting label="Goes to">
       <ProductLink href="#canvas">strength on Blend</ProductLink>
     </Setting>
     <Setting label="Default">
-      <ProductTextInput density="canvas" value="0.45" aria-label="Default" />
+      <ProductTextInput density="panel" value="0.45" aria-label="Default" />
     </Setting>
   </>
 )
@@ -248,7 +246,7 @@ const outputSettings = (forced: boolean) => (
       <span class="boundary-tree-quiet">output</span>
     </div>
     <Setting label="Label">
-      <ProductTextInput density="canvas" value="preview" aria-label="Label" />
+      <ProductTextInput density="panel" value="preview" aria-label="Label" />
     </Setting>
     <Setting label="From">
       <ProductLink href="#canvas">preview on Blend</ProductLink>
@@ -261,17 +259,15 @@ const sectionSettings = () => (
   <>
     <div class="boundary-tree-settings-head">
       <span class="boundary-tree-panel-title">Look</span>
-      <span class="boundary-tree-quiet">section, 6 rows</span>
+      <span class="boundary-tree-quiet">section</span>
     </div>
     <Setting label="Name">
-      <ProductTextInput density="canvas" value="Look" aria-label="Name" />
+      <ProductTextInput density="panel" value="Look" aria-label="Name" />
     </Setting>
     <ProductCheckbox label="Show the name while open" checked />
     <ProductCheckbox label="Start closed on new nodes" />
-    <ProductButton density="canvas" intent="remove">Remove section</ProductButton>
-    <span class="boundary-tree-quiet">
-      Its rows stay, in the section's place.
-    </span>
+    <ProductButton density="panel" intent="remove">Remove section</ProductButton>
+    <span class="boundary-tree-quiet">Keeps its rows.</span>
   </>
 )
 
@@ -279,10 +275,10 @@ const groupSettings = () => (
   <>
     <div class="boundary-tree-settings-head">
       <span class="boundary-tree-panel-title">Images</span>
-      <span class="boundary-tree-quiet">whole group</span>
+      <span class="boundary-tree-quiet">group</span>
     </div>
     <Setting label="Label">
-      <ProductTextInput density="canvas" value="Images" aria-label="Label" />
+      <ProductTextInput density="panel" value="Images" aria-label="Label" />
     </Setting>
     <Setting label="Goes to">
       <ProductLink href="#canvas">images on Stack</ProductLink>
@@ -298,11 +294,9 @@ const problemSettings = () => (
     </div>
     <div class="boundary-tree-problem" role="alert">
       <ProductIcon icon={TriangleAlert} />
-      <span>
-        Its row inside "Detail pass" was removed, so it sends nothing.
-      </span>
+      <span>Removed from "Detail pass".</span>
     </div>
-    <ProductButton density="canvas" intent="remove">Remove row</ProductButton>
+    <ProductButton density="panel" intent="remove">Remove row</ProductButton>
   </>
 )
 
@@ -537,7 +531,7 @@ export function BoundaryTreeGallery() {
           entries={[
             input('image', 'image', 'IMAGE', 'Detail pass'),
             input('detail', 'detail', 'FLOAT', 'Detail pass', {
-              problem: 'Its row inside Detail pass was removed',
+              problem: 'Removed from Detail pass',
             }),
             output('result', 'result', 'IMAGE', 'Detail pass'),
           ]}
@@ -552,11 +546,10 @@ export function BoundaryTreeGallery() {
         <Panel title="Detail pass" uses="used in 1 place" entries={[]}>
           <div class="boundary-tree-empty">
             <span>
-              Show a field, group or choice on the subgraph node from its
-              right-click menu inside, or drop a wire on the Inputs or Outputs
-              panel.
+              No rows yet. Right-click a field inside and choose Show on
+              subgraph node.
             </span>
-            <ProductButton density="canvas" intent="add">Add section</ProductButton>
+            <ProductButton density="panel" intent="add">Add section</ProductButton>
           </div>
         </Panel>
       </Example>
