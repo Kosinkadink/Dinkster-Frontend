@@ -272,8 +272,6 @@ export interface ElaboratedOutput {
   readonly ancestry?: readonly DynamicAncestor[]
   /** False when this output takes no part in wiring: a member the document does not store. */
   readonly wireable?: false
-  /** The output of a member past a count that shrank, kept because it is wired; it carries nothing. */
-  readonly outsideCount?: true
   readonly materialize?: readonly MaterializeFrame[]
   readonly boxes?: readonly string[]
 }
@@ -1518,22 +1516,6 @@ function elaboratePass(
       for (const [position, key] of [...later.entries()].sort(([a], [b]) => a - b)) {
         if (halted) return
         member(position, key, false, true)
-      }
-    }
-
-    // A count that shrank keeps the outputs of a later member whose output is
-    // wired, so the wire stays on its output. Drawn dimmed after the counted
-    // members, outside the count: they carry nothing and are not run.
-    if (view && !census && typeof grows === 'object' && 'count' in grows) {
-      for (let position = keys.length; position < limit; position++) {
-        if (halted) return
-        const key = memberKeyAt(row.keys, position)
-        if (key === undefined) break
-        const before = items.length
-        member(position, key, false, true)
-        const kept = items.splice(before).filter((item) => item.kind === 'box' || item.kind === 'output')
-        if (!kept.some((item) => item.kind === 'output' && connectivity.isOutputConnected(item.address.port))) continue
-        items.push(...kept.map((item) => item.kind === 'output' ? { ...item, outsideCount: true as const } : item))
       }
     }
 

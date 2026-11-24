@@ -303,7 +303,7 @@ export function boundaryTreeGallery(
     },
     {
       caption:
-        'A count that shrinks while part 3 is wired: at 1, part 3 stays drawn after the counted parts, dimmed and outside the count, and keeps its wire',
+        'A count that shrinks: at 3, part 3 is wired; lowered to 1, parts 2 and 3 are gone and the wire on part 3 goes with them, in the same undo step',
       scene: scene(
         {
           three: { schema: split, x: 24, y: 40, values: { count: 3 } },
@@ -313,7 +313,6 @@ export function boundaryTreeGallery(
         },
         [
           ['three', 'parts.part3', 'sink', 'value'],
-          ['one', 'parts.part3', 'sink1', 'value'],
         ],
       ),
     },

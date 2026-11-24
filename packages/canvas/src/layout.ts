@@ -1286,19 +1286,18 @@ export function layoutNode(
       }
       const slot = {
         portId: spec.id,
-        label: item.outsideCount ? `${displayLabel(spec)}, outside current count` : displayLabel(spec),
+        label: displayLabel(spec),
         type: spec.type,
         index: outputIndex++,
         ...(spec.optional ? { maybeAbsent: true as const } : {}),
         ...annotate(item),
-        ...(item.outsideCount ? { ghost: true as const } : {}),
       }
-      if (schema.source === 'subgraph' || item.outsideCount) {
+      if (schema.source === 'subgraph') {
         // A subgraph node's outputs keep the place the author gave them: an
         // output shares the line of the pin-only input directly above it in
         // the same box, unless it is kept on a line of its own.
         const above = pending.at(-1)
-        if (!spec.ownRow && !item.outsideCount && above?.kind === 'ports' && above.input !== undefined &&
+        if (!spec.ownRow && above?.kind === 'ports' && above.input !== undefined &&
           above.output === undefined && chainKey(above.boxes) === chainKey(chain)) above.output = slot
         else pending.push({ kind: 'ports', boxes: chain, output: slot })
         continue
