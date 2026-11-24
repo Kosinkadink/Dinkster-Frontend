@@ -67,7 +67,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   } catch { /* handled by the skip below */ }
   test.skip(table?.schemaVersion !== 1, `no current native Dinkster backend reachable at ${NATIVE_BACKEND}`)
   const nodes = table!.nodes ?? {}
-  requireBackendNodes(nodes, ['dinkster.utilities.curve_editor', 'dinkster.image.image_histogram'], testInfo)
+  requireBackendNodes(nodes, ['dinkster.utilities.curve_editor', 'dinkster.image.image_add_noise', 'dinkster.image.image_histogram'], testInfo)
 
 
   await page.route('/system_stats', (route) =>
@@ -95,12 +95,15 @@ test.beforeEach(async ({ page }, testInfo) => {
             editor: { id: 'editor', type: 'dinkster.utilities.curve_editor', values: {} },
             image: {
               id: 'image', type: 'dinkster.image.empty_image',
-              values: { width: 64, height: 36, batch_size: 1, color: 0x406080 },
+              values: { width: 128, height: 128, batch_size: 1, color: 0x808080 },
             },
+            // Noise spreads the grey image's histogram into a bell over many bins.
+            noise: { id: 'noise', type: 'dinkster.image.image_add_noise', values: { strength: 0.15, seed: 7 } },
             histogram: { id: 'histogram', type: 'dinkster.image.image_histogram', values: {} },
           },
           links: {
-            imageWire: { id: 'imageWire', from: { node: 'image', port: 'IMAGE' }, to: { node: 'histogram', port: 'image' } },
+            imageWire: { id: 'imageWire', from: { node: 'image', port: 'IMAGE' }, to: { node: 'noise', port: 'image' } },
+            noiseWire: { id: 'noiseWire', from: { node: 'noise', port: 'IMAGE' }, to: { node: 'histogram', port: 'image' } },
             histogramWire: { id: 'histogramWire', from: { node: 'histogram', port: 'rgb' }, to: { node: 'editor', port: 'histogram' } },
           },
           nets: {}, reroutes: {}, nextOrdinal: 2,
@@ -112,7 +115,8 @@ test.beforeEach(async ({ page }, testInfo) => {
             nodes: {
               editor: { position: { x: 80, y: 110 } },
               image: { position: { x: -900, y: 110 } },
-              histogram: { position: { x: -500, y: 110 } },
+              noise: { position: { x: -700, y: 110 } },
+              histogram: { position: { x: -400, y: 110 } },
             },
           },
         },
@@ -280,7 +284,7 @@ test('edits in the node, undoes, reloads, runs and draws the wired histogram of 
   }
 
   expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get()
-    .filter((problem) => problem.severity === 'error' && /curve|histogram|empty_image/.test(problem.message))
+    .filter((problem) => problem.severity === 'error' && /curve|histogram|empty_image|add_noise/.test(problem.message))
     .map((problem) => `${problem.code}: ${problem.message}`))).toEqual([])
   const errors = browserErrors.get(page)
   if (errors === undefined) throw new Error('browser error collector was not installed')
