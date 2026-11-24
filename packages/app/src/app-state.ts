@@ -883,25 +883,16 @@ export interface AdvancementPlan {
   readonly modeGenerations: ReadonlyMap<string, number>
 }
 
-type AdvancementInputLocation = { readonly graphId: string } & (
-  | { readonly nodeId: string; readonly inputId: string }
-  | { readonly valueSourceId: string }
-)
+type AdvancementInputLocation = { readonly graphId: string; readonly nodeId: string; readonly inputId: string }
 
 const advancementInputKey = (step: AdvancementInputLocation): string =>
-  JSON.stringify('valueSourceId' in step
-    ? ['graphs', step.graphId, 'valueSources', step.valueSourceId, 'value']
-    : ['graphs', step.graphId, 'nodes', step.nodeId, 'values', step.inputId])
+  JSON.stringify(['graphs', step.graphId, 'nodes', step.nodeId, 'values', step.inputId])
 
 const controllerSourceLocation = (source: ControllerInputSource): AdvancementInputLocation =>
-  'valueSource' in source
-    ? { graphId: source.graph, valueSourceId: source.valueSource }
-    : { graphId: source.graph, nodeId: source.occurrence.node, inputId: source.valueKey }
+  ({ graphId: source.graph, nodeId: source.occurrence.node, inputId: source.valueKey })
 
 const controllerStoredValue = (document: WorkflowDocument, location: AdvancementInputLocation): Json | undefined =>
-  'valueSourceId' in location
-    ? document.graphs[location.graphId]?.valueSources?.[location.valueSourceId]?.value
-    : document.graphs[location.graphId]?.nodes[location.nodeId]?.values[location.inputId]
+  document.graphs[location.graphId]?.nodes[location.nodeId]?.values[location.inputId]
 
 const controllerInputKey = (
   runtimeId: string,
@@ -1036,14 +1027,12 @@ function effectiveControllerState(
   let mode: ControllerMode | undefined
   let valueSourceCount = sources.length
   for (const [index, source] of sources.entries()) {
-    const graph = document.graphs[source.graph]
-    const node = 'valueSource' in source ? undefined : graph?.nodes[source.occurrence.node]
-    const literal = 'valueSource' in source ? graph?.valueSources?.[source.valueSource] : undefined
+    const node = document.graphs[source.graph]?.nodes[source.occurrence.node]
     if (current === undefined) {
       current = controllerStoredValue(document, controllerSourceLocation(source))
       if (current !== undefined) valueSourceCount = index + 1
     }
-    if (mode === undefined) mode = 'valueSource' in source ? literal?.controller : node?.controllers?.[source.valueKey]
+    if (mode === undefined) mode = node?.controllers?.[source.valueKey]
   }
   if (current === undefined && (widget.default !== undefined || !optional)) {
     current = effectiveWidgetDefault(widget)
@@ -1067,9 +1056,8 @@ export function controllerAdvancement(
 
 /** The batch invocation for a set of advancement steps ([] -> undefined). */
 export function advancementInvocation(steps: readonly AdvancementStep[]): CommandInvocation | undefined {
-  const invocations = steps.map((step) => 'valueSourceId' in step
-    ? { command: 'valueSource.setValue', params: { graphId: step.graphId, valueSourceId: step.valueSourceId, value: step.value } }
-    : { command: 'node.setValue', params: { graphId: step.graphId, nodeId: step.nodeId, inputId: step.inputId, value: step.value } })
+  const invocations = steps.map((step) =>
+    ({ command: 'node.setValue', params: { graphId: step.graphId, nodeId: step.nodeId, inputId: step.inputId, value: step.value } }))
   return invocations.length > 0 ? { command: 'batch', params: { invocations } as unknown as Json } : undefined
 }
 
@@ -1105,7 +1093,7 @@ export function controllerAdvancementPlan(
     if (input === undefined) continue
     const location = controllerSourceLocation(owner)
     const graph = document.graphs[owner.graph]
-    if ('valueSourceId' in location ? !graph?.valueSources?.[location.valueSourceId] : !graph?.nodes[location.nodeId]) continue
+    if (!graph?.nodes[location.nodeId]) continue
     const state = effectiveControllerState(document, input.sources, input.widget, input.optional)
     if (state.current === undefined || state.mode === 'fixed') continue
     let value: Json
@@ -1172,7 +1160,6 @@ const LEGACY_BOOLEAN_TOKENS: ReadonlyMap<string, boolean> = new Map([
 export interface CanvasBridge {
   readonly selectedNodes: () => readonly string[]
   readonly groupMembers: (graphId: string, groupId: string) => readonly string[] | undefined
-  readonly showValueSource?: (tabId: string, graphId: string, valueSourceId: string) => void
   /** App-level actions live here so commands do not reach into renderer internals. */
   readonly deleteSelection: () => void | Promise<void>
   readonly selectAll: () => void
@@ -2415,11 +2402,7 @@ const readableRegionTemplateLayout = (document: WorkflowDocument): WorkflowDocum
     const previous = document.view.graphs[graphId]
     const hasDependentGeometry =
       Object.keys(graph.reroutes).length > 0 ||
-      Object.keys(graph.valueSources ?? {}).length > 0 ||
-      Object.keys(graph.selectors ?? {}).length > 0 ||
       Object.keys(previous?.reroutes ?? {}).length > 0 ||
-      Object.keys(previous?.valueSources ?? {}).length > 0 ||
-      Object.keys(previous?.selectors ?? {}).length > 0 ||
       Object.keys(previous?.groups ?? {}).length > 0 ||
       previous?.boundary !== undefined
     if (queue.length !== nodeIds.length || hasDependentGeometry) {
@@ -5883,7 +5866,7 @@ export class AppState {
         typeof (item as JsonObject).command === 'string' && this.frozenPresentationCommand(item as unknown as CommandInvocation))
     }
     return [
-      'node.move', 'selection.move', 'reroute.move', 'valueSource.move', 'selector.move',
+      'node.move', 'selection.move', 'reroute.move',
       'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed',
       'view.moveBoundaryNode', 'view.moveGroup', 'view.setGroupBounds',
       'view.setNetCollapsed', 'view.setNetDisplay', 'view.setAllNetsDisplay',
@@ -7739,7 +7722,7 @@ export class AppState {
       ...installed.filter(({ rule }) => rule.cases.every((branch) =>
         Object.entries(branch.inputs ?? {}).every(([target, mapping]) =>
           mapping.kind === 'constant' || mapping.input === target))),
-    ])
+    ], registry.schemas.values())
     const imported = result.document === undefined ? result : {
       ...result,
       document: initializeBoundaryViews(result.document, this.boundaryPositionResolver(registry.resolve)).doc,
@@ -8516,7 +8499,7 @@ export class AppState {
         const child = tab.store.doc.graphs[childId]
         if (!child) return
         const childPath = [...path, asNodeId(id)]
-        const childTargets = new Set(outputsOnly ? [] : child.boundary?.outputs.flatMap((item) => item.binds.kind === 'unbound' || item.binds.kind === 'valueSource' ? [] : [item.binds.node]) ?? [])
+        const childTargets = new Set(outputsOnly ? [] : child.boundary?.outputs.flatMap((item) => item.binds.kind === 'unbound' ? [] : [item.binds.node]) ?? [])
         for (const inner of Object.values(child.nodes)) if (resolve(inner.type)?.isOutputNode) childTargets.add(inner.id)
         for (const childTarget of [...childTargets].sort()) visit(childId, childPath, childTarget)
       }
@@ -8931,12 +8914,7 @@ export class AppState {
         const selected = choices.get(JSON.stringify([graph, selector]))
         return selected !== undefined && candidates.includes(selected) ? selected : undefined
       },
-      pickCandidate: ({ graph, selector }) => {
-        const selected = choices.get(JSON.stringify([graph, selector]))
-        const candidates = tab.store.doc.graphs[graph]?.selectors?.[selector]?.candidates
-        const index = selected === undefined ? -1 : candidates?.findIndex((candidate) => candidate.id === selected) ?? -1
-        return index < 0 ? 0 : index
-      },
+      pickCandidate: () => 0,
     })
     if (!current.ok) return
     const liveControllerInputs = new Map((current.artifact.provenance.controllerInputs ?? []).map((controller) => [
@@ -8946,7 +8924,7 @@ export class AppState {
     const doc = tab.store.doc
     const applicable = plan.steps.filter((step) => {
       const graph = doc.graphs[step.graphId]
-      if ('valueSourceId' in step ? !graph?.valueSources?.[step.valueSourceId] : !graph?.nodes[step.nodeId]) return false
+      if (!graph?.nodes[step.nodeId]) return false
       if (controllerStoredValue(doc, step) !== step.expected) return false
       const liveController = step.controllers.flatMap((queued) => {
         const live = liveControllerInputs.get(controllerInputKey(queued.runtimeId, queued.terminal))

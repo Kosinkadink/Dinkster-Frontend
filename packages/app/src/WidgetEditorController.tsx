@@ -46,7 +46,7 @@ import {
 export { parseNumericCommit, widgetCommitError, type NumericCommitResult } from './widget-commit.js'
 export { withMaterializeFrames } from './widget-editor-command.js'
 
-/** What a widget editor writes to: a node input, or a value source's value. */
+/** What a widget editor writes to: a node input. */
 export type EditorTarget =
   | {
       readonly kind: 'input'
@@ -74,7 +74,6 @@ export type EditorTarget =
        */
       readonly parts?: WidgetParts
     }
-  | { readonly kind: 'valueSource'; readonly valueSourceId: string }
 
 /**
  * The node row a widget part names: the row the widget writes or reads under
@@ -82,7 +81,7 @@ export type EditorTarget =
  * the editor treats as absent.
  */
 export function partRow(target: EditorTarget, part: string): string | undefined {
-  const parts = target.kind === 'input' ? target.parts : undefined
+  const parts = target.parts
   if (parts === undefined) return undefined
   return Object.hasOwn(parts.writes, part) ? parts.writes[part] : Object.hasOwn(parts.reads, part) ? parts.reads[part] : undefined
 }
@@ -98,12 +97,9 @@ export interface WidgetEditorState {
   tab: Tab
   readonly graphId: string
   readonly target: EditorTarget
-  /** The same display label painted on the widget row or value source. */
+  /** The same display label painted on the widget row. */
   readonly label: string
-  /**
-   * Effective widget spec. Undefined = the raw JSON fallback editor (an
-   * unconnected, undeclared value source still has an editable value - P2).
-   */
+  /** Effective widget spec. Undefined = the raw JSON fallback editor. */
   readonly spec: WidgetSpec | undefined
   /** Resolved row view, including a user-selected presentation override. */
   readonly viewId?: string
@@ -281,7 +277,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
   // An editor that writes another row of its node never writes through that row's wire.
   const wiredWrite = ((): string | undefined => {
     const target = ed.target
-    if (target.kind !== 'input' || target.familyOwner !== undefined || target.parts === undefined) return undefined
+    if (target.familyOwner !== undefined || target.parts === undefined) return undefined
     if (!Object.values(target.parts.writes).includes(target.valueKey)) return undefined
     const graph = ed.tab.store.doc.graphs[ed.graphId]
     if (graph === undefined) return undefined
@@ -326,12 +322,6 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     if (wiredWrite !== undefined) {
       setCommitError(message('widgetEditor.writeWired', { row: wiredWrite }))
       return Promise.resolve(false)
-    }
-    if (ed.target.kind !== 'input') {
-      return commitCommand({
-        command: 'valueSource.setValue',
-        params: { graphId: ed.graphId, valueSourceId: ed.target.valueSourceId, value },
-      })
     }
     const selectorCommand = dynamicSelectorCommitCommand(ed, value)
     if (selectorCommand !== undefined) {

@@ -6,14 +6,13 @@
  * errors; unresolved inputs, cycles, and non-scalar results stay absent.
  */
 import { describe, expect, it } from 'vitest'
-import type { GraphDef, ValueSourceData } from '../src/format/document.js'
+import type { GraphDef } from '../src/format/document.js'
 import {
   asGraphDefId,
   asLinkId,
   asNetId,
   asNodeId,
   asPortId,
-  asValueSourceId,
 } from '../src/ids.js'
 import { deriveMirrorEstimates } from '../src/mirror/estimate.js'
 import type { MirrorSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
@@ -22,9 +21,9 @@ const port = (node: string, portId: string) => ({ node: asNodeId(node), port: as
 /** Document address of one `values` group member: its flattened id (`values.a`). */
 const member = (node: string, key: string) => port(node, `values.${key}`)
 const tap = (node: string, inputId: string) => ({ node: asNodeId(node), tap: asPortId(inputId) })
-const vsrc = (id: string) => ({ valueSource: asValueSourceId(id) })
-const source = (id: string, value: unknown): ValueSourceData =>
-  ({ id: asValueSourceId(id), value }) as ValueSourceData
+/** A primitive holding a literal: its known-value output passes on its stored field. */
+const vsrc = (id: string) => port(id, 'out')
+const source = (id: string, value: unknown) => node(id, 'KnownIntNode', { steps: value })
 const link = (id: string, from: object, to: object) =>
   ({ id: asLinkId(id), from, to }) as GraphDef['links'][string]
 
@@ -36,15 +35,16 @@ const node = (id: string, type: string, values: Record<string, unknown> = {}, me
     ...(memberIds ? { dynamic: { values: { members: memberIds } } } : {}),
   }) as GraphDef['nodes'][string]
 
-function graph(partial: Omit<Partial<GraphDef>, 'id'> & { id: string }): GraphDef {
+function graph(partial: Omit<Partial<GraphDef>, 'id'> & { id: string; sources?: GraphDef['nodes'] }): GraphDef {
+  const { sources, ...rest } = partial
   return {
     name: 'g',
-    nodes: {},
     links: {},
     nets: {},
     reroutes: {},
     nextOrdinal: 100,
-    ...partial,
+    ...rest,
+    nodes: { ...rest.nodes, ...sources },
     id: asGraphDefId(partial.id),
   }
 }
@@ -131,11 +131,11 @@ const estimateOf = (def: GraphDef, nodeId = 'm1') =>
   deriveMirrorEstimates(def, resolve).get(nodeId)
 
 describe('deriveMirrorEstimates', () => {
-  it('computes all three scalar outputs from value-source literals', () => {
+  it('computes all three scalar outputs from primitive literals', () => {
     const def = graph({
       id: 'g0',
       nodes: { m1: node('m1', 'dinkster.math.expression', { expression: 'a + b' }, ['a', 'b']) },
-      valueSources: { v1: source('v1', 2), v2: source('v2', 3.5) },
+      sources: { v1: source('v1', 2), v2: source('v2', 3.5) },
       links: {
         l1: link('l1', vsrc('v1'), member('m1', 'a')),
         l2: link('l2', vsrc('v2'), member('m1', 'b')),
@@ -148,7 +148,7 @@ describe('deriveMirrorEstimates', () => {
     const def = graph({
       id: 'g0',
       nodes: { m1: node('m1', 'dinkster.math.expression', { expression: 'a // b' }, ['a', 'b']) },
-      valueSources: { v1: source('v1', 7), v2: source('v2', 2) },
+      sources: { v1: source('v1', 7), v2: source('v2', 2) },
       links: {
         l1: link('l1', vsrc('v1'), member('m1', 'a')),
         l2: link('l2', vsrc('v2'), member('m1', 'b')),
@@ -199,7 +199,7 @@ describe('deriveMirrorEstimates', () => {
         src: node('src', 'IntNode'),
         m1: node('m1', 'dinkster.math.expression', { expression: 'a + b' }, ['a', 'b']),
       },
-      valueSources: { v1: source('v1', 2) },
+      sources: { v1: source('v1', 2) },
       links: {
         l1: link('l1', vsrc('v1'), member('m1', 'a')),
         l2: link('l2', port('src', 'out'), member('m1', 'b')),
@@ -264,7 +264,7 @@ describe('deriveMirrorEstimates', () => {
         first: node('first', 'dinkster.math.expression', { expression: 'a + 0.5' }, ['a']),
         second: node('second', 'dinkster.math.expression', { expression: 'a * 2' }, ['a']),
       },
-      valueSources: { v1: source('v1', 2) },
+      sources: { v1: source('v1', 2) },
       links: {
         l1: link('l1', vsrc('v1'), member('first', 'a')),
         l2: link('l2', port('first', 'float'), member('second', 'a')),
@@ -284,7 +284,7 @@ describe('deriveMirrorEstimates', () => {
         first: node('first', 'dinkster.math.expression', { expression: 'a * 2' }, ['a']),
         second: node('second', 'dinkster.math.expression', { expression: 'a + 1' }, ['a']),
       },
-      valueSources: { v1: source('v1', 2) },
+      sources: { v1: source('v1', 2) },
       links: {
         l1: link('l1', vsrc('v1'), member('first', 'a')),
         l2: link('l2', port('first', 'float'), member('second', 'a')),
@@ -305,7 +305,7 @@ describe('deriveMirrorEstimates', () => {
         first: node('first', 'dinkster.math.expression', { expression: 'a / 0' }, ['a']),
         second: node('second', 'dinkster.math.expression', { expression: 'a + 1' }, ['a']),
       },
-      valueSources: { v1: source('v1', 2) },
+      sources: { v1: source('v1', 2) },
       links: {
         l1: link('l1', vsrc('v1'), member('first', 'a')),
         l2: link('l2', port('first', 'float'), member('second', 'a')),
@@ -336,7 +336,7 @@ describe('deriveMirrorEstimates', () => {
         first: node('first', 'dinkster.math.expression', { expression: 'a + 1' }, ['a']),
         second: node('second', 'dinkster.math.expression', { expression: 'a + 1' }, ['a']),
       },
-      valueSources: { v1: source('v1', 2) },
+      sources: { v1: source('v1', 2) },
       links: {
         l1: link('l1', vsrc('v1'), member('first', 'a')),
         l2: link('l2', port('first', 'float'), member('second', 'a')),
@@ -350,7 +350,7 @@ describe('deriveMirrorEstimates', () => {
       const def = graph({
         id: 'g0',
         nodes: { m1: node('m1', 'dinkster.math.expression', { expression: 'a + 1' }, ['a']) },
-        valueSources: { v1: source('v1', bad) },
+        sources: { v1: source('v1', bad) },
         links: { l1: link('l1', vsrc('v1'), member('m1', 'a')) },
       })
       expect(estimateOf(def)).toBeUndefined()
@@ -363,7 +363,7 @@ describe('deriveMirrorEstimates', () => {
       const def = graph({
         id: 'g0',
         nodes: { m1: node('m1', 'dinkster.math.expression', { expression }, ['a', 'b']) },
-        valueSources: { v1: source('v1', 1), v2: source('v2', 0) },
+        sources: { v1: source('v1', 1), v2: source('v2', 0) },
         links: {
           l1: link('l1', vsrc('v1'), member('m1', 'a')),
           l2: link('l2', vsrc('v2'), member('m1', 'b')),
@@ -380,7 +380,7 @@ describe('deriveMirrorEstimates', () => {
     const def = graph({
       id: 'g0',
       nodes: { m1: node('m1', 'dinkster.math.expression', { expression: 'a ** b' }, ['a', 'b']) },
-      valueSources: { v1: source('v1', 2), v2: source('v2', 60) },
+      sources: { v1: source('v1', 2), v2: source('v2', 60) },
       links: {
         l1: link('l1', vsrc('v1'), member('m1', 'a')),
         l2: link('l2', vsrc('v2'), member('m1', 'b')),

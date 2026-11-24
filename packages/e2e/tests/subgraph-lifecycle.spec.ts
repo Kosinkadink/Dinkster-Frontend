@@ -657,7 +657,7 @@ test('region occurrence flatten refusal is displayed with its code and anchor', 
             id: 'regionBody',
             name: 'Region Body',
             nodes: { n0: { id: 'n0', type: template.type, values: {} } },
-            links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {},
+            links: {}, nets: {}, reroutes: {},
             boundary: {
               inputs: [{ id: 'item', binds: { kind: 'port', node: 'n0', port: 'item' } }],
               outputs: [{ id: 'result', binds: { kind: 'port', node: 'n0', port: 'result' } }],

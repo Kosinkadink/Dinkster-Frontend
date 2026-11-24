@@ -80,7 +80,7 @@ describe('a primitive works out its value widget', () => {
     expect(effective.diagnostics).toEqual([])
     // The fields share a default of 4, so Reset goes there, and the empty Default field shows it dimmed.
     expect(effective.spec?.default).toBe(4)
-    const drawn = documentNodeResolver(doc, resolve, undefined, documentPrimitiveResolver(doc, resolve))('g0', doc.graphs['g0']!.nodes['prim'] as NodeData, [])!
+    const drawn = documentNodeResolver(doc, resolve, documentPrimitiveResolver(doc, resolve))('g0', doc.graphs['g0']!.nodes['prim'] as NodeData, [])!
     expect(inputsOf(drawn).find((row) => row.id === 'default')!.widget).toMatchObject({ default: 4, automatic: true })
     // The value itself is never corrected by working out the range.
     expect(doc.graphs['g0']!.nodes['prim']!.values['value']).toBe(2)
@@ -94,7 +94,7 @@ describe('a primitive works out its value widget', () => {
     expect([...effective.derived]).toEqual(['max'])
     expect(effective.spec?.default).toBe(7)
     const node = doc.graphs['g0']!.nodes['prim'] as NodeData
-    const drawn = documentNodeResolver(doc, resolve, undefined, documentPrimitiveResolver(doc, resolve))('g0', node, [])!
+    const drawn = documentNodeResolver(doc, resolve, documentPrimitiveResolver(doc, resolve))('g0', node, [])!
     const value = inputsOf(drawn).find((row) => row.id === 'value')!
     expect(value.widget?.options).toMatchObject({ min: 5, max: 8 })
     expect(value.displayName).toBe('Steps')
@@ -198,8 +198,10 @@ describe('renaming a Switch\'s branch', () => {
       const node = doc.graphs['g0']!.nodes[id] as NodeData
       ;(doc.graphs['g0']!.nodes as Record<string, NodeData>)[id] = { ...node, dynamic: { branch: { members: ['a', 'b'], memberLabels } } } as NodeData
     }
-    return new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => all }))
+    return storeOf(doc)
   }
+  const storeOf = (doc: WorkflowDocument) =>
+    new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => all }))
   const rename = (store: DocumentStore, nodeId: string, member: string, label: string) =>
     store.dispatch({ command: 'dynamic.labelMember', params: { graphId: 'g0', nodeId, construct: 'branch', member, label } })
   const valueOf = (store: DocumentStore, nodeId: string) => store.doc.graphs['g0']!.nodes[nodeId]!.values['value']
@@ -212,6 +214,26 @@ describe('renaming a Switch\'s branch', () => {
     expect(store.undo()).toBe(true)
     expect(valueOf(store, 'choice')).toBe('Detailed')
     expect(store.doc.graphs['g0']!.nodes['s1']!.dynamic?.['branch']?.memberLabels?.['b']).toBe('Detailed')
+  })
+
+  it.each(['reroute', 'named net'] as const)('gives a Choice that reaches Pick through a %s the new name', (route) => {
+    const doc = docOf({ choice: { type: 'Choice', values: { value: 'Detailed' } }, s1: { type: 'Switch' } }, [])
+    const graph = doc.graphs['g0'] as unknown as Record<string, unknown> & { nodes: Record<string, NodeData> }
+    graph.nodes['s1'] = { ...graph.nodes['s1']!, dynamic: { branch: { members: ['a', 'b'], memberLabels: { a: 'Quick', b: 'Detailed' } } } } as NodeData
+    if (route === 'reroute') {
+      graph['reroutes'] = { r1: { id: 'r1' } }
+      graph['links'] = {
+        l0: { id: 'l0', from: { node: 'choice', port: 'COMBO' }, to: { reroute: 'r1' } },
+        l1: { id: 'l1', from: { reroute: 'r1' }, to: { node: 's1', port: 'pick' } },
+      }
+    } else {
+      graph['nets'] = { n1: { id: 'n1', name: 'mode', source: { node: 'choice', port: 'COMBO' }, sinks: [{ node: 's1', port: 'pick' }] } }
+    }
+    const store = storeOf(doc)
+    expect(rename(store, 's1', 'b', 'Final').ok).toBe(true)
+    expect(valueOf(store, 'choice')).toBe('Final')
+    expect(store.undo()).toBe(true)
+    expect(valueOf(store, 'choice')).toBe('Detailed')
   })
 
   it('keeps the old name when another Switch the Choice feeds has no branch with the new one', () => {
@@ -262,7 +284,7 @@ describe('a primitive\'s range from its menu', () => {
   const [widgetReset, , , primitiveRange] = resetMenuContributions(() => resolve)
   const menu = (doc: WorkflowDocument): MenuContext => ({
     doc, graphId: 'g0', target: { kind: 'widget', nodeId: 'prim', inputId: 'value' },
-    selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] }, worldX: 0, worldY: 0,
+    selection: { nodes: [], links: [], reroutes: [] }, worldX: 0, worldY: 0,
   })
   const run = (store: DocumentStore, item: MenuItem) => {
     const action = (item as MenuActionItem).action

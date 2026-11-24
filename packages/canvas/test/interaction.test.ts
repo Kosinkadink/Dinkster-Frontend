@@ -13,7 +13,7 @@ import { subgraphMarkRect } from '../src/registry-painter.js'
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
 import { BOUNDARY_ADD_SLOT, layoutNode, memberAt, type LayoutRow } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
-import { buildScene, REROUTE_SOCKET_OFFSET, scenesEqual, valueSourceMarkRect, type Scene, type SceneNode } from '../src/scene.js'
+import { buildScene, REROUTE_SOCKET_OFFSET, scenesEqual, type Scene, type SceneNode } from '../src/scene.js'
 import { layoutNodeBadges, SUBGRAPH_BADGE } from '../src/badges.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
@@ -331,8 +331,6 @@ function interactionScene(): Scene {
     nodes: [node('n1', 10), node('n2', 200)],
     links: [],
     reroutes: [{ id: 'r1', x: 400, y: 100, typeName: 'FLOAT' }],
-    valueSources: [{ id: 'v1', x: 500, y: 100, width: 80, height: 30, value: 1, effective: { widgetType: 'FLOAT', type: { kind: 'concrete', name: 'FLOAT' } } }],
-    selectors: [{ id: 's1', x: 600, y: 100, width: 100, height: 50, headerHeight: 20, candidates: [], policy: { kind: 'fixed', candidate: 'x' } }],
     netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
   } as unknown as Scene
 }
@@ -415,7 +413,7 @@ describe('node selection modifiers', () => {
     harness.fire('pointerdown', 410, 15, { shiftKey: true })
 
     expect(changed).toHaveBeenLastCalledWith(
-      new Set(['n3']), new Set(), new Set(), new Set(), new Set(), new Set(),
+      new Set(['n3']), new Set(), new Set(), new Set(),
     )
   })
 
@@ -426,7 +424,7 @@ describe('node selection modifiers', () => {
       harness.controller.setSelection(['n1'])
       harness.fire('pointerdown', 220, 15, modifier)
       expect(changed).toHaveBeenLastCalledWith(
-        new Set(['n1', 'n2']), new Set(), new Set(), new Set(), new Set(), new Set(),
+        new Set(['n1', 'n2']), new Set(), new Set(), new Set(),
       )
     }
   })
@@ -449,7 +447,7 @@ describe('node selection modifiers', () => {
     harness.controller.setSelection(['n1'])
     harness.fire('pointerdown', 600, 15, { shiftKey: true })
     expect(changed).toHaveBeenLastCalledWith(
-      new Set(['n1', 'n4']), new Set(), new Set(), new Set(), new Set(), new Set(),
+      new Set(['n1', 'n4']), new Set(), new Set(), new Set(),
     )
   })
 
@@ -461,7 +459,7 @@ describe('node selection modifiers', () => {
     harness.fire('pointerdown', 600, 15, { shiftKey: true })
 
     expect(changed).toHaveBeenLastCalledWith(
-      new Set(['n1']), new Set(), new Set(), new Set(), new Set(), new Set(),
+      new Set(['n1']), new Set(), new Set(), new Set(),
     )
   })
 
@@ -510,7 +508,7 @@ describe('node selection modifiers', () => {
     harness.fire('pointerdown', 220, 15, { shiftKey: true })
 
     expect(changed).toHaveBeenLastCalledWith(
-      new Set(['n1', 'n2']), new Set(), new Set(['r1']), new Set(), new Set(), new Set(),
+      new Set(['n1', 'n2']), new Set(), new Set(['r1']), new Set(),
     )
   })
 
@@ -549,7 +547,7 @@ describe('marquee selection', () => {
     harness.fire('pointerup', 420, 120, { ctrlKey: true })
 
     expect(changed).toHaveBeenLastCalledWith(
-      new Set(), new Set(), new Set(['r1']), new Set(), new Set(), new Set(),
+      new Set(), new Set(), new Set(['r1']), new Set(),
     )
   })
 
@@ -577,8 +575,6 @@ describe('marquee selection', () => {
       new Set(['n1', 'n2', '@boundary:inputs']),
       new Set(),
       new Set(['r1']),
-      new Set(['v1']),
-      new Set(['s1']),
       new Set(['grp0']),
     ])
   })
@@ -592,8 +588,6 @@ describe('marquee selection', () => {
       graphId: 'gSub',
       nodes: [interactionScene().nodes[0]!],
       reroutes: [],
-      valueSources: [],
-      selectors: [],
       groups: [],
       boundaryNodes: [],
     }
@@ -601,12 +595,12 @@ describe('marquee selection', () => {
     harness.controller.selectAll()
     harness.replaceScene(subgraph)
     expect(changed).toHaveBeenLastCalledWith(
-      new Set(), new Set(), new Set(), new Set(), new Set(), new Set(),
+      new Set(), new Set(), new Set(), new Set(),
     )
     harness.controller.selectAll()
 
     expect(changed).toHaveBeenLastCalledWith(
-      new Set(['n1']), new Set(), new Set(), new Set(), new Set(), new Set(),
+      new Set(['n1']), new Set(), new Set(), new Set(),
     )
   })
 
@@ -1037,8 +1031,6 @@ describe('occurrence region index pins', () => {
       }]
       scene.nodes.slice(1).forEach((node: any) => { node.layout.pins = [] })
       scene.reroutes = []
-      scene.valueSources = []
-      scene.selectors = []
       scene.boundaryNodes = [{
         side: 'inputs', x: -200, y: 10,
         layout: {
@@ -1092,8 +1084,6 @@ describe('node-body link drops', () => {
     const scene = interactionScene() as any
     const type = (name: string) => ({ kind: 'concrete', name })
     scene.reroutes = []
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'out', address: { port: 'out' }, direction: 'out', y: 22, type: type('FLOAT') },
       { portId: 'in', address: { port: 'in' }, direction: 'in', y: 38, type: type('FLOAT') },
@@ -1336,8 +1326,6 @@ describe('link drops on a field row', () => {
   const fieldScene = (): Scene => {
     const scene = interactionScene() as any
     scene.reroutes = []
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [pin('out', 'out', 22, FLOAT), pin('in', 'in', 38, FLOAT)]
     scene.nodes[1].node.values = { steps: 20, cfg: 7, seed: 1, denoise: 1 }
     scene.nodes[1].layout = {
@@ -1454,8 +1442,6 @@ describe('COMBO link gesture regressions', () => {
   const comboScene = (): Scene => {
     const scene = interactionScene() as any
     scene.reroutes = []
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'out', address: { port: 'out' }, direction: 'out', y: 22, type: STRING },
     ]
@@ -1513,8 +1499,6 @@ describe('modifier parity across link endpoint kinds', () => {
 
   const tapBoundaryScene = (connected: boolean): Scene => {
     const scene = interactionScene() as any
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'amount', address: { port: 'amount' }, direction: 'out', y: 22, type: FLOAT, widgetTap: true },
     ]
@@ -1549,8 +1533,6 @@ describe('modifier parity across link endpoint kinds', () => {
   ])
 
   it.each([
-    { kind: 'valueSource' as const, id: 'v1', start: { x: 580, y: 115 } },
-    { kind: 'selector' as const, id: 's1', start: { x: 700, y: 110 } },
     { kind: 'reroute' as const, id: 'r1', start: { x: 400 + REROUTE_SOCKET_OFFSET, y: 100 }, hover: { x: 400, y: 100 } },
   ])('refuses a $kind as a direct boundary output producer', ({ kind, id, start, hover }) => {
     const scene: Scene = {
@@ -1631,8 +1613,6 @@ describe('modifier parity across link endpoint kinds', () => {
 
   it('Shift-grabbing a connected widget tap re-sources its whole fan-out', () => {
     const scene = interactionScene() as any
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'amount', address: { port: 'amount' }, direction: 'out', y: 22, type: FLOAT, widgetTap: true },
     ]
@@ -1663,8 +1643,6 @@ describe('modifier parity across link endpoint kinds', () => {
 
   it('Shift-moving a connected widget tap onto empty canvas disconnects it', () => {
     const scene = interactionScene() as any
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'amount', address: { port: 'amount' }, direction: 'out', y: 22, type: FLOAT, widgetTap: true },
     ]
@@ -1691,8 +1669,6 @@ describe('modifier parity across link endpoint kinds', () => {
 
   it('Shift-moving an output fan-out onto empty canvas disconnects every link in one batch', () => {
     const scene = interactionScene() as any
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'out', address: { port: 'out' }, direction: 'out', y: 22, type: FLOAT },
     ]
@@ -1731,8 +1707,6 @@ describe('modifier parity across link endpoint kinds', () => {
   it('Shift-moving an all-definition fan-out stays on definition commands while drilled', () => {
     const scene = interactionScene() as any
     scene.occurrence = { owner: { instancePath: [], node: 'instance' }, bodyGraph: 'g0' }
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'out', address: { port: 'out' }, direction: 'out', y: 22, type: FLOAT },
     ]
@@ -1763,8 +1737,6 @@ describe('modifier parity across link endpoint kinds', () => {
   it('Shift-moving a fan-out mixing definition and occurrence links refuses while drilled', () => {
     const scene = interactionScene() as any
     scene.occurrence = { owner: { instancePath: [], node: 'instance' }, bodyGraph: 'g0' }
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'out', address: { port: 'out' }, direction: 'out', y: 22, type: FLOAT },
     ]
@@ -1793,8 +1765,6 @@ describe('modifier parity across link endpoint kinds', () => {
   for (const terminalEvent of ['pointercancel', 'lostpointercapture'] as const) {
     it(`${terminalEvent} during a Shift move-source gesture preserves the grabbed link`, () => {
       const scene = interactionScene() as any
-      scene.valueSources = []
-      scene.selectors = []
       scene.nodes[0].layout.pins = [
         { portId: 'out', address: { port: 'out' }, direction: 'out', y: 22, type: FLOAT },
       ]
@@ -1816,8 +1786,6 @@ describe('modifier parity across link endpoint kinds', () => {
 
   it('Shift-grabbing a reroute output socket re-sources its whole fan-out', () => {
     const scene = interactionScene() as any
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'out', address: { port: 'out' }, direction: 'out', y: 22, type: FLOAT },
     ]
@@ -1842,8 +1810,6 @@ describe('modifier parity across link endpoint kinds', () => {
 
   it('Shift-grabbing a driven reroute input preserves its driver on an empty drop', () => {
     const scene = interactionScene() as any
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'out', address: { port: 'out' }, direction: 'out', y: 22, type: FLOAT },
     ]
@@ -1864,8 +1830,6 @@ describe('modifier parity across link endpoint kinds', () => {
 
   it('Shift-grabbing a bound Outputs pseudo-input preserves its binding on an empty drop', () => {
     const scene = interactionScene() as any
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'out', address: { port: 'out' }, direction: 'out', y: 22, type: FLOAT },
     ]
@@ -1891,8 +1855,6 @@ describe('modifier parity across link endpoint kinds', () => {
 
   it('Shift replaces a boundary-driven real input atomically and preserves it on cancellation', () => {
     const scene = interactionScene() as any
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'out', address: { port: 'out' }, direction: 'out', y: 22, type: FLOAT },
     ]
@@ -1935,8 +1897,6 @@ describe('modifier parity across link endpoint kinds', () => {
 
   it('unbinds and compacts a boundary-driven destination in one batch', () => {
     const scene = interactionScene() as any
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[1].layout.pins = [
       {
         portId: 'pairs.m0.image',
@@ -1971,9 +1931,9 @@ describe('modifier parity across link endpoint kinds', () => {
 })
 
 describe('heterogeneous selection movement', () => {
-  it('moves selected nodes, reroutes, value sources, and selectors in one selection.move command', () => {
+  it('moves selected nodes and reroutes in one selection.move command', () => {
     const harness = interactionHarness(interactionScene())
-    harness.controller.setSelection(['n1', 'n2'], [], ['r1'], ['v1'], ['s1'])
+    harness.controller.setSelection(['n1', 'n2'], [], ['r1'])
     harness.fire('pointerdown', 30, 15)
     harness.fire('pointermove', 40, 25)
     harness.fire('pointerup', 40, 25)
@@ -1983,15 +1943,13 @@ describe('heterogeneous selection movement', () => {
         graphId: 'g0',
         nodes: { n1: { x: 20, y: 20 }, n2: { x: 210, y: 20 } },
         reroutes: { r1: { x: 410, y: 110 } },
-        valueSources: { v1: { x: 510, y: 110 } },
-        selectors: { s1: { x: 610, y: 110 } },
       },
     }])
   })
 
   it('dragging an unselected node moves only that node', () => {
     const harness = interactionHarness(interactionScene())
-    harness.controller.setSelection(['n2'], [], ['r1'], ['v1'], ['s1'])
+    harness.controller.setSelection(['n2'], [], ['r1'])
     harness.fire('pointerdown', 30, 15)
     harness.fire('pointermove', 40, 25)
     harness.fire('pointerup', 40, 25)
@@ -2015,7 +1973,7 @@ describe('heterogeneous selection movement', () => {
     const scene = interactionScene() as any
     scene.groups = [{ id: 'grp0', title: 'mixed', x: 0, y: 0, width: 350, height: 80 }]
     const harness = interactionHarness(scene)
-    harness.controller.setSelection(['n1', 'n2'], [], [], [], [], ['grp0'])
+    harness.controller.setSelection(['n1', 'n2'], [], [], ['grp0'])
 
     harness.fire('pointerdown', 30, 15)
     harness.fire('pointermove', 40, 25)
@@ -2038,7 +1996,7 @@ describe('heterogeneous selection movement', () => {
       { id: 'grp1', title: 'two', x: 300, y: 300, width: 200, height: 100 },
     ]
     const harness = interactionHarness(scene)
-    harness.controller.setSelection([], [], [], [], [], ['grp0', 'grp1'])
+    harness.controller.setSelection([], [], [], ['grp0', 'grp1'])
 
     harness.fire('pointerdown', 50, 310)
     harness.fire('pointermove', 60, 320)
@@ -2068,43 +2026,8 @@ describe('heterogeneous selection movement', () => {
         graphId: 'g0',
         nodes: { n1: { x: 20, y: 20 }, n2: { x: 210, y: 20 } },
         reroutes: { r1: { x: 410, y: 110 } },
-        valueSources: { v1: { x: 510, y: 110 } },
-        selectors: { s1: { x: 610, y: 110 } },
       },
     }])
-  })
-
-  it('drags a non-node mixed selection from a reroute', () => {
-    const harness = interactionHarness(interactionScene())
-    harness.controller.setSelection([], [], ['r1'], ['v1'], ['s1'])
-
-    harness.fire('pointerdown', 400, 100)
-    harness.fire('pointermove', 410, 110)
-    harness.fire('pointerup', 410, 110)
-
-    expect(harness.dispatched).toEqual([{
-      command: 'selection.move',
-      params: {
-        graphId: 'g0',
-        nodes: {},
-        reroutes: { r1: { x: 410, y: 110 } },
-        valueSources: { v1: { x: 510, y: 110 } },
-        selectors: { s1: { x: 610, y: 110 } },
-      },
-    }])
-  })
-
-  it('keeps value-source click activation for a heterogeneous selection', () => {
-    const activate = vi.fn()
-    const harness = interactionHarness(interactionScene(), { onValueSourceActivate: activate })
-    harness.controller.setSelection(['n1'], [], [], ['v1'])
-
-    harness.fire('pointerdown', 520, 110)
-    harness.fire('pointerup', 520, 110)
-
-    expect(activate).toHaveBeenCalledOnce()
-    expect(activate).toHaveBeenCalledWith(expect.objectContaining({ id: 'v1' }), 520, 110)
-    expect(harness.dispatched).toEqual([])
   })
 
   it('cancels an active gesture when selection ownership changes between tabs', () => {
@@ -2683,17 +2606,6 @@ describe('gesture ownership and cancellation', () => {
     ]))
   })
 
-  it('a window mouseup keeps full tap semantics for a motionless press', () => {
-    const activate = vi.fn()
-    const harness = interactionHarness(interactionScene(), { onValueSourceActivate: activate })
-    harness.controller.setSelection(['n1'], [], [], ['v1'])
-    harness.fire('pointerdown', 520, 110, { buttons: 1, pointerType: 'mouse' })
-    harness.fireWindow('mouseup', { clientX: 520, clientY: 110 })
-    expect(activate).toHaveBeenCalledOnce()
-    expect(activate).toHaveBeenCalledWith(expect.objectContaining({ id: 'v1' }), 520, 110)
-    expect(harness.dispatched).toEqual([])
-  })
-
   it('a window mouseup for a different button leaves the drag active', () => {
     const harness = interactionHarness(interactionScene())
     harness.fire('pointerdown', 30, 15, { buttons: 1, pointerType: 'mouse' })
@@ -2922,39 +2834,12 @@ describe('gesture ownership and cancellation', () => {
     expect(harness.dispatched).toEqual([])
   })
 
-  it('group drag carries contained value sources and selectors', () => {
-    const scene = interactionScene() as any
-    scene.nodes = [scene.nodes[0]]
-    scene.reroutes = []
-    scene.groups = [{ id: 'g', title: 'Group', x: 0, y: 0, width: 750, height: 200 }]
-    const harness = interactionHarness(scene)
-
-    // This is in the title band but clear of every member and resize handle.
-    harness.fire('pointerdown', 350, 13)
-    harness.fire('pointermove', 365, 23)
-    const overlay = harness.overlays.at(-1) as any
-    expect(overlay.dragOffsets.get('v1')).toEqual({ dx: 15, dy: 10 })
-    expect(overlay.dragOffsets.get('s1')).toEqual({ dx: 15, dy: 10 })
-    harness.fire('pointerup', 365, 23)
-
-    expect(harness.dispatched).toEqual([{
-      command: 'view.moveGroup',
-      params: {
-        graphId: 'g0', groupId: 'g', bounds: { x: 15, y: 10 },
-        positions: { n1: { x: 25, y: 20 } },
-        valueSources: { v1: { x: 515, y: 110 } },
-        selectors: { s1: { x: 615, y: 110 } },
-      },
-    }])
-  })
 })
 
 describe('presence egress callbacks (onDragOffsets / onNodeHover / onLinkDragPresence)', () => {
   const widgetTapScene = (connected: boolean): Scene => {
     const scene = interactionScene() as any
     const FLOAT = { kind: 'concrete', name: 'FLOAT' }
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'amount', address: { port: 'amount' }, direction: 'out', y: 22, type: FLOAT, widgetTap: true },
     ]
@@ -2971,8 +2856,6 @@ describe('presence egress callbacks (onDragOffsets / onNodeHover / onLinkDragPre
   it('ordinary port and reroute drag presence origins remain unchanged and clear each on end', () => {
     const scene = interactionScene() as any
     const FLOAT = { kind: 'concrete', name: 'FLOAT' }
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'out', address: { port: 'out' }, direction: 'out', y: 22, type: FLOAT },
     ]
@@ -3832,8 +3715,6 @@ describe('net delivery gestures', () => {
   // can serve as the drop target for sink moves (in) and source moves (out).
   const netScene = (hidden = false): Scene => {
     const scene = interactionScene() as any
-    scene.valueSources = []
-    scene.selectors = []
     scene.nodes[0].layout.pins = [
       { portId: 'out', address: { port: 'out' }, direction: 'out', y: 22, type: FLOAT },
     ]
@@ -4342,84 +4223,6 @@ describe('Inputs panel fields', () => {
     expect(radiusOf(store, 'g0', 'strong')).toBe(12)
   })
 
-  it('shows a promoted value source as a field: the entered node\'s value, else the source\'s, edited where it is owned', () => {
-    const doc = loadDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-sources', root: 'g0',
-      graphs: {
-        g0: {
-          id: 'g0', name: 'Root', nextOrdinal: 4, links: {}, nets: {}, reroutes: {},
-          nodes: {
-            set: { id: 'set', type: '#g1', values: { strength: 6 } },
-            unset: { id: 'unset', type: '#g1', values: {} },
-            outer: { id: 'outer', type: '#g2', values: { amount: 20 } },
-          },
-        },
-        g1: {
-          id: 'g1', name: 'Soften', nextOrdinal: 3, nets: {}, reroutes: {},
-          nodes: { inner: { id: 'inner', type: 'Blur', values: {} } },
-          valueSources: { s0: { id: 's0', value: 3 } },
-          links: { l0: { id: 'l0', from: { valueSource: 's0' }, to: { node: 'inner', port: 'radius' } } },
-          boundary: {
-            inputs: [{ id: 'strength', promoted: true, binds: { kind: 'valueSource', valueSource: 's0', type: { kind: 'concrete', name: 'INT' } } }],
-            outputs: [{ id: 'image_out', binds: { kind: 'port', node: 'inner', port: 'IMAGE' } }],
-          },
-        },
-        g2: {
-          id: 'g2', name: 'Wrap', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
-          nodes: { mid: { id: 'mid', type: '#g1', values: { strength: 9 } } },
-          boundary: { inputs: [{ id: 'amount', promoted: true, binds: { kind: 'port', node: 'mid', port: 'strength' } }], outputs: [] },
-        },
-      },
-      view: { graphs: { g0: { nodes: {} }, g1: { nodes: { inner: { position: { x: 400, y: 100 } } }, valueSources: { s0: { position: { x: 200, y: 100 } } } }, g2: { nodes: {} } } },
-    }).document as WorkflowDocument
-    const store = new DocumentStore(doc, coreCommandRegistry())
-    /** Entered along `path` (none: from no node): the field's value and the value its pill shows arriving, after one plus press. */
-    const press = (path: readonly string[]): readonly [unknown, CommandInvocation, unknown] => {
-      const resolve = documentResolver(store.doc, (type) => type === 'Blur' ? blur : undefined)
-      const scene = buildScene({
-        document: store.doc, graphId: 'g1', resolve, tokens: defaultTokens,
-        measure: (text) => text.length * 6,
-        widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
-        ...(path.length === 0 ? {} : {
-          occurrence: { owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!) }, plannerAvailable: false },
-          occurrenceView: occurrenceDynamicView(store.doc, resolve, path),
-        }),
-      })
-      const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
-      const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'strength')
-      if (row?.kind !== 'widget') throw new Error('expected a strength field on the Inputs panel')
-      const width = row.width ?? panel.layout.width - row.inset * 2
-      const harness = interactionHarness(scene)
-      harness.fire('pointerdown', panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2, panel.y + row.y + defaultTokens.rowHeight / 2)
-      harness.fire('pointerup', panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2, panel.y + row.y + defaultTokens.rowHeight / 2)
-      expect(harness.dispatched).toHaveLength(1)
-      const invocation = harness.dispatched[0] as CommandInvocation
-      expect(store.dispatch(invocation).ok).toBe(true)
-      return [panel.fields!.node.values['strength'], invocation, scene.valueSources.find((vs) => vs.id === 's0')?.arriving?.value]
-    }
-    const source = () => store.doc.graphs['g1']!.valueSources!['s0']!.value
-    const value = (graph: string, node: string, key: string) => store.doc.graphs[graph]!.nodes[node]!.values[key]
-
-    // The pill shows the value the entered node sends, as an arriving value.
-    expect(press(['set'])).toEqual([6, expect.anything(), 6])
-    expect(value('g0', 'set', 'strength')).toBe(7)
-    expect(press(['unset'])).toEqual([3, expect.anything(), 3])
-    expect(value('g0', 'unset', 'strength')).toBe(4)
-    // One level down, the outer node that promotes the input owns its value.
-    expect(press(['outer', 'mid'])).toEqual([20, expect.anything(), 20])
-    expect(value('g0', 'outer', 'amount')).toBe(21)
-    expect(value('g2', 'mid', 'strength')).toBe(9)
-    expect(source()).toBe(3)
-    // From no node the field is the source's own value, its default.
-    const [shown, invocation, arriving] = press([])
-    expect(shown).toBe(3)
-    expect(arriving).toBeUndefined()
-    expect(invocation.command).toBe('valueSource.setValue')
-    expect(source()).toBe(4)
-    expect(store.undo()).toBe(true)
-    expect(source()).toBe(3)
-  })
-
   it('shows a promoted primitive\'s value as a field with its worked-out range, edited where it is owned', () => {
     const int = { kind: 'concrete', name: 'INT' } as const
     const primitive: NodeSchema = {
@@ -4508,70 +4311,6 @@ describe('Inputs panel fields', () => {
     expect(value('g1', 'prim', 'value')).toBe(3)
   })
 
-  it('marks a value source shown as a field: a pinless panel row, and its pill while a node is entered', () => {
-    const doc = loadDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-source-mark', root: 'g0',
-      graphs: {
-        g0: { id: 'g0', name: 'Root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: { set: { id: 'set', type: '#g1', values: { strength: 6 } } } },
-        g1: {
-          id: 'g1', name: 'Soften', nextOrdinal: 3, nets: {}, reroutes: {},
-          nodes: { inner: { id: 'inner', type: 'Blur', values: {} } },
-          valueSources: { s0: { id: 's0', value: 3 } },
-          links: { l0: { id: 'l0', from: { valueSource: 's0' }, to: { node: 'inner', port: 'radius' } } },
-          boundary: {
-            inputs: [{ id: 'strength', promoted: true, binds: { kind: 'valueSource', valueSource: 's0', type: { kind: 'concrete', name: 'INT' } } }],
-            outputs: [{ id: 'image_out', binds: { kind: 'port', node: 'inner', port: 'IMAGE' } }],
-          },
-        },
-      },
-      view: { graphs: { g0: { nodes: {} }, g1: { nodes: { inner: { position: { x: 400, y: 100 } } }, valueSources: { s0: { position: { x: 200, y: 100 } } } } } },
-    }).document as WorkflowDocument
-    const resolve = documentResolver(doc, (type) => type === 'Blur' ? blur : undefined)
-    const sceneOf = (entered: boolean) => buildScene({
-      document: doc, graphId: 'g1', resolve, tokens: defaultTokens,
-      measure: (text) => text.length * 6,
-      widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
-      ...(entered ? {
-        occurrence: { owner: { instancePath: [], node: asNodeId('set') }, plannerAvailable: false },
-        occurrenceView: occurrenceDynamicView(doc, resolve, ['set']),
-      } : {}),
-    })
-    for (const entered of [true, false]) {
-      const scene = sceneOf(entered)
-      const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
-      const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'strength') as Extract<LayoutRow, { kind: 'widget' }>
-      // The row's pin could start no wire, so the row has none either way.
-      expect(row.subgraphMark?.item).toBe('strength')
-      expect(panel.layout.pins.some((pin) => pin.portId === 'strength')).toBe(false)
-      expect(scene.valueSources.find((vs) => vs.id === 's0')!.subgraphMark).toEqual(entered ? row.subgraphMark : undefined)
-    }
-
-    const scene = sceneOf(true)
-    const pill = scene.valueSources.find((vs) => vs.id === 's0')!
-    const mark = valueSourceMarkRect(pill, defaultTokens.padX)
-    const hovers: CanvasHoverTarget[] = []
-    const activated: string[] = []
-    const opened: string[] = []
-    const harness = interactionHarness(scene, {
-      onHoverTarget: (target) => { if (target !== undefined) hovers.push(target) },
-      onSubgraphMarkActivate: (item) => activated.push(item),
-      onValueSourceActivate: (vs) => opened.push(vs.id),
-    })
-    const click = (x: number, y: number) => {
-      harness.fire('pointerdown', x, y)
-      harness.fire('pointerup', x, y)
-    }
-    harness.fire('pointermove', mark.x + mark.size / 2, mark.y + mark.size / 2)
-    expect(hovers.at(-1)).toMatchObject({ kind: 'subgraphMark', mark: { item: 'strength' } })
-    click(mark.x + mark.size / 2, mark.y + mark.size / 2)
-    expect(activated).toEqual(['strength'])
-    expect(opened).toEqual([])
-    // Off the mark the pill still opens as before.
-    click(pill.x + pill.width - 24, pill.y + pill.height / 2)
-    expect(activated).toEqual(['strength'])
-    expect(opened).toEqual(['s0'])
-  })
-
   it('rebuilds to an equal scene, so an unrelated document change keeps a drag in progress', () => {
     const doc = workflow()
     expect(scenesEqual(panelScene(doc, 'soft'), panelScene(doc, 'soft'))).toBe(true)
@@ -4639,7 +4378,7 @@ describe('text box height', () => {
     return {
       graphId: 'g',
       nodes: [{ id: 'n1', x: 0, y: 0, layout, node, isSubgraph: false }],
-      links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
+      links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
     } as unknown as Scene
   }
   const lines = defaultTokens.multilineText.lineHeight
@@ -4710,7 +4449,7 @@ describe('moving a member by its grip', () => {
     return {
       graphId: 'g',
       nodes: [{ id: 'n1', x: 0, y: 0, layout, node, isSubgraph: false }],
-      links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
+      links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
     } as unknown as Scene
   }
   const gripRows = (scene: Scene) => scene.nodes[0]!.layout.rows.filter((row) => row.kind === 'widget' && row.reorder !== undefined) as
