@@ -479,8 +479,14 @@ export interface SceneValueSource {
   readonly source: ValueSourceData
   /** Display title: explicit title, else the effective widget kind, else 'value'. */
   readonly title: string
-  /** Compact one-line value text (raw JSON rendering for non-strings). */
+  /**
+   * Compact one-line value text (raw JSON rendering for non-strings), or for
+   * a source edited by one of the editors shown in a node, that editor's
+   * summary (`summarized`), which is drawn at its width and shortened with an
+   * ellipsis instead of squeezed.
+   */
   readonly valueText: string
+  readonly summarized?: true
   /** Effective spec + consumers + diagnostics, derived during build. */
   readonly effective: EffectiveValueSourceSpec
   /** Advisory concrete type (pin/noodle color), when determinable. */
@@ -1581,7 +1587,12 @@ export function buildScene(input: BuildSceneInput): Scene {
     const effective = resolveSource(def.id, vs.id, sourcePath)!
     const title = vs.title ?? effective.spec?.widgetType ?? 'value'
     const sent = sentSourceValues.has(vs.id) ? { value: sentSourceValues.get(vs.id)! } : undefined
-    const valueText = valueSourceValueText(sent !== undefined ? sent.value : vs.value)
+    // A source edited by one of the editors shown in a node reads that
+    // editor's summary, as its folded row does on a node.
+    const measured = effective.spec === undefined ? undefined : input.widgetMeasure(effective.spec)
+    const editor = measured === undefined ? undefined : IN_NODE_EDITORS[measured.viewId]
+    const summary = editor === undefined ? undefined : measured?.summary?.(sent !== undefined ? sent.value : vs.value)
+    const valueText = summary ?? valueSourceValueText(sent !== undefined ? sent.value : vs.value)
     // A sent value comes from a field on the entered node: room for its mark.
     const markReserve = sent === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
     const width = Math.min(
@@ -1600,14 +1611,12 @@ export function buildScene(input: BuildSceneInput): Scene {
     )
     const typeName = canonicalTypeIdOf(effective.type)
     const lineHeight = input.tokens.rowHeight + VS_HEIGHT_PAD
-    // One of the editors shown in a node folds out under the pill. A sent
-    // value is edited on the Inputs panel, so its pill stays folded.
-    const measured = effective.spec === undefined || sent !== undefined || viewValueSources[vs.id]?.editorUnfolded !== true
-      ? undefined : input.widgetMeasure(effective.spec)
-    const editor = measured === undefined ? undefined : IN_NODE_EDITORS[measured.viewId]
+    // The editor folds out under the pill. A sent value is edited on the
+    // Inputs panel, so its pill stays folded.
+    const unfolded = editor !== undefined && sent === undefined && viewValueSources[vs.id]?.editorUnfolded === true
     const inset = input.tokens.rowGeometry.fieldInsetX
-    const boxWidth = editor === undefined ? width : Math.max(width, canvasPaintTokens.node.editorSpace.minWidth + inset * 2)
-    const editorRows = editor === undefined || measured === undefined || effective.spec === undefined ? undefined : (() => {
+    const boxWidth = !unfolded ? width : Math.max(width, canvasPaintTokens.node.editorSpace.minWidth + inset * 2)
+    const editorRows = !unfolded || editor === undefined || measured === undefined || effective.spec === undefined ? undefined : (() => {
       const key = VALUE_SOURCE_EDITOR_KEY
       const pictureHeight = viewValueSources[vs.id]?.pictureHeight
       const space = unfoldedEditorSpace(editor, input.tokens, {
@@ -1637,6 +1646,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       source: vs,
       title,
       valueText,
+      ...(summary !== undefined ? { summarized: true as const } : {}),
       effective,
       ...(typeName !== undefined ? { typeName } : {}),
       specState: vs.spec ? 'declared' : effective.spec ? 'derived' : 'raw',

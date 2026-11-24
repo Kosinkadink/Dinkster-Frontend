@@ -2143,7 +2143,8 @@ describe('an editor under a value source', () => {
     type: 'Shape', displayName: 'Shape', category: 'test', outputNode: false,
     body: [{ kind: 'input', id: 'curve', type: { kind: 'concrete', name: 'CURVE' }, widget: { widgetType: 'CURVE', options: {} } }],
   } as unknown as NodeSchema
-  const editorMeasure: WidgetMeasure = (spec) => spec.widgetType === 'CURVE' ? { viewId: 'core.curve', rows: 1 } : undefined
+  const editorMeasure: WidgetMeasure = (spec) => spec.widgetType === 'CURVE'
+    ? { viewId: 'core.curve', rows: 1, summary: (value) => `${(value as { points: unknown[] }).points.length} points` } : undefined
   const sourceOf = (view: Json) => {
     const sub = {
       id: 'g1', name: 'Sub', nextOrdinal: 2, nets: {}, reroutes: {},
@@ -2164,8 +2165,7 @@ describe('an editor under a value source', () => {
     } as never).document as WorkflowDocument
     const scene = buildScene({
       document, graphId: 'g1', resolve: documentResolver(document, (type) => type === 'Shape' ? curve : undefined),
-      // The value's JSON takes no room, so the pill is as wide as its title.
-      tokens: defaultTokens, measure: (text, role) => role === 'value' ? 0 : text.length * 6, widgetMeasure: editorMeasure,
+      tokens: defaultTokens, measure: (text) => text.length * 6, widgetMeasure: editorMeasure,
     })
     return scene.valueSources[0]!
   }
@@ -2173,9 +2173,12 @@ describe('an editor under a value source', () => {
   it('folds out under the pill line from its own view state, keeping the line, pin and badge where they were', () => {
     const folded = sourceOf({})
     expect(folded.editor).toBeUndefined()
+    // The line reads the editor's summary, not the value's JSON, folded or not.
+    expect(folded).toMatchObject({ valueText: '0 points', summarized: true })
     const open = sourceOf({ editorUnfolded: true, pictureHeight: 90 })
     if (open.editor === undefined) throw new Error('expected the editor under the pill')
     expect(open.height).toBe(folded.height)
+    expect(open.valueText).toBe('0 points')
     expect(valueSourcePinPosition(open).y).toBe(valueSourcePinPosition(folded).y)
     expect(open.editor.space).toMatchObject({ viewId: 'core.curve', y: folded.height, picture: { height: 90 } })
     expect(open.editor.field.valueSourceOwner).toEqual({ graphId: 'g1', valueSourceId: 'vs' })

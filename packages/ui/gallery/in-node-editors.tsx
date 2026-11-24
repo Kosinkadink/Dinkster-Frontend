@@ -1,11 +1,12 @@
 import { For, Show, createEffect, createSignal, onCleanup, untrack, type JSX } from 'solid-js'
-import type { WidgetRegistry } from '@dinkster/core'
+import type { Json, WidgetRegistry } from '@dinkster/core'
 import {
   boundaryFieldNode,
   CanvasRenderer,
   canvasColorsForTheme,
   canvasPaintTokens,
   canvasTypePaintForTheme,
+  compactSummary,
   createRegistryPainter,
   defaultTokens,
   valueSourceBoxHeight,
@@ -408,7 +409,8 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
         const noBackend = view.id === 'core.audioRecord' &&
           Object.values(example.states ?? {}).some((state) => state['status'] === 'noBackend')
         const space = (example.width ?? GALLERY_NODE_WIDTH) - tokens.rowGeometry.fieldInsetX * 2 - canvasPaintTokens.node.editorSpace.pad * 2
-        return { viewId: view.id, rows: view.measure(spec).rows, ...(noBackend ? { editorControls: noBackendHeight(space) } : {}) }
+        return { viewId: view.id, rows: view.measure(spec).rows, summary: (value: Json) => compactSummary(view, value, spec)?.text,
+          ...(noBackend ? { editorControls: noBackendHeight(space) } : {}) }
       }
       const built = createInNodeEditorScene(tokens, measure, widgetMeasure, example, { x: MARGIN, y: MARGIN })
       const node = boxOf(built, example)!

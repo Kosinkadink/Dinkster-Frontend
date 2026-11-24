@@ -4998,7 +4998,9 @@ export class CanvasRenderer {
       if (valueX < textRight) {
         if (vs.arriving !== undefined) ctx.font = `italic ${t.fontSize}px ${t.fontFamily}`
         ctx.fillStyle = vs.arriving !== undefined ? t.colors.companionValue : t.colors.value
-        ctx.fillText(vs.valueText, valueX, y + vs.height / 2 + paint.baselineOffset, textRight - valueX)
+        // An editor's summary keeps its letters' width and ends in an ellipsis when it does not fit.
+        if (vs.summarized === true) ctx.fillText(fitText(ctx, vs.valueText, textRight - valueX), valueX, y + vs.height / 2 + paint.baselineOffset)
+        else ctx.fillText(vs.valueText, valueX, y + vs.height / 2 + paint.baselineOffset, textRight - valueX)
         ctx.font = `${t.fontSize}px ${t.fontFamily}`
       }
       ctx.textBaseline = 'alphabetic'

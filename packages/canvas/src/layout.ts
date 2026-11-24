@@ -65,7 +65,17 @@ export type TextMeasurer = (text: string, role: 'title' | 'renamedTitle' | 'labe
  * host knows they differ from the editor's fixed rows, such as a recorder on
  * a backend that cannot take uploads, which shows one sentence instead.
  */
-export type WidgetMeasure = (spec: WidgetSpec) => { viewId: string; rows: number; editorControls?: number } | undefined
+/**
+ * A host's measure of a widget: its view, its rows and, for an editor shown
+ * in the node, its controls' height. `summary` is the text its folded row
+ * shows for a value, which a value source edited by that editor reads.
+ */
+export type WidgetMeasure = (spec: WidgetSpec) => {
+  viewId: string
+  rows: number
+  editorControls?: number
+  summary?: (value: Json) => string | undefined
+} | undefined
 
 export interface DynamicEditOwner {
   readonly graphId: string
