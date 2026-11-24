@@ -562,6 +562,7 @@
   "inNodeLoad3d.clip": "Clip",
   "inNodeLoad3d.time": "Time (s)",
   "inNodeLoad3d.speed": "Speed",
+  "inNodeEditor.pictureHeight": "Picture height",
   "inNodeCompare.runToCompare": "Run to compare",
   "inNodeCompare.divider": "Wipe divider (%)",
   "inNodeCompare.frame": "{index} of {count}",

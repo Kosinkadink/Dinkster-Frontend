@@ -652,6 +652,38 @@ export function projectTextBoxLines(
   }
 }
 
+/** A dragged editor picture's height, in whole units within the editor space's bounds. */
+export function clampPictureHeight(height: number): number {
+  const space = canvasPaintTokens.node.editorSpace
+  return Math.min(space.pictureMax, Math.max(space.pictureMin, Math.round(height)))
+}
+
+/**
+ * The layout after one unfolded editor's picture takes `height`, while every
+ * other row, the preview, and the text output keep their heights. Used for
+ * the live drag of a picture's bottom edge; the committed layout is the same.
+ */
+export function projectPictureHeight(layout: NodeLayout, valueKey: string, height: number): NodeLayout {
+  const index = layout.rows.findIndex((row) => row.kind === 'editorSpace' && row.valueKey === valueKey)
+  const space = layout.rows[index]
+  if (space?.kind !== 'editorSpace' || space.picture === undefined) return layout
+  const delta = clampPictureHeight(height) - space.picture.height
+  if (delta === 0) return layout
+  const reflowed = reflowRows(layout, (row, rowIndex) => rowIndex === index ? row.height + delta : row.height)
+  const rows = reflowed.map((row, rowIndex) => rowIndex === index && row.kind === 'editorSpace' && row.picture !== undefined
+    ? { ...row, picture: { ...row.picture, height: row.picture.height + delta } } : row)
+  return {
+    ...layout,
+    height: layout.height + delta,
+    minHeight: layout.minHeight + delta,
+    rows,
+    pins: remappedPins(layout, rows),
+    ...projectedBoxes(layout, rows),
+    ...(layout.preview === undefined ? {} : { preview: { ...layout.preview, y: layout.preview.y + delta } }),
+    ...(layout.textOutput === undefined ? {} : { textOutput: { ...layout.textOutput, y: layout.textOutput.y + delta } }),
+  }
+}
+
 /**
  * Reflow physical lines without separating widgets that share one line. The
  * space between lines, where a box's outline and padding sit, is kept.
@@ -1552,7 +1584,7 @@ export function layoutNode(
       const stored = options.pictureHeights?.[w.valueKey]
       const pictureHeight = editor.picture === undefined ? undefined
         : stored !== undefined && Number.isFinite(stored)
-          ? Math.min(space.pictureMax, Math.max(space.pictureMin, Math.round(stored)))
+          ? clampPictureHeight(stored)
           : editor.picture
       const openSections = (editor.sections ?? []).filter((section) =>
         options.sectionOverrides?.[`${w.valueKey}.${section.id}`] === false)

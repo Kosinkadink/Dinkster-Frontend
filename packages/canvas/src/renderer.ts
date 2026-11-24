@@ -23,7 +23,7 @@ import {
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, previewHasPanel, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { memberSpans, projectNodeLayoutHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type MemberGrip, type NodeLayout } from './layout.js'
+import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type MemberGrip, type NodeLayout } from './layout.js'
 import {
   boundaryFieldNode,
   boundarySceneId,
@@ -670,6 +670,8 @@ export interface OverlayState {
   readonly marquee?: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }
   /** Live text box height used only for paint; committed as view.setTextBoxLines on release. */
   readonly textBoxLines?: { readonly nodeId: string; readonly valueKey: string; readonly lines: number }
+  /** Live height of an unfolded editor's picture used only for paint; committed as view.setPictureHeight on release. */
+  readonly pictureHeight?: { readonly nodeId: string; readonly valueKey: string; readonly height: number }
   /** The text box edge under the pointer, being dragged, or holding keyboard focus. */
   readonly textBoxEdge?: { readonly nodeId: string; readonly valueKey: string }
   /** The node whose preview caption row is under the idle pointer. */
@@ -1096,7 +1098,7 @@ export class CanvasRenderer {
     const nodes = new Set<string>()
     const local = new Set<keyof OverlayState>([
       'selection', 'dragOffsets', 'resizePreview', 'bodyDropNode', 'dropRow', 'hoveredNode',
-      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBox', 'hoveredGrip', 'memberDrag', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'textBoxEdge', 'hoveredPreviewCaption',
+      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBox', 'hoveredGrip', 'memberDrag', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'pictureHeight', 'textBoxEdge', 'hoveredPreviewCaption',
       'previewEdge',
     ])
     const keys = new Set([...Object.keys(previous), ...Object.keys(overlay)] as (keyof OverlayState)[])
@@ -3252,7 +3254,8 @@ export class CanvasRenderer {
     fallbackY: number,
   ): { readonly x: number; readonly y: number } {
     if ((end.kind !== 'port' && end.kind !== 'widgetTap') ||
-        (end.node !== this.overlay.resizePreview?.nodeId && end.node !== this.overlay.textBoxLines?.nodeId)) {
+        (end.node !== this.overlay.resizePreview?.nodeId && end.node !== this.overlay.textBoxLines?.nodeId &&
+          end.node !== this.overlay.pictureHeight?.nodeId)) {
       return { x: fallbackX, y: fallbackY }
     }
     const sceneNode = this.scene.nodes.find((candidate) => candidate.id === end.node)
@@ -3275,6 +3278,8 @@ export class CanvasRenderer {
     if (lines?.nodeId === node.id) {
       return { ...node, layout: projectTextBoxLines(node.layout, lines.valueKey, lines.lines, this.tokens) }
     }
+    const picture = this.overlay.pictureHeight
+    if (picture?.nodeId === node.id) return { ...node, layout: projectPictureHeight(node.layout, picture.valueKey, picture.height) }
     const preview = this.overlay.resizePreview
     if (preview?.nodeId !== node.id) return node
     const layout = projectNodeLayoutHeight(node.layout, preview.height, this.tokens)

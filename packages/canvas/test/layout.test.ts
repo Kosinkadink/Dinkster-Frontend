@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ButtonSpec, InputSpec, NodeData, NodeSchema, NoteSpec, OutputSpec } from '@dinkster/core'
 import { asNodeId, elaborateInterface, EMPTY_CONNECTIVITY } from '@dinkster/core'
-import { layoutNode, TITLE_START, projectNodeLayoutHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import { layoutNode, TITLE_START, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 
 const measure: TextMeasurer = (text) => text.length * 6
@@ -1529,6 +1529,17 @@ describe('editors shown in the node', () => {
     expect(picture(240)).toBe(240)
     expect(picture(1)).toBe(pictureMin)
     expect(picture(99_999)).toBe(pictureMax)
+  })
+
+  it('paints a picture while its edge is dragged where the stored height puts it', () => {
+    const open = lay({ editorUnfolded: { frame: true, clip: false } })
+    for (const height of [300, 1]) {
+      const stored = lay({ editorUnfolded: { frame: true, clip: false }, pictureHeights: { frame: height } })
+      const dragged = projectPictureHeight(open, 'frame', height)
+      expect(dragged.height).toBe(stored.height)
+      expect(dragged.rows.map((row) => [row.kind, row.y, row.height])).toEqual(stored.rows.map((row) => [row.kind, row.y, row.height]))
+      expect(dragged.pins.map((pin) => pin.y)).toEqual(stored.pins.map((pin) => pin.y))
+    }
   })
 })
 

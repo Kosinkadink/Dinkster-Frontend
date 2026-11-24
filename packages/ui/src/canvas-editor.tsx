@@ -66,6 +66,7 @@ export function CanvasEditorPicture(props: {
         role="separator"
         aria-orientation="horizontal"
         aria-label={props.resizeLabel}
+        tabindex={0}
         onPointerDown={(event) => props.onResizeStart?.(event)}
       />
     </div>

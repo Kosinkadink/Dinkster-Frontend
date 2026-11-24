@@ -45,7 +45,6 @@ const plain = (value: unknown): Json => JSON.parse(JSON.stringify(value)) as Jso
  */
 export function Load3dSpace(props: {
   readonly value: Json | undefined
-  readonly pictureHeight: number
   /** Changes when what the view reads changes, which reads it again. */
   readonly sourceKey: string
   readonly ports: Load3dPorts
@@ -296,7 +295,7 @@ export function Load3dSpace(props: {
   const clipName = (index: number) => clips()[index]?.name || message('load3dWidget.animationNumber', { number: index + 1 })
   return (
     <div class="node-load3d-editor" onPointerDown={wake}>
-      <CanvasEditorPicture ref={(element) => { element.style.height = `${props.pictureHeight}px` }}
+      <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}
         loading={state() === 'loading'}
         {...(pictureMessage() === undefined ? {} : { message: pictureMessage()! })}
         {...(props.captures && !props.cameraWired && ready() ? {
