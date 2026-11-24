@@ -44,6 +44,7 @@ import {
 } from '../src/index.js'
 import { NodeLookGallery } from './node-look.js'
 import { ColorEditingGallery } from './color-editing.js'
+import { InNodeEditorsGallery } from './in-node-editors.js'
 import { RowEditingGallery } from './row-editing.js'
 import { RowListsGallery } from './row-lists.js'
 import { BoundaryTreeGallery } from './boundary-tree.js'
@@ -81,6 +82,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'color-editing',
         'collection-rows',
         'editor-rows',
+        'in-node-editors',
         'widget-driven',
         'widget-offered',
         'widget-companions',
@@ -181,6 +183,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Multi-choice, list, colors and curve rows; After raises the rows that open an editor and draws the curve in its row.',
   'editor-rows':
     'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for.',
+  'in-node-editors':
+    'The audio recorder, webcam, 3D viewer, image comparison, camera angle and curve fold out inside the node under their editor button row, and the rows below move down; clicking the row again folds them back. A folded row says what the editor holds. A palette is a group of color rows: it grows as colors are added and shows a limit only when its group declares one.',
   'widget-driven':
     'A row whose value comes from a wire is dimmed and its stored value is struck through.',
   'widget-offered':
@@ -213,7 +217,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'switch-primitive':
     'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields. They replace the value source pill and the selector box shown in the second card.',
   'subgraph-icon':
-    'Every place the canvas draws the subgraph icon, a workflow in a frame, at the 14 px it is drawn at 100 percent: the mark in a subgraph node\'s title alone and with a count, and the cyan mark on a field shown on the subgraph node. The title mark sits as far from the node\'s right edge as from the top and bottom of the title bar.',
+    'Every place the canvas draws the subgraph icon, a workflow in a frame, at the 14 px it is drawn at 100 percent: the mark in a subgraph node\'s title alone and with a count, the cyan mark on a field shown on the subgraph node, and the Create subgraph button on the toolbox over two plain nodes, which one selected subgraph node does not show. The title mark sits as far from the node\'s right edge as from the top and bottom of the title bar.',
   'small-flow-nodes':
     'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
   'type-conflict':
@@ -363,7 +367,7 @@ function ExampleCard(props: {
     renderer.setRowMarks(example.rowMarks ?? fixture.rowMarks)
     renderer.setCompanions(example.companions ?? fixture.companions)
     renderer.setInactiveNodes(example.inactive)
-    renderer.setToolbox(fixture.toolbox)
+    renderer.setToolbox(example.toolbox ?? fixture.toolbox)
     const image = document.createElement('canvas')
     image.width = 320
     image.height = 160
@@ -604,7 +608,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'node-look' || currentPage === 'problem-box') return
+    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -711,6 +715,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={page() === 'boundary-tree'}>
           <BoundaryTreeGallery />
+        </Show>
+        <Show when={fontsReady() && page() === 'in-node-editors'}>
+          <InNodeEditorsGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'problem-box'}>
           <ProblemBoxGallery theme={theme()} />

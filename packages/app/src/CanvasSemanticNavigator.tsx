@@ -67,9 +67,9 @@ const pinName = (node: Pick<SceneNode, 'layout'>, pin: PinLayout): string => {
   for (const row of node.layout.rows) {
     if (row.kind === 'ports') {
       const slot = pin.direction === 'in' ? row.input : row.output
-      if (slot?.portId === pin.portId) return slot.label
+      if (slot?.portId === pin.portId) return slot.name ?? slot.label
     } else if (row.kind === 'widget' && row.inputId === pin.address.port) {
-      if (pin.direction === 'in' || pin.widgetTap === true) return row.label
+      if (pin.direction === 'in' || pin.widgetTap === true) return row.name ?? row.label
     }
   }
   return pin.label ?? pin.address.port
@@ -288,7 +288,7 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
       items.push({
         key: `widget:${node.id}:${row.valueKey}`,
         category: 'widget',
-        label: `Row: ${row.label} of ${node.layout.title}, ${widgetValueText(node.node.values[row.valueKey], row.spec)}${connected ? ', connected' : ''}`,
+        label: `Row: ${row.name ?? row.label} of ${node.layout.title}, ${widgetValueText(node.node.values[row.valueKey], row.spec)}${connected ? ', connected' : ''}`,
         target: { kind: 'widget', nodeId: node.id, valueKey: row.valueKey },
       })
     }
@@ -319,7 +319,7 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
       items.push({
         key: `widget:${id}:${row.valueKey}`,
         category: 'widget',
-        label: `Row: ${row.label} of Inputs, ${widgetValueText(boundary.fields!.node.values[row.valueKey], row.spec)}${connected ? ', connected' : ''}`,
+        label: `Row: ${row.name ?? row.label} of Inputs, ${widgetValueText(boundary.fields!.node.values[row.valueKey], row.spec)}${connected ? ', connected' : ''}`,
         target: { kind: 'widget', nodeId: id, valueKey: row.valueKey },
       })
     }
