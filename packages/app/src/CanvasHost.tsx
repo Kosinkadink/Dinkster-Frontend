@@ -32,6 +32,7 @@ import {
   updateSceneNodePositions,
   updateSceneNodeValues,
   memberAt,
+  IN_NODE_EDITORS,
   type Hit,
   type GhostLink,
   type LinkDoubleClickContext,
@@ -64,7 +65,7 @@ import { AudioTransport } from './AudioTransport.js'
 import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
-import { colorFieldHasOpacity, colorKind, resolveColorText } from '@dinkster/widgets'
+import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
 import { CanvasColorArriving } from '@dinkster/ui'
 import {
   defaultValuesOf,
@@ -163,7 +164,7 @@ import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
 import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type WidgetEditorState } from './WidgetEditor.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
+import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
 import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
 import type { LatentMetadata } from './latent-metadata.js'
@@ -184,7 +185,12 @@ import {
   type CanvasSemanticSource,
   type CanvasSemanticTarget,
 } from './CanvasSemanticNavigator.js'
-import { boundedVisibleOverlayKeys, mediaScreenRect, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
+import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
+import { Load3dSpace } from './InNodeLoad3dSpace.js'
+import { ImageCompareSpace } from './InNodeImageCompareSpace.js'
+import { imageCompareFrames } from './image-compare-frames.js'
+import { openLoad3dSource } from './load3d-source.js'
+import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
 
 type WidgetLayoutRow = Extract<Hit, { kind: 'widget' }>['row']
@@ -1030,22 +1036,6 @@ export function reportBoundaryExposureRefusal(args: {
   )])
 }
 
-/** Fixed-position style for a node overlay, clipped to the canvas rect. */
-function overlayClipStyle(rect: EditorWorldRect, canvasEl: HTMLCanvasElement): Record<string, string> {
-  const canvas = canvasEl.getBoundingClientRect()
-  const top = Math.max(0, canvas.top - rect.y)
-  const right = Math.max(0, rect.x + rect.width - (canvas.left + canvas.width))
-  const bottom = Math.max(0, rect.y + rect.height - (canvas.top + canvas.height))
-  const left = Math.max(0, canvas.left - rect.x)
-  return {
-    left: `${rect.x}px`,
-    top: `${rect.y}px`,
-    width: `${rect.width}px`,
-    height: `${rect.height}px`,
-    'clip-path': `inset(${top}px ${right}px ${bottom}px ${left}px)`,
-  }
-}
-
 export function NodeMediaOverlay(props: {
   readonly ownerId?: string
   readonly media: NodePreview & { readonly kind: 'video' | 'audio'; readonly src: string }
@@ -1088,6 +1078,12 @@ export function NodeMediaOverlay(props: {
     </div>
   )
 }
+
+/**
+ * Unfolded 3D views in nodes that run a live WebGL view at once. The browser
+ * keeps few WebGL contexts (16 in Chromium), so the rest show a still picture.
+ */
+const LIVE_MODEL_VIEWS = 8
 
 /**
  * Orbit viewport for a model3d node preview. The canvas paints the poster;
@@ -1613,6 +1609,63 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly onMediaError?: () => void
   }[]>([])
   const [activeCanvasMedia, setActiveCanvasMedia] = createSolidSignal<ReadonlySet<string>>(new Set())
+  const [editorSpaces, setEditorSpaces] = createSolidSignal<readonly EditorSpaceItem[]>([])
+  let editorPictureHeights: Pick<InteractionController, 'previewPictureHeight' | 'commitPictureHeight'> | undefined
+  const editorSpaceByKey = createMemo(() => new Map(editorSpaces().map((item) => [item.key, item])))
+  /** Every node's box in the order the canvas draws them, so a later one is drawn in front. */
+  const [nodeBoxes, setNodeBoxes] = createSolidSignal<readonly { readonly id: string; readonly box: EditorWorldRect }[]>([])
+  const [nodeDrag, setNodeDrag] = createSolidSignal<ReadonlyMap<string, { readonly dx: number; readonly dy: number }>>()
+  const dragged = (box: EditorWorldRect, nodeId: string): EditorWorldRect => {
+    const offset = nodeDrag()?.get(nodeId)
+    return offset === undefined ? box : { ...box, x: box.x + offset.dx, y: box.y + offset.dy }
+  }
+  /** The screen rectangles of nodes the canvas draws in front of an editor that overlap its space. */
+  const editorCovers = (item: EditorSpaceItem): readonly EditorWorldRect[] => {
+    const boxes = nodeBoxes()
+    const at = boxes.findIndex((entry) => entry.id === item.nodeId)
+    if (at < 0) return []
+    const node = dragged(item.node, item.nodeId)
+    const space = { x: node.x + item.space.x, y: node.y + item.space.y, width: item.space.width, height: item.space.height }
+    return boxes.slice(at + 1).flatMap((entry) => {
+      const box = dragged(entry.box, entry.id)
+      if (box.x >= space.x + space.width || box.x + box.width <= space.x || box.y >= space.y + space.height || box.y + box.height <= space.y) return []
+      const screen = mediaScreenRect({ x: 0, y: 0, width: 0, height: 0 }, box, editorViewport(), canvasClientRect())
+      return screen === undefined ? [] : [screen]
+    })
+  }
+  const audioRecorders = createAudioRecorders()
+  const visibleEditorSpaceKeys = (): readonly string[] => {
+    const viewport = editorViewport()
+    if (!editorSpaceInteractive(viewport.scale)) return []
+    const canvas = canvasClientRect()
+    return boundedVisibleOverlayKeys(
+      editorSpaces(),
+      (item) => item.key,
+      (item) => mediaScreenRect(item.node, item.space, viewport, canvas) !== undefined,
+      (item) => selectedNodeIds().has(item.nodeId),
+    )
+  }
+  // 3D views pressed while still, most recent first: each takes a live place ahead of the views by distance.
+  const [wokenModelViews, setWokenModelViews] = createSolidSignal<readonly string[]>([])
+  /**
+   * The 3D views that run a live WebGL view: those on screen nearest the
+   * view's centre, at most LIVE_MODEL_VIEWS; the others show a still picture.
+   */
+  const liveModelViews = createMemo((): ReadonlySet<string> => {
+    const viewport = editorViewport()
+    const canvas = canvasClientRect()
+    const centre = { x: (canvas.width / 2 - viewport.x) / viewport.scale, y: (canvas.height / 2 - viewport.y) / viewport.scale }
+    const woken = wokenModelViews()
+    const distance = (item: EditorSpaceItem): number => Math.hypot(
+      item.node.x + item.space.x + item.space.width / 2 - centre.x, item.node.y + item.space.y + item.space.height / 2 - centre.y)
+    const views = visibleEditorSpaceKeys().flatMap((key) => {
+      const item = editorSpaceByKey().get(key)
+      return item?.row.viewId === 'core.load3d' ? [item] : []
+    })
+    const rank = (item: EditorSpaceItem): number => { const at = woken.indexOf(item.key); return at < 0 ? woken.length : at }
+    return new Set(views.sort((left, right) => rank(left) - rank(right) || distance(left) - distance(right))
+      .slice(0, LIVE_MODEL_VIEWS).map((item) => item.key))
+  })
   const [selectedNodeIds, setSelectedNodeIds] = createSolidSignal<ReadonlySet<string>>(new Set())
   const setCanvasMediaActive = (id: string, active: boolean): void => {
     setActiveCanvasMedia((current) => {
@@ -2967,7 +3020,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             : undefined
       renderer.setScopeHighlight(scope ? selectionScopeHighlight(scope) : undefined)
     }
-    controller = new InteractionController(canvasEl, renderer, {
+    controller = editorPictureHeights = new InteractionController(canvasEl, renderer, {
       dispatch: (invocation) => {
         const tab = activeTab()
         if (!tab) return { ok: false }
@@ -3026,6 +3079,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onDragOffsets: (offsets) => {
         dragOffsets = offsets
+        setNodeDrag(offsets)
         publishPresence()
       },
       onLinkDragPresence: (origin) => {
@@ -3998,7 +4052,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       hostFocused,
     )
 
-    const { measure, widgetMeasure } = canvasMeasures(widgetRegistry)
+    const { measure, widgetMeasure } = canvasMeasures(widgetRegistry, () => {
+      const tab = activeTab()
+      return tab !== undefined && props.app.backendForTab(tab).protocol !== 'dinkster'
+    })
     const placementGeometryForEntry = (entry: PaletteEntry): PlacementGeometry => {
       if (entry.schema === undefined) {
         return { ...canvasPaintTokens.preview.unknownPlacement, headerHeight: defaultTokens.headerHeight }
@@ -4476,10 +4533,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setPreviewA11yTargets([])
         setSemanticSource(undefined)
         setMediaPreviews([])
+        setEditorSpaces([])
+        setNodeBoxes([])
         setOutputImagePreviews([])
         setOutputPages((current) => current.size === 0 ? current : new Map())
         setOutputViewerKey(undefined)
         renderer.setCompanions({})
+        renderer.setEditorSummaries({})
         renderer.setBadges({})
         renderer.setNodeDecorations({})
         minimap.setStates({})
@@ -4768,6 +4828,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         },
       })
       setPreviewA11yTargets(selectedInputPreviewA11yTargets(scene, model.selectedInputPreviews))
+      // The Inputs panel's fields fold out on the panel; one wired outside the subgraph keeps its wired look.
+      const panel = renderer.getScene().boundaryNodes.find((bnode) => bnode.side === 'inputs' && bnode.fields !== undefined)
+      const panelFace = panel === undefined ? undefined : boundaryFieldNode(panel)
+      const editorWires: EditorWires = {
+        wired: (nodeId, inputId) => nodeId === panelFace?.id ? Object.hasOwn(panel!.fields!.wired, inputId)
+          : companionInputs.get(nodeId)?.has(inputId) === true || scene.links.some((link) =>
+            link.to.kind === 'port' && link.to.node === nodeId && link.to.port === inputId),
+        carried: (nodeId, valueKey) => nodeId === panelFace?.id ? panel!.fields!.wired[valueKey]?.value : companionDisplays[nodeId]?.[valueKey]?.value,
+      }
+      setEditorSpaces(editorSpaceItems([...renderer.getScene().nodes, ...(panelFace === undefined ? [] : [panelFace])], editorWires))
+      setNodeBoxes(renderer.getScene().nodes.map((node) => ({ id: node.id, box: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height } })))
+      renderer.setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown')))
       setMediaPreviews(renderer.getScene().nodes.flatMap((node) => {
         if (node.layout.minimized) return []
         const media = model.previews[node.id]
@@ -4961,7 +5033,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
      */
     function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string, caret?: { x: number; y: number }): void {
       const tab = activeTab()
-      if (!tab || refuseFrozenEdit()) return
+      if (!tab) return
+      // An editor shown in the node folds out under its row and back, as a
+      // section opens and closes, also while a run holds the workflow. A
+      // field on the Inputs panel folds out on the panel, which keeps its
+      // own folds apart from the subgraph node outside. Such an editor has
+      // no other place to open.
+      if (IN_NODE_EDITORS[hit.row.viewId] !== undefined) {
+        const graphId = currentGraphId(tab)
+        const owner = hit.bnode !== undefined ? { inputsPanel: true }
+          : tab.store.doc.graphs[graphId]?.nodes[hit.node.id] !== undefined ? { nodeId: hit.node.id } : undefined
+        if (owner !== undefined) {
+          void props.app.dispatchTo(tab, {
+            command: 'view.setEditorUnfolded',
+            params: { graphId, ...owner, valueKey: hit.row.valueKey, unfolded: hit.row.unfolded !== true },
+          })
+        }
+        return
+      }
+      if (refuseFrozenEdit()) return
       const graphId = currentGraphId(tab)
       const nodeId = hit.node.id
       const valueGraphId = hit.row.familyOwner?.graphId ?? graphId
@@ -4969,11 +5059,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const valueKey = hit.row.familyOwner?.valueKey ?? hit.row.valueKey
       const spec = hit.row.spec
       if (spec.widgetType === 'COMPOSITOR') return
-      const curveTarget = spec.widgetType === 'CURVE'
-        ? props.app.curveTargetForInput(
-            tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
-          )
-        : undefined
       // A link/net-driven input is read-only: the wire decides its value
       // (companion display), and editing would silently mutate the dormant
       // stored value underneath. Selector rows keep their own value channel
@@ -5004,12 +5089,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
       const schema = resolve(hit.node.node.type)
       const roleEditor = schema?.editorRole === undefined ? undefined : props.app.editors.forRole(schema.editorRole)
-      if (roleEditor?.id === CURVE_EDITOR_KIND) {
-        if (curveTarget) {
-          props.app.openCurveEditor(curveTarget)
-          return
-        }
-      }
       if (roleEditor?.id === GLSL_EDITOR_KIND && valueKey === 'fragment_shader') {
         const target = props.app.glslTargetForInput(
           tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
@@ -5263,7 +5342,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const node = rowNodeOf(focus.nodeId)?.node
         const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
         if (node === undefined || row?.kind !== 'widget') { setRowFocus(undefined); return }
-        if (row.viewId !== 'core.toggle') setRowFocus(undefined)
+        // A toggle and an editor's fold keep the focus, so Enter turns them back.
+        if (row.viewId !== 'core.toggle' && IN_NODE_EDITORS[row.viewId] === undefined) setRowFocus(undefined)
         openWidgetEditor(rowHit(node, row))
       }
     }
@@ -6279,6 +6359,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (traceWindow.__dinksterPointerTrace === pointerTraceConsole)
         delete traceWindow.__dinksterPointerTrace
       controller.dispose()
+      editorPictureHeights = undefined
       renderer.dispose()
       previewLoader.dispose()
       imageEstimator.dispose()
@@ -6287,6 +6368,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setSemanticSource(undefined)
       setSemanticFocused(false)
       setMediaPreviews([])
+      setEditorSpaces([])
+      setNodeBoxes([])
       setActiveCanvasMedia(new Set<string>())
       setOutputImagePreviews([])
       setOutputPages(new Map())
@@ -6537,6 +6620,179 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 onActiveChange={(active) => setCanvasMediaActive(`media:${id}`, active)}
               />
             </Show>
+          </Show>
+        )
+      }}</For>
+      <For each={visibleEditorSpaceKeys()}>{(key) => {
+        const item = () => editorSpaceByKey().get(key)
+        const projected = () => {
+          const current = item()
+          return current === undefined ? undefined : mediaScreenRect(dragged(current.node, current.nodeId), current.space, editorViewport(), canvasClientRect())
+        }
+        const covers = () => {
+          const current = item()
+          return current === undefined ? [] : editorCovers(current)
+        }
+        // While anything in front overlaps the editor, a live view shows its still picture.
+        const covered = () => covers().length > 0
+        /** Where the editor's value is written: a group member's goes to its family's owner. */
+        const valueTarget = () => {
+          const current = item()
+          const tab = activeTab()
+          if (current === undefined || tab === undefined) return undefined
+          const graphId = currentGraphId(tab)
+          const owner = current.field.familyOwner
+          const target = { graphId: owner?.graphId ?? graphId, nodeId: owner?.nodeId ?? current.nodeId, inputId: owner?.valueKey ?? current.valueKey }
+          const commit = (value: Json): void => void props.app.dispatchTo(tab,
+            withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
+          return { tab, graphId, current, target, commit }
+        }
+        const recorder = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.audioRecord') return undefined
+          const backend = props.app.backendForTab(at.tab)
+          const native = backend.protocol === 'dinkster' ? backend.connection : undefined
+          return audioRecorders.get(`${at.tab.id}:${at.graphId}:${at.current.key}`, {
+            upload: native === undefined ? undefined
+              : (file, signal) => native.uploadMediaAsset(file, { scope: 'local', kind: 'media/audio', name: file.name, signal }),
+            fetchBytes: native === undefined ? undefined : (clip, signal) => native.fetchAssetBytes(clip.digest, signal),
+            commit: at.commit,
+          })
+        }
+        const curve = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.curve') return undefined
+          const fallback = effectiveWidgetDefault(at.current.field.spec)
+          const value = isCurveValue(at.current.value) ? at.current.value : isCurveValue(fallback) ? fallback : undefined
+          if (value === undefined) return undefined
+          executions()
+          return {
+            value,
+            commit: (next: CurveValue) => at.commit(next as unknown as Json),
+            histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId),
+          }
+        }
+        const webcam = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.webcam') return undefined
+          const backend = props.app.backendForTab(at.tab)
+          const native = backend.protocol === 'dinkster' ? backend.connection : undefined
+          const parts = at.current.field.parts
+          const dimension = (part: 'width' | 'height'): number => {
+            const row = parts === undefined ? undefined : Object.hasOwn(parts.writes, part) ? parts.writes[part] : parts.reads[part]
+            const value = row === undefined ? undefined : at.tab.store.doc.graphs[at.target.graphId]?.nodes[at.target.nodeId]?.values[row]
+            return typeof value === 'number' ? value : 0
+          }
+          return {
+            upload: native === undefined ? undefined
+              : (file: File, signal: AbortSignal) => native.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal }),
+            fetchBytes: native === undefined ? undefined : (frame: AssetRef, signal: AbortSignal) => native.fetchAssetBytes(frame.digest, signal),
+            size: () => ({ width: dimension('width'), height: dimension('height') }),
+            commit: (value: Json) => at.commit(value),
+          }
+        }
+        const load3d = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.load3d') return undefined
+          const backend = props.app.backendForTab(at.tab)
+          const native = backend.protocol === 'dinkster' ? backend.connection : undefined
+          const parts = at.current.field.parts
+          const node = at.tab.store.doc.graphs[at.target.graphId]?.nodes[at.target.nodeId]
+          const row = (part: string): string | undefined => parts === undefined ? undefined
+            : Object.hasOwn(parts.writes, part) ? parts.writes[part] : parts.reads[part]
+          executions()
+          // The model is read again when its file changes, or when a wire's run brings another one.
+          const sourceKey = JSON.stringify([backend.id, ['model_file', 'model_3d'].map((part) => {
+            const at = row(part)
+            return at === undefined ? null : node?.values[at] ?? null
+          }), at.current.wiredParts.size > 0 ? props.app.executionForTab(at.tab)?.key ?? null : null])
+          return {
+            sourceKey,
+            captures: parts === undefined || !Object.hasOwn(parts.writes, 'state'),
+            ports: {
+              open: (signal: AbortSignal) => openLoad3dSource(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts }, signal),
+              upload: native === undefined ? undefined
+                : (file: File, signal: AbortSignal) => native.uploadMediaAsset(file, { scope: 'local', kind: 'media/video', name: file.name, signal }),
+              commit: at.commit,
+              setSection: (id: string, open: boolean) => void props.app.dispatchTo(at.tab, { command: 'view.setSectionCollapsed',
+                params: { graphId: at.graphId, nodeId: at.current.nodeId, sectionId: `${at.current.row.valueKey}.${id}`, collapsed: open ? false : null } }),
+            },
+          }
+        }
+        const compare = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.imageCompare') return undefined
+          executions()
+          return imageCompareFrames(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts: at.current.field.parts })
+        }
+        const cameraAngle = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.cameraAngle') return undefined
+          const parts = at.current.field.parts
+          const node = at.tab.store.doc.graphs[at.target.graphId]?.nodes[at.target.nodeId]
+          const schema = node === undefined ? undefined : props.app.registryForTab(at.tab)?.resolve(node.type)
+          const defaults = schema === undefined ? {} : defaultValuesOf(schema)
+          // Each angle is the row the widget writes under that part; a wired one shows what its wire brought.
+          const row = (part: string): string | undefined => parts !== undefined && Object.hasOwn(parts.writes, part) ? parts.writes[part] : undefined
+          const fields = Object.fromEntries(CAMERA_ANGLE_PARTS.map((part) => {
+            const wired = at.current.wiredParts.has(part)
+            const written = row(part)
+            const value = wired ? at.current.carriedParts[part] : written === undefined ? undefined : node?.values[written] ?? defaults[written]
+            return [part, { value: typeof value === 'number' ? value : undefined, wired }]
+          })) as Parameters<typeof CameraAngleSpace>[0]['fields']
+          return {
+            fields,
+            commit: (part: string, value: number) => {
+              const inputId = row(part)
+              if (inputId === undefined) return
+              void props.app.dispatchTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, at.current.field.materialize,
+                { command: 'node.setValue', params: { graphId: at.target.graphId, nodeId: at.target.nodeId, inputId, value } }))
+            },
+          }
+        }
+        return (
+          <Show when={item() !== undefined && projected() !== undefined}>
+            <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl} covers={covers()}
+              pictureHeight={item()!.nodeId === boundarySceneId('inputs') ? {
+                // The panel has no stored size: its picture's new height is stored when the drag ends.
+                preview: () => {},
+                commit: (height) => {
+                  const tab = activeTab()
+                  if (tab !== undefined) void props.app.dispatchTo(tab, { command: 'view.setPictureHeight',
+                    params: { graphId: currentGraphId(tab), inputsPanel: true, valueKey: item()!.row.valueKey, height } })
+                },
+              } : {
+                preview: (height) => editorPictureHeights?.previewPictureHeight(height === undefined ? undefined
+                  : { nodeId: item()!.nodeId, valueKey: item()!.row.valueKey, height }),
+                commit: (height) => editorPictureHeights?.commitPictureHeight(item()!.nodeId, item()!.row.valueKey, height),
+              }}>
+              <Show when={recorder()}>
+                {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} />}
+              </Show>
+              <Show when={webcam()}>
+                {(ports) => <WebcamSpace value={item()?.value} ports={ports()}
+                  wired={item()?.wired === true} carried={item()?.carried} covered={covered()} />}
+              </Show>
+              <Show when={curve()}>
+                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wiredLine={item()?.row.wiredLine === true}
+                  options={item()?.field.spec.options ?? {}} />}
+              </Show>
+              <Show when={load3d()}>
+                {(at) => <Load3dSpace value={item()?.value}
+                  sourceKey={at().sourceKey} ports={at().ports} captures={at().captures}
+                  live={liveModelViews().has(key) && !covered()}
+                  onWake={() => setWokenModelViews((woken) => [key, ...woken.filter((other) => other !== key)].slice(0, LIVE_MODEL_VIEWS))}
+                  openSections={item()?.row.openSections ?? []}
+                  cameraWired={item()?.wiredParts.has('camera_info') === true}
+                  placementWired={item()?.wiredParts.has('model_3d_info') === true} />}
+              </Show>
+              <Show when={cameraAngle()}>
+                {(at) => <CameraAngleSpace fields={at().fields} commit={at().commit} />}
+              </Show>
+              <Show when={compare() !== undefined}>
+                <ImageCompareSpace frames={compare() ?? { image_a: [], image_b: [] }} pictureHeight={item()?.row.picture?.height ?? 0} />
+              </Show>
+            </NodeEditorSpaceOverlay>
           </Show>
         )
       }}</For>

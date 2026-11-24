@@ -28,7 +28,7 @@ import {
 } from '@dinkster/core'
 import { historicalSchemas as schemas } from './historical-schemas.js'
 import { buildScene, boundaryPositions, boundaryNodesInGroup, nodesInGroup, nodeStatesForGraph, scenesEqual, updateSceneNodePositions, updateSceneNodeValues, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, type Scene } from '../src/scene.js'
-import { defaultTokens } from '../src/tokens.js'
+import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
@@ -1838,4 +1838,49 @@ describe('scenesEqual', () => {
     expect(scenesEqual(a, b)).toBe(false)
   })
 
+})
+
+describe('an editor on the Inputs panel', () => {
+  const recorder: NodeSchema = {
+    type: 'Rec', displayName: 'Rec', category: 'test', outputNode: false,
+    body: [{ kind: 'input', id: 'clip', type: { kind: 'concrete', name: 'AUDIO_RECORD' }, widget: { widgetType: 'AUDIO_RECORD', options: { unfolded: true } } }],
+  } as unknown as NodeSchema
+  const editorMeasure: WidgetMeasure = (spec) => spec.widgetType === 'AUDIO_RECORD' ? { viewId: 'core.audioRecord', rows: 1 } : undefined
+  const panelOf = (inputsPanel?: Json) => {
+    const document = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-editor', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'Root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: { outer: { id: 'outer', type: '#g1', values: {} } } },
+        g1: {
+          id: 'g1', name: 'Sub', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+          nodes: { inner: { id: 'inner', type: 'Rec', values: {} } },
+          boundary: { inputs: [{ id: 'clip', promoted: true, binds: { kind: 'port', node: 'inner', port: 'clip' } }], outputs: [] },
+        },
+      },
+      view: { graphs: {
+        g0: { nodes: { outer: { position: { x: 0, y: 0 }, editors: { clip: { unfolded: true } } } } },
+        g1: { nodes: { inner: { position: { x: 300, y: 0 } } }, ...(inputsPanel === undefined ? {} : { inputsPanel }) },
+      } },
+    } as never).document as WorkflowDocument
+    const scene = buildScene({
+      document, graphId: 'g1', resolve: documentResolver(document, (type) => type === 'Rec' ? recorder : undefined),
+      tokens: defaultTokens, measure: (text) => text.length * 6, widgetMeasure: editorMeasure,
+    })
+    return scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!.layout
+  }
+
+  it('starts folded whatever the declaration or the node outside says, and unfolds under its field from the panel\'s own state', () => {
+    const folded = panelOf()
+    expect(folded.rows.some((row) => row.kind === 'editorSpace')).toBe(false)
+    const open = panelOf({ editors: { clip: { unfolded: true } } })
+    const field = open.rows.findIndex((row) => row.kind === 'widget' && row.valueKey === 'clip')
+    const space = open.rows[field + 1]
+    expect(open.rows[field]).toMatchObject({ unfolded: true })
+    if (space?.kind !== 'editorSpace') throw new Error('expected the editor space under its field')
+    expect(space).toMatchObject({ valueKey: 'clip', viewId: 'core.audioRecord', y: open.rows[field]!.y + open.rows[field]!.height })
+    expect(space.rowAbove).toBe(open.rows[field]!.height)
+    // The panel grows downward by the space; the add slot moves below it.
+    expect(open.height - folded.height).toBe(space.height)
+    expect(open.width).toBeGreaterThanOrEqual(canvasPaintTokens.node.editorSpace.minWidth + space.inset * 2)
+  })
 })

@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, onCleanup, untrack, type JSX } from 'solid-js'
 import type { WidgetRegistry } from '@dinkster/core'
 import {
+  boundaryFieldNode,
   CanvasRenderer,
   canvasColorsForTheme,
   canvasPaintTokens,
@@ -10,6 +11,7 @@ import {
   type DesignTokens,
   type LayoutRow,
   type Scene,
+  type SceneNode,
   type TextMeasurer,
   type WidgetMeasure,
 } from '@dinkster/canvas'
@@ -354,6 +356,13 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
 }
 
 /** One example: the production renderer's node with each unfolded editor's controls over its space. */
+/** The box the example's editors are in: its node, or the Inputs panel that shows them. */
+function boxOf(scene: Scene, example: InNodeEditorExample): Pick<SceneNode, 'x' | 'y' | 'layout'> | undefined {
+  if (example.place !== 'inputsPanel') return scene.nodes.find((item) => item.id === example.id)
+  const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')
+  return panel === undefined ? undefined : boundaryFieldNode(panel)
+}
+
 function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'light'; registry: WidgetRegistry }) {
   let canvas!: HTMLCanvasElement
   const [scene, setScene] = createSignal<Scene>()
@@ -390,7 +399,7 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
         return { viewId: view.id, rows: view.measure(spec).rows, ...(noBackend ? { editorControls: noBackendHeight(space) } : {}) }
       }
       const built = createInNodeEditorScene(tokens, measure, widgetMeasure, example, { x: MARGIN, y: MARGIN })
-      const node = built.nodes.find((item) => item.id === example.id)!
+      const node = boxOf(built, example)!
       canvas.style.width = `${node.layout.width + MARGIN * 2}px`
       canvas.style.height = `${node.layout.height + MARGIN * 2}px`
       renderer = new CanvasRenderer(canvas, tokens, createRegistryPainter(props.registry))
@@ -415,7 +424,7 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
   })
   const spaces = () => {
     const current = scene()
-    const node = current?.nodes.find((item) => item.id === props.example.id)
+    const node = current === undefined ? undefined : boxOf(current, props.example)
     if (!node) return []
     return node.layout.rows
       .filter((row): row is SpaceRow => row.kind === 'editorSpace')
@@ -459,7 +468,8 @@ export function InNodeEditorsGallery(props: { theme: 'dark' | 'light' }) {
     ['3D viewer', (example) => example.card >= 20 && example.card <= 26],
     ['Image comparison', (example) => example.card >= 27 && example.card <= 29],
     ['Camera angle', (example) => example.card >= 30 && example.card <= 32],
-    ['Curve', (example) => example.card >= 34],
+    ['Curve', (example) => example.card >= 34 && example.card <= 36],
+    ['Off the node', (example) => example.card >= 37],
   ]
   return (
     <For each={groups}>

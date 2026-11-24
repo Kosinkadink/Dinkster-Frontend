@@ -694,6 +694,17 @@ export interface GraphViewState {
   readonly guideNets?: readonly string[]
   /** Boundary pseudo-node positions (subgraph definitions only). */
   readonly boundary?: Readonly<Partial<Record<BoundarySide, BoundaryNodeViewState>>>
+  /**
+   * The Inputs panel's editors shown in the panel (subgraph definitions
+   * only), by field value key: which are folded out and the picture heights
+   * the user dragged. Kept apart from the panel's position, which older
+   * documents store only with their first edit, and not shared with the
+   * subgraph node outside. Absent = folded, at the editor's own height.
+   */
+  readonly inputsPanel?: {
+    readonly editors?: Readonly<Record<string, { readonly unfolded: boolean }>>
+    readonly pictureHeights?: Readonly<Record<string, number>>
+  }
   readonly ext?: ExtData
 }
 

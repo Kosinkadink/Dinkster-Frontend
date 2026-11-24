@@ -634,19 +634,21 @@ export const WORKFLOW_SCHEMA = {
             properties: { collapsed: { type: 'boolean' } },
           },
         },
-        editors: {
-          type: 'object',
-          additionalProperties: {
-            type: 'object',
-            required: ['unfolded'],
-            properties: { unfolded: { type: 'boolean' } },
-          },
-        },
-        pictureHeights: { type: 'object', additionalProperties: { type: 'number' } },
+        editors: { $ref: '#/$defs/editorFolds' },
+        pictureHeights: { $ref: '#/$defs/pictureHeights' },
         color: { type: 'string' },
         ext: { $ref: '#/$defs/extData' },
       },
     },
+    editorFolds: {
+      type: 'object',
+      additionalProperties: {
+        type: 'object',
+        required: ['unfolded'],
+        properties: { unfolded: { type: 'boolean' } },
+      },
+    },
+    pictureHeights: { type: 'object', additionalProperties: { type: 'number' } },
     groupViewState: {
       type: 'object',
       required: ['id', 'title', 'bounds'],
@@ -698,6 +700,14 @@ export const WORKFLOW_SCHEMA = {
           properties: {
             inputs: { $ref: '#/$defs/boundaryNodeViewState' },
             outputs: { $ref: '#/$defs/boundaryNodeViewState' },
+          },
+          additionalProperties: false,
+        },
+        inputsPanel: {
+          type: 'object',
+          properties: {
+            editors: { $ref: '#/$defs/editorFolds' },
+            pictureHeights: { $ref: '#/$defs/pictureHeights' },
           },
           additionalProperties: false,
         },
