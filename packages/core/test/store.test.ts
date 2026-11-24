@@ -6,7 +6,7 @@ import { semanticHashOf } from '../src/compile/hash.js'
 import { loadDocument } from '../src/format/migrate.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { netViewPositions } from '../src/format/net-views.js'
-import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, asSelectorCandidateId, asSelectorId, asValueSourceId } from '../src/ids.js'
+import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId } from '../src/ids.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { initialDynamicStateOf } from '../src/schema/body.js'
@@ -758,15 +758,15 @@ describe('DocumentStore.dispatch', () => {
   it('selection.move updates different movable kinds as ONE undo step', () => {
     const store = makeStore()
     const added = store.dispatch({
-      command: 'valueSource.add',
-      params: { graphId: 'g0', value: 1, position: { x: 1, y: 2 } },
+      command: 'reroute.add',
+      params: { graphId: 'g0', position: { x: 1, y: 2 } },
     })
     expect(added.ok).toBe(true)
     expect(store.dispatch({
       command: 'view.createGroup',
       params: { graphId: 'g0', title: 'mixed', bounds: { x: 0, y: 0, width: 100, height: 100 } },
     }).ok).toBe(true)
-    const valueSourceId = Object.keys(store.doc.graphs.g0!.valueSources ?? {})[0]!
+    const rerouteId = Object.keys(store.doc.graphs.g0!.reroutes)[0]!
     const groupId = Object.keys(store.doc.view.graphs.g0!.groups ?? {})[0]!
     const beforeMove = store.doc
     const out = store.dispatch({
@@ -774,13 +774,13 @@ describe('DocumentStore.dispatch', () => {
       params: {
         graphId: 'g0',
         nodes: { n1: { x: 5, y: 6 } },
-        valueSources: { [valueSourceId]: { x: 7, y: 8 } },
+        reroutes: { [rerouteId]: { x: 7, y: 8 } },
         groups: { [groupId]: { x: 9, y: 10 } },
       },
     })
     expect(out.ok).toBe(true)
     expect(store.doc.view.graphs.g0!.nodes.n1!.position).toEqual({ x: 5, y: 6 })
-    expect(store.doc.view.graphs.g0!.valueSources![valueSourceId]!.position).toEqual({ x: 7, y: 8 })
+    expect(store.doc.view.graphs.g0!.reroutes![rerouteId]!.position).toEqual({ x: 7, y: 8 })
     expect(store.doc.view.graphs.g0!.groups![groupId]!.bounds).toEqual({ x: 9, y: 10, width: 100, height: 100 })
     expect(store.undo()).toBe(true)
     expect(store.doc).toEqual(beforeMove)
@@ -1226,6 +1226,27 @@ describe('view.setEditorUnfolded and view.setPictureHeight', () => {
     expect(store.dispatch({ ...unfold('n1', 'frame', true), params: { ...unfold('n1', 'frame', true).params, unfolded: 'yes' } }).ok).toBe(false)
     expect(store.dispatch(unfold('n1', '', true)).ok).toBe(false)
     expect(store.dispatch(unfold('missing', 'frame', true)).ok).toBe(false)
+  })
+
+  it('keeps the Inputs panel\'s folds apart from the subgraph node outside', () => {
+    const store = makeStore({
+      ...doc({
+        g0: graph({ id: 'g0', nodes: { sub: node('sub', '#g1') } }),
+        g1: graph({
+          id: 'g1', name: 'sub', boundary: { inputs: [], outputs: [] }, nodes: { m1: node('m1') },
+        }),
+      }),
+    })
+    const set = (command: string, params: Record<string, unknown>) => store.dispatch({ command, params: { graphId: 'g1', ...params } } as never)
+    expect(set('view.setEditorUnfolded', { inputsPanel: true, valueKey: 'curve', unfolded: true }).ok).toBe(true)
+    expect(set('view.setPictureHeight', { inputsPanel: true, valueKey: 'curve', height: 300 }).ok).toBe(true)
+    const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!.view
+    expect(loaded.graphs.g1!.inputsPanel).toEqual({ editors: { curve: { unfolded: true } }, pictureHeights: { curve: 300 } })
+    expect(loaded.graphs.g0?.nodes.sub?.editors).toBeUndefined()
+    expect(store.undo()).toBe(true)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.view.graphs.g1?.inputsPanel).toBeUndefined()
+    expect(store.dispatch({ command: 'view.setEditorUnfolded', params: { graphId: 'g0', inputsPanel: true, valueKey: 'curve', unfolded: true } }).ok).toBe(false)
   })
 })
 
@@ -1863,66 +1884,6 @@ describe('group commands (view-only)', () => {
     expect(undone.groups!.grp0!.bounds).toEqual(bounds)
     expect(undone.nodes.n1!.position).toEqual({ x: 50, y: 50 })
     expect(undone.nodes.n2!.position).toEqual({ x: 100, y: 100 })
-  })
-
-  it('view.moveGroup carries value sources and selectors in the same undo step', () => {
-    const store = makeStore(doc({
-      g0: graph({
-        id: 'g0',
-        nodes: { n1: node('n1') },
-        valueSources: { v1: { id: asValueSourceId('v1'), value: 7 } as never },
-        selectors: {
-          s1: {
-            id: asSelectorId('s1'),
-            candidates: [{ id: asSelectorCandidateId('ca') }],
-            policy: { kind: 'fixed', candidate: asSelectorCandidateId('ca') },
-          } as never,
-        },
-      }),
-    }))
-    expect(createGroup(store).ok).toBe(true)
-    const out = store.dispatch({
-      command: 'view.moveGroup',
-      params: {
-        graphId: 'g0',
-        groupId: 'grp0',
-        bounds: { x: 200, y: 200 },
-        positions: { n1: { x: 250, y: 250 } },
-        valueSources: { v1: { x: 260, y: 260 } },
-        selectors: { s1: { x: 270, y: 270 } },
-      },
-    })
-    expect(out.ok).toBe(true)
-    const view = store.doc.view.graphs.g0!
-    expect(view.nodes.n1!.position).toEqual({ x: 250, y: 250 })
-    expect(view.valueSources?.v1?.position).toEqual({ x: 260, y: 260 })
-    expect(view.selectors?.s1?.position).toEqual({ x: 270, y: 270 })
-
-    // ONE undo step covers the rectangle plus everything it carried.
-    expect(store.undo()).toBe(true)
-    const undone = store.doc.view.graphs.g0!
-    expect(undone.groups!.grp0!.bounds).toEqual(bounds)
-    expect(undone.valueSources?.v1?.position).toBeUndefined()
-    expect(undone.selectors?.s1?.position).toBeUndefined()
-  })
-
-  it('view.moveGroup rejects atomically on unknown value source or selector', () => {
-    const store = makeStore()
-    expect(createGroup(store).ok).toBe(true)
-    const rev = store.revision
-    const badSource = store.dispatch({
-      command: 'view.moveGroup',
-      params: { graphId: 'g0', groupId: 'grp0', bounds: { x: 1, y: 1 }, positions: {}, valueSources: { ghost: { x: 0, y: 0 } } },
-    })
-    expect(badSource.ok).toBe(false)
-    if (!badSource.ok) expect(badSource.diagnostics[0]!.code).toBe('valueSource.missing')
-    const badSelector = store.dispatch({
-      command: 'view.moveGroup',
-      params: { graphId: 'g0', groupId: 'grp0', bounds: { x: 1, y: 1 }, positions: {}, selectors: { ghost: { x: 0, y: 0 } } },
-    })
-    expect(badSelector.ok).toBe(false)
-    if (!badSelector.ok) expect(badSelector.diagnostics[0]!.code).toBe('selector.missing')
-    expect(store.revision).toBe(rev)
   })
 
   it('view.setGroupBounds resizes; rejects non-positive size', () => {

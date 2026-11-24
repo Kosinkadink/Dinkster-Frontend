@@ -8,9 +8,10 @@
  * diagnostic, never a change to the value or the wires.
  */
 
+import { canonicalJson } from './compile/hash.js'
 import { diag, type Diagnostic } from './diagnostics.js'
+import { normalizeComboOption } from './schema/combo-options.js'
 import type { Json } from './format/document.js'
-import { specMergeFor } from './value-source.js'
 import {
   inputsOf,
   outputsOf,
@@ -22,6 +23,93 @@ import {
   type OutputSpec,
   type WidgetSpec,
 } from './schema/model.js'
+
+/**
+ * Per-kind constraint merging: closed, deterministic, defined here for
+ * the core kinds; unknown kinds fall back to "specs must agree exactly"
+ * (i.e. they opt out of derivation until they declare a merge rule).
+ * Returns merged options or a conflict message.
+ */
+export type SpecMergeFn = (
+  a: Readonly<Record<string, unknown>>,
+  b: Readonly<Record<string, unknown>>,
+) => { readonly options: Record<string, unknown> } | { readonly conflict: string }
+
+const asNum = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined)
+
+const mergeNumeric: SpecMergeFn = (a, b) => {
+  const options: Record<string, unknown> = { ...a }
+  const aMin = asNum(a['min'])
+  const bMin = asNum(b['min'])
+  const aMax = asNum(a['max'])
+  const bMax = asNum(b['max'])
+  const min = aMin === undefined ? bMin : bMin === undefined ? aMin : Math.max(aMin, bMin)
+  const max = aMax === undefined ? bMax : bMax === undefined ? aMax : Math.min(aMax, bMax)
+  if (min !== undefined) options['min'] = min
+  if (max !== undefined) options['max'] = max
+  if (min !== undefined && max !== undefined && min > max) {
+    return { conflict: `numeric ranges do not intersect (min ${min} > max ${max})` }
+  }
+  // Coarsest step wins (every consumer can accept multiples of it only if
+  // steps divide; advisory, so pick the larger and let validate() warn).
+  const aStep = asNum(a['step'])
+  const bStep = asNum(b['step'])
+  const step = aStep === undefined ? bStep : bStep === undefined ? aStep : Math.max(aStep, bStep)
+  if (step !== undefined) options['step'] = step
+  // Finest precision display-wise (FLOAT): smallest declared.
+  const aPrec = asNum(a['precision'])
+  const bPrec = asNum(b['precision'])
+  const precision =
+    aPrec === undefined ? bPrec : bPrec === undefined ? aPrec : Math.min(aPrec, bPrec)
+  if (precision !== undefined) options['precision'] = precision
+  return { options }
+}
+
+const mergeCombo: SpecMergeFn = (a, b) => {
+  const aOpts = Array.isArray(a['options']) ? (a['options'] as unknown[]) : undefined
+  const bOpts = Array.isArray(b['options']) ? (b['options'] as unknown[]) : undefined
+  const options: Record<string, unknown> = { ...a, ...b }
+  if (aOpts && bOpts) {
+    const bKeys = new Set(bOpts.flatMap((option) => {
+      const normalized = normalizeComboOption(option)
+      return normalized === undefined ? [] : [normalized.value]
+    }))
+    const merged = aOpts.filter((option) => {
+      const normalized = normalizeComboOption(option)
+      return normalized !== undefined && bKeys.has(normalized.value)
+    })
+    if (merged.length === 0) return { conflict: 'combo option lists do not intersect' }
+    options['options'] = merged
+  } else if (aOpts ?? bOpts) {
+    options['options'] = aOpts ?? bOpts
+  }
+  return { options }
+}
+
+const mergeString: SpecMergeFn = (a, b) => ({
+  // multiline is a default-view hint, not a wall: any consumer wanting
+  // multiline gets the richer default; the value shape is identical.
+  options: { ...a, ...b, ...(a['multiline'] === true || b['multiline'] === true ? { multiline: true } : {}) },
+})
+
+const mergeTrivial: SpecMergeFn = (a, b) => ({ options: { ...a, ...b } })
+
+const mergeExact: SpecMergeFn = (a, b) => {
+  if (canonicalJson(a) !== canonicalJson(b)) {
+    return { conflict: 'consumers disagree on widget options and this widget kind declares no merge rule' }
+  }
+  return { options: { ...a } }
+}
+
+const CORE_MERGES: Readonly<Record<string, SpecMergeFn>> = {
+  INT: mergeNumeric,
+  FLOAT: mergeNumeric,
+  COMBO: mergeCombo,
+  STRING: mergeString,
+  BOOLEAN: mergeTrivial,
+}
+
+export const specMergeFor = (widgetType: string): SpecMergeFn => CORE_MERGES[widgetType] ?? mergeExact
 
 /** The value field of a primitive node and the output that passes it on. */
 export interface PrimitiveShape {

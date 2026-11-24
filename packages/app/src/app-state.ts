@@ -179,7 +179,7 @@ import {
   webcamKind,
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
-import { BYPASSED_BADGE, boundaryPositions, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Viewport } from '@dinkster/canvas'
+import { BYPASSED_BADGE, boundaryPositions, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Model3dCameraState, type Model3dTransform, type Viewport } from '@dinkster/canvas'
 import { canvasMeasures } from './canvas-measures.js'
 import { batch, createComponent } from 'solid-js'
 import { layoutGroups, moveTabToGroup, repairEditorLayout } from './editor-layout.js'
@@ -213,8 +213,7 @@ import {
   type ImportAssetDigestHint,
 } from './import-asset-autoresolve.js'
 import { createCoreLensRegistry } from './lenses.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
-import { isCurveValue, type CurveValue } from '@dinkster/widgets'
+import { APP_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
 import { validFile3dAsset } from './file3d-preview.js'
 import { isAssetRef, savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
 import { DockLayout } from './dock-layout.js'
@@ -883,25 +882,16 @@ export interface AdvancementPlan {
   readonly modeGenerations: ReadonlyMap<string, number>
 }
 
-type AdvancementInputLocation = { readonly graphId: string } & (
-  | { readonly nodeId: string; readonly inputId: string }
-  | { readonly valueSourceId: string }
-)
+type AdvancementInputLocation = { readonly graphId: string; readonly nodeId: string; readonly inputId: string }
 
 const advancementInputKey = (step: AdvancementInputLocation): string =>
-  JSON.stringify('valueSourceId' in step
-    ? ['graphs', step.graphId, 'valueSources', step.valueSourceId, 'value']
-    : ['graphs', step.graphId, 'nodes', step.nodeId, 'values', step.inputId])
+  JSON.stringify(['graphs', step.graphId, 'nodes', step.nodeId, 'values', step.inputId])
 
 const controllerSourceLocation = (source: ControllerInputSource): AdvancementInputLocation =>
-  'valueSource' in source
-    ? { graphId: source.graph, valueSourceId: source.valueSource }
-    : { graphId: source.graph, nodeId: source.occurrence.node, inputId: source.valueKey }
+  ({ graphId: source.graph, nodeId: source.occurrence.node, inputId: source.valueKey })
 
 const controllerStoredValue = (document: WorkflowDocument, location: AdvancementInputLocation): Json | undefined =>
-  'valueSourceId' in location
-    ? document.graphs[location.graphId]?.valueSources?.[location.valueSourceId]?.value
-    : document.graphs[location.graphId]?.nodes[location.nodeId]?.values[location.inputId]
+  document.graphs[location.graphId]?.nodes[location.nodeId]?.values[location.inputId]
 
 const controllerInputKey = (
   runtimeId: string,
@@ -1036,14 +1026,12 @@ function effectiveControllerState(
   let mode: ControllerMode | undefined
   let valueSourceCount = sources.length
   for (const [index, source] of sources.entries()) {
-    const graph = document.graphs[source.graph]
-    const node = 'valueSource' in source ? undefined : graph?.nodes[source.occurrence.node]
-    const literal = 'valueSource' in source ? graph?.valueSources?.[source.valueSource] : undefined
+    const node = document.graphs[source.graph]?.nodes[source.occurrence.node]
     if (current === undefined) {
       current = controllerStoredValue(document, controllerSourceLocation(source))
       if (current !== undefined) valueSourceCount = index + 1
     }
-    if (mode === undefined) mode = 'valueSource' in source ? literal?.controller : node?.controllers?.[source.valueKey]
+    if (mode === undefined) mode = node?.controllers?.[source.valueKey]
   }
   if (current === undefined && (widget.default !== undefined || !optional)) {
     current = effectiveWidgetDefault(widget)
@@ -1067,9 +1055,8 @@ export function controllerAdvancement(
 
 /** The batch invocation for a set of advancement steps ([] -> undefined). */
 export function advancementInvocation(steps: readonly AdvancementStep[]): CommandInvocation | undefined {
-  const invocations = steps.map((step) => 'valueSourceId' in step
-    ? { command: 'valueSource.setValue', params: { graphId: step.graphId, valueSourceId: step.valueSourceId, value: step.value } }
-    : { command: 'node.setValue', params: { graphId: step.graphId, nodeId: step.nodeId, inputId: step.inputId, value: step.value } })
+  const invocations = steps.map((step) =>
+    ({ command: 'node.setValue', params: { graphId: step.graphId, nodeId: step.nodeId, inputId: step.inputId, value: step.value } }))
   return invocations.length > 0 ? { command: 'batch', params: { invocations } as unknown as Json } : undefined
 }
 
@@ -1105,7 +1092,7 @@ export function controllerAdvancementPlan(
     if (input === undefined) continue
     const location = controllerSourceLocation(owner)
     const graph = document.graphs[owner.graph]
-    if ('valueSourceId' in location ? !graph?.valueSources?.[location.valueSourceId] : !graph?.nodes[location.nodeId]) continue
+    if (!graph?.nodes[location.nodeId]) continue
     const state = effectiveControllerState(document, input.sources, input.widget, input.optional)
     if (state.current === undefined || state.mode === 'fixed') continue
     let value: Json
@@ -1172,7 +1159,6 @@ const LEGACY_BOOLEAN_TOKENS: ReadonlyMap<string, boolean> = new Map([
 export interface CanvasBridge {
   readonly selectedNodes: () => readonly string[]
   readonly groupMembers: (graphId: string, groupId: string) => readonly string[] | undefined
-  readonly showValueSource?: (tabId: string, graphId: string, valueSourceId: string) => void
   /** App-level actions live here so commands do not reach into renderer internals. */
   readonly deleteSelection: () => void | Promise<void>
   readonly selectAll: () => void
@@ -1305,17 +1291,6 @@ export interface Tab {
   readonly replacesFrozenTabId?: string
 }
 
-export interface CurveEditorTarget {
-  readonly tabId: string
-  readonly graphId: string
-  readonly nodeId: string
-  readonly inputId: string
-  readonly instancePath: readonly string[]
-  readonly openedStoredValue: Json | undefined
-  readonly openedSchemaDefault: unknown
-  readonly openedValue: CurveValue
-}
-
 export interface GlslEditorTarget {
   readonly tabId: string
   readonly graphId: string
@@ -1327,8 +1302,7 @@ export interface GlslEditorTarget {
   readonly openedValue: string
 }
 
-const isSessionOnlyEditorKind = (kind: string): boolean =>
-  kind === CURVE_EDITOR_KIND || kind === GLSL_EDITOR_KIND
+const isSessionOnlyEditorKind = (kind: string): boolean => kind === GLSL_EDITOR_KIND
 
 /** A tab's live shared-session membership (session-only; never persisted). */
 export interface CollabTabState {
@@ -2415,11 +2389,7 @@ const readableRegionTemplateLayout = (document: WorkflowDocument): WorkflowDocum
     const previous = document.view.graphs[graphId]
     const hasDependentGeometry =
       Object.keys(graph.reroutes).length > 0 ||
-      Object.keys(graph.valueSources ?? {}).length > 0 ||
-      Object.keys(graph.selectors ?? {}).length > 0 ||
       Object.keys(previous?.reroutes ?? {}).length > 0 ||
-      Object.keys(previous?.valueSources ?? {}).length > 0 ||
-      Object.keys(previous?.selectors ?? {}).length > 0 ||
       Object.keys(previous?.groups ?? {}).length > 0 ||
       previous?.boundary !== undefined
     if (queue.length !== nodeIds.length || hasDependentGeometry) {
@@ -2439,6 +2409,18 @@ const readableRegionTemplateLayout = (document: WorkflowDocument): WorkflowDocum
     return [graphId, { ...previous, nodes }]
   }))
   return { ...document, view: { ...document.view, graphs: graphViews } }
+}
+
+/** A box off the screen, at a picture's size, for drawing a view that is not shown. */
+function offscreenContainer(width: number, height: number): HTMLDivElement {
+  const container = document.createElement('div')
+  container.style.position = 'fixed'
+  container.style.left = '-100000px'
+  container.style.top = '0'
+  container.style.width = `${width}px`
+  container.style.height = `${height}px`
+  document.body.append(container)
+  return container
 }
 
 export class AppState {
@@ -2840,8 +2822,6 @@ export class AppState {
   readonly registry: Signal<SchemaRegistry | undefined>
   readonly tabs: Signal<readonly Tab[]> = createSignal<readonly Tab[]>([])
   readonly activeTabId: Signal<string> = createSignal('')
-  /** Never serialized: identifies the one input projected by the curve editor. */
-  readonly curveEditorTarget: Signal<CurveEditorTarget | undefined> = createSignal<CurveEditorTarget | undefined>(undefined)
   /** Never serialized: identifies the first-party GLSL source editor session. */
   readonly glslEditorTarget: Signal<GlslEditorTarget | undefined> = createSignal<GlslEditorTarget | undefined>(undefined)
   /**
@@ -3488,15 +3468,11 @@ export class AppState {
       this.workflowOpenIntent += 1
       this.templateGalleryOpen.set(false)
       this.selectExtensionWorld()
-      const curveTarget = this.curveEditorTarget.get()
       const glslTarget = this.glslEditorTarget.get()
-      if (curveTarget && curveTarget.tabId !== activeId) this.curveEditorTarget.set(undefined)
-      if (glslTarget && glslTarget.tabId !== activeId) this.glslEditorTarget.set(undefined)
-      if ((curveTarget && curveTarget.tabId !== activeId) ||
-          (glslTarget && glslTarget.tabId !== activeId)) {
+      if (glslTarget && glslTarget.tabId !== activeId) {
+        this.glslEditorTarget.set(undefined)
         this.tabs.update((list) => list.map((tab) =>
-          (tab.id === curveTarget?.tabId && tab.editorKind === CURVE_EDITOR_KIND) ||
-          (tab.id === glslTarget?.tabId && tab.editorKind === GLSL_EDITOR_KIND)
+          tab.id === glslTarget.tabId && tab.editorKind === GLSL_EDITOR_KIND
             ? { ...tab, editorKind: GRAPH_EDITOR_KIND }
             : tab))
       }
@@ -5509,7 +5485,6 @@ export class AppState {
     editorKind = this.availableEditorKind(editorKind)
     const tab = this.tabs.get().find((t) => t.id === tabId)
     if (!tab || tab.execution !== undefined || tab.editorKind === editorKind) return
-    if (editorKind !== CURVE_EDITOR_KIND && this.curveEditorTarget.get()?.tabId === tabId) this.curveEditorTarget.set(undefined)
     if (editorKind !== GLSL_EDITOR_KIND && this.glslEditorTarget.get()?.tabId === tabId) this.glslEditorTarget.set(undefined)
     this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, editorKind } : t)))
     this.schedulePersistTabs()
@@ -5566,64 +5541,6 @@ export class AppState {
     const tab = this.tabs.get().find((t) => t.id === tabId)
     if (!tab || tab.execution !== undefined || (tab.appArrange === true) === appArrange) return
     this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, appArrange } : t)))
-  }
-
-  curveTargetForInput(
-    tab: Tab,
-    graphId: string,
-    nodeId: string,
-    inputId: string,
-    instancePath: readonly string[] = [],
-  ): CurveEditorTarget | undefined {
-    if (tab.execution !== undefined) return undefined
-    const graph = tab.store.doc.graphs[graphId]
-    const node = graph?.nodes[nodeId]
-    const resolve = this.registryForTab(tab)?.resolve
-    const inputSchema = node ? resolve?.(node.type) : undefined
-    const input = inputSchema === undefined ? undefined : inputsOf(inputSchema).find((item) => item.id === inputId)
-    const driven = graph && (Object.values(graph.links).some((link) => 'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
-      Object.values(graph.nets).some((net) => net.sinks.some((sink) => 'port' in sink && sink.node === nodeId && sink.port === inputId)))
-    const stored = node?.values[inputId]
-    const fallback = input?.kind === 'input' && input.widget ? effectiveWidgetDefault(input.widget) : undefined
-    const value = isCurveValue(stored) ? stored : isCurveValue(fallback) ? fallback : undefined
-    if (input?.kind !== 'input' || input.widget?.widgetType !== 'CURVE' || !value) return undefined
-    return !driven
-      ? {
-          tabId: tab.id,
-          graphId,
-          nodeId,
-          inputId,
-          instancePath: [...instancePath],
-          openedStoredValue: stored,
-          openedSchemaDefault: input.widget.default,
-          openedValue: value,
-        }
-      : undefined
-  }
-
-  openCurveEditor(target: CurveEditorTarget): boolean {
-    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
-    const current = tab && this.curveTargetForInput(
-      tab, target.graphId, target.nodeId, target.inputId, target.instancePath,
-    )
-    if (!tab || !current) return false
-    const previous = this.curveEditorTarget.get()
-    if (previous && previous.tabId !== current.tabId) {
-      this.tabs.update((list) => list.map((candidate) =>
-        candidate.id === previous.tabId && candidate.editorKind === CURVE_EDITOR_KIND
-          ? { ...candidate, editorKind: GRAPH_EDITOR_KIND }
-          : candidate))
-    }
-    this.curveEditorTarget.set(current)
-    this.setTabEditorKind(tab.id, CURVE_EDITOR_KIND)
-    this.activeTabId.set(tab.id)
-    return true
-  }
-
-  closeCurveEditor(target: CurveEditorTarget): void {
-    if (this.curveEditorTarget.get() !== target) return
-    this.curveEditorTarget.set(undefined)
-    this.setTabEditorKind(target.tabId, GRAPH_EDITOR_KIND)
   }
 
   glslTargetForInput(
@@ -5883,8 +5800,8 @@ export class AppState {
         typeof (item as JsonObject).command === 'string' && this.frozenPresentationCommand(item as unknown as CommandInvocation))
     }
     return [
-      'node.move', 'selection.move', 'reroute.move', 'valueSource.move', 'selector.move',
-      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed',
+      'node.move', 'selection.move', 'reroute.move',
+      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed', 'view.setEditorUnfolded',
       'view.moveBoundaryNode', 'view.moveGroup', 'view.setGroupBounds',
       'view.setNetCollapsed', 'view.setNetDisplay', 'view.setAllNetsDisplay',
       'view.setNodeVideo', 'view.setNodeColor', 'view.setGroupColor', 'view.setWidgetRepresentation',
@@ -6012,7 +5929,6 @@ export class AppState {
 
   private cleanupClosedTab(id: string): void {
     this.dismissMigrationNotice(id)
-    if (this.curveEditorTarget.get()?.tabId === id) this.curveEditorTarget.set(undefined)
     if (this.glslEditorTarget.get()?.tabId === id) this.glslEditorTarget.set(undefined)
     this.dropCollabFor(id) // leave the shared session; the server session survives
     this.dropProblems(id) // its diagnostics may not outlive the tab
@@ -7739,7 +7655,7 @@ export class AppState {
       ...installed.filter(({ rule }) => rule.cases.every((branch) =>
         Object.entries(branch.inputs ?? {}).every(([target, mapping]) =>
           mapping.kind === 'constant' || mapping.input === target))),
-    ])
+    ], registry.schemas.values())
     const imported = result.document === undefined ? result : {
       ...result,
       document: initializeBoundaryViews(result.document, this.boundaryPositionResolver(registry.resolve)).doc,
@@ -8516,7 +8432,7 @@ export class AppState {
         const child = tab.store.doc.graphs[childId]
         if (!child) return
         const childPath = [...path, asNodeId(id)]
-        const childTargets = new Set(outputsOnly ? [] : child.boundary?.outputs.flatMap((item) => item.binds.kind === 'unbound' || item.binds.kind === 'valueSource' ? [] : [item.binds.node]) ?? [])
+        const childTargets = new Set(outputsOnly ? [] : child.boundary?.outputs.flatMap((item) => item.binds.kind === 'unbound' ? [] : [item.binds.node]) ?? [])
         for (const inner of Object.values(child.nodes)) if (resolve(inner.type)?.isOutputNode) childTargets.add(inner.id)
         for (const childTarget of [...childTargets].sort()) visit(childId, childPath, childTarget)
       }
@@ -8931,12 +8847,7 @@ export class AppState {
         const selected = choices.get(JSON.stringify([graph, selector]))
         return selected !== undefined && candidates.includes(selected) ? selected : undefined
       },
-      pickCandidate: ({ graph, selector }) => {
-        const selected = choices.get(JSON.stringify([graph, selector]))
-        const candidates = tab.store.doc.graphs[graph]?.selectors?.[selector]?.candidates
-        const index = selected === undefined ? -1 : candidates?.findIndex((candidate) => candidate.id === selected) ?? -1
-        return index < 0 ? 0 : index
-      },
+      pickCandidate: () => 0,
     })
     if (!current.ok) return
     const liveControllerInputs = new Map((current.artifact.provenance.controllerInputs ?? []).map((controller) => [
@@ -8946,7 +8857,7 @@ export class AppState {
     const doc = tab.store.doc
     const applicable = plan.steps.filter((step) => {
       const graph = doc.graphs[step.graphId]
-      if ('valueSourceId' in step ? !graph?.valueSources?.[step.valueSourceId] : !graph?.nodes[step.nodeId]) return false
+      if (!graph?.nodes[step.nodeId]) return false
       if (controllerStoredValue(doc, step) !== step.expected) return false
       const liveController = step.controllers.flatMap((queued) => {
         const live = liveControllerInputs.get(controllerInputKey(queued.runtimeId, queued.terminal))
@@ -8984,19 +8895,24 @@ export class AppState {
     this.queueRefusal.set(tab)
   }
 
-  private captureQueueWebcams(tab: Tab, artifact: CompileArtifact, signal: AbortSignal): Promise<WorkflowDocument> | undefined {
-    const backend = this.backendForTab(tab)
-    const registry = backend.registry.get()!
+  /**
+   * The nodes of a compiled run whose `widgetType` input holds its own value:
+   * not driven by a wire or by the subgraph around it. Each comes with the
+   * place its value is kept, which for a promoted input is outside the node.
+   */
+  private queueCaptureTargets(tab: Tab, artifact: CompileArtifact, widgetType: string): {
+    readonly node: CompileArtifact['prompt'][string]
+    readonly input: ReturnType<typeof inputsOf>[number]
+    readonly location: { readonly graphId: string }
+    readonly nodeId: string
+    readonly owner: { readonly graphId: string; readonly nodeId: string; readonly valueKey: string }
+  }[] {
+    const registry = this.backendForTab(tab).registry.get()!
     const document = tab.store.doc
-    const captures: { owner: { graphId: string; nodeId: string; valueKey: string }; width: number; height: number }[] = []
-    const capturedOwners = new Map<string, { width: number; height: number }>()
-    for (const [runtimeId, node] of Object.entries(artifact.prompt)) {
+    return Object.entries(artifact.prompt).flatMap(([runtimeId, node]) => {
       const schema = registry.resolve(node.class_type)
-      const input = schema && inputsOf(schema).find((item) => item.widget?.widgetType === webcamKind.type)
-      if (input === undefined || Array.isArray(node.inputs[input.id])) continue
-      // Capture on queue is the row the webcam widget reads under that part; without one, it never captures.
-      const captureRow = input.widget?.reads?.['capture_on_queue']
-      if (captureRow === undefined || node.inputs[captureRow] !== true) continue
+      const input = schema && inputsOf(schema).find((item) => item.widget?.widgetType === widgetType)
+      if (input === undefined || Array.isArray(node.inputs[input.id])) return []
       const occurrence = parseOccurrenceKey(artifact.provenance.toSource[runtimeId]!)
       const location = resolveNodeOccurrence(document, occurrence)!
       const graph = document.graphs[location.graphId]!
@@ -9004,18 +8920,38 @@ export class AppState {
       const definitionDriven = Object.values(graph.links).some((link) =>
         isPortEndpoint(link.to) && link.to.node === target.node && link.to.port === target.port) ||
         Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === target.node && sink.port === target.port))
-      if (occurrence.instancePath.length === 0 && definitionDriven) continue
+      if (occurrence.instancePath.length === 0 && definitionDriven) return []
       if (occurrence.instancePath.length > 0) {
         const topology = effectiveOccurrenceTopology(document, registry.resolve, {
           instancePath: occurrence.instancePath.slice(0, -1),
           node: occurrence.instancePath.at(-1)!,
         })
-        if (effectiveTopologyDrivesPort(topology, graph.id, occurrence.instancePath, target)) continue
+        if (effectiveTopologyDrivesPort(topology, graph.id, occurrence.instancePath, target)) return []
       }
       const view = occurrenceDynamicView(document, registry.resolve, occurrence.instancePath)
       const owner = view.valueOwners.get(occurrence.node)?.get(input.id) ?? {
         graphId: location.graphId, nodeId: occurrence.node, valueKey: input.id,
       }
+      return [{ node, input, location, nodeId: occurrence.node, owner }]
+    })
+  }
+
+  /**
+   * Takes what a run needs from the user's devices and views as it is queued:
+   * a webcam frame where capture on queue is on, and the image, mask and
+   * normal of each 3D view that changed since its pictures were taken. They
+   * are stored on their nodes in one step before the run is sent.
+   */
+  private captureQueueViews(tab: Tab, artifact: CompileArtifact, signal: AbortSignal): Promise<WorkflowDocument> | undefined {
+    const backend = this.backendForTab(tab)
+    const registry = backend.registry.get()!
+    const document = tab.store.doc
+    const captures: { owner: { graphId: string; nodeId: string; valueKey: string }; width: number; height: number }[] = []
+    const capturedOwners = new Map<string, { width: number; height: number }>()
+    for (const { node, input, owner } of this.queueCaptureTargets(tab, artifact, webcamKind.type)) {
+      // Capture on queue is the row the webcam widget reads under that part; without one, it never captures.
+      const captureRow = input.widget?.reads?.['capture_on_queue']
+      if (captureRow === undefined || node.inputs[captureRow] !== true) continue
       const key = JSON.stringify(owner)
       // The capture size comes from the rows the webcam widget reads; a part it does not name is absent.
       const dimension = (part: 'width' | 'height'): number => {
@@ -9034,25 +8970,112 @@ export class AppState {
       capturedOwners.set(key, dimensions)
       captures.push({ owner, ...dimensions })
     }
-    if (captures.length === 0) return undefined
+    // A 3D view on its own input gives pictures; one that writes a separate state row stores its view only.
+    const models = backend.protocol !== 'dinkster' ? [] : this.queueCaptureTargets(tab, artifact, 'LOAD_3D')
+      .filter(({ input }) => input.widget?.writes === undefined || Object.keys(input.widget.writes).length === 0)
+      .filter((target, index, all) => all.findIndex((other) => JSON.stringify(other.owner) === JSON.stringify(target.owner)) === index)
+    if (captures.length === 0 && models.length === 0) return undefined
     return (async () => {
       const invocations: CommandInvocation[] = []
+      const current = (): void => {
+        signal.throwIfAborted()
+        if (tab.store.doc !== document || backend.registry.get() !== registry || this.backendForTab(tab) !== backend) {
+          throw new Error('Workflow or backend changed while capturing; queue again.')
+        }
+      }
       for (const { owner, width, height } of captures) {
         const file = await captureWebcamFrame({ width, height }, signal)
         const ref = await backend.connection.uploadMediaAsset(file, {
           scope: 'local', kind: 'media/image', name: file.name, signal,
         })
-        signal.throwIfAborted()
-        if (tab.store.doc !== document || backend.registry.get() !== registry || this.backendForTab(tab) !== backend) {
-          throw new Error('Workflow or backend changed while capturing webcam; queue again.')
-        }
+        current()
         invocations.push({ command: 'node.setValue', params: {
           graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: { ...ref },
         } })
       }
-      signal.throwIfAborted()
+      if (models.length > 0) {
+        const [{ openLoad3dSource, Load3dSourceError }, { mountModel3dViewer }] = await Promise.all([
+          import('./load3d-source.js'), import('./model3d-viewer.js'),
+        ])
+        for (const { node, input, location, nodeId, owner } of models) {
+          const stored = node.inputs[input.id]
+          const value: Record<string, Json> = typeof stored === 'object' && stored !== null && !Array.isArray(stored)
+            ? { ...(stored as Record<string, Json>) } : {}
+          const pictureKeys = ['image', 'mask', 'normal', 'pictures_view']
+          // A model a wire brings is known only once this run brings it, so no pictures are stored
+          // or sent for it, not even ones of an earlier model.
+          const dropPictures = (): void => {
+            if (!pictureKeys.some((name) => name in value)) return
+            const rest = Object.fromEntries(Object.entries(value).filter(([name]) => !pictureKeys.includes(name)))
+            invocations.push({ command: 'node.setValue', params: { graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: rest } })
+          }
+          let source
+          try {
+            source = await openLoad3dSource(this, tab, { graphId: location.graphId, nodeId, parts: { writes: {}, reads: input.widget?.reads ?? {} } }, signal)
+          } catch (error) {
+            // No model, or one a wire brings in this same run: no pictures can be taken now.
+            if (error instanceof Load3dSourceError && error.problem !== 'unavailable') {
+              if (error.modelWired) dropPictures()
+              continue
+            }
+            throw error
+          }
+          if (source.modelWired) {
+            source.release()
+            dropPictures()
+            continue
+          }
+          const size = (part: 'width' | 'height'): number => {
+            const read = source.inputValue(part)
+            return typeof read === 'number' ? read : 1024
+          }
+          // The view the pictures show, stored with them so a run (and a reopened workflow) can tell whether they still match.
+          const view = (state: Record<string, Json>): Json => ({ model_file: source.inputValue('model_file') ?? null,
+            camera_info: state['camera_info'] ?? null, model_3d_info: state['model_3d_info'] ?? null, width: size('width'), height: size('height') })
+          const captured = ['image', 'mask', 'normal'].every((name) => value[name] !== undefined && value[name] !== null && value[name] !== '')
+          if (captured && value['pictures_view'] !== undefined && canonicalJson(value['pictures_view']) === canonicalJson(view(value))) {
+            source.release()
+            continue
+          }
+          // The view is drawn off the screen at the node's width and height, as its stored camera shows it.
+          const container = offscreenContainer(size('width'), size('height'))
+          try {
+            const models3d = value['model_3d_info']
+            const viewer = await mountModel3dViewer(container, source.src, source.mime, {
+              ...source.options,
+              ...(value['camera_info'] ? { camera: value['camera_info'] as unknown as Model3dCameraState } : {}),
+              ...(Array.isArray(models3d) && models3d[0] ? { transform: models3d[0] as unknown as Model3dTransform } : {}),
+            })
+            try {
+              const pictures = await viewer.capture(size('width'), size('height'))
+              const next: Record<string, Json> = {
+                ...value,
+                camera_info: { ...(value['camera_info'] as Record<string, Json> | undefined ?? {}), ...JSON.parse(JSON.stringify(viewer.cameraState())) },
+                model_3d_info: [{ ...(Array.isArray(models3d) ? models3d[0] as Record<string, Json> ?? {} : {}), ...JSON.parse(JSON.stringify(viewer.modelTransform())) },
+                  ...(Array.isArray(models3d) ? models3d.slice(1) : [])],
+                recording: value['recording'] ?? '',
+              }
+              for (const name of ['image', 'mask', 'normal'] as const) {
+                const file = new File([pictures[name]], `viewport-${name}.png`, { type: 'image/png' })
+                const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal })
+                next[name] = JSON.parse(JSON.stringify(ref)) as Json
+              }
+              next['pictures_view'] = view(next)
+              current()
+              invocations.push({ command: 'node.setValue', params: { graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: next } })
+            } finally {
+              viewer.dispose()
+            }
+          } finally {
+            container.remove()
+            source.release()
+          }
+        }
+      }
+      current()
+      if (invocations.length === 0) return document
       const outcome = await this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })
-      if (!outcome.ok) throw new Error('Could not save captured webcam frame.')
+      if (!outcome.ok) throw new Error('Could not save the pictures taken for the run.')
       return outcome.doc
     })()
   }
@@ -9158,10 +9181,10 @@ export class AppState {
       const captureRegistry = captureBackend.registry.get()
       let capturedDocument: WorkflowDocument
       try {
-        const capture = this.captureQueueWebcams(tab, result.artifact, lease.signal)
+        const capture = this.captureQueueViews(tab, result.artifact, lease.signal)
         capturedDocument = capture === undefined ? compiledDocument : await capture
         if (tab.store.doc !== capturedDocument || this.backendForTab(tab) !== captureBackend || captureBackend.registry.get() !== captureRegistry) {
-          throw new Error('Workflow or backend changed while capturing webcam; queue again.')
+          throw new Error('Workflow or backend changed while capturing; queue again.')
         }
       } catch (error) {
         if (!lease.signal.aborted && this.tabs.get().includes(tab)) {

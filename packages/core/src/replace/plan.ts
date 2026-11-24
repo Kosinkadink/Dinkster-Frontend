@@ -787,9 +787,7 @@ function planReplacementForCase(
     def.nodes[id] !== undefined ||
     def.links[id] !== undefined ||
     def.nets[id] !== undefined ||
-    def.reroutes[id] !== undefined ||
-    def.valueSources?.[id] !== undefined ||
-    def.selectors?.[id] !== undefined
+    def.reroutes[id] !== undefined
   for (const [localId, helper] of Object.entries(matched.nodes ?? {})) {
     if (helper.type.startsWith('#')) {
       errors.push(diag('error', 'replace.target.subgraph', `replace: helper '${localId}' cannot target a subgraph instance`))

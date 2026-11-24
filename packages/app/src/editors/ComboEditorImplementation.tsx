@@ -65,7 +65,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
     const control = refresh ? sourceSpec.controlAfterRefresh : undefined
     const plan = control === undefined && remoteComboRefreshCanAdvance(refresh, previous?.state)
       ? props.editor.app.prepareComboRefresh(ed.tab, sourceSpec.route) : undefined
-    const target = control !== undefined && ed.target.kind === 'input' ? {
+    const target = control !== undefined ? {
       graphId: ed.target.familyOwner?.graphId ?? ed.graphId,
       nodeId: ed.target.familyOwner?.nodeId ?? ed.target.nodeId,
       inputId: ed.target.familyOwner?.valueKey ?? ed.target.valueKey,
@@ -86,7 +86,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
           const currentGeneration = props.editor.app.widgetValueMutationGeneration(ed.tab, target.graphId, target.nodeId, target.inputId)
           if (current === expected && currentGeneration === generation && (expectedDraft === undefined || expectedDraft === draftGeneration)) {
             const selected = control === 'first' ? result[0]! : result[result.length - 1]!
-            props.commitCommand(withMaterializeFrames(target.graphId, target.nodeId, ed.target.kind === 'input' ? ed.target.materialize : undefined, { command: 'node.setValue', params: { ...target, value: multi ? [selected] : selected } }), multi)
+            props.commitCommand(withMaterializeFrames(target.graphId, target.nodeId, ed.target.materialize, { command: 'node.setValue', params: { ...target, value: multi ? [selected] : selected } }), multi)
           }
         } else if (refresh) return props.editor.app.completeComboRefresh(plan, result)
       })

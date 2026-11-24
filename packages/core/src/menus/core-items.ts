@@ -507,203 +507,6 @@ const rerouteDissolve: MenuContribution = {
   },
 }
 
-// ---------------------------------------------------------------------------
-// Value sources: compact literal pills. Deletion rides the selection like
-// nodes do (the host's deleteSelection already cascades dependent links);
-// spec pinning lives in the app's badge popover because it needs schema
-// resolution, which MenuContext deliberately does not carry.
-// ---------------------------------------------------------------------------
-
-/** Selected value sources when the target rides the selection, else just the target. */
-function targetValueSourceIds(ctx: MenuContext, valueSourceId: string): readonly string[] {
-  return ctx.selection.valueSources.includes(valueSourceId) ? ctx.selection.valueSources : [valueSourceId]
-}
-
-const valueSourceDelete: MenuContribution = {
-  id: 'core.valueSource.delete',
-  targets: ['valueSource'],
-  group: '90-edit',
-  resolve(ctx) {
-    if (ctx.target.kind !== 'valueSource') return []
-    const def = ctx.doc.graphs[ctx.graphId]
-    if (!def) return []
-    const ids = targetValueSourceIds(ctx, ctx.target.valueSourceId).filter((id) => def.valueSources?.[id])
-    if (ids.length === 0) return []
-    return [
-      {
-        id: 'core.valueSource.delete',
-        label: ids.length > 1 ? `Delete ${ids.length} value sources` : 'Delete value source',
-        action: { kind: 'host', action: 'deleteSelection' },
-      },
-    ]
-  },
-}
-
-// ---------------------------------------------------------------------------
-// Selectors: policy switching, candidate management, rename, delete. All
-// semantic edits are commands; rename anchors a host popover (text entry is
-// a UI concern).
-// ---------------------------------------------------------------------------
-
-/** Selected selectors when the target rides the selection, else just the target. */
-function targetSelectorIds(ctx: MenuContext, selectorId: string): readonly string[] {
-  return ctx.selection.selectors.includes(selectorId) ? ctx.selection.selectors : [selectorId]
-}
-
-/** Display label for one candidate: explicit title, else its 1-based ordinal. */
-const candidateLabel = (c: { readonly id: string; readonly title?: string }, index: number): string =>
-  c.title ?? `${index + 1}`
-
-const selectorPolicy: MenuContribution = {
-  id: 'core.selector.policy',
-  targets: ['selector'],
-  group: '20-mode',
-  resolve(ctx) {
-    if (ctx.target.kind !== 'selector') return []
-    const sel = ctx.doc.graphs[ctx.graphId]?.selectors?.[ctx.target.selectorId]
-    if (!sel) return []
-    const selectorId = sel.id
-    const items: MenuItem[] = sel.candidates.map((c, i) => ({
-      id: `core.selector.policy.fixed.${c.id}`,
-      label: `Select: ${candidateLabel(c, i)}`,
-      checked: sel.policy.kind === 'fixed' && sel.policy.candidate === c.id,
-      action: {
-        kind: 'command',
-        invocation: {
-          command: 'selector.setPolicy',
-          params: { graphId: ctx.graphId, selectorId, policy: { kind: 'fixed', candidate: c.id } },
-        },
-      },
-    }))
-    items.push({
-      id: 'core.selector.policy.random',
-      label: 'Select: random',
-      checked: sel.policy.kind === 'random',
-      action: {
-        kind: 'command',
-        invocation: {
-          command: 'selector.setPolicy',
-          params: { graphId: ctx.graphId, selectorId, policy: { kind: 'random' } },
-        },
-      },
-    })
-    return items
-  },
-}
-
-const selectorAddCandidate: MenuContribution = {
-  id: 'core.selector.addCandidate',
-  targets: ['selector'],
-  group: '30-layout',
-  resolve(ctx) {
-    if (ctx.target.kind !== 'selector') return []
-    const sel = ctx.doc.graphs[ctx.graphId]?.selectors?.[ctx.target.selectorId]
-    if (!sel) return []
-    return [
-      {
-        id: 'core.selector.addCandidate',
-        label: 'Add branch',
-        action: {
-          kind: 'command',
-          invocation: {
-            command: 'selector.addCandidate',
-            params: { graphId: ctx.graphId, selectorId: sel.id },
-          },
-        },
-      },
-    ]
-  },
-}
-
-const selectorRemoveCandidate: MenuContribution = {
-  id: 'core.selector.removeCandidate',
-  targets: ['selector'],
-  group: '30-layout',
-  order: 1,
-  resolve(ctx) {
-    if (ctx.target.kind !== 'selector') return []
-    const sel = ctx.doc.graphs[ctx.graphId]?.selectors?.[ctx.target.selectorId]
-    // The last candidate is not removable: a selector is never candidate-less.
-    if (!sel || sel.candidates.length <= 1) return []
-    return sel.candidates.map((c, i) => ({
-      id: `core.selector.removeCandidate.${c.id}`,
-      label: `Remove branch ${candidateLabel(c, i)}`,
-      action: {
-        kind: 'command',
-        invocation: {
-          command: 'selector.removeCandidate',
-          params: { graphId: ctx.graphId, selectorId: sel.id, candidateId: c.id },
-        },
-      },
-    }))
-  },
-}
-
-const selectorRename: MenuContribution = {
-  id: 'core.selector.rename',
-  targets: ['selector'],
-  group: '30-layout',
-  order: 2,
-  resolve(ctx) {
-    if (ctx.target.kind !== 'selector') return []
-    const sel = ctx.doc.graphs[ctx.graphId]?.selectors?.[ctx.target.selectorId]
-    if (!sel) return []
-    return [
-      {
-        id: 'core.selector.rename',
-        label: 'Rename selector...',
-        action: { kind: 'host', action: 'renameSelector', params: { selectorId: sel.id } },
-      },
-    ]
-  },
-}
-
-const selectorDelete: MenuContribution = {
-  id: 'core.selector.delete',
-  targets: ['selector'],
-  group: '90-edit',
-  resolve(ctx) {
-    if (ctx.target.kind !== 'selector') return []
-    const def = ctx.doc.graphs[ctx.graphId]
-    if (!def) return []
-    const ids = targetSelectorIds(ctx, ctx.target.selectorId).filter((id) => def.selectors?.[id])
-    if (ids.length === 0) return []
-    return [
-      {
-        id: 'core.selector.delete',
-        label: ids.length > 1 ? `Delete ${ids.length} selectors` : 'Delete selector',
-        action: { kind: 'host', action: 'deleteSelection' },
-      },
-    ]
-  },
-}
-
-const canvasAddSelector: MenuContribution = {
-  id: 'core.canvas.addSelector',
-  targets: ['canvas'],
-  group: '10-nav',
-  order: 2,
-  resolve(ctx) {
-    if (ctx.target.kind !== 'canvas') return []
-    return [
-      {
-        id: 'core.canvas.addSelector',
-        label: 'Add selector',
-        action: {
-          kind: 'command',
-          invocation: {
-            command: 'selector.add',
-            params: {
-              graphId: ctx.graphId,
-              position: { x: Math.round(ctx.worldX), y: Math.round(ctx.worldY) },
-            },
-          },
-        },
-      },
-    ]
-  },
-}
-
 const linkAddReroute: MenuContribution = {
   id: 'core.link.addReroute',
   targets: ['link'],
@@ -975,34 +778,6 @@ const canvasCreateSubgraph: MenuContribution = {
 // layout sizes, which live in the canvas, not the document). Rename needs a
 // text popover, so it is a host action too.
 // ---------------------------------------------------------------------------
-
-const canvasAddValueSource: MenuContribution = {
-  id: 'core.canvas.addValueSource',
-  targets: ['canvas'],
-  group: '10-nav',
-  order: 1,
-  resolve(ctx) {
-    if (ctx.target.kind !== 'canvas') return []
-    return [
-      {
-        id: 'core.canvas.addValueSource',
-        label: 'Add value source',
-        action: {
-          kind: 'command',
-          invocation: {
-            command: 'valueSource.add',
-            params: {
-              graphId: ctx.graphId,
-              position: { x: Math.round(ctx.worldX), y: Math.round(ctx.worldY) },
-              // Starts as a raw null literal; connecting it derives a spec.
-              value: null,
-            },
-          },
-        },
-      },
-    ]
-  },
-}
 
 const canvasAddGroup: MenuContribution = {
   id: 'core.canvas.addGroup',
@@ -1333,13 +1108,6 @@ export function coreMenuContributions(): readonly MenuContribution[] {
     linkDelete,
     linkAddReroute,
     rerouteDissolve,
-    valueSourceDelete,
-    selectorPolicy,
-    selectorAddCandidate,
-    selectorRemoveCandidate,
-    selectorRename,
-    selectorDelete,
-    canvasAddSelector,
     pinPromoteToNet,
     pinConnectToNet,
     linkNetManage,
@@ -1348,7 +1116,6 @@ export function coreMenuContributions(): readonly MenuContribution[] {
     netStubDisconnect,
     netDelete,
     canvasAddNode,
-    canvasAddValueSource,
     canvasAddGroup,
     canvasPaste,
     nodeGroupSelection,

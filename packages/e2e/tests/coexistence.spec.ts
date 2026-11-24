@@ -2,9 +2,9 @@
  * Browser coexistence regression driven through the PRODUCTION CanvasHost
  * with real interactions. Every construct is present at once - a subgraph
  * instance forwarding two group member inputs, a promoted choice option
- * widget, a promoted type-choice dependent, a reroute chain, a named net, a
- * value source, and a fixed-policy selector - and the user can still edit a
- * promoted widget, all with a clean Problems state.
+ * widget, a promoted type-choice dependent, a reroute chain, a named net and
+ * a primitive node - and the user can still edit a promoted widget, all with
+ * a clean Problems state.
  */
 import { expect, openRailPanel, test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
@@ -35,6 +35,10 @@ async function openCoexistenceWorkflow(page: Page): Promise<void> {
       ({ type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, body })
     window.__dinksterTest!.app.registerSchemas([
       schemaOf('CoexSrcTest', [output('out')]),
+      schemaOf('CoexFloatTest', [
+        { kind: 'input', id: 'value', type: FLOAT, optional: false, widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
+        { kind: 'output', id: 'value', type: FLOAT, knownValue: { input: 'value' } },
+      ]),
       schemaOf('CoexComboTest', [
         {
           kind: 'choice', id: 'mode', required: true,
@@ -69,6 +73,7 @@ async function openCoexistenceWorkflow(page: Page): Promise<void> {
           nodes: {
             src1: { id: 'src1', type: 'CoexSrcTest', values: {} },
             src2: { id: 'src2', type: 'CoexSrcTest', values: {} },
+            vs: { id: 'vs', type: 'CoexFloatTest', values: { value: 2.5 } },
             inst: { id: 'inst', type: '#sub', values: { gain: 8 } },
             inst2: { id: 'inst2', type: '#sub', values: {} },
             snk: { id: 'snk', type: 'CoexSinkTest', values: {} },
@@ -78,11 +83,9 @@ async function openCoexistenceWorkflow(page: Page): Promise<void> {
             l1: { id: 'l1', from: { node: 'src1', port: 'out' }, to: { reroute: 'r1' } },
             l2: { id: 'l2', from: { reroute: 'r1' }, to: { reroute: 'r2' } },
             l3: { id: 'l3', from: { reroute: 'r2' }, to: { node: 'inst', port: 'first' } },
-            l4: { id: 'l4', from: { valueSource: 'vs' }, to: { node: 'inst', port: 'amount' } },
+            l4: { id: 'l4', from: { node: 'vs', port: 'value' }, to: { node: 'inst', port: 'amount' } },
             l5: { id: 'l5', from: { node: 'inst', port: 'result' }, to: { node: 'snk', port: 'in' } },
-            l6: { id: 'l6', from: { node: 'src1', port: 'out' }, to: { selector: 'sel', candidate: 'c1' } },
-            l7: { id: 'l7', from: { node: 'src2', port: 'out' }, to: { selector: 'sel', candidate: 'c2' } },
-            l8: { id: 'l8', from: { selector: 'sel' }, to: { node: 'snk2', port: 'in' } },
+            l6: { id: 'l6', from: { node: 'src1', port: 'out' }, to: { node: 'snk2', port: 'in' } },
           },
           nets: {
             n1: {
@@ -92,8 +95,6 @@ async function openCoexistenceWorkflow(page: Page): Promise<void> {
             },
           },
           reroutes: { r1: { id: 'r1' }, r2: { id: 'r2' } },
-          valueSources: { vs: { id: 'vs', value: 2.5, spec: { widgetType: 'FLOAT' } } },
-          selectors: { sel: { id: 'sel', candidates: [{ id: 'c1' }, { id: 'c2' }], policy: { kind: 'fixed', candidate: 'c1' } } },
           nextOrdinal: 100,
         },
         sub: {
@@ -127,14 +128,13 @@ async function openCoexistenceWorkflow(page: Page): Promise<void> {
           nodes: {
             src1: { position: { x: 40, y: 60 } },
             src2: { position: { x: 40, y: 260 } },
+            vs: { position: { x: 60, y: 470 } },
             inst: { position: { x: 460, y: 60 } },
             inst2: { position: { x: 700, y: 500 } },
             snk: { position: { x: 900, y: 60 } },
             snk2: { position: { x: 900, y: 260 } },
           },
           reroutes: { r1: { position: { x: 260, y: 90 } }, r2: { position: { x: 350, y: 120 } } },
-          valueSources: { vs: { position: { x: 60, y: 470 } } },
-          selectors: { sel: { position: { x: 500, y: 460 } } },
         },
         sub: { nodes: {
           cmb2: { position: { x: 80, y: 300 } },
@@ -163,17 +163,13 @@ test('the maximal document renders every construct at once with a clean Problems
     return {
       nodeIds: s.nodes.map((n) => n.id).sort(),
       reroutes: s.reroutes.map((r) => r.id).sort(),
-      valueSources: s.valueSources.map((v) => v.id),
-      selectors: s.selectors.map((sel) => ({ id: sel.id, active: sel.activeCandidate, typeName: sel.typeName })),
       netLink: s.links.some((l) => l.netId === 'n1'),
       diagnostics: s.diagnostics,
       instPins: s.nodes.find((n) => n.id === 'inst')!.layout.pins.map((p) => p.portId),
     }
   })
-  expect(scene.nodeIds).toEqual(['inst', 'inst2', 'snk', 'snk2', 'src1', 'src2'])
+  expect(scene.nodeIds).toEqual(['inst', 'inst2', 'snk', 'snk2', 'src1', 'src2', 'vs'])
   expect(scene.reroutes).toEqual(['r1', 'r2'])
-  expect(scene.valueSources).toEqual(['vs'])
-  expect(scene.selectors).toEqual([{ id: 'sel', active: 'c1', typeName: 'IMAGE' }])
   expect(scene.netLink).toBe(true)
   expect(scene.diagnostics).toEqual([])
   // Forwarded member inputs, promoted rows, and the boundary output all coexist.

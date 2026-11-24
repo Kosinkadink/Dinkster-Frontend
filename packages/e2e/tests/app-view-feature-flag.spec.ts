@@ -65,7 +65,7 @@ test('default-off restores app tabs as Graph and hides every App View entry poin
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const context = { doc: tab.store.doc as import('@dinkster/core').WorkflowDocument, graphId: 'root',
-      selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] }, worldX: 0, worldY: 0 }
+      selection: { nodes: [], links: [], reroutes: [] }, worldX: 0, worldY: 0 }
     return [
       ...app.menuRegistry.resolve({ ...context, target: { kind: 'widget', nodeId: 'input', inputId: 'steps' } }),
       ...app.menuRegistry.resolve({ ...context, target: { kind: 'node', nodeId: 'input', previewSurface: true } }),

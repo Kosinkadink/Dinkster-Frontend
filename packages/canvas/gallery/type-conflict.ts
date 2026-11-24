@@ -118,9 +118,14 @@ function problemMarks(scene: Scene): Pick<TypeConflictCard, 'badges' | 'rowMarks
  * are offered: none on Blend, and Pick on the Switch, which takes a text
  * naming a branch.
  */
+const HELD_PAST = { x: 16, y: 10 }
+
 function heldOver(scene: Scene, node: string, port: string, offered: readonly string[]): OverlayState {
   const from = pinPosition(scene.nodes.find((n) => n.id === 'text')!, 'STRING', 'out')!
-  const to = pinPosition(scene.nodes.find((n) => n.id === node)!, port, 'in')!
+  const pin = pinPosition(scene.nodes.find((n) => n.id === node)!, port, 'in')!
+  // The pointer rests just past the pin, so the wire's loose end shows that
+  // it is held, not connected.
+  const to = { x: pin.x + HELD_PAST.x, y: pin.y + HELD_PAST.y }
   return {
     ghostLink: { x1: from.x, y1: from.y, x2: to.x, y2: to.y, typeName: 'STRING' },
     dropTargets: new Set(offered.map((id) => dropTargetKey(node, id, 'in'))),

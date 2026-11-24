@@ -311,7 +311,7 @@ While a shared tab is active on the canvas, every participant sees where
 the others are: a colored, labeled cursor per remote actor, colored rings
 around the nodes and reroute dots each has selected, a fainter ring on the
 node each is hovering, dashed ghost outlines where each is dragging nodes
-or reroutes mid-gesture, and a ghosted dashed noodle while each is pulling a
+or reroutes mid-gesture, and a faded solid noodle while each is pulling a
 link from a node socket or reroute,
 that actor's viewport rectangle on the minimap, and the participant list
 in the modal. Presence is ephemeral by contract (the platform pin: NEVER
@@ -391,10 +391,10 @@ to other subscribers and never persists or echoes them.
   only when that remote actor's complete snapshot omits `drag`, the actor
   leaves, or the channel expires.
 - A remote noodle resolves its semantic origin against the receiving scene
-  and paints in that actor's deterministic color at reduced alpha with the
-  same short dash as other presence ghosts. It is paint-only: it never enters
-  the interaction overlay, hit testing, compatible-target calculation, or
-  drop handling. Missing scene origins are ignored.
+  and paints solid in that actor's deterministic color at reduced alpha; a
+  dashed wire means only that it may carry nothing. It is paint-only: it
+  never enters the interaction overlay, hit testing, compatible-target
+  calculation, or drop handling. Missing scene origins are ignored.
 - Remote viewports paint on the minimap only (each actor's `view` rect in
   their color, beneath the local viewport rectangle, never affecting fit
   bounds) - the main canvas stays uncluttered.

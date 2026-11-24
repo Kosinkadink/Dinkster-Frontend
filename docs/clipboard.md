@@ -44,7 +44,7 @@ means they never contribute links.
 
 Version 2 preserves that self-contained `links` invariant. `scope` records the source document lineage and graph plus an app-issued provenance token used to prove that the original source-node incarnation is still owned locally. Incoming boundary links are separate stubs. An ordinary port source uses `{"source":{"graph":"g0","lineage":"workflow-lineage","node":"n0","nodeType":"Producer","port":"out.m1"},"target":{"node":"n1","nodeType":"Consumer","port":"in.m1"}}`; a dynamic member row is named by its flattened id. A widget-tap source uses the same shape with `"tap":"widgetInput"` instead of `port`. This additive source variant stays inside version 2; existing port stubs retain their exact shape. Version 1 envelopes remain readable and behave as before; they have no external stubs.
 
-Boundary input/output pseudo-nodes are derived UI objects and are never copied. Value sources, selectors, boundary bindings, and links to unselected items are not part of the clipboard. A group is copied only when the group itself is the copy target; spatially contained nodes alone do not imply group selection.
+Boundary input/output pseudo-nodes are derived UI objects and are never copied. Boundary bindings and links to unselected items are not part of the clipboard. A group is copied only when the group itself is the copy target; spatially contained nodes alone do not imply group selection.
 
 Version 3 adds `occurrenceTopologies`: closed occurrence-owner topology subtrees for copied drilled-instance owners.
 

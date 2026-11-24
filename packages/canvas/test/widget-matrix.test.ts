@@ -31,7 +31,7 @@ const sceneFor = (name: string, value: Json, links: SceneLink[] = []): Scene => 
   graphId: 'g0', nodes: [{
     id: 'n0', x: 10, y: 10, node: { id: 'n0', type: 'WidgetNode', values: { stored_key: value } },
     layout: { width: 180, height: 54, headerHeight: 20, rows: [row(name)], pins: [], title: 'node' },
-  }], links, reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
+  }], links, reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
 } as unknown as Scene)
 
 /** A minimal canvas + controller pair for click-driven tests. */

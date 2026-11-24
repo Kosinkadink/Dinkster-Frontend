@@ -22,7 +22,7 @@ client identity, server version, and schema wire. Reload accepts it only when:
 - durable history and the live job agree on job, source-document, and
   authenticated principal identity;
 - the source-document asset can be loaded and deterministically recompiled to
-  the saved prompt, scope, selector choices, and provenance; and
+  the saved prompt, scope, random Switch picks, and provenance; and
 - each reusable value is still available from the job-scoped value API.
 
 Restoration follows the current schema load, including a connection refresh
@@ -35,8 +35,8 @@ lists, claim result roots, consult a browser census or wait for cleanup receipts
 Missing bytes make the affected result unavailable; a saved browser record does
 not guarantee that the engine still has temporary output.
 
-Workflow edits invalidate only affected upstream recipe cones. A random
-selector invalidates values in its own downstream cone on every roll; unrelated
+Workflow edits invalidate only affected upstream recipe cones. A random Switch
+pick that changes invalidates values in its own downstream cone; unrelated
 cones remain reusable. Runs without complete compile and source-document proof
 are not adopted, including unproven foreign or reconciled runs.
 

@@ -6,7 +6,7 @@
  * owner pushes scene/state and the renderer repaints on a rAF dirty loop.
  */
 
-import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, effectiveWidgetDefault, formatWidgetValue, selectorCandidateKey, t as translate, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeDecoration, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, effectiveWidgetDefault, formatWidgetValue, t as translate, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeDecoration, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
 import {
   BYPASSED_BADGE,
   LAST_RUN_BADGE,
@@ -36,19 +36,12 @@ import {
   REROUTE_SOCKET_RADIUS,
   sceneEndId,
   structuralEqual,
-  selectorBadgeRect,
-  selectorCandidatePinPosition,
-  selectorOutPinPosition,
-  valueSourceBadgeRect,
-  valueSourceMarkRect,
   type Scene,
   type SceneBoundaryNode,
   type SceneGroup,
   type SceneLinkEnd,
   type SceneNetStub,
   type SceneNode,
-  type SceneSelector,
-  type SceneValueSource,
 } from './scene.js'
 import {
   BOUNDARY_SELECTION_OUTLINE_OUTSET,
@@ -604,10 +597,6 @@ export interface PlacementGhost {
 export interface ScopeHighlight {
   readonly nodes: ReadonlySet<string>
   readonly reroutes: ReadonlySet<string>
-  readonly selectors: ReadonlySet<string>
-  /** selectorCandidateKey(selector, candidate) entries: in-scope branch feeds. */
-  readonly selectorCandidates: ReadonlySet<string>
-  readonly valueSources: ReadonlySet<string>
 }
 
 /** Ephemeral overlay state owned by the interaction layer (never document state). */
@@ -615,8 +604,6 @@ export interface OverlayState {
   readonly selection?: ReadonlySet<string>
   readonly linkSelection?: ReadonlySet<string>
   readonly rerouteSelection?: ReadonlySet<string>
-  readonly valueSourceSelection?: ReadonlySet<string>
-  readonly selectorSelection?: ReadonlySet<string>
   readonly groupSelection?: ReadonlySet<string>
   readonly netViewSelection?: ReadonlySet<string>
   /** Live drag offsets by node OR reroute id (world units); committed on release. */
@@ -760,16 +747,6 @@ export const dropTargetKey = (nodeId: string, portId: string, direction: 'in' | 
 /** Drop-target key for a reroute junction (distinct namespace from pins). */
 export const rerouteTargetKey = (rerouteId: string): string => `reroute::${rerouteId}`
 
-/** Drop-target key for a value source's output pin (distinct namespace). */
-export const valueSourceTargetKey = (valueSourceId: string): string => `valueSource::${valueSourceId}`
-
-/** Drop-target key for one selector candidate's branch input pin. */
-export const selectorInTargetKey = (selectorId: string, candidateId: string): string =>
-  `selectorIn::${selectorId}::${candidateId}`
-
-/** Drop-target key for a selector's single output pin. */
-export const selectorOutTargetKey = (selectorId: string): string => `selectorOut::${selectorId}`
-
 /** Drop-target key for a boundary pseudo-node pin (item id or the add slot). */
 export const boundaryTargetKey = (side: 'inputs' | 'outputs', item: string): string =>
   `boundary::${side}::${item}`
@@ -897,7 +874,7 @@ const structureCullPad = (scale: number, pinRadius: number, detailLevel: CanvasD
 
 /**
  * World-space bounds of everything the scene persistently paints: nodes,
- * boundary pseudo-nodes, reroute dots, value sources, selectors, groups,
+ * boundary pseudo-nodes, reroute dots, groups,
  * net stub tags, links (control-hull - a reverse link bulges far past both
  * endpoints). Powers fitToScene so "fit" frames the
  * whole drawing, not just the plain nodes.
@@ -934,8 +911,6 @@ export function sceneVisualBounds(
     )
   }
   for (const r of scene.reroutes) include(r.x - REROUTE_RADIUS, r.y - REROUTE_RADIUS, REROUTE_RADIUS * 2, REROUTE_RADIUS * 2)
-  for (const v of scene.valueSources) include(v.x, v.y, v.width, v.height)
-  for (const s of scene.selectors) include(s.x, s.y, s.width, s.height)
   for (const g of scene.groups) include(g.x, g.y, g.width, g.height)
   for (const s of scene.netStubs) include(s.x, s.y, s.width, s.height)
   return minX === Infinity ? undefined : { minX, minY, maxX, maxY }
@@ -987,9 +962,11 @@ export function canvasGridLayer(tokens: DesignTokens): CanvasLayerContribution {
 }
 
 export class CanvasRenderer {
-  private baseScene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
-  private scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
+  private baseScene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
+  private scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
   private connectedInputPins: ReadonlySet<string> = new Set()
+  /** Input pins whose wire comes from a muted node: drawn faded with that wire. */
+  private mutedInputPins: ReadonlySet<string> = new Set()
   private connectedOutputPins: ReadonlySet<string> = new Set()
   private connectedWidgetTaps: ReadonlySet<string> = new Set()
   /** Inputs driven only by a boundary input drawn without its wire. */
@@ -1117,7 +1094,7 @@ export class CanvasRenderer {
       const after = overlay[key]
       if (before === after) continue
       if (key === 'selection' || key === 'linkSelection' || key === 'rerouteSelection' ||
-          key === 'valueSourceSelection' || key === 'selectorSelection' || key === 'groupSelection' ||
+          key === 'groupSelection' ||
           key === 'netViewSelection' || key === 'dropTargets' || key === 'hiddenLinkIds') {
         const left = previous[key]
         const right = overlay[key]
@@ -1508,13 +1485,6 @@ export class CanvasRenderer {
       const o = off(reroute.id)
       boxes.push({ x1: reroute.x + o.dx - rerouteRadius, y1: reroute.y + o.dy - rerouteRadius, x2: reroute.x + o.dx + rerouteRadius, y2: reroute.y + o.dy + rerouteRadius })
     }
-    for (const item of [...this.scene.valueSources, ...this.scene.selectors]) {
-      const selected =
-        ('effective' in item ? this.overlay.valueSourceSelection : this.overlay.selectorSelection)?.has(item.id) ?? false
-      if (!selected) continue
-      const o = off(item.id)
-      boxes.push({ x1: item.x + o.dx, y1: item.y + o.dy, x2: item.x + o.dx + item.width, y2: item.y + o.dy + item.height })
-    }
     for (const stub of this.scene.netStubs) {
       if (!this.overlay.netViewSelection?.has(stub.id)) continue
       const o = off(stub.id)
@@ -1814,24 +1784,6 @@ export class CanvasRenderer {
     return this.inactiveNodes
   }
 
-  private selectorResolutions: ReadonlyMap<string, string> | undefined
-
-  /**
-   * Execution-recorded selector choices (selector id -> candidate id) for
-   * the displayed graph: what a frozen/execution view shows as the branch
-   * that ACTUALLY ran. Overlay only - the document's policy is untouched; a
-   * random selector renders its recorded roll instead of '?'.
-   */
-  setSelectorResolutions(resolutions: ReadonlyMap<string, string> | undefined): void {
-    if (this.selectorResolutions === resolutions) return
-    this.selectorResolutions = resolutions
-    this.invalidate()
-  }
-
-  getSelectorResolutions(): ReadonlyMap<string, string> | undefined {
-    return this.selectorResolutions
-  }
-
   /** One link end's out-of-scope verdict under the active scope highlight. */
   private endOutOfScope(end: SceneLinkEnd): boolean {
     const s = this.scopeHighlight
@@ -1840,14 +1792,8 @@ export class CanvasRenderer {
         return this.inactiveNodes?.has(end.node) === true || (s !== undefined && !s.nodes.has(end.node))
       case 'reroute':
         return s !== undefined && !s.reroutes.has(end.reroute)
-      case 'valueSource':
-        return s !== undefined && !s.valueSources.has(end.valueSource)
       case 'widgetTap':
         return this.inactiveNodes?.has(end.node) === true || (s !== undefined && !s.nodes.has(end.node))
-      case 'selector':
-        return s !== undefined && (end.candidate !== undefined
-          ? !s.selectorCandidates.has(selectorCandidateKey(end.selector, end.candidate))
-          : !s.selectors.has(end.selector))
       case 'boundary':
         return false
     }
@@ -2072,6 +2018,8 @@ export class CanvasRenderer {
   }
 
   private refreshConnectivity(): void {
+    this.mutedInputPins = new Set(this.scene.links.flatMap((link) =>
+      link.sourceMuted === true && link.to.kind === 'port' ? [`${link.to.node}\u0000${link.to.port}`] : []))
     this.connectedInputPins = new Set(
       [
         ...this.scene.links
@@ -2126,12 +2074,10 @@ export class CanvasRenderer {
         }),
     )
     // A field on the Inputs panel sends its value down its wire, so the inner
-    // field shows that value arriving rather than its own dormant one. A
-    // value source the entered node sends its value through does the same.
+    // field shows that value arriving rather than its own dormant one.
     const panelFieldValues = new Map<string, Json>()
     const panel = this.scene.boundaryNodes.find((bnode) => bnode.side === 'inputs' && bnode.fields !== undefined)
     const sentValue = (from: SceneLinkEnd): Json | undefined => {
-      if (from.kind === 'valueSource') return this.scene.valueSources.find((vs) => vs.id === from.valueSource)?.arriving?.value
       if (panel === undefined || from.kind !== 'boundary' || from.side !== 'inputs') return undefined
       const key = panel.fields!.heads[from.item]
       const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === key)
@@ -2447,14 +2393,15 @@ export class CanvasRenderer {
         continue
       }
       // Scope dimming keys off BOTH ends' own membership: node ends by node,
-      // reroute ends by reroute, selector ends by selector/branch - so an
-      // unchosen candidate's whole feed chain dims while the chosen branch
-      // stays lit. Boundary pseudo-ends never dim a segment on their own.
+      // reroute ends by reroute. Boundary pseudo-ends never dim a segment on
+      // their own.
       const outOfScope =
         (this.scopeHighlight !== undefined || this.inactiveNodes !== undefined) &&
         (this.endOutOfScope(link.from) || this.endOutOfScope(link.to))
       if (outOfScope) ctx.globalAlpha = SCOPE_DIM
       if (link.dimmed === true) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
+      // A wire out of a muted node fades with it; the mute adds no dashes.
+      if (link.sourceMuted === true) ctx.globalAlpha *= canvasPaintTokens.node.modeOpacity
       if (this.overlay.linkSelection?.has(link.id)) {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName, {
           color: this.tokens.colors.nodeSelectedBorder,
@@ -2462,10 +2409,10 @@ export class CanvasRenderer {
           minScreenWidth: canvasPaintTokens.link.selectedMinScreenStroke,
         })
       }
-      // Maybe-absent (optional producer) links dash long-and-slow: a calm
-      // "this value might legitimately not exist" cue, deliberately distinct
-      // from the short [6,4] ghost-drag dash and from any error styling.
-      if (link.maybeAbsent === true) ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.maybeAbsentLink.world, canvasPaintTokens.dash.maybeAbsentLink.screen, scale))
+      // A dashed wire means only that it may carry nothing (an optional
+      // producer); every other wire, including one being dragged, is solid.
+      const dashed = link.maybeAbsent === true
+      if (dashed) ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.maybeAbsentLink.world, canvasPaintTokens.dash.maybeAbsentLink.screen, scale))
       // A PROVEN type conflict paints the noodle in error red, overriding
       // the type color: the break must be visible where it is, not hunted
       // down from a Problems entry. Slightly wider so red never hides
@@ -2479,7 +2426,7 @@ export class CanvasRenderer {
       } else {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName)
       }
-      if (link.maybeAbsent === true) ctx.setLineDash([])
+      if (dashed) ctx.setLineDash([])
       // Midpoint grab dot: a visible handle for clicking the noodle (and
       // double-click reroute insertion). Boundary noodles carry it too -
       // they select and delete like any noodle (delete lowers to
@@ -2702,7 +2649,6 @@ export class CanvasRenderer {
         })
       }
       ctx.save()
-      ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.netGuide.world, canvasPaintTokens.dash.netGuide.screen, scale))
       for (const stub of guideStubs) {
         if (stub.role !== 'sink') continue
         const source = sources.get(stub.netId)
@@ -2756,45 +2702,6 @@ export class CanvasRenderer {
       this.drawBoundaryNode(ctx, bnode, detailLevel, o.dx, o.dy)
     }
 
-    // Value source pills: same band as nodes (they produce into the same
-    // noodle layer), drawn after so a compact pill is never buried.
-    for (const vs of this.scene.valueSources) {
-      const o = off(vs.id)
-      const vx = vs.x + o.dx
-      const vy = vs.y + o.dy
-      if (
-        vx + vs.width + structurePad < view.x ||
-        vx - structurePad > view.x + view.w ||
-        vy + vs.height + structurePad < view.y ||
-        vy - structurePad > view.y + view.h
-      ) {
-        continue
-      }
-      if (this.scopeHighlight && !this.scopeHighlight.valueSources.has(vs.id)) ctx.globalAlpha = SCOPE_DIM
-      this.drawValueSource(ctx, vs, vx, vy, detailLevel)
-      ctx.globalAlpha = 1
-    }
-
-    // Selectors: compact node-like boxes in the same band as nodes/value
-    // sources (their pins anchor real noodles), drawn after so they are
-    // never buried.
-    for (const sel of this.scene.selectors) {
-      const o = off(sel.id)
-      const sx = sel.x + o.dx
-      const sy = sel.y + o.dy
-      if (
-        sx + sel.width + structurePad < view.x ||
-        sx - structurePad > view.x + view.w ||
-        sy + sel.height + structurePad < view.y ||
-        sy - structurePad > view.y + view.h
-      ) {
-        continue
-      }
-      if (this.scopeHighlight && !this.scopeHighlight.selectors.has(sel.id)) ctx.globalAlpha = SCOPE_DIM
-      this.drawSelector(ctx, sel, sx, sy, detailLevel)
-      ctx.globalAlpha = 1
-    }
-
     // One enclosure makes a heterogeneous selection read as a group before
     // the drag begins; individual halos still preserve exact membership.
     const union = this.selectionUnionOutlineRect()
@@ -2810,14 +2717,12 @@ export class CanvasRenderer {
     if (this.overlay.ghostLink) {
       const g = this.overlay.ghostLink
       ctx.save()
-      ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.ghost.world, canvasPaintTokens.dash.ghost.screen, scale))
       this.drawLink(ctx, g.x1, g.y1, g.x2, g.y2, g.typeName)
       ctx.restore()
     }
 
     if (this.overlay.ghostLinks) {
       ctx.save()
-      ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.ghost.world, canvasPaintTokens.dash.ghost.screen, scale))
       for (const g of this.overlay.ghostLinks) {
         this.drawLink(ctx, g.x1, g.y1, g.x2, g.y2, g.typeName)
       }
@@ -3018,7 +2923,6 @@ export class CanvasRenderer {
           ctx.strokeStyle = actor.color
           ctx.lineWidth = paint.linkStroke
           ctx.globalAlpha = paint.ghostOpacity
-          ctx.setLineDash([...canvasPaintTokens.dash.remote])
           const inputOrigin = origin.kind !== 'widgetTap' && origin.side === 'in'
           this.drawLink(
             ctx,
@@ -3939,28 +3843,7 @@ export class CanvasRenderer {
           // A group that grows by hand ends in an Add button, as wide as a member's box.
           paintButton(node.x + row.inset, rowY, l.width - row.inset * 2, row.height, `+ ${row.label}`, `growth:${row.construct}`, true)
         } else if (row.kind === 'editorSpace') {
-          // The unfolded editor and its row are one open box: one outline runs
-          // from the row's top around the space, so the editor's own rows sit
-          // on the node's body as the node's rows do. Its controls are the
-          // host's, laid over it; the picture's place is drawn inset.
-          const space = canvasPaintTokens.node.editorSpace
-          const x = node.x + row.inset
-          const width = row.width ?? l.width - row.inset * 2
-          const stroke = canvasPaintTokens.node.box.stroke
-          const top = rowY - row.rowAbove + t.rowGeometry.fieldInsetY
-          ctx.strokeStyle = t.colors.boxOutline
-          ctx.lineWidth = stroke
-          ctx.beginPath()
-          // The row's corners, so the outline meets the row's fill exactly.
-          ctx.roundRect(x + stroke / 2, top + stroke / 2, width - stroke,
-            rowY + row.height - t.rowGeometry.fieldInsetY - top - stroke, canvasPaintTokens.widget.radius)
-          ctx.stroke()
-          if (row.picture) {
-            ctx.fillStyle = t.colors.canvasBackground
-            ctx.beginPath()
-            ctx.roundRect(x + space.pad, rowY + row.picture.top, width - space.pad * 2, row.picture.height, canvasPaintTokens.node.box.radius)
-            ctx.fill()
-          }
+          this.paintEditorSpace(ctx, node.x, rowY, row, l.width)
         } else if (row.kind === 'note') {
           // A formula note's text is unknown until formulas are evaluated, so
           // it draws dimmed like any other offer that is not settled yet.
@@ -4379,9 +4262,11 @@ export class CanvasRenderer {
         ctx.stroke()
         ctx.globalAlpha = pinAlpha
       } else {
-        // A kept row's pin is dimmed with its row and wire.
+        // A kept row's pin is dimmed with its row and wire; an input pin a
+        // muted node's wire enters fades with that wire.
         const pinAlpha = ctx.globalAlpha
         if (pin.kept !== undefined) ctx.globalAlpha = pinAlpha * canvasPaintTokens.widget.inactiveOpacity
+        else if (pin.direction === 'in' && this.mutedInputPins.has(`${node.id}\u0000${pin.portId}`)) ctx.globalAlpha = pinAlpha * canvasPaintTokens.node.modeOpacity
         if (pin.collapsedSection !== undefined) {
           // Each pin of a closed box's cluster cuts the one above it.
           ctx.fillStyle = t.colors.nodeBody
@@ -4784,6 +4669,41 @@ export class CanvasRenderer {
    * dashed border and no execution state, badges, widgets, or resize
    * affordance. dx/dy is the live drag offset.
    */
+  /**
+   * The unfolded editor and its row are one open box: one outline runs from
+   * the row's top around the space, so the editor's own rows sit on the
+   * body as the node's rows do. Its controls are the host's, laid over it;
+   * the picture's place is drawn inset. `left` is the node's or panel's left
+   * edge and `rowY` the space's top, in world coordinates.
+   */
+  private paintEditorSpace(
+    ctx: CanvasRenderingContext2D,
+    left: number,
+    rowY: number,
+    row: Extract<LayoutRow, { kind: 'editorSpace' }>,
+    layoutWidth: number,
+  ): void {
+    const t = this.tokens
+    const space = canvasPaintTokens.node.editorSpace
+    const x = left + row.inset
+    const width = row.width ?? layoutWidth - row.inset * 2
+    const stroke = canvasPaintTokens.node.box.stroke
+    const top = rowY - row.rowAbove + t.rowGeometry.fieldInsetY
+    ctx.strokeStyle = t.colors.boxOutline
+    ctx.lineWidth = stroke
+    ctx.beginPath()
+    // The row's corners, so the outline meets the row's fill exactly.
+    ctx.roundRect(x + stroke / 2, top + stroke / 2, width - stroke,
+      rowY + row.height - t.rowGeometry.fieldInsetY - top - stroke, canvasPaintTokens.widget.radius)
+    ctx.stroke()
+    if (row.picture) {
+      ctx.fillStyle = t.colors.canvasBackground
+      ctx.beginPath()
+      ctx.roundRect(x + space.pad, rowY + row.picture.top, width - space.pad * 2, row.picture.height, canvasPaintTokens.node.box.radius)
+      ctx.fill()
+    }
+  }
+
   private drawBoundaryNode(
     ctx: CanvasRenderingContext2D,
     bnode: SceneBoundaryNode,
@@ -4870,6 +4790,10 @@ export class CanvasRenderer {
           ctx.textBaseline = 'middle'
           continue
         }
+        if (row.kind === 'editorSpace') {
+          this.paintEditorSpace(ctx, x, y + row.y, row, l.width)
+          continue
+        }
         if (row.kind !== 'ports') continue
         const rowY = y + row.y
         const slot = row.input ?? row.output
@@ -4912,260 +4836,6 @@ export class CanvasRenderer {
         paintTypedPin(ctx, t, pin.type, px, py, scale, pin.maybeAbsent === true, pin.direction, pinRadius, pin.acceptsList === true)
       }
     }
-  }
-
-  /**
-   * A value source pill: rounded body, title + value text, spec badge
-   * (declared: filled dot / derived: hollow dot / conflict: warning), one
-   * output pin. `x`/`y` are the drag-offset top-left (world coords).
-   */
-  private drawValueSource(
-    ctx: CanvasRenderingContext2D,
-    vs: SceneValueSource,
-    x: number,
-    y: number,
-    detailLevel: CanvasDetailLevel,
-  ): void {
-    const t = this.tokens
-    const paint = canvasPaintTokens.valueSource
-    const r = vs.height / 2
-    const selected = this.overlay.valueSourceSelection?.has(vs.id) ?? false
-    const conflictColor = t.stateColors.error
-    const scale = this.viewport.scale
-    const contentDetail = detailLevel !== 'overview'
-    const pinRadius = detailRadius(t.pinRadius, scale, detailLevel)
-
-    // Body.
-    ctx.beginPath()
-    ctx.roundRect(x, y, vs.width, vs.height, r)
-    ctx.fillStyle = t.colors.nodeBody
-    ctx.fill()
-    ctx.strokeStyle = selected ? t.colors.nodeSelectedBorder : vs.conflict ? conflictColor : t.colors.nodeOutline
-    ctx.lineWidth = screenAwareStroke(
-      selected || vs.conflict ? paint.strongStroke : paint.stroke,
-      scale,
-      selected || vs.conflict ? paint.strongStroke : paint.stroke,
-    )
-    if (vs.conflict) ctx.setLineDash(screenAwareDash(canvasPaintTokens.stateDash.error.world, canvasPaintTokens.stateDash.error.screen, scale))
-    ctx.stroke()
-    if (vs.conflict) ctx.setLineDash([])
-
-    const badge = valueSourceBadgeRect(vs)
-    if (contentDetail) {
-      // Title + value on one line: title in label color, value in value color.
-      const textRight = x + (badge.x - vs.x) - paint.badgeGap
-      ctx.font = `${t.fontSize}px ${t.fontFamily}`
-      ctx.textBaseline = 'middle'
-      ctx.textAlign = 'left'
-      let titleX = x + t.padX
-      if (vs.subgraphMark !== undefined) {
-        const mark = valueSourceMarkRect(vs, t.padX)
-        paintToolboxIcon(ctx, 'subgraph', x + (mark.x - vs.x), y + (mark.y - vs.y), mark.size, t.colors.subgraphMark)
-        titleX += mark.size + canvasPaintTokens.widget.subgraphMark.gap
-      }
-      const alpha = ctx.globalAlpha
-      // A value the entered subgraph node sends reads like any arriving
-      // value: a dimmed label and the value in the companion style.
-      if (vs.arriving !== undefined) ctx.globalAlpha = alpha * canvasPaintTokens.widget.connectedOpacity
-      ctx.fillStyle = t.colors.label
-      ctx.fillText(vs.title, titleX, y + vs.height / 2 + paint.baselineOffset, Math.max(0, textRight - titleX))
-      const titleW = ctx.measureText(vs.title).width
-      ctx.globalAlpha = alpha
-      const valueX = titleX + titleW + paint.valueGap
-      if (valueX < textRight) {
-        if (vs.arriving !== undefined) ctx.font = `italic ${t.fontSize}px ${t.fontFamily}`
-        ctx.fillStyle = vs.arriving !== undefined ? t.colors.companionValue : t.colors.value
-        ctx.fillText(vs.valueText, valueX, y + vs.height / 2 + paint.baselineOffset, textRight - valueX)
-        ctx.font = `${t.fontSize}px ${t.fontFamily}`
-      }
-      ctx.textBaseline = 'alphabetic'
-
-      // Spec badge: filled = declared (pinned), hollow = derived, '!' = conflict.
-      const bx = x + (badge.x - vs.x) + badge.width / 2
-      const by = y + (badge.y - vs.y) + badge.height / 2
-      const badgeR = badge.width / 2 - paint.badgeRadiusInset
-      ctx.beginPath()
-      ctx.arc(bx, by, badgeR, 0, Math.PI * 2)
-      if (vs.conflict) {
-        ctx.fillStyle = conflictColor
-        ctx.fill()
-        ctx.fillStyle = t.colors.title
-        ctx.font = `${paint.badgeFontWeight} ${t.fontSize - paint.badgeFontReduction}px ${t.fontFamily}`
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.fillText('!', bx, by + paint.baselineOffset)
-        ctx.textAlign = 'left'
-        ctx.textBaseline = 'alphabetic'
-      } else if (vs.specState === 'declared') {
-        ctx.fillStyle = t.colors.selection
-        ctx.fill()
-      } else {
-        ctx.strokeStyle = t.colors.label
-        ctx.lineWidth = paint.badgeStroke
-        ctx.stroke()
-      }
-    }
-
-    // Output pin (drop-target ring during input-seeking drags).
-    const px = x + vs.width
-    const py = y + vs.height / 2
-    if (this.overlay.dropTargets?.has(valueSourceTargetKey(vs.id))) {
-      ctx.beginPath()
-      ctx.arc(px, py, pinRadius + STATUS_RING_GAP, 0, Math.PI * 2)
-      ctx.strokeStyle = t.colors.dropTarget
-      ctx.lineWidth = screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH)
-      ctx.stroke()
-    }
-    paintPin(ctx, {
-      shape: 'circle', colors: [vs.typeName ? typeColor(t, vs.typeName) : t.colors.linkDefault], optional: false,
-      x: px, y: py, radius: pinRadius, scale, background: t.colors.canvasBackground,
-    })
-  }
-
-  /**
-   * A selector: node design language (body, header band, title) at compact
-   * scale. Header carries the policy badge plus the single output pin; one
-   * row per candidate with its branch input pin, label, and (under a fixed
-   * policy) an active-branch marker.
-   */
-  private drawSelector(
-    ctx: CanvasRenderingContext2D,
-    sel: SceneSelector,
-    x: number,
-    y: number,
-    detailLevel: CanvasDetailLevel,
-  ): void {
-    const t = this.tokens
-    const paint = canvasPaintTokens.selector
-    const selected = this.overlay.selectorSelection?.has(sel.id) ?? false
-    const scale = this.viewport.scale
-    const contentDetail = detailLevel !== 'overview'
-    const pinRadius = detailRadius(t.pinRadius, scale, detailLevel)
-
-    // Selection halo behind the body (same treatment as nodes: white).
-    if (selected) {
-      ctx.beginPath()
-      ctx.roundRect(x - paint.selectionOutset, y - paint.selectionOutset, sel.width + paint.selectionOutset * 2, sel.height + paint.selectionOutset * 2, t.cornerRadius + paint.selectionOutset)
-      ctx.strokeStyle = t.colors.nodeSelectedBorder
-      ctx.lineWidth = screenAwareStroke(paint.selectionStroke, scale, paint.selectionStroke)
-      ctx.stroke()
-    }
-
-    // Body + header band.
-    ctx.beginPath()
-    ctx.roundRect(x, y, sel.width, sel.height, t.cornerRadius)
-    ctx.fillStyle = t.colors.nodeBody
-    ctx.fill()
-    ctx.beginPath()
-    ctx.roundRect(x, y, sel.width, sel.headerHeight, [t.cornerRadius, t.cornerRadius, 0, 0])
-    ctx.fillStyle = t.colors.nodeHeader
-    ctx.fill()
-    paintHeaderRule(ctx, t, x, y, sel.width, sel.headerHeight, sel.height)
-    ctx.beginPath()
-    ctx.roundRect(x, y, sel.width, sel.height, t.cornerRadius)
-    ctx.strokeStyle = t.colors.nodeOutline
-    ctx.lineWidth = screenAwareStroke(paint.stroke, scale, paint.minScreenStroke)
-    ctx.stroke()
-
-    const badge = selectorBadgeRect(sel)
-    const resolved = this.selectorResolutions?.get(sel.id)
-    const activeId = resolved ?? (sel.random ? undefined : sel.activeCandidate)
-    if (contentDetail) {
-      // Title (truncated to leave room for the policy badge).
-      ctx.fillStyle = t.colors.title
-      ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
-      ctx.textBaseline = 'middle'
-      ctx.textAlign = 'left'
-      ctx.fillText(sel.title, x + t.padX, y + sel.headerHeight / 2, Math.max(0, badge.x - sel.x - t.padX - paint.badgeGap))
-
-      // Policy badge: fixed shows the active candidate's 1-based ordinal,
-      // random shows '?'. An execution-recorded resolution (frozen/execution
-      // views) shows the branch that ACTUALLY ran.
-      const bx = x + (badge.x - sel.x)
-      const by = y + (badge.y - sel.y)
-      ctx.beginPath()
-      ctx.roundRect(bx, by, badge.width, badge.height, paint.badgeRadius)
-      ctx.fillStyle = sel.random ? t.colors.selection : t.colors.widgetBackground
-      ctx.fill()
-      if (!sel.random) {
-        ctx.strokeStyle = t.colors.label
-        ctx.lineWidth = paint.badgeStroke
-        ctx.stroke()
-      }
-      const activeIndex = sel.candidates.findIndex((c) => c.id === activeId)
-      ctx.fillStyle = t.colors.title
-      ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${paint.badgeFontSize}px ${t.fontFamily}`
-      ctx.textAlign = 'center'
-      ctx.fillText(activeIndex < 0 ? (sel.random ? '?' : '0') : `${activeIndex + 1}`, bx + badge.width / 2, by + badge.height / 2 + paint.baselineOffset)
-      ctx.textAlign = 'left'
-    }
-
-    // Candidate rows: active-branch accent bar, label, branch input pin.
-    // Under a scope highlight, rows whose branch is out of scope dim like
-    // their feed noodles (the box itself already carries selector-level dim).
-    const scope = this.scopeHighlight
-    ctx.font = `${t.fontSize}px ${t.fontFamily}`
-    for (const c of sel.candidates) {
-      const cy = y + c.y
-      const active = c.id === activeId
-      const rowDim =
-        scope !== undefined &&
-        scope.selectors.has(sel.id) &&
-        !scope.selectorCandidates.has(selectorCandidateKey(sel.id, c.id))
-      if (rowDim) ctx.globalAlpha = SCOPE_DIM
-      if (active) {
-        ctx.fillStyle = t.colors.selection
-        ctx.fillRect(x + paint.accentInset, cy - (t.rowHeight / 2 - paint.accentVerticalInset), paint.accentWidth, t.rowHeight - paint.accentVerticalInset * 2)
-      }
-      if (contentDetail) {
-        ctx.fillStyle = active ? t.colors.title : t.colors.label
-        ctx.textAlign = 'left'
-        ctx.fillText(c.label, x + t.padX + t.pinRadius + paint.labelPinGap, cy + paint.baselineOffset, sel.width - t.padX * 2 - t.pinRadius - paint.labelPinGap)
-      }
-      this.drawSelectorPin(
-        ctx,
-        x,
-        cy,
-        c.typeName,
-        this.overlay.dropTargets?.has(selectorInTargetKey(sel.id, c.id)) ?? false,
-        pinRadius,
-      )
-      if (rowDim) ctx.globalAlpha = 1
-    }
-
-    // Single output pin on the header band's right edge.
-    const out = selectorOutPinPosition(sel)
-    this.drawSelectorPin(
-      ctx,
-      x + (out.x - sel.x),
-      y + (out.y - sel.y),
-      sel.typeName,
-      this.overlay.dropTargets?.has(selectorOutTargetKey(sel.id)) ?? false,
-      pinRadius,
-    )
-    ctx.textBaseline = 'alphabetic'
-  }
-
-  private drawSelectorPin(
-    ctx: CanvasRenderingContext2D,
-    px: number,
-    py: number,
-    typeName: string | undefined,
-    dropTarget: boolean,
-    pinRadius: number,
-  ): void {
-    const t = this.tokens
-    if (dropTarget) {
-      ctx.beginPath()
-      ctx.arc(px, py, pinRadius + STATUS_RING_GAP, 0, Math.PI * 2)
-      ctx.strokeStyle = t.colors.dropTarget
-      ctx.lineWidth = screenAwareStroke(STATUS_RING_STROKE_WIDTH, this.viewport.scale, STATUS_RING_STROKE_WIDTH)
-      ctx.stroke()
-    }
-    paintPin(ctx, {
-      shape: 'circle', colors: [typeName ? typeColor(t, typeName) : t.colors.linkDefault], optional: false,
-      x: px, y: py, radius: pinRadius, scale: this.viewport.scale, background: t.colors.canvasBackground,
-    })
   }
 }
 

@@ -9,10 +9,6 @@ audio producers use `AUDIO`. Prefixed lookalikes are not native media aliases.
 An open App view editor remains
 open while shared-workspace tab metadata synchronizes.
 
-Linked literal value-source pills use the same editor and write only their
-literal value, without changing a consumer's sibling inputs. Apply and undo
-use the normal value-source command path.
-
 The Trim section stores `start_time` and `duration` in seconds. A duration of
 zero means through the end of the source. When source timing is available,
 frame fields, the playhead, and trim handles are constrained to the clip.

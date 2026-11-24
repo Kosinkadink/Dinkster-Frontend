@@ -196,7 +196,7 @@ export type LayoutRow =
       readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
       /**
        * Inside a subgraph: this field is on the subgraph node without a wire
-       * (BoundaryItem.wireHidden, or a value source shown as a field). Names
+       * (BoundaryItem.wireHidden). Names
        * the boundary input it became and that input's name on the subgraph
        * node; painted as the cyan subgraph icon before the field's name.
        */
@@ -236,12 +236,6 @@ export type LayoutRow =
        * no pin; `inputId` and `valueKey` are its layout id, which stores nothing.
        */
       readonly editor?: true
-      /**
-       * Set for an Inputs panel field whose value is a value source's own
-       * value: edits dispatch valueSource.setValue and
-       * valueSource.setController, never node.setValue.
-       */
-      readonly valueSourceOwner?: { readonly graphId: string; readonly valueSourceId: string }
     } & DynamicAnnotations)
   | {
       /**
@@ -981,6 +975,8 @@ export interface LayoutOptions {
   readonly textBoxLines?: Readonly<Record<string, number>>
   /** Per-editor fold overrides by value key (view.setEditorUnfolded). */
   readonly editorUnfolded?: Readonly<Record<string, boolean>>
+  /** Editors start folded whatever their declaration says, as on the Inputs panel. */
+  readonly editorsStartFolded?: true
   /** Height of each unfolded editor's picture the user dragged, by value key (view.setPictureHeight). */
   readonly pictureHeights?: Readonly<Record<string, number>>
   /**
@@ -1548,7 +1544,7 @@ export function layoutNode(
       const w = cell.widget
       const editor = w === undefined ? undefined : IN_NODE_EDITORS[w.viewId]
       if (w === undefined || editor === undefined) continue
-      const declared = w.familyMember !== true && w.spec.options['unfolded'] === true
+      const declared = options.editorsStartFolded !== true && w.familyMember !== true && w.spec.options['unfolded'] === true
       if (!(options.editorUnfolded?.[w.valueKey] ?? declared)) continue
       // Unfolded, the row is the editor's one-row header: what the folded row
       // shows in small (the curve's sketch) is the editor itself under it.
@@ -1624,13 +1620,21 @@ export function layoutNode(
     // as much as at a box's sides, so a field's inset under a field and a
     // box's step under an outline (an inner box or an add row).
     let under: number = box.bottomGap
+    // A member box just closed, so a member box after it keeps `memberGap` away.
+    let afterMember = false
+    // A box's outline just ended, open or closed: what follows keeps `boxGap` away.
+    let afterOutline = false
     const push = (row: LayoutRow, depth: number): void => {
       rows.push(row)
       rowDepth.push(depth)
+      afterMember = false
+      afterOutline = false
     }
     const close = (depth: number): void => {
       while (open.length > depth) {
         const done = open.pop()!
+        afterMember = done.decl.kind === 'member'
+        afterOutline = true
         const bottom = y + under - slack + box.stroke
         boxes.push({
           id: done.decl.id,
@@ -1649,6 +1653,16 @@ export function layoutNode(
         under = box.step
       }
     }
+    /**
+     * Where a box header's outline starts: `headerGap` under a field or pin
+     * row, `memberGap` under a member box, `boxGap` under any other box, and
+     * just under the header of the box it opens in.
+     */
+    const headerTop = (): number =>
+      afterMember ? y + box.memberGap
+        : slack > 0 ? y - slack + box.headerGap
+        : afterOutline ? y + box.boxGap
+        : y + verticalInset
     /** Close the boxes the row is not in and open the option boxes it is in. */
     const enter = (chain: readonly string[]): void => {
       let shared = 0
@@ -1673,7 +1687,7 @@ export function layoutNode(
         const depth = open.length + 1
         const index = rows.length
         if (decl.kind === 'member') {
-          const top = y + verticalInset - slack
+          const top = headerTop()
           const height = top + box.stroke + headerHeight - y
           const grip = decl.member !== undefined && !decl.ghost ? gripOf(decl.construct!, decl.member) : undefined
           push({
@@ -1702,7 +1716,7 @@ export function layoutNode(
           ...(decl.closed && hiddenPorts.has(decl.id) ? { hiddenPorts: hiddenPorts.get(decl.id)! } : {}),
         }
         if (decl.closed) {
-          const top = y + verticalInset - slack
+          const top = headerTop()
           push({ ...header, y, height: top + closedHeight - y, top }, depth)
           boxes.push({
             id: decl.id, kind: decl.kind, depth, x: outlineX(depth), y: top, width: 0, height: closedHeight,
@@ -1712,6 +1726,7 @@ export function layoutNode(
           y = top + closedHeight
           under = box.step
           slack = 0
+          afterOutline = true
           continue
         } else if (decl.tab) {
           const top = y + box.tabGap - slack
@@ -1719,7 +1734,7 @@ export function layoutNode(
           open.push({ decl, top, first: index })
           y = top + box.stroke + box.tabPad
         } else {
-          const top = y + verticalInset - slack
+          const top = headerTop()
           push({ ...header, y, height: top + box.stroke + headerHeight - y, top }, depth)
           open.push({ decl, top, first: index })
           y = top + box.stroke + headerHeight
@@ -1730,6 +1745,8 @@ export function layoutNode(
       }
       enter(row.boxes)
       const depth = open.length
+      // A field or pin row after a box has its face `boxGap` under the outline.
+      if (afterOutline && row.kind !== 'growth' && row.kind !== 'editorSpace') y += box.boxGap - verticalInset
       if (row.kind === 'editorSpace') {
         const editorSpace = row.editorSpace!
         push({ kind: 'editorSpace', y, inset: fieldInset(depth), rowAbove: 0, ...editorSpace }, depth)
@@ -1737,6 +1754,12 @@ export function layoutNode(
       } else if (row.kind === 'growth') {
         const g = row.growth!
         const height = tokens.rowHeight
+        // As much room above the add row as the outline closing below leaves
+        // under it, from whatever ends above it: an outline, a field, a
+        // header, or the outline of a group drawn without its name.
+        const previous = rows.at(-1)
+        const above = previous?.kind === 'section' && previous.tab ? box.tabPad : slack
+        y += box.step - verticalInset * 2 - above
         push({ kind: 'growth', y, height, inset: outlineX(depth + 1), construct: g.construct, label: g.label, frames: g.frames }, depth)
         y += height
       } else if (row.kind === 'note' || row.kind === 'button') {
@@ -2090,7 +2113,9 @@ export interface BoundarySlotInfo {
    * the first.
    */
   readonly fields?: readonly Omit<Extract<LayoutRow, { kind: 'widget' }>, 'kind' | 'y' | 'height' | 'inset' | 'width'>[]
-  /** Fields drawn without their wire, or a value source's field: no pin. */
+  /** Inputs panel only: the space of each unfolded editor among the fields, by its row's value key. */
+  readonly editorSpaces?: Readonly<Record<string, Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset' | 'width' | 'rowAbove'>>>
+  /** Fields drawn without their wire: no pin. */
   readonly pinless?: true
   /** Inputs panel only: the input takes one value or a whole list. */
   readonly acceptsList?: true
@@ -2136,6 +2161,12 @@ export function layoutBoundaryNode(
         const height = field.viewId === 'core.text' ? multilineWidgetHeight(field.rows, tokens) : field.rows * tokens.rowHeight
         rows.push({ ...field, ...(index === 0 ? { label: slot.label } : {}), kind: 'widget', y, height, inset: tokens.rowGeometry.fieldInsetX })
         y += height
+        // An unfolded editor hangs under its field, and the panel grows downward.
+        const space = slot.editorSpaces?.[field.valueKey]
+        if (space !== undefined) {
+          rows.push({ ...space, kind: 'editorSpace', y, inset: tokens.rowGeometry.fieldInsetX, rowAbove: height })
+          y += space.height
+        }
       }
       continue
     }
@@ -2187,6 +2218,10 @@ export function layoutBoundaryNode(
     if (row.kind === 'widget') {
       const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
       width = Math.max(width, mark + measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + tokens.padX * 2)
+      continue
+    }
+    if (row.kind === 'editorSpace') {
+      width = Math.max(width, canvasPaintTokens.node.editorSpace.minWidth + row.inset * 2)
       continue
     }
     if (row.kind !== 'ports') continue
