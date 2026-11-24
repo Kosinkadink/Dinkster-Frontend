@@ -218,7 +218,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'switch-primitive':
     'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields. They replace the value source pill and the selector box shown in the second card.',
   'subgraph-icon':
-    'Every place the canvas draws the subgraph icon, a workflow in a frame, at the 14 px it is drawn at 100 percent: the mark in a subgraph node\'s title alone and with a count, and the cyan mark on a field shown on the subgraph node. The title mark sits as far from the node\'s right edge as from the top and bottom of the title bar.',
+    'Every place the canvas draws the subgraph icon, a workflow in a frame, at the 14 px it is drawn at 100 percent: the mark in a subgraph node\'s title alone and with a count, the cyan mark on a field shown on the subgraph node, and the Create subgraph button on the toolbox over two plain nodes, which one selected subgraph node does not show. The title mark sits as far from the node\'s right edge as from the top and bottom of the title bar.',
   'small-flow-nodes':
     'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
   'type-conflict':
@@ -368,7 +368,7 @@ function ExampleCard(props: {
     renderer.setRowMarks(example.rowMarks ?? fixture.rowMarks)
     renderer.setCompanions(example.companions ?? fixture.companions)
     renderer.setInactiveNodes(example.inactive)
-    renderer.setToolbox(fixture.toolbox)
+    renderer.setToolbox(example.toolbox ?? fixture.toolbox)
     const image = document.createElement('canvas')
     image.width = 320
     image.height = 160

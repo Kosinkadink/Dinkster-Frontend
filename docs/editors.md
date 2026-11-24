@@ -327,9 +327,10 @@ mixed ordinary/boundary selections. Multi-item placement accounts for the
 padded dashed union outline, including other selected canvas citizens, rather
 than measuring from the underlying node bounds.
 
-The bottom row groups Delete, node modification (Mute, Bypass, conditional
-Open Subgraph, Extract, and Flatten), Color, and More actions with thin
-non-interactive vertical separators.
+The bottom row groups Delete, node modification (Mute, Bypass, and the
+subgraph actions), Color, and More actions with thin non-interactive vertical
+separators. Create Subgraph appears when two or more nodes are selected; Open
+Subgraph and Flatten appear when one subgraph node is selected.
 Padding, gaps, and separators still claim clicks as panel chrome; they never
 pass a gesture through to the graph. More actions opens the same menu registry
 target and complete selection context as right-clicking the selected node, at
@@ -341,9 +342,10 @@ affect the selection. The root-node context menu exposes the same up-to action
 as "Execute up to Selection" and disables it whenever the toolbox up-to action
 is disabled.
 
-Open Subgraph, Extract, and Flatten use folder-open, group, and ungroup icons
-from the same canvas icon painter as the other toolbox controls. A subgraph
-node's mark at the right end of its title bar uses the subgraph icon. When a
+Open Subgraph, Create Subgraph, and Flatten use the group, subgraph, and
+ungroup icons from the same canvas icon painter as the other toolbox controls,
+and their context menu items use the same icons. A subgraph node's mark at the
+right end of its title bar also uses the subgraph icon. When a
 definition is referenced by two or more occurrences, the mark adds the
 document-derived linked count; a single occurrence keeps the icon-only mark.
 

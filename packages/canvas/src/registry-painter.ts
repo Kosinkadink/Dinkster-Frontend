@@ -22,7 +22,7 @@ const paint = canvasPaintTokens.widget
 /** The word before an automatic value. */
 const AUTOMATIC_WORD = 'auto'
 /** The word before the value of a row that stays only for the wire on its output. */
-const KEPT_WORD = 'wired'
+const KEPT_WORD = 'inactive'
 const TEXT_PAD = paint.textPadding
 
 function compactBooleanValue(value: Json, options: Readonly<Record<string, unknown>>): string {
