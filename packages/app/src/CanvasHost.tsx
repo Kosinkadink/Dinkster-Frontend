@@ -170,7 +170,7 @@ import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
 import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type WidgetEditorState } from './WidgetEditor.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
+import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
 import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
 import type { LatentMetadata } from './latent-metadata.js'
@@ -5263,7 +5263,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // An editor shown in the node folds out under its row and back, as a
       // section opens and closes, also while a run holds the workflow. A
       // field on the Inputs panel folds out on the panel, which keeps its
-      // own folds apart from the subgraph node outside.
+      // own folds apart from the subgraph node outside. Such an editor has
+      // no other place to open.
       if (IN_NODE_EDITORS[hit.row.viewId] !== undefined) {
         const graphId = currentGraphId(tab)
         const owner = hit.bnode !== undefined ? { inputsPanel: true }
@@ -5273,8 +5274,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             command: 'view.setEditorUnfolded',
             params: { graphId, ...owner, valueKey: hit.row.valueKey, unfolded: hit.row.unfolded !== true },
           })
-          return
         }
+        return
       }
       if (refuseFrozenEdit()) return
       // An Inputs panel field holding a value source's own value edits that
@@ -5292,11 +5293,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const valueKey = hit.row.familyOwner?.valueKey ?? hit.row.valueKey
       const spec = hit.row.spec
       if (spec.widgetType === 'COMPOSITOR') return
-      const curveTarget = spec.widgetType === 'CURVE'
-        ? props.app.curveTargetForInput(
-            tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
-          )
-        : undefined
       // A link/net-driven input is read-only: the wire decides its value
       // (companion display), and editing would silently mutate the dormant
       // stored value underneath. Selector rows keep their own value channel
@@ -5327,12 +5323,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
       const schema = resolve(hit.node.node.type)
       const roleEditor = schema?.editorRole === undefined ? undefined : props.app.editors.forRole(schema.editorRole)
-      if (roleEditor?.id === CURVE_EDITOR_KIND) {
-        if (curveTarget) {
-          props.app.openCurveEditor(curveTarget)
-          return
-        }
-      }
       if (roleEditor?.id === GLSL_EDITOR_KIND && valueKey === 'fragment_shader') {
         const target = props.app.glslTargetForInput(
           tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],

@@ -27,7 +27,7 @@ export interface Load3dSource {
   readonly inputValue: (part: string) => Json | undefined
   /** Whether the model is the one a wire brought in the last run. */
   readonly modelWired: boolean
-  /** Whether what was read still holds: the same backend, the same run and, for a dialog, the same document. */
+  /** Whether what was read still holds: the same backend and the same run. */
   readonly current: () => boolean
   /** Releases the model's object URLs, once nothing reads them any more. */
   readonly release: () => void
@@ -42,8 +42,7 @@ const FILE_3D_TYPES = ['FILE_3D', 'FILE_3D_GLB', 'FILE_3D_GLTF', 'FILE_3D_FBX', 
 /**
  * Reads the model a Load 3D viewport shows: the node's model file, or the
  * model, camera and placement a wire brought in the last run, which must be
- * exactly the run of the current workflow. `stable` adds the caller's own
- * condition for what was read to stay current. Aborting `signal` stops the
+ * exactly the run of the current workflow. Aborting `signal` stops the
  * read; a read that fails releases what it fetched, and one that succeeds
  * leaves that to the caller.
  */
@@ -51,7 +50,7 @@ export async function openLoad3dSource(app: AppState, tab: Tab, at: {
   readonly graphId: string
   readonly nodeId: string
   readonly parts: WidgetParts | undefined
-}, signal: AbortSignal, stable: () => boolean = () => true): Promise<Load3dSource> {
+}, signal: AbortSignal): Promise<Load3dSource> {
   const backend = app.backendForTab(tab)
   if (backend.protocol !== 'dinkster') throw new Load3dSourceError('native')
   const graph = tab.store.doc.graphs[at.graphId]
@@ -85,7 +84,7 @@ export async function openLoad3dSource(app: AppState, tab: Tab, at: {
   const urls: string[] = []
   const release = (): void => { urls.splice(0).forEach((url) => URL.revokeObjectURL(url)) }
   const backendCurrent = (): boolean => app.backendForTab(tab).connection === backend.connection
-  let current = (): boolean => !signal.aborted && stable() && backendCurrent()
+  let current = (): boolean => !signal.aborted && backendCurrent()
   const unavailable = () => new Load3dSourceError('unavailable')
   try {
     const inputs = ['model_3d', 'model_file', 'camera_info', 'model_3d_info', 'width', 'height']
@@ -115,7 +114,7 @@ export async function openLoad3dSource(app: AppState, tab: Tab, at: {
       current = () => {
         const navigation = viewInstancePath(tab)
         const fresh = app.compileTabCached(tab)
-        return !signal.aborted && stable() && navigation?.length === path.length
+        return !signal.aborted && navigation?.length === path.length
           && navigation.every((id, at) => id === path[at])
           && fresh?.ok === true && fresh.artifact.schemaHash === compiledArtifact.schemaHash
           && app.executionForTab(tab)?.key === execution.key

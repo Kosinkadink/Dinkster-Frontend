@@ -213,8 +213,7 @@ import {
   type ImportAssetDigestHint,
 } from './import-asset-autoresolve.js'
 import { createCoreLensRegistry } from './lenses.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
-import { isCurveValue, type CurveValue } from '@dinkster/widgets'
+import { APP_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
 import { validFile3dAsset } from './file3d-preview.js'
 import { isAssetRef, savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
 import { DockLayout } from './dock-layout.js'
@@ -1305,17 +1304,6 @@ export interface Tab {
   readonly replacesFrozenTabId?: string
 }
 
-export interface CurveEditorTarget {
-  readonly tabId: string
-  readonly graphId: string
-  readonly nodeId: string
-  readonly inputId: string
-  readonly instancePath: readonly string[]
-  readonly openedStoredValue: Json | undefined
-  readonly openedSchemaDefault: unknown
-  readonly openedValue: CurveValue
-}
-
 export interface GlslEditorTarget {
   readonly tabId: string
   readonly graphId: string
@@ -1327,8 +1315,7 @@ export interface GlslEditorTarget {
   readonly openedValue: string
 }
 
-const isSessionOnlyEditorKind = (kind: string): boolean =>
-  kind === CURVE_EDITOR_KIND || kind === GLSL_EDITOR_KIND
+const isSessionOnlyEditorKind = (kind: string): boolean => kind === GLSL_EDITOR_KIND
 
 /** A tab's live shared-session membership (session-only; never persisted). */
 export interface CollabTabState {
@@ -2852,8 +2839,6 @@ export class AppState {
   readonly registry: Signal<SchemaRegistry | undefined>
   readonly tabs: Signal<readonly Tab[]> = createSignal<readonly Tab[]>([])
   readonly activeTabId: Signal<string> = createSignal('')
-  /** Never serialized: identifies the one input projected by the curve editor. */
-  readonly curveEditorTarget: Signal<CurveEditorTarget | undefined> = createSignal<CurveEditorTarget | undefined>(undefined)
   /** Never serialized: identifies the first-party GLSL source editor session. */
   readonly glslEditorTarget: Signal<GlslEditorTarget | undefined> = createSignal<GlslEditorTarget | undefined>(undefined)
   /**
@@ -3500,15 +3485,11 @@ export class AppState {
       this.workflowOpenIntent += 1
       this.templateGalleryOpen.set(false)
       this.selectExtensionWorld()
-      const curveTarget = this.curveEditorTarget.get()
       const glslTarget = this.glslEditorTarget.get()
-      if (curveTarget && curveTarget.tabId !== activeId) this.curveEditorTarget.set(undefined)
-      if (glslTarget && glslTarget.tabId !== activeId) this.glslEditorTarget.set(undefined)
-      if ((curveTarget && curveTarget.tabId !== activeId) ||
-          (glslTarget && glslTarget.tabId !== activeId)) {
+      if (glslTarget && glslTarget.tabId !== activeId) {
+        this.glslEditorTarget.set(undefined)
         this.tabs.update((list) => list.map((tab) =>
-          (tab.id === curveTarget?.tabId && tab.editorKind === CURVE_EDITOR_KIND) ||
-          (tab.id === glslTarget?.tabId && tab.editorKind === GLSL_EDITOR_KIND)
+          tab.id === glslTarget.tabId && tab.editorKind === GLSL_EDITOR_KIND
             ? { ...tab, editorKind: GRAPH_EDITOR_KIND }
             : tab))
       }
@@ -5521,7 +5502,6 @@ export class AppState {
     editorKind = this.availableEditorKind(editorKind)
     const tab = this.tabs.get().find((t) => t.id === tabId)
     if (!tab || tab.execution !== undefined || tab.editorKind === editorKind) return
-    if (editorKind !== CURVE_EDITOR_KIND && this.curveEditorTarget.get()?.tabId === tabId) this.curveEditorTarget.set(undefined)
     if (editorKind !== GLSL_EDITOR_KIND && this.glslEditorTarget.get()?.tabId === tabId) this.glslEditorTarget.set(undefined)
     this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, editorKind } : t)))
     this.schedulePersistTabs()
@@ -5578,64 +5558,6 @@ export class AppState {
     const tab = this.tabs.get().find((t) => t.id === tabId)
     if (!tab || tab.execution !== undefined || (tab.appArrange === true) === appArrange) return
     this.tabs.update((list) => list.map((t) => (t.id === tabId ? { ...t, appArrange } : t)))
-  }
-
-  curveTargetForInput(
-    tab: Tab,
-    graphId: string,
-    nodeId: string,
-    inputId: string,
-    instancePath: readonly string[] = [],
-  ): CurveEditorTarget | undefined {
-    if (tab.execution !== undefined) return undefined
-    const graph = tab.store.doc.graphs[graphId]
-    const node = graph?.nodes[nodeId]
-    const resolve = this.registryForTab(tab)?.resolve
-    const inputSchema = node ? resolve?.(node.type) : undefined
-    const input = inputSchema === undefined ? undefined : inputsOf(inputSchema).find((item) => item.id === inputId)
-    const driven = graph && (Object.values(graph.links).some((link) => 'node' in link.to && 'port' in link.to && link.to.node === nodeId && link.to.port === inputId) ||
-      Object.values(graph.nets).some((net) => net.sinks.some((sink) => 'port' in sink && sink.node === nodeId && sink.port === inputId)))
-    const stored = node?.values[inputId]
-    const fallback = input?.kind === 'input' && input.widget ? effectiveWidgetDefault(input.widget) : undefined
-    const value = isCurveValue(stored) ? stored : isCurveValue(fallback) ? fallback : undefined
-    if (input?.kind !== 'input' || input.widget?.widgetType !== 'CURVE' || !value) return undefined
-    return !driven
-      ? {
-          tabId: tab.id,
-          graphId,
-          nodeId,
-          inputId,
-          instancePath: [...instancePath],
-          openedStoredValue: stored,
-          openedSchemaDefault: input.widget.default,
-          openedValue: value,
-        }
-      : undefined
-  }
-
-  openCurveEditor(target: CurveEditorTarget): boolean {
-    const tab = this.tabs.get().find((candidate) => candidate.id === target.tabId)
-    const current = tab && this.curveTargetForInput(
-      tab, target.graphId, target.nodeId, target.inputId, target.instancePath,
-    )
-    if (!tab || !current) return false
-    const previous = this.curveEditorTarget.get()
-    if (previous && previous.tabId !== current.tabId) {
-      this.tabs.update((list) => list.map((candidate) =>
-        candidate.id === previous.tabId && candidate.editorKind === CURVE_EDITOR_KIND
-          ? { ...candidate, editorKind: GRAPH_EDITOR_KIND }
-          : candidate))
-    }
-    this.curveEditorTarget.set(current)
-    this.setTabEditorKind(tab.id, CURVE_EDITOR_KIND)
-    this.activeTabId.set(tab.id)
-    return true
-  }
-
-  closeCurveEditor(target: CurveEditorTarget): void {
-    if (this.curveEditorTarget.get() !== target) return
-    this.curveEditorTarget.set(undefined)
-    this.setTabEditorKind(target.tabId, GRAPH_EDITOR_KIND)
   }
 
   glslTargetForInput(
@@ -6024,7 +5946,6 @@ export class AppState {
 
   private cleanupClosedTab(id: string): void {
     this.dismissMigrationNotice(id)
-    if (this.curveEditorTarget.get()?.tabId === id) this.curveEditorTarget.set(undefined)
     if (this.glslEditorTarget.get()?.tabId === id) this.glslEditorTarget.set(undefined)
     this.dropCollabFor(id) // leave the shared session; the server session survives
     this.dropProblems(id) // its diagnostics may not outlive the tab
