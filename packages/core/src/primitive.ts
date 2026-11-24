@@ -226,6 +226,28 @@ export interface EffectivePrimitiveSpec {
 }
 
 /**
+ * The value a primitive holds while nothing is stored in it, which is also
+ * where Reset takes it: its own Default, else the default of the first field
+ * it feeds (the field its widget comes from), else its declared default. A
+ * default it does not hold itself is moved into the effective range, so every
+ * fed field accepts it. The value field shows it, the fields it feeds show
+ * it, and a run sends it.
+ */
+function emptyPrimitiveValue(
+  explicitDefault: Json | undefined,
+  first: WidgetSpec | undefined,
+  declared: WidgetSpec | undefined,
+  options: Readonly<Record<string, unknown>>,
+): unknown {
+  if (explicitDefault !== undefined) return explicitDefault
+  const value = first?.default ?? declared?.default
+  if (typeof value !== 'number') return value
+  const min = typeof options['min'] === 'number' ? options['min'] : -Infinity
+  const max = typeof options['max'] === 'number' ? options['max'] : Infinity
+  return Math.min(Math.max(value, min), max)
+}
+
+/**
  * The effective widget of a primitive's value field. `fed` are the inputs
  * the output reaches (direct, through reroutes and through subgraph
  * boundaries); their widgets narrow the declared widget, and `explicit`
@@ -246,6 +268,8 @@ export function effectivePrimitiveSpec(
   const label = labels.size === 1 ? [...labels][0] : undefined
 
   const widgetType = declared?.widgetType ?? fedWidgets[0]?.widget.widgetType
+  // The first fed field of the primitive's own kind, in the order `fed` is given.
+  const first = fedWidgets.find(({ widget }) => widget.widgetType === widgetType)?.widget
   if (widgetType === undefined) {
     // A choice that feeds no field with options is typed in as text.
     const typed = shape.value.type.kind === 'concrete' && shape.value.type.name === 'COMBO'
@@ -290,18 +314,7 @@ export function effectivePrimitiveSpec(
     }
     options = { ...options, ...explicit }
   }
-  // Reset goes to the primitive's own Default, else the default every fed
-  // field shares, else the declared default moved into the effective range.
-  const fedDefaults = new Set(fedWidgets.map(({ widget }) => JSON.stringify(widget.default ?? null)))
-  const shared = fedWidgets.length > 0 && fedDefaults.size === 1 ? fedWidgets[0]!.widget.default : undefined
-  const fallback = declared?.default
-  const clamp = (value: unknown): unknown => {
-    if (typeof value !== 'number') return value
-    const min = typeof options['min'] === 'number' ? options['min'] : -Infinity
-    const max = typeof options['max'] === 'number' ? options['max'] : Infinity
-    return Math.min(Math.max(value, min), max)
-  }
-  const resetTo = explicitDefault ?? shared ?? (fallback === undefined ? undefined : clamp(fallback))
+  const resetTo = emptyPrimitiveValue(explicitDefault, first, declared, options)
   if (explicitDefault === undefined && resetTo !== undefined) derived.add('default')
   const { default: _declaredDefault, ...rest } = base ?? { widgetType }
   const spec: WidgetSpec = { ...rest, widgetType, options, ...(resetTo !== undefined ? { default: resetTo } : {}) }
