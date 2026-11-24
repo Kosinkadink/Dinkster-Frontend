@@ -185,7 +185,6 @@ export function ProductWindowToolbar(props: {
       class="dinkster-desktop-bar dinkster-window-toolbar-host"
       data-platform={props.platform}
       data-service-kind={props.serviceKind}
-      data-narrow={narrow() ? '' : undefined}
       aria-label={props.title}
     >
       <div class="dinkster-window-toolbar">

@@ -148,7 +148,9 @@ foreground against their actual fill, including the hovered fill.
   messages are off; field problems are shown by `ProductField`.
   Changing to another record mounts a new form.
 - `ProductMenu` owns click, outside-click, focus-leave and Escape dismissal,
-  keyboard item movement and opener focus restoration. Disabled items are
+  keyboard item movement and opener focus restoration. Items keep their buttons
+  by position, so a host that passes new item objects while the menu is open
+  (a count arriving) does not move focus or close it. Disabled items are
   skipped; a disabled-only menu remains keyboard-dismissable. The menu aligns
   to its trigger's left edge, or to its right edge when it would not fit, and
   then uses the app's viewport algorithm from `@dinkster/core/floating-surface`
@@ -1027,8 +1029,8 @@ slot, which retains its D symbol and chevron at every width, and the project
 action (a `labelContent` holding `.dinkster-window-project-label`), which keeps
 its folder and name in the full row. Its name shortens with an ellipsis from
 `toolbarProjectNameMaxWidth` to `toolbarProjectNameMinWidth` before any other
-control gives up width, and only the narrow row reduces it to the folder. Pending toolbar
-actions retain their exact non-pending width and shared disabled/focus behavior.
+control gives up width, and only the narrow row reduces it to the folder.
+Pending toolbar actions retain their exact non-pending width and shared disabled/focus behavior.
 The spinner replaces the compact icon, the leading icon in an expanded rich
 label, or the app-menu D symbol while keeping its chevron.
 For a text-only expanded label, it replaces the drawn text at the center while

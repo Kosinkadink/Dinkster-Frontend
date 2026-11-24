@@ -42,6 +42,10 @@ const classes = (await readFile(new URL('styles.css', root), 'utf8'))
     `${components.layout.sidebarBreakpoint}px`,
   )
   .replaceAll(
+    'DINKSTER_TOOLBAR_FULL_ROW_WIDTH',
+    `${components.layout.toolbarFullRowWidth}px`,
+  )
+  .replaceAll(
     'DINKSTER_TOOLBAR_EXPANDED_WIDTH',
     `${components.layout.toolbarExpandedRowWidth}px`,
   )

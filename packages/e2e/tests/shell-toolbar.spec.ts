@@ -127,7 +127,8 @@ test('narrow shell preserves canvas space and keeps search clear of layout contr
   for (const id of ['left-panel-toggle', 'bottom-panel-toggle', 'rail-toggle']) await expect(page.getByTestId(id)).toHaveCount(0)
   await page.getByRole('button', { name: 'Customize layout' }).click()
   const layout = page.getByRole('menu', { name: 'Customize layout' })
-  await expect(layout.getByRole('menuitemcheckbox')).toHaveText(['Left panel', 'Bottom panel', 'Right panel', 'Left bar', 'Status bar'])
+  // Right panel carries the right panel's attention count when the engine reports problems.
+  await expect(layout.getByRole('menuitemcheckbox')).toHaveText(['Left panel', 'Bottom panel', /^Right panel\d*$/, 'Left bar', 'Status bar'])
   await layout.getByRole('menuitemcheckbox', { name: 'Right panel' }).click()
   await expect(rail).toBeVisible()
   await expect(dock).toBeVisible()

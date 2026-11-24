@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, appViewTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, appViewTest as test, setShellRegion, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 
@@ -232,9 +232,7 @@ test('authors, uses, and reloads a complete App View', async ({ page }) => {
   await registerSchema(popup)
   await injectPreview(popup, 'Pop-out result')
   await popup.setViewportSize({ width: 560, height: 1100 })
-  if (await popup.getByTestId('rail-toggle').getAttribute('aria-pressed') === 'true') {
-    await popup.getByTestId('rail-toggle').click()
-  }
+  await setShellRegion(popup, 'right', false)
   await expect(popup.getByTestId('app-view')).toHaveAttribute('data-app-breakpoint', 'mobile')
   await expect(popup.getByRole('img', { name: 'Image preview' })).toBeVisible()
   await popup.mouse.move(300, 300)

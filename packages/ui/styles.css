@@ -225,8 +225,6 @@
 .dinkster-window-action-shortcut { padding-inline: var(--dinkster-space-4); border: var(--dinkster-border-width) solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-raised); color: var(--dinkster-text-secondary); font: inherit; font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 @container (width < DINKSTER_TOOLBAR_EXPANDED_WIDTH) {
   .dinkster-window-toolbar { grid-template-columns: auto minmax(var(--dinkster-control-compact-height), 1fr) auto auto auto; }
-  .dinkster-window-toolbar-host:not([data-narrow]) .dinkster-window-toolbar { grid-template-columns: auto minmax(var(--dinkster-control-compact-height), 1fr) minmax(0, max-content) auto auto; }
-  .dinkster-window-toolbar-host:not([data-narrow]) .dinkster-window-toolbar-actions { min-width: 0; }
   .dinkster-window-toolbar-actions > * { flex-shrink: 0; }
   .dinkster-window-toolbar-search > .dinkster-window-action { width: var(--dinkster-control-compact-height); }
   .dinkster-window-toolbar .dinkster-run-activity { flex-direction: column; align-items: flex-start; gap: 0; font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
@@ -244,12 +242,17 @@
   .dinkster-window-toolbar .dinkster-window-action > [aria-busy='true']:has(.dinkster-window-action-label .dinkster-icon, .dinkster-wordmark) > .dinkster-spinner { left: 50%; }
   .dinkster-window-toolbar-brand .dinkster-menu-trigger { width: var(--dinkster-control-compact-height); padding-inline: 0; }
   .dinkster-window-toolbar-brand .dinkster-menu-trigger > .dinkster-icon:last-child { display: none; }
-  .dinkster-window-toolbar-host:not([data-narrow]) .dinkster-window-action:has(.dinkster-window-project-label) { flex-shrink: 1; min-width: calc(2 * (var(--dinkster-space-12) + var(--dinkster-border-width)) + var(--dinkster-icon-size) + var(--dinkster-space-8) + var(--dinkster-toolbar-project-name-min-width)); }
-  .dinkster-window-toolbar-host:not([data-narrow]) .dinkster-window-action:has(.dinkster-window-project-label) > .dinkster-button { width: auto; min-width: 0; padding-inline: var(--dinkster-space-12); }
-  .dinkster-window-toolbar-host:not([data-narrow]) .dinkster-window-action:has(.dinkster-window-project-label) .dinkster-window-action-label { position: static; clip-path: none; width: auto; height: auto; min-width: 0; }
-  .dinkster-window-toolbar-host:not([data-narrow]) .dinkster-window-action:has(.dinkster-window-project-label) .dinkster-window-action-icon { display: none; }
   .dinkster-window-toolbar .dinkster-window-project-label { min-width: 0; }
   .dinkster-window-toolbar .dinkster-window-project-name { min-width: var(--dinkster-toolbar-project-name-min-width); }
+}
+@container (DINKSTER_TOOLBAR_FULL_ROW_WIDTH <= width < DINKSTER_TOOLBAR_EXPANDED_WIDTH) {
+  /* In the full row the project action keeps its folder and name; the name shortens first. */
+  .dinkster-window-toolbar { grid-template-columns: auto minmax(var(--dinkster-control-compact-height), 1fr) minmax(0, max-content) auto auto; }
+  .dinkster-window-toolbar-actions { min-width: 0; }
+  .dinkster-window-toolbar .dinkster-window-action:has(.dinkster-window-project-label) { flex-shrink: 1; min-width: calc(2 * (var(--dinkster-space-12) + var(--dinkster-border-width)) + var(--dinkster-icon-size) + var(--dinkster-space-8) + var(--dinkster-toolbar-project-name-min-width)); }
+  .dinkster-window-toolbar .dinkster-window-action:has(.dinkster-window-project-label) > .dinkster-button { width: auto; min-width: 0; padding-inline: var(--dinkster-space-12); }
+  .dinkster-window-toolbar .dinkster-window-action:has(.dinkster-window-project-label) .dinkster-window-action-label { position: static; clip-path: none; width: auto; height: auto; min-width: 0; }
+  .dinkster-window-toolbar .dinkster-window-action:has(.dinkster-window-project-label) .dinkster-window-action-icon { display: none; }
 }
 .dinkster-window-toolbar-brand .dinkster-window-action > .dinkster-button,
 .dinkster-window-toolbar-brand .dinkster-menu-trigger { width: auto; padding-inline: 0; gap: var(--dinkster-space-4); }
