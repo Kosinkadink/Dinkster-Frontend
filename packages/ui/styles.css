@@ -635,7 +635,7 @@
 /* A link to what a row reads or feeds, drawn as a node's open-field panel draws its links: secondary text over a dotted line. */
 .boundary-tree-setting-value > .dinkster-link { color: var(--dinkster-text-secondary); text-decoration: none; border-bottom: var(--dinkster-border-width) dotted var(--dinkster-text-muted); }
 .boundary-tree-setting-value > .dinkster-link:hover { color: var(--dinkster-text-primary); }
-.boundary-tree-problem { display: flex; align-items: flex-start; gap: var(--dinkster-space-8); padding: var(--dinkster-space-4) var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-warning-border); border-radius: var(--dinkster-radius-control); background: var(--dinkster-warning-background); color: var(--dinkster-warning-foreground); }
+.boundary-tree-problem { display: flex; align-items: flex-start; gap: var(--dinkster-space-8); padding: var(--dinkster-space-4) var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-warning-border); border-radius: var(--dinkster-radius-control); background: var(--dinkster-warning-fill); color: var(--dinkster-warning-foreground); }
 /* The icon is centred on the first line of the text, however many lines it wraps to. */
 .boundary-tree-problem > .dinkster-icon { margin-block: calc((var(--dinkster-type-body-line) - var(--dinkster-icon-size)) / 2); }
 .boundary-tree-empty { display: grid; justify-items: start; gap: var(--dinkster-space-12); padding: var(--dinkster-space-8) 0; color: var(--dinkster-text-secondary); }

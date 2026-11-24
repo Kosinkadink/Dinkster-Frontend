@@ -11,7 +11,22 @@ export interface MeaningToken {
   readonly foreground: string
   readonly background: string
   readonly border: string
+  /** The foreground, faint over the panel: fills a message box so it does not read as an outlined button. */
+  readonly fill: string
 }
+
+/** `top` laid over `bottom` at `amount` (0 to 1), both #RRGGBB. */
+const mixHex = (top: string, bottom: string, amount: number): string =>
+  '#' +
+  [1, 3, 5]
+    .map((offset) => {
+      const channel = (hex: string) => Number.parseInt(hex.slice(offset, offset + 2), 16)
+      return Math.round(channel(top) * amount + channel(bottom) * (1 - amount))
+        .toString(16)
+        .padStart(2, '0')
+    })
+    .join('')
+    .toUpperCase()
 
 const deepFreeze = <T>(value: T): T => {
   if (typeof value !== 'object' || value === null || Object.isFrozen(value))
@@ -150,6 +165,9 @@ export const semanticTokensForTheme = (
     foreground,
     background: colors.bg.surface,
     border: foreground,
+    // 12% in the dark theme, where looks are decided; the light theme takes
+    // less so its text stays readable on the fill.
+    fill: mixHex(foreground, colors.bg.surface, theme === 'dark' ? 0.12 : 0.04),
   })
   return deepFreeze({
     space: components.space,
@@ -355,24 +373,29 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-accent-background':
       semanticDesignTokens.meaning.accent.background,
     '--dinkster-accent-border': semanticDesignTokens.meaning.accent.border,
+    '--dinkster-accent-fill': semanticDesignTokens.meaning.accent.fill,
     '--dinkster-success-foreground':
       semanticDesignTokens.meaning.success.foreground,
     '--dinkster-success-background':
       semanticDesignTokens.meaning.success.background,
     '--dinkster-success-border': semanticDesignTokens.meaning.success.border,
+    '--dinkster-success-fill': semanticDesignTokens.meaning.success.fill,
     '--dinkster-warning-foreground':
       semanticDesignTokens.meaning.warning.foreground,
     '--dinkster-warning-background':
       semanticDesignTokens.meaning.warning.background,
     '--dinkster-warning-border': semanticDesignTokens.meaning.warning.border,
+    '--dinkster-warning-fill': semanticDesignTokens.meaning.warning.fill,
     '--dinkster-danger-foreground':
       semanticDesignTokens.meaning.danger.foreground,
     '--dinkster-danger-background':
       semanticDesignTokens.meaning.danger.background,
     '--dinkster-danger-border': semanticDesignTokens.meaning.danger.border,
+    '--dinkster-danger-fill': semanticDesignTokens.meaning.danger.fill,
     '--dinkster-info-foreground': semanticDesignTokens.meaning.info.foreground,
     '--dinkster-info-background': semanticDesignTokens.meaning.info.background,
     '--dinkster-info-border': semanticDesignTokens.meaning.info.border,
+    '--dinkster-info-fill': semanticDesignTokens.meaning.info.fill,
     '--dinkster-radius-small': px(semanticDesignTokens.shape.small),
     '--dinkster-radius-control': px(semanticDesignTokens.shape.control),
     '--dinkster-radius-card': px(semanticDesignTokens.shape.card),
