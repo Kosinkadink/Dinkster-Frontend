@@ -668,12 +668,10 @@ export function CurveSpace(props: {
           const index = selected()
           if (index !== undefined) remove(index)
         } }]} />
-      {/* A curve that declares a histogram has this line wired or not: its input's pin stands on it. */}
+      {/* A curve that declares a histogram has this line, wired or not: its input's pin stands on it.
+          It reads the same in every state; whether a run's histogram is known shows in the bars. */}
       <Show when={props.histogramInput !== 'none'}>
-        <CanvasEditorNote tone={bars() === undefined ? 'muted' : undefined}>
-          {message(props.histogramInput === 'unwired' ? 'inNodeCurve.histogramInput'
-            : bars() === undefined ? 'inNodeCurve.histogramUnknown' : 'inNodeCurve.histogram')}
-        </CanvasEditorNote>
+        <CanvasEditorNote>{message('inNodeCurve.histogram')}</CanvasEditorNote>
       </Show>
       {/* One note that wraps, never cut off; at the narrowest node it takes the two lines it is given. */}
       <CanvasEditorNote tone="muted" wrap>{message('inNodeCurve.help')}</CanvasEditorNote>

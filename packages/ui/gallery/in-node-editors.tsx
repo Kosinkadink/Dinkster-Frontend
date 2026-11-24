@@ -345,11 +345,9 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
           {/* The Delete key on a selected point does the same; a curve keeps at least one point. */}
           <CanvasEditorButtons buttons={[{ label: 'Delete point', icon: canvasEditorIcons.remove, intent: 'remove',
             disabled: selected === undefined || points.length < 2 }]} />
-          {/* A curve that declares a histogram has this line wired or not: its input's pin stands on it. */}
+          {/* A curve that declares a histogram has this line, wired or not: its input's pin stands on it. */}
           <Show when={histogram !== undefined}>
-            <CanvasEditorNote tone={bars() === undefined ? 'muted' : undefined}>
-              {histogram?.connected !== true ? 'Histogram' : bars() === undefined ? 'Histogram: not known yet' : 'Histogram from the selected run'}
-            </CanvasEditorNote>
+            <CanvasEditorNote>Histogram</CanvasEditorNote>
           </Show>
           <CanvasEditorNote tone="muted" wrap>Double-click to add a point. Drag to move it. Click to select it.</CanvasEditorNote>
         </>
