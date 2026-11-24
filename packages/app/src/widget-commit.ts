@@ -128,9 +128,10 @@ export function resolveTypedNumber(raw: string, spec: WidgetSpec, stored: Intege
   }
   // Whole numbers snap to the step counted from the field's offset (its lower
   // limit when none is declared), as the stepper does; a value that rounds
-  // past a limit steps back inside it.
-  const step = constraints.step
-  const base = constraints.offset
+  // past a limit steps back inside it. While a worked-out offset is not known
+  // there is no grid, so a whole number is kept.
+  const step = constraints.offset === undefined ? 1n : constraints.step
+  const base = constraints.offset ?? 0n
   const distance = value - base
   const remainder = ((distance % step) + step) % step
   let snapped = base + distance - remainder + (remainder * 2n >= step ? step : 0n)

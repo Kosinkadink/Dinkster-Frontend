@@ -241,7 +241,7 @@ export function effectivePrimitiveSpec(
   const diagnostics: Diagnostic[] = []
   const data = { node: nodeId }
   const declared = shape.value.widget
-  const fedWidgets = fed.flatMap(({ name, input }) => input.widget === undefined ? [] : [{ name, widget: input.widget }])
+  const fedWidgets = fed.flatMap(({ name, input }) => input.widget === undefined ? [] : [{ name, widget: input.widget, type: input.type }])
   const labels = new Set(fed.map(({ input }) => input.displayName ?? input.id))
   const label = labels.size === 1 ? [...labels][0] : undefined
 
@@ -255,8 +255,11 @@ export function effectivePrimitiveSpec(
   let options: Record<string, unknown> = { ...(declared?.options ?? {}) }
   let base = declared
   const agreed: string[] = []
-  for (const { name, widget } of fedWidgets) {
+  const ownType = shape.value.type.kind === 'concrete' ? shape.value.type.name : undefined
+  for (const { name, widget, type } of fedWidgets) {
     if (widget.widgetType !== widgetType) {
+      // A field that also takes the primitive's own type, such as a Switch's Pick, is not of another kind.
+      if (type.kind === 'union' && ownType !== undefined && type.names.includes(ownType)) continue
       diagnostics.push(diag('warning', 'schema', 'primitive.widgetType.conflict',
         `${nodeId} feeds ${name}, a field of another kind ('${widget.widgetType}', not '${widgetType}')`, { data }))
       continue

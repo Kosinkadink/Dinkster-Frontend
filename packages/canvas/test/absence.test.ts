@@ -27,6 +27,8 @@ import { defaultTokens } from '../src/tokens.js'
 // ---------------------------------------------------------------------------
 
 const IMAGE: TypeExpr = { kind: 'concrete', name: 'IMAGE' }
+const MASK: TypeExpr = { kind: 'concrete', name: 'MASK' }
+const INT: TypeExpr = { kind: 'concrete', name: 'INT' }
 const input = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
   kind: 'input',
   id,
@@ -54,6 +56,18 @@ const schemas: Record<string, NodeSchema> = {
   MaybeSrc: schemaOf('MaybeSrc', [output('out', { optional: true })]),
   Sink: schemaOf('Sink', [input('in')]),
   Sink2: schemaOf('Sink2', [input('a'), input('b')]),
+  /** Two inputs of different types; bypassed, its MASK output passes on the MASK input. */
+  Blend: schemaOf('Blend', [input('image'), input('mask', { type: MASK }), output('out', { type: MASK })]),
+  MaskSrc: schemaOf('MaskSrc', [output('out', { type: MASK })]),
+  MaskSink: schemaOf('MaskSink', [input('in', { type: MASK })]),
+  Pass: schemaOf('Pass', [input('in'), output('out')]),
+  IntSrc: schemaOf('IntSrc', [output('out', { type: INT })]),
+  IntSink: schemaOf('IntSink', [input('in', { type: INT })]),
+  /** Passes on its field's value, like a Primitive. */
+  Prim: schemaOf('Prim', [
+    input('value', { type: INT, widget: { widgetType: 'INT', options: {}, default: 0 } }),
+    output('out', { type: INT, knownValue: { input: 'value' } }),
+  ]),
 }
 
 // ---------------------------------------------------------------------------
@@ -64,10 +78,12 @@ type End =
   | [node: string, port: string]
   | { reroute: string }
 type GraphSpec = {
-  nodes: Record<string, { type: string }>
+  nodes: Record<string, { type: string; mode?: 'muted' | 'bypassed' }>
   links?: [from: End, to: End][]
   reroutes?: string[]
   nets?: Record<string, { source: End; sinks: End[] }>
+  /** Boundary output id -> the inner node port it shows. */
+  outputs?: Record<string, [node: string, port: string]>
 }
 
 const end = (e: End): unknown => (Array.isArray(e) ? { node: e[0], port: e[1] } : e)
@@ -79,7 +95,7 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
       id,
       name: id,
       nodes: Object.fromEntries(
-        Object.entries(g.nodes).map(([nid, n]) => [nid, { id: nid, type: n.type, values: {} }]),
+        Object.entries(g.nodes).map(([nid, n]) => [nid, { id: nid, type: n.type, values: {}, ...(n.mode ? { mode: n.mode } : {}) }]),
       ),
       links: Object.fromEntries(
         (g.links ?? []).map((l, i) => [`l${i}`, { id: `l${i}`, from: end(l[0]), to: end(l[1]) }]),
@@ -91,6 +107,17 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
         ]),
       ),
       reroutes: Object.fromEntries((g.reroutes ?? []).map((r) => [r, { id: r }])),
+      ...(g.outputs
+        ? {
+            boundary: {
+              inputs: [],
+              outputs: Object.entries(g.outputs).map(([id, [node, port]]) => ({
+                id,
+                binds: { kind: 'port', node, port },
+              })),
+            },
+          }
+        : {}),
       nextOrdinal: 100,
     }
   }
@@ -107,10 +134,10 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = () => ({ viewId: 'core.line', rows: 1 })
 
-const sceneOf = (doc: WorkflowDocument): Scene =>
+const sceneOf = (doc: WorkflowDocument, graphId = 'g0'): Scene =>
   buildScene({
     document: doc,
-    graphId: 'g0',
+    graphId,
     resolve: documentResolver(doc, (t) => schemas[t]),
     tokens: defaultTokens,
     measure,
@@ -170,6 +197,153 @@ describe('maybe-absent scene links', () => {
     for (const link of netLinks) expect(link.maybeAbsent, link.id).toBe(true)
   })
 
+  it('crosses subgraph boundaries at every level of nesting', () => {
+    // g0 holds a subgraph node of 'outer', which holds one of 'inner'. Each
+    // level shows 'maybe' (from an optional output) and 'plain' (from an
+    // ordinary one) on its Outputs panel.
+    const doc = docOf({
+      g0: {
+        nodes: { o: { type: '#outer' }, k1: { type: 'Sink' }, k2: { type: 'Sink' } },
+        links: [
+          [['o', 'maybe'], ['k1', 'in']],
+          [['o', 'plain'], ['k2', 'in']],
+        ],
+      },
+      outer: {
+        nodes: { i: { type: '#inner' } },
+        outputs: { maybe: ['i', 'maybe'], plain: ['i', 'plain'] },
+      },
+      inner: {
+        nodes: { m: { type: 'MaybeSrc' }, s: { type: 'Src' } },
+        outputs: { maybe: ['m', 'out'], plain: ['s', 'out'] },
+      },
+    })
+    for (const graphId of ['inner', 'outer']) {
+      const scene = sceneOf(doc, graphId)
+      const intoPanel = (item: string) => scene.links.find((l) => l.id === `boundary:outputs:${item}`)!
+      expect(intoPanel('maybe').maybeAbsent, graphId).toBe(true)
+      expect(intoPanel('plain').maybeAbsent, graphId).toBeUndefined()
+    }
+    const outerPins = sceneOf(doc, 'outer').nodes.find((n) => n.id === 'i')!.layout.pins
+    expect(outerPins.find((p) => p.portId === 'maybe')!.maybeAbsent).toBe(true)
+    expect(outerPins.find((p) => p.portId === 'plain')!.maybeAbsent).toBeUndefined()
+    const root = sceneOf(doc)
+    const pins = root.nodes.find((n) => n.id === 'o')!.layout.pins
+    expect(pins.find((p) => p.portId === 'maybe')!.maybeAbsent).toBe(true)
+    expect(pins.find((p) => p.portId === 'plain')!.maybeAbsent).toBeUndefined()
+    expect(root.links.find((l) => l.id === 'l0')!.maybeAbsent).toBe(true)
+    expect(root.links.find((l) => l.id === 'l1')!.maybeAbsent).toBeUndefined()
+  })
+})
+
+describe('wires out of muted nodes', () => {
+  it('marks a wire out of a muted node through reroutes and named nets, and out of a muted subgraph node', () => {
+    const doc = docOf({
+      g0: {
+        nodes: {
+          m: { type: 'Src', mode: 'muted' },
+          a: { type: 'Src' },
+          b: { type: 'Src', mode: 'bypassed' },
+          o: { type: '#sub', mode: 'muted' },
+          n: { type: 'MaybeSrc', mode: 'muted' },
+          k1: { type: 'Sink' },
+          k2: { type: 'Sink' },
+          k3: { type: 'Sink' },
+          k4: { type: 'Sink' },
+          k5: { type: 'Sink', mode: 'muted' },
+          k6: { type: 'Sink' },
+          k7: { type: 'Sink' },
+        },
+        links: [
+          [['m', 'out'], { reroute: 'r0' }],
+          [{ reroute: 'r0' }, ['k1', 'in']],
+          [['a', 'out'], ['k2', 'in']],
+          [['b', 'out'], ['k3', 'in']],
+          [['o', 'out'], ['k4', 'in']],
+          [['a', 'out'], ['k5', 'in']],
+        ],
+        reroutes: ['r0'],
+        nets: { faces: { source: ['n', 'out'], sinks: [['k6', 'in'], ['k7', 'in']] } },
+      },
+      sub: { nodes: { s: { type: 'Src' } }, outputs: { out: ['s', 'out'] } },
+    })
+    const muted = (id: string) => sceneOf(doc).links.find((l) => l.id === id)!.sourceMuted
+    expect(muted('l0'), 'into a reroute').toBe(true)
+    expect(muted('l1'), 'out of a reroute').toBe(true)
+    expect(muted('l2'), 'active').toBeUndefined()
+    expect(muted('l3'), 'bypassed').toBeUndefined()
+    expect(muted('l4'), 'muted subgraph node').toBe(true)
+    expect(muted('l5'), 'into a muted node').toBeUndefined()
+    const net = sceneOf(doc).links.filter((l) => l.netId === 'faces')
+    expect(net).toHaveLength(2)
+    for (const link of net) {
+      expect(link.sourceMuted, link.id).toBe(true)
+      expect(link.maybeAbsent, link.id).toBe(true)
+    }
+  })
+
+  it('follows a bypassed node to the input its passthrough takes', () => {
+    // Blend's MASK output passes on its MASK input, not the IMAGE one.
+    const blendFedBy = (image: GraphSpec['nodes'][string], mask: GraphSpec['nodes'][string]) => sceneOf(docOf({
+      g0: {
+        nodes: { i: image, m: mask, b: { type: 'Blend', mode: 'bypassed' }, k: { type: 'MaskSink' } },
+        links: [
+          [['i', 'out'], ['b', 'image']],
+          [['m', 'out'], ['b', 'mask']],
+          [['b', 'out'], ['k', 'in']],
+        ],
+      },
+    })).links.find((l) => l.id === 'l2')!.sourceMuted
+    expect(blendFedBy({ type: 'Src' }, { type: 'MaskSrc', mode: 'muted' })).toBe(true)
+    expect(blendFedBy({ type: 'Src', mode: 'muted' }, { type: 'MaskSrc' })).toBeUndefined()
+    // Two bypassed nodes in a row, and the may-be-nothing hint the same way.
+    const chain = sceneOf(docOf({
+      g0: {
+        nodes: {
+          a: { type: 'Src', mode: 'muted' }, b1: { type: 'Pass', mode: 'bypassed' }, b2: { type: 'Pass', mode: 'bypassed' },
+          m: { type: 'MaybeSrc' }, b3: { type: 'Pass', mode: 'bypassed' },
+          k1: { type: 'Sink' }, k2: { type: 'Sink' },
+        },
+        links: [
+          [['a', 'out'], ['b1', 'in']],
+          [['b1', 'out'], ['b2', 'in']],
+          [['b2', 'out'], ['k1', 'in']],
+          [['m', 'out'], ['b3', 'in']],
+          [['b3', 'out'], ['k2', 'in']],
+        ],
+      },
+    }))
+    const link = (id: string) => chain.links.find((l) => l.id === id)!
+    expect(link('l2').sourceMuted).toBe(true)
+    expect(link('l2').maybeAbsent).toBeUndefined()
+    expect(link('l4').maybeAbsent).toBe(true)
+    expect(link('l4').sourceMuted).toBeUndefined()
+  })
+
+  it('follows a node that passes on its field\'s value to the wire into that field', () => {
+    const fromPrim = (feed: GraphSpec['nodes'][string] | undefined) => sceneOf(docOf({
+      g0: {
+        nodes: { ...(feed ? { f: feed } : {}), p: { type: 'Prim' }, k: { type: 'IntSink' } },
+        links: [...(feed ? [[['f', 'out'], ['p', 'value']] as [End, End]] : []), [['p', 'out'], ['k', 'in']]],
+      },
+    })).links.find((l) => 'node' in l.from && l.from.node === 'p')!.sourceMuted
+    expect(fromPrim({ type: 'IntSrc', mode: 'muted' })).toBe(true)
+    expect(fromPrim({ type: 'IntSrc' })).toBeUndefined()
+    expect(fromPrim(undefined)).toBeUndefined()
+  })
+
+  it('marks the wire into Outputs from a muted node inside a subgraph', () => {
+    const doc = docOf({
+      g0: { nodes: { o: { type: '#sub' } } },
+      sub: {
+        nodes: { s: { type: 'Src', mode: 'muted' }, t: { type: 'Src' } },
+        outputs: { quiet: ['s', 'out'], loud: ['t', 'out'] },
+      },
+    })
+    const scene = sceneOf(doc, 'sub')
+    expect(scene.links.find((l) => l.id === 'boundary:outputs:quiet')!.sourceMuted).toBe(true)
+    expect(scene.links.find((l) => l.id === 'boundary:outputs:loud')!.sourceMuted).toBeUndefined()
+  })
 })
 
 // ---------------------------------------------------------------------------

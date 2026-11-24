@@ -457,6 +457,8 @@
 .dinkster-canvas-side-fact { display: contents; }
 .dinkster-canvas-side-fact dt { color: var(--dinkster-text-secondary); }
 .dinkster-canvas-side-fact dd { margin: 0; overflow-wrap: anywhere; }
+.dinkster-canvas-side-spinner { display: inline-block; width: var(--dinkster-space-12); height: var(--dinkster-space-12); margin-right: var(--dinkster-space-4); vertical-align: middle; }
+.dinkster-canvas-side-note { display: block; color: var(--dinkster-text-secondary); }
 .dinkster-canvas-side-help { margin-top: var(--dinkster-space-4); padding-top: var(--dinkster-space-4); border-top: var(--dinkster-border-width) solid var(--dinkster-border-divider); color: var(--dinkster-text-secondary); }
 .dinkster-canvas-side-help:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .dinkster-canvas-side-modes { display: grid; justify-items: start; gap: calc(var(--dinkster-space-4) / 2); margin-bottom: var(--dinkster-space-8); }
@@ -550,6 +552,7 @@
 .dinkster-canvas-examples { display: flex; flex-wrap: wrap; align-items: start; gap: var(--dinkster-space-24); contain: inline-size; }
 /* As wide as its picture, so a long caption wraps under it; wider than the column, it scrolls inside itself, never the page. */
 .dinkster-canvas-example { display: grid; grid-template-columns: min-content; gap: var(--dinkster-space-8); width: min-content; max-width: 100%; margin: 0; overflow-x: auto; }
+.dinkster-canvas-example-side.dinkster-canvas-field-side { position: static; }
 .dinkster-canvas-comparison { display: grid; gap: var(--dinkster-space-8); }
 .dinkster-canvas-comparison > h3 { margin: 0; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-body-size); font-weight: var(--dinkster-weight-bold); }
 .dinkster-canvas-example-stage { position: relative; overflow: hidden; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); }
@@ -637,19 +640,19 @@
 .dinkster-canvas-curve-line[data-held='true'] { stroke: var(--dinkster-text-muted); }
 .dinkster-canvas-curve-point { fill: var(--dinkster-surface-raised); stroke: var(--dinkster-accent-border); stroke-width: 2; }
 .dinkster-canvas-curve-point[data-selected='true'] { fill: var(--dinkster-accent-border); }
-/* The node's problem box hangs below the node at one screen size and is drawn as a part of the node: the node's small radius, its resting 1 px edge, the panel fill and the canvas row type. A problem's color is only on its icon and message. A line is one row high, with its action at the right end drawn as a list status line's action. */
-.problem-box { position: absolute; z-index: 11; box-sizing: border-box; min-width: var(--dinkster-problem-box-min-width); max-width: var(--dinkster-problem-box-max-width); max-height: var(--dinkster-problem-box-max-height); overflow-y: auto; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
-.problem-box-line { display: flex; align-items: flex-start; gap: var(--dinkster-space-4); box-sizing: border-box; min-height: calc(var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)); padding: calc(var(--dinkster-space-4) / 2) calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2 + var(--dinkster-border-width)); }
+/* The node's problem box hangs below the node, as wide as its longest line up to a limit set by the screen, where lines wrap, at one type size, and is drawn as a part of the node: the node's small radius, its resting 1 px edge, the panel fill and the canvas row type. A problem's color is only on its icon and message. A line is one row high, with its action at the right end drawn as a list status line's action; under a narrow node the action wraps to its own line, still at the right end, so the message keeps at least half the line. */
+.problem-box { position: absolute; z-index: 11; box-sizing: border-box; width: max-content; max-height: var(--dinkster-problem-box-max-height); overflow-y: auto; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
+.problem-box-line { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--dinkster-space-4); box-sizing: border-box; min-height: calc(var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)); padding: calc(var(--dinkster-space-4) / 2) calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2 + var(--dinkster-border-width)); }
 .problem-box-line + .problem-box-line { border-top: var(--dinkster-border-width) solid var(--dinkster-border-faint); }
 .problem-box-line[data-highlighted='true'] { background: var(--dinkster-surface-selected); }
 .problem-box-icon { flex: none; width: var(--dinkster-space-12); height: var(--dinkster-space-12); margin-top: calc((var(--dinkster-input-canvas-height) - var(--dinkster-space-12)) / 2); stroke-width: 2; }
 .problem-box-line[data-kind='error'] .problem-box-icon { color: var(--dinkster-danger-foreground); }
 .problem-box-line[data-kind='warning'] .problem-box-icon { color: var(--dinkster-warning-foreground); }
-.problem-box-text { flex: 1 1 auto; min-width: 0; margin: 0; padding: calc((var(--dinkster-input-canvas-height) - var(--dinkster-type-canvas-line)) / 2) 0; }
+.problem-box-text { flex: 1 1 50%; min-width: 0; margin: 0; padding: calc((var(--dinkster-input-canvas-height) - var(--dinkster-type-canvas-line)) / 2) 0; }
 .problem-box-row { color: var(--dinkster-text-primary); }
 .problem-box-line[data-kind='error'] .problem-box-message { color: var(--dinkster-danger-foreground); }
 .problem-box-line[data-kind='warning'] .problem-box-message { color: var(--dinkster-warning-foreground); }
-.problem-box-action { flex: none; margin-left: var(--dinkster-space-4); padding: calc((var(--dinkster-input-canvas-height) - var(--dinkster-type-canvas-line)) / 2) 0; border: 0; border-radius: var(--dinkster-radius-small); background: transparent; color: var(--dinkster-text-primary); font: inherit; white-space: nowrap; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
+.problem-box-action { flex: none; margin-left: auto; padding: calc((var(--dinkster-input-canvas-height) - var(--dinkster-type-canvas-line)) / 2) 0; border: 0; border-radius: var(--dinkster-radius-small); background: transparent; color: var(--dinkster-text-primary); font: inherit; white-space: nowrap; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
 .problem-box-action:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .dinkster-problem-box-frame { position: relative; }
 /* Shared chrome for bounded menus, listboxes, and expanded editors. */

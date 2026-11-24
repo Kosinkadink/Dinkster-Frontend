@@ -1146,16 +1146,15 @@ describe('viewport culling regressions', () => {
 
     const scene = emptyScene({ netStubs: [{ ...source, guide: true }, { ...sink, guide: true }] })
     const shown = paintWith(scene, () => undefined)
-    // One casing pass plus one colored pass, both dashed, from the Set
+    // One casing pass plus one colored pass, both solid, from the Set
     // tag's free edge (90, 100) to the Get tag's free edge (200, 100).
     const curves = shown.filter((call) => call.method === 'bezierCurveTo')
     expect(curves).toHaveLength(2)
     for (const curve of curves) {
-      expect(curve.lineDash).toEqual([7, 5])
+      expect(curve.lineDash).toEqual([])
       expect(curve.args.slice(-2)).toEqual([200, 100])
     }
-    expect(shown.some((call) => call.method === 'moveTo' && call.args[0] === 90 && call.args[1] === 100 &&
-      call.lineDash.length === 2)).toBe(true)
+    expect(shown.some((call) => call.method === 'moveTo' && call.args[0] === 90 && call.args[1] === 100)).toBe(true)
     expect(curves.some((curve) => curve.strokeStyle === defaultTokens.colors.canvasBackground)).toBe(true)
     expect(curves.some((curve) => curve.strokeStyle === typeColor(defaultTokens, 'FLOAT'))).toBe(true)
   })
@@ -3388,6 +3387,100 @@ describe('boundary pseudo-node paint on the live renderer', () => {
 
 })
 
+describe('wire dashes', () => {
+  // Dashed means only "may carry nothing" or "carries nothing".
+  const maybeDash = [...canvasPaintTokens.dash.maybeAbsentLink.world]
+  const curveFrom = (calls: PaintCall[], x: number, y: number): PaintCall => {
+    const move = calls.findIndex((call) => call.method === 'moveTo' && call.args[0] === x && call.args[1] === y)
+    expect(move).toBeGreaterThanOrEqual(0)
+    return calls.slice(move).find((call) => call.method === 'bezierCurveTo')!
+  }
+  const linkTarget = (): string => {
+    const to = fixtureScene('clean').links.find((candidate) => candidate.id === 'good')!.to
+    if (to.kind !== 'port') throw new Error('fixture wire must end at a node')
+    return to.node
+  }
+  const wire = (over: Partial<Scene['links'][number]>, modes: Readonly<Record<string, 'muted' | 'bypassed'>> = {}) => {
+    const scene = fixtureScene('clean')
+    const link = scene.links.find((candidate) => candidate.id === 'good')!
+    const from = nodeOf(scene, 'lat')
+    const pin = from.layout.pins.find((candidate) => candidate.direction === 'out')!
+    const calls = paint({
+      ...scene,
+      nodes: scene.nodes.map((node) => {
+        const mode = modes[node.id]
+        return mode === undefined ? node : { ...node, node: { ...node.node, mode } }
+      }),
+      links: scene.links.map((candidate) => candidate === link ? { ...candidate, ...over } : candidate),
+    })
+    return curveFrom(calls, from.x + from.layout.width, from.y + pin.y)
+  }
+
+  it('draws an ordinary wire solid and a wire that may carry nothing dashed', () => {
+    expect(wire({}).lineDash).toEqual([])
+    expect(wire({ maybeAbsent: true }).lineDash).toEqual(maybeDash)
+  })
+
+  it('draws a wire from an inactive field solid and faded', () => {
+    const curve = wire({ dimmed: true })
+    expect(curve.lineDash).toEqual([])
+    expect(curve.globalAlpha).toBeCloseTo(canvasPaintTokens.widget.inactiveOpacity)
+  })
+
+  it('fades the input pin a muted node\'s wire enters, and no other input pin', () => {
+    const scene = fixtureScene('clean')
+    const link = scene.links.find((candidate) => candidate.id === 'good')!
+    if (link.to.kind !== 'port') throw new Error('fixture wire must end at a node')
+    const target = nodeOf(scene, link.to.node)
+    const pin = target.layout.pins.find((candidate) => candidate.direction === 'in' && candidate.portId === (link.to as { port: string }).port)!
+    const at = { x: target.x, y: target.y + pin.y }
+    const pinAlpha = (over: Partial<Scene['links'][number]>) => {
+      const calls = paint({ ...scene, links: scene.links.map((candidate) => candidate === link ? { ...candidate, ...over } : candidate) })
+      // The pin sits on the node's edge, nudged at most a pixel for crisp edges.
+      const outline = calls.findIndex((call) => call.method === 'arc' && Math.abs(Number(call.args[0]) - at.x) <= 1 && Math.abs(Number(call.args[1]) - at.y) <= 1)
+      expect(outline).toBeGreaterThanOrEqual(0)
+      return calls[outline]!.globalAlpha
+    }
+    const plain = pinAlpha({})
+    expect(pinAlpha({ sourceMuted: true })).toBeCloseTo(plain * canvasPaintTokens.node.modeOpacity)
+    expect(pinAlpha({ dimmed: true })).toBeCloseTo(plain)
+    expect(pinAlpha({ maybeAbsent: true })).toBeCloseTo(plain)
+  })
+
+  it('draws a wire out of a muted node at that node\'s opacity, in its type\'s color, with no dashes of its own', () => {
+    const plain = wire({})
+    const maybe = wire({ maybeAbsent: true })
+    const muted = wire({ sourceMuted: true })
+    expect(muted.globalAlpha).toBeCloseTo(plain.globalAlpha * canvasPaintTokens.node.modeOpacity)
+    expect(muted.strokeStyle).toBe(plain.strokeStyle)
+    expect(muted.lineDash).toEqual([])
+    const mutedMaybe = wire({ sourceMuted: true, maybeAbsent: true })
+    expect(mutedMaybe.lineDash).toEqual(maybeDash)
+    expect(mutedMaybe.globalAlpha).toBeCloseTo(maybe.globalAlpha * canvasPaintTokens.node.modeOpacity)
+  })
+
+  it('does not fade a wire into a muted or bypassed node, or out of a bypassed one', () => {
+    const plain = wire({})
+    for (const modes of [{ lat: 'bypassed' }, { [linkTarget()]: 'muted' }, { [linkTarget()]: 'bypassed' }] as const) {
+      const curve = wire({}, modes)
+      expect([curve.lineDash, curve.globalAlpha], JSON.stringify(modes)).toEqual([plain.lineDash, plain.globalAlpha])
+    }
+  })
+
+  it('draws a dragged wire solid, while a group being resized keeps its dashed outline', () => {
+    const scene = emptyScene({ groups: [{ id: 'g', title: 'g', x: 100, y: 200, width: 400, height: 100 }] })
+    const calls = paintWith(scene, (renderer) => renderer.setOverlay({
+      ghostLink: { x1: 10, y1: 20, x2: 300, y2: 60, typeName: 'IMAGE' },
+      ghostLinks: [{ x1: 10, y1: 400, x2: 300, y2: 460, typeName: 'IMAGE' }],
+      groupResizeGhost: { groupId: 'g', x: 100, y: 200, width: 450, height: 120 },
+    }))
+    expect(curveFrom(calls, 10, 20).lineDash).toEqual([])
+    expect(curveFrom(calls, 10, 400).lineDash).toEqual([])
+    const outline = calls.find((call) => call.method === 'roundRect' && call.args[0] === 100 && call.args[2] === 450)
+    expect(outline?.lineDash.length).toBeGreaterThan(0)
+  })
+})
+
 describe('presence paint (remote participants)', () => {
   const CURSOR_COLOR = 'hsl(200 70% 55%)'
   const actor = (over: Partial<PresenceActor> = {}): PresenceActor => ({
@@ -3447,8 +3540,8 @@ describe('presence paint (remote participants)', () => {
     const stroke = paintedAfter(calls, move, 'stroke')
     expect(stroke?.strokeStyle).toBe(CURSOR_COLOR)
     expect(stroke?.globalAlpha).toBeCloseTo(0.55)
-    const dash = [...calls.slice(0, move)].reverse().find((call) => call.method === 'setLineDash')
-    expect(dash?.args).toEqual([[6, 4]])
+    // Solid: a dashed wire means only that it may carry nothing.
+    expect(stroke?.lineDash).toEqual([])
   })
 
   it('an in-progress remote drag paints a dashed ghost at the offset; the real node stays put', () => {

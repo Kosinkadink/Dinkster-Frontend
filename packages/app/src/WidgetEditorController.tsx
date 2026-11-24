@@ -22,6 +22,8 @@ import {
   type EditorSizing,
   type HostUiProviderV1,
   type Json,
+  type LookedState,
+  type LookedWidgetField,
   type MaterializeFrame,
   type SourceFilenameSpec,
   type TypeExpr,
@@ -87,6 +89,19 @@ export function partRow(target: EditorTarget, part: string): string | undefined 
   return Object.hasOwn(parts.writes, part) ? parts.writes[part] : Object.hasOwn(parts.reads, part) ? parts.reads[part] : undefined
 }
 
+/**
+ * A row's fields declared as a lookup, as they stand now: the widget with the
+ * answers in use, and what the editor holds for each field. Reactive.
+ */
+export interface RowLookups {
+  readonly current: () => {
+    readonly spec: WidgetSpec
+    readonly looked: Readonly<Partial<Record<LookedWidgetField, LookedState>>>
+  } | undefined
+  /** Refresh or Try again for one field: asks its call again. Nothing is stored. */
+  readonly refresh: (field: LookedWidgetField) => void
+}
+
 export interface WidgetEditorState {
   /**
    * Mutable on purpose: a workspace promotion replaces the Tab wrapper
@@ -148,6 +163,8 @@ export interface WidgetEditorState {
     readonly caret?: { readonly x: number; readonly y: number }
     /** The editor now shows a popover instead of the row, so the canvas draws the row again. */
     readonly handOff?: () => void
+    /** The row's fields worked out by a declared lookup; absent when it declares none. */
+    readonly lookups?: RowLookups
   }
   /** Where a click opened a text box, in client coordinates. */
   readonly caret?: { readonly x: number; readonly y: number }

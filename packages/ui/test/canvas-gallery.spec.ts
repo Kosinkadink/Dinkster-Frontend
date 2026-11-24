@@ -171,6 +171,8 @@ test('A page link opens its heading, and the foot steps in list order', async ({
     'aria-current',
     'page',
   )
+  await next.click()
+  expect(new URL(page.url()).searchParams.get('page')).toBe('wire-looks')
   // Stepping into the next heading opens it.
   await next.click()
   expect(new URL(page.url()).searchParams.get('page')).toBe('boundary')
@@ -179,7 +181,7 @@ test('A page link opens its heading, and the foot steps in list order', async ({
   ).toHaveAttribute('aria-expanded', 'true')
   await previous.click()
   await page.reload()
-  await expect(pageLink(page, 'structure')).toHaveAttribute(
+  await expect(pageLink(page, 'wire-looks')).toHaveAttribute(
     'aria-current',
     'page',
   )

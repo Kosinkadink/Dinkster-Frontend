@@ -135,11 +135,21 @@ test('a problem outlines its row and the tab opens one box under the node', asyn
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getProblemRowHighlight()))
     .toEqual({ nodeId: 'gen', row: 'height' })
 
-  // The box covers neither the node nor any pin.
+  // The box's left edge is under the node's; it is at most 400 px wide on screen, and covers
+  // neither the node nor any pin.
   const rect = await box.boundingBox()
   const boxRect = { left: rect!.x, top: rect!.y, right: rect!.x + rect!.width, bottom: rect!.y + rect!.height }
+  expect(Math.abs(boxRect.left - nodes.node.left)).toBeLessThan(1)
+  expect(rect!.width).toBeLessThan(401)
   expect(overlaps(boxRect, nodes.node)).toBe(false)
   for (const pin of nodes.pins) expect(overlaps(boxRect, pin)).toBe(false)
+
+  // Zoomed out past the tabs, the open box is not drawn; it returns with them.
+  const viewport = await page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
+  await page.evaluate((v) => window.__dinksterTest!.renderer!.setViewport({ ...v, scale: 0.4 }), viewport)
+  await expect(box).toHaveCount(0)
+  await page.evaluate((v) => window.__dinksterTest!.renderer!.setViewport(v), viewport)
+  await expect(box).toHaveAttribute('data-node', 'gen')
 
   // One list behind the tab, the box and Problems: 2 + 1 causes.
   await openRailPanel(page, 'Problems')

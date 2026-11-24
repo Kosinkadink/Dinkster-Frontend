@@ -310,6 +310,12 @@ export interface WidgetDescriptorSpec {
   readonly optionsInput?: string
   /** Schema-declared text completion vocabulary (wire 36). */
   readonly textCompletions?: TextCompletionsSpec
+  /**
+   * Fields declared as a formula the editor works out or a lookup the host
+   * calls, in place of the literal in `options` or `textCompletions`. None of
+   * them is workflow state, and none decides the stored value.
+   */
+  readonly looked?: Readonly<Partial<Record<LookedWidgetField, FormulaSpec | LookupSpec>>>
   /** A custom or compositor widget's own part names -> the row ids it writes. */
   readonly writes?: Readonly<Record<string, string>>
   /** A custom or compositor widget's own part names -> the row ids it reads. */
@@ -452,6 +458,11 @@ export interface LookupSpec {
   readonly args: readonly (string | FormulaSpec)[]
 }
 
+/** A number field's limits and offset that may be worked out. */
+export type LookedNumberField = 'min' | 'max' | 'step' | 'offset'
+/** Widget fields that may be a formula or a lookup. */
+export type LookedWidgetField = 'options' | 'completions' | LookedNumberField
+
 /** A literal, or a formula that works it out. */
 export type Formulated<T> = T | FormulaSpec
 /** A literal, a formula, or a lookup. */
@@ -547,6 +558,17 @@ export interface InputSpec extends PortSpecBase {
   readonly forceInput?: boolean
   /** A field with no input pin (declared `pin=False`); values and output taps are unchanged. */
   readonly socketless?: boolean
+  /**
+   * Declared `sent=False`: stored and edited like any field, but never sent
+   * to the run and outside both signatures. Always socketless.
+   */
+  readonly sent?: false
+  /**
+   * On a subgraph node's field whose widget is worked out from lookups: what
+   * the names its lookup arguments read mean there. They keep the inner
+   * node's scope, as a construct shown whole does.
+   */
+  readonly lookupScope?: OuterScope
   /** Backend computation-semantic demand marker (wire 16); true or omitted. */
   readonly lazy?: true
   /** Execution binding for a staged Comfy source filename (wire 22). */

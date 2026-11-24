@@ -20,16 +20,21 @@ import {
   primitiveOf,
   effectiveOccurrenceTopology,
   elabInputsOf,
+  elabOutputsOf,
   elaborateInterface,
+  EMPTY_CONNECTIVITY,
+  type ElaborateOptions,
   hasPreviewSurface,
   inputsOf,
   isOccurrenceKeyWithin,
   isPortEndpoint,
   isRerouteRef,
   isWidgetTapRef,
+  matchBypassInput,
   netSinkKey,
   netViewPositions,
   occurrenceDynamicView,
+  portAddressKey,
   portRefKey,
   regionBoundaryLabels,
   resolveBoundaryRoute,
@@ -44,6 +49,7 @@ import {
   typeExprFromTypeId,
   valueKeyOf,
   type BoundaryItem,
+  type BypassCandidate,
   type BoundaryPositionResolver,
   type CommandInvocation,
   type Connectivity,
@@ -62,6 +68,7 @@ import {
   type OccurrenceLinkEndpoint,
   type OccurrenceRef,
   type PortRef,
+  type RerouteTrace,
   type SchemaResolver,
   type SolveResult,
   type TypeExpr,
@@ -362,6 +369,8 @@ export interface SceneLink {
   readonly maybeAbsent?: true
   /** The wire leaves a kept row (a field no longer part of its node): drawn dimmed, it gives nothing. */
   readonly dimmed?: true
+  /** The traced producer is a muted node: the wire is drawn faded like that node. */
+  readonly sourceMuted?: true
   /**
    * Set when this noodle renders a named-net fan-out rather than a document
    * link. Its `id` is synthetic (`netId:index`); deletion must go through
@@ -716,6 +725,8 @@ export interface BuildSceneInput {
   readonly storedValueProblem?: (row: StoredValueRow, value: Json | undefined) => boolean
   /** App capability controlling seed-controller UI construction. */
   readonly seedControllerEnabled?: boolean
+  /** What the editor holds for lookup calls; absent where lookups are off (frozen views, previews). */
+  readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
   /** Graph definition to render (the root, or a subgraph being edited). */
   readonly graphId: string
   readonly resolve: SchemaResolver
@@ -851,6 +862,7 @@ export function updateSceneNodeValues(
   current: WorkflowDocument,
   graphId: string,
   resolve: SchemaResolver,
+  lookupAnswers?: ElaborateOptions['lookupAnswers'],
 ): Scene | undefined {
   if (scene.graphId !== graphId || graphId !== current.root || Object.keys(current.graphs).length !== 1 ||
       !sameReferencesExcept(previous as unknown as Readonly<Record<string, unknown>>, current as unknown as Readonly<Record<string, unknown>>, 'graphs') ||
@@ -885,7 +897,7 @@ export function updateSceneNodeValues(
           typeof node.values[key] !== 'number' || !Number.isFinite(node.values[key]) ||
           (old.values[key] !== undefined && (typeof old.values[key] !== 'number' || !Number.isFinite(old.values[key])))) return undefined
     }
-    if (!structuralEqual(existing.elaborated, elaborateInterface(schema, node))) return undefined
+    if (!structuralEqual(existing.elaborated, elaborateInterface(schema, node, EMPTY_CONNECTIVITY, lookupAnswers === undefined ? {} : { lookupAnswers }))) return undefined
     changed = true
     nodes.push({ ...existing, node })
   }
@@ -918,7 +930,8 @@ export function buildScene(input: BuildSceneInput): Scene {
     representations: Readonly<Record<string, string>> | undefined,
   ): ElaboratedInterface => {
     const problemRows = new Set(solverProblems)
-    const elaborated = elaborateInterface(schema, node, connectivity, problemRows.size > 0 ? { problemRows } : {})
+    const lookups = input.lookupAnswers === undefined ? {} : { lookupAnswers: input.lookupAnswers }
+    const elaborated = elaborateInterface(schema, node, connectivity, problemRows.size > 0 ? { problemRows, ...lookups } : lookups)
     const check = input.storedValueProblem
     if (check === undefined) return elaborated
     for (const item of elabInputsOf(elaborated)) {
@@ -929,7 +942,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, node.values[valueKey])) problemRows.add(item.address.port)
     }
     return problemRows.size > (solverProblems?.size ?? 0)
-      ? elaborateInterface(schema, node, connectivity, { problemRows })
+      ? elaborateInterface(schema, node, connectivity, { problemRows, ...lookups })
       : elaborated
   }
   if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
@@ -1372,14 +1385,67 @@ export function buildScene(input: BuildSceneInput): Scene {
    * (may deliberately emit no value at runtime) - a static schema fact, so
    * it needs no solver.
    */
+  /**
+   * The real producers behind `from`, routed as the compiler routes a
+   * value: past a bypassed node to the input its passthrough matcher picks,
+   * and past an output that passes on one of its node's inputs (knownValue)
+   * to that input's wire. A muted node stops the walk: it is the producer.
+   */
+  const passedOn = (ref: PortRef): LinkEndpoint | undefined => {
+    const node = byId.get(ref.node)
+    const elab = node?.elaborated
+    if (node === undefined || elab === undefined || node.node.mode === 'muted') return undefined
+    const address = portAddressKey(ref.port)
+    const outputs = elabOutputsOf(elab)
+    const output = outputs.find((candidate) => portAddressKey(candidate.address.port) === address)
+    if (output === undefined) return undefined
+    const driverOf = (port: string): LinkEndpoint | undefined => {
+      const key = portRefKey({ node: ref.node, port: asPortId(port) })
+      return rerouteIndex.inputDriverOf.get(key)?.from ?? rerouteIndex.netSourceOf.get(key)
+    }
+    if (node.node.mode === 'bypassed') {
+      const index = outputs.filter((candidate) => candidate.wireable !== false).indexOf(output)
+      if (index < 0) return undefined
+      const candidates: BypassCandidate<LinkEndpoint>[] = []
+      let wireIndex = 0
+      for (const input of elabInputsOf(elab)) {
+        if (input.apiName === undefined || input.ancestry?.some((entry) => entry.synthetic) === true) continue
+        const candidateIndex = wireIndex++
+        const driver = driverOf(input.address.port)
+        if (driver !== undefined) candidates.push({ index: candidateIndex, type: input.spec.type, driver })
+      }
+      return matchBypassInput({ index, type: output.spec.type }, candidates)?.driver
+    }
+    const known = output.spec.knownValue
+    if (known === undefined) return undefined
+    const input = elabInputsOf(elab).find((candidate) => candidate.spec.id === known.input)
+    return input === undefined ? undefined : driverOf(input.address.port)
+  }
+  const tracedProducers = (from: LinkEndpoint, seen = new Set<string>()): RerouteTrace[] =>
+    traceEndpointAll(def, from, rerouteIndex).flatMap((t) => {
+      if (t.kind !== 'output') return [t]
+      const key = portRefKey(t.ref)
+      if (seen.has(key)) return []
+      seen.add(key)
+      const next = passedOn(t.ref)
+      return next === undefined ? [t] : tracedProducers(next, seen)
+    })
   const tracedMaybeAbsent = (from: LinkEndpoint): boolean => {
-    for (const t of traceEndpointAll(def, from, rerouteIndex)) {
+    for (const t of tracedProducers(from)) {
       if (t.kind !== 'output') continue
       const producer = byId.get(t.ref.node)
       const key = t.ref.port
       if (producer?.layout.pins.some((p) => p.direction === 'out' && p.portId === key && p.maybeAbsent === true)) return true
     }
     return false
+  }
+  /**
+   * True when every real producer behind `from` is an output of a muted
+   * node, traced like {@link tracedMaybeAbsent}.
+   */
+  const tracedSourceMuted = (from: LinkEndpoint): boolean => {
+    const traces = tracedProducers(from)
+    return traces.length > 0 && traces.every((t) => t.kind === 'output' && byId.get(t.ref.node)?.node.mode === 'muted')
   }
   for (const reroute of Object.values(def.reroutes)) {
     const pos = viewReroutes[reroute.id]?.position ?? { x: 0, y: (rerouteFallbackY += canvasPaintTokens.scene.rerouteFallbackStepY) }
@@ -1510,6 +1576,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(to.type !== undefined ? { toType: to.type } : typeName !== undefined ? { toType: typeExprFromTypeId(typeName) } : {}),
       ...(typeName !== undefined ? { typeName } : {}),
       ...(tracedMaybeAbsent(c.from) ? { maybeAbsent: true as const } : {}),
+      ...(tracedSourceMuted(c.from) ? { sourceMuted: true as const } : {}),
       ...(from.kept === true ? { dimmed: true as const } : {}),
       ...(c.mismatch === true ? { mismatch: true as const } : {}),
       ...(c.diagnostics !== undefined && c.diagnostics.length > 0 ? { diagnostics: c.diagnostics } : {}),
@@ -1926,6 +1993,8 @@ export function buildScene(input: BuildSceneInput): Scene {
             ? widgetTapTypeName(item.binds.node, item.binds.tap)
           : undefined
       const typeName = traced ?? (pinType === undefined ? undefined : canonicalTypeIdOf(pinType))
+      const maybeAbsent = item.binds.kind === 'port' && tracedMaybeAbsent({ node: item.binds.node, port: item.binds.port })
+      const sourceMuted = item.binds.kind === 'port' && tracedSourceMuted({ node: item.binds.node, port: item.binds.port })
       const projected = projectedAnchors('out', item, item.binds)
       const fallback = innerAnchor(item.binds, 'out')
       const sources = projected.length > 0 ? projected : fallback === undefined ? [] : [{ anchor: fallback, identities: [] }]
@@ -1939,6 +2008,8 @@ export function buildScene(input: BuildSceneInput): Scene {
           x2: to.x,
           y2: to.y,
           ...(typeName !== undefined ? { typeName } : {}),
+          ...(maybeAbsent ? { maybeAbsent: true as const } : {}),
+          ...(sourceMuted ? { sourceMuted: true as const } : {}),
           boundary: true,
           ...(identities.length === 1 ? { effectiveIdentity: identities[0] } : {}),
           ...(identities.length > 0 ? { effectiveIdentities: identities } : {}),

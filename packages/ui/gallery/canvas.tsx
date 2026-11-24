@@ -48,6 +48,7 @@ import { InNodeEditorsGallery } from './in-node-editors.js'
 import { RowEditingGallery } from './row-editing.js'
 import { RowAutomaticGallery } from './row-automatic.js'
 import { RowListsGallery } from './row-lists.js'
+import { LookupsGallery } from './lookups.js'
 import { ProblemBoxGallery } from './problem-box.js'
 
 type Theme = 'dark' | 'light'
@@ -80,6 +81,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'row-editing',
         'row-automatic',
         'row-lists',
+        'lookups',
         'color-editing',
         'collection-rows',
         'editor-rows',
@@ -92,7 +94,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'text-boxes',
       ],
     ],
-    ['Wires', ['types', 'structure']],
+    ['Wires', ['types', 'structure', 'wire-looks']],
     ['Subgraphs', ['boundary', 'boundary-names', 'subgraph-icon']],
     ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
     ['Problems with fixes', ['problem-box']],
@@ -180,6 +182,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'A number whose value is automatic: closed, opened, stepped, while a lookup loads, and when it cannot be worked out.',
   'row-lists':
     'A choice, and a list a pack fills from a lookup, open one filtered list in their own row: the value becomes the filter, a check marks the stored option and the grey highlight the candidate. Opening, filtering, refreshing or Tab never changes the stored value; only Enter or a click picks. Model and media fields are asset fields and keep their own editor; a list of plain names is what a pack\'s own dropdown shows.',
+  lookups:
+    'Fields and notes a pack fills from a declared lookup, in every state, worked out by the production elaboration and drawn by the production renderer. Only an answer for exactly the current arguments is used; a closed row always shows its stored value, and nothing a lookup gives is ever stored.',
   'color-editing':
     'A color row becomes its own field when clicked, with a picker under it and what Enter stores beside it. Nothing is stored until the field is left. The saved color is a line in the side part beside the field, read here as the tooltip asked for, while the draft differs from it; nothing marks it by the name.',
   'collection-rows':
@@ -221,6 +225,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Every place the canvas draws the subgraph icon, a workflow in a frame, at the 14 px it is drawn at 100 percent: the mark in a subgraph node\'s title alone and with a count, the cyan mark on a field shown on the subgraph node, and the Create subgraph button on the toolbox over two plain nodes, which one selected subgraph node does not show. The title mark sits as far from the node\'s right edge as from the top and bottom of the title bar.',
   'small-flow-nodes':
     'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
+  'wire-looks':
+    'Every look a wire has. A dashed wire means only that it may carry nothing; every other wire, including one being dragged, is solid. A wire whose source is switched off is faded.',
   'type-conflict':
     'Inputs that must share one type but are fed two different types: an error on the node, its wires and in Problems, and a refusal before the run. By hand such a wire is not accepted.',
 }
@@ -368,6 +374,7 @@ function ExampleCard(props: {
     renderer.setRowMarks(example.rowMarks ?? fixture.rowMarks)
     renderer.setCompanions(example.companions ?? fixture.companions)
     renderer.setInactiveNodes(example.inactive)
+    renderer.setPresence(example.presence ?? [])
     renderer.setToolbox(example.toolbox ?? fixture.toolbox)
     const image = document.createElement('canvas')
     image.width = 320
@@ -609,7 +616,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-automatic' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box') return
+    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -710,6 +717,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'row-lists'}>
           <RowListsGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'lookups'}>
+          <LookupsGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'color-editing'}>
           <ColorEditingGallery theme={theme()} />

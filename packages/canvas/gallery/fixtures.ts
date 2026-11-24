@@ -39,6 +39,7 @@ import {
   toolboxButton,
   toolboxSeparator,
   type BadgeMap,
+  type PresenceActor,
   type NodeBadge,
   type CompanionMap,
   type RowMarkMap,
@@ -59,6 +60,7 @@ import { smallFlowNodesGallery } from './small-flow-nodes.js'
 import { subgraphIconGallery } from './subgraph-icon.js'
 import { switchPrimitiveGallery } from './switch-primitive.js'
 import { typeConflictGallery } from './type-conflict.js'
+import { wireLooksGallery } from './wire-looks.js'
 import { widgetTapGallery } from './widget-taps.js'
 
 export const canvasGalleryPages = [
@@ -74,11 +76,13 @@ export const canvasGalleryPages = [
   ['run-editable', 'Editable workflow run states'],
   ['run-frozen', 'Frozen run states'],
   ['types', 'Pins and links'],
+  ['wire-looks', 'Wire looks'],
   ['widgets', 'Widget kinds'],
   ['core-rows', 'Core widget rows'],
   ['row-editing', 'Editing in the row proposal'],
   ['row-automatic', 'Automatic values proposal'],
   ['row-lists', 'Lists in the row proposal'],
+  ['lookups', 'Lookup states'],
   ['color-editing', 'Color in the row'],
   ['node-look', 'Original and new node look'],
   ['problem-box', 'The node\'s problem box'],
@@ -267,6 +271,7 @@ export interface CanvasGalleryFixture {
     rowMarks?: RowMarkMap
     inactive?: ReadonlySet<string>
     badges?: BadgeMap
+    presence?: readonly PresenceActor[]
     toolbox?: readonly ToolboxRow[]
   }[]
 }
@@ -982,6 +987,12 @@ export function createCanvasGalleryFixture(
     fixture.scene.nodes = [...first.nodes]
     fixture.scene.links = [...first.links]
     fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
+  } else if (page === 'wire-looks') {
+    const cards = wireLooksGallery(tokens, measure, widgetMeasure)
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
     examples.push(...cards)
   } else if (page === 'type-conflict') {
     const cards = typeConflictGallery(tokens, measure, widgetMeasure)
