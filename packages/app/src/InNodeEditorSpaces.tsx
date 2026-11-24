@@ -1,4 +1,4 @@
-import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
+import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
 import { defaultTokens, type LayoutRow } from '@dinkster/canvas'
 import { audioRecordKind, curveInterpolator, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
@@ -535,12 +535,12 @@ export function createAudioRecorders(): {
   }
 }
 
-/** The 256 bins of a run's latest histogram for a curve node, when it sent one. */
-export function latestCurveHistogram(execution: ExecutionState | undefined, instancePath: readonly string[], nodeId: string): readonly number[] | undefined {
+/** The 256 bins of a run's latest histogram for one curve of a node, by the curve input's id, when it sent one. */
+export function latestCurveHistogram(execution: ExecutionState | undefined, instancePath: readonly string[], nodeId: string, curve: string): readonly number[] | undefined {
   if (!execution?.artifact) return undefined
   const source = occurrenceKey({ instancePath: instancePath.map(asNodeId), node: asNodeId(nodeId) })
   const frames = (execution.artifact.provenance.fromSource[source] ?? []).flatMap((runtimeId) => {
-    const frame = execution.previews[runtimeId]?.['curve-histogram']
+    const frame = execution.previews[runtimeId]?.[curveHistogramStream(curve)]
     return frame?.channel === CURVE_HISTOGRAM_PREVIEW_CHANNEL ? [frame] : []
   }).sort((left, right) => right.timestamp - left.timestamp)
   const payload = frames[0]?.payload
@@ -568,10 +568,11 @@ export function CurveSpace(props: {
   readonly pictureHeight: number
   /** The curve widget's declared options, which name its strips. */
   readonly options: Readonly<Record<string, unknown>>
-  /** The latest run's histogram bins, when it sent one. */
+  /** The latest run's histogram bins for this curve, when it sent one. */
   readonly histogram: readonly number[] | undefined
-  /** The node's histogram input has a wire, and the editor has a row for its line. */
-  readonly wiredLine: boolean
+  /** Whether the curve declares a histogram, and whether its input has a wire. */
+  readonly histogramInput: 'none' | 'unwired' | 'wired'
+
   readonly commit: (value: CurveValue) => void
 }) {
   const message = useAppMessage()
@@ -592,7 +593,7 @@ export function CurveSpace(props: {
   const store = (next: readonly CurvePoint[], nextInterpolation = interpolation()) =>
     props.commit({ interpolation: nextInterpolation, points: next.map((item) => ({ position: item.position, value: item.value })) })
   const bars = () => {
-    const bins = props.wiredLine ? props.histogram : undefined
+    const bins = props.histogramInput === 'wired' ? props.histogram : undefined
     const highest = bins === undefined ? 0 : Math.max(...bins)
     return bins === undefined || highest === 0 ? undefined : bins.map((count) => count / highest)
   }
@@ -662,10 +663,11 @@ export function CurveSpace(props: {
           const index = selected()
           if (index !== undefined) remove(index)
         } }]} />
-      {/* The line is there while the histogram input has a wire, whether or not a run sent one. */}
-      <Show when={props.wiredLine}>
+      {/* A curve that declares a histogram has this line wired or not: its input's pin stands on it. */}
+      <Show when={props.histogramInput !== 'none'}>
         <CanvasEditorNote tone={bars() === undefined ? 'muted' : undefined}>
-          {message(bars() === undefined ? 'inNodeCurve.histogramUnknown' : 'inNodeCurve.histogram')}
+          {message(props.histogramInput === 'unwired' ? 'inNodeCurve.histogramInput'
+            : bars() === undefined ? 'inNodeCurve.histogramUnknown' : 'inNodeCurve.histogram')}
         </CanvasEditorNote>
       </Show>
       {/* One note that wraps, never cut off; at the narrowest node it takes the two lines it is given. */}

@@ -85,7 +85,7 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
     executions()
     const request = currentTarget()
     const tab = request && tabs().find((candidate) => candidate.id === request.tabId)
-    return request && latestCurveHistogram(tab ? props.app.executionForTab(tab) : undefined, request.instancePath, request.nodeId)
+    return request && latestCurveHistogram(tab ? props.app.executionForTab(tab) : undefined, request.instancePath, request.nodeId, request.inputId)
   })
 
   const curvePath = createMemo(() => {

@@ -650,7 +650,10 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       checkWidgetFields(descriptor, ['type'], where, diags)
       return
     case 'CURVE':
-      checkWidgetFields(descriptor, ['type'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'histogram'], where, diags)
+      if (descriptor['histogram'] !== undefined && (typeof descriptor['histogram'] !== 'string' || descriptor['histogram'] === '')) {
+        throw new Error(`${where}.histogram must name an input`)
+      }
       return
     case 'COMPOSITOR':
       checkWidgetFields(descriptor, ['type', 'writes', 'reads'], where, diags)
@@ -1179,9 +1182,11 @@ function widgetFor(
       }
     }
     if (descriptor.type === 'CURVE') {
+      // The input beside the curve that is its histogram, by its id in the curve's scope.
+      const histogram = (wire as Record<string, unknown>)['histogram']
       return {
         widgetType: 'CURVE',
-        options: {},
+        options: typeof histogram === 'string' ? { histogram } : {},
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }

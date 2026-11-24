@@ -555,6 +555,24 @@ describe('Dinkster schema wire', () => {
     expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error', message: expect.stringContaining('alpha must be a boolean') })])
   })
 
+  it('carries the input a curve names as its histogram to its widget options', () => {
+    const curve = (id: string, widget: Record<string, unknown>) =>
+      ({ kind: 'input', id, type: concrete('CURVE'), required: true, widget: { type: 'CURVE', ...widget } })
+    const decoded = parseDinksterSchema('Curves', {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      body: [curve('tied', { histogram: 'bins' }), curve('plain', {}), { kind: 'input', id: 'bins', type: concrete('HISTOGRAM'), required: false }],
+    })
+    expect(decoded.diagnostics).toEqual([])
+    const [tied, plain] = inputsOf(decoded.schema!)
+    expect(tied!.widget!.options).toEqual({ histogram: 'bins' })
+    expect(plain!.widget!.options).toEqual({})
+    for (const bad of ['', 3]) {
+      const rejected = parseDinksterSchema('BadCurve', { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('c', { histogram: bad })] })
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error', message: expect.stringContaining('histogram must name an input') })])
+    }
+  })
+
   it('renders numeric-only unions as FLOAT without changing imported numeric values or socket types', () => {
     const widget = { type: 'NUMBER', min: 1, max: 1000, step: 0.01, round: false, display: 'number' }
     for (const types of [['FLOAT', 'INT'], ['INT', 'FLOAT']]) {

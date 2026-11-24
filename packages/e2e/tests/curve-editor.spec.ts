@@ -114,7 +114,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     readonly interface?: readonly { readonly id?: string; readonly widget?: unknown }[]
   }
   expect(editorWire.schemaVersion).toBe(1)
-  expect(editorWire.interface?.find((item) => item.id === 'curve')?.widget).toEqual({ type: 'CURVE' })
+  expect(editorWire.interface?.find((item) => item.id === 'curve')?.widget).toEqual({ type: 'CURVE', histogram: 'histogram' })
 
   await page.route('/system_stats', (route) =>
     route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
@@ -357,8 +357,8 @@ test('edits, executes, reloads, previews a histogram, and refuses a linked curve
       .find((candidate) => candidate.ref.prompt === target) as unknown as {
       previews?: Record<string, Record<string, { payload?: unknown }>>
     }
-    return execution?.previews?.editor?.['curve-histogram']?.payload
-  }, prompt)).toEqual({ histogram })
+    return execution?.previews?.editor?.['curve-histogram:curve']?.payload
+  }, prompt)).toEqual({ curve: 'curve', histogram })
 
   const editorRow = await nodeRowPoint(page, 'editor', 'curve')
   await page.mouse.click(editorRow.x, editorRow.y)

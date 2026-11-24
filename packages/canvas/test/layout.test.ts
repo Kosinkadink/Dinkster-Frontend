@@ -1448,25 +1448,75 @@ describe('editors shown in the node', () => {
       .toEqual(['frames.frame1', 'space frames.frame1', 'frames.frame2', 'frames.frame0'])
   })
 
-  it("gives the curve its histogram line only while the histogram input has a wire", () => {
+  describe("a curve's histogram", () => {
     const curveMeasure: WidgetMeasure = (spec) => spec.widgetType === 'CURVE' ? { viewId: 'core.curve', rows: 2 } : widgetMeasure(spec)
-    const schema = schemaOf([
-      input('histogram', { type: { kind: 'concrete', name: 'HISTOGRAM' } }),
-      input('gamma', { type: { kind: 'concrete', name: 'HISTOGRAM' } }),
-      editor('curve', 'CURVE', { unfolded: true }),
-    ])
-    const space = (connected: string[]) => {
-      const row = layoutNode(schema, nodeData, defaultTokens, measure, curveMeasure, { connectedPorts: new Set(connected) })
-        .rows.find((item) => item.kind === 'editorSpace')!
-      return row.kind === 'editorSpace' ? row : undefined
+    const histogram = (id: string) => input(id, { type: { kind: 'concrete', name: 'HISTOGRAM' }, optional: true })
+    const tied = schemaOf([editor('curve', 'CURVE', { unfolded: true, histogram: 'bins' }), histogram('bins'), histogram('gamma')])
+    const lay = (schema: NodeSchema, connected: string[], over: Parameters<typeof layoutNode>[5] = {}, node = nodeData) =>
+      layoutNode(schema, node, defaultTokens, measure, curveMeasure, { connectedPorts: new Set(connected), ...over })
+    const spaceOf = (layout: ReturnType<typeof lay>) => {
+      const row = layout.rows.find((item) => item.kind === 'editorSpace')
+      return row?.kind === 'editorSpace' ? row : undefined
     }
-    const unwired = space([])!
-    expect(unwired.wiredLine).toBeUndefined()
-    // A wire into another input changes nothing.
-    expect(space(['in:gamma'])!.height).toBe(unwired.height)
-    const wired = space(['in:histogram'])!
-    expect(wired.wiredLine).toBe(true)
-    expect(wired.height - unwired.height).toBe(defaultTokens.rowHeight)
+    const pinsOf = (layout: ReturnType<typeof lay>, id: string) =>
+      layout.pins.filter((pin) => pin.portId === id && pin.direction === 'in').map((pin) => pin.y)
+
+    it('draws the input the curve names as a pin on a line inside its editor, wired or not', () => {
+      const untied = schemaOf([editor('curve', 'CURVE', { unfolded: true }), histogram('histogram'), histogram('gamma')])
+      for (const connected of [[], ['in:bins']]) {
+        const layout = lay(tied, connected)
+        const space = spaceOf(layout)!
+        expect(space.histogram).toEqual({ portId: 'bins', connected: connected.length > 0 })
+        // The named input has no row of its own; the other one keeps its row.
+        expect(layout.rows.some((row) => row.kind === 'ports' && row.input?.portId === 'bins')).toBe(false)
+        expect(layout.rows.some((row) => row.kind === 'ports' && row.input?.portId === 'gamma')).toBe(true)
+        // The pin is on the histogram's line: the fifth control row, under the picture.
+        const editorSpace = canvasPaintTokens.node.editorSpace
+        expect(pinsOf(layout, 'bins')).toEqual([
+          space.y + editorSpace.pad + 180 + editorSpace.gap + 4.5 * defaultTokens.rowHeight,
+        ])
+        // The line is one row more than a curve that declares no histogram.
+        expect(space.height - spaceOf(lay(untied, connected))!.height).toBe(defaultTokens.rowHeight)
+      }
+      // No input is a curve's histogram by its id alone: a wired input called
+      // histogram stays a row of its own and the curve has no line.
+      const plain = lay(untied, ['in:histogram'])
+      expect(spaceOf(plain)!.histogram).toBeUndefined()
+      expect(plain.rows.some((row) => row.kind === 'ports' && row.input?.portId === 'histogram')).toBe(true)
+    })
+
+    it("shows the pin on the folded curve's row only while it has a wire", () => {
+      const folded = { editorUnfolded: { curve: false } }
+      expect(pinsOf(lay(tied, [], folded), 'bins')).toEqual([])
+      const layout = lay(tied, ['in:bins'], folded)
+      const row = layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'curve')!
+      const [curvePin] = pinsOf(layout, 'curve')
+      const [histogramPin] = pinsOf(layout, 'bins')
+      // Both pins press together around the row's middle.
+      expect(curvePin! + histogramPin!).toBe(2 * (row.y + defaultTokens.rowHeight / 2))
+      expect(histogramPin! - curvePin!).toBe(canvasPaintTokens.node.box.clusterPitch.two)
+    })
+
+    it('gives each curve of a group its own pin', () => {
+      const schema = schemaOf([{
+        kind: 'group', id: 'curves', member: [editor('curve', 'CURVE', { unfolded: true, histogram: 'histogram' }), histogram('histogram')],
+        keys: { kind: 'numbered', prefix: '', start: 1, pad: 0 }, grows: 'button', minMembers: 2,
+      }])
+      const node = { ...nodeData, dynamic: { curves: { members: ['1', '2'], seq: 2 } } }
+      const unfolded = { editorUnfolded: { 'curves.1.curve': true, 'curves.2.curve': true } }
+      const layout = lay(schema, ['in:curves.2.histogram'], unfolded, node)
+      const spaces = layout.rows.filter((row) => row.kind === 'editorSpace')
+      expect(spaces.map((row) => row.kind === 'editorSpace' ? row.histogram : undefined)).toEqual([
+        { portId: 'curves.1.histogram', connected: false },
+        { portId: 'curves.2.histogram', connected: true },
+      ])
+      const [first] = pinsOf(layout, 'curves.1.histogram')
+      const [second] = pinsOf(layout, 'curves.2.histogram')
+      expect(first).toBeGreaterThan(spaces[0]!.y)
+      expect(first).toBeLessThan(spaces[0]!.y + spaces[0]!.height)
+      expect(second).toBeGreaterThan(spaces[1]!.y)
+      expect(second).toBeLessThan(spaces[1]!.y + spaces[1]!.height)
+    })
   })
 
   it('keeps a dragged picture height within its limits', () => {

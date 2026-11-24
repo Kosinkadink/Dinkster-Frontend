@@ -225,6 +225,11 @@ export type LayoutRow =
        */
       readonly editor?: true
       /**
+       * The input this curve's widget names as its histogram. Its pin stands
+       * on a line inside the unfolded editor; folded, on this row while wired.
+       */
+      readonly histogram?: CurveHistogramPin
+      /**
        * Set for an Inputs panel field whose value is a value source's own
        * value: edits dispatch valueSource.setValue and
        * valueSource.setController, never node.setValue.
@@ -254,8 +259,8 @@ export type LayoutRow =
       readonly picture?: { readonly top: number; readonly height: number }
       /** The editor's own sections that are open, by section id. */
       readonly openSections?: readonly string[]
-      /** The editor's input named by its `wiredLine` has a wire, and the editor has a row for it. */
-      readonly wiredLine?: true
+      /** The curve declares a histogram: the editor has its line, whose pin is this input's. */
+      readonly histogram?: { readonly portId: string; readonly connected: boolean }
     }
   | {
       /**
@@ -364,6 +369,15 @@ export type LayoutRow =
       /** The member can be moved: its grip in the header. */
       readonly reorder?: MemberGrip
     }
+
+/** The input a curve's widget names as its histogram, drawn as a pin and no row of its own. */
+export interface CurveHistogramPin extends DynamicAnnotations {
+  readonly portId: string
+  readonly label: string
+  readonly type: TypeExpr
+  readonly connected: boolean
+  readonly optional?: true
+}
 
 /** A port inside a closed box: a pin once a wire reaches it. */
 export type HiddenPort = Omit<PinLayout, 'y'>
@@ -962,6 +976,11 @@ export interface LayoutOptions {
 const displayLabel = (spec: InputSpec | OutputSpec): string => spec.displayName ?? spec.id
 
 /** Pick just the DynamicAnnotations fields (pins copy them from their slot/row). */
+const histogramPinAt = (pin: CurveHistogramPin, y: number): PinLayout => ({
+  ...annotationsOf(pin), portId: pin.portId, label: pin.label, direction: 'in', y, type: pin.type,
+  ...(pin.optional ? { optional: true as const } : {}),
+})
+
 const annotationsOf = (a: DynamicAnnotations): DynamicAnnotations => ({
   address: a.address,
   ...(a.apiName !== undefined ? { apiName: a.apiName } : {}),
@@ -1203,6 +1222,28 @@ export function layoutNode(
     portsHeld.set(parent, counts)
   }
 
+  // A curve's widget names the input beside it that is its histogram; beside
+  // means in the same scope, so its flattened id has the curve's prefix.
+  const histogramOfCurve = new Map<string, ElaboratedInput>()
+  const curveHistograms = new Set<string>()
+  {
+    const inputsById = new Map<string, ElaboratedInput>()
+    for (const item of items) if (item.kind === 'input') inputsById.set(item.spec.id, item)
+    for (const item of inputsById.values()) {
+      const name = item.spec.widget?.options['histogram']
+      if (typeof name !== 'string' || name === '') continue
+      const id = item.spec.id
+      const target = inputsById.get(`${id.slice(0, id.lastIndexOf('.') + 1)}${name}`)
+      if (target === undefined) continue
+      histogramOfCurve.set(id, target)
+      curveHistograms.add(target.spec.id)
+    }
+  }
+  const curveHistogramPin = (item: ElaboratedInput): CurveHistogramPin => ({
+    ...annotate(item), portId: item.spec.id, label: displayLabel(item.spec), type: item.spec.type,
+    connected: isConnected('in', item.spec.id), ...(item.spec.optional ? { optional: true as const } : {}),
+  })
+
   let outputIndex = 0
   /** Top-level boxes that hold a row other than an output. */
   const holdsMoreThanOutputs = new Set<string>()
@@ -1338,6 +1379,8 @@ export function layoutNode(
       }
       continue
     }
+    // Its curve draws its pin; it has no row of its own.
+    if (curveHistograms.has(spec.id)) continue
     if (asSocket) {
       pending.push({
         kind: 'ports',
@@ -1401,6 +1444,7 @@ export function layoutNode(
         ...(representation.spec.editableOptions === true ? { optionsTarget: { construct: item.address.port } } : {}),
         ...(selector !== undefined ? { selector, lead: true as const } : {}),
         ...(item.parts !== undefined ? { parts: item.parts } : {}),
+        ...(histogramOfCurve.has(spec.id) ? { histogram: curveHistogramPin(histogramOfCurve.get(spec.id)!) } : {}),
         ...annotate(item),
       },
     })
@@ -1490,6 +1534,8 @@ export function layoutNode(
   // declaration may start it unfolded; a growing group's members start folded.
   const space = canvasPaintTokens.node.editorSpace
   const withSpaces: PendingRow[] = []
+  /** An editor space's histogram pin and the control row of its line. */
+  const spaceHistograms = new Map<PendingRow, { pin: CurveHistogramPin; line: number }>()
   for (const row of pending) {
     withSpaces.push(row)
     const line = lines.get(row)!
@@ -1510,9 +1556,9 @@ export function layoutNode(
           : editor.picture
       const openSections = (editor.sections ?? []).filter((section) =>
         options.sectionOverrides?.[`${w.valueKey}.${section.id}`] === false)
-      const wiredLine = editor.wiredLine !== undefined && isConnected('in', editor.wiredLine)
+      const histogram = editor.histogramLine !== undefined ? w.histogram : undefined
       const controls = editorControlHeights.get(w.valueKey) ??
-        (editor.controlRows + (wiredLine ? 1 : 0) + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
+        (editor.controlRows + (histogram !== undefined ? 1 : 0) + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
       const spaceRow: PendingRow = {
         kind: 'editorSpace',
         boxes: cell.boxes,
@@ -1521,13 +1567,14 @@ export function layoutNode(
           valueKey: w.valueKey,
           viewId: w.viewId,
           ...(openSections.length > 0 ? { openSections: openSections.map((section) => section.id) } : {}),
-          ...(wiredLine ? { wiredLine: true as const } : {}),
+          ...(histogram !== undefined ? { histogram: { portId: histogram.portId, connected: histogram.connected } } : {}),
           // The editor's outline stops `fieldInsetY` above the space's bottom,
           // as every row's box does; its controls fill the space above that.
           height: space.pad * 2 + controls + (pictureHeight === undefined ? 0 : pictureHeight + space.gap) + tokens.rowGeometry.fieldInsetY,
           ...(pictureHeight !== undefined ? { picture: { top: space.pad, height: pictureHeight } } : {}),
         },
       }
+      if (histogram !== undefined) spaceHistograms.set(spaceRow, { pin: histogram, line: editor.histogramLine! })
       lines.set(spaceRow, [spaceRow])
       withSpaces.push(spaceRow)
     }
@@ -1682,6 +1729,11 @@ export function layoutNode(
       if (row.kind === 'editorSpace') {
         const editorSpace = row.editorSpace!
         push({ kind: 'editorSpace', y, inset: fieldInset(depth), rowAbove: 0, ...editorSpace }, depth)
+        const histogram = spaceHistograms.get(row)
+        if (histogram !== undefined) {
+          const controlsTop = space.pad + (editorSpace.picture === undefined ? 0 : editorSpace.picture.height + space.gap)
+          pins.push(histogramPinAt(histogram.pin, y + controlsTop + (histogram.line + 0.5) * tokens.rowHeight))
+        }
         y += editorSpace.height
       } else if (row.kind === 'growth') {
         const g = row.growth!
@@ -1737,11 +1789,16 @@ export function layoutNode(
         }, depth)
         // Socketless controls keep their editor and outgoing value tap; an
         // editor row has no pin.
+        // A folded curve shows its histogram's pin while it has a wire,
+        // pressed together with the curve's own as on a closed box's row.
+        const pressed = w.histogram !== undefined && w.histogram.connected && w.unfolded !== true
+        const pitch = pressed ? box.clusterPitch.two / 2 : 0
         if (!w.socketless && w.editor !== true) pins.push({
-          ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2, type: w.type,
+          ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2 - pitch, type: w.type,
           ...(w.optional ? { optional: true as const } : {}),
           widgetBacked: true as const,
         })
+        if (pressed) pins.push({ ...histogramPinAt(w.histogram!, y + tokens.rowHeight / 2 + pitch), collapsedSection: w.valueKey })
         // A widget can also produce its effective value. The duplicate
         // right-edge anchor deliberately shares the input's flattened id.
         if (w.editor !== true) pins.push({

@@ -6697,7 +6697,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           return {
             value,
             commit: (next: CurveValue) => at.commit(next as unknown as Json),
-            histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId),
+            histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId, at.current.row.inputId),
           }
         }
         const webcam = () => {
@@ -6758,7 +6758,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   wired={item()?.wired === true} carried={item()?.carried} />}
               </Show>
               <Show when={curve()}>
-                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wiredLine={item()?.row.wiredLine === true}
+                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram}
+                  histogramInput={item()?.row.histogram === undefined ? 'none' : item()!.row.histogram!.connected ? 'wired' : 'unwired'}
                   pictureHeight={item()?.row.picture?.height ?? 0} options={item()?.field.spec.options ?? {}} />}
               </Show>
               <Show when={load3d()}>

@@ -539,6 +539,7 @@
   "inNodeCurve.value": "Value",
   "inNodeCurve.deletePoint": "Delete point",
   "inNodeCurve.help": "Double-click to add a point. Drag to move it. Click to select it.",
+  "inNodeCurve.histogramInput": "Histogram",
   "inNodeCurve.histogram": "Histogram from the selected run",
   "inNodeCurve.histogramUnknown": "Histogram: not known yet",
   "inNodeWebcam.start": "Start camera",

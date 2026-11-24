@@ -134,8 +134,11 @@ function AnglePicture(props: { horizontal?: number; vertical: number; hollow?: b
   )
 }
 
-/** A wired histogram for the curve's examples, as bar heights. */
-const GALLERY_HISTOGRAM = Array.from({ length: 30 }, (_, index) => 0.12 + Math.abs(Math.sin(index / 4)) * 0.55)
+/** The wired histograms of the curve's examples, as bar heights, by the name an example's state gives. */
+const GALLERY_HISTOGRAMS: Readonly<Record<string, readonly number[]>> = {
+  rising: Array.from({ length: 30 }, (_, index) => 0.12 + Math.abs(Math.sin(index / 4)) * 0.55),
+  falling: Array.from({ length: 30 }, (_, index) => 0.08 + Math.max(0, 1 - index / 22) * 0.8),
+}
 
 /** An editor's own number in an example: it steps and is typed in, and keeps what it was given. */
 function GalleryNumber(props: { label: string; value: number | undefined; min?: number; max?: number; step?: number; precision?: number }) {
@@ -336,11 +339,14 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
       const hover = state()['hover'] as { position: number; value: number } | undefined
       const inputStrip = strip('inputStrip')
       const outputStrip = strip('outputStrip')
+      // The host keeps the bars only while the histogram's input has a wire.
+      const histogram = props.row.histogram
+      const bars = () => histogram?.connected === true ? GALLERY_HISTOGRAMS[String(state()['histogram'])] : undefined
       return (
         <>
           {picture(
             <CanvasCurvePlot points={points} sample={curveInterpolator({ interpolation, points })} selected={selected}
-              histogram={state()['histogram'] === true ? GALLERY_HISTOGRAM : undefined}
+              histogram={bars()}
               inputStrip={inputStrip} outputStrip={outputStrip} {...(hover ? { hover } : {})} />,
           )}
           <CanvasEditorLine>
@@ -355,10 +361,10 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
           {/* The Delete key on a selected point does the same; a curve keeps at least one point. */}
           <CanvasEditorButtons buttons={[{ label: 'Delete point', icon: canvasEditorIcons.remove, intent: 'remove',
             disabled: selected === undefined || points.length < 2 }]} />
-          {/* The line is there while the histogram input has a wire, whether or not a run sent one. */}
-          <Show when={props.row.wiredLine}>
-            <CanvasEditorNote tone={state()['histogram'] === true ? undefined : 'muted'}>
-              {state()['histogram'] === true ? 'Histogram from the selected run' : 'Histogram: not known yet'}
+          {/* A curve that declares a histogram has this line wired or not: its input's pin stands on it. */}
+          <Show when={histogram !== undefined}>
+            <CanvasEditorNote tone={bars() === undefined ? 'muted' : undefined}>
+              {histogram?.connected !== true ? 'Histogram' : bars() === undefined ? 'Histogram: not known yet' : 'Histogram from the selected run'}
             </CanvasEditorNote>
           </Show>
           <CanvasEditorNote tone="muted" wrap>Double-click to add a point. Drag to move it. Click to select it.</CanvasEditorNote>

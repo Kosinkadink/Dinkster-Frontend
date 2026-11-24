@@ -14,4 +14,4 @@ the value before running its node.
 If an editable input is linked, removed, or changed while the editor is open,
 Apply is refused.
 
-When the node receives an optional 256-bin nonnegative integer histogram, execution publishes it as preview metadata. The editor overlays the histogram from the selected run without storing it in the curve value.
+When the curve's widget names a histogram input, that input's pin is on a line inside the curve's editor, and a 256-bin nonnegative integer histogram arriving there during a run is published as preview metadata for that curve alone. The editor overlays the histogram from the selected run without storing it in the curve value.

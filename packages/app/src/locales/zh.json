@@ -541,6 +541,7 @@
   "inNodeCurve.value": "值",
   "inNodeCurve.deletePoint": "删除点",
   "inNodeCurve.help": "双击添加一个点。拖动以移动它。点击以选中它。",
+  "inNodeCurve.histogramInput": "直方图",
   "inNodeCurve.histogram": "来自所选运行的直方图",
   "inNodeCurve.histogramUnknown": "直方图: 尚不知道",
   "inNodeWebcam.start": "启动摄像头",
