@@ -557,7 +557,7 @@
 .dinkster-canvas-example-stage canvas { display: block; }
 /* The Boundary panel's rows as one tree. Every row has the raised face a node's raised row has, one step from the panel, and is dragged by its body. */
 /* Rows keep a 27 px pitch: a 24 px face and 3 px of panel between two faces, the same under the last child of every open box. */
-.boundary-tree { --boundary-tree-gap: 3px; display: grid; gap: var(--boundary-tree-gap); min-width: 0; color: var(--dinkster-text-primary); user-select: none; }
+.boundary-tree { display: grid; gap: 3px; min-width: 0; color: var(--dinkster-text-primary); user-select: none; }
 .boundary-tree-row { position: relative; display: flex; align-items: center; gap: var(--dinkster-space-4); min-width: 0; height: 24px; padding: 0 var(--dinkster-space-8) 0 var(--dinkster-space-4); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-raised); cursor: grab; }
 .boundary-tree-row:hover { background-image: linear-gradient(var(--dinkster-interaction-hover), var(--dinkster-interaction-hover)); }
 .boundary-tree-row[aria-selected='true'] { background: var(--dinkster-surface-selected); }
@@ -593,7 +593,7 @@
 .boundary-tree-cell:hover { background-image: linear-gradient(var(--dinkster-interaction-hover), var(--dinkster-interaction-hover)); }
 .boundary-tree-pocket { border: var(--dinkster-border-width) dashed var(--dinkster-accent-border); background: var(--dinkster-accent-background); color: var(--dinkster-accent-foreground); }
 /* A section or a whole construct is a box; its rows sit 6 px inside it. */
-.boundary-tree-box { position: relative; display: grid; gap: var(--boundary-tree-gap); min-width: 0; padding: 0 0 var(--boundary-tree-gap); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
+.boundary-tree-box { position: relative; display: grid; gap: 3px; min-width: 0; padding: 0 0 3px; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
 .boundary-tree-box:not([data-open]):not([data-construct]) { padding-bottom: 0; }
 .boundary-tree-box[aria-selected='true'] { border-color: var(--dinkster-border-strong); }
 .boundary-tree-box[data-construct] { border: 0; background: var(--dinkster-surface-raised); cursor: grab; }
@@ -604,7 +604,7 @@
 .boundary-tree-tab { position: absolute; top: calc(-1 * var(--dinkster-border-width)); left: var(--dinkster-space-8); justify-content: center; width: 24px; height: 10px; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-top: 0; border-radius: 0 0 var(--dinkster-radius-small) var(--dinkster-radius-small); background: var(--dinkster-surface-panel); }
 .boundary-tree-tab .dinkster-icon { width: 10px; height: 10px; }
 /* Every child of a box, of any kind, starts one 16 px step in from the box and ends a small inset from its right side. */
-.boundary-tree-children { display: grid; gap: var(--boundary-tree-gap); min-width: 0; padding: 0 var(--boundary-tree-gap) 0 var(--dinkster-space-16); }
+.boundary-tree-children { display: grid; gap: 3px; min-width: 0; padding: 0 3px 0 var(--dinkster-space-16); }
 .boundary-tree-header { margin: 0 var(--dinkster-border-width); }
 .boundary-tree-box[data-construct] > .boundary-tree-header { margin: 0; }
 /* A construct's fixed lines cannot move one by one: they are lines of text in the construct's face, their dots in the dot column of plain rows. */
