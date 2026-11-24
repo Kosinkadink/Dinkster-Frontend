@@ -9,6 +9,8 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
+import { compile } from '../src/compile/compile.js'
+import { asConnectionId } from '../src/ids.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
@@ -760,6 +762,34 @@ describe('whole constructs on the subgraph node', () => {
     const fixed = fpsOf(both, { pace: 100, speed: 30 }).row
     expect(fixed.automatic).toBeUndefined()
     expect(fixed.automaticIfEmptied).toEqual({ value: 25, state: 'worked-out' })
+    // Compiled, an instance with the field left out sends its inner node
+    // without it; that node, worked out as a plain node, gives the row's value.
+    const shownBoth = [port('pace', 'r0', 'rate'), port('speed', 'r0', 'fps')]
+    const compiled = compile({
+      document: {
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'automatic-instances', root: 'g0',
+        graphs: {
+          g0: { id: 'g0', name: 'root', links: {}, nets: {}, reroutes: {}, nextOrdinal: 3, nodes: {
+            a: { id: 'a', type: '#gW', values: { pace: 100 } },
+            b: { id: 'b', type: '#gW', values: { pace: 60 } },
+            c: { id: 'c', type: '#gW', values: { pace: 60, speed: 30 } },
+          } },
+          gW: { id: 'gW', name: 'whole', links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+            nodes: { r0: { id: 'r0', type: 'Retime', values: {} } }, boundary: { inputs: shownBoth, outputs: [] } },
+        },
+        view: { graphs: {} },
+      } as never,
+      revision: 1, resolve: withRetime, scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'test',
+    })
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) return
+    for (const [instance, pace] of [['a', 100], ['b', 60]] as const) {
+      const inputs = compiled.artifact.prompt[`${instance}.r0`]!.inputs
+      expect(inputs).not.toHaveProperty('fps')
+      const plain = elabInputsOf(elaborateInterface(retime!, { values: inputs as Record<string, Json> }))
+      expect(plain.find((input) => input.spec.id === 'fps')!.automatic).toEqual(fpsOf(both, { pace }).row.automatic)
+    }
+    expect(compiled.artifact.prompt['c.r0']!.inputs).toMatchObject({ fps: 30 })
     // A rate not shown on the subgraph node is the definition's.
     expect(fpsOf(faceOf({ rate: 80 }, [port('speed', 'r0', 'fps')]), {}).row.automatic).toEqual({ value: 20, state: 'worked-out' })
     // A value the definition stores is the row's value, not automatic.
