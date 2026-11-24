@@ -400,12 +400,13 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         },
         text: (tx, ty, viewRun, viewStyle) => {
           if (viewStyle['role'] === 'curveJoin') {
-            // How a folded curve's points are joined, under its name.
+            // How a folded curve's points are joined, under its opener icon and name.
             if (sketch === undefined) return
+            const joinLeft = sketchShift + paint.opener.iconInset
             ctx.fillStyle = tokens.colors.valueMark
             ctx.textAlign = 'left'
-            ctx.fillText(ellipsize(ctx, viewRun, Math.max(0, valueRight - leftControl - paint.labelInset - sketchValueWidth - paint.labelValueGap)),
-              x + leftControl + paint.labelInset, y + (ty + 0.5) * rowHeight)
+            ctx.fillText(ellipsize(ctx, viewRun, Math.max(0, valueRight - joinLeft - sketchValueWidth - paint.labelValueGap)),
+              x + joinLeft, y + (ty + 0.5) * rowHeight)
             return
           }
           const summary = viewStyle['role'] === 'widgetValue' ? args.editorSummary : undefined
@@ -623,15 +624,13 @@ function paintCurveSketch(
       ctx.restore()
     }
   }
-  ctx.lineWidth = paint.pointStroke
-  ctx.fillStyle = tokens.colors.widgetBackground
-  ctx.strokeStyle = tokens.colors.widgetAffordanceActive
+  // Small solid dots on the line, so close points still read apart and hide little of it.
+  ctx.fillStyle = tokens.colors.widgetAffordanceActive
   for (const [position, value] of points) {
     const point = at(position!, value!)
     ctx.beginPath()
     ctx.arc(point.x, point.y, paint.pointRadius, 0, Math.PI * 2)
     ctx.fill()
-    ctx.stroke()
   }
   ctx.restore()
 }

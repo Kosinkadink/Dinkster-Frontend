@@ -536,7 +536,7 @@ export const canvasPaintTokens = {
      * start, `inset` inside the row and as tall as the row allows, `gap`
      * before the name; the plot sits `plotInset` inside its frame.
      */
-    curve: { inset: 5, gap: 8, plotInset: 3, lineWidth: 1.5, pointRadius: 2.5, pointStroke: 1.25, dash: [2, 2] },
+    curve: { inset: 5, gap: 8, plotInset: 3, lineWidth: 1.5, pointRadius: 1.75, dash: [2, 2] },
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
     valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3, edge: 1 },
     /** A folded editor's small picture before its value, such as the stored frame. */

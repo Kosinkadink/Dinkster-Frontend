@@ -895,11 +895,11 @@ export const curveView: WidgetView<Json> = {
       : Array.from({ length: 64 }, (_, index) => Math.max(0, Math.min(1, interpolate(index / 63))))
     // The sketch spans the plot's range, 0 to 1, so the held ends show.
     samples.forEach((sample, index) => ctx.rect(index / 63, 1.8 - sample * 1.6, 0.02, 0.08, { role: 'curveSample' }))
-    // The folded square of the raised look: the plot in small, with its points unless a wire brings the curve.
+    // The folded square of the raised look: the plot in small, with its points.
     ctx.rect(0, 0, 1, 2, {
       role: 'curveSketch',
       samples,
-      points: state.connected ? [] : points.map((point) => [point.position, point.value]),
+      points: points.map((point) => [point.position, point.value]),
       held: points.length === 0 ? [] : [points[0]!.position, points[points.length - 1]!.position],
     })
     ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'}`, { role: 'widgetValue', align: 'right', width: 1 })
