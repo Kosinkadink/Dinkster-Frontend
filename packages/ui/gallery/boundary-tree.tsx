@@ -338,7 +338,7 @@ export function BoundaryTreeGallery() {
     <div class="boundary-tree-examples">
       <Example
         caption="One ordered tree, a field on a shared line selected"
-        note="Rows, sections, lines of fields and whole constructs in the order the subgraph node draws them. An output keeps its own line, with its label and grip at the right end."
+        note="Rows, sections, lines of fields and whole constructs in the order the subgraph node draws them. An output keeps its own line, with its label at the right end; every grip is at the left."
       >
         <Panel
           title="Detail pass"

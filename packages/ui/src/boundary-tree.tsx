@@ -144,8 +144,8 @@ function Dot(props: { color: string | undefined }) {
 /**
  * The Boundary panel's rows as one ordered tree: rows, lines of fields,
  * sections and whole constructs in the order the subgraph node draws them.
- * An output keeps its own line, label and grip at the right end, where its
- * pin is on the node.
+ * An output keeps its own line, with its label at the right end, where its
+ * pin is on the node; every grip is at the left end of its row.
  */
 export function BoundaryTree(props: {
   readonly entries: readonly BoundaryTreeEntry[]
@@ -257,18 +257,19 @@ export function BoundaryTree(props: {
           </>
         }
       >
+        <Grip />
         <Show when={rowProps.row.target}>
           <span class="boundary-tree-target" data-align="start">
             {rowProps.row.target}
           </span>
         </Show>
+        <span class="boundary-tree-spacer" />
         <Marks
           condition={rowProps.row.condition}
           problem={rowProps.row.problem}
         />
         <span class="boundary-tree-label">{rowProps.row.label}</span>
         <Dot color={rowProps.row.color} />
-        <Grip />
       </Show>
     </div>
   )
@@ -345,9 +346,7 @@ export function BoundaryTree(props: {
         onPointerDown={press(constructProps.construct.id)}
         onClick={select(constructProps.construct.id)}
       >
-        <Show when={constructProps.construct.side === 'input'}>
-          <Grip />
-        </Show>
+        <Grip />
         <Dot color={constructProps.construct.color} />
         <span class="boundary-tree-label boundary-tree-name">
           {constructProps.construct.label}
@@ -358,9 +357,6 @@ export function BoundaryTree(props: {
           <span class="boundary-tree-target">
             {constructProps.construct.target}
           </span>
-        </Show>
-        <Show when={constructProps.construct.side === 'output'}>
-          <Grip />
         </Show>
       </div>
       <Show when={constructProps.construct.interior}>
