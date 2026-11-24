@@ -4239,7 +4239,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       place: (nodeId) => {
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
-        return node === undefined ? undefined : problemBoxPlacement(node, renderer.getNodeBadgeLayout(node), renderer.getViewport())
+        return node === undefined ? undefined : problemBoxPlacement(node, renderer.getNodeBadgeLayout(node), renderer.getViewport(), canvasEl.clientWidth)
       },
       lines: (nodeId) => {
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)

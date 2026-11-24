@@ -10,6 +10,7 @@ import {
 } from '@dinkster/core'
 import {
   buildScene,
+  canvasPaintTokens,
   executionErrorBadge,
   LAST_RUN_BADGE,
   PROBLEM_ERROR_BADGE,
@@ -63,7 +64,9 @@ export interface ProblemBoxGalleryCard {
 
 const NODE_WIDTH = 260
 const NARROW = 200
-const WIDE = 460
+const WIDE = 420
+/** The widest an open box gets, so the long-line card leaves room for the narrow node's box. */
+const BOX_MAX = canvasPaintTokens.badge.tab.problemBox.maxWidth
 const LONG_MISSING = 'sdxl_base.safetensors is not in any model folder on this machine, and no download source is declared for it in the workflow or in its node pack.'
 const GAP = 72
 const TOP = 16
@@ -217,6 +220,8 @@ function sceneOf(
 
 const column = (index: number): number => LEFT + index * (NODE_WIDTH + GAP)
 const widthOf = (columns: number): number => LEFT * 2 + columns * NODE_WIDTH + (columns - 1) * GAP
+/** A one-node card with an open box: room for the box at its widest. */
+const BOXED = LEFT * 2 + BOX_MAX
 
 const errors = (count: number): NodeBadge => problemBadge(PROBLEM_ERROR_BADGE, count)
 const warnings = (count: number): NodeBadge => problemBadge(PROBLEM_WARNING_BADGE, count)
@@ -268,7 +273,7 @@ export function problemBoxGallery(
       rowMarks: { gen: brokenMarks },
       boxes: [{ nodeId: 'gen', nodeTitle: 'Generate image', lines: brokenLines, highlighted: brokenLines[1]!.key }],
       highlight: { nodeId: 'gen', row: 'height' },
-      width: widthOf(1),
+      width: BOXED,
     },
     {
       id: 'two-causes',
@@ -280,7 +285,7 @@ export function problemBoxGallery(
         line('error', 'width', 'Width is required.', [EDIT]),
         line('error', 'width', 'Width could not be inferred from the image.', [EDIT]),
       ] }],
-      width: widthOf(1),
+      width: BOXED,
     },
     {
       id: 'whole-node',
@@ -292,7 +297,7 @@ export function problemBoxGallery(
         line('error', undefined, 'Width times height must be at least 4096 pixels.'),
         line('warning', 'steps', 'Steps exceeds 10000.', [EDIT]),
       ] }],
-      width: widthOf(1),
+      width: BOXED,
     },
     {
       id: 'minimized',
@@ -301,7 +306,7 @@ export function problemBoxGallery(
       badges: { gen: [errors(2), warnings(1)] },
       rowMarks: { gen: brokenMarks },
       boxes: [{ nodeId: 'gen', nodeTitle: 'Generate image', lines: brokenLines }],
-      width: widthOf(1),
+      width: BOXED,
     },
     {
       id: 'outline',
@@ -368,14 +373,14 @@ export function problemBoxGallery(
         line('error', undefined, 'This node needs a graphics card, and this machine has none.'),
         line('warning', 'scale', 'Scale exceeds 8.', [EDIT]),
       ] }],
-      width: widthOf(1),
+      width: BOXED,
     },
     {
       id: 'widths',
-      caption: 'A long line: the box takes its node\'s width and the line wraps inside it, so the same line takes more lines under a narrow node than under a wide one, and under the narrow one its action moves to a line of its own, still at the right end. The box grows downward; nothing is cut. Its text stays one screen size whatever the zoom.',
+      caption: 'A long line: the box takes the most it may, 400 px on screen, and the line wraps there, so the box is the same under a narrow node and a wide one; under the narrow node it reaches past the node\'s right edge. Its left edge stays under the node\'s. The box grows downward; nothing is cut. Its text stays one screen size whatever the zoom, and the limit does not depend on the node or the zoom.',
       scene: scene([
         { id: 'narrow', schema: loadModel, x: LEFT, width: NARROW },
-        { id: 'wide', schema: loadModel, x: LEFT + NARROW + GAP, width: WIDE },
+        { id: 'wide', schema: loadModel, x: LEFT + BOX_MAX + GAP, width: WIDE },
       ]),
       badges: { narrow: [errors(1)], wide: [errors(1)] },
       rowMarks: { narrow: { model: 'error' }, wide: { model: 'error' } },
@@ -383,11 +388,11 @@ export function problemBoxGallery(
         { nodeId: 'narrow', nodeTitle: 'Load model', lines: [line('error', 'model', LONG_MISSING, ['Locate or replace'])] },
         { nodeId: 'wide', nodeTitle: 'Load model', lines: [line('error', 'model', LONG_MISSING, ['Locate or replace'])] },
       ],
-      width: LEFT * 2 + NARROW + GAP + WIDE,
+      width: LEFT * 2 + BOX_MAX + GAP + WIDE,
     },
     {
       id: 'short-line',
-      caption: 'A short line: the box is only as wide as its longest line needs, so under a wide node it is narrower than the node. Its left edge stays under the node\'s, it is never narrower than the node\'s row of tabs, and each line\'s action sits at the box\'s right end.',
+      caption: 'A short line: the box is only as wide as its longest line needs, so under a wide node it is narrower than the node. Its left edge stays under the node\'s, it is never narrower than the node\'s row of tabs, and each line\'s action sits at the box\'s right end. When the canvas is narrow, the most the box takes is the canvas width less 16 px at each side.',
       scene: scene([{ id: 'wide', schema: resizeImage, x: LEFT, width: WIDE, values: { width: 0 } }]),
       badges: { wide: [errors(1)] },
       rowMarks: { wide: { width: 'error' } },
@@ -396,13 +401,13 @@ export function problemBoxGallery(
     },
     {
       id: 'zoomed-out',
-      caption: 'Zoomed out to 55%, the node is 143 px wide on screen, so the most its box takes is the floor of 160 px, a little wider than the node, and its line wraps there; its text stays one screen size. Below 50%, where tabs are no longer drawn, an open box is not drawn either, and it returns with the tabs.',
+      caption: 'Zoomed out to 55%, the node is 143 px wide on screen and its box keeps its own width, as wide as its line needs, so it reaches past the node; its text stays one screen size. Below 50%, where tabs are no longer drawn, an open box is not drawn either, and it returns with the tabs.',
       scene: scene([{ id: 'load', schema: loadModel, x: LEFT }]),
       badges: { load: [errors(1)] },
       rowMarks: { load: { model: 'error' } },
       boxes: [{ nodeId: 'load', nodeTitle: 'Load model', lines: [line('error', 'model', 'Model file is missing.', ['Locate or replace'])] }],
       scale: 0.55,
-      width: 360,
+      width: BOXED,
     },
   ]
 }

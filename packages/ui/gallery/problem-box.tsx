@@ -86,7 +86,7 @@ function ProblemBoxCard(props: {
       setBoxes(card.boxes.flatMap((box) => {
         const node = card.scene.nodes.find((candidate) => candidate.id === box.nodeId)
         if (node === undefined) return []
-        const at = problemBoxPlacement(node, renderer!.getNodeBadgeLayout(node), viewport)
+        const at = problemBoxPlacement(node, renderer!.getNodeBadgeLayout(node), viewport, card.width)
         return at === undefined ? [] : [{ box, x: at.x, y: at.y, maxWidth: at.maxWidth, minWidth: at.minWidth }]
       }))
       // The boxes wrap to their nodes' widths, so the frame grows to hold them once drawn.
