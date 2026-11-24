@@ -489,8 +489,10 @@
 .dinkster-canvas-side-row-switch[data-on='true'] { background: var(--dinkster-border-focus); }
 .dinkster-canvas-side-row-switch[data-on='true']::after { left: calc(var(--dinkster-space-8) + var(--dinkster-space-4) * 3 / 4); }
 .dinkster-canvas-side-actions { display: flex; gap: var(--dinkster-space-4); margin-top: var(--dinkster-space-8); }
-.dinkster-canvas-side-action { flex: 1 1 0; min-width: 0; height: var(--dinkster-input-canvas-height); padding: 0 var(--dinkster-space-8); border: 0; border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-selected); box-shadow: inset 0 0 0 var(--dinkster-border-width) var(--dinkster-border-hover); color: var(--dinkster-text-primary); font: inherit; cursor: pointer; }
-.dinkster-canvas-side-action[data-primary='true'] { background: var(--dinkster-accent-background); box-shadow: inset 0 0 0 var(--dinkster-border-width) var(--dinkster-accent-border); color: var(--dinkster-accent-foreground); }
+.dinkster-canvas-side-action { flex: 1 1 0; min-width: 0; box-sizing: border-box; height: var(--dinkster-input-canvas-height); padding: 0 var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-border-box); border-top-color: var(--dinkster-button-lit-edge); border-radius: var(--dinkster-radius-small); background: var(--dinkster-button-face); box-shadow: 0 var(--dinkster-border-width) 0 var(--dinkster-button-shade); color: var(--dinkster-text-primary); font: inherit; cursor: pointer; }
+.dinkster-canvas-side-action:not(:disabled):hover { background: var(--dinkster-button-face-hover); }
+.dinkster-canvas-side-action:not(:disabled):active { border-top-color: var(--dinkster-border-box); background: var(--dinkster-button-face-pressed); box-shadow: none; color: var(--dinkster-text-secondary); }
+.dinkster-canvas-side-action[data-primary='true'] { border-color: var(--dinkster-accent-border); background: var(--dinkster-accent-background); color: var(--dinkster-accent-foreground); }
 .dinkster-canvas-side-action:disabled { opacity: 0.5; cursor: default; }
 .dinkster-canvas-side-action:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: var(--dinkster-border-width); }
 /* A panel hung under or over an open field, such as a color picker: one shape with the field and no line where they meet. */
