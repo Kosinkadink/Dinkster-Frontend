@@ -2933,9 +2933,10 @@ function compileImpl(
 
   // A node the run will skip: a required input (absence policy 'skip')
   // receives nothing, as an $absent marker or by a wire from a node that is
-  // itself skipped. Each says so before the run without blocking it; a run
-  // whose every requested node is skipped could do nothing and is not sent
-  // (a would-run query still reports its closure).
+  // itself skipped. Only a node whose input receives the marker says so
+  // before the run, without blocking it; the nodes skipped after it stay
+  // quiet. A run whose every requested node is skipped could do nothing and
+  // is not sent (a would-run query still reports its closure).
   const skipped = new Set<string>()
   for (let grew = true; grew;) {
     grew = false
@@ -2947,12 +2948,12 @@ function compileImpl(
         const from = Array.isArray(v) && fn.linkedInputs.has(input.spec.id) ? flat.get(v[0] as string) : undefined
         const absent = v !== undefined && isAbsentInputWire(v as Json)
         if (!absent && (from === undefined || !skipped.has(from.runtimeId))) continue
-        const reason = absent
-          ? String(((v as { $absent: { reason?: unknown } }).$absent).reason ?? 'it receives nothing')
-          : `'${nameOf(from!.graphId, from!.node)}' is skipped`
-        diags.push(diag('warning', 'compile', 'compile.input.skipped',
-          `Receives nothing because ${reason}, so this node is skipped in the run.`,
-          { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port as PortRef['port'] } } }))
+        if (absent) {
+          const reason = String(((v as { $absent: { reason?: unknown } }).$absent).reason ?? 'it receives nothing')
+          diags.push(diag('warning', 'compile', 'compile.input.skipped',
+            `Receives nothing because ${reason}, so this node is skipped in the run.`,
+            { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port as PortRef['port'] } } }))
+        }
         skipped.add(fn.runtimeId)
         grew = true
         break
@@ -2961,7 +2962,7 @@ function compileImpl(
   }
   if (!wouldRun && requested.length > 0 && requested.every((runtimeId) => skipped.has(runtimeId))) {
     diags.push(diag('error', 'compile', 'compile.run.allSkipped',
-      'Nothing would run: every output this run asks for is skipped, because an input it needs receives nothing. The warnings on the skipped nodes say why.'))
+      'Nothing would run: every output this run asks for is skipped, because an input it needs receives nothing. The warning on the first skipped node says why.'))
   }
 
   const ownerRegionOf = (fn: FlatNode): RegionLowering | undefined => {

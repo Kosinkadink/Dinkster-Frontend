@@ -152,8 +152,6 @@ interface Placed {
   readonly values?: Record<string, Json>
   readonly minimized?: true
   readonly mode?: 'muted'
-  /** Node width when not the page's usual one. */
-  readonly width?: number
 }
 
 /** A wire from one node's output to another node's input. */
@@ -192,7 +190,7 @@ function sceneOf(
     },
     view: { graphs: { gallery: { nodes: Object.fromEntries(nodes.map((node) => [node.id, {
       position: { x: node.x, y: TOP },
-      size: { width: node.width ?? NODE_WIDTH, height: 0 },
+      size: { width: NODE_WIDTH, height: 0 },
       ...(node.minimized ? { collapsed: true } : {}),
     }])) } } },
   })
@@ -333,29 +331,15 @@ export function problemBoxGallery(
     },
     {
       id: 'skipped',
-      caption: 'A node the run will skip. Load image is muted, so its output gives nothing; Blur image needs it, so Blur image is skipped, and Save image, which needs what Blur image would have made, is skipped too. Each reads Warning; Blur image\'s line says why in the reason\'s words. A warning does not stop the run: the rest of the workflow runs.',
+      caption: 'A node the run will skip. Load image is muted, so its output gives nothing; Blur image needs it, so Blur image is skipped and reads Warning, its line saying why in the reason\'s words. Save image, which needs what Blur image would have made, is skipped too but carries no warning: only the first affected node warns. A warning does not stop the run: the rest of the workflow runs. When every output a run asks for would be skipped, the run is not queued, and the notice says nothing would run.',
       scene: scene([
         { id: 'load', schema: loadImage, x: column(0), mode: 'muted' },
         { id: 'blur', schema: blurImage, x: column(1) },
         { id: 'save', schema: saveImage, x: column(2) },
       ], [[['load', 'image'], ['blur', 'image']], [['blur', 'image_out'], ['save', 'image']]]),
-      badges: { blur: [warnings(1)], save: [warnings(1)] },
-      rowMarks: { blur: { image: 'warning' }, save: { image: 'warning' } },
+      badges: { blur: [warnings(1)] },
+      rowMarks: { blur: { image: 'warning' } },
       boxes: [{ nodeId: 'blur', nodeTitle: 'Blur image', lines: [line('warning', 'image', "Receives nothing because 'Load image' is muted, so this node is skipped in the run.")] }],
-      room: 76,
-      width: widthOf(3),
-    },
-    {
-      id: 'skipped-onward',
-      caption: 'The same workflow with Save image\'s box open: its line names the skipped node it needs. When every output a run asks for would be skipped, the run is not queued, and the notice says nothing would run.',
-      scene: scene([
-        { id: 'load', schema: loadImage, x: LEFT, mode: 'muted', width: 190 },
-        { id: 'blur', schema: blurImage, x: LEFT + 246, width: 210 },
-        { id: 'save', schema: saveImage, x: LEFT + 512, width: 210 },
-      ], [[['load', 'image'], ['blur', 'image']], [['blur', 'image_out'], ['save', 'image']]]),
-      badges: { blur: [warnings(1)], save: [warnings(1)] },
-      rowMarks: { blur: { image: 'warning' }, save: { image: 'warning' } },
-      boxes: [{ nodeId: 'save', nodeTitle: 'Save image', lines: [line('warning', 'image', "Receives nothing because 'Blur image' is skipped, so this node is skipped in the run.")] }],
       room: 76,
       width: widthOf(3),
     },

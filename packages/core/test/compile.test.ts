@@ -2076,7 +2076,7 @@ describe("a muted node's outputs give nothing", () => {
     expect(plain.ok && plain.artifact.diagnostics.map((d) => d.code)).toContain('compile.link.dropped')
   })
 
-  it('skips a node whose required input receives nothing, and what needs it, with a warning on each', () => {
+  it('skips a node whose required input receives nothing, and what needs it, with a warning on the first', () => {
     // k needs the muted image; after needs k's output; maybe takes it only if present.
     const nodes = {
       source: { type: 'ImageSrc', title: 'Loader', mode: 'muted' as const },
@@ -2094,11 +2094,11 @@ describe("a muted node's outputs give nothing", () => {
     expect(result.artifact.prompt['k']!.inputs).toEqual({ in: { $absent: { reason: "'Loader' is muted" } } })
     expect(result.artifact.diagnostics.filter((d) => d.code === 'compile.input.skipped').map((d) => [d.anchor?.occurrence?.node, d.anchor?.port?.port, d.severity, d.message])).toEqual([
       ['k', 'in', 'warning', "Receives nothing because 'Loader' is muted, so this node is skipped in the run."],
-      ['after', 'in', 'warning', "Receives nothing because 'Blur' is skipped, so this node is skipped in the run."],
     ])
     expect(result.artifact.diagnostics.map((d) => d.code)).not.toContain('compile.link.dropped')
 
-    // When every node the run asks for would be skipped, the run is not sent.
+    // When every node the run asks for would be skipped, the run is not sent:
+    // after is skipped only because k is, so the refusal names no warning of its own.
     const only = compile({
       ...compileInput(dynDoc({ nodes, links }), { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('after') }] }),
       resolve: dynResolve,
