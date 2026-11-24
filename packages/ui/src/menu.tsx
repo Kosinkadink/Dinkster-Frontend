@@ -14,13 +14,34 @@ import { useProductStrings } from './strings.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import tokens from '@dinkster/branding/components' with { type: 'json' }
 
+/** A count that asks for attention, such as the problems in a panel. */
+export interface ProductAttention {
+  count: number
+  tone: 'info' | 'warning' | 'problem'
+  /** What the count means, read after the control's name. */
+  label: string
+}
+
 export interface ProductMenuItem {
   label: string
   icon?: LucideIcon
   intent?: ProductRole
   disabled?: boolean
   checked?: boolean
+  attention?: ProductAttention | undefined
   onSelect: () => void
+}
+
+function Attention(props: { attention: ProductAttention }) {
+  return (
+    <span
+      class="dinkster-attention"
+      data-tone={props.attention.tone}
+      aria-hidden="true"
+    >
+      {props.attention.count > 99 ? '99+' : props.attention.count}
+    </span>
+  )
 }
 
 interface MenuIdentity {
@@ -37,9 +58,11 @@ function Menu(props: {
   iconOnly?: boolean | undefined
   busy?: boolean
   title?: string
+  attention?: ProductAttention | undefined
   onTrigger?: (() => void) | undefined
   children: JSX.Element
 }) {
+  const strings = useProductStrings()
   const [open, setOpen] = createSignal(false)
   const id = createUniqueId()
   let root!: HTMLDivElement
@@ -134,7 +157,11 @@ function Menu(props: {
         data-icon-only={props.iconOnly ? '' : undefined}
         type="button"
         aria-haspopup={props.onTrigger ? undefined : 'menu'}
-        aria-label={props.triggerName}
+        aria-label={
+          props.attention
+            ? `${props.triggerName}${strings.statusSeparator}${props.attention.label}`
+            : props.triggerName
+        }
         aria-busy={props.busy || undefined}
         title={props.title}
         aria-expanded={props.onTrigger ? undefined : open()}
@@ -154,6 +181,9 @@ function Menu(props: {
       >
         {props.children}
         <Show when={!props.iconOnly}><ProductIcon icon={ChevronDown} /></Show>
+        <Show when={props.attention}>
+          {(attention) => <Attention attention={attention()} />}
+        </Show>
       </button>
       <Show when={open()}>
         <div
@@ -217,6 +247,11 @@ function Menu(props: {
                 }
                 aria-checked={item.checked}
                 tabindex="-1"
+                aria-label={
+                  item.attention
+                    ? `${item.label}${strings.statusSeparator}${item.attention.label}`
+                    : undefined
+                }
                 class="dinkster-menu-item"
                 data-role={item.intent ?? 'neutral'}
                 disabled={item.disabled}
@@ -236,6 +271,9 @@ function Menu(props: {
                   <ProductIcon icon={Check} />
                 </Show>
                 {item.label}
+                <Show when={item.attention}>
+                  {(attention) => <Attention attention={attention()} />}
+                </Show>
               </button>
             )}
           </For>
@@ -252,6 +290,8 @@ export function ProductMenu(props: {
   identity?: MenuIdentity
   icon?: LucideIcon
   iconOnly?: boolean
+  /** Shown on the trigger's corner and read after its name. */
+  attention?: ProductAttention | undefined
 }) {
   return (
     <Menu
@@ -260,6 +300,7 @@ export function ProductMenu(props: {
       items={props.items}
       identity={props.identity}
       iconOnly={props.iconOnly}
+      attention={props.attention}
     >
       <Show when={props.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>
       <Show when={!props.iconOnly}><span class="dinkster-menu-label" data-compact={!!props.icon}>

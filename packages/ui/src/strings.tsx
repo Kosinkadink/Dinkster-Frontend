@@ -27,6 +27,7 @@ export const defaultProductStrings = {
   version: 'Version',
   copy: 'Copy',
   copyFailed: 'Could not copy. Select and copy the value instead.',
+  statusSeparator: ', ',
 }
 
 export type ProductStrings = Readonly<
