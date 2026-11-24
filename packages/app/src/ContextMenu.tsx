@@ -6,7 +6,8 @@
 
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import { semanticDesignTokens, type MenuActionItem, type MenuItem, type MenuSubmenuItem } from '@dinkster/core'
-import { Ban, CirclePlay, Copy, CopyPlus, Eye, FolderOpen, Group, Palette, SlidersHorizontal, Trash2, Ungroup, VolumeX, type LucideIcon } from 'lucide-solid'
+import { Ban, CirclePlay, Copy, CopyPlus, Eye, FolderOpen, Group, Icon as LucideBaseIcon, Maximize2, Minimize2, Palette, Pencil, SlidersHorizontal, SquareDashed, Trash2, Ungroup, VolumeX, type IconNode, type LucideIcon } from 'lucide-solid'
+import { SUBGRAPH_ICON } from '@dinkster/canvas'
 import { placeFloatingSurface, type FloatingSurfacePlacement } from '@dinkster/core/floating-surface'
 import { Icon } from './Icon.js'
 import { menuFlat, type MenuAnchor } from './menu-target.js'
@@ -35,6 +36,8 @@ interface RectLike {
 const MENU_MARGIN = semanticDesignTokens.space[8]
 const SUBMENU_GAP = semanticDesignTokens.space[4]
 
+const Subgraph: LucideIcon = (props) => <LucideBaseIcon {...props} iconNode={SUBGRAPH_ICON as IconNode} />
+
 const MENU_ICONS: Readonly<Record<string, LucideIcon>> = {
   ban: Ban,
   'circle-play': CirclePlay,
@@ -43,12 +46,20 @@ const MENU_ICONS: Readonly<Record<string, LucideIcon>> = {
   eye: Eye,
   'folder-open': FolderOpen,
   group: Group,
+  'maximize-2': Maximize2,
+  'minimize-2': Minimize2,
   palette: Palette,
+  pencil: Pencil,
   'sliders-horizontal': SlidersHorizontal,
+  'square-dashed': SquareDashed,
+  subgraph: Subgraph,
   'trash-2': Trash2,
   ungroup: Ungroup,
   'volume-x': VolumeX,
 }
+
+const menuIcon = (item: MenuItem): LucideIcon | undefined =>
+  item.icon === undefined ? undefined : MENU_ICONS[item.icon]
 
 export function menuStep(flat: MenuEntries, from: number, delta: -1 | 1): number {
   for (let index = from + delta; index >= 0 && index < flat.length; index += delta) {
@@ -345,6 +356,11 @@ export function ContextMenu(props: {
         {(panel, depthAccessor) => {
           const depth = depthAccessor()
           const parentIndex = panel.ownerIndex ?? 0
+          // Each panel lays out its own columns: a check slot only when one
+          // of its items can be checked, and an icon slot on every item when
+          // one has an icon, so all of its labels start at the same place.
+          const checkColumn = panel.entries.some((entry) => entry.item.checked !== undefined)
+          const iconColumn = panel.entries.some((entry) => menuIcon(entry.item) !== undefined)
           let panelElement: HTMLDivElement | undefined
           onCleanup(() => {
             if (panelElement && panelElements.get(depth) === panelElement) panelElements.delete(depth)
@@ -416,9 +432,13 @@ export function ContextMenu(props: {
                           openChildren(depth, entry.item, index)
                         }}
                       >
-                        <span class="menu-check" />
-                        <Show when={entry.item.icon === undefined ? undefined : MENU_ICONS[entry.item.icon]}>
-                          {(icon) => <span class="menu-icon" data-testid="menu-icon"><Icon icon={icon()} /></span>}
+                        <Show when={checkColumn}>
+                          <span class="menu-check" />
+                        </Show>
+                        <Show when={iconColumn}>
+                          <span class="menu-icon" data-testid={menuIcon(entry.item) ? 'menu-icon' : undefined}>
+                            <Show when={menuIcon(entry.item)}>{(icon) => <Icon icon={icon()} />}</Show>
+                          </span>
                         </Show>
                         <span class="menu-label">{entry.item.label}</span>
                         <Show when={entry.item.shortcut}>

@@ -15,7 +15,7 @@ export type CanvasIconName =
   | 'trash-2' | 'circle' | 'ellipsis-vertical' | 'folder-open' | 'group' | 'ungroup' | 'subgraph'
   | 'sliders-horizontal' | 'panel-top-close' | 'panel-top-open'
   | 'check' | 'clock' | 'database' | 'triangle-alert' | 'info'
-  | 'image' | 'palette' | 'chevron-right' | 'list' | 'list-checks' | 'spline'
+  | 'image' | 'palette' | 'chevron-right' | 'chevron-down' | 'list' | 'list-checks' | 'spline'
   | 'circle-x' | 'list-tree' | 'scroll-text' | 'forward' | 'archive' | 'unplug' | 'repeat' | 'lock'
   | 'mic' | 'camera' | 'box' | 'crop' | 'columns-2' | 'folder-output' | 'film' | 'rotate-3d' | 'layers' | 'ruler'
 

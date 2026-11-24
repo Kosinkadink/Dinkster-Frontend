@@ -301,11 +301,11 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     const row = t.hit.node.layout.rows.find((candidate: any) =>
       candidate.kind === 'widget' && candidate.inputId === t.hit.input)
     return {
-      title: `Output: ${row?.label ?? t.hit.pin.label ?? t.hit.input}`,
+      title: `Output: ${row?.name ?? row?.label ?? t.hit.pin.label ?? t.hit.input}`,
       lines: [type.tooltip],
     }
   }
-  if (t.kind === 'widget' && t.hit.row.kept !== undefined) return { title: t.hit.row.label, lines: [t.hit.row.kept] }
+  if (t.kind === 'widget' && t.hit.row.kept !== undefined) return { title: t.hit.row.name ?? t.hit.row.label, lines: [t.hit.row.kept] }
   if (t.kind === 'widget') {
     const row = t.hit.row
     const options = row.spec.options ?? {}
@@ -335,7 +335,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     const stored = t.companion && t.connected
       ? [`Dormant stored value under connection: ${formatWidgetValue(value, row.spec)}`]
       : []
-    return { title: row.label, lines: [line, ...stored], ...(opts.detailed && detail.length ? { detail } : {}) }
+    return { title: row.name ?? row.label, lines: [line, ...stored], ...(opts.detailed && detail.length ? { detail } : {}) }
   }
   if (t.kind === 'header') {
     if (t.hit.node.node.region !== undefined) return regionContractTooltip(t.hit.node.node.region)

@@ -232,6 +232,8 @@ export interface ElaboratedInput {
    * nothing. The text says why.
    */
   readonly kept?: string
+  /** Inside its member's box: the row's own label, drawn in place of the full name. */
+  readonly ownLabel?: string
 }
 
 /**
@@ -274,6 +276,8 @@ export interface ElaboratedOutput {
   readonly wireable?: false
   readonly materialize?: readonly MaterializeFrame[]
   readonly boxes?: readonly string[]
+  /** Inside its member's box: the row's own label, drawn in place of the full name. */
+  readonly ownLabel?: string
 }
 
 /** A section header as the node draws it. */
@@ -312,6 +316,8 @@ export interface ElaboratedBox {
   readonly label: string
   /** A group: how many members it shows, not counting the spare one. */
   readonly members?: number
+  /** A group: the most members it declares, when it declares a maximum. */
+  readonly maxMembers?: number
   /** A member: its position in the group, from 0. */
   readonly ordinal?: number
   /** A member the document does not store yet. */
@@ -357,8 +363,6 @@ export interface ElaboratedNote {
   readonly text: string
   /** The text is the note's "while unknown" answer. */
   readonly unknown?: true
-  /** Drawn dimmed, as a remark about the rows rather than one of them. */
-  readonly quiet?: true
   readonly section?: string
   readonly boxes?: readonly string[]
   /** Line key of the cell drawn before this one in a `Row`. */
@@ -577,6 +581,8 @@ interface Scope {
   readonly typeMember?: string
   /** Prefix for the labels of a record member's rows. */
   readonly labelPrefix?: string
+  /** The rows are inside their member's box, which already names the member. */
+  readonly inMemberBox?: boolean
   readonly formulaFrames: readonly FormulaFrame[]
   /** Use overrides for the shared rows of the choice whose option this is. */
   readonly shared?: ReadonlyMap<string, BodyRow>
@@ -1071,6 +1077,7 @@ function elaboratePass(
       return
     }
     const own = row.labelFormula !== undefined ? labelOf(row.labelFormula, row.id, scope) : row.displayName ?? row.id
+    const boxedLabel = label === undefined && scope.inMemberBox && scope.labelPrefix !== undefined
     let spec: InputSpec = {
       ...row,
       id: path,
@@ -1094,6 +1101,7 @@ function elaboratePass(
       ...common(scope),
       ...(parts !== undefined ? { parts } : {}),
       ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
+      ...(boxedLabel ? { ownLabel: own } : {}),
       ...extra,
     })
   }
@@ -1105,6 +1113,7 @@ function elaboratePass(
       return
     }
     const own = row.labelFormula !== undefined ? labelOf(row.labelFormula, row.id, scope) : row.displayName ?? row.id
+    const boxedLabel = label === undefined && scope.inMemberBox && scope.labelPrefix !== undefined
     push({
       kind: 'output',
       address: { port: path },
@@ -1118,6 +1127,7 @@ function elaboratePass(
       },
       ...common(scope),
       ...(scope.ghost || scope.dormant ? { wireable: false as const } : {}),
+      ...(boxedLabel ? { ownLabel: own } : {}),
     })
   }
 
@@ -1297,19 +1307,18 @@ function elaboratePass(
   const memberLabelOf = (group: GroupSpec, path: string, key: string, position: number, scope: Scope): string => {
     const typed = stateOf(path)?.memberLabels?.[key]
     if (typed !== undefined && typed !== '') return typed
-    // A member's number is its position in the run: on a subgraph node's
-    // face the members inside the subgraph come first.
-    const shown = position + (group.interiorMembers ?? 0)
+    // A member's number counts this node's own members from 1; on a subgraph
+    // node the members inside, which run first, are not counted.
     if (group.memberLabel !== undefined) {
       if (typeof group.memberLabel === 'string') return group.memberLabel
       const outcome = evaluate(group.memberLabel.formula, {
         ...scope,
-        formulaFrames: [...scope.formulaFrames, { prefix: `${path}.`, rows: [], index: shown, key }],
+        formulaFrames: [...scope.formulaFrames, { prefix: `${path}.`, rows: [], index: position, key }],
       })
       if (outcome.kind === 'value' && typeof outcome.value === 'string' && outcome.value !== '') return outcome.value
     }
     if (group.keys.kind === 'named') return key
-    const number = String(shown + 1)
+    const number = String(position + 1)
     return group.keys.prefix === '' ? number : `${group.keys.prefix} ${number}`
   }
 
@@ -1325,6 +1334,7 @@ function elaboratePass(
         construct: path,
         label: literalText(row.displayName) ?? row.id,
         ...(row.grows === 'button' ? { byHand: true as const } : {}),
+        ...(row.maxMembers !== undefined ? { maxMembers: row.maxMembers } : {}),
         ...(row.reorderable === true && typeof row.grows === 'string' ? { reorderable: true as const } : {}),
         ...(row.openName === false ? { openName: false as const } : {}),
         ...boxed(scope),
@@ -1446,10 +1456,11 @@ function elaboratePass(
         else emitOutput({ ...row.value, id: key }, `${path}.${key}`, valueScope, label)
       } else {
         const prefix = `${path}.${key}.`
-        const fill = (boxes: readonly string[]): void => rows(row.member ?? [], {
+        const fill = (boxes: readonly string[], inMemberBox: boolean): void => rows(row.member ?? [], {
           ...memberScope,
           prefix,
           labelPrefix: label,
+          inMemberBox,
           boxes,
           formulaFrames: [...scope.formulaFrames, { prefix, rows: row.member ?? [], index: position, key }],
         })
@@ -1465,9 +1476,9 @@ function elaboratePass(
             ordinal: position,
             ...(ghost ? { ghost: true as const } : {}),
             ...boxed(scope),
-          }, fill)
+          }, (boxes) => fill(boxes, true))
         } else {
-          fill(scope.boxes)
+          fill(scope.boxes, false)
         }
       }
       const emitted = items.slice(before)
@@ -1487,14 +1498,6 @@ function elaboratePass(
         (item.kind === 'output' && connectivity.isOutputConnected(item.address.port)))
     }
 
-    // On a subgraph node's face, one quiet line says which numbers are inside.
-    const inside = row.interiorMembers ?? 0
-    if (view && inside > 0 && !scope.ghost && !scope.dormant && !scope.hidden) {
-      push({
-        kind: 'note', id: `${path}:inside`, text: inside === 1 ? '1 is inside' : `1 to ${inside} are inside`, quiet: true,
-        ...(scope.section !== undefined ? { section: scope.section } : {}),
-      })
-    }
     let allUsed = true
     for (const [position, key] of keys.entries()) {
       if (halted) return
@@ -1656,6 +1659,7 @@ function elaboratePass(
           ...(scope.section !== undefined ? { section: scope.section } : {}),
           ...(scope.hidden ? { hidden: true as const } : {}),
         },
+        ...(scope.inMemberBox && scope.labelPrefix !== undefined ? { ownLabel: label } : {}),
         origin: { kind: 'selector', construct: path, ...(key !== undefined ? { selected: key } : {}) },
         ...(key !== undefined ? { derivedValue: key } : {}),
         ...(scope.kept !== undefined ? { kept: scope.kept } : {}),

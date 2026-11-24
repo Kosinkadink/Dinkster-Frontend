@@ -6,7 +6,7 @@
  * owner pushes scene/state and the renderer repaints on a rAF dirty loop.
  */
 
-import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, effectiveWidgetDefault, formatWidgetValue, selectorCandidateKey, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeDecoration, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, effectiveWidgetDefault, formatWidgetValue, selectorCandidateKey, t as translate, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeDecoration, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
 import {
   BYPASSED_BADGE,
   LAST_RUN_BADGE,
@@ -25,7 +25,7 @@ import {
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, previewHasPanel, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { memberSpans, projectNodeLayoutHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type MemberGrip, type NodeLayout } from './layout.js'
+import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type MemberGrip, type NodeLayout } from './layout.js'
 import {
   boundaryFieldNode,
   boundarySceneId,
@@ -321,6 +321,21 @@ export interface CompanionDisplay {
 /** node id -> widget row valueKey -> companion. Derived, never stored. */
 export type CompanionMap = Readonly<Record<string, Readonly<Record<string, CompanionDisplay>>>>
 
+/** What a folded editor's row reads when it depends on more than the row's own value, such as a clip's length or a run's images. */
+export interface EditorSummary {
+  /** What the row reads in place of the view's own value text. */
+  readonly text?: string
+  /** The value the row draws in place of the stored one, such as what a wire brought; null when nothing is known yet. */
+  readonly value?: Json
+  /** Drawn in the placeholder color, for an editor that holds nothing. */
+  readonly placeholder?: boolean
+  /** A small picture before the text, such as the stored frame or the last 3D view. */
+  readonly thumbnail?: CanvasImageSource
+}
+
+/** node id -> value key -> what that folded editor row reads. Derived by the host, never stored. */
+export type EditorSummaryMap = Readonly<Record<string, Readonly<Record<string, EditorSummary>>>>
+
 /**
  * node id -> row key -> strongest problem on that row. Widget rows key by
  * valueKey, fallback rows (unresolved schema) by their stored value key, and
@@ -538,6 +553,8 @@ export interface WidgetPaintArgs {
   readonly companion?: CompanionDisplay
   /** Alpha before connected-row dimming, reserved for legible companion text. */
   readonly companionAlpha?: number
+  /** What the host says this editor row reads, in place of the text its view derives from the value. */
+  readonly editorSummary?: EditorSummary
   /** Alpha for the subgraph mark (row.subgraphMark), which a driven row does not dim. */
   readonly markAlpha?: number
   /** Absolute content origin/size (inside node padding). */
@@ -663,6 +680,8 @@ export interface OverlayState {
   readonly marquee?: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }
   /** Live text box height used only for paint; committed as view.setTextBoxLines on release. */
   readonly textBoxLines?: { readonly nodeId: string; readonly valueKey: string; readonly lines: number }
+  /** Live height of an unfolded editor's picture used only for paint; committed as view.setPictureHeight on release. */
+  readonly pictureHeight?: { readonly nodeId: string; readonly valueKey: string; readonly height: number }
   /** The text box edge under the pointer, being dragged, or holding keyboard focus. */
   readonly textBoxEdge?: { readonly nodeId: string; readonly valueKey: string }
   /** The node whose preview caption row is under the idle pointer. */
@@ -1089,7 +1108,7 @@ export class CanvasRenderer {
     const nodes = new Set<string>()
     const local = new Set<keyof OverlayState>([
       'selection', 'dragOffsets', 'resizePreview', 'bodyDropNode', 'dropRow', 'hoveredNode',
-      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBox', 'hoveredButton', 'pressedButton', 'hoveredGrip', 'memberDrag', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'textBoxEdge', 'hoveredPreviewCaption',
+      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBox', 'hoveredButton', 'pressedButton', 'hoveredGrip', 'memberDrag', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'pictureHeight', 'textBoxEdge', 'hoveredPreviewCaption',
       'previewEdge',
     ])
     const keys = new Set([...Object.keys(previous), ...Object.keys(overlay)] as (keyof OverlayState)[])
@@ -1219,6 +1238,13 @@ export class CanvasRenderer {
   /** Companion (propagated) values per node/valueKey. Derived, never stored. */
   setCompanions(companions: CompanionMap): void {
     this.updateNodePaint(this.companions, companions, () => { this.companions = companions })
+  }
+
+  private editorSummaries: EditorSummaryMap = {}
+
+  /** What folded editor rows read, per node and value key. Derived, never stored. */
+  setEditorSummaries(summaries: EditorSummaryMap): void {
+    this.updateNodePaint(this.editorSummaries, summaries, () => { this.editorSummaries = summaries })
   }
 
   private presence: readonly PresenceActor[] = []
@@ -3280,7 +3306,8 @@ export class CanvasRenderer {
     fallbackY: number,
   ): { readonly x: number; readonly y: number } {
     if ((end.kind !== 'port' && end.kind !== 'widgetTap') ||
-        (end.node !== this.overlay.resizePreview?.nodeId && end.node !== this.overlay.textBoxLines?.nodeId)) {
+        (end.node !== this.overlay.resizePreview?.nodeId && end.node !== this.overlay.textBoxLines?.nodeId &&
+          end.node !== this.overlay.pictureHeight?.nodeId)) {
       return { x: fallbackX, y: fallbackY }
     }
     const sceneNode = this.scene.nodes.find((candidate) => candidate.id === end.node)
@@ -3303,6 +3330,8 @@ export class CanvasRenderer {
     if (lines?.nodeId === node.id) {
       return { ...node, layout: projectTextBoxLines(node.layout, lines.valueKey, lines.lines, this.tokens) }
     }
+    const picture = this.overlay.pictureHeight
+    if (picture?.nodeId === node.id) return { ...node, layout: projectPictureHeight(node.layout, picture.valueKey, picture.height) }
     const preview = this.overlay.resizePreview
     if (preview?.nodeId !== node.id) return node
     const layout = projectNodeLayoutHeight(node.layout, preview.height, this.tokens)
@@ -3873,7 +3902,8 @@ export class CanvasRenderer {
             ctx.font = `${boxPaint.countFontSize}px ${t.fontFamily}`
             ctx.fillStyle = t.colors.boxCount
             ctx.textAlign = 'right'
-            const count = String(row.count)
+            // A group that declares a maximum says how near it is: "3 of 16".
+            const count = row.maxCount === undefined ? String(row.count) : translate('canvas.box.countOfMax', { count: row.count, max: row.maxCount })
             ctx.fillText(count, textRight, cy)
             textRight -= ctx.measureText(count).width + boxPaint.dotGap
             ctx.font = `${t.fontSize}px ${t.fontFamily}`
@@ -3908,11 +3938,34 @@ export class CanvasRenderer {
         } else if (row.kind === 'growth') {
           // A group that grows by hand ends in an Add button, as wide as a member's box.
           paintButton(node.x + row.inset, rowY, l.width - row.inset * 2, row.height, `+ ${row.label}`, `growth:${row.construct}`, true)
+        } else if (row.kind === 'editorSpace') {
+          // The unfolded editor and its row are one open box: one outline runs
+          // from the row's top around the space, so the editor's own rows sit
+          // on the node's body as the node's rows do. Its controls are the
+          // host's, laid over it; the picture's place is drawn inset.
+          const space = canvasPaintTokens.node.editorSpace
+          const x = node.x + row.inset
+          const width = row.width ?? l.width - row.inset * 2
+          const stroke = canvasPaintTokens.node.box.stroke
+          const top = rowY - row.rowAbove + t.rowGeometry.fieldInsetY
+          ctx.strokeStyle = t.colors.boxOutline
+          ctx.lineWidth = stroke
+          ctx.beginPath()
+          // The row's corners, so the outline meets the row's fill exactly.
+          ctx.roundRect(x + stroke / 2, top + stroke / 2, width - stroke,
+            rowY + row.height - t.rowGeometry.fieldInsetY - top - stroke, canvasPaintTokens.widget.radius)
+          ctx.stroke()
+          if (row.picture) {
+            ctx.fillStyle = t.colors.canvasBackground
+            ctx.beginPath()
+            ctx.roundRect(x + space.pad, rowY + row.picture.top, width - space.pad * 2, row.picture.height, canvasPaintTokens.node.box.radius)
+            ctx.fill()
+          }
         } else if (row.kind === 'note') {
           // A formula note's text is unknown until formulas are evaluated, so
           // it draws dimmed like any other offer that is not settled yet.
           const rowAlpha = ctx.globalAlpha
-          if (row.unknown || row.quiet) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
+          if (row.unknown) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
           const width = row.width ?? l.width - row.inset * 2
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
@@ -4450,11 +4503,16 @@ export class CanvasRenderer {
       row,
       // Selector rows (DynamicCombo) carry their value on the row itself;
       // everything else persists under the row's value key.
-      value: drag !== undefined ? drag.value : row.derivedValue !== undefined ? row.derivedValue
-        : automatic ? effectiveWidgetDefault(row.spec) : node.node.values[row.valueKey],
+      value: drag !== undefined ? drag.value
+        : companion === undefined && this.editorSummaries[sceneNode.id]?.[row.valueKey]?.value !== undefined
+          ? this.editorSummaries[sceneNode.id]![row.valueKey]!.value
+          : row.derivedValue !== undefined ? row.derivedValue
+          : automatic ? effectiveWidgetDefault(row.spec) : node.node.values[row.valueKey],
       ...(drag !== undefined ? { dragging: true } : {}),
       ...(companion !== undefined ? { companion } : {}),
       ...(companion !== undefined ? { companionAlpha } : {}),
+      ...(companion === undefined && this.editorSummaries[sceneNode.id]?.[row.valueKey] !== undefined
+        ? { editorSummary: this.editorSummaries[sceneNode.id]![row.valueKey]! } : {}),
       ...(row.subgraphMark !== undefined ? { markAlpha: companionAlpha } : {}),
       x: node.x + row.inset,
       y: rowY,
