@@ -314,6 +314,11 @@ export interface WidgetDescriptorSpec {
   readonly writes?: Readonly<Record<string, string>>
   /** A custom or compositor widget's own part names -> the row ids it reads. */
   readonly reads?: Readonly<Record<string, string>>
+  /**
+   * Set by the editor, never declared: an empty field shows its `default`
+   * dimmed, as a value worked out for it (a primitive's derived limit).
+   */
+  readonly automatic?: true
 }
 
 export interface TextCompletionItemSpec {

@@ -204,6 +204,15 @@ const synthetic = new Map<string, NodeSchema>([
   // A group whose member holds only a group: the spare member renders nothing, so
   // the node carries a growth affordance row instead (dynamic-scene tests
   // prove the derivation; here we pin its paint).
+  ['PSection', {
+    type: 'PSection', displayName: 'Sectioned', category: 'test', source: 'v3', isOutputNode: false,
+    body: [
+      { kind: 'input', id: 'image', type: typed('IMAGE'), optional: false },
+      { kind: 'section', id: 'sampling', displayName: 'Sampling', rows: [
+        { kind: 'input', id: 'steps', type: typed('INT'), optional: false, widget: { widgetType: 'INT', options: {}, default: 20 } },
+      ] },
+    ],
+  }],
   ['PNest', {
     type: 'PNest', displayName: 'PureNest', category: 'test', source: 'v3', isOutputNode: false,
     body: [{
@@ -2702,7 +2711,7 @@ describe('node chrome paint on the live renderer', () => {
     expect(next?.globalAlpha).toBeCloseTo(0.45)
   })
 
-  it('a growth row paints a dashed ghost-alpha capsule with the "+ label" text', () => {
+  it('a growth row paints an outlined Add row as wide as a member box, at full strength', () => {
     const doc: WorkflowDocument = {
       format: 'dinkster-workflow',
       formatVersion: 1,
@@ -2732,29 +2741,64 @@ describe('node chrome paint on the live renderer', () => {
     const n = nodeOf(scene, 'p')
     const row = n.layout.rows.find((r) => r.kind === 'growth')!
     expect(row).toBeDefined()
-    const t = defaultTokens
     const calls = paint(scene)
-    // Dashed capsule: setLineDash([3,3]) precedes the strokeRect at the row
-    // rect, dimmed to ghost alpha; the dash resets afterwards so nothing
-    // downstream inherits it.
-    const rectIdx = calls.findIndex(
-      (c) =>
-        c.method === 'strokeRect' &&
-        c.args[0] === n.x + t.padX &&
-        c.args[1] === n.y + row.y + 3 &&
-        c.args[2] === n.layout.width - t.padX * 2 &&
-        c.args[3] === row.height - 6,
-    )
-    expect(rectIdx).toBeGreaterThanOrEqual(0)
-    expect(calls[rectIdx]!.globalAlpha).toBeCloseTo(0.45)
-    const dashBefore = calls.slice(0, rectIdx).filter((c) => c.method === 'setLineDash')
-    expect(dashBefore.at(-1)?.args).toEqual([[3, 3]])
-    const dashAfter = calls.slice(rectIdx + 1).find((c) => c.method === 'setLineDash')
-    expect(dashAfter?.args).toEqual([[]])
-    // The affordance text: centered '+ items' at the same dimmed alpha.
+    // A solid outline inside the group's box, never the dashed ghost capsule.
+    const half = canvasPaintTokens.node.box.stroke / 2
+    const vi = defaultTokens.rowGeometry.fieldInsetY
+    const outline = calls.findIndex((c) =>
+      c.method === 'roundRect' &&
+      c.args[0] === n.x + row.inset + half &&
+      c.args[1] === n.y + row.y + vi + half &&
+      c.args[2] === n.layout.width - row.inset * 2 - half * 2)
+    expect(outline).toBeGreaterThanOrEqual(0)
+    const group = n.layout.boxes!.find((box) => box.id === 'group:items')!
+    expect(row.inset).toBeGreaterThan(group.x)
+    expect(calls.slice(0, outline).filter((c) => c.method === 'setLineDash').at(-1)?.args ?? [[]]).toEqual([[]])
     const text = calls.find((c) => c.method === 'fillText' && c.args[0] === '+ items')
     expect(text).toBeDefined()
-    expect(text!.globalAlpha).toBeCloseTo(0.45)
+    expect(text!.globalAlpha).toBeCloseTo(1)
+  })
+
+  it('a section is an outlined box with its name on a header row, and no filled bar', () => {
+    const doc: WorkflowDocument = {
+      format: 'dinkster-workflow',
+      formatVersion: 1,
+      lineage: asLineageId('lin1'),
+      root: asGraphDefId('g0'),
+      graphs: {
+        g0: {
+          id: asGraphDefId('g0'),
+          name: 'g',
+          nodes: { p: { id: asNodeId('p'), type: 'PSection', values: {} } },
+          links: {},
+          nets: {},
+          reroutes: {},
+          nextOrdinal: 100,
+        },
+      },
+      view: { graphs: { g0: { nodes: { p: { position: { x: 100, y: 100 } } } } } },
+    }
+    const scene = buildScene({
+      document: doc,
+      graphId: 'g0',
+      resolve: (t) => synthetic.get(t),
+      tokens: defaultTokens,
+      measure,
+      widgetMeasure,
+    })
+    const n = nodeOf(scene, 'p')
+    const header = n.layout.rows.find((r) => r.kind === 'section')!
+    const [box] = n.layout.boxes!
+    const calls = paint(scene)
+    const half = canvasPaintTokens.node.box.stroke / 2
+    const outline = calls.findIndex((c) =>
+      c.method === 'roundRect' && c.args[0] === n.x + box!.x + half && c.args[1] === n.y + box!.y + half)
+    expect(outline).toBeGreaterThanOrEqual(0)
+    expect(calls.slice(outline).find((c) => c.method === 'stroke')?.strokeStyle).toBe(defaultTokens.colors.boxOutline)
+    // The old bar filled the whole header row in the field color.
+    expect(calls.some((c) => c.method === 'fillRect' && c.fillStyle === defaultTokens.colors.widgetBackground &&
+      (c.args[1] as number) >= n.y + header.y && (c.args[1] as number) < n.y + header.y + header.height)).toBe(false)
+    expect(calls.some((c) => c.method === 'fillText' && c.args[0] === 'Sampling')).toBe(true)
   })
 
   it('a widget-backed pin hides until connected or the node is selected', () => {
@@ -2943,8 +2987,8 @@ describe('badge and toolbox paint on the live renderer', () => {
       const call = calls.find((candidate) => candidate.method === 'fillText' && candidate.args[0] === word)!
       expect(side === 'above' ? Number(call.args[2]) < header.top : Number(call.args[2]) > n.y + n.layout.height).toBe(true)
     }
-    // The mark: 3 px padding, a 14 px icon, a 3 px gap and "12" (6 px a character here), ending padX before the right edge.
-    const markX = n.x + n.layout.width - defaultTokens.padX - (3 + 14 + 3 + 12 + 3)
+    // The mark: 3 px padding, a 14 px icon, a 3 px gap and "12" (6 px a character here), ending 3 px before the right edge.
+    const markX = n.x + n.layout.width - 3 - (3 + 14 + 3 + 12 + 3)
     const count = calls.find((call) => call.method === 'fillText' && call.args[0] === '12')!
     expect(count.args[1]).toBe(markX + 3 + 14 + 3)
     expect(Number(count.args[2])).toBeGreaterThan(header.top)
@@ -2962,7 +3006,7 @@ describe('badge and toolbox paint on the live renderer', () => {
     // Lucide's 24-unit box, moved to the given corner and scaled to the given size, with nothing kept clear.
     for (const size of [7, 14, 20]) {
       const { ctx, calls } = recordingCtx()
-      paintToolboxIcon(ctx, 'boxes', 3, 5, size, '#fff')
+      paintToolboxIcon(ctx, 'subgraph', 3, 5, size, '#fff')
       const at = calls.findIndex((call) => call.method === 'translate')
       expect(calls[at]!.args).toEqual([3, 5])
       expect(calls[at + 1]).toMatchObject({ method: 'scale', args: [size / 24, size / 24] })
@@ -2985,7 +3029,7 @@ describe('badge and toolbox paint on the live renderer', () => {
     // An icon is drawn by moving to its corner, then scaling Lucide's 24-unit box.
     const scaleAfter = (x: number, y: number) =>
       calls[calls.findIndex((call) => call.method === 'translate' && call.args[0] === x && call.args[1] === y) + 1]
-    const markX = n.x + n.layout.width - defaultTokens.padX - 20
+    const markX = n.x + n.layout.width - 3 - 20
     const markY = n.y + n.layout.headerHeight / 2 - 10
     expect(scaleAfter(markX + 3, markY + 3)).toMatchObject({ method: 'scale', args: [14 / 24, 14 / 24] })
     // The tab's words follow its 14 px icon and a 4 px gap; the tab's top is 10.5 above them.

@@ -50,7 +50,7 @@ function jsonEqual(a: Json, b: Json): boolean {
 }
 
 /** One node's local recipe (type + inputs + slot choices), queueing link targets to visit. */
-function nodesEqual(a: PromptNode, b: PromptNode, visit: (id: string) => void): boolean {
+function nodesEqual(a: PromptNode, b: PromptNode, visit: (id: string) => void, ignored?: (input: string) => boolean): boolean {
   if (a.class_type !== b.class_type) return false
   // Slot choices are recipe identity (the backend folds them into
   // schema_signature): two byte-identical input maps under different stored
@@ -70,7 +70,7 @@ function nodesEqual(a: PromptNode, b: PromptNode, visit: (id: string) => void): 
       if (al === undefined || bl === undefined) return false
       if (al[0] !== bl[0] || al[1] !== bl[1]) return false
       visit(al[0])
-    } else if (!jsonEqual(av as Json, bv as Json)) {
+    } else if (ignored?.(key) !== true && !jsonEqual(av as Json, bv as Json)) {
       return false
     }
   }
@@ -80,9 +80,16 @@ function nodesEqual(a: PromptNode, b: PromptNode, visit: (id: string) => void): 
 /**
  * True iff `runtimeId`'s transitive upstream recipe is identical in both
  * prompts. The node itself is part of its recipe (its type and literal
- * inputs decide its output as much as its upstream does).
+ * inputs decide its output as much as its upstream does). `ignored` names
+ * literal inputs left out of the comparison, such as a seed the next queue
+ * draws anew; a link on either side is still compared.
  */
-export function upstreamRecipesEqual(a: Prompt, b: Prompt, runtimeId: string): boolean {
+export function upstreamRecipesEqual(
+  a: Prompt,
+  b: Prompt,
+  runtimeId: string,
+  ignored?: (runtimeId: string, input: string) => boolean,
+): boolean {
   const pending = [runtimeId]
   const seen = new Set<string>()
   while (pending.length > 0) {
@@ -92,7 +99,7 @@ export function upstreamRecipesEqual(a: Prompt, b: Prompt, runtimeId: string): b
     const an = a[id]
     const bn = b[id]
     if (an === undefined || bn === undefined) return false
-    if (!nodesEqual(an, bn, (next) => pending.push(next))) return false
+    if (!nodesEqual(an, bn, (next) => pending.push(next), ignored && ((input) => ignored(id, input)))) return false
   }
   return true
 }

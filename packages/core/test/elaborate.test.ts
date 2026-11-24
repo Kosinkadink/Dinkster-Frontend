@@ -390,6 +390,7 @@ describe('groups of records', () => {
           side: 'input',
           label: 'items',
           frames: [{ construct: 'items', members: ['item0'], seq: 1 }],
+          boxes: ['group:items'],
         },
       ])
     })
@@ -464,6 +465,7 @@ describe('groups of records', () => {
         side: 'input',
         label: 'sub',
         frames: [{ construct: 'items.item0.sub', members: ['sub0'], seq: 1 }],
+        boxes: ['group:items', 'group:items.item0.sub'],
       })
     })
   })
@@ -1219,6 +1221,45 @@ describe('buildGraphConnectivity', () => {
     expect(facts(asNodeId('a')).isOutputConnected('out0')).toBe(true)
   })
 
+})
+
+describe('boxes around rows', () => {
+  const body: BodyRow[] = [{
+    kind: 'section',
+    id: 'sampling',
+    rows: [
+      recordGroup('loras', { min: 1 }),
+      choiceOf('resize', [
+        { key: 'scale', rows: [intInput('factor')] },
+        { key: 'keep', rows: [] },
+      ]),
+    ],
+  }]
+  const chains = (state: { dynamic?: Record<string, { selected?: string }> } = {}) =>
+    elaborateInterface(schemaOf(body), { values: {}, ...state }).items.map((item) => [
+      item.kind === 'input' || item.kind === 'output' ? item.address.port
+        : item.kind === 'box' ? item.id : item.kind === 'section' ? item.spec.id : item.kind,
+      item.boxes ?? [],
+    ])
+
+  it('names every box around a row, outermost first, without changing its id', () => {
+    expect(chains()).toEqual([
+      ['sampling', []],
+      ['group:loras', ['sampling']],
+      ['member:loras.item0', ['sampling', 'group:loras']],
+      ['loras.item0.image', ['sampling', 'group:loras', 'member:loras.item0']],
+      ['loras.item0.mask', ['sampling', 'group:loras', 'member:loras.item0']],
+      ['resize', ['sampling']],
+      ['option:resize', ['sampling']],
+      ['resize.factor', ['sampling', 'option:resize']],
+    ])
+  })
+
+  it('draws no box for an option with no rows', () => {
+    expect(chains({ dynamic: { resize: { selected: 'keep' } } }).map(([id]) => id)).toEqual([
+      'sampling', 'group:loras', 'member:loras.item0', 'loras.item0.image', 'loras.item0.mask', 'resize',
+    ])
+  })
 })
 
 describe('rows kept for a wire on their output', () => {

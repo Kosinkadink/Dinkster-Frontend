@@ -78,6 +78,7 @@ const pinName = (node: Pick<SceneNode, 'layout'>, pin: PinLayout): string => {
 const badgeStatus = (badge: NodeBadge): string | undefined => {
   switch (badge.id) {
     case 'core.error': return 'runtime error'
+    case 'core.error.lastRun': return 'runtime error from the last run, changed since'
     case 'core.execution.blocked': return badge.glyph
     case 'core.execution.expanded': return badge.glyph
     case 'core.problem.error': return badge.glyph.toLowerCase()

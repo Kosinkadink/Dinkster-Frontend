@@ -3,12 +3,15 @@ import {
   loadDocument,
   type InputSpec,
   type Json,
+  type NodeProgress,
   type NodeSchema,
   type OutputSpec,
   type TypeExpr,
 } from '@dinkster/core'
 import {
   buildScene,
+  executionErrorBadge,
+  LAST_RUN_BADGE,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
   problemBadge,
@@ -48,6 +51,8 @@ export interface ProblemBoxGalleryCard {
   readonly scene: Scene
   readonly badges: BadgeMap
   readonly rowMarks: RowMarkMap
+  /** Run states, for a node that failed in the run. */
+  readonly states?: Readonly<Record<string, NodeProgress>>
   readonly boxes: readonly ProblemBoxGalleryBox[]
   /** The row drawn highlighted with its line. */
   readonly highlight?: { readonly nodeId: string; readonly row: string }
@@ -342,6 +347,20 @@ export function problemBoxGallery(
       boxes: [{ nodeId: 'blur', nodeTitle: 'Blur image', lines: [line('warning', 'image', "Receives nothing because 'Load image' is muted, so this node is skipped in the run.")] }],
       room: 76,
       width: widthOf(3),
+    },
+    {
+      id: 'last-run',
+      caption: 'A run failed on method. Left, as run: the node keeps its run outline, the method row is outlined red and the tab reads Error. Right, method changed to bilinear since that run: the outline is ordinary, the row has no outline, and the tab reads Last run without color. Clicking it opens the run\'s details under the line "From the last run. Changed since." A seed the next queue draws anew is not a change, and undo back to the document that ran brings the color back.',
+      scene: scene([
+        { id: 'ran', schema: resizeImage, x: column(0) },
+        { id: 'changed', schema: resizeImage, x: column(1), values: { method: 'bilinear' } },
+      ]),
+      states: { ran: { state: 'error' } },
+      badges: { ran: [executionErrorBadge(1)], changed: [LAST_RUN_BADGE] },
+      rowMarks: { ran: { method: 'error' } },
+      boxes: [],
+      room: 24,
+      width: widthOf(2),
     },
     {
       id: 'unavailable',
