@@ -593,13 +593,14 @@ function paintCurveSketch(
   ctx.fillStyle = tokens.colors.widgetBackground
   ctx.fillRect(square.x, square.y, square.size, square.size)
   ctx.strokeStyle = tokens.colors.nodeIdleOutline
-  ctx.lineWidth = 1
-  ctx.strokeRect(square.x + 0.5, square.y + 0.5, square.size - 1, square.size - 1)
+  ctx.lineWidth = paint.edge
+  ctx.strokeRect(square.x + paint.edge / 2, square.y + paint.edge / 2, square.size - paint.edge, square.size - paint.edge)
   ctx.strokeStyle = tokens.colors.valueMark
   ctx.setLineDash([...paint.dash])
+  // The identity line, from the plot's lower left to its upper right.
   ctx.beginPath()
-  ctx.moveTo(at(0, 0).x, at(0, 0).y)
-  ctx.lineTo(at(1, 1).x, at(1, 1).y)
+  ctx.moveTo(left, top + span)
+  ctx.lineTo(left + span, top)
   ctx.stroke()
   ctx.setLineDash([])
   if (samples.length > 1) {

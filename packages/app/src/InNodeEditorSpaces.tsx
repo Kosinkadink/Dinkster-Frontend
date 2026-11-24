@@ -167,7 +167,7 @@ export function NodeEditorSpaceOverlay(props: {
     if (resizeBar(event) === undefined || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
     event.preventDefault()
     event.stopPropagation()
-    const height = clampPictureHeight(stored() + (event.key === 'ArrowDown' ? 1 : -1) * canvasPaintTokens.node.previewEdge.keyStep)
+    const height = clampPictureHeight(stored() + (event.key === 'ArrowDown' ? canvasPaintTokens.node.previewEdge.keyStep : -canvasPaintTokens.node.previewEdge.keyStep))
     if (height !== stored()) props.pictureHeight.commit(height)
   }
   const forwardWheel = (event: WheelEvent): void => {
