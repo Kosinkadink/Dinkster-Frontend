@@ -8,6 +8,7 @@ import {
   type OverlayState,
   type Scene,
   type TextMeasurer,
+  type ToolboxEntry,
   type ToolboxRow,
   type WidgetMeasure,
 } from '../src/index.js'
@@ -86,16 +87,15 @@ export interface SubgraphIconCard {
   readonly scene: Scene
   readonly badges: BadgeMap
   readonly overlay?: OverlayState
+  readonly toolbox?: readonly ToolboxRow[]
 }
 
-/** The rows CanvasHost builds for one selected subgraph node in the root graph, without the run buttons. */
-export const subgraphToolbox: readonly ToolboxRow[] = [[
+/** A selection toolbox row as CanvasHost builds it in the root graph, without the run buttons. */
+const toolboxRow = (subgraphButtons: readonly ToolboxEntry[]): readonly ToolboxRow[] => [[
   toolboxButton({ id: 'core.delete', icon: 'trash-2', label: 'Delete' }),
   toolboxSeparator(),
   toolboxButton({ id: 'core.mode', icon: 'sliders-horizontal', label: 'Choose mode' }),
-  toolboxButton({ id: 'core.openSubgraph', icon: 'folder-open', label: 'Open subgraph' }),
-  toolboxButton({ id: 'core.extractSubgraph', icon: 'group', label: 'Extract as subgraph' }),
-  toolboxButton({ id: 'core.flattenSubgraph', icon: 'ungroup', label: 'Flatten subgraph one level' }),
+  ...subgraphButtons,
   toolboxSeparator(),
   toolboxButton({ id: 'core.color', icon: 'circle', label: 'Choose color' }),
   toolboxSeparator(),
@@ -135,10 +135,26 @@ export function subgraphIconGallery(
       badges: { entered: [one] },
     },
     {
-      caption: 'A selected subgraph node and its toolbox. No toolbox button draws the subgraph icon: Open subgraph, Extract as subgraph and Flatten subgraph one level keep their icons.',
+      caption: 'One selected subgraph node: its toolbox has Open subgraph and Flatten subgraph, and no Create subgraph button.',
       scene: scene({ root: { nodes: { picked: instance(0, 60, 'Upscale pass') } }, detail }),
       badges: { picked: [one] },
       overlay: { selection: new Set(['picked']) },
+      toolbox: toolboxRow([
+        toolboxButton({ id: 'core.openSubgraph', icon: 'group', label: 'Open subgraph' }),
+        toolboxButton({ id: 'core.flattenSubgraph', icon: 'ungroup', label: 'Flatten subgraph' }),
+      ]),
+    },
+    {
+      caption: 'Two selected plain nodes: their toolbox has Create subgraph, drawn with the subgraph icon. One selected plain node has no subgraph button.',
+      scene: scene({
+        root: {
+          nodes: { up: { type: upscale, x: 0, y: 60, width: 180 }, sharp: { type: sharpen, x: 220, y: 60, width: 180 } },
+          links: [['up', 'IMAGE', 'sharp', 'image']],
+        },
+      }),
+      badges: {},
+      overlay: { selection: new Set(['up', 'sharp']) },
+      toolbox: toolboxRow([toolboxButton({ id: 'core.extractSubgraph', icon: 'subgraph', label: 'Create subgraph' })]),
     },
   ]
 }

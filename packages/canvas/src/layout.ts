@@ -113,7 +113,10 @@ export interface DynamicAnnotations {
 
 export interface PortSlot extends DynamicAnnotations {
   readonly portId: string
+  /** The drawn label. */
   readonly label: string
+  /** The full name, when the drawn label is shorter: a row inside its member's box. */
+  readonly name?: string
   readonly type: TypeExpr
   readonly optional?: boolean
   readonly socketless?: true
@@ -174,7 +177,10 @@ export type LayoutRow =
        * Renderers/editors read and write THIS, never inputId.
        */
       readonly valueKey: string
+      /** The drawn label. */
       readonly label: string
+      /** The full name, when the drawn label is shorter: a row inside its member's box. */
+      readonly name?: string
       readonly type: TypeExpr
       readonly viewId: string
       readonly rows: number
@@ -997,6 +1003,14 @@ export interface LayoutOptions {
 
 const displayLabel = (spec: InputSpec | OutputSpec): string => spec.displayName ?? spec.id
 
+/**
+ * The label a visible row draws, and its full name where that is longer: a
+ * row inside its member's box draws only its own label, since the box names
+ * the member; tooltips and the problem box keep the full name.
+ */
+const rowLabels = (item: ElaboratedInput | ElaboratedOutput): { label: string; name?: string } =>
+  item.ownLabel !== undefined ? { label: item.ownLabel, name: displayLabel(item.spec) } : { label: displayLabel(item.spec) }
+
 /** Pick just the DynamicAnnotations fields (pins copy them from their slot/row). */
 const annotationsOf = (a: DynamicAnnotations): DynamicAnnotations => ({
   address: a.address,
@@ -1332,7 +1346,7 @@ export function layoutNode(
         boxes: chain,
         slot: {
           portId: spec.id,
-          label: displayLabel(spec),
+          ...rowLabels(item),
           type: spec.type,
           index: outputIndex++,
           ...(spec.optional ? { maybeAbsent: true as const } : {}),
@@ -1382,7 +1396,7 @@ export function layoutNode(
         boxes: chain,
         input: {
           portId: spec.id,
-          label: displayLabel(spec),
+          ...rowLabels(item),
           type: spec.type,
           ...(spec.socketless ? { socketless: true as const } : {}),
           ...(spec.optional ? { optional: true } : {}),
@@ -1422,7 +1436,7 @@ export function layoutNode(
       widget: {
         inputId: spec.id,
         valueKey,
-        label: displayLabel(spec),
+        ...rowLabels(item),
         type: spec.type,
         viewId: w.viewId,
         rows: w.rows,
@@ -1751,8 +1765,8 @@ export function layoutNode(
           // The grip's place on the row is set once the node's width is known.
           ...(row.reorder && !row.output ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
         }, depth)
-        if (row.input && !row.input.socketless) pins.push({ ...annotationsOf(row.input), portId: row.input.portId, label: row.input.label, direction: 'in', y: y + height / 2, type: row.input.type, ...(row.input.optional ? { optional: true as const } : {}) })
-        if (row.output) pins.push({ ...annotationsOf(row.output), portId: row.output.portId, label: row.output.label, direction: 'out', y: y + height / 2, type: row.output.type, ...(row.output.maybeAbsent ? { maybeAbsent: true as const } : {}) })
+        if (row.input && !row.input.socketless) pins.push({ ...annotationsOf(row.input), portId: row.input.portId, label: row.input.name ?? row.input.label, direction: 'in', y: y + height / 2, type: row.input.type, ...(row.input.optional ? { optional: true as const } : {}) })
+        if (row.output) pins.push({ ...annotationsOf(row.output), portId: row.output.portId, label: row.output.name ?? row.output.label, direction: 'out', y: y + height / 2, type: row.output.type, ...(row.output.maybeAbsent ? { maybeAbsent: true as const } : {}) })
         y += height
       } else {
         const w = row.widget!
@@ -1777,14 +1791,14 @@ export function layoutNode(
         // Socketless controls keep their editor and outgoing value tap; an
         // editor row has no pin.
         if (!w.socketless && w.editor !== true && w.kept === undefined) pins.push({
-          ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2, type: w.type,
+          ...annotationsOf(w), portId: w.inputId, label: w.name ?? w.label, direction: 'in', y: y + tokens.rowHeight / 2, type: w.type,
           ...(w.optional ? { optional: true as const } : {}),
           widgetBacked: true as const,
         })
         // A widget can also produce its effective value. The duplicate
         // right-edge anchor deliberately shares the input's flattened id.
         if (w.editor !== true) pins.push({
-          ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
+          ...annotationsOf(w), portId: w.inputId, label: w.name ?? w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
         })
         lineBottoms.set(line, Math.max(lineBottoms.get(line) ?? y, y + height))
         if (line.at(-1) === row) y = lineBottoms.get(line)!
