@@ -207,6 +207,95 @@ it.each([false, true])('fully translates primary and helper chains inside a subg
   expect(checkDocument(document)).toEqual([])
 })
 
+describe('a rule that names the inputs of a node nothing describes', () => {
+  const int = { kind: 'concrete', name: 'INT' } as const
+  const value = { kind: 'variable', templateId: 'value' } as const
+  const switchSchema: NodeSchema = {
+    type: 'test.switch', displayName: 'Switch', category: 'test', source: 'v3', isOutputNode: false,
+    body: [
+      { kind: 'input', id: 'pick', type: { kind: 'union', names: ['BOOLEAN', 'STRING'] }, optional: true,
+        widget: { widgetType: 'STRING', options: {} } },
+      { kind: 'group', id: 'branch', value: { kind: 'input', id: 'value', type: value, optional: true },
+        keys: { kind: 'named', names: ['b1', 'b2'] }, grows: 'link', minMembers: 0 },
+      { kind: 'output', id: 'result', type: value },
+    ],
+  }
+  const branches = { branch: { kind: 'members', members: [
+    { suffix: 'b1', inputs: { value: { kind: 'copy', input: 'on_false' } } },
+    { suffix: 'b2', inputs: { value: { kind: 'copy', input: 'on_true' } } },
+  ] } } as const
+  const translation: ComfyTranslation = { schema: switchSchema, rule: {
+    from: 'ComfySwitchNode',
+    migration: { historicalInputs: ['switch', 'on_false', 'on_true'] },
+    cases: [
+      { when: { kind: 'inputConnected', input: 'switch' }, to: 'test.switch', inputs: { pick: { kind: 'link', input: 'switch' } }, inputFamilies: branches, outputs: { result: 'output' } },
+      { when: { kind: 'valueEquals', input: 'switch', value: true }, to: 'test.switch', inputs: { pick: { kind: 'constant', value: 'b2' } }, inputFamilies: branches, outputs: { result: 'output' } },
+      { to: 'test.switch', inputs: { pick: { kind: 'constant', value: 'b1' } }, inputFamilies: branches, outputs: { result: 'output' } },
+    ],
+  } }
+  const installed = new Map([
+    sdSchema('Src', 'Src', [sdOutput('value', 'INT')]),
+    sdSchema('BoolSrc', 'BoolSrc', [sdOutput('value', 'BOOLEAN')]),
+    sdSchema('Sink', 'Sink', [sdInput('value', 'INT')], true),
+    switchSchema,
+  ].map((schema) => [schema.type, schema]))
+  /** The switch input is first when the saved node lists it; old saves list only converted widgets. */
+  const imported = (switchInput: LgIn | undefined, widgets: unknown[], wired = false) => {
+    const offset = switchInput === undefined ? 0 : 1
+    return importLitegraph(workflow([
+      lgNode(1, 'Src', { outputs: [{ name: 'INT', type: 'INT', links: [1] }] }),
+      lgNode(2, 'Src', { outputs: [{ name: 'INT', type: 'INT', links: [2] }] }),
+      lgNode(3, 'BoolSrc', { outputs: [{ name: 'BOOLEAN', type: 'BOOLEAN', links: wired ? [3] : [] }] }),
+      lgNode(4, 'ComfySwitchNode', {
+        inputs: [
+          ...(switchInput === undefined ? [] : [{ ...switchInput, link: wired ? 3 : null }]),
+          { name: 'on_false', type: '*', link: 1 }, { name: 'on_true', type: '*', link: 2 },
+        ],
+        outputs: [{ name: 'output', type: '*', links: [4] }],
+        widgets_values: widgets,
+      }),
+      lgNode(5, 'Sink', { inputs: [{ name: 'value', type: 'INT', link: 4 }] }),
+    ], [
+      lgLink(1, 1, 0, 4, offset), lgLink(2, 2, 0, 4, offset + 1), lgLink(4, 4, 0, 5, 0),
+      ...(wired ? [lgLink(3, 3, 0, 4, 0)] : []),
+    ]), (type) => installed.get(type), undefined, [translation])
+  }
+  const marked: LgIn = { name: 'switch', type: 'BOOLEAN', widget: { name: 'switch' }, link: null }
+  const wiresOf = (document: NonNullable<ReturnType<typeof importLitegraph>['document']>) => Object.values(document.graphs.g0!.links).map((link) => [link.from, link.to])
+
+  it.each([[true, 'b2'], [false, 'b1']])('opens a stored switch of %s as the Switch picking %s', (stored, pick) => {
+    const { document, diagnostics } = imported(marked, [stored])
+    expect(errorsOf(diagnostics)).toEqual([])
+    expect(document!.graphs.g0!.nodes['n4']).toMatchObject({ type: 'test.switch', values: { pick } })
+    expect(wiresOf(document!)).toEqual(expect.arrayContaining([
+      [{ node: 'n1', port: 'value' }, { node: 'n4', port: 'branch.b1' }],
+      [{ node: 'n2', port: 'value' }, { node: 'n4', port: 'branch.b2' }],
+      [{ node: 'n4', port: 'result' }, { node: 'n5', port: 'value' }],
+    ]))
+  })
+
+  it('opens a wired switch with the wire on Pick and every other wire in place', () => {
+    const { document, diagnostics } = imported(marked, [false], true)
+    expect(errorsOf(diagnostics)).toEqual([])
+    expect(document!.graphs.g0!.nodes['n4']!.type).toBe('test.switch')
+    expect(wiresOf(document!)).toEqual(expect.arrayContaining([
+      [{ node: 'n3', port: 'value' }, { node: 'n4', port: 'pick' }],
+      [{ node: 'n1', port: 'value' }, { node: 'n4', port: 'branch.b1' }],
+      [{ node: 'n2', port: 'value' }, { node: 'n4', port: 'branch.b2' }],
+      [{ node: 'n4', port: 'result' }, { node: 'n5', port: 'value' }],
+    ]))
+    expect(Object.keys(document!.graphs.g0!.links)).toHaveLength(4)
+  })
+
+  it('keeps a node whose saved inputs do not say which holds its stored value', () => {
+    const { document, diagnostics } = imported(undefined, [true])
+    expect(document!.graphs.g0!.nodes['n4']!.type).toBe('ComfySwitchNode')
+    expect(diagnostics).toContainEqual(expect.objectContaining({
+      code: 'import.translation.unmarkedWidgets', message: expect.stringContaining('n4'),
+    }))
+  })
+})
+
 it.each(['type-cycle', 'recursive-helper', 'same-type'])('keeps %s translations finite and editable', (shape) => {
   const schema = (type: string): NodeSchema => ({
     type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, body: [],
