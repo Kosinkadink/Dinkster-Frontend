@@ -181,8 +181,10 @@ import {
   type CanvasSemanticSource,
   type CanvasSemanticTarget,
 } from './CanvasSemanticNavigator.js'
-import { AudioRecordSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, type EditorSpaceItem } from './InNodeEditorSpaces.js'
+import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, type EditorSpaceItem } from './InNodeEditorSpaces.js'
 import { Load3dSpace } from './InNodeLoad3dSpace.js'
+import { ImageCompareSpace } from './InNodeImageCompareSpace.js'
+import { imageCompareFrames } from './image-compare-frames.js'
 import { openLoad3dSource } from './load3d-source.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
@@ -1608,7 +1610,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const canvas = canvasClientRect()
     return boundedVisibleOverlayKeys(
       // The editors whose controls the app lays over their space.
-      editorSpaces().filter((item) => ['core.audioRecord', 'core.curve', 'core.webcam', 'core.load3d'].includes(item.row.viewId)),
+      editorSpaces().filter((item) => ['core.audioRecord', 'core.curve', 'core.webcam', 'core.load3d', 'core.imageCompare', 'core.cameraAngle'].includes(item.row.viewId)),
       (item) => item.key,
       (item) => mediaScreenRect(item.node, item.space, viewport, canvas) !== undefined,
       (item) => selectedNodeIds().has(item.nodeId),
@@ -6747,6 +6749,37 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             },
           }
         }
+        const compare = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.imageCompare') return undefined
+          executions()
+          return imageCompareFrames(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts: at.current.field.parts })
+        }
+        const cameraAngle = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.cameraAngle') return undefined
+          const parts = at.current.field.parts
+          const node = at.tab.store.doc.graphs[at.target.graphId]?.nodes[at.target.nodeId]
+          const schema = node === undefined ? undefined : props.app.registryForTab(at.tab)?.resolve(node.type)
+          const defaults = schema === undefined ? {} : defaultValuesOf(schema)
+          // Each angle is the row the widget writes under that part; a wired one shows what its wire brought.
+          const row = (part: string): string | undefined => parts !== undefined && Object.hasOwn(parts.writes, part) ? parts.writes[part] : undefined
+          const fields = Object.fromEntries(CAMERA_ANGLE_PARTS.map((part) => {
+            const wired = at.current.wiredParts.has(part)
+            const written = row(part)
+            const value = wired ? at.current.carriedParts[part] : written === undefined ? undefined : node?.values[written] ?? defaults[written]
+            return [part, { value: typeof value === 'number' ? value : undefined, wired }]
+          })) as Parameters<typeof CameraAngleSpace>[0]['fields']
+          return {
+            fields,
+            commit: (part: string, value: number) => {
+              const inputId = row(part)
+              if (inputId === undefined) return
+              void props.app.dispatchTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, at.current.field.materialize,
+                { command: 'node.setValue', params: { graphId: at.target.graphId, nodeId: at.target.nodeId, inputId, value } }))
+            },
+          }
+        }
         return (
           <Show when={item() !== undefined && projected() !== undefined}>
             <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl}>
@@ -6770,6 +6803,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   openSections={item()?.row.openSections ?? []}
                   cameraWired={item()?.wiredParts.has('camera_info') === true}
                   placementWired={item()?.wiredParts.has('model_3d_info') === true} />}
+              </Show>
+              <Show when={cameraAngle()}>
+                {(at) => <CameraAngleSpace fields={at().fields} commit={at().commit} pictureHeight={item()?.row.picture?.height ?? 0} />}
+              </Show>
+              <Show when={compare() !== undefined}>
+                <ImageCompareSpace frames={compare() ?? { image_a: [], image_b: [] }} pictureHeight={item()?.row.picture?.height ?? 0} />
               </Show>
             </NodeEditorSpaceOverlay>
           </Show>

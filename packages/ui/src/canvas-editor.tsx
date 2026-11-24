@@ -680,3 +680,105 @@ export function CanvasCurvePlot(props: {
     </svg>
   )
 }
+
+/** One angle of a camera angle picture: its degrees when known, and whether a drag may change it. */
+export interface CanvasAngle {
+  readonly degrees: number | undefined
+  readonly fixed: boolean
+}
+
+export type CanvasAnglePart = 'horizontal' | 'vertical'
+
+/** The lowest and highest elevation the side view draws and a drag reaches. */
+const CANVAS_ANGLE_ELEVATION = { min: -30, max: 60 } as const
+
+const ANGLE_ORBIT = { x: 80, y: 75, radius: 55 }
+const ANGLE_SIDE = { x: 172, y: 92, radius: 86 }
+
+/**
+ * A camera angle seen two ways: the orbit from above, whose dot on the ring
+ * is the horizontal angle (0 nearest the viewer, 90 at the right), and the
+ * elevation from the side, whose dot on the arc is the vertical angle.
+ * Pressing either half moves its dot to the pointer and dragging follows it,
+ * in whole degrees; `onMoveEnd` follows when the drag ends. A fixed angle is
+ * drawn hollow and does not move; an angle that is not known has no dot.
+ */
+export function CanvasAnglePicture(props: {
+  horizontal: CanvasAngle
+  vertical: CanvasAngle
+  label?: string
+  onMove?: (part: CanvasAnglePart, degrees: number) => void
+  onMoveEnd?: () => void
+}) {
+  let svgElement: SVGSVGElement | undefined
+  let drag: { readonly pointerId: number; readonly part: CanvasAnglePart } | undefined
+  const radians = (degrees: number) => (degrees * Math.PI) / 180
+  const orbitAt = (degrees: number) => ({
+    x: ANGLE_ORBIT.x + Math.sin(radians(degrees)) * ANGLE_ORBIT.radius,
+    y: ANGLE_ORBIT.y + Math.cos(radians(degrees)) * ANGLE_ORBIT.radius,
+  })
+  const sideAt = (degrees: number) => ({
+    x: ANGLE_SIDE.x + Math.cos(radians(degrees)) * ANGLE_SIDE.radius,
+    y: ANGLE_SIDE.y - Math.sin(radians(degrees)) * ANGLE_SIDE.radius,
+  })
+  const movable = (part: CanvasAnglePart) => props.onMove !== undefined && !props[part].fixed && props[part].degrees !== undefined
+  const follow = (event: PointerEvent, part: CanvasAnglePart) => {
+    const matrix = svgElement?.getScreenCTM()
+    if (!matrix) return
+    const at = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
+    if (part === 'horizontal') {
+      const degrees = Math.round((Math.atan2(at.x - ANGLE_ORBIT.x, at.y - ANGLE_ORBIT.y) * 180) / Math.PI)
+      props.onMove?.(part, ((degrees % 360) + 360) % 360)
+    } else {
+      const degrees = Math.round((Math.atan2(ANGLE_SIDE.y - at.y, at.x - ANGLE_SIDE.x) * 180) / Math.PI)
+      props.onMove?.(part, Math.max(CANVAS_ANGLE_ELEVATION.min, Math.min(CANVAS_ANGLE_ELEVATION.max, degrees)))
+    }
+  }
+  const press = (event: PointerEvent) => {
+    if (event.button !== 0 || !svgElement) return
+    const box = svgElement.getBoundingClientRect()
+    const matrix = svgElement.getScreenCTM()
+    if (!matrix || box.width <= 0) return
+    const at = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
+    // The left half is the orbit, the right half the elevation.
+    const part: CanvasAnglePart = at.x < (ANGLE_ORBIT.x + ANGLE_ORBIT.radius + ANGLE_SIDE.x) / 2 ? 'horizontal' : 'vertical'
+    if (!movable(part)) return
+    event.preventDefault()
+    drag = { pointerId: event.pointerId, part }
+    svgElement.setPointerCapture(event.pointerId)
+    follow(event, part)
+  }
+  const track = (event: PointerEvent) => {
+    if (drag?.pointerId === event.pointerId) follow(event, drag.part)
+  }
+  const release = (event: PointerEvent) => {
+    if (drag?.pointerId !== event.pointerId) return
+    drag = undefined
+    props.onMoveEnd?.()
+  }
+  const orbitDot = () => orbitAt(props.horizontal.degrees ?? 0)
+  const sideDot = () => sideAt(props.vertical.degrees ?? 0)
+  const low = sideAt(CANVAS_ANGLE_ELEVATION.min)
+  const high = sideAt(CANVAS_ANGLE_ELEVATION.max)
+  return (
+    <svg ref={svgElement} viewBox="0 0 300 150" class="dinkster-canvas-angle" role="img" aria-label={props.label}
+      data-movable={movable('horizontal') || movable('vertical') ? 'true' : 'false'}
+      onPointerDown={press} onPointerMove={track} onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release}>
+      <circle class="dinkster-canvas-angle-line" cx={ANGLE_ORBIT.x} cy={ANGLE_ORBIT.y} r={ANGLE_ORBIT.radius} />
+      <rect class="dinkster-canvas-angle-subject" x={ANGLE_ORBIT.x - 7} y={ANGLE_ORBIT.y - 7} width="14" height="14" />
+      <line class="dinkster-canvas-angle-line" x1={ANGLE_SIDE.x} y1={ANGLE_SIDE.y} x2={ANGLE_SIDE.x + ANGLE_SIDE.radius + 12} y2={ANGLE_SIDE.y} />
+      <path class="dinkster-canvas-angle-line" d={`M ${low.x} ${low.y} A ${ANGLE_SIDE.radius} ${ANGLE_SIDE.radius} 0 0 0 ${high.x} ${high.y}`} />
+      <rect class="dinkster-canvas-angle-subject" x={ANGLE_SIDE.x - 7} y={ANGLE_SIDE.y - 14} width="14" height="14" />
+      <Show when={props.horizontal.degrees !== undefined}>
+        <line class="dinkster-canvas-angle-sight" x1={ANGLE_ORBIT.x} y1={ANGLE_ORBIT.y} x2={orbitDot().x} y2={orbitDot().y} />
+        <circle class="dinkster-canvas-angle-dot" data-part="horizontal" data-fixed={props.horizontal.fixed ? 'true' : 'false'}
+          cx={orbitDot().x} cy={orbitDot().y} r="6" />
+      </Show>
+      <Show when={props.vertical.degrees !== undefined}>
+        <line class="dinkster-canvas-angle-sight" x1={ANGLE_SIDE.x} y1={ANGLE_SIDE.y - 7} x2={sideDot().x} y2={sideDot().y} />
+        <circle class="dinkster-canvas-angle-dot" data-part="vertical" data-fixed={props.vertical.fixed ? 'true' : 'false'}
+          cx={sideDot().x} cy={sideDot().y} r="6" />
+      </Show>
+    </svg>
+  )
+}
