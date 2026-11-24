@@ -373,12 +373,6 @@ export interface PinLayout extends DynamicAnnotations {
   readonly stacked?: true
   /** Pin belongs to a minimized node and is represented by an aggregate side proxy. */
   readonly minimized?: true
-  /**
-   * A port-anchored solver diagnostic points here (e.g. a stale DynamicSlot
-   * specialization). Set during scene build, never by layout itself; the
-   * renderer paints a warning ring so the advisory is actionable at the pin.
-   */
-  readonly warn?: true
 }
 
 /** One box's outline, node-local. */
