@@ -550,6 +550,7 @@
 .dinkster-canvas-examples { display: flex; flex-wrap: wrap; align-items: start; gap: var(--dinkster-space-24); contain: inline-size; }
 /* As wide as its picture, so a long caption wraps under it; wider than the column, it scrolls inside itself, never the page. */
 .dinkster-canvas-example { display: grid; grid-template-columns: min-content; gap: var(--dinkster-space-8); width: min-content; max-width: 100%; margin: 0; overflow-x: auto; }
+.dinkster-canvas-example-side.dinkster-canvas-field-side { position: static; }
 .dinkster-canvas-comparison { display: grid; gap: var(--dinkster-space-8); }
 .dinkster-canvas-comparison > h3 { margin: 0; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-body-size); font-weight: var(--dinkster-weight-bold); }
 .dinkster-canvas-example-stage { position: relative; overflow: hidden; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); }
