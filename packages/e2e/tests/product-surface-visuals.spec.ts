@@ -463,9 +463,8 @@ test('Boundary is hidden at root and shows definition empty states at desktop an
     await page.mouse.dblclick(mark.x, mark.y)
     await openRail(page, 'Boundary')
     await expect(page.getByTestId('boundary-prompt')).toHaveCount(0)
-    await expect(page.getByTestId('boundary-empty')).toHaveCount(2)
-    await expect(page.getByTestId('boundary-empty').first()).toContainText('No workflow inputs are exposed.')
-    await expect(page.getByTestId('boundary-empty').last()).toContainText('No workflow outputs are exposed.')
+    await expect(page.getByTestId('boundary-empty')).toHaveCount(1)
+    await expect(page.getByTestId('boundary-empty')).toContainText('Nothing is on the subgraph node yet.')
     await screenshot(page, `boundary-empty-sections-${width}`)
   }
 })

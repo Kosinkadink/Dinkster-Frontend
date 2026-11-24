@@ -2831,8 +2831,14 @@ export class AppState {
    */
   readonly widgetFocus: Signal<WidgetFocus | undefined> = createSignal<WidgetFocus | undefined>(undefined)
   /**
+<<<<<<< ours
    * The boundary input the Boundary panel shows selected, set by a click on
    * a field's subgraph mark. Session state, never serialized.
+=======
+   * The boundary row selected in the Boundary panel: one item of the
+   * definition `graphId` in tab `tabId`. Session state; the panel shows it
+   * only while the same tab and definition are in view.
+>>>>>>> theirs
    */
   readonly boundaryFocus: Signal<{ readonly tabId: string; readonly graphId: string; readonly item: string } | undefined> =
     createSignal<{ readonly tabId: string; readonly graphId: string; readonly item: string } | undefined>(undefined)

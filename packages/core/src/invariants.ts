@@ -768,6 +768,12 @@ function checkGraphDef(doc: WorkflowDocument, defId: string, def: GraphDef, diag
             !(side === 'inputs' && item.binds.kind === 'port' && item.promoted === true)) {
           diags.push(diag('error', 'invariant', 'doc.boundary.wireHidden', where(`boundary '${item.id}' hides its wire but is not shown as a field on the subgraph node`)))
         }
+        if (item.limits !== undefined && !(side === 'inputs' && item.promoted === true)) {
+          diags.push(diag('error', 'invariant', 'doc.boundary.limits', where(`boundary '${item.id}' has limits but is not a field on the subgraph node`)))
+        }
+        if (item.limits?.min !== undefined && item.limits.max !== undefined && item.limits.min > item.limits.max) {
+          diags.push(diag('error', 'invariant', 'doc.boundary.limits', where(`boundary '${item.id}' has a lowest limit above its highest`)))
+        }
         for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
           if (b.kind === 'unbound') {
             if (item.alsoBinds !== undefined || item.promoted !== undefined) diags.push(diag('error', 'invariant', 'doc.boundary.unbound', where(`unattached boundary '${item.id}' cannot fan out or promote a widget`)))

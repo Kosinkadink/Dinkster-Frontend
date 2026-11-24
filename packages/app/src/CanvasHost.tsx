@@ -1502,6 +1502,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const collabTabs = useSignal(props.app.collabTabs)
   const modalPanel = useSignal(props.app.modalPanel)
   const diagnosticFocus = useSignal(props.app.diagnosticFocus)
+  const boundaryFocus = useSignal(props.app.boundaryFocus)
   const problems = useSignal(props.app.problems)
   const reviewReplacements = (): boolean => (settingsTick(), props.app.settings.get<boolean>('execution.reviewUpgrades'))
   // Scene/widget diagnostics for THIS editor instance. The app-level
@@ -3438,6 +3439,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           tooltipOwner,
         )
       },
+      onBoundaryRowSelect: (_side, itemId) => {
+        const tab = activeTab()
+        if (tab) props.app.boundaryFocus.set({ tabId: tab.id, graphId: currentGraphId(tab), item: itemId })
+      },
       onBoundaryRenameRequest: (side, itemId, screenX, screenY) => {
         const tab = activeTab()
         if (!tab || refuseFrozenEdit()) return
@@ -5097,6 +5102,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // nodes (the Nodes 2.0 above-node control strip). Host-derived like
     // badges: recomputed on selection/document changes, placed by the canvas.
     // Frozen execution views are read-only, so they grow no toolbox.
+    // The row selected in the Boundary panel, marked where it is on screen:
+    // its boundary row and every inner pin or field it goes to.
+    createEffect(() => {
+      docTick()
+      const focus = boundaryFocus()
+      const tab = activeTab()
+      const def = tab && focus?.tabId === tab.id && focus.graphId === currentGraphId(tab)
+        ? tab.store.doc.graphs[focus.graphId] : undefined
+      const find = (side: 'inputs' | 'outputs') => boundaryItems(def?.boundary, side).find((candidate) => candidate.id === focus?.item)
+      const side = find('inputs') !== undefined ? 'inputs' as const : find('outputs') !== undefined ? 'outputs' as const : undefined
+      const item = side === undefined ? undefined : find(side)
+      if (!item || !side) {
+        renderer.setBoundaryFocus(undefined)
+        return
+      }
+      const inputs: Record<string, Set<string>> = {}
+      const outputs: Record<string, Set<string>> = {}
+      for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+        if (binding.kind === 'widgetTap') (inputs[binding.node] ??= new Set()).add(binding.tap)
+        else if (binding.kind !== 'unbound' && binding.kind !== 'valueSource') {
+          ((side === 'inputs' ? inputs : outputs)[binding.node] ??= new Set()).add(binding.port)
+        }
+      }
+      renderer.setBoundaryFocus({ side, item: item.id, inputs, outputs })
+    })
     createEffect(on([selVersion, docTick], () => {
       // A hover belongs to this selection/document, not the next one.
       hoveredToolboxButtonId = undefined

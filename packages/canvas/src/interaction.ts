@@ -49,6 +49,7 @@ import {
   hasKnownLinkDropAnchorType,
   dragNumericValue,
   isIntegerWidgetValue,
+  isNumberWidget,
   numericStepConstraints,
   numericStepPrecision,
   stepNumericValue,
@@ -509,6 +510,8 @@ export interface InteractionHost {
   onValueSourceActivate?(valueSource: SceneValueSource, screenX: number, screenY: number): void
   /** Double-click a boundary pseudo-node pin/row: host opens a rename prompt. */
   onBoundaryRenameRequest?(side: 'inputs' | 'outputs', itemId: string, screenX: number, screenY: number): void
+  /** Click (no drag) on a boundary pseudo-node row's name: host selects that boundary item. */
+  onBoundaryRowSelect?(side: 'inputs' | 'outputs', itemId: string): void
   /**
    * Click on a value source's spec badge (declared/derived/conflict details).
    * Claims the pointerdown like node badges do; `rect` anchors a popover.
@@ -828,6 +831,8 @@ type Gesture =
       readonly side: 'inputs' | 'outputs'
       readonly startWX: number
       readonly startWY: number
+      /** The row pressed, when the press began on a row's name. */
+      readonly rowItem?: string
       moved: boolean
     }
 
@@ -1926,7 +1931,7 @@ export class InteractionController {
         return
       case 'boundary-pin':
         if (hit.row && !hit.regionIndex) {
-          this.gesture = { kind: 'boundary-move', side: hit.bnode.side, startWX: w.x, startWY: w.y, moved: false }
+          this.gesture = { kind: 'boundary-move', side: hit.bnode.side, startWX: w.x, startWY: w.y, rowItem: hit.item, moved: false }
           return
         }
         // Boundary pins are link-drag sources: existing items fan out
@@ -4006,6 +4011,7 @@ export class InteractionController {
         return
       }
       case 'boundary-move': {
+        if (!g.moved && g.rowItem !== undefined) this.host.onBoundaryRowSelect?.(g.side, g.rowItem)
         if (g.moved) {
           const bnode = scene.boundaryNodes.find((b) => b.side === g.side)
           if (bnode) {

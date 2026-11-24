@@ -1273,6 +1273,10 @@ export const isComboWidgetInput = (spec: InputSpec): boolean =>
 export const isAssetWidgetInput = (spec: Pick<InputSpec, 'widget'>): boolean =>
   spec.widget?.widgetType === 'ASSET'
 
+/** A widget edited as a number field: INT or FLOAT. */
+export const isNumberWidget = (widget: Pick<WidgetSpec, 'widgetType'> | undefined): boolean =>
+  widget?.widgetType === 'INT' || widget?.widgetType === 'FLOAT'
+
 export const isImageAssetInput = (spec: InputSpec): boolean => {
   const type = canonicalTypeIdOf(spec.type)
   return spec.hidden !== true && isAssetWidgetInput(spec) &&

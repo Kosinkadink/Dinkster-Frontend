@@ -331,6 +331,9 @@ export const canvasPaintTokens = {
     labelPinGap: canvasSemanticTokens.space[4],
     /** Space between the panel title and the quieter text naming whose values its fields carry. */
     subtitleGap: canvasSemanticTokens.space[4],
+    /** The row of the boundary item selected in the Boundary panel. */
+    focusInset: 2,
+    focusStroke: 1.5,
   },
   valueSource: {
     heightPadding: 8,
