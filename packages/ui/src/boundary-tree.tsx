@@ -130,6 +130,9 @@ const findEntry = (
   return undefined
 }
 
+/** Pixels a press moves before it becomes a drag. */
+const DRAG_THRESHOLD = 4
+
 function Dot(props: { color: string | undefined }) {
   return (
     <svg class="boundary-tree-dot" viewBox="0 0 8 8" aria-hidden="true">
@@ -149,11 +152,40 @@ export function BoundaryTree(props: {
   readonly selected?: string | undefined
   readonly drag?: BoundaryTreeDrag | undefined
   readonly onSelect?: ((id: string) => void) | undefined
+  /** A press on a row's body that moves past the drag threshold: the row with this id is picked up. */
+  readonly onDragStart?: ((id: string) => void) | undefined
   readonly onToggle?: ((sectionId: string) => void) | undefined
   readonly strings?: Partial<BoundaryTreeStrings> | undefined
 }) {
   const strings = mergeProps(defaultBoundaryTreeStrings, () => props.strings)
-  const select = (id: string) => () => props.onSelect?.(id)
+  // A press that moves past the threshold drags; one that does not selects.
+  let pressDragged = false
+  const select = (id: string) => () => {
+    if (pressDragged) {
+      pressDragged = false
+      return
+    }
+    props.onSelect?.(id)
+  }
+  const press = (id: string) => (event: PointerEvent) => {
+    if (event.button !== 0) return
+    if ((event.target as Element).closest('.boundary-tree-chevron, .boundary-tree-tab, a, button, input')) return
+    event.stopPropagation()
+    pressDragged = false
+    const start = { x: event.clientX, y: event.clientY }
+    const move = (moved: PointerEvent) => {
+      if (Math.hypot(moved.clientX - start.x, moved.clientY - start.y) < DRAG_THRESHOLD) return
+      pressDragged = true
+      stop()
+      props.onDragStart?.(id)
+    }
+    const stop = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+  }
   const dragged = () =>
     props.drag === undefined
       ? undefined
@@ -204,6 +236,7 @@ export function BoundaryTree(props: {
       aria-selected={props.selected === rowProps.row.id}
       data-side={rowProps.row.side}
       data-inert={rowProps.row.problem ? '' : undefined}
+      onPointerDown={press(rowProps.row.id)}
       onClick={select(rowProps.row.id)}
     >
       <Show
@@ -250,11 +283,10 @@ export function BoundaryTree(props: {
         aria-level={lineProps.level}
         aria-selected={props.selected === lineProps.line.id}
         data-pocket={pocket() ? '' : undefined}
+        onPointerDown={press(lineProps.line.id)}
+        onClick={select(lineProps.line.id)}
       >
-        <span
-          class="boundary-tree-line-grip"
-          onClick={select(lineProps.line.id)}
-        >
+        <span class="boundary-tree-line-grip">
           <Grip />
         </span>
         <For each={lineProps.line.rows.filter((row) => !isDragged(row.id))}>
@@ -265,7 +297,11 @@ export function BoundaryTree(props: {
               aria-level={lineProps.level + 1}
               aria-selected={props.selected === row.id}
               data-inert={row.problem ? '' : undefined}
-              onClick={select(row.id)}
+              onPointerDown={press(row.id)}
+              onClick={(event) => {
+                event.stopPropagation()
+                select(row.id)()
+              }}
             >
               <Dot color={row.color} />
               <span class="boundary-tree-label" title={row.label}>
@@ -304,6 +340,7 @@ export function BoundaryTree(props: {
         class="boundary-tree-row boundary-tree-header"
         data-side={constructProps.construct.side}
         aria-selected={props.selected === constructProps.construct.id}
+        onPointerDown={press(constructProps.construct.id)}
         onClick={select(constructProps.construct.id)}
       >
         <Show when={constructProps.construct.side === 'input'}>
@@ -378,6 +415,7 @@ export function BoundaryTree(props: {
             class="boundary-tree-row boundary-tree-header"
             data-side="input"
             aria-selected={props.selected === sectionProps.section.id}
+            onPointerDown={press(sectionProps.section.id)}
             onClick={select(sectionProps.section.id)}
           >
             <Grip />

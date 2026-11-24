@@ -9,6 +9,7 @@ import {
   ProductLink,
   ProductTextInput,
   type BoundaryTreeDrag,
+  type BoundaryTreeDrop,
   type BoundaryTreeEntry,
   type BoundaryTreeRow,
 } from '../src/index.js'
@@ -134,6 +135,24 @@ function Setting(props: { label: string; children: JSX.Element }) {
   )
 }
 
+/** The slot where an entry sits now; a field of a line sits just after its line. */
+function placeOf(
+  entries: readonly BoundaryTreeEntry[],
+  id: string,
+  section?: string,
+): BoundaryTreeDrop | undefined {
+  for (const [index, entry] of entries.entries()) {
+    if (entry.id === id) return { kind: 'slot', ...(section !== undefined ? { section } : {}), index }
+    if (entry.kind === 'line' && entry.rows.some((row) => row.id === id))
+      return { kind: 'slot', ...(section !== undefined ? { section } : {}), index: index + 1 }
+    if (entry.kind === 'section') {
+      const found = placeOf(entry.rows, id, entry.id)
+      if (found !== undefined) return found
+    }
+  }
+  return undefined
+}
+
 function Panel(props: {
   title: string
   uses: string
@@ -146,6 +165,15 @@ function Panel(props: {
 }) {
   const [entries, setEntries] = createSignal(props.entries)
   const [selected, setSelected] = createSignal(props.selected)
+  // A row picked up by its body lifts into an empty slot at its place until
+  // the press ends; the product panel moves the slot with the pointer.
+  const [lifted, setLifted] = createSignal<BoundaryTreeDrag>()
+  const pickUp = (id: string) => {
+    const drop = placeOf(entries(), id)
+    if (drop === undefined) return
+    setLifted({ id, drop })
+    window.addEventListener('pointerup', () => setLifted(undefined), { once: true })
+  }
   const toggle = (id: string) => {
     const flip = (
       list: readonly BoundaryTreeEntry[],
@@ -170,8 +198,9 @@ function Panel(props: {
         <BoundaryTree
           entries={entries()}
           selected={selected()}
-          drag={props.drag}
+          drag={lifted() ?? props.drag}
           onSelect={setSelected}
+          onDragStart={pickUp}
           onToggle={toggle}
         />
         {props.children}
