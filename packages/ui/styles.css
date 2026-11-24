@@ -266,6 +266,12 @@
 .dinkster-menu-anchor { position: relative; }
 .dinkster-menu-trigger { user-select: none; }
 .dinkster-menu-item[aria-checked='false'] > .dinkster-icon { visibility: hidden; }
+.dinkster-attention { display: inline-flex; flex: none; align-items: center; justify-content: center; box-sizing: border-box; min-width: var(--dinkster-space-16); height: var(--dinkster-space-16); padding-inline: var(--dinkster-space-4); border: var(--dinkster-border-width) solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-surface-raised); color: var(--dinkster-text-primary); font-size: var(--dinkster-type-metadata-size); font-weight: var(--dinkster-weight-bold); line-height: 1; }
+.dinkster-attention[data-tone='info'] { border-color: var(--dinkster-info-border); background: var(--dinkster-info-background); color: var(--dinkster-info-foreground); }
+.dinkster-attention[data-tone='warning'] { border-color: var(--dinkster-warning-border); background: var(--dinkster-warning-background); color: var(--dinkster-warning-foreground); }
+.dinkster-attention[data-tone='problem'] { border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-background); color: var(--dinkster-danger-foreground); }
+.dinkster-menu-trigger { position: relative; }
+.dinkster-menu-trigger > .dinkster-attention { position: absolute; top: calc(-1 * var(--dinkster-space-4)); right: calc(-1 * var(--dinkster-space-4)); pointer-events: none; }
 .dinkster-menu-trigger[data-account] { padding-inline: var(--dinkster-space-8); border-color: transparent; background: var(--dinkster-surface-raised); }
 .dinkster-avatar { display: inline-grid; place-items: center; flex: none; width: var(--dinkster-space-24); height: var(--dinkster-space-24); border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-surface-canvas); color: var(--dinkster-text-primary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); font-weight: var(--dinkster-weight-bold); }
 .dinkster-avatar::before { content: attr(data-initial); }
