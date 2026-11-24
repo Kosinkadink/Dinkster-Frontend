@@ -90,7 +90,7 @@ import {
 import { solveGraphTypes } from '../schema/solve.js'
 import { constructsOf } from '../schema/body.js'
 import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
-import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
+import { assetTypeId, canonicalTypeIdOf, effectiveAbsentPolicy, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
@@ -564,8 +564,9 @@ function compileImpl(
    * resolution returns 'muted', read right after it.
    */
   let lastMuted: string | undefined
+  const nameOf = (defId: string, node: NodeData): string => node.title ?? resolveNode(defId, node)?.displayName ?? node.id
   const markMuted = (defId: string, node: NodeData): 'muted' => {
-    lastMuted = node.title ?? resolveNode(defId, node)?.displayName ?? node.id
+    lastMuted = nameOf(defId, node)
     return 'muted'
   }
 
@@ -2216,13 +2217,14 @@ function compileImpl(
       connections.push({ from: link.from, to: link.to, what: link.what, ...(link.delivery ? { delivery: link.delivery } : {}) })
     }
     /**
-     * A wire whose source is a muted node's output gives nothing: an optional
-     * input is sent $absent when the server takes it. A required input, and
-     * every input on a server without it, is left out as before, with the
-     * warning: the input then sends its field's own value or refuses the run.
+     * A wire whose source is a muted node's output gives nothing: the input is
+     * sent $absent when the server takes it, and its absence policy decides
+     * (a required input skips its node). On a server without it the input is
+     * left out as before, with the warning: it then sends its field's own
+     * value or refuses the run.
      */
     const givesNothingFromMuted = (dst: ResolvedNodeInput, muted: string, what: string, defId: string): void => {
-      const receiver = emitAbsentInputs && dst.input.spec.optional ? flat.get(dst.runtimeId) : undefined
+      const receiver = emitAbsentInputs ? flat.get(dst.runtimeId) : undefined
       if (receiver === undefined) {
         diags.push(diag('warning', 'compile', 'compile.link.dropped', `${what} in graph '${defId}': connected node is muted`))
         return
@@ -2506,6 +2508,8 @@ function compileImpl(
       .sort((a, b) => a.childPath.length - b.childPath.length)[0]
     return outer?.runtimeId ?? runtimeId
   }
+  /** The nodes this run asks for: the output nodes, or the partial targets. */
+  let requested: readonly string[] = []
   if (scope.kind === 'full') {
     // 'full' = all output nodes (artifact contract), i.e. their upstream
     // closure. Anything unreachable from an output node - a disconnected
@@ -2521,6 +2525,7 @@ function compileImpl(
         return (region ? resolveNode(region.parentDefId, fn.node) : resolve(fn.node.type))?.isOutputNode
       })
       .map((fn) => fn.runtimeId)
+    requested = roots
     const derived = liveness.derive(flat, roots.length > 0 ? roots : [...flat.keys()], wouldRunInputEdges)
     successfulDestinations = derived.successfulDestinations
     included = roots.length > 0 ? derived.included : new Set(flat.keys())
@@ -2572,6 +2577,7 @@ function compileImpl(
     included = derived.included
     inactiveExclusive = derived.inactiveExclusive
     partialTargets = targets
+    requested = nativeTargets
     if (regions.size > 0) {
       dinksterTargets = [...new Set(nativeTargets)]
     }
@@ -2923,6 +2929,39 @@ function compileImpl(
     ;(fromSource[occKey] ??= []).push(fn.runtimeId)
     const aliases = regions.get(fn.runtimeId)?.stateOutputAliases
     if (aliases !== undefined && aliases.size > 0) outputAliases[fn.runtimeId] = Object.fromEntries(aliases)
+  }
+
+  // A node the run will skip: a required input (absence policy 'skip')
+  // receives nothing, as an $absent marker or by a wire from a node that is
+  // itself skipped. Each says so before the run without blocking it; a run
+  // whose every requested node is skipped could do nothing and is not sent
+  // (a would-run query still reports its closure).
+  const skipped = new Set<string>()
+  for (let grew = true; grew;) {
+    grew = false
+    for (const fn of flat.values()) {
+      if (!included.has(fn.runtimeId) || skipped.has(fn.runtimeId)) continue
+      for (const input of fn.elab.inputs) {
+        if (input.apiName === undefined || effectiveAbsentPolicy(input.spec) !== 'skip') continue
+        const v = fn.inputs[input.spec.id]
+        const from = Array.isArray(v) && fn.linkedInputs.has(input.spec.id) ? flat.get(v[0] as string) : undefined
+        const absent = v !== undefined && isAbsentInputWire(v as Json)
+        if (!absent && (from === undefined || !skipped.has(from.runtimeId))) continue
+        const reason = absent
+          ? String(((v as { $absent: { reason?: unknown } }).$absent).reason ?? 'it receives nothing')
+          : `'${nameOf(from!.graphId, from!.node)}' is skipped`
+        diags.push(diag('warning', 'compile', 'compile.input.skipped',
+          `Receives nothing because ${reason}, so this node is skipped in the run.`,
+          { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port as PortRef['port'] } } }))
+        skipped.add(fn.runtimeId)
+        grew = true
+        break
+      }
+    }
+  }
+  if (!wouldRun && requested.length > 0 && requested.every((runtimeId) => skipped.has(runtimeId))) {
+    diags.push(diag('error', 'compile', 'compile.run.allSkipped',
+      'Nothing would run: every output this run asks for is skipped, because an input it needs receives nothing. The warnings on the skipped nodes say why.'))
   }
 
   const ownerRegionOf = (fn: FlatNode): RegionLowering | undefined => {

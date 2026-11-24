@@ -117,6 +117,19 @@ const loadModel = schema('GalleryLoadModel', 'Load model', [
   out('model', 'MODEL', 'MODEL'),
   field('model', 'model', 'COMBO', 'sdxl_base.safetensors', { options: ['sdxl_base.safetensors'] }),
 ])
+const loadImage = schema('GalleryLoadImage', 'Load image', [
+  out('image', 'IMAGE', 'IMAGE'),
+  field('file', 'file', 'COMBO', 'portrait.png', { options: ['portrait.png'] }),
+])
+const blurImage = schema('GalleryBlurImage', 'Blur image', [
+  pin('image', 'IMAGE', 'image'),
+  out('image_out', 'IMAGE', 'IMAGE'),
+  field('radius', 'radius', 'INT', 4),
+])
+const saveImage = schema('GallerySaveImage', 'Save image', [
+  pin('image', 'IMAGE', 'image'),
+  field('prefix', 'prefix', 'STRING', 'blurred'),
+])
 const captionImage = schema('GalleryCaptionImage', 'Caption image', [
   out('text', 'STRING', 'TEXT'),
   pin('image', 'IMAGE', 'image'),
@@ -138,13 +151,20 @@ interface Placed {
   readonly x: number
   readonly values?: Record<string, Json>
   readonly minimized?: true
+  readonly mode?: 'muted'
+  /** Node width when not the page's usual one. */
+  readonly width?: number
 }
+
+/** A wire from one node's output to another node's input. */
+type Wire = readonly [from: readonly [node: string, port: string], to: readonly [node: string, port: string]]
 
 function sceneOf(
   tokens: DesignTokens,
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
   nodes: readonly Placed[],
+  wires: readonly Wire[] = [],
 ): Scene {
   const schemas = new Map(nodes.map((node) => [node.schema.type, node.schema]))
   const loaded = loadDocument({
@@ -161,15 +181,18 @@ function sceneOf(
           id: node.id,
           type: node.schema.type,
           values: { ...defaultValuesOf(node.schema), ...node.values },
+          ...(node.mode ? { mode: node.mode } : {}),
         }])),
-        links: {},
+        links: Object.fromEntries(wires.map(([from, to], index) => [`w${index}`, {
+          id: `w${index}`, from: { node: from[0], port: from[1] }, to: { node: to[0], port: to[1] },
+        }])),
         nets: {},
         reroutes: {},
       },
     },
     view: { graphs: { gallery: { nodes: Object.fromEntries(nodes.map((node) => [node.id, {
       position: { x: node.x, y: TOP },
-      size: { width: NODE_WIDTH, height: 0 },
+      size: { width: node.width ?? NODE_WIDTH, height: 0 },
       ...(node.minimized ? { collapsed: true } : {}),
     }])) } } },
   })
@@ -218,7 +241,7 @@ export function problemBoxGallery(
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
 ): readonly ProblemBoxGalleryCard[] {
-  const scene = (nodes: readonly Placed[]) => sceneOf(tokens, measure, widgetMeasure, nodes)
+  const scene = (nodes: readonly Placed[], wires: readonly Wire[] = []) => sceneOf(tokens, measure, widgetMeasure, nodes, wires)
   return [
     {
       id: 'at-rest',
@@ -305,6 +328,34 @@ export function problemBoxGallery(
         { nodeId: 'caption', nodeTitle: 'Caption image', lines: [line('error', 'image', 'Image is required.')] },
         { nodeId: 'resize', nodeTitle: 'Resize image', lines: [line('error', 'width', 'Width must be positive.', [EDIT])] },
       ],
+      room: 76,
+      width: widthOf(3),
+    },
+    {
+      id: 'skipped',
+      caption: 'A node the run will skip. Load image is muted, so its output gives nothing; Blur image needs it, so Blur image is skipped, and Save image, which needs what Blur image would have made, is skipped too. Each reads Warning; Blur image\'s line says why in the reason\'s words. A warning does not stop the run: the rest of the workflow runs.',
+      scene: scene([
+        { id: 'load', schema: loadImage, x: column(0), mode: 'muted' },
+        { id: 'blur', schema: blurImage, x: column(1) },
+        { id: 'save', schema: saveImage, x: column(2) },
+      ], [[['load', 'image'], ['blur', 'image']], [['blur', 'image_out'], ['save', 'image']]]),
+      badges: { blur: [warnings(1)], save: [warnings(1)] },
+      rowMarks: { blur: { image: 'warning' }, save: { image: 'warning' } },
+      boxes: [{ nodeId: 'blur', nodeTitle: 'Blur image', lines: [line('warning', 'image', "Receives nothing because 'Load image' is muted, so this node is skipped in the run.")] }],
+      room: 76,
+      width: widthOf(3),
+    },
+    {
+      id: 'skipped-onward',
+      caption: 'The same workflow with Save image\'s box open: its line names the skipped node it needs. When every output a run asks for would be skipped, the run is not queued, and the notice says nothing would run.',
+      scene: scene([
+        { id: 'load', schema: loadImage, x: LEFT, mode: 'muted', width: 190 },
+        { id: 'blur', schema: blurImage, x: LEFT + 246, width: 210 },
+        { id: 'save', schema: saveImage, x: LEFT + 512, width: 210 },
+      ], [[['load', 'image'], ['blur', 'image']], [['blur', 'image_out'], ['save', 'image']]]),
+      badges: { blur: [warnings(1)], save: [warnings(1)] },
+      rowMarks: { blur: { image: 'warning' }, save: { image: 'warning' } },
+      boxes: [{ nodeId: 'save', nodeTitle: 'Save image', lines: [line('warning', 'image', "Receives nothing because 'Blur image' is skipped, so this node is skipped in the run.")] }],
       room: 76,
       width: widthOf(3),
     },

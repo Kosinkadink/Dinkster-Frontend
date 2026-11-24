@@ -2067,21 +2067,52 @@ describe("a muted node's outputs give nothing", () => {
     expect(prompt?.['sink']!.inputs).toEqual(absent("'Amounts' is muted"))
   })
 
-  it('leaves the input out with a warning on a server without $absent, and for a required input', () => {
-    const codes = (result: ReturnType<typeof dynCompile>) => result.ok ? result.artifact.diagnostics.map((d) => d.code) : result.diagnostics.map((d) => d.code)
+  it('leaves the input out with a warning on a server without $absent', () => {
     const plain = dynCompile(dynDoc({
       nodes: { source: { type: 'ImageSrc', mode: 'muted' }, target },
       links: [[['source', 'out'], ['target', 'items.item0']]],
     }))
     expect(plain.ok && plain.artifact.prompt['target']!.inputs).toEqual({})
-    expect(codes(plain)).toContain('compile.link.dropped')
+    expect(plain.ok && plain.artifact.diagnostics.map((d) => d.code)).toContain('compile.link.dropped')
+  })
 
-    const required = compile({
-      ...compileInput(dynDoc({ nodes: { source: { type: 'ImageSrc', mode: 'muted' }, k: { type: 'Sink' } }, links: [[['source', 'out'], ['k', 'in']]] })),
+  it('skips a node whose required input receives nothing, and what needs it, with a warning on each', () => {
+    // k needs the muted image; after needs k's output; maybe takes it only if present.
+    const nodes = {
+      source: { type: 'ImageSrc', title: 'Loader', mode: 'muted' as const },
+      k: { type: 'Passthrough', title: 'Blur' },
+      after: { type: 'Sink', title: 'Save' },
+      maybe: target,
+      other: { type: 'ImageSrc' },
+    }
+    const links: [DynEnd, DynEnd][] = [
+      [['source', 'out'], ['k', 'in']], [['k', 'out'], ['after', 'in']], [['k', 'out'], ['maybe', 'items.item0']],
+    ]
+    const result = compile({ ...compileInput(dynDoc({ nodes, links })), resolve: dynResolve, graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt['k']!.inputs).toEqual({ in: { $absent: { reason: "'Loader' is muted" } } })
+    expect(result.artifact.diagnostics.filter((d) => d.code === 'compile.input.skipped').map((d) => [d.anchor?.occurrence?.node, d.anchor?.port?.port, d.severity, d.message])).toEqual([
+      ['k', 'in', 'warning', "Receives nothing because 'Loader' is muted, so this node is skipped in the run."],
+      ['after', 'in', 'warning', "Receives nothing because 'Blur' is skipped, so this node is skipped in the run."],
+    ])
+    expect(result.artifact.diagnostics.map((d) => d.code)).not.toContain('compile.link.dropped')
+
+    // When every node the run asks for would be skipped, the run is not sent.
+    const only = compile({
+      ...compileInput(dynDoc({ nodes, links }), { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('after') }] }),
       resolve: dynResolve,
       graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT],
     })
-    expect(codes(required)).toEqual(expect.arrayContaining(['compile.link.dropped', 'compile.input.missing']))
+    expect(only.ok).toBe(false)
+    if (!only.ok) expect(only.diagnostics.map((d) => d.code)).toEqual(expect.arrayContaining(['compile.input.skipped', 'compile.run.allSkipped']))
+    // What such a run would include is still known, so the editor can offer it and say why it is refused.
+    const closure = scopeClosure({
+      ...compileInput(dynDoc({ nodes, links }), { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('after') }] }),
+      resolve: dynResolve,
+      graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT],
+    })
+    expect([...closure?.included ?? []].sort()).toEqual(['after', 'k'])
   })
 
   it('keeps a wire into a muted node as before', () => {
