@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
+import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
@@ -718,7 +718,7 @@ describe('whole constructs on the subgraph node', () => {
       nodes: { s0: { id: 's0', type: '#gW', values: { kind: 'sdxl' } } },
       boundary: { inputs: shown, outputs: [] },
     }), (type) => (type === '#gW' ? innerSchema : resolve(type))).schema!
-    const callOf = (schema: NodeSchema, values: Record<string, unknown>, wired: readonly string[] = []) => {
+    const callOf = (schema: NodeSchema, values: Record<string, Json>, wired: readonly string[] = []) => {
       const elab = elaborateInterface(schema, { values }, {
         isInputConnected: (id) => wired.includes(id), isOutputConnected: () => false, inputPorts: () => [...wired], outputPorts: () => [],
       }, { lookupAnswers: () => undefined })
