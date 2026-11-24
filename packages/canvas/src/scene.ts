@@ -2278,6 +2278,7 @@ export function buildScene(input: BuildSceneInput): Scene {
             ? widgetTapTypeName(item.binds.node, item.binds.tap)
           : undefined
       const typeName = traced ?? (pinType === undefined ? undefined : canonicalTypeIdOf(pinType))
+      const maybeAbsent = item.binds.kind === 'port' && tracedMaybeAbsent({ node: item.binds.node, port: item.binds.port })
       const projected = projectedAnchors('out', item, item.binds)
       const fallback = innerAnchor(item.binds, 'out')
       const sources = projected.length > 0 ? projected : fallback === undefined ? [] : [{ anchor: fallback, identities: [] }]
@@ -2291,6 +2292,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           x2: to.x,
           y2: to.y,
           ...(typeName !== undefined ? { typeName } : {}),
+          ...(maybeAbsent ? { maybeAbsent: true as const } : {}),
           boundary: true,
           ...(identities.length === 1 ? { effectiveIdentity: identities[0] } : {}),
           ...(identities.length > 0 ? { effectiveIdentities: identities } : {}),

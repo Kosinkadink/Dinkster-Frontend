@@ -72,6 +72,8 @@ type GraphSpec = {
   nets?: Record<string, { source: End; sinks: End[] }>
   /** Selector id -> candidate ids (policy: fixed on the first). */
   selectors?: Record<string, string[]>
+  /** Boundary output id -> the inner node port it shows. */
+  outputs?: Record<string, [node: string, port: string]>
 }
 
 const end = (e: End): unknown => (Array.isArray(e) ? { node: e[0], port: e[1] } : e)
@@ -109,6 +111,17 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
             ),
           }
         : {}),
+      ...(g.outputs
+        ? {
+            boundary: {
+              inputs: [],
+              outputs: Object.entries(g.outputs).map(([id, [node, port]]) => ({
+                id,
+                binds: { kind: 'port', node, port },
+              })),
+            },
+          }
+        : {}),
       nextOrdinal: 100,
     }
   }
@@ -125,10 +138,10 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = () => ({ viewId: 'core.line', rows: 1 })
 
-const sceneOf = (doc: WorkflowDocument): Scene =>
+const sceneOf = (doc: WorkflowDocument, graphId = 'g0'): Scene =>
   buildScene({
     document: doc,
-    graphId: 'g0',
+    graphId,
     resolve: documentResolver(doc, (t) => schemas[t]),
     tokens: defaultTokens,
     measure,
@@ -207,6 +220,44 @@ describe('maybe-absent scene links', () => {
 
     const allSolid = sceneOf(docOf({ g0: graph('Src') }))
     expect(outLink(allSolid).maybeAbsent).toBeUndefined()
+  })
+
+  it('crosses subgraph boundaries at every level of nesting', () => {
+    // g0 holds a subgraph node of 'outer', which holds one of 'inner'. Each
+    // level shows 'maybe' (from an optional output) and 'plain' (from an
+    // ordinary one) on its Outputs panel.
+    const doc = docOf({
+      g0: {
+        nodes: { o: { type: '#outer' }, k1: { type: 'Sink' }, k2: { type: 'Sink' } },
+        links: [
+          [['o', 'maybe'], ['k1', 'in']],
+          [['o', 'plain'], ['k2', 'in']],
+        ],
+      },
+      outer: {
+        nodes: { i: { type: '#inner' } },
+        outputs: { maybe: ['i', 'maybe'], plain: ['i', 'plain'] },
+      },
+      inner: {
+        nodes: { m: { type: 'MaybeSrc' }, s: { type: 'Src' } },
+        outputs: { maybe: ['m', 'out'], plain: ['s', 'out'] },
+      },
+    })
+    for (const graphId of ['inner', 'outer']) {
+      const scene = sceneOf(doc, graphId)
+      const intoPanel = (item: string) => scene.links.find((l) => l.id === `boundary:outputs:${item}`)!
+      expect(intoPanel('maybe').maybeAbsent, graphId).toBe(true)
+      expect(intoPanel('plain').maybeAbsent, graphId).toBeUndefined()
+    }
+    const outerPins = sceneOf(doc, 'outer').nodes.find((n) => n.id === 'i')!.layout.pins
+    expect(outerPins.find((p) => p.portId === 'maybe')!.maybeAbsent).toBe(true)
+    expect(outerPins.find((p) => p.portId === 'plain')!.maybeAbsent).toBeUndefined()
+    const root = sceneOf(doc)
+    const pins = root.nodes.find((n) => n.id === 'o')!.layout.pins
+    expect(pins.find((p) => p.portId === 'maybe')!.maybeAbsent).toBe(true)
+    expect(pins.find((p) => p.portId === 'plain')!.maybeAbsent).toBeUndefined()
+    expect(root.links.find((l) => l.id === 'l0')!.maybeAbsent).toBe(true)
+    expect(root.links.find((l) => l.id === 'l1')!.maybeAbsent).toBeUndefined()
   })
 })
 
