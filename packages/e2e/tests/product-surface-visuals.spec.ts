@@ -140,6 +140,8 @@ for (const theme of ['dark', 'light'] as const) {
     await page.setViewportSize({ width: 390, height: 900 })
     await expect(trigger).toHaveAccessibleName('Dinkster')
     expect((await trigger.boundingBox())!.width).toBe(44)
+    // The panel switches leave once the toolbar observes its new width.
+    await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
     for (const control of await header.locator('button:visible').all()) {
       const box = (await control.boundingBox())!
       expect(box.x).toBeGreaterThanOrEqual(12)

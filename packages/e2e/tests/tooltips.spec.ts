@@ -111,6 +111,9 @@ test('top-right tooltip uses its real width and follows content changes', async 
     }).toBeLessThan(0.1)
   }
   await assertPlacement()
+  // A neighbour widening, as the project button does when the project's name loads, moves the anchor.
+  await page.getByTestId('projects-button').evaluate((element) => { (element as HTMLElement).style.minWidth = '160px' })
+  await assertPlacement()
   await target.evaluate((element) => { (element as HTMLElement).dataset['tooltipDetail'] = 'Additional layout information that changes the measured tooltip width.|Second detail line.' })
   await page.keyboard.down('Alt')
   await expect(tooltip).toContainText('Second detail line.')

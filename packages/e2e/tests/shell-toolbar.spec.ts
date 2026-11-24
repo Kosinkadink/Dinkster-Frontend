@@ -182,6 +182,8 @@ test('toolbar activity counts all workflows and excludes terminal history', asyn
   await expect(activity.locator('.dinkster-run-activity-waiting')).toHaveText('1')
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 })
+    // The panel switches leave or return once the toolbar observes its new width.
+    await expect(page.getByTestId('rail-toggle')).toHaveCount(width === 390 ? 0 : 1)
     for (const control of await page.locator('.dinkster-window-toolbar-host button:visible, .dinkster-window-toolbar-host .dinkster-run-activity').all()) {
       const bounds = (await control.boundingBox())!
       expect(bounds.x).toBeGreaterThanOrEqual(12)

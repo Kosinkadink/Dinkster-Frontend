@@ -63,8 +63,16 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
     element.style.top = `${Math.max(8, Math.min(top, window.innerHeight - height - 8))}px`
   }
   createEffect(position)
+  const observer = new ResizeObserver(position)
+  // The anchor moves when a neighbour changes size (the project button widening when the
+  // project's name loads), which resizes the anchor's container but not the anchor.
+  createEffect(() => {
+    const container = props.tip.element?.parentElement
+    if (container === null || container === undefined) return
+    observer.observe(container)
+    onCleanup(() => observer.unobserve(container))
+  })
   onMount(() => {
-    const observer = new ResizeObserver(position)
     observer.observe(element)
     window.addEventListener('resize', position)
     window.addEventListener('scroll', position, true)
