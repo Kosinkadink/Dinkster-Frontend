@@ -4666,7 +4666,7 @@ export class CanvasRenderer {
       let titleX = x + t.padX
       if (vs.subgraphMark !== undefined) {
         const mark = valueSourceMarkRect(vs, t.padX)
-        paintToolboxIcon(ctx, 'boxes', x + (mark.x - vs.x), y + (mark.y - vs.y), mark.size, t.colors.subgraphMark)
+        paintToolboxIcon(ctx, 'subgraph', x + (mark.x - vs.x), y + (mark.y - vs.y), mark.size, t.colors.subgraphMark)
         titleX += mark.size + canvasPaintTokens.widget.subgraphMark.gap
       }
       const alpha = ctx.globalAlpha
