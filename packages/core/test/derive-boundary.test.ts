@@ -645,8 +645,8 @@ describe('whole constructs on the subgraph node', () => {
     // Type variables in the template stay the inner node's own.
     expect(elabInputsOf(elab).find((input) => input.spec.id === 'stack.item0.sub.sub0')!.spec.type)
       .toEqual({ kind: 'variable', templateId: 'n0:T' })
-    // The face numbers its own members after the two inside, which one quiet line names first.
-    expect(elab.items.filter((item) => item.kind === 'note')).toMatchObject([{ text: '1 to 2 are inside', quiet: true }])
+    // The face numbers its own members after the two inside, which one quiet line names first, inside the group's box.
+    expect(elab.items.filter((item) => item.kind === 'note')).toMatchObject([{ text: '1 to 2 are inside', quiet: true, boxes: ['group:stack'] }])
     expect(elabInputsOf(elab).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName))
       .toEqual(['item 3 name', 'item 4 name'])
   })

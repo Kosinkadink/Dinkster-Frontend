@@ -1493,6 +1493,7 @@ function elaboratePass(
       push({
         kind: 'note', id: `${path}:inside`, text: inside === 1 ? '1 is inside' : `1 to ${inside} are inside`, quiet: true,
         ...(scope.section !== undefined ? { section: scope.section } : {}),
+        ...boxed(scope),
       })
     }
     let allUsed = true
