@@ -210,6 +210,23 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
   }
   c.optBool(v['promoted'], `${path}.promoted`)
   if (v['wireHidden'] !== undefined && v['wireHidden'] !== true) c.fail(`${path}.wireHidden`, 'must be true when present')
+  if (v['tooltip'] !== undefined) c.str(v['tooltip'], `${path}.tooltip`, { nonEmpty: true })
+  const limits = v['limits']
+  if (limits !== undefined && c.obj(limits, `${path}.limits`)) {
+    const bounds = limits as Record<string, unknown>
+    if (Object.keys(bounds).some((key) => key !== 'min' && key !== 'max')) c.fail(`${path}.limits`, 'only min and max are allowed')
+    if (bounds['min'] === undefined && bounds['max'] === undefined) c.fail(`${path}.limits`, 'must set min, max or both (omit for no limits)')
+    if (bounds['min'] !== undefined) c.num(bounds['min'], `${path}.limits.min`)
+    if (bounds['max'] !== undefined) c.num(bounds['max'], `${path}.limits.max`)
+    if (side === 'outputs') c.fail(`${path}.limits`, 'invalid on boundary outputs')
+  }
+  const visible = v['visible']
+  if (visible !== undefined && c.obj(visible, `${path}.visible`)) {
+    const formula = visible as Record<string, unknown>
+    if (Object.keys(formula).some((key) => key !== 'formula')) c.fail(`${path}.visible`, 'only formula is allowed')
+    c.str(formula['formula'], `${path}.visible.formula`, { nonEmpty: true })
+    if (side === 'outputs') c.fail(`${path}.visible`, 'invalid on boundary outputs')
+  }
   const binds = v['binds']
   if (
     v['promoted'] !== undefined &&

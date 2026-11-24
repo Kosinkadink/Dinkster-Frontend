@@ -133,6 +133,20 @@ const boundaryItem = {
     promoted: { type: 'boolean' },
     // Presentation only; invariants allow it on inputs shown as fields.
     wireHidden: { const: true },
+    // Layout only; invariants place limits and visible on inputs.
+    tooltip: { type: 'string', minLength: 1 },
+    limits: {
+      type: 'object',
+      minProperties: 1,
+      additionalProperties: false,
+      properties: { min: { type: 'number' }, max: { type: 'number' } },
+    },
+    visible: {
+      type: 'object',
+      required: ['formula'],
+      additionalProperties: false,
+      properties: { formula: { type: 'string', minLength: 1 } },
+    },
     ext: { $ref: '#/$defs/extData' },
   },
   allOf: [
@@ -482,6 +496,8 @@ export const WORKFLOW_SCHEMA = {
         { required: ['kind'], properties: { kind: { const: 'output' }, ownRow: { const: true } } },
         { not: { required: ['alsoBinds'] } },
         { not: { required: ['wireHidden'] } },
+        { not: { required: ['limits'] } },
+        { not: { required: ['visible'] } },
         { properties: { binds: { not: { required: ['viaReroute'] } } } },
         { properties: { binds: { properties: { kind: { enum: ['port', 'construct', 'widgetTap', 'unbound'] } } } } },
       ],

@@ -15,10 +15,12 @@ import { validateGraphDefShape } from '../format/validate.js'
 import { canonicalJson } from '../compile/hash.js'
 import { boundaryBindingKey, boundaryItems, boundaryItemsWithPaths, isNodeBoundaryBinding, withBoundaryItems, type Boundary, type BoundaryBinding, type BoundaryEntry, type BoundaryInputEntry, type BoundaryItem, type GraphDef, type Json, type JsonObject, type NodeBoundaryBinding, type WorkflowDocument } from '../format/document.js'
 import { asNodeId, asPortId, asRerouteId, isPortEndpoint, samePortRef, type PortRef } from '../ids.js'
+import { Formula, FormulaRefused } from '../mirror/formula.js'
 import type { CommandDefinition, CommandExecutionContext, SharedReplayPreparation, TransactionBuilder } from './contract.js'
-import { constructsAround, deriveBoundarySchema, familyStateAt, resolveBoundaryRoute } from '../schema/derive-boundary.js'
+import { boundaryConditionScope, boundaryInnerInput, constructsAround, deriveBoundarySchema, familyStateAt, numberFieldRange, resolveBoundaryRoute } from '../schema/derive-boundary.js'
 import type { InputSpec } from '../schema/model.js'
 import { documentNodeResolver, documentResolver } from '../compile/compile.js'
+import { schemaResolverForCommand } from './command-support.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 
@@ -636,6 +638,145 @@ const boundaryArrange: CommandDefinition = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// Row settings. Each is layout: it changes how every instance shows the row,
+// never a value, a wire or what a run sends.
+// ---------------------------------------------------------------------------
+
+/** Set or clear one optional field of a boundary item; unchanged values record nothing. */
+function setItemField(
+  tx: TransactionBuilder,
+  graphId: string,
+  side: Side,
+  found: { item: BoundaryItem; path: (string | number)[] },
+  field: 'tooltip' | 'limits' | 'visible',
+  value: Json | undefined,
+): void {
+  const path = [...found.path, field]
+  const current = found.item[field] as Json | undefined
+  if (value === undefined) {
+    if (current !== undefined) tx.remove(path)
+    return
+  }
+  if (JSON.stringify(current) !== JSON.stringify(value)) tx.set(path, value)
+}
+
+const formatBound = (value: number | undefined, fallback: string): string => value === undefined ? fallback : String(value)
+
+/** The schema a command can read at its first dispatch; shared replay has none. */
+function derivedFor(doc: WorkflowDocument, def: GraphDef, context: CommandExecutionContext) {
+  const resolve = schemaResolverForCommand(doc, context)
+  return resolve === undefined ? undefined : { resolve, derived: deriveBoundarySchema(def, resolve) }
+}
+
+// ---------------------------------------------------------------------------
+// boundary.setTooltip {graphId, side, itemId, tooltip}
+//
+// The row's help text, shown when pointing at it on every instance. The empty
+// string clears it, so the inner row's own tooltip shows again.
+// ---------------------------------------------------------------------------
+
+const boundarySetTooltip: CommandDefinition = {
+  id: 'boundary.setTooltip',
+  run(doc, params, tx) {
+    if (!isObj(params) || typeof params.graphId !== 'string' || !isSide(params.side) || typeof params.itemId !== 'string' || typeof params.tooltip !== 'string')
+      return [err('params.invalid', "boundary.setTooltip: params must be {graphId, side: 'inputs'|'outputs', itemId, tooltip: string}")]
+    const def = graphOf(doc, params.graphId)
+    if (!def) return [err('graph.missing', `boundary.setTooltip: unknown graph '${params.graphId}'`)]
+    const found = findItem(def, params.side, params.itemId)
+    if (!found) return [err('boundary.itemMissing', `boundary.setTooltip: no boundary ${params.side.slice(0, -1)} '${params.itemId}' in graph '${params.graphId}'`)]
+    const text = params.tooltip.trim()
+    setItemField(tx, params.graphId, params.side, found, 'tooltip', text === '' ? undefined : text)
+    return []
+  },
+}
+
+// ---------------------------------------------------------------------------
+// boundary.setLimits {graphId, itemId, min: number|null, max: number|null}
+//
+// Narrows a promoted number field's range on every instance; null leaves that
+// side unlimited. A limit wider than the inner field's own range is refused
+// at dispatch, where the schema is known: limits narrow and never widen.
+// ---------------------------------------------------------------------------
+
+const isBound = (v: Json | undefined): v is number | null =>
+  v === null || (typeof v === 'number' && Number.isFinite(v))
+
+const boundarySetLimits: CommandDefinition = {
+  id: 'boundary.setLimits',
+  validateDispatch(doc, params, context) {
+    if (!isObj(params) || typeof params.itemId !== 'string' || !isBound(params.min) || !isBound(params.max)) return []
+    // Clearing is always allowed, also once the inner field is no longer a number.
+    if (params.min === null && params.max === null) return []
+    const def = graphOf(doc, params.graphId)
+    const found = def && findItem(def, 'inputs', params.itemId)
+    const schema = def && found ? derivedFor(doc, def, context) : undefined
+    if (!def || !found || schema === undefined) return []
+    const inner = boundaryInnerInput(def, found.item, schema.resolve)
+    if (inner === undefined) return []
+    const range = numberFieldRange(inner)
+    const name = found.item.displayName ?? inner.displayName ?? found.item.id
+    if (range === undefined) return [err('boundary.limitsNotNumber', `Only a number field has limits; ${name} is not one.`)]
+    const outside = (bound: number | null): boolean => bound !== null &&
+      ((range.min !== undefined && bound < range.min) || (range.max !== undefined && bound > range.max))
+    if (outside(params.min) || outside(params.max)) {
+      return [err('boundary.limitsWider', `Limits can narrow ${name} (${formatBound(range.min, 'no lowest')} to ${formatBound(range.max, 'no highest')}) and never widen it.`)]
+    }
+    return []
+  },
+  run(doc, params, tx) {
+    if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.itemId !== 'string' || !isBound(params.min) || !isBound(params.max))
+      return [err('params.invalid', 'boundary.setLimits: params must be {graphId, itemId, min: number|null, max: number|null}')]
+    const def = graphOf(doc, params.graphId)
+    if (!def) return [err('graph.missing', `boundary.setLimits: unknown graph '${params.graphId}'`)]
+    const found = findItem(def, 'inputs', params.itemId)
+    if (!found) return [err('boundary.itemMissing', `boundary.setLimits: no boundary input '${params.itemId}' in graph '${params.graphId}'`)]
+    if (found.item.promoted !== true) return [err('boundary.limitsNotField', `boundary.setLimits: boundary input '${params.itemId}' is not a field on the subgraph node`)]
+    if (params.min !== null && params.max !== null && params.min > params.max)
+      return [err('boundary.limitsOrder', `The lowest limit (${params.min}) is above the highest (${params.max}).`)]
+    const limits = { ...(params.min !== null ? { min: params.min } : {}), ...(params.max !== null ? { max: params.max } : {}) }
+    setItemField(tx, params.graphId, 'inputs', found, 'limits', Object.keys(limits).length > 0 ? limits : undefined)
+    return []
+  },
+}
+
+// ---------------------------------------------------------------------------
+// boundary.setVisible {graphId, itemId, formula: string|null}
+//
+// When an input row shows on an instance: a formula in the formula language
+// over the instance's own inputs; null shows it always. A formula outside the
+// language, or naming anything but one of those inputs, is refused at
+// dispatch. A condition never changes a value or what a run sends.
+// ---------------------------------------------------------------------------
+
+const boundarySetVisible: CommandDefinition = {
+  id: 'boundary.setVisible',
+  validateDispatch(doc, params, context) {
+    if (!isObj(params) || typeof params.itemId !== 'string' || typeof params.formula !== 'string') return []
+    const def = graphOf(doc, params.graphId)
+    const schema = def && findItem(def, 'inputs', params.itemId) ? derivedFor(doc, def, context) : undefined
+    if (schema?.derived.schema === undefined) return []
+    try {
+      Formula.parse(params.formula, boundaryConditionScope(schema.derived.schema))
+    } catch (error) {
+      if (error instanceof FormulaRefused) return [err('boundary.visibleRefused', `This condition cannot be used: ${error.message}.`)]
+      throw error
+    }
+    return []
+  },
+  run(doc, params, tx) {
+    if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.itemId !== 'string' ||
+        !(params.formula === null || (typeof params.formula === 'string' && params.formula.trim() !== '')))
+      return [err('params.invalid', 'boundary.setVisible: params must be {graphId, itemId, formula: non-empty string|null}')]
+    const def = graphOf(doc, params.graphId)
+    if (!def) return [err('graph.missing', `boundary.setVisible: unknown graph '${params.graphId}'`)]
+    const found = findItem(def, 'inputs', params.itemId)
+    if (!found) return [err('boundary.itemMissing', `boundary.setVisible: no boundary input '${params.itemId}' in graph '${params.graphId}'`)]
+    setItemField(tx, params.graphId, 'inputs', found, 'visible', params.formula === null ? undefined : { formula: params.formula.trim() })
+    return []
+  },
+}
+
 export const BOUNDARY_COMMANDS: readonly CommandDefinition[] = [
   boundaryArrange,
   boundaryAddBinding,
@@ -644,6 +785,9 @@ export const BOUNDARY_COMMANDS: readonly CommandDefinition[] = [
   boundaryShowOnSubgraphNode,
   boundarySetWireHidden,
   boundaryRenameItem,
+  boundarySetTooltip,
+  boundarySetLimits,
+  boundarySetVisible,
   boundarySetBinding,
   boundaryUnbind,
 ]

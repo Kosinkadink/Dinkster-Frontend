@@ -21,6 +21,7 @@
 
 import type {
   BoundaryBinding,
+  BoundaryItem,
   BoundaryRouteLeg,
   GraphDef,
   Json,
@@ -33,7 +34,7 @@ import type {
 } from '../format/document.js'
 import { isRerouteRef, occurrenceKey } from '../ids.js'
 import { buildRerouteIndex, traceEndpoint } from '../reroute.js'
-import { boundaryItems, type BoundaryItem } from '../format/document.js'
+import { boundaryItems } from '../format/document.js'
 
 /** Serialize JSON with object keys sorted, so equal values hash equally. */
 export function canonicalJson(value: unknown): string {
@@ -265,6 +266,10 @@ function semanticSelector(s: NonNullable<GraphDef['selectors']>[string]): Json {
   } as unknown as Json
 }
 
+function semanticBoundaryItem({ tooltip: _tooltip, limits: _limits, visible: _visible, ...item }: BoundaryItem): BoundaryItem {
+  return item
+}
+
 function semanticGraph(g: GraphDef, isVirtualType: (type: string) => boolean): Json {
   const selectors = Object.entries(g.selectors ?? {})
   return {
@@ -276,10 +281,11 @@ function semanticGraph(g: GraphDef, isVirtualType: (type: string) => boolean): J
     links: semanticConnections(g),
     nets: g.nets,
     // Where a row sits among sections and lines, whether it keeps its own
-    // row, and whether a boundary input's wire is drawn are presentation only.
+    // row, whether a boundary input's wire is drawn, and a row's help text,
+    // limits and condition are presentation only.
     ...(g.boundary ? { boundary: {
-      inputs: boundaryItems(g.boundary, 'inputs').map(({ kind: _kind, wireHidden: _wireHidden, ...item }: BoundaryItem & { kind?: unknown }) => item),
-      outputs: boundaryItems(g.boundary, 'outputs').map(({ kind: _kind, ownRow: _ownRow, ...item }: BoundaryItem & { kind?: unknown; ownRow?: unknown }) => item),
+      inputs: boundaryItems(g.boundary, 'inputs').map(({ kind: _kind, wireHidden: _wireHidden, ...item }: BoundaryItem & { kind?: unknown }) => semanticBoundaryItem(item)),
+      outputs: boundaryItems(g.boundary, 'outputs').map(({ kind: _kind, ownRow: _ownRow, ...item }: BoundaryItem & { kind?: unknown; ownRow?: unknown }) => semanticBoundaryItem(item)),
     } } : {}),
     // Guarded on non-empty so `selectors: {}` and absent hash identically.
     ...(selectors.length > 0

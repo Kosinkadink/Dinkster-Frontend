@@ -345,6 +345,18 @@ export type EditorSummaryMap = Readonly<Record<string, Readonly<Record<string, E
 export type RowMarkMap = RowProblemMap
 
 /**
+ * The boundary item selected in the Boundary panel: its row on the Inputs or
+ * Outputs panel, and the inner pins and field rows it goes to (node id ->
+ * input port ids or field value keys, and output port ids).
+ */
+export interface BoundaryFocusMarks {
+  readonly side: 'inputs' | 'outputs'
+  readonly item: string
+  readonly inputs: Readonly<Record<string, ReadonlySet<string>>>
+  readonly outputs: Readonly<Record<string, ReadonlySet<string>>>
+}
+
+/**
  * One row of a data-lens panel: label left, text right. Tones follow the
  * companion design language ('value' = execution-derived companion color,
  * 'stale' additionally dimmed like stale companions, 'muted' = chrome).
@@ -1341,6 +1353,30 @@ export class CanvasRenderer {
   setOpenRow(row: { readonly nodeId: string; readonly valueKey: string } | undefined): void {
     const next = row === undefined ? {} : { [row.nodeId]: row.valueKey }
     this.updateNodePaint(this.openRows, next, () => { this.openRows = next })
+  }
+
+  private boundaryFocus: BoundaryFocusMarks | undefined
+
+  /**
+   * Marks the selected boundary item in the selection color: its row on the
+   * boundary pseudo-node, and the inner pins and field rows it goes to.
+   */
+  setBoundaryFocus(focus: BoundaryFocusMarks | undefined): void {
+    const perNode = (marks: BoundaryFocusMarks | undefined): Record<string, readonly string[]> => {
+      const out: Record<string, string[]> = {}
+      for (const [prefix, map] of [['in', marks?.inputs ?? {}], ['out', marks?.outputs ?? {}]] as const) {
+        for (const [nodeId, keys] of Object.entries(map)) (out[nodeId] ??= []).push(...[...keys].map((key) => `${prefix}:${key}`))
+      }
+      return out
+    }
+    const before = this.boundaryFocus
+    this.updateNodePaint(perNode(before), perNode(focus), () => { this.boundaryFocus = focus })
+    if (before?.side === focus?.side && before?.item === focus?.item) return
+    for (const bnode of this.scene.boundaryNodes) {
+      if (bnode.side !== before?.side && bnode.side !== focus?.side) continue
+      this.invalidateGraphBounds({ minX: bnode.x, minY: bnode.y, maxX: bnode.x + bnode.layout.width, maxY: bnode.y + bnode.layout.height })
+    }
+    this.requestRender()
   }
 
   private lensCapabilities: RendererLensCapabilities = {}
@@ -4359,6 +4395,15 @@ export class CanvasRenderer {
         continue
       if (pin.widgetBacked && pin.direction === 'in' && !connected && !isLegalTarget && !nodeSelected && !nodeHovered)
         continue
+      const boundaryFocused = pin.widgetTap !== true &&
+        (pin.direction === 'in' ? this.boundaryFocus?.inputs : this.boundaryFocus?.outputs)?.[node.id]?.has(pin.portId) === true
+      if (boundaryFocused && !isTarget) {
+        ctx.beginPath()
+        ctx.arc(px, py, ringRadius, 0, Math.PI * 2)
+        ctx.strokeStyle = t.colors.selection
+        ctx.lineWidth = screenAwareStroke(STATUS_RING_STROKE_WIDTH, scale, STATUS_RING_STROKE_WIDTH)
+        ctx.stroke()
+      }
       // A field row that takes the held wire shows its own outline, so the
       // field's pin, the node's only target then, gets no ring.
       if (isTarget && this.overlay.dropRow?.nodeId !== node.id) {
@@ -4559,6 +4604,15 @@ export class CanvasRenderer {
       ctx.lineWidth = canvasPaintTokens.node.box.stroke
       ctx.beginPath()
       ctx.roundRect(chrome.x + half, chrome.y + half, chrome.width - half * 2, chrome.height - half * 2, chrome.radius)
+      ctx.stroke()
+    }
+    if (this.boundaryFocus?.inputs[sceneNode.id]?.has(row.valueKey) === true) {
+      // The field the boundary item selected in the Boundary panel goes to.
+      const chrome = widgetChromeRect(node.x + row.inset, rowY, widgetWidth, row.height, t.rowGeometry.fieldInsetY)
+      ctx.strokeStyle = t.colors.selection
+      ctx.lineWidth = canvasPaintTokens.widget.diagnosticStroke
+      ctx.beginPath()
+      ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
       ctx.stroke()
     }
     // A problem on this field (out-of-range number, unknown choice, ...)
@@ -4873,6 +4927,13 @@ export class CanvasRenderer {
         if (row.kind !== 'ports') continue
         const rowY = y + row.y
         const slot = row.input ?? row.output
+        if (slot !== undefined && this.boundaryFocus?.side === bnode.side && this.boundaryFocus.item === slot.portId) {
+          ctx.beginPath()
+          ctx.roundRect(x + paint.focusInset, rowY + paint.focusInset, l.width - paint.focusInset * 2, row.height - paint.focusInset * 2, t.cornerRadius)
+          ctx.strokeStyle = t.colors.selection
+          ctx.lineWidth = screenAwareStroke(paint.focusStroke, scale, paint.focusStroke)
+          ctx.stroke()
+        }
         const dim = slot?.ghost === true
         if (dim) ctx.globalAlpha = GHOST_ALPHA
         if (row.input) {

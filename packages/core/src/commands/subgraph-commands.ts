@@ -381,6 +381,9 @@ function remapNestedItem(
     ...(nested.alsoBinds !== undefined ? { alsoBinds: nested.alsoBinds.map((binding) => remapBinding(binding, ids.nodes, ids.reroutes, ids.valueSources)) } : {}),
     ...(nested.promoted === true ? { promoted: true } : {}),
     ...(nested.wireHidden === true ? { wireHidden: true } : {}),
+    ...(nested.tooltip !== undefined ? { tooltip: nested.tooltip } : {}),
+    ...(nested.limits !== undefined ? { limits: nested.limits } : {}),
+    ...(nested.visible !== undefined ? { visible: nested.visible } : {}),
     ...(nested.displayName !== undefined ? { displayName: nested.displayName } : {}),
   }
 }
