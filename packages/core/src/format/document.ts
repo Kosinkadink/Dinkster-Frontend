@@ -837,12 +837,6 @@ export interface NodeViewState {
    * default-collapsed section can also be explicitly expanded.
    */
   readonly sections?: Readonly<Record<string, { readonly collapsed: boolean }>>
-  /**
-   * Fold state per line of fields, keyed by the flattened id of the line's
-   * first field. Absent = folded. Its own map, because a section and a
-   * field may share an id.
-   */
-  readonly lines?: Readonly<Record<string, { readonly folded: boolean }>>
   readonly color?: string
   readonly ext?: ExtData
 }

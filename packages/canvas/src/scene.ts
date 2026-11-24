@@ -1377,9 +1377,6 @@ export function buildScene(input: BuildSceneInput): Scene {
     const sectionOverrides = view?.sections
       ? Object.fromEntries(Object.entries(view.sections).map(([id, s]) => [id, s.collapsed]))
       : undefined
-    const lineFolds = view?.lines
-      ? Object.fromEntries(Object.entries(view.lines).map(([id, line]) => [id, line.folded]))
-      : undefined
     const occurrenceDynamic = input.occurrenceView?.dynamic.get(node.id)
     const occurrenceValues = input.occurrenceView?.values?.get(node.id)
     const occurrenceControllers = input.occurrenceView?.controllers?.get(node.id)
@@ -1401,7 +1398,6 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(view?.collapsed === true ? { minimized: true as const } : {}),
           ...(view?.size ? { size: view.size } : {}),
           ...(sectionOverrides ? { sectionOverrides } : {}),
-          ...(lineFolds ? { lineFolds } : {}),
           ...(view?.views ? { widgetRepresentations: view.views } : {}),
           ...(view?.textLines ? { textBoxLines: view.textLines } : {}),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),

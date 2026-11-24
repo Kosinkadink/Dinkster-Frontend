@@ -58,7 +58,6 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
       [
         'anatomy',
         'boxes',
-        'lines',
         'idle-outline',
         'titles',
         'titles-content',
@@ -160,8 +159,6 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   previews:
     'Every node that can show a preview has a "Preview" caption row: before a picture, with one (open, and folded with the caption under the pointer), loading, failed, cached and estimated, and a text result open and folded. A minimized node keeps the caption folded while it has a picture or a text result; its caption opens the picture at its open height.',
   badges: 'Every badge on a node, and the toolbar above a selected node.',
-  lines:
-    'A line of fields declared side by side folds into one row, and starts folded. Folded, only a field with a wire keeps a pin, wires in pressed together at the middle of the line\'s left end and wires out at its right, the way a closed box carries them. Pointed at, a folded line lists its fields\' pins and Unfold. Unfolded, each field has its own row and pins, and a rail beside them folds the line again.',
   tabs: 'Tabs above a node say what it is and tabs below say what happened, 3 px off the node and flush with its edges, drawn at 75 percent zoom; only the subgraph mark stays in the title bar. Icons: Queued clock, Running play, Finished check, Cached database, Skipped ban, Failed and Error circle-x, Unavailable unplug, Warning triangle-alert, Blocked lock, children list-tree, Log scroll-text, iteration repeat, Muted volume-x, Bypassed forward, Deprecated archive, subgraph framed workflow.',
   'tabs-content': 'The same tabs at 50 percent zoom.',
   states:
@@ -430,11 +427,6 @@ function ExampleCard(props: {
     if (toolbox) {
       include(toolbox.x, toolbox.y)
       include(toolbox.x + toolbox.width, toolbox.y + toolbox.height)
-    }
-    const lineList = renderer.getLineListLayout()
-    if (lineList) {
-      include(lineList.x, lineList.y)
-      include(lineList.x + lineList.width, lineList.y + lineList.height)
     }
     for (const label of labels) {
       include(label.x, label.y - tokens.fontSize)

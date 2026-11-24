@@ -342,24 +342,6 @@ export type LayoutRow =
 /** A port inside a closed box: a pin once a wire reaches it. */
 export type HiddenPort = Omit<PinLayout, 'y'>
 
-/**
- * A line of fields declared side by side. Folded, its fields share one row
- * and only wired fields keep a pin, gathered at each end; unfolded, each
- * field has its own row and a rail beside them folds the line again.
- */
-export interface LayoutLine {
-  /** Flattened id of the line's first field; keys its saved fold state. */
-  readonly key: string
-  readonly folded: boolean
-  /** Indexes of the line's first and last rows in `rows`. */
-  readonly first: number
-  readonly last: number
-  /** Unfolded: the rail's left edge, node-local. */
-  readonly railInset?: number
-  /** The fields of the line in declared order, for the list a folded line shows. */
-  readonly fields: readonly { readonly portId: string; readonly label: string; readonly type: TypeExpr }[]
-}
-
 export interface PinLayout extends DynamicAnnotations {
   readonly portId: string
   /** Human-readable port label retained when rows are hidden. */
@@ -387,9 +369,7 @@ export interface PinLayout extends DynamicAnnotations {
    * it; the pins of one side press together around the row's middle.
    */
   readonly collapsedSection?: string
-  /** One of a folded line's pins, pressed together at an end of the line like a closed box's. */
-  readonly pressed?: true
-  /** A wire's end under the last drawn pin of a full cluster: not drawn and not grabbed. */
+  /** A wire's end under the last drawn pin of a full closed-box cluster: not drawn and not grabbed. */
   readonly stacked?: true
   /** Pin belongs to a minimized node and is represented by an aggregate side proxy. */
   readonly minimized?: true
@@ -441,8 +421,6 @@ export interface NodeLayout {
   readonly openPreviewHeight?: number
   /** Boxes drawn around rows, outer boxes before the boxes inside them. */
   readonly boxes?: readonly LayoutBox[]
-  /** Lines of fields that fold, folded or not. */
-  readonly lines?: readonly LayoutLine[]
   /**
    * Optional imagery area appended inside the node body after all rows: the
    * "Preview" caption row on top, then the picture.
@@ -923,8 +901,6 @@ export interface LayoutOptions {
   readonly minimized?: true
   /** Per-section collapse overrides from view state (view.setSectionCollapsed). */
   readonly sectionOverrides?: Readonly<Record<string, boolean>>
-  /** Fold state per line of fields, keyed by its first field's flattened id; absent lines are folded. */
-  readonly lineFolds?: Readonly<Record<string, boolean>>
   /** Client-owned named widget representation selections by value key. */
   readonly widgetRepresentations?: Readonly<Record<string, string>>
   /** Height in lines of each text box the user sized, by value key (view.setTextBoxLines). */
@@ -1477,22 +1453,6 @@ export function layoutNode(
   for (const row of pending) emit(row)
   pending.splice(0, pending.length, ...positioned)
 
-  // A line folds by hand; it starts folded. Unfolded, each of its fields
-  // takes its own row. A line with no field has nothing to fold.
-  const foldable: { key: string; line: PendingRow[]; folded: boolean }[] = []
-  const unfolded = new Set<PendingRow>()
-  for (const line of new Set(lines.values())) {
-    const key = line.length > 1 ? line.find((row) => row.widget !== undefined)?.widget!.inputId : undefined
-    if (key === undefined) continue
-    const folded = options.lineFolds?.[key] ?? true
-    foldable.push({ key, line, folded })
-    if (folded) continue
-    for (const row of line) {
-      lines.set(row, [row])
-      unfolded.add(row)
-    }
-  }
-
   const rowBaseHeight = (row: PendingRow): number => row.kind === 'ports'
     ? tokens.rowGeometry.portRowHeight
     : row.kind !== 'widget' || row.widget === undefined
@@ -1500,7 +1460,10 @@ export function layoutNode(
     : (row.widget!.viewId === 'core.text'
       ? multilineWidgetHeight(row.widget!.rows, tokens)
       : row.widget!.rows * tokens.rowHeight)
-  const lineBaseHeight = (line: PendingRow[]): number => Math.max(...line.map(rowBaseHeight))
+  const lineBaseHeight = (line: PendingRow[]): number => Math.max(
+    ...line.map(rowBaseHeight),
+    line.length > 1 ? line.length * (tokens.pinRadius * 2 + WIDGET_PIN_GAP * 2) : 0,
+  )
   // Only the last text box takes the node's resize surplus; every other text
   // box keeps the height it was given in lines.
   const flexibleRows = pending.filter((row) =>
@@ -1643,7 +1606,7 @@ export function layoutNode(
       } else if (row.kind === 'note' || row.kind === 'button') {
         const line = lines.get(row)!
         const height = lineBaseHeight(line)
-        const inset = fieldInset(depth) + (unfolded.has(row) ? canvasPaintTokens.node.line.railReserve : 0)
+        const inset = fieldInset(depth)
         rowIndex.set(row, rows.length)
         push(row.note
           ? { kind: 'note', y, height, inset, ...row.note }
@@ -1678,8 +1641,7 @@ export function layoutNode(
         // Keep the capsule and its edge controls clear of sockets on either
         // border. The symmetric side also reserves space for output widgets.
         // A choice's dropdown reaches the outline of its option box instead.
-        const inset = w.lead ? outlineX(depth + 1)
-          : fieldInset(depth) + (unfolded.has(row) ? canvasPaintTokens.node.line.railReserve : 0)
+        const inset = w.lead ? outlineX(depth + 1) : fieldInset(depth)
         rowIndex.set(row, rows.length)
         // A member drawn as one line of fields has its grip once, before the
         // line, and its cross once, after it.
@@ -1726,15 +1688,6 @@ export function layoutNode(
   // A closed box's row carries the pins of the fields inside it, each side
   // pressed together around the row's middle. Wired pins come first and at
   // most `clusterMax` are drawn; a further wire ends on the last drawn pin.
-  /**
-   * Offset from the cluster's middle of the `index`th of `count` pins pressed
-   * together, and whether it is past the last drawn pin.
-   */
-  const pressed = (index: number, count: number): { dy: number; stacked: boolean } => {
-    const drawn = Math.min(count, box.clusterMax)
-    const pitch = drawn === 2 ? box.clusterPitch.two : box.clusterPitch.three
-    return { dy: (Math.min(index, drawn - 1) - (drawn - 1) / 2) * pitch, stacked: index >= drawn }
-  }
   const clusters = new Map<string, typeof collapsedPins>()
   for (const p of collapsedPins) {
     const key = `${p.sectionId}\n${p.direction}`
@@ -1744,11 +1697,14 @@ export function layoutNode(
     const center = anchorY.get(all[0]!.sectionId)
     if (center === undefined) continue
     const ordered = [...all.filter((p) => p.connected), ...all.filter((p) => !p.connected)]
+    const drawn = Math.min(ordered.length, box.clusterMax)
+    const pitch = drawn === 2 ? box.clusterPitch.two : box.clusterPitch.three
     for (const [index, p] of ordered.entries()) {
-      const { dy, stacked } = pressed(index, ordered.length)
+      const stacked = index >= drawn
       if (stacked && !p.connected) break
+      const slot = Math.min(index, drawn - 1)
       pins.push({
-        ...annotationsOf(p), portId: p.portId, label: p.label, direction: p.direction, y: center + dy, type: p.type, collapsedSection: p.sectionId,
+        ...annotationsOf(p), portId: p.portId, label: p.label, direction: p.direction, y: center + (slot - (drawn - 1) / 2) * pitch, type: p.type, collapsedSection: p.sectionId,
         ...(stacked ? { stacked: true as const } : {}),
         ...(p.optional ? { optional: true as const } : {}), ...(p.maybeAbsent ? { maybeAbsent: true as const } : {}),
         ...(p.widgetTap ? { widgetTap: true as const } : {}),
@@ -1825,21 +1781,13 @@ export function layoutNode(
       const cellInset = row.inset - boxInset
       const cellWidth = column === 0 ? lineWidth - (line.length - 1) * (compactWidth + gap) : compactWidth
       rows[index] = { ...row, inset: left + cellInset, width: cellWidth - cellInset * 2 }
+      for (const [index, pin] of pins.entries()) {
+        if (row.kind === 'widget' && pin.portId === row.inputId && (pin.direction === 'in' || pin.widgetTap === true))
+          // Border sockets keep noodles outside the node body. Distinct slots
+          // retain independent hit targets while the controls share a line.
+          pins[index] = { ...pin, y: row.y + (column + 0.5) * lineBaseHeight(line) / line.length }
+      }
       left += cellWidth + gap
-    }
-    // Folded, only a field with a wire keeps a pin: wires in at the line's
-    // left end, wires out at its right, each side pressed together at the
-    // middle the way a closed box's are.
-    const fields = new Set(line.flatMap((row) => row.widget ? [row.widget.inputId] : []))
-    const center = rows[rowIndex.get(line[0]!)!]!.y + tokens.rowHeight / 2
-    for (const direction of ['in', 'out'] as const) {
-      const own = (pin: PinLayout): boolean => fields.has(pin.portId) && pin.direction === direction &&
-        (direction === 'in' ? pin.widgetBacked === true : pin.widgetTap === true)
-      const wired = pins.filter((pin) => own(pin) && isConnected(direction, pin.portId))
-      pins.splice(0, pins.length, ...pins.filter((pin) => !own(pin)), ...wired.map((pin, k) => {
-        const { dy, stacked } = pressed(k, wired.length)
-        return { ...pin, y: center + dy, pressed: true as const, ...(stacked ? { stacked: true as const } : {}) }
-      }))
     }
   }
   // A member that can be moved has its grip at the left end, and its field
@@ -1864,14 +1812,6 @@ export function layoutNode(
       ? row.inset + (row.width ?? width - row.inset * 2)
       : width - row.crossInset - box.cross.size - gap
     rows[index] = { ...row, inset: row.inset + gripRoom, width: right - row.inset - gripRoom, ...reorder }
-  }
-  // An unfolded line's fields move right for its rail; their right edge stays.
-  const railReserve = canvasPaintTokens.node.line.railReserve
-  for (const row of unfolded) {
-    const index = rowIndex.get(row)!
-    const placedRow = rows[index]!
-    if ((placedRow.kind === 'widget' || placedRow.kind === 'note' || placedRow.kind === 'button') && placedRow.width === undefined)
-      rows[index] = { ...placedRow, width: width - placedRow.inset * 2 + railReserve }
   }
 
   if (options.minimized) {
@@ -1902,22 +1842,6 @@ export function layoutNode(
     }
   }
 
-  const layoutLines: LayoutLine[] = foldable.map(({ key, line, folded }) => {
-    const indexes = line.map((row) => rowIndex.get(row)!)
-    const first = rows[indexes[0]!]!
-    return {
-      key,
-      folded,
-      first: Math.min(...indexes),
-      last: Math.max(...indexes),
-      ...(!folded && 'inset' in first
-        ? { railInset: first.inset - canvasPaintTokens.node.line.railReserve - canvasPaintTokens.node.line.railOverhang }
-        : {}),
-      fields: line.flatMap((row) => row.widget
-        ? [{ portId: row.widget.inputId, label: row.widget.label, type: row.widget.type }]
-        : []),
-    }
-  })
   // Outer boxes first, so a box inside a box draws over it.
   const boxes = placed.boxes
     .map((b) => ({ ...b, width: width - b.x * 2 }))
@@ -1935,7 +1859,6 @@ export function layoutNode(
     rows,
     pins,
     ...(boxes.length > 0 ? { boxes } : {}),
-    ...(layoutLines.length > 0 ? { lines: layoutLines } : {}),
   }
 }
 

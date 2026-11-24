@@ -209,20 +209,6 @@ export const canvasPaintTokens = {
       /** Most pins drawn at one end of a closed box. */
       clusterMax: 3,
     },
-    /** A line of fields: the rail beside an unfolded line, and the list a folded one shows. */
-    line: {
-      /** How far an unfolded line's fields move right for the rail. */
-      railReserve: 12,
-      /** The rail starts this far left of where the fields would start. */
-      railOverhang: 1,
-      railWidth: 11,
-      railRadius: 3,
-      /** The rail's chevron, and where its line starts and ends. */
-      chevron: { top: 3, width: 5, height: 2.5, stroke: 1.5 },
-      railLineTop: 13,
-      railLineBottom: 3,
-      list: { gap: 10, rowHeight: 22, padY: 3, padX: 6, pinSize: 11, labelGap: 5, radius: 5, fontSize: 11, actionGap: 3 },
-    },
     section: {
       horizontalInset: 1,
       verticalInset: 2,
