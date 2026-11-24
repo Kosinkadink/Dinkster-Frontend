@@ -198,8 +198,10 @@ describe('renaming a Switch\'s branch', () => {
       const node = doc.graphs['g0']!.nodes[id] as NodeData
       ;(doc.graphs['g0']!.nodes as Record<string, NodeData>)[id] = { ...node, dynamic: { branch: { members: ['a', 'b'], memberLabels } } } as NodeData
     }
-    return new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => all }))
+    return storeOf(doc)
   }
+  const storeOf = (doc: WorkflowDocument) =>
+    new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => all }))
   const rename = (store: DocumentStore, nodeId: string, member: string, label: string) =>
     store.dispatch({ command: 'dynamic.labelMember', params: { graphId: 'g0', nodeId, construct: 'branch', member, label } })
   const valueOf = (store: DocumentStore, nodeId: string) => store.doc.graphs['g0']!.nodes[nodeId]!.values['value']
@@ -212,6 +214,26 @@ describe('renaming a Switch\'s branch', () => {
     expect(store.undo()).toBe(true)
     expect(valueOf(store, 'choice')).toBe('Detailed')
     expect(store.doc.graphs['g0']!.nodes['s1']!.dynamic?.['branch']?.memberLabels?.['b']).toBe('Detailed')
+  })
+
+  it.each(['reroute', 'named net'] as const)('gives a Choice that reaches Pick through a %s the new name', (route) => {
+    const doc = docOf({ choice: { type: 'Choice', values: { value: 'Detailed' } }, s1: { type: 'Switch' } }, [])
+    const graph = doc.graphs['g0'] as unknown as Record<string, unknown> & { nodes: Record<string, NodeData> }
+    graph.nodes['s1'] = { ...graph.nodes['s1']!, dynamic: { branch: { members: ['a', 'b'], memberLabels: { a: 'Quick', b: 'Detailed' } } } } as NodeData
+    if (route === 'reroute') {
+      graph['reroutes'] = { r1: { id: 'r1' } }
+      graph['links'] = {
+        l0: { id: 'l0', from: { node: 'choice', port: 'COMBO' }, to: { reroute: 'r1' } },
+        l1: { id: 'l1', from: { reroute: 'r1' }, to: { node: 's1', port: 'pick' } },
+      }
+    } else {
+      graph['nets'] = { n1: { id: 'n1', name: 'mode', source: { node: 'choice', port: 'COMBO' }, sinks: [{ node: 's1', port: 'pick' }] } }
+    }
+    const store = storeOf(doc)
+    expect(rename(store, 's1', 'b', 'Final').ok).toBe(true)
+    expect(valueOf(store, 'choice')).toBe('Final')
+    expect(store.undo()).toBe(true)
+    expect(valueOf(store, 'choice')).toBe('Detailed')
   })
 
   it('keeps the old name when another Switch the Choice feeds has no branch with the new one', () => {
