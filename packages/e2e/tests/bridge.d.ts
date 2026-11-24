@@ -740,8 +740,6 @@ interface DinksterTestBridge {
       nodeIds: Iterable<string>,
       linkIds?: Iterable<string>,
       rerouteIds?: Iterable<string>,
-      valueSourceIds?: Iterable<string>,
-      selectorIds?: Iterable<string>,
       groupIds?: Iterable<string>,
     ): void
   }

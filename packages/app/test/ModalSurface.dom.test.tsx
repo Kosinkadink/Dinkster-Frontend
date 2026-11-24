@@ -1557,15 +1557,6 @@ describe('registered interactive widget expanded-editor integration', () => {
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
   })
 
-  it('closes value-source multiline STRING on click-away without committing its draft', () => {
-    const state = widgetState('STRING', { multiline: true }, 'stored', true)
-    const mounted = mountWidget({ ...state, target: { kind: 'valueSource', valueSourceId: 'v0' } })
-    mounted.root.querySelector<HTMLTextAreaElement>('textarea')!.value = 'draft'
-    mounted.clickAway()
-    expect(mounted.close).toHaveBeenCalledOnce()
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
-  })
-
   it('applies click-away commit-or-drop semantics to COLOR and raw JSON', async () => {
     const color = mountWidget(widgetState('COLOR', {}, '#123456'))
     const colorField = color.root.querySelector<HTMLInputElement>('[data-testid="color-text"]')!
@@ -1587,7 +1578,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     }))
 
     const rawState = { ...widgetState('JSON', {}, '{"stored":true}', true), spec: undefined }
-    const raw = mountWidget({ ...rawState, target: { kind: 'valueSource', valueSourceId: 'v0' } })
+    const raw = mountWidget(rawState)
     const rawField = raw.root.querySelector<HTMLTextAreaElement>('textarea')!
     rawField.value = '{"stored":false}'
     raw.clickAway()

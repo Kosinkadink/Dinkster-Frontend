@@ -31,8 +31,7 @@ import { canvasBaselineRow, devicePixelSnap, domFirstBaseline, editorScreenAncho
 import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, widgetCommitError } from '../widget-commit.js'
 
 export function isInNodeTextEditor(ed: WidgetEditorState): boolean {
-  return ed.target.kind === 'input' &&
-    ed.spec?.widgetType === 'STRING' && ed.multiline
+  return ed.spec?.widgetType === 'STRING' && ed.multiline
 }
 
 
@@ -59,7 +58,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   /** Resolves true once the editor is closed, false while it stays open. */
   const commitTarget = (value: Json): Promise<boolean> => {
     if (!live || props.commitPending()) return Promise.resolve(false)
-    if (text && typeof value === 'string' && ed.target.kind === 'input') {
+    if (text && typeof value === 'string') {
       const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
       const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
       const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
@@ -146,7 +145,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
     }
     if (completionKeyDown(event)) return
     const moveRow = host.moveRow
-    if (event.isComposing || event.key !== 'Tab' || moveRow === undefined || ed.target.kind !== 'input') return
+    if (event.isComposing || event.key !== 'Tab' || moveRow === undefined) return
     event.preventDefault()
     const from = { nodeId: ed.target.nodeId, valueKey: ed.target.valueKey }
     const direction = event.shiftKey ? -1 : 1

@@ -59,8 +59,6 @@ export function extractInvocation(
   const selected = new Set([
     ...expanded.selection.nodeIds.map((id) => `node:${id}`),
     ...expanded.selection.rerouteIds.map((id) => `reroute:${id}`),
-    ...expanded.selection.valueSourceIds.map((id) => `valueSource:${id}`),
-    ...expanded.selection.selectorIds.map((id) => `selector:${id}`),
     ...expanded.selection.groupIds.map((id) => `group:${id}`),
   ])
   const resolvedGeometry = snapshot.geometry.filter((item) => selected.has(`${item.kind}:${item.id}`))

@@ -11,8 +11,8 @@
  * - producer values on a LIVE tab are exact only when upstream-recipe
  *   provenance PROVES them current (liveExactnessFor: the producer's
  *   transitive input closure compares identical between a fresh compile of
- *   the live document and the run's artifact, under equal schema hashes and
- *   outside both artifacts' random-selector cones); every occurrence
+ *   the live document and the run's artifact, under equal schema hashes);
+ *   every occurrence
  *   contributing the value must pass. Anything unprovable stays
  *   conservatively stale - a previous execution's value must never silently
  *   present itself as current;
