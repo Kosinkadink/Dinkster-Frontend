@@ -179,7 +179,7 @@ cannot submit twice while pending; the draft stays read only until the result.
 Refusal keeps the exact draft and an inline notice for retry. Escape or blur
 dismisses the prompt without cancelling a submitted command. A dismissed or
 replaced prompt cannot close a newer prompt when its command completes.
-This applies to node, group, selector and boundary names, and named-net
+This applies to node, group and boundary names, and named-net
 creation and rename; their existing empty-name rules are unchanged.
 
 A title override that differs from the schema display name is italic. Hovering
@@ -393,7 +393,7 @@ absorbing the edit.
 
 This is the L3 command foundation, not yet an end-user canvas gesture. The L7
 UI will add selection actions, preview, naming, and post-success navigation.
-Until L4, extraction refuses value sources, selectors, reroutes, groups,
+Until L4, extraction refuses reroutes, groups,
 promoted or whole-family enclosing forwarding, and direct specialized-slot
 roots rather than omitting them. Every planned invocation must carry explicit
 specialized-slot-root coverage, including an empty array. Selected node view

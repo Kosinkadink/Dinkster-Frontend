@@ -20,7 +20,7 @@ when its candidate requires it.
 ## Extract a selection
 
 Use **Extract as Subgraph** in the selection toolbox or a node, group,
-reroute, value-source, or selector context menu, find **Extract selection as
+or reroute context menu, find **Extract selection as
 subgraph** in universal search, or press **Ctrl+Shift+E**. Element-row menus
 such as widgets, pins, sections, nets, and links stay scoped to that element.
 Extraction submits without a naming prompt. The definition uses
@@ -28,8 +28,7 @@ the shared collision-safe default (`New Subgraph`, then `New Subgraph 2`, and
 so on). The created occurrence remains renameable later through the normal
 node **Rename** action.
 
-The gesture snapshots selected nodes, reroutes, value sources, selectors,
-and groups. A selected group includes every supported item spatially inside
+The gesture snapshots selected nodes, reroutes, and groups. A selected group includes every supported item spatially inside
 the group at gesture time. Selecting the contents without selecting the
 group does not move the group.
 
@@ -61,8 +60,7 @@ bindings or other occurrences.
 ## Flatten one level
 
 Select exactly one subgraph occurrence. Use **Flatten Subgraph One Level**
-in the toolbox or a node, group, reroute, value-source, or selector context
-menu, find **Flatten selected subgraph one level** in universal search, or
+in the toolbox or a node, group, or reroute context menu, find **Flatten selected subgraph one level** in universal search, or
 press **Ctrl+Shift+F**. Element-row menus such as widgets, pins, sections,
 nets, and links stay scoped to that element. Dinkster removes that occurrence
 and splices one copy of its body into the parent as one undoable operation.
@@ -131,8 +129,8 @@ undo/redo, and boundary editing. The Boundary panel labels these endpoints as
 **Widget output**.
 
 Only static widget-backed inputs can supply this endpoint. Missing, ambiguous,
-dynamic, or non-widget tap targets fail closed. Value-source, selector, and
-reroute output cuts remain unsupported rather than being encoded as fake
+dynamic, or non-widget tap targets fail closed. Reroute output cuts remain
+unsupported rather than being encoded as fake
 ports.
 
 ## Browser proof status

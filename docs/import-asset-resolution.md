@@ -113,7 +113,7 @@ ordinary file literals. Their exact kind is `model/vae`, `model/diffusers`,
 `directory/input`, or `directory/dataset`; uploads are not permitted. They bind
 to COMBO, or to the COMBO/ASSET union for `model/vae` only. Imported source names
 stay unchanged and do not enter file guessing or automatic descriptor
-replacement, including when carried by a value source. Backend resolution can
+replacement. Backend resolution can
 select a file, a directory, a VAE pair, or a built-in choice such as `pixel_space`.
 
 For ordinary file literals on a native Dinkster connection, the app looks up the strings with `POST /api/assets/guess` after translation. Canonical blake3 hints from the workflow's top-level ComfyUI `models` metadata are sent as `digestHints` for their original imported names. Names that include subdirectories are also queried by basename, but those added basename queries remain unhinted. Basename candidates remain attached to the original imported string and count only as exact-name signals. The lookup does not fetch assets.
