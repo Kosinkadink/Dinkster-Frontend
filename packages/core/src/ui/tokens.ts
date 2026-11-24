@@ -15,6 +15,12 @@ export interface MeaningToken {
   readonly fill: string
 }
 
+/**
+ * The share of a color laid over what is behind it to fill a label or message
+ * with that color dimly: a meaning's fill and a node's tab on the canvas.
+ */
+export const DIM_FILL_SHARE = 0.16
+
 /** `top` laid over `bottom` at `amount` (0 to 1), both #RRGGBB. */
 const mixHex = (top: string, bottom: string, amount: number): string =>
   '#' +
@@ -165,9 +171,7 @@ export const semanticTokensForTheme = (
     foreground,
     background: colors.bg.surface,
     border: foreground,
-    // 12% in the dark theme, where looks are decided; the light theme takes
-    // less so its text stays readable on the fill.
-    fill: mixHex(foreground, colors.bg.surface, theme === 'dark' ? 0.12 : 0.04),
+    fill: mixHex(foreground, colors.bg.surface, DIM_FILL_SHARE),
   })
   return deepFreeze({
     space: components.space,

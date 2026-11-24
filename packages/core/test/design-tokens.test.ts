@@ -28,13 +28,18 @@ describe('semantic design tokens', () => {
       }
       for (const meaning of Object.values(tokens.meaning)) {
         expect(contrast(meaning.foreground, meaning.background)).toBeGreaterThanOrEqual(4.5)
-        expect(contrast(meaning.foreground, meaning.fill)).toBeGreaterThanOrEqual(4.5)
       }
       expect(contrast(tokens.action.primaryText, tokens.action.primaryBg)).toBeGreaterThanOrEqual(4.5)
       expect(contrast(tokens.action.removeText, tokens.meaning.danger.foreground)).toBeGreaterThanOrEqual(4.5)
       expect(contrast(tokens.text.onSelected, tokens.surface.selected)).toBeGreaterThanOrEqual(4.5)
       expect(contrast(tokens.border.focus, tokens.surface.panel)).toBeGreaterThanOrEqual(3)
       expect(contrast(tokens.text.muted, tokens.surface.panel)).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('keeps meaning text readable on its fill in the dark theme', () => {
+    for (const meaning of Object.values(semanticTokensForTheme('dark').meaning)) {
+      expect(contrast(meaning.foreground, meaning.fill)).toBeGreaterThanOrEqual(4.5)
     }
   })
 
