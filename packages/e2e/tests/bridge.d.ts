@@ -173,30 +173,10 @@ interface DinksterBridgeTab {
               from:
                 | { node: string; port: string }
                 | { reroute: string }
-                | { valueSource: string }
-                | { selector: string; candidate?: string }
-              to: { node: string; port: string } | { reroute: string } | { selector: string; candidate?: string }
+              to: { node: string; port: string } | { reroute: string }
             }
           >
           reroutes: Record<string, { id: string }>
-          valueSources?: Record<
-            string,
-            {
-              id: string
-              value: unknown
-              spec?: { widgetType?: string; options?: Record<string, unknown> }
-              title?: string
-            }
-          >
-          selectors?: Record<
-            string,
-            {
-              id: string
-              candidates: ReadonlyArray<{ id: string; title?: string }>
-              policy: { kind: 'fixed'; candidate: string } | { kind: 'random' }
-              title?: string
-            }
-          >
           nets: Record<
             string,
             {
@@ -254,8 +234,6 @@ interface DinksterBridgeTab {
               }
             >
             reroutes?: Record<string, { position: { x: number; y: number } }>
-            valueSources?: Record<string, { position: { x: number; y: number } }>
-            selectors?: Record<string, { position: { x: number; y: number } }>
             groups?: Record<
               string,
               {
@@ -615,13 +593,8 @@ interface DinksterTestBridge {
       | {
           nodes: ReadonlySet<string>
           reroutes: ReadonlySet<string>
-          selectors: ReadonlySet<string>
-          selectorCandidates: ReadonlySet<string>
-          valueSources: ReadonlySet<string>
         }
       | undefined
-    /** Frozen-view execution resolutions: selector id -> recorded candidate. */
-    getSelectorResolutions(): ReadonlyMap<string, string> | undefined
     /** Active renderer capabilities. Lens ids never enter the render path. */
     getLensCapabilities(): {
       nodeBodyContent?: (node: DinksterBridgeSceneNode) =>
@@ -641,12 +614,9 @@ interface DinksterTestBridge {
         from:
           | { kind: 'port'; node: string; port: string }
           | { kind: 'reroute'; reroute: string }
-          | { kind: 'valueSource'; valueSource: string }
-          | { kind: 'selector'; selector: string; candidate?: string }
         to:
           | { kind: 'port'; node: string; port: string }
           | { kind: 'reroute'; reroute: string }
-          | { kind: 'selector'; selector: string; candidate?: string }
         x1: number
         y1: number
         x2: number
@@ -661,31 +631,6 @@ interface DinksterTestBridge {
         id: string
         x: number
         y: number
-        typeName?: string
-      }>
-      valueSources: ReadonlyArray<{
-        id: string
-        x: number
-        y: number
-        width: number
-        height: number
-        title: string
-        valueText: string
-        specState: 'declared' | 'derived' | 'raw'
-        conflict: boolean
-        typeName?: string
-      }>
-      selectors: ReadonlyArray<{
-        id: string
-        x: number
-        y: number
-        width: number
-        height: number
-        headerHeight: number
-        title: string
-        candidates: ReadonlyArray<{ id: string; label: string; y: number; typeName?: string }>
-        activeCandidate?: string
-        random: boolean
         typeName?: string
       }>
       netStubs: ReadonlyArray<{
@@ -732,8 +677,6 @@ interface DinksterTestBridge {
   controller?: {
     getSelection(): ReadonlySet<string>
     getRerouteSelection(): ReadonlySet<string>
-    getValueSourceSelection(): ReadonlySet<string>
-    getSelectorSelection(): ReadonlySet<string>
     getGroupSelection(): ReadonlySet<string>
     selectAll(): void
     setSelection(
@@ -747,10 +690,8 @@ interface DinksterTestBridge {
     chains: number
     chainLength: number
     reroutes?: boolean
-    valueSources?: boolean
     nets?: boolean
     groups?: boolean
-    selectors?: boolean
   }): unknown
 }
 

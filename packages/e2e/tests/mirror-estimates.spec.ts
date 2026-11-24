@@ -59,23 +59,27 @@ const scalarChainNode = (nodeType: string, inputType: string) => ({
 const scalarChainIntNode = scalarChainNode('e2e.math.expression.scalar-chain-int', 'INT')
 const scalarChainFloatNode = scalarChainNode('e2e.math.expression.scalar-chain-float', 'FLOAT')
 
-const knownIntNode = {
+const knownNode = (nodeType: string, displayName: string, type: string, fallback: number | boolean) => ({
   schemaVersion: 2,
-  nodeType: 'e2e.identity.int',
+  nodeType,
   version: 1,
-  displayName: 'Integer',
+  displayName,
   category: 'test',
   body: [
     {
       kind: 'input', id: 'source', required: false,
-      type: concrete('INT'), default: 0,
+      type: concrete(type), default: fallback,
     },
     {
-      kind: 'output', id: 'result', type: concrete('INT'),
+      kind: 'output', id: 'result', type: concrete(type),
       knownValue: { input: 'source' },
     },
   ],
-}
+})
+
+const knownIntNode = knownNode('e2e.identity.int', 'Integer', 'INT', 0)
+const knownFloatNode = knownNode('e2e.identity.float', 'Float', 'FLOAT', 0)
+const knownBooleanNode = knownNode('e2e.identity.boolean', 'Boolean', 'BOOLEAN', false)
 
 const sinkNode = {
   schemaVersion: 2,
@@ -141,6 +145,9 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
     epoch: 1,
     dinkster: { version: 'mirror-estimates-proof', schemaWire: 2 },
     nodes: {
+      'e2e.identity.int': knownIntNode,
+      'e2e.identity.float': knownFloatNode,
+      'e2e.identity.boolean': knownBooleanNode,
       'dinkster.math.expression': mathExpressionNode,
       'e2e.mirror.sink': sinkNode,
       'e2e.mirror.socket-sink': socketSinkNode,
@@ -149,7 +156,7 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
 
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(3)
+    window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(6)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow',
@@ -161,6 +168,9 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
           id: 'g0',
           name: 'root',
           nodes: {
+            va: { id: 'va', type: 'e2e.identity.int', values: { source: 3 } },
+            vb: { id: 'vb', type: 'e2e.identity.float', values: { source: 0.5 } },
+            vc: { id: 'vc', type: 'e2e.identity.boolean', values: { source: true } },
             math: {
               id: 'math',
               type: 'dinkster.math.expression',
@@ -173,32 +183,25 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
             socket: { id: 'socket', type: 'e2e.mirror.socket-sink', values: {} },
           },
           links: {
-            la: { id: 'la', from: { valueSource: 'va' }, to: { node: 'math', port: 'values.a' } },
-            lb: { id: 'lb', from: { valueSource: 'vb' }, to: { node: 'math', port: 'values.b' } },
-            lc: { id: 'lc', from: { valueSource: 'vc' }, to: { node: 'math', port: 'values.c' } },
+            la: { id: 'la', from: { node: 'va', port: 'result' }, to: { node: 'math', port: 'values.a' } },
+            lb: { id: 'lb', from: { node: 'vb', port: 'result' }, to: { node: 'math', port: 'values.b' } },
+            lc: { id: 'lc', from: { node: 'vc', port: 'result' }, to: { node: 'math', port: 'values.c' } },
             ld: { id: 'ld', from: { node: 'math', port: 'float' }, to: { node: 'sink', port: 'value' } },
             le: { id: 'le', from: { node: 'math', port: 'boolean' }, to: { node: 'socket', port: 'value' } },
           },
           nets: {},
           reroutes: {},
-          valueSources: {
-            va: { id: 'va', value: 3, spec: { widgetType: 'INT' } },
-            vb: { id: 'vb', value: 0.5, spec: { widgetType: 'FLOAT' } },
-            vc: { id: 'vc', value: true, spec: { widgetType: 'BOOLEAN' } },
-          },
           nextOrdinal: 10,
         },
       },
       view: { graphs: { g0: {
         nodes: {
+          va: { position: { x: 20, y: 90 } },
+          vb: { position: { x: 20, y: 210 } },
+          vc: { position: { x: 20, y: 330 } },
           math: { position: { x: 300, y: 100 } },
           sink: { position: { x: 700, y: 120 } },
           socket: { position: { x: 700, y: 360 } },
-        },
-        valueSources: {
-          va: { position: { x: 60, y: 90 } },
-          vb: { position: { x: 60, y: 210 } },
-          vc: { position: { x: 60, y: 330 } },
         },
       } } },
     } as never, 'Mirror estimates')
@@ -258,11 +261,11 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
       .toContainText('Mirrored estimate (computed locally, not executed): 3.5', { timeout: 1000 })
   }).toPass()
 
-  // BOOLEAN literals participate in the same scalar mirror and update live.
+  // BOOLEAN known values participate in the same scalar mirror and update live.
   await page.evaluate(() => {
     window.__dinksterTest!.app.activeTab()!.store.dispatch({
-      command: 'valueSource.setValue',
-      params: { graphId: 'g0', valueSourceId: 'vc', value: false },
+      command: 'node.setValue',
+      params: { graphId: 'g0', nodeId: 'vc', inputId: 'source', value: false },
     })
   })
   await expect.poll(() => sinkCompanion(page)).toEqual({ value: 0, state: 'estimate' })
@@ -273,8 +276,8 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
 
   await page.evaluate(() => {
     window.__dinksterTest!.app.activeTab()!.store.dispatch({
-      command: 'valueSource.setValue',
-      params: { graphId: 'g0', valueSourceId: 'vc', value: true },
+      command: 'node.setValue',
+      params: { graphId: 'g0', nodeId: 'vc', inputId: 'source', value: true },
     })
   })
 
@@ -317,7 +320,7 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
   await page.evaluate(() => {
     window.__dinksterTest!.app.activeTab()!.store.dispatch({
       command: 'link.connect',
-      params: { graphId: 'g0', from: { valueSource: 'vb' }, to: { node: 'math', port: 'values.b' } },
+      params: { graphId: 'g0', from: { node: 'vb', port: 'result' }, to: { node: 'math', port: 'values.b' } },
     })
   })
   await expect.poll(() => sinkCompanion(page)).toEqual({ value: 1.5, state: 'estimate' })

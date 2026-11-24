@@ -1,7 +1,7 @@
 /**
  * Bypass lowering integration (architecture section 6): bypassed nodes
  * compile to a type-matched passthrough over ELABORATED interfaces - through
- * reroute chains, chained bypassed nodes, value sources, nets, subgraph
+ * reroute chains, chained bypassed nodes, nets, subgraph
  * instances (boundary schemas), boundary-fed inner nodes, and dynamic
  * members. Matching-rule unit coverage lives in bypass.test.ts.
  */

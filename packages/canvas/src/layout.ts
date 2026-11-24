@@ -182,7 +182,7 @@ export type LayoutRow =
       readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
       /**
        * Inside a subgraph: this field is on the subgraph node without a wire
-       * (BoundaryItem.wireHidden, or a value source shown as a field). Names
+       * (BoundaryItem.wireHidden). Names
        * the boundary input it became and that input's name on the subgraph
        * node; painted as the cyan subgraph icon before the field's name.
        */
@@ -1915,7 +1915,7 @@ export interface BoundarySlotInfo {
    * the first.
    */
   readonly fields?: readonly Omit<Extract<LayoutRow, { kind: 'widget' }>, 'kind' | 'y' | 'height' | 'inset' | 'width'>[]
-  /** Fields drawn without their wire, or a value source's field: no pin. */
+  /** Fields drawn without their wire: no pin. */
   readonly pinless?: true
   /** Inputs panel only: the input takes one value or a whole list. */
   readonly acceptsList?: true

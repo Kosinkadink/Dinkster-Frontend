@@ -447,12 +447,8 @@ function buildEffectiveOccurrenceTopology(
     const validationGraph: GraphDef = { ...at.bodyGraph, links: validationLinks, nets: {} }
     const effectiveValidationCodes = new Set([
       'doc.link.dangling',
-      'doc.link.selectorCandidateSource',
-      'doc.link.valueSourceTarget',
       'doc.link.tapTarget',
-      'doc.link.selectorOutputTarget',
       'doc.reroute.cycle',
-      'doc.selector.cycle',
       'doc.tap.cycle',
     ])
     diagnostics.push(...checkGraphTopology(document, validationGraph).filter((diagnostic) => effectiveValidationCodes.has(diagnostic.code)))

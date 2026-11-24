@@ -7,7 +7,7 @@
  * - allowedTypes seed the domain; edges intersect it; empty domain = conflict
  *   with EVERY contributing edge marked (deterministic blame)
  * - reroute chains constrain through to the real producer; undriven chains
- *   and value sources constrain nothing
+ *   constrain nothing
  * - solving is advisory: it never changes which ports exist
  */
 import { describe, expect, it } from 'vitest'
@@ -776,7 +776,7 @@ describe('MatchType resolution', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Reroutes, nets, value sources
+// Reroutes and nets
 // ---------------------------------------------------------------------------
 
 describe('edges through structure', () => {
@@ -796,7 +796,7 @@ describe('edges through structure', () => {
     expect(s.linkVerdicts.has('l0' as never)).toBe(false)
   })
 
-  it('undriven reroutes and value sources constrain nothing', () => {
+  it('undriven reroutes constrain nothing', () => {
     const def = defOf({
       nodes: { sw: { type: 'Switch' } },
       links: {

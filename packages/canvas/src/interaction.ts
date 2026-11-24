@@ -2207,7 +2207,7 @@ export class InteractionController {
    * blank slot = boundary.addItem); Outputs-side pins consume inner outputs
    * (existing item = re-point via boundary.setBinding, blank slot =
    * boundary.addItem). Inputs bind to real input ports; outputs bind to real
-   * output ports or widget-output taps, never reroutes/selectors/value sources.
+   * output ports or widget-output taps, never reroutes.
    */
   private beginBoundaryLinkGesture(scene: Scene, hit: Extract<Hit, { kind: 'boundary-pin' }>, shift = false): Gesture {
     if (hit.regionIndex) {
@@ -2415,8 +2415,8 @@ export class InteractionController {
       if (sinkNodes.has(key.slice(0, key.indexOf(':')))) targets.delete(key)
     }
     // A net's source must be a real node output port: when the fan-out
-    // carries net membership, reroutes, value sources, selectors, and widget
-    // taps cannot receive the drop.
+    // carries net membership, reroutes and widget taps cannot receive the
+    // drop.
     if (netIds.length > 0) {
       const portKeys = new Set<string>()
       for (const node of scene.nodes) {
