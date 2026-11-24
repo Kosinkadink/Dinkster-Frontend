@@ -885,20 +885,27 @@ export const curveView: WidgetView<Json> = {
   isCompatible: () => true,
   measure: () => ({ rows: 2 }),
   drawCompact(ctx, value, spec, state) {
-    const curve = isCurveValue(value) ? value : curveKind.defaultValue(spec) as unknown as CurveValue
     ctx.rect(0, 0, 1, 2, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
-    const points = curve.points
-    const minX = points[0]?.position ?? 0
-    const maxX = points.at(-1)?.position ?? 1
-    const spanX = maxX - minX || 1
-    const interpolate = curveInterpolator(curve)
-    for (let index = 0; index < 64; index += 1) {
-      const fraction = index / 63
-      const sample = interpolate(minX + fraction * spanX)
-      ctx.rect(fraction, 1.8 - Math.max(0, Math.min(1, sample)) * 1.6, 0.02, 0.08,
-        { role: 'curveSample' })
+    // A wire decides a connected curve: what it brought is drawn, and nothing before a run.
+    const curve = isCurveValue(value) ? value
+      : state.connected ? undefined : curveKind.defaultValue(spec) as unknown as CurveValue
+    const points = curve?.points ?? []
+    const interpolate = curve === undefined ? undefined : curveInterpolator(curve)
+    const samples = interpolate === undefined ? []
+      : Array.from({ length: 64 }, (_, index) => Math.max(0, Math.min(1, interpolate(index / 63))))
+    // The sketch spans the plot's range, 0 to 1, so the held ends show.
+    samples.forEach((sample, index) => ctx.rect(index / 63, 1.8 - sample * 1.6, 0.02, 0.08, { role: 'curveSample' }))
+    // The folded square of the raised look: the plot in small, with its points.
+    ctx.rect(0, 0, 1, 2, {
+      role: 'curveSketch',
+      samples,
+      points: points.map((point) => [point.position, point.value]),
+      held: points.length === 0 ? [] : [points[0]!.position, points[points.length - 1]!.position],
+    })
+    ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'}`, { role: 'widgetValue', align: 'right', width: 1 })
+    if (curve !== undefined) {
+      ctx.text(0, 1, t((curve.interpolation ?? 'linear') === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic'), { role: 'curveJoin' })
     }
-    ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'} - ${curve.interpolation ?? 'linear'}`, { role: 'widgetValue', align: 'right', width: 1 })
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 2, 'widget.edit')
   },
 }
@@ -948,14 +955,14 @@ export const audioRecordView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.audioRecord', 'AUDIO_RECORD'),
   drawCompact(ctx, value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      isAssetRef(value) ? value.name : 'Record audio', state, 'widget.edit', !isAssetRef(value))
+      isAssetRef(value) ? value.name : 'No clip', state, 'widget.edit', !isAssetRef(value))
   },
 }
 export const webcamView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.webcam', 'WEBCAM'),
   drawCompact(ctx, value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      isAssetRef(value) ? value.name : 'Capture frame', state, 'widget.edit', !isAssetRef(value))
+      isAssetRef(value) ? value.name : 'No frame', state, 'widget.edit', !isAssetRef(value))
   },
 }
 export const mountView: WidgetView<Json> = {

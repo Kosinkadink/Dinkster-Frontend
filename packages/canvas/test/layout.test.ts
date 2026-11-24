@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ButtonSpec, InputSpec, NodeData, NodeSchema, NoteSpec, OutputSpec } from '@dinkster/core'
 import { asNodeId, elaborateInterface, EMPTY_CONNECTIVITY } from '@dinkster/core'
-import { layoutNode, TITLE_START, projectNodeLayoutHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import { layoutNode, TITLE_START, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 
 const measure: TextMeasurer = (text) => text.length * 6
@@ -968,7 +968,8 @@ describe('sections', () => {
     )
     expect(l.rows).toMatchObject([
       { kind: 'section', sectionId: 'advanced', box: 'section', collapsed: false },
-      { kind: 'section', sectionId: 'group:items', box: 'group', collapsed: false },
+      // A group that declares a maximum carries it to its header: "0 of 2".
+      { kind: 'section', sectionId: 'group:items', box: 'group', collapsed: false, count: 0, maxCount: 2 },
       { kind: 'growth', construct: 'items' },
     ])
     expect(l.boxes).toMatchObject([
@@ -991,6 +992,9 @@ describe('sections', () => {
       nodeData, defaultTokens, measure, widgetMeasure,
     )
     const insetOf = (id: string) => (l.rows.find((r) => r.kind === 'widget' && r.inputId === id) as { inset: number }).inset
+    // A group that declares no maximum shows its count alone.
+    expect(l.rows.find((r) => r.kind === 'section' && r.sectionId === 'group:loras')).toMatchObject({ count: 1 })
+    expect(l.rows.find((r) => r.kind === 'section' && r.sectionId === 'group:loras')).not.toHaveProperty('maxCount')
     const outside = insetOf('outside')
     // section > group > member: three boxes deep.
     expect([insetOf('one'), insetOf('loras.lora0.name')]).toEqual([outside + 3, outside + 3 + 7 + 7])
@@ -1383,6 +1387,112 @@ describe('v14 COMBO layout', () => {
     const layout = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, { elaborated })
     const taps = layout.pins.filter((pin) => pin.widgetTap === true)
     expect(taps.map((pin) => pin.portId)).toEqual(['combo', 'combo.leaf'])
+  })
+})
+
+describe('editors shown in the node', () => {
+  const editorMeasure: WidgetMeasure = (spec) =>
+    spec.widgetType === 'WEBCAM' ? { viewId: 'core.webcam', rows: 1 }
+      : spec.widgetType === 'AUDIO_RECORD' ? { viewId: 'core.audioRecord', rows: 1 }
+        : widgetMeasure(spec)
+  const editor = (id: string, widgetType: string, options: Record<string, unknown> = {}) =>
+    input(id, { type: { kind: 'concrete', name: widgetType }, widget: { widgetType, options } })
+  const body = [editor('frame', 'WEBCAM'), editor('clip', 'AUDIO_RECORD', { unfolded: true }), widget('width'), widget('height')]
+  const lay = (options: Parameters<typeof layoutNode>[5] = {}) =>
+    layoutNode(schemaOf(body), nodeData, defaultTokens, measure, editorMeasure, options)
+  const rowY = (layout: ReturnType<typeof lay>, id: string) =>
+    layout.rows.find((row) => row.kind === 'widget' && row.inputId === id)!.y
+
+  it('unfolds under its row, grows the node by its space and moves the rows below down', () => {
+    const folded = lay({ editorUnfolded: { clip: false } })
+    expect(folded.rows.some((row) => row.kind === 'editorSpace')).toBe(false)
+    const open = lay({ editorUnfolded: { clip: false, frame: true } })
+    const spaces = open.rows.filter((row) => row.kind === 'editorSpace')
+    expect(spaces.map((row) => row.valueKey)).toEqual(['frame'])
+    const space = spaces[0]!
+    const frameRow = open.rows.find((row) => row.kind === 'widget' && row.inputId === 'frame')!
+    expect(frameRow.kind === 'widget' && frameRow.unfolded).toBe(true)
+    expect(space.y).toBeGreaterThanOrEqual(frameRow.y + frameRow.height)
+    const grown = open.height - folded.height
+    expect(grown).toBe(space.height)
+    // Every row below starts under the space and moved down by its height.
+    for (const id of ['clip', 'width', 'height']) {
+      expect(rowY(open, id)).toBeGreaterThanOrEqual(space.y + space.height)
+      expect(rowY(open, id) - rowY(folded, id)).toBe(grown)
+    }
+    expect(space.picture).toEqual({ top: canvasPaintTokens.node.editorSpace.pad, height: 180 })
+  })
+
+  it('starts as the declaration says and folds each editor on its own', () => {
+    const fresh = lay()
+    expect(fresh.rows.filter((row) => row.kind === 'editorSpace').map((row) => row.valueKey)).toEqual(['clip'])
+    const both = lay({ editorUnfolded: { frame: true } })
+    expect(both.rows.filter((row) => row.kind === 'editorSpace').map((row) => row.valueKey)).toEqual(['frame', 'clip'])
+    const onlyFrame = lay({ editorUnfolded: { frame: true, clip: false } })
+    expect(onlyFrame.rows.filter((row) => row.kind === 'editorSpace').map((row) => row.valueKey)).toEqual(['frame'])
+  })
+
+  it('starts a group member folded and keeps its fold with it when the members are reordered', () => {
+    const schema = schemaOf([{
+      kind: 'group', id: 'frames', displayName: 'Frames', reorderable: true,
+      value: editor('frame', 'WEBCAM', { unfolded: true }), keys: { kind: 'numbered', prefix: 'frame', start: 0, pad: 0 },
+      grows: 'button', minMembers: 0,
+    }])
+    // The member rows in order, each unfolded one followed by its space.
+    const order = (members: string[], editorUnfolded?: Record<string, boolean>) =>
+      layoutNode(schema, { ...nodeData, dynamic: { frames: { members, seq: 3 } } }, defaultTokens, measure, editorMeasure,
+        editorUnfolded ? { editorUnfolded } : {})
+        .rows.flatMap((row) => row.kind === 'editorSpace' ? [`space ${row.valueKey}`]
+          : row.kind === 'widget' && row.viewId === 'core.webcam' ? [row.inputId] : [])
+    expect(order(['frame0', 'frame1', 'frame2'])).toEqual(['frames.frame0', 'frames.frame1', 'frames.frame2'])
+    expect(order(['frame0', 'frame1', 'frame2'], { 'frames.frame1': true }))
+      .toEqual(['frames.frame0', 'frames.frame1', 'space frames.frame1', 'frames.frame2'])
+    expect(order(['frame1', 'frame2', 'frame0'], { 'frames.frame1': true }))
+      .toEqual(['frames.frame1', 'space frames.frame1', 'frames.frame2', 'frames.frame0'])
+  })
+
+  it("gives the curve its histogram line only while the histogram input has a wire", () => {
+    const curveMeasure: WidgetMeasure = (spec) => spec.widgetType === 'CURVE' ? { viewId: 'core.curve', rows: 2 } : widgetMeasure(spec)
+    const schema = schemaOf([
+      input('histogram', { type: { kind: 'concrete', name: 'HISTOGRAM' } }),
+      input('gamma', { type: { kind: 'concrete', name: 'HISTOGRAM' } }),
+      editor('curve', 'CURVE', { unfolded: true }),
+    ])
+    const space = (connected: string[]) => {
+      const row = layoutNode(schema, nodeData, defaultTokens, measure, curveMeasure, { connectedPorts: new Set(connected) })
+        .rows.find((item) => item.kind === 'editorSpace')!
+      return row.kind === 'editorSpace' ? row : undefined
+    }
+    const unwired = space([])!
+    expect(unwired.wiredLine).toBeUndefined()
+    // A wire into another input changes nothing.
+    expect(space(['in:gamma'])!.height).toBe(unwired.height)
+    const wired = space(['in:histogram'])!
+    expect(wired.wiredLine).toBe(true)
+    expect(wired.height - unwired.height).toBe(defaultTokens.rowHeight)
+  })
+
+  it('keeps a dragged picture height within its limits', () => {
+    const picture = (stored: number) => {
+      const space = lay({ editorUnfolded: { frame: true, clip: false }, pictureHeights: { frame: stored } })
+        .rows.find((row) => row.kind === 'editorSpace')!
+      return space.kind === 'editorSpace' ? space.picture!.height : undefined
+    }
+    const { pictureMin, pictureMax } = canvasPaintTokens.node.editorSpace
+    expect(picture(240)).toBe(240)
+    expect(picture(1)).toBe(pictureMin)
+    expect(picture(99_999)).toBe(pictureMax)
+  })
+
+  it('paints a picture while its edge is dragged where the stored height puts it', () => {
+    const open = lay({ editorUnfolded: { frame: true, clip: false } })
+    for (const height of [300, 1]) {
+      const stored = lay({ editorUnfolded: { frame: true, clip: false }, pictureHeights: { frame: height } })
+      const dragged = projectPictureHeight(open, 'frame', height)
+      expect(dragged.height).toBe(stored.height)
+      expect(dragged.rows.map((row) => [row.kind, row.y, row.height])).toEqual(stored.rows.map((row) => [row.kind, row.y, row.height]))
+      expect(dragged.pins.map((pin) => pin.y)).toEqual(stored.pins.map((pin) => pin.y))
+    }
   })
 })
 

@@ -11,7 +11,8 @@ import { describe, expect, it } from 'vitest'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
-import { inputsOf, outputsOf, type NodeSchema } from '../src/schema/model.js'
+import { inputsOf, outputsOf, type GroupSpec, type NodeSchema } from '../src/schema/model.js'
+import { MAX_GROUP_MEMBERS, memberLimitOf } from '../src/schema/body.js'
 
 /** Build a GraphDef from a plain literal (branded ids make literals noisy). */
 const asDef = (d: unknown): GraphDef => d as GraphDef
@@ -662,13 +663,26 @@ describe('whole constructs on the subgraph node', () => {
     // Type variables in the template stay the inner node's own.
     expect(elabInputsOf(elab).find((input) => input.spec.id === 'stack.item0.sub.sub0')!.spec.type)
       .toEqual({ kind: 'variable', templateId: 'n0:T' })
-    // The face numbers its own members after the two inside, which one quiet line names first.
-    expect(elab.items.filter((item) => item.kind === 'note')).toMatchObject([{ text: '1 to 2 are inside', quiet: true }])
-    expect(elabInputsOf(elab).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName))
-      .toEqual(['item 3 name', 'item 4 name'])
+    // The face numbers its own members from 1 and says nothing about the two inside.
+    const names = (e: typeof elab) => elabInputsOf(e).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName)
+    expect(elab.items.filter((item) => item.kind === 'note')).toEqual([])
+    expect(names(elab)).toEqual(['item 1 name', 'item 2 name'])
+    // A label worked out by a formula reads the same numbering.
+    const byFormula = elaborateInterface({ ...schema!, body: [{ ...row, memberLabel: { formula: 'str(index())' } } as typeof row, ...schema!.body.slice(1)] }, {
+      values: {}, dynamic: { stack: { members: ['item0', 'item1'] } },
+    })
+    expect(names(byFormula)).toEqual(['0 name', '1 name'])
+    // The header counts this node's members, and the add row stops at what it
+    // may hold: the limit of five less the two inside.
+    const header = (e: typeof elab) => e.items.find((item) => item.kind === 'box' && item.construct === 'stack')
+    expect(header(elab)).toMatchObject({ members: 2 })
+    expect(elab.items.some((item) => item.kind === 'growth')).toBe(true)
+    const full = elaborateInterface(schema!, { values: {}, dynamic: { stack: { members: ['item0', 'item1', 'item2'] } } })
+    expect(header(full)).toMatchObject({ members: 3 })
+    expect(full.items.some((item) => item.kind === 'growth')).toBe(false)
   })
 
-  it('a group shown again on an outer subgraph node counts the members inside every level', () => {
+  it('a group shown again on an outer subgraph node keeps the limit through every level and numbers its own from 1', () => {
     const inner = defWith(
       { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['item0', 'item1'] } } } },
       [{ id: 'stack', binds: { kind: 'construct', node: 'n0', port: 'items' } }],
@@ -684,9 +698,32 @@ describe('whole constructs on the subgraph node', () => {
     // Five at most: two in the definition and one on the inner subgraph node leave two.
     expect(schema!.body[0]).toMatchObject({ kind: 'group', maxMembers: 2, interiorMembers: 3 })
     const elab = elaborateInterface(schema!, { values: {}, dynamic: { again: { members: ['item0'] } } })
-    expect(elab.items.filter((item) => item.kind === 'note')).toMatchObject([{ text: '1 to 3 are inside' }])
+    // Each level counts its own members from 1.
+    expect(elab.items.filter((item) => item.kind === 'note')).toEqual([])
     expect(elabInputsOf(elab).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName))
-      .toEqual(['item 4 name'])
+      .toEqual(['item 1 name'])
+  })
+
+  it('a group with no declared maximum gets none on the subgraph node, and its members inside still share the cap', () => {
+    const { maxMembers: _declared, ...items } = innerSchemas['Stack']!.body[0] as GroupSpec
+    const open: SchemaResolver = (type) => (type === 'Stack' ? { ...innerSchemas['Stack']!, body: [items, ...innerSchemas['Stack']!.body.slice(1)] } : resolve(type))
+    const inner = defWith(
+      { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['item0', 'item1'] } } } },
+      [{ id: 'stack', binds: { kind: 'construct', node: 'n0', port: 'items' } }],
+    )
+    const innerRow = deriveBoundarySchema(inner, open).schema!.body[0] as GroupSpec
+    // No maximum for a header to show; the add row stops where the run's cap does.
+    expect(innerRow.maxMembers).toBeUndefined()
+    expect(memberLimitOf(innerRow)).toBe(MAX_GROUP_MEMBERS - 2)
+    const outer = asDef({
+      id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { s0: { id: 's0', type: '#gW', values: {}, dynamic: { stack: { members: ['item0'] } } } },
+      boundary: { inputs: [{ id: 'again', binds: { kind: 'construct', node: 's0', port: 'stack' } }], outputs: [] },
+    })
+    const innerSchema = deriveBoundarySchema(inner, open).schema!
+    const outerRow = deriveBoundarySchema(outer, (type) => (type === '#gW' ? innerSchema : open(type))).schema!.body[0] as GroupSpec
+    expect(outerRow.maxMembers).toBeUndefined()
+    expect(memberLimitOf(outerRow)).toBe(MAX_GROUP_MEMBERS - 3)
   })
 
   it('a whole choice starts on the option the definition stores and carries every option', () => {

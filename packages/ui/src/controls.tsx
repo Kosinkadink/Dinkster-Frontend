@@ -7,6 +7,7 @@ import {
   type JSX,
 } from 'solid-js'
 import { ChevronDown, CircleAlert, Clock, LoaderCircle, type LucideIcon } from 'lucide-solid'
+import { Dynamic } from 'solid-js/web'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
 import { useProductStrings } from './strings.js'
 import githubMark from '../../../branding/providers/github-mark.svg?url'
@@ -20,8 +21,9 @@ type ButtonAttributes = Omit<
   'style' | 'class' | 'role'
 >
 
+/** Follows `icon`, so a control can swap its icon with its state, as Record becomes Stop. */
 export function ProductIcon(props: { icon: LucideIcon }) {
-  return <props.icon class="dinkster-icon" aria-hidden="true" />
+  return <Dynamic component={props.icon} class="dinkster-icon" aria-hidden="true" />
 }
 
 export function ProductRunActivity(props: {

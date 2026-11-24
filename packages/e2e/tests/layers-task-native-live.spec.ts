@@ -223,9 +223,9 @@ test('the layers task: add, close, forward through two subgraphs, add and edit o
   // Second level: that subgraph node in another, the group shown again.
   const outer = await extractOnlyNode(page)
   await enter(page, outer)
-  // The face holds no layer of its own yet: it says the three inside and
-  // offers the whole group from its add row's menu.
-  expect((await rowsOf(page, inner)).map((row) => row.kind)).toEqual(['note', 'growth'])
+  // The face holds no layer of its own yet and says nothing about the three
+  // inside; it offers the whole group from its add row's menu.
+  expect((await rowsOf(page, inner)).map((row) => row.kind)).toEqual(['section', 'growth'])
   const addInner = await rowPoint(page, inner, { kind: 'growth' })
   await page.mouse.click(addInner.x, addInner.y, { button: 'right' })
   const showFromAdd = page.locator('[data-item-id="core.boundary.showWhole.layers"]')
@@ -234,17 +234,18 @@ test('the layers task: add, close, forward through two subgraphs, add and edit o
   await showFromAdd.click()
   await expect.poll(async () => (await activeDoc(page)).graphs[await graphIdOfView(page)]!.boundary?.inputs.map((item) => item.binds))
     .toEqual([{ kind: 'construct', node: inner, port: 'layers' }])
-  // A layer of the inner subgraph node's own reads 4, after the three inside.
+  // The inner subgraph node counts its own layers from 1.
   await page.mouse.click(addInner.x, addInner.y)
   await expect.poll(async () => (await rowsOf(page, inner)).filter((row) => row.kind !== 'growth')).toEqual([
-    { kind: 'note', key: undefined },
+    { kind: 'section', key: 'Layers' },
+    { kind: 'member', key: 'layers' },
     { kind: 'widget', key: 'layers.1.name', value: 'layer' },
     { kind: 'widget', key: 'layers.1.strength', value: 1 },
   ])
-  expect(await labelsOf(page, inner)).toEqual(['1 to 3 are inside', '4 name', '4 strength'])
+  expect(await labelsOf(page, inner)).toEqual(['1 name', '1 strength'])
   await shot(page, '05b-inner-face-own-layer')
   await leaveToRoot(page)
-  expect((await rowsOf(page, outer)).map((row) => row.kind)).toEqual(['note', 'growth'])
+  expect((await rowsOf(page, outer)).map((row) => row.kind)).toEqual(['section', 'growth'])
   await shot(page, '06-outer-subgraph-node')
 
   // On the outermost node: add a layer and edit its field.
@@ -253,8 +254,8 @@ test('the layers task: add, close, forward through two subgraphs, add and edit o
   await expect.poll(async () => (await rowsOf(page, outer)).filter((row) => row.kind === 'widget').map((row) => row.key)).toEqual(['layers.1.name', 'layers.1.strength'])
   await editField(page, outer, 'layers.1.strength', '1.75')
   await editField(page, outer, 'layers.1.name', 'glaze')
-  // Glaze is the fifth layer the node runs, and reads 5.
-  expect(await labelsOf(page, outer)).toEqual(['1 to 4 are inside', '5 name', '5 strength'])
+  // Glaze is the fifth layer the node runs, and the first of its own: it reads 1.
+  expect(await labelsOf(page, outer)).toEqual(['1 name', '1 strength'])
   await shot(page, '07-outer-added-edited')
   const doc = await activeDoc(page)
   expect(doc.graphs[doc.root]!.nodes[outer]!.values).toEqual({ 'layers.1.name': 'glaze', 'layers.1.strength': 1.75 })
@@ -290,7 +291,7 @@ test('a wire from a field whose option is no longer chosen gives nothing, and it
   expect(first.submitted.graph.nodes['req']!.inputs['value']).toBe(0.65)
   expect(first.job.outputs['req']!['text']!.value).toBe('value=0.65')
 
-  // Choose "No amount": the amount row stays only for its wire, reads "wired", and the wire gives nothing.
+  // Choose "No amount": the amount row stays only for its wire, reads "inactive", and the wire gives nothing.
   await page.getByTestId('graph-canvas').focus()
   const mode = await rowPoint(page, 'opt', { kind: 'widget', inputId: 'mode' })
   await page.mouse.click(mode.x, mode.y)

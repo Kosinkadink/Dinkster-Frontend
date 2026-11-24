@@ -92,7 +92,7 @@ import {
 import { solveGraphTypes } from '../schema/solve.js'
 import { constructsOf } from '../schema/body.js'
 import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
-import { assetTypeId, canonicalTypeIdOf, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
+import { assetTypeId, canonicalTypeIdOf, effectiveAbsentPolicy, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
@@ -106,6 +106,8 @@ import {
   parseTypedLiteralWire,
   typeExprToDinksterWire,
   typedLiteralWire,
+  absentInputWire,
+  isAbsentInputWire,
   validateDinksterGraph,
   type DinksterGraphEntryWire,
   type DinksterGraphValidationNode,
@@ -615,6 +617,18 @@ function compileImpl(
     return [...constructsOf(schema, node.dynamic).keys()].some((construct) => tap.startsWith(`${construct}.`))
   }
 
+  /**
+   * The muted node the last port resolution stopped at, by the name the user
+   * sees: its title, else its type's name, else its id. Set where a
+   * resolution returns 'muted', read right after it.
+   */
+  let lastMuted: string | undefined
+  const nameOf = (defId: string, node: NodeData): string => node.title ?? resolveNode(defId, node)?.displayName ?? node.id
+  const markMuted = (defId: string, node: NodeData): 'muted' => {
+    lastMuted = nameOf(defId, node)
+    return 'muted'
+  }
+
   const anchorOf = (path: readonly NodeId[], node: NodeId): { occurrence: Occurrence } => ({
     occurrence: { instancePath: path, node },
   })
@@ -1001,7 +1015,7 @@ function compileImpl(
       sink.push(diag('error', 'compile', 'compile.link.danglingNode', `input ref names missing node '${ref.node}' in graph '${defId}'`))
       return undefined
     }
-    if ((node.mode ?? 'active') === 'muted') return 'muted'
+    if ((node.mode ?? 'active') === 'muted') return markMuted(defId, node)
     if (node.mode === 'bypassed') return 'bypassed'
     const childId = subgraphDefIdOf(node.type)
     if (childId !== undefined) {
@@ -1141,7 +1155,7 @@ function compileImpl(
       sink.push(diag('error', 'compile', 'compile.link.danglingNode', `output ref names missing node '${ref.node}' in graph '${defId}'`))
       return undefined
     }
-    if ((node.mode ?? 'active') === 'muted') return 'muted'
+    if ((node.mode ?? 'active') === 'muted') return markMuted(defId, node)
     if (node.mode === 'bypassed') return { bypass: { path, defId, ref } }
     const childId = subgraphDefIdOf(node.type)
     if (childId !== undefined) {
@@ -1477,7 +1491,8 @@ function compileImpl(
      * non-concrete destinations.
      */
     | { readonly kind: 'value'; readonly value: Json; readonly typeId?: string; readonly controllerSources?: readonly ControllerInputSource[]; readonly controllerWidget?: WidgetSpec }
-    | { readonly kind: 'muted'; readonly reason: string }
+    /** `node` names the muted node the route reached, for the reason sent with $absent. */
+    | { readonly kind: 'muted'; readonly reason: string; readonly node?: string }
     /** `absent`: the wire gives nothing (its field is no longer part of its node), sent as $absent when the server takes it. */
     | { readonly kind: 'dropped'; readonly reason: string; readonly absent?: true }
 
@@ -1609,7 +1624,7 @@ function compileImpl(
               tapsAbsentRow(at.defId, endpoint.node, endpoint.tap)
             if (absent) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `field '${endpoint.node}.${endpoint.tap}' is no longer part of its node`, absent: true } }] }
             const tapped = tapValue(at.path, at.defId, endpoint.node, endpoint.tap, sink)
-            if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `widget tap '${endpoint.node}.${endpoint.tap}' reaches a muted occurrence` } }] }
+            if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `widget tap '${endpoint.node}.${endpoint.tap}' reaches a muted occurrence`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
             if (tapped === undefined) {
               if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.tap.novalue', `${endpoint.node}.${endpoint.tap}: tapped input has no value`))
               return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `widget tap '${endpoint.node}.${endpoint.tap}' has no value` } }] }
@@ -1641,7 +1656,7 @@ function compileImpl(
               ...(widget !== undefined ? { controllerWidget: widget } : {}), ...(at.typeId !== undefined ? { typeId: at.typeId } : {}) } }] }
           }
           const resolved = resolveOutputPort(at.path, at.defId, endpoint, sink, delivery)
-          if (resolved === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `producer '${endpoint.node}' is muted or in an inactive occurrence` } }] }
+          if (resolved === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `producer '${endpoint.node}' is muted or in an inactive occurrence`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
           if (!resolved) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `producer endpoint ${JSON.stringify(endpoint)} cannot deliver` } }] }
           return 'bypass' in resolved
             ? { steps: [{ kind: 'recurse', at: { kind: 'bypass', bypass: resolved.bypass } }] }
@@ -1656,14 +1671,11 @@ function compileImpl(
           // otherwise the input's occurrence-effective value is baked into
           // the consumer, and an after-run control on it stays the node's own.
           const { path: knownPath, defId: knownDefId, node: knownNode, input } = at.known
-          // A link from a muted producer is dropped, as it would be if the
-          // node ran, and the node's own value is used.
+          // A link from a muted producer passes nothing on, not the node's own value.
           const driver = driverOfInput(knownPath, knownDefId, knownNode, input.address)
-          const deadDriver = driver !== undefined && isPortEndpoint(driver.endpoint) &&
-            resolveOutputPort(driver.path, driver.defId, driver.endpoint, []) === 'muted'
-          if (driver && !deadDriver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: driver.path, defId: driver.defId, endpoint: driver.endpoint } }] }
+          if (driver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: driver.path, defId: driver.defId, endpoint: driver.endpoint } }] }
           const tapped = tapValue(knownPath, knownDefId, knownNode, input.spec.id, sink)
-          if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `'${knownNode}' is muted` } }] }
+          if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `'${knownNode}' is muted`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
           const runtimeId = occurrenceKey({ instancePath: knownPath, node: knownNode })
           const sources: readonly ControllerInputSource[] = [
             ...(controllerSources.get(runtimeId)?.get(input.spec.id) ?? []).map((source) => source.source),
@@ -2286,6 +2298,23 @@ function compileImpl(
       if (queryingSources) continue
       connections.push({ from: link.from, to: link.to, what: link.what, ...(link.delivery ? { delivery: link.delivery } : {}) })
     }
+    /**
+     * A wire whose source is a muted node's output gives nothing: the input is
+     * sent $absent when the server takes it, and its absence policy decides
+     * (a required input skips its node). On a server without it the input is
+     * left out as before, with the warning: it then sends its field's own
+     * value or refuses the run.
+     */
+    const givesNothingFromMuted = (dst: ResolvedNodeInput, muted: string, what: string, defId: string): void => {
+      const receiver = emitAbsentInputs ? flat.get(dst.runtimeId) : undefined
+      if (receiver === undefined) {
+        diags.push(diag('warning', 'compile', 'compile.link.dropped', `${what} in graph '${defId}': connected node is muted`))
+        return
+      }
+      receiver.inputs[dst.inputId] = absentInputWire(`'${muted}' is muted`)
+      receiver.linkedInputs.delete(dst.inputId)
+      recordSuccessfulDelivery(dst)
+    }
     for (const c of connections) {
       // Both endpoints resolve into a SCRATCH sink: if either end is muted
       // the edge is dead and NOTHING about it is audited (symmetric policy -
@@ -2308,12 +2337,19 @@ function compileImpl(
       const structuralSrc = isPortEndpoint(c.from) && regionPseudoRef === undefined
         ? resolveOutputPort(path, defId, c.from, scratch, c.delivery)
         : undefined
+      const mutedSource = structuralSrc === 'muted' ? lastMuted : undefined
+      if (structuralSrc === 'muted' && Array.isArray(dsts)) {
+        for (const dst of dsts) if (isNodeInput(dst)) givesNothingFromMuted(dst, mutedSource!, c.what, defId)
+        continue
+      }
+      // Bypassed consumer: consumed by passthrough (or dormant) - silent. What
+      // it hands on, nothing when the producer is muted, reaches its
+      // consumers along the route from its output.
+      if (dsts === 'bypassed') continue
       if (structuralSrc === 'muted' || dsts === 'muted') {
         diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is muted`))
         continue
       }
-      // Bypassed consumer: consumed by passthrough (or dormant) - silent.
-      if (dsts === 'bypassed') continue
       // An unresolved producer is fatal only if one of these consumers
       // executes; record them before the scratch diagnostics surface.
       if (Array.isArray(dsts)) attachUnknownSchemaDependents(scratch, dsts.filter(isNodeInput).map((destination) => destination.runtimeId))
@@ -2365,14 +2401,15 @@ function compileImpl(
           attachUnknownSchemaDependents(routeDiagnostics, [dst.runtimeId])
           if (trace.kind === 'muted') {
             diags.push(...routeDiagnostics)
-            diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is muted`))
+            if (trace.node !== undefined) givesNothingFromMuted(dst, trace.node, c.what, defId)
+            else diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is muted`))
             continue
           }
           if (trace.kind === 'dropped') {
             diags.push(...routeDiagnostics)
             const receiver = trace.absent === true && emitAbsentInputs ? flat.get(dst.runtimeId) : undefined
             if (receiver) {
-              receiver.inputs[dst.inputId] = { $absent: { reason: trace.reason } }
+              receiver.inputs[dst.inputId] = absentInputWire(trace.reason)
               receiver.linkedInputs.delete(dst.inputId)
               recordSuccessfulDelivery(dst)
             }
@@ -2553,6 +2590,8 @@ function compileImpl(
       .sort((a, b) => a.childPath.length - b.childPath.length)[0]
     return outer?.runtimeId ?? runtimeId
   }
+  /** The nodes this run asks for: the output nodes, or the partial targets. */
+  let requested: readonly string[] = []
   if (scope.kind === 'full') {
     // 'full' = all output nodes (artifact contract), i.e. their upstream
     // closure. Anything unreachable from an output node - a disconnected
@@ -2568,6 +2607,7 @@ function compileImpl(
         return (region ? resolveNode(region.parentDefId, fn.node) : resolve(fn.node.type))?.isOutputNode
       })
       .map((fn) => fn.runtimeId)
+    requested = roots
     const derived = liveness.derive(flat, roots.length > 0 ? roots : [...flat.keys()], wouldRunInputEdges)
     successfulDestinations = derived.successfulDestinations
     included = roots.length > 0 ? derived.included : new Set(flat.keys())
@@ -2619,6 +2659,7 @@ function compileImpl(
     included = derived.included
     inactiveExclusive = derived.inactiveExclusive
     partialTargets = targets
+    requested = nativeTargets
     if (regions.size > 0) {
       dinksterTargets = [...new Set(nativeTargets)]
     }
@@ -2937,7 +2978,7 @@ function compileImpl(
       }
       const v = fn.inputs[input.spec.id]
       if (v !== undefined && fn.node.additionalInputs?.includes(input.address.port) &&
-        canonicalTypeIdOf(input.spec.type) === undefined && !fn.linkedInputs.has(input.spec.id) &&
+        canonicalTypeIdOf(input.spec.type) === undefined && !fn.linkedInputs.has(input.spec.id) && !isAbsentInputWire(v) &&
         (parseTypedLiteralWire(v) === undefined || !emitTypedLiterals)) {
         diags.push(diag('error', 'compile', 'compile.value.additionalInputType', `${fn.node.type}.${input.spec.id}: additional input literals require an explicit type and backend typed-literal support`, { anchor: { occurrence: fn.occ } }))
         continue
@@ -2970,6 +3011,40 @@ function compileImpl(
     ;(fromSource[occKey] ??= []).push(fn.runtimeId)
     const aliases = regions.get(fn.runtimeId)?.stateOutputAliases
     if (aliases !== undefined && aliases.size > 0) outputAliases[fn.runtimeId] = Object.fromEntries(aliases)
+  }
+
+  // A node the run will skip: a required input (absence policy 'skip')
+  // receives nothing, as an $absent marker or by a wire from a node that is
+  // itself skipped. Only a node whose input receives the marker says so
+  // before the run, without blocking it; the nodes skipped after it stay
+  // quiet. A run whose every requested node is skipped could do nothing and
+  // is not sent (a would-run query still reports its closure).
+  const skipped = new Set<string>()
+  for (let grew = true; grew;) {
+    grew = false
+    for (const fn of flat.values()) {
+      if (!included.has(fn.runtimeId) || skipped.has(fn.runtimeId)) continue
+      for (const input of fn.elab.inputs) {
+        if (input.apiName === undefined || effectiveAbsentPolicy(input.spec) !== 'skip') continue
+        const v = fn.inputs[input.spec.id]
+        const from = Array.isArray(v) && fn.linkedInputs.has(input.spec.id) ? flat.get(v[0] as string) : undefined
+        const absent = v !== undefined && isAbsentInputWire(v as Json)
+        if (!absent && (from === undefined || !skipped.has(from.runtimeId))) continue
+        if (absent) {
+          const reason = String(((v as { $absent: { reason?: unknown } }).$absent).reason ?? 'it receives nothing')
+          diags.push(diag('warning', 'compile', 'compile.input.skipped',
+            `Receives nothing because ${reason}, so this node is skipped in the run.`,
+            { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port as PortRef['port'] } } }))
+        }
+        skipped.add(fn.runtimeId)
+        grew = true
+        break
+      }
+    }
+  }
+  if (!wouldRun && requested.length > 0 && requested.every((runtimeId) => skipped.has(runtimeId))) {
+    diags.push(diag('error', 'compile', 'compile.run.allSkipped',
+      'Nothing would run: every output this run asks for is skipped, because an input it needs receives nothing. The warning on the first skipped node says why.'))
   }
 
   const ownerRegionOf = (fn: FlatNode): RegionLowering | undefined => {
