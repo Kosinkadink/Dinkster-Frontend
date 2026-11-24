@@ -102,8 +102,9 @@ starts where that target ends, and a node's automatic width reserves the
 space. See [node minimization](node-minimization.md) for what it does.
 
 The title bar holds the node's name and suffix and, for a subgraph node, one
-mark at its right end: a 20px square with a 14px boxes icon, followed by the
-linked count when two or more occurrences share the definition. The name is
+mark at its right end: a 20px square with a 14px subgraph icon, followed by
+the linked count when two or more occurrences share the definition. The mark
+sits 3px from the right edge, as from the top and bottom. The name is
 cut with an ellipsis before the mark. Every other badge is a tab outside the
 node. Tabs above say what the node is and how it is set: Deprecated, Muted,
 Bypassed, and a pack's badge, which goes above unless it asks for below. Tabs
@@ -131,7 +132,8 @@ Finished `check`, Cached `database`, Skipped `ban`, Failed and Error
 `circle-x`, Unavailable `unplug`, Warning and media warnings `triangle-alert`,
 Blocked `lock`, child counts `list-tree`, Log `scroll-text`, iteration
 `repeat`, Muted `volume-x`, Bypassed `forward`, Deprecated `archive`, and the
-subgraph mark `boxes`. A pack's badge has an icon when the pack names one.
+subgraph mark `subgraph`, which is drawn for Dinkster rather than taken from
+Lucide. A pack's badge has an icon when the pack names one.
 
 ## Numeric edits and comparison diagnostics
 

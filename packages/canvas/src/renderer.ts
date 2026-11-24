@@ -9,6 +9,7 @@
 import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, effectiveWidgetDefault, formatWidgetValue, selectorCandidateKey, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeDecoration, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
 import {
   BYPASSED_BADGE,
+  LAST_RUN_BADGE,
   layoutNodeBadges,
   MUTED_BADGE,
   nodeBadgeBounds,
@@ -3347,7 +3348,8 @@ export class CanvasRenderer {
   private badgeColor(badge: NodeBadge): string {
     const t = this.tokens
     return badge.id === MUTED_BADGE.id ? t.colors.mutedBadge
-      : badge.id === BYPASSED_BADGE.id ? t.colors.bypassedBadge : badge.color
+      : badge.id === BYPASSED_BADGE.id ? t.colors.bypassedBadge
+        : badge.id === LAST_RUN_BADGE.id ? t.colors.label : badge.color
   }
 
   /** The title bar's minimize arrow: down on an open node, right on a minimized one. */
@@ -4440,12 +4442,16 @@ export class CanvasRenderer {
       this.overlay.hoveredWidget?.nodeId === sceneNode.id &&
       this.overlay.hoveredWidget.valueKey === row.valueKey
     const drag = this.rowDrags[sceneNode.id]?.valueKey === row.valueKey ? this.rowDrags[sceneNode.id] : undefined
+    // An empty field with a worked-out value shows it dimmed until edited.
+    const automatic = drag === undefined && row.spec.automatic === true && node.node.values[row.valueKey] === undefined
+    if (automatic) ctx.globalAlpha *= canvasPaintTokens.widget.connectedOpacity
     this.paintWidget({
       ctx,
       row,
       // Selector rows (DynamicCombo) carry their value on the row itself;
       // everything else persists under the row's value key.
-      value: drag !== undefined ? drag.value : row.derivedValue !== undefined ? row.derivedValue : node.node.values[row.valueKey],
+      value: drag !== undefined ? drag.value : row.derivedValue !== undefined ? row.derivedValue
+        : automatic ? effectiveWidgetDefault(row.spec) : node.node.values[row.valueKey],
       ...(drag !== undefined ? { dragging: true } : {}),
       ...(companion !== undefined ? { companion } : {}),
       ...(companion !== undefined ? { companionAlpha } : {}),
@@ -4896,7 +4902,7 @@ export class CanvasRenderer {
       let titleX = x + t.padX
       if (vs.subgraphMark !== undefined) {
         const mark = valueSourceMarkRect(vs, t.padX)
-        paintToolboxIcon(ctx, 'boxes', x + (mark.x - vs.x), y + (mark.y - vs.y), mark.size, t.colors.subgraphMark)
+        paintToolboxIcon(ctx, 'subgraph', x + (mark.x - vs.x), y + (mark.y - vs.y), mark.size, t.colors.subgraphMark)
         titleX += mark.size + canvasPaintTokens.widget.subgraphMark.gap
       }
       const alpha = ctx.globalAlpha

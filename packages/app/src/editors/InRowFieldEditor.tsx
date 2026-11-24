@@ -124,7 +124,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
       graphId: ed.target.familyOwner?.graphId ?? ed.graphId,
       nodeId: ed.target.familyOwner?.nodeId ?? ed.target.nodeId,
       values: {},
-      clear: [ed.target.familyOwner?.valueKey ?? ed.target.valueKey],
+      unset: [ed.target.familyOwner?.valueKey ?? ed.target.valueKey],
     } })
   }
 

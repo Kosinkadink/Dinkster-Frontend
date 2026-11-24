@@ -1110,6 +1110,7 @@
   "problems.importedPacks.applying": "Installing and activating packs...",
   "problems.importedPacks.versionConflict": "The imported nodes disagree on a pack version. Resolve the translation data before installing.",
   "problems.migration.title": "Workflow upgraded",
+  "problems.lastRun.changedSince": "From the last run. Changed since.",
   "problems.migration.apply": "Apply replacement",
   "problems.migration.undo": "Undo upgrades",
   "problems.migration.undoHint": "Undo all upgrades as one step. Undo later edits first if this is disabled.",
