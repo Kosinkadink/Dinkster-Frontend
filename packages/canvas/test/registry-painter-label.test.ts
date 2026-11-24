@@ -26,6 +26,7 @@ function fakeCtx(charWidth = 6) {
   const roundedFills: { x: number; y: number; width: number; height: number; radius: number; fillStyle: string }[] = []
   const strokes: Array<{ points: Array<{ x: number; y: number }>; strokeStyle: string }> = []
   const transforms: Array<{ method: 'translate' | 'scale'; x: number; y: number }> = []
+  const images: Array<{ image: unknown; x: number; y: number; width: number; height: number }> = []
   let pendingRect: { x: number; y: number; width: number; height: number; radius: number } | undefined
   const arcs: Array<{ x: number; y: number; fillStyle: string }> = []
   let pendingArc: { x: number; y: number } | undefined
@@ -57,12 +58,13 @@ function fakeCtx(charWidth = 6) {
       fills.push({ x, y, width, height, fillStyle: String(this.fillStyle) })
     },
     measureText: (t: string) => ({ width: t.length * charWidth }),
+    drawImage: (image: unknown, x: number, y: number, width: number, height: number) => { images.push({ image, x, y, width, height }) },
     fillText(text: string, x: number, y: number) {
       texts.push(text)
       textCalls.push({ text, x, y, align: this.textAlign as CanvasTextAlign, fill: String(this.fillStyle), font: this.font })
     },
   }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, textCalls, clips, fills, roundedFills, strokes, arcs, transforms }
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, textCalls, clips, fills, roundedFills, strokes, arcs, transforms, images }
 }
 
 const LABEL = 'control_after_generate'
@@ -450,6 +452,52 @@ describe('registry painter label/value split', () => {
     expect(malformed.texts).toContain('no asset')
   })
 
+  it('paints the host summary of a folded editor row in place of the view text, an empty one whole', () => {
+    const editorKind: WidgetKind = {
+      ...stubKind, type: 'LOAD_3D', defaultValue: () => null, defaultView: () => 'core.load3d',
+    }
+    const editorView: WidgetView = {
+      ...stubView, id: 'core.load3d', kind: 'LOAD_3D',
+      drawCompact: (scene) => scene.text(1, 0, '3D viewport', { role: 'widgetValue', align: 'right', width: 1 }),
+    }
+    const editorRegistry: WidgetRegistry = {
+      ...registry,
+      kind: (type) => type === 'LOAD_3D' ? editorKind : undefined,
+      viewsFor: (type) => type === 'LOAD_3D' ? [editorView] : [],
+    }
+    const paintSummary = (editorSummary: WidgetPaintArgs['editorSummary']) => {
+      const painted = fakeCtx()
+      createRegistryPainter(editorRegistry)({
+        ctx: painted.ctx,
+        row: {
+          ...rowWith(null), label: 'viewport camera state', viewId: 'core.load3d',
+          spec: { widgetType: 'LOAD_3D', options: {}, default: null },
+        },
+        value: { camera: 'state' }, x: 0, y: 0, width: 160, rowHeight: 24, connected: false,
+        tokens: { ...defaultTokens, widgetRowLook: 'raised-editors' },
+        ...(editorSummary === undefined ? {} : { editorSummary }),
+      })
+      return painted
+    }
+    const empty = paintSummary({ text: 'No model', placeholder: true })
+    expect(empty.texts).not.toContain('3D viewport')
+    const placeholder = empty.textCalls.find((call) => call.text === 'No model')!
+    expect(placeholder.fill).toBe(defaultTokens.colors.label)
+    expect(placeholder.font).toContain('italic')
+    // A named value shares the row with a long label like any value.
+    const named = paintSummary({ text: 'chair.glb' }).textCalls.find((call) => call.text.startsWith('cha'))!
+    expect(named.fill).toBe(defaultTokens.colors.value)
+    expect(named.font).not.toContain('italic')
+    expect(paintSummary(undefined).texts.some((text) => text.startsWith('3D'))).toBe(true)
+    // A thumbnail is drawn just before the text, at its token size.
+    const thumbnail = {} as CanvasImageSource
+    const withPicture = paintSummary({ text: 'No model', thumbnail })
+    const call = withPicture.textCalls.find((text) => text.text.startsWith('No'))!
+    const { size, gap } = canvasPaintTokens.widget.valueThumbnail
+    expect(withPicture.images).toEqual([{ image: thumbnail, x: Math.round(call.x - call.text.length * 6 - gap - size), y: Math.round(call.y - size / 2), width: size, height: size }])
+    expect(paintSummary({ text: 'No model', placeholder: true }).images).toEqual([])
+  })
+
   it('measures a custom BOOLEAN label from the text the view paints', () => {
     const booleanKind: WidgetKind = {
       ...stubKind, type: 'BOOLEAN', defaultValue: () => false, defaultView: () => 'core.toggle',
@@ -578,8 +626,9 @@ describe('an automatic value', () => {
       connected: false,
       tokens: defaultTokens,
     })
-    const word = textCalls.find((call) => call.text === 'auto' || call.text === 'inactive')
-    return { value: textCalls.find((call) => call.text !== 'frame_rate' && call !== word)!, word, arcs }
+    const shown = String(value ?? automatic.value)
+    const word = textCalls.find((call) => call.text !== 'frame_rate' && call.text !== shown)
+    return { value: textCalls.find((call) => call.text === shown)!, word, arcs }
   }
   const gap = canvasPaintTokens.widget.valueWordGap
 
@@ -603,9 +652,10 @@ describe('an automatic value', () => {
     expect(arcs[0]!.x).toBeLessThan(word!.x - 4 * 6)
   })
 
-  it('reads inactive only, with no auto and no dot, on a row kept for its wire', () => {
+  it('reads the kept word only, with no auto and no dot, on a row kept for its wire', () => {
     const { value, word, arcs } = paintAutomatic(undefined, { value: 24, state: 'default', reason: 'failed' }, 'Kept for the wire on its output.')
-    expect([word?.text, value.text]).toEqual(['inactive', '24'])
+    expect(word?.text).not.toBe('auto')
+    expect(value.text).toBe('24')
     expect(value.x - 2 * 6 - word!.x).toBe(gap)
     expect(arcs).toEqual([])
   })
