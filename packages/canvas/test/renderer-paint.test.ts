@@ -3499,10 +3499,30 @@ describe('wire dashes', () => {
     expect(wire({ maybeAbsent: true }).lineDash).toEqual(maybeDash)
   })
 
-  it('draws a wire that gives nothing dashed like one that may carry nothing, and still faded', () => {
+  it('draws a wire from an inactive field solid and faded', () => {
     const curve = wire({ dimmed: true })
-    expect(curve.lineDash).toEqual(maybeDash)
+    expect(curve.lineDash).toEqual([])
     expect(curve.globalAlpha).toBeCloseTo(canvasPaintTokens.widget.inactiveOpacity)
+  })
+
+  it('fades the input pin a muted node\'s wire enters, and no other input pin', () => {
+    const scene = fixtureScene('clean')
+    const link = scene.links.find((candidate) => candidate.id === 'good')!
+    if (link.to.kind !== 'port') throw new Error('fixture wire must end at a node')
+    const target = nodeOf(scene, link.to.node)
+    const pin = target.layout.pins.find((candidate) => candidate.direction === 'in' && candidate.portId === (link.to as { port: string }).port)!
+    const at = { x: target.x, y: target.y + pin.y }
+    const pinAlpha = (over: Partial<Scene['links'][number]>) => {
+      const calls = paint({ ...scene, links: scene.links.map((candidate) => candidate === link ? { ...candidate, ...over } : candidate) })
+      // The pin sits on the node's edge, nudged at most a pixel for crisp edges.
+      const outline = calls.findIndex((call) => call.method === 'arc' && Math.abs(Number(call.args[0]) - at.x) <= 1 && Math.abs(Number(call.args[1]) - at.y) <= 1)
+      expect(outline).toBeGreaterThanOrEqual(0)
+      return calls[outline]!.globalAlpha
+    }
+    const plain = pinAlpha({})
+    expect(pinAlpha({ sourceMuted: true })).toBeCloseTo(plain * canvasPaintTokens.node.modeOpacity)
+    expect(pinAlpha({ dimmed: true })).toBeCloseTo(plain)
+    expect(pinAlpha({ maybeAbsent: true })).toBeCloseTo(plain)
   })
 
   it('draws a wire out of a muted node at that node\'s opacity, in its type\'s color, with no dashes of its own', () => {

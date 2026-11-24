@@ -81,8 +81,8 @@ export function wireLooksGallery(
 ): readonly WireLookCard[] {
   const scene = (graph: Graph) => sceneOf(tokens, measure, widgetMeasure, { root: graph }, { graph: 'root' })
 
-  // A wire that gives nothing: the Widget output pins page's row that stays
-  // for its wire under an option not chosen, drawn as that page draws it.
+  // A wire from an inactive field: the Widget output pins page's row that
+  // stays for its wire under an option not chosen, drawn as that page draws it.
   const taps = widgetTapGallery(tokens, measure, widgetMeasure)
   const keptExample = taps.examples.find((example) => example.caption.startsWith('A row that stays for its wire, under an option not chosen'))!
   const keptNodes = keptExample.nodes.map((index) => taps.scene.nodes[index]!)
@@ -95,7 +95,7 @@ export function wireLooksGallery(
   }
 
   // A muted source with an ordinary output and one that may carry nothing,
-  // and a bypassed source, each wired out, under the wire that gives nothing.
+  // and a bypassed source, each wired out, under the inactive field's wire.
   const keptBottom = Math.max(...keptNodes.map((node) => node.y + node.layout.height))
   const keptLeft = Math.min(...keptNodes.map((node) => node.x))
   const top = keptBottom + 50
@@ -174,7 +174,7 @@ export function wireLooksGallery(
     },
     {
       caption:
-        'A wire that gives nothing, from a row kept for its wire under an option not chosen, has the same dashes and stays faded (top). A wire out of a muted node is faded like the node, and the mute adds no dashes: its ordinary output gives a solid faded wire, and its output that may carry nothing a dashed faded one. A wire out of a bypassed node is an ordinary wire.',
+        'A wire is faded when its source is switched off, and keeps the dashes it would have anyway. From an inactive field, a row kept for its wire under an option not chosen, it is solid and faded (top). From a muted node it is faded like the node: solid from the ordinary output, dashed from the output that may carry nothing, and the input pin it enters is faded with it. A wire out of a bypassed node is an ordinary wire.',
       scene: besideKept,
     },
     {

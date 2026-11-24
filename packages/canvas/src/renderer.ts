@@ -951,6 +951,8 @@ export class CanvasRenderer {
   private baseScene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
   private scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
   private connectedInputPins: ReadonlySet<string> = new Set()
+  /** Input pins whose wire comes from a muted node: drawn faded with that wire. */
+  private mutedInputPins: ReadonlySet<string> = new Set()
   private connectedOutputPins: ReadonlySet<string> = new Set()
   private connectedWidgetTaps: ReadonlySet<string> = new Set()
   /** Inputs driven only by a boundary input drawn without its wire. */
@@ -2026,6 +2028,8 @@ export class CanvasRenderer {
   }
 
   private refreshConnectivity(): void {
+    this.mutedInputPins = new Set(this.scene.links.flatMap((link) =>
+      link.sourceMuted === true && link.to.kind === 'port' ? [`${link.to.node}\u0000${link.to.port}`] : []))
     this.connectedInputPins = new Set(
       [
         ...this.scene.links
@@ -2419,9 +2423,8 @@ export class CanvasRenderer {
         })
       }
       // A dashed wire means only that it may carry nothing (an optional
-      // producer) or carries nothing (a dimmed wire from a kept row); every
-      // other wire, including one being dragged, is solid.
-      const dashed = link.maybeAbsent === true || link.dimmed === true
+      // producer); every other wire, including one being dragged, is solid.
+      const dashed = link.maybeAbsent === true
       if (dashed) ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.maybeAbsentLink.world, canvasPaintTokens.dash.maybeAbsentLink.screen, scale))
       // A PROVEN type conflict paints the noodle in error red, overriding
       // the type color: the break must be visible where it is, not hunted
@@ -4126,9 +4129,11 @@ export class CanvasRenderer {
         ctx.stroke()
         ctx.globalAlpha = pinAlpha
       } else {
-        // A kept row's pin is dimmed with its row and wire.
+        // A kept row's pin is dimmed with its row and wire; an input pin a
+        // muted node's wire enters fades with that wire.
         const pinAlpha = ctx.globalAlpha
         if (pin.kept !== undefined) ctx.globalAlpha = pinAlpha * canvasPaintTokens.widget.inactiveOpacity
+        else if (pin.direction === 'in' && this.mutedInputPins.has(`${node.id}\u0000${pin.portId}`)) ctx.globalAlpha = pinAlpha * canvasPaintTokens.node.modeOpacity
         paintTypedPin(
           ctx,
           t,
