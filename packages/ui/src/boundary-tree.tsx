@@ -322,7 +322,7 @@ export function BoundaryTree(props: {
   }
 
   // A group or choice is one face: its header line and its fixed lines, which
-  // move only with it.
+  // move only with it. A press anywhere on the face takes the whole construct.
   const Construct = (constructProps: {
     construct: BoundaryTreeConstruct
     level: number
@@ -340,14 +340,14 @@ export function BoundaryTree(props: {
       aria-expanded={true}
       data-construct={constructProps.construct.construct}
       data-inert={constructProps.construct.problem ? '' : undefined}
+      onPointerDown={press(constructProps.construct.id)}
+      onClick={select(constructProps.construct.id)}
     >
       <div
         class="boundary-tree-row boundary-tree-header"
         data-side={constructProps.construct.side}
         aria-selected={props.selected === constructProps.construct.id}
         tabindex={props.selected === constructProps.construct.id ? 0 : -1}
-        onPointerDown={press(constructProps.construct.id)}
-        onClick={select(constructProps.construct.id)}
       >
         <Grip />
         <span class="boundary-tree-label boundary-tree-name">
@@ -361,12 +361,7 @@ export function BoundaryTree(props: {
           </span>
         </Show>
       </div>
-      <div
-        class="boundary-tree-template"
-        role="group"
-        onPointerDown={press(constructProps.construct.id)}
-        onClick={select(constructProps.construct.id)}
-      >
+      <div class="boundary-tree-template" role="group">
         <For each={constructProps.construct.template}>
           {(row) => (
             <span class="boundary-tree-template-row" data-side={row.side}>

@@ -241,7 +241,7 @@ const fieldSettings = () => (
   </>
 )
 
-const outputSettings = (forced: boolean, where: string) => (
+const outputSettings = (forced: boolean) => (
   <>
     <div class="boundary-tree-settings-head">
       <span class="boundary-tree-panel-title">preview</span>
@@ -253,10 +253,7 @@ const outputSettings = (forced: boolean, where: string) => (
     <Setting label="From">
       <ProductLink href="#canvas">preview on Blend</ProductLink>
     </Setting>
-    <Setting label="On the node">
-      <ProductCheckbox label="Force its own row" checked={forced} />
-    </Setting>
-    <span class="boundary-tree-quiet">{where}</span>
+    <ProductCheckbox label="Force its own row on the node" checked={forced} />
   </>
 )
 
@@ -269,12 +266,8 @@ const sectionSettings = () => (
     <Setting label="Name">
       <ProductTextInput value="Look" aria-label="Name" />
     </Setting>
-    <Setting label="Open">
-      <ProductCheckbox label="Show the name" checked />
-    </Setting>
-    <Setting label="New nodes">
-      <ProductCheckbox label="Start closed" />
-    </Setting>
+    <ProductCheckbox label="Show the name while open" checked />
+    <ProductCheckbox label="Start closed on new nodes" />
     <ProductButton intent="remove">Remove section</ProductButton>
     <span class="boundary-tree-quiet">
       Its rows stay, in the section's place.
@@ -306,8 +299,7 @@ const problemSettings = () => (
     <div class="boundary-tree-problem" role="alert">
       <ProductIcon icon={TriangleAlert} />
       <span>
-        Its row inside "Detail pass" was removed, so it sends nothing. The other
-        rows still work.
+        Its row inside "Detail pass" was removed, so it sends nothing.
       </span>
     </div>
     <ProductButton intent="remove">Remove row</ProductButton>
@@ -337,17 +329,14 @@ export function BoundaryTreeGallery() {
       </Example>
       <Example
         caption="An output with Force its own row"
-        note="Force its own row keeps preview off the line of the pin above it; the sentence under it says where it sits on the node now."
+        note="Force its own row on the node keeps preview off the line of the pin above it."
       >
         <Panel
           title="Detail pass"
           uses="used in 2 places"
           entries={detailPass({ lookOpen: false })}
           selected="preview"
-          settings={outputSettings(
-            true,
-            'On the node it has a row of its own, because Force its own row is on.',
-          )}
+          settings={outputSettings(true)}
         />
       </Example>
       <Example
@@ -497,7 +486,7 @@ export function BoundaryTreeGallery() {
             output('preview', 'preview', 'IMAGE', 'Blend'),
           ]}
           selected="preview"
-          settings={outputSettings(false, 'On the node it sits beside mask.')}
+          settings={outputSettings(false)}
         />
       </Example>
       <Example
@@ -540,7 +529,7 @@ export function BoundaryTreeGallery() {
       </Example>
       <Example
         caption="A row whose middle hop was removed"
-        note="It keeps its place, inert, and says why. The rest of the subgraph node still works."
+        note="It keeps its place, inert, and says why."
       >
         <Panel
           title="Portrait fix"
