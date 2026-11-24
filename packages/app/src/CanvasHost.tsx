@@ -32,6 +32,7 @@ import {
   updateSceneNodePositions,
   updateSceneNodeValues,
   memberAt,
+  IN_NODE_EDITORS,
   type Hit,
   type GhostLink,
   type LinkDoubleClickContext,
@@ -66,7 +67,7 @@ import { AudioTransport } from './AudioTransport.js'
 import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
-import { colorFieldHasOpacity, colorKind, resolveColorText } from '@dinkster/widgets'
+import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
 import { CanvasColorArriving } from '@dinkster/ui'
 import {
   defaultValuesOf,
@@ -189,7 +190,7 @@ import {
   type CanvasSemanticSource,
   type CanvasSemanticTarget,
 } from './CanvasSemanticNavigator.js'
-import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, editorSpaceInteractive, editorSpaceItems, NodeEditorSpaceOverlay, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
+import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
 import { Load3dSpace } from './InNodeLoad3dSpace.js'
 import { ImageCompareSpace } from './InNodeImageCompareSpace.js'
 import { imageCompareFrames } from './image-compare-frames.js'
@@ -1049,9 +1050,6 @@ export function reportBoundaryExposureRefusal(args: {
   )])
 }
 
-/** The editors shown in the node whose controls the app lays over their space: their rows fold out, the others open their dialogs. */
-const APP_EDITOR_VIEWS: ReadonlySet<string> = new Set(['core.audioRecord', 'core.webcam', 'core.load3d', 'core.imageCompare', 'core.cameraAngle'])
-
 export function NodeMediaOverlay(props: {
   readonly ownerId?: string
   readonly media: NodePreview & { readonly kind: 'video' | 'audio'; readonly src: string }
@@ -1655,7 +1653,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     if (!editorSpaceInteractive(viewport.scale)) return []
     const canvas = canvasClientRect()
     return boundedVisibleOverlayKeys(
-      editorSpaces().filter((item) => APP_EDITOR_VIEWS.has(item.row.viewId)),
+      editorSpaces(),
       (item) => item.key,
       (item) => mediaScreenRect(item.node, item.space, viewport, canvas) !== undefined,
       (item) => selectedNodeIds().has(item.nodeId),
@@ -5254,7 +5252,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // An editor shown in the node folds out under its row and back, as a
       // section opens and closes, also while a run holds the workflow. A
       // field face of the Inputs panel is no node and keeps its editor.
-      if (APP_EDITOR_VIEWS.has(hit.row.viewId) && hit.row.valueSourceOwner === undefined &&
+      if (IN_NODE_EDITORS[hit.row.viewId] !== undefined && hit.row.valueSourceOwner === undefined &&
         tab.store.doc.graphs[currentGraphId(tab)]?.nodes[hit.node.id] !== undefined) {
         void props.app.dispatchTo(tab, {
           command: 'view.setEditorUnfolded',
@@ -5571,7 +5569,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
         if (node === undefined || row?.kind !== 'widget') { setRowFocus(undefined); return }
         // A toggle and an editor's fold keep the focus, so Enter turns them back.
-        if (row.viewId !== 'core.toggle' && !APP_EDITOR_VIEWS.has(row.viewId)) setRowFocus(undefined)
+        if (row.viewId !== 'core.toggle' && IN_NODE_EDITORS[row.viewId] === undefined) setRowFocus(undefined)
         openWidgetEditor(rowHit(node, row))
       }
     }
@@ -6940,6 +6938,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             commit: at.commit,
           })
         }
+        const curve = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.curve') return undefined
+          const fallback = effectiveWidgetDefault(at.current.field.spec)
+          const value = isCurveValue(at.current.value) ? at.current.value : isCurveValue(fallback) ? fallback : undefined
+          if (value === undefined) return undefined
+          executions()
+          return {
+            value,
+            commit: (next: CurveValue) => at.commit(next as unknown as Json),
+            histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId),
+          }
+        }
         const webcam = () => {
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.webcam') return undefined
@@ -7032,6 +7043,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               <Show when={webcam()}>
                 {(ports) => <WebcamSpace value={item()?.value} ports={ports()}
                   wired={item()?.wired === true} carried={item()?.carried} covered={covered()} />}
+              </Show>
+              <Show when={curve()}>
+                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wiredLine={item()?.row.wiredLine === true}
+                  options={item()?.field.spec.options ?? {}} />}
               </Show>
               <Show when={load3d()}>
                 {(at) => <Load3dSpace value={item()?.value}

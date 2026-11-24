@@ -1,11 +1,12 @@
 import { createEffect, createMemo, createSignal, Index, onCleanup, Show } from 'solid-js'
-import { asNodeId, canonicalJson, CURVE_HISTOGRAM_PREVIEW_CHANNEL, occurrenceKey, type Json } from '@dinkster/core'
+import { canonicalJson, type Json } from '@dinkster/core'
 import { curveInterpolator, isCurveValue, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import type { AppState } from './app-state.js'
 import type { EditorHostContext } from './editors.js'
 import { useSignal } from './solid-adapter.js'
 import { useAppMessage } from './locale.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { latestCurveHistogram } from './InNodeEditorSpaces.js'
 
 const clamp = (value: number): number => Math.max(0, Math.min(1, value))
 const CURVE_WIDTH = 1000
@@ -19,15 +20,6 @@ const copyCurve = (value: CurveValue): CurveValue => ({
   interpolation: value.interpolation ?? 'linear',
   points: value.points.map((point) => ({ ...point })),
 })
-
-const histogramOf = (value: unknown): readonly number[] | undefined => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
-  const histogram = (value as Readonly<Record<string, unknown>>)['histogram']
-  return Array.isArray(histogram) && histogram.length === 256 && histogram.every((entry) =>
-    typeof entry === 'number' && Number.isSafeInteger(entry) && entry >= 0)
-    ? histogram
-    : undefined
-}
 
 export function CurveEditor(props: { readonly app: AppState; readonly host?: EditorHostContext }) {
   const appMessage = useAppMessage()
@@ -93,17 +85,7 @@ export function CurveEditor(props: { readonly app: AppState; readonly host?: Edi
     executions()
     const request = currentTarget()
     const tab = request && tabs().find((candidate) => candidate.id === request.tabId)
-    const execution = tab ? props.app.executionForTab(tab) : undefined
-    if (!request || !execution?.artifact) return undefined
-    const source = occurrenceKey({
-      instancePath: request.instancePath.map(asNodeId),
-      node: asNodeId(request.nodeId),
-    })
-    const frames = (execution.artifact.provenance.fromSource[source] ?? []).flatMap((runtimeId) => {
-      const frame = execution.previews[runtimeId]?.['curve-histogram']
-      return frame?.channel === CURVE_HISTOGRAM_PREVIEW_CHANNEL ? [frame] : []
-    }).sort((left, right) => right.timestamp - left.timestamp)
-    return histogramOf(frames[0]?.payload)
+    return request && latestCurveHistogram(tab ? props.app.executionForTab(tab) : undefined, request.instancePath, request.nodeId)
   })
 
   const curvePath = createMemo(() => {
