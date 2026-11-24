@@ -15,10 +15,6 @@ export const LOOKUP_ANSWER_MAX_BYTES = 1024 * 1024
 /** Guards against a connection that never answers; the host bounds the call itself. */
 const LOOKUP_NETWORK_LIMIT_MS = 120_000
 
-export type LookupScalar = bigint | number | boolean | string
-/** A typed argument: a value, a list of values, or an asset's wire object. */
-export type LookupArg = LookupScalar | readonly LookupScalar[] | Readonly<Record<string, unknown>>
-
 export interface LookupCall {
   /** A node type that declares the lookup; the host checks it does. */
   readonly nodeType: string
@@ -26,7 +22,8 @@ export interface LookupCall {
   readonly node: string
   /** The lookup's wire name, as declared. */
   readonly function: string
-  readonly args: readonly LookupArg[]
+  /** Typed arguments as JSON values (a whole number past 2^53 may be a bigint). */
+  readonly args: readonly unknown[]
 }
 
 export type LookupFailure =

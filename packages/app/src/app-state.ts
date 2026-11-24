@@ -2290,6 +2290,8 @@ interface BackendBase {
    * answer. Its partition follows the held schema epoch.
    */
   readonly lookups: LookupClient
+  /** Counts changes to what `lookups` holds, so views that show answers rebuild. */
+  readonly lookupGeneration: Signal<number>
   /** Clear remote-choice authority after a schema/server generation change. */
   readonly invalidateRemoteChoices: () => void
   /**
@@ -4399,6 +4401,17 @@ export class AppState {
     const workerCatalog = createSignal<WorkerCatalogState>({ status: 'unsupported' })
     const scopedClient = createScopedClient({ baseUrl })
     const lookups = createLookupClient({ baseUrl })
+    const lookupGeneration = createSignal(0)
+    // Answers often settle together: one rebuild for each turn of the event loop.
+    let lookupBump = false
+    lookups.subscribe(() => {
+      if (lookupBump) return
+      lookupBump = true
+      queueMicrotask(() => {
+        lookupBump = false
+        lookupGeneration.update((value) => value + 1)
+      })
+    })
     const schemaProblemsOwner = Symbol(`schema-problems:${id}`)
     const packProblemsOwner = Symbol(`pack-problems:${id}`)
     let refreshDiagnostics = (): void => {}
@@ -4437,6 +4450,7 @@ export class AppState {
       refreshDiagnostics: () => refreshDiagnostics(),
       scopedClient,
       lookups,
+      lookupGeneration,
       invalidateRemoteChoices,
       supervisor: createSignal<SupervisorStatus | undefined>(undefined),
       composition: createSignal<SupervisorProgress | undefined>(undefined),

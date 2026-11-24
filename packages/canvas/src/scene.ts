@@ -22,6 +22,8 @@ import {
   elabInputsOf,
   elabOutputsOf,
   elaborateInterface,
+  EMPTY_CONNECTIVITY,
+  type ElaborateOptions,
   hasPreviewSurface,
   inputsOf,
   isOccurrenceKeyWithin,
@@ -723,6 +725,8 @@ export interface BuildSceneInput {
   readonly storedValueProblem?: (row: StoredValueRow, value: Json | undefined) => boolean
   /** App capability controlling seed-controller UI construction. */
   readonly seedControllerEnabled?: boolean
+  /** What the editor holds for lookup calls; absent where lookups are off (frozen views, previews). */
+  readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
   /** Graph definition to render (the root, or a subgraph being edited). */
   readonly graphId: string
   readonly resolve: SchemaResolver
@@ -858,6 +862,7 @@ export function updateSceneNodeValues(
   current: WorkflowDocument,
   graphId: string,
   resolve: SchemaResolver,
+  lookupAnswers?: ElaborateOptions['lookupAnswers'],
 ): Scene | undefined {
   if (scene.graphId !== graphId || graphId !== current.root || Object.keys(current.graphs).length !== 1 ||
       !sameReferencesExcept(previous as unknown as Readonly<Record<string, unknown>>, current as unknown as Readonly<Record<string, unknown>>, 'graphs') ||
@@ -892,7 +897,7 @@ export function updateSceneNodeValues(
           typeof node.values[key] !== 'number' || !Number.isFinite(node.values[key]) ||
           (old.values[key] !== undefined && (typeof old.values[key] !== 'number' || !Number.isFinite(old.values[key])))) return undefined
     }
-    if (!structuralEqual(existing.elaborated, elaborateInterface(schema, node))) return undefined
+    if (!structuralEqual(existing.elaborated, elaborateInterface(schema, node, EMPTY_CONNECTIVITY, lookupAnswers === undefined ? {} : { lookupAnswers }))) return undefined
     changed = true
     nodes.push({ ...existing, node })
   }
@@ -925,7 +930,8 @@ export function buildScene(input: BuildSceneInput): Scene {
     representations: Readonly<Record<string, string>> | undefined,
   ): ElaboratedInterface => {
     const problemRows = new Set(solverProblems)
-    const elaborated = elaborateInterface(schema, node, connectivity, problemRows.size > 0 ? { problemRows } : {})
+    const lookups = input.lookupAnswers === undefined ? {} : { lookupAnswers: input.lookupAnswers }
+    const elaborated = elaborateInterface(schema, node, connectivity, problemRows.size > 0 ? { problemRows, ...lookups } : lookups)
     const check = input.storedValueProblem
     if (check === undefined) return elaborated
     for (const item of elabInputsOf(elaborated)) {
@@ -936,7 +942,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, node.values[valueKey])) problemRows.add(item.address.port)
     }
     return problemRows.size > (solverProblems?.size ?? 0)
-      ? elaborateInterface(schema, node, connectivity, { problemRows })
+      ? elaborateInterface(schema, node, connectivity, { problemRows, ...lookups })
       : elaborated
   }
   if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }

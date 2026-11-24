@@ -440,6 +440,29 @@ export function lookedAnswerValue(widgetType: string, field: LookedWidgetField, 
   return answer
 }
 
+/** A lookup call a drawn node waits on, and whether an answer fits where it is used. */
+export interface LookupSite {
+  readonly call: LookupCallSpec
+  readonly accepts: (answer: unknown) => boolean
+}
+
+/** The calls the lookup fields and notes of an elaborated node are loading for, or hold an answer for. */
+export function lookupSitesOf(items: readonly ElaboratedItem[]): LookupSite[] {
+  const sites: LookupSite[] = []
+  for (const item of items) {
+    if (item.kind === 'note' && item.lookup !== undefined && 'call' in item.lookup && item.lookup.call !== undefined) {
+      sites.push({ call: item.lookup.call, accepts: (answer) => typeof answer === 'string' })
+    }
+    if (item.kind !== 'input' || item.looked === undefined) continue
+    const widgetType = item.spec.widget?.widgetType ?? ''
+    for (const [field, state] of Object.entries(item.looked) as [LookedWidgetField, LookedState][]) {
+      if (!('call' in state) || state.call === undefined) continue
+      sites.push({ call: state.call, accepts: (answer) => lookedAnswerValue(widgetType, field, answer) !== undefined })
+    }
+  }
+  return sites
+}
+
 const jsonOf = (value: FormulaValue): Json => {
   const scalar = (item: unknown): Json => typeof item === 'bigint'
     ? (item >= BigInt(Number.MIN_SAFE_INTEGER) && item <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(item) : item.toString())

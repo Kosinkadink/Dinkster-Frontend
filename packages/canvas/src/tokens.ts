@@ -820,6 +820,8 @@ export interface DesignTokens {
     readonly dropTarget: string
     /** Subtle dot marking non-default values hidden by a collapsed section. */
     readonly modifiedIndicator: string
+    /** A link drawn in a row, such as a lookup note's Try again. */
+    readonly rowLink: string
     /** The cyan subgraph icon on a field shown on the subgraph node without a wire. */
     readonly subgraphMark: string
     /** A box's outline, and the outline of a box inside a box. */
@@ -1046,6 +1048,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     // The dot on a closed section that hides changed values. Yellow is kept
     // for problems.
     modifiedIndicator: tokens.meaning.accent.foreground,
+    rowLink: tokens.meaning.accent.foreground,
     subgraphMark: tokens.meaning.accent.foreground,
     companionValue: tokens.text.secondary,
     companionUnproven: tokens.meaning.info.foreground,

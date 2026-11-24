@@ -34,6 +34,7 @@ import {
   resolveWidgetRepresentation,
   selectorBranchDisplay,
   selectorMembersOf,
+  t as translate,
   valueKeyOf,
   type BoundaryRouteLeg,
   type ElaboratedInput,
@@ -42,6 +43,8 @@ import {
   type ElaboratedOutput,
   type InputSpec,
   type Json,
+  type LookedState,
+  type LookupCallSpec,
   type MaterializeFrame,
   type NodeData,
   type NodeSchema,
@@ -54,6 +57,46 @@ import {
   type WidgetSpec,
 } from '@dinkster/core'
 import { IN_NODE_EDITORS, canvasPaintTokens, type DesignTokens } from './tokens.js'
+
+/** The line under a lookup note's text: a spinner or an info mark, and its words. */
+export interface NoteLookupLine {
+  readonly tone: 'busy' | 'info'
+  readonly text: string
+  /** The call Try again asks for again, on its own row under the line. */
+  readonly retry?: LookupCallSpec
+}
+
+/**
+ * What a lookup note says under its text, or nothing when its answer is in
+ * use. `label` names the input an argument waits for.
+ */
+export function noteLookupLine(state: LookedState, label: (port: string) => string): NoteLookupLine | undefined {
+  switch (state.state) {
+    case 'ready':
+      return undefined
+    case 'loading':
+      return { tone: 'busy', text: translate('canvas.lookup.loading') }
+    case 'waiting':
+      return { tone: 'info', text: translate('canvas.lookup.waiting', { input: label(state.input) }) }
+    case 'paused':
+      return { tone: 'info', text: translate('canvas.lookup.paused') }
+    case 'off':
+      return { tone: 'info', text: translate('canvas.lookup.off') }
+    case 'stale':
+      return { tone: 'info', text: translate('canvas.lookup.couldNotRefresh'), retry: state.call }
+    case 'unavailable':
+      // A file the host has not checked yet is waited for, with no Try again.
+      if (state.reason === 'file-unchecked') return { tone: 'info', text: translate('canvas.lookup.fileUnchecked') }
+      return {
+        tone: 'info',
+        text: translate(state.reason === 'offline' ? 'canvas.lookup.offline' : 'canvas.lookup.noteFailed'),
+        ...(state.call === undefined ? {} : { retry: state.call }),
+      }
+  }
+}
+
+/** Rows a lookup note takes: its text, the state line, and Try again under that. */
+export const noteLookupRows = (line: NoteLookupLine): number => line.retry === undefined ? 2 : 3
 
 /** Injected text measurement (canvas measureText in the app; approximate in tests). */
 export type TextMeasurer = (text: string, role: 'title' | 'renamedTitle' | 'label' | 'value') => number
@@ -292,6 +335,8 @@ export type LayoutRow =
       readonly text: string
       /** The text is the note's "while unknown" answer. */
       readonly unknown?: true
+      /** A lookup note's state line under the text, one row high. */
+      readonly lookup?: NoteLookupLine
     }
   | {
       /** A button (ElaboratedButton): drawn and inert; its steps never run here. */
@@ -1071,7 +1116,7 @@ export function layoutNode(
       : never
     header?: BoxDecl
     growth?: { construct: string; label: string; frames: readonly MaterializeFrame[] }
-    note?: { noteId: string; text: string; unknown?: true }
+    note?: { noteId: string; text: string; unknown?: true; lookup?: NoteLookupLine }
     button?: { buttonId: string; label: string; enabled?: false }
     editorSpace?: Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset' | 'width' | 'rowAbove'>
   }
@@ -1316,7 +1361,16 @@ export function layoutNode(
         kind: item.kind,
         boxes: chain,
         ...(item.kind === 'note'
-          ? { note: { noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}) } }
+          ? { note: {
+              noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}),
+              ...(item.lookup === undefined ? {} : (() => {
+                const line = noteLookupLine(item.lookup, (port) => {
+                  const input = items.find((other): other is ElaboratedInput => other.kind === 'input' && other.spec.id === port)
+                  return input?.spec.displayName ?? port
+                })
+                return line === undefined ? {} : { lookup: line }
+              })()),
+            } }
           : { button: { buttonId: item.id, label: item.label, ...(item.enabled === false ? { enabled: false as const } : {}) } }),
       })
       continue
@@ -1582,6 +1636,8 @@ export function layoutNode(
 
   const rowBaseHeight = (row: PendingRow): number => row.kind === 'ports'
     ? tokens.rowGeometry.portRowHeight
+    : row.note?.lookup !== undefined
+    ? tokens.rowHeight * noteLookupRows(row.note.lookup)
     : row.kind !== 'widget' || row.widget === undefined
     ? tokens.rowHeight
     : (row.widget!.viewId === 'core.text'
@@ -1892,7 +1948,9 @@ export function layoutNode(
       // '+ label' text plus capsule padding.
       content = measure(`+ ${row.label}`, 'label') + canvasPaintTokens.node.growthWidthPadding + (row.inset - tokens.padX) * 2
     } else if (row.kind === 'note') {
-      content = measure(row.text, 'label') + row.inset * 2
+      // The state line's words follow a mark about as wide as a letter and a gap.
+      const line = row.lookup === undefined ? 0 : measure(row.lookup.text, 'label') + tokens.fontSize + 6
+      content = Math.max(measure(row.text, 'label'), line) + row.inset * 2
     } else if (row.kind === 'button') {
       content = measure(row.label, 'label') + canvasPaintTokens.node.growthWidthPadding + extra
     } else if (row.kind === 'editorSpace') {
