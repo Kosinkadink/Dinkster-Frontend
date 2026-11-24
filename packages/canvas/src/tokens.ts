@@ -162,6 +162,21 @@ export const canvasPaintTokens = {
     scope: { outset: 5, stroke: 2.5, minScreenStroke: 2 },
     progress: { height: 3, minScreenHeight: 1.5 },
     /**
+     * The space an editor shown in the node takes under its editor button
+     * row when unfolded: a padded picture, then rows of its own controls.
+     */
+    editorSpace: {
+      /** An unfolded editor keeps the node at least this wide. */
+      minWidth: 260,
+      pad: 6,
+      gap: 6,
+      /** A dragged picture height is kept within these. */
+      pictureMin: 60,
+      pictureMax: 1200,
+      /** Height of the bar on a picture's bottom edge that is dragged. */
+      resizeBar: 6,
+    },
+    /**
      * Sections, groups, members and a choice's option rows drawn as boxes.
      * Horizontal values step in from the node's edge; vertical ones sit on
      * the row grid, so a closed row is as tall as a field.
@@ -518,9 +533,16 @@ export const canvasPaintTokens = {
     opener: { iconSize: 12, iconInset: 6, trailingInset: 8, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
     /** The subgraph icon before the name of a field shown on the subgraph node without a wire; `size` is drawn. */
     subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
-    curve: { sourceRows: 2, inset: 4, insetX: 6, minSampleHeight: 1 },
+    /**
+     * A folded curve in the raised look: a square of its plot at the row's
+     * start, `inset` inside the row and as tall as the row allows, `gap`
+     * before the name; the plot sits `plotInset` inside its frame.
+     */
+    curve: { inset: 5, gap: 8, plotInset: 3, lineWidth: 1.5, pointRadius: 1.75, dash: [2, 2], lineStep: 16, edge: 1 },
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
     valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3, edge: 1 },
+    /** A folded editor's small picture before its value, such as the stored frame. */
+    valueThumbnail: { size: 16, radius: 2, gap: 6 },
     minLabelWidth: 44,
     minValueWidth: 56,
     labelValueGap: 5,
@@ -622,6 +644,50 @@ export const canvasPaintTokens = {
     markerFontSize: 9,
   },
 } as const
+
+/**
+ * The editors that fold out in the node, by widget view id: the picture's own
+ * height (absent for an editor without one) and how many rows of controls sit
+ * under it. The rows are fixed for each editor, so the node does not change
+ * height when the editor's state changes; a host that knows the controls
+ * differ for good, such as a recorder on a backend that cannot take uploads,
+ * gives their height in the widget's measure.
+ */
+export const IN_NODE_EDITORS: Readonly<Record<string, {
+  readonly picture?: number
+  readonly controlRows: number
+  /**
+   * The editor's own sections, closed at first, each one of the control rows
+   * when closed and `rows` more when open. Their open state is kept with the
+   * node's sections, under `<value key>.<section id>`.
+   */
+  readonly sections?: readonly { readonly id: string; readonly rows: number }[]
+  /**
+   * An input of the node that, while it has a wire, gives the editor one more
+   * control row: a line about what comes through it. Without a wire there is
+   * no such row, so the height follows the wire and not a run.
+   */
+  readonly wiredLine?: string
+}>> = {
+  // Record strip (two rows), Microphone, Limit, the stored clip's line.
+  'core.audioRecord': { controlRows: 5 },
+  // Start camera or Capture frame and Stop; the stored frame's line.
+  'core.webcam': { picture: 180, controlRows: 2 },
+  // Camera projection, Field of view, then Model placement and Animation closed.
+  'core.load3d': {
+    picture: 200,
+    controlRows: 4,
+    // Model position, rotation and scale; Animation clip, its time, its speed, Play.
+    sections: [{ id: 'placement', rows: 3 }, { id: 'animation', rows: 4 }],
+  },
+  // Wipe divider, Image A frame, Image B frame.
+  'core.imageCompare': { picture: 180, controlRows: 3 },
+  // The camera position under the orbit and elevation pictures.
+  'core.cameraAngle': { picture: 150, controlRows: 1 },
+  // Interpolation; Position; Value; Delete point; and, while the histogram input has a wire,
+  // the histogram's line.
+  'core.curve': { picture: 180, controlRows: 4, wiredLine: 'histogram' },
+}
 
 /** Minimum zoom for text detail and transient media DOM. */
 export const CANVAS_DETAIL_MIN_SCALE = canvasPaintTokens.detailMinScale

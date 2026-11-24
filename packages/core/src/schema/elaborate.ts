@@ -312,6 +312,8 @@ export interface ElaboratedBox {
   readonly label: string
   /** A group: how many members it shows, not counting the spare one. */
   readonly members?: number
+  /** A group: the most members it declares, when it declares a maximum. */
+  readonly maxMembers?: number
   /** A member: its position in the group, from 0. */
   readonly ordinal?: number
   /** A member the document does not store yet. */
@@ -357,8 +359,6 @@ export interface ElaboratedNote {
   readonly text: string
   /** The text is the note's "while unknown" answer. */
   readonly unknown?: true
-  /** Drawn dimmed, as a remark about the rows rather than one of them. */
-  readonly quiet?: true
   readonly section?: string
   readonly boxes?: readonly string[]
   /** Line key of the cell drawn before this one in a `Row`. */
@@ -1297,19 +1297,18 @@ function elaboratePass(
   const memberLabelOf = (group: GroupSpec, path: string, key: string, position: number, scope: Scope): string => {
     const typed = stateOf(path)?.memberLabels?.[key]
     if (typed !== undefined && typed !== '') return typed
-    // A member's number is its position in the run: on a subgraph node's
-    // face the members inside the subgraph come first.
-    const shown = position + (group.interiorMembers ?? 0)
+    // A member's number counts this node's own members from 1; on a subgraph
+    // node the members inside, which run first, are not counted.
     if (group.memberLabel !== undefined) {
       if (typeof group.memberLabel === 'string') return group.memberLabel
       const outcome = evaluate(group.memberLabel.formula, {
         ...scope,
-        formulaFrames: [...scope.formulaFrames, { prefix: `${path}.`, rows: [], index: shown, key }],
+        formulaFrames: [...scope.formulaFrames, { prefix: `${path}.`, rows: [], index: position, key }],
       })
       if (outcome.kind === 'value' && typeof outcome.value === 'string' && outcome.value !== '') return outcome.value
     }
     if (group.keys.kind === 'named') return key
-    const number = String(shown + 1)
+    const number = String(position + 1)
     return group.keys.prefix === '' ? number : `${group.keys.prefix} ${number}`
   }
 
@@ -1325,6 +1324,7 @@ function elaboratePass(
         construct: path,
         label: literalText(row.displayName) ?? row.id,
         ...(row.grows === 'button' ? { byHand: true as const } : {}),
+        ...(row.maxMembers !== undefined ? { maxMembers: row.maxMembers } : {}),
         ...(row.reorderable === true && typeof row.grows === 'string' ? { reorderable: true as const } : {}),
         ...(row.openName === false ? { openName: false as const } : {}),
         ...boxed(scope),
@@ -1487,14 +1487,6 @@ function elaboratePass(
         (item.kind === 'output' && connectivity.isOutputConnected(item.address.port)))
     }
 
-    // On a subgraph node's face, one quiet line says which numbers are inside.
-    const inside = row.interiorMembers ?? 0
-    if (view && inside > 0 && !scope.ghost && !scope.dormant && !scope.hidden) {
-      push({
-        kind: 'note', id: `${path}:inside`, text: inside === 1 ? '1 is inside' : `1 to ${inside} are inside`, quiet: true,
-        ...(scope.section !== undefined ? { section: scope.section } : {}),
-      })
-    }
     let allUsed = true
     for (const [position, key] of keys.entries()) {
       if (halted) return

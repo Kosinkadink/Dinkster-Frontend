@@ -3,8 +3,8 @@ import { asGraphDefId, asLineageId, asNodeId, asPortId, coreCommandRegistry, Doc
 import type { OccurrenceLinkEndpoint } from '@dinkster/core'
 
 vi.mock('lucide-solid', () => ({
-  ArrowDown: {}, ArrowUp: {}, Ban: {}, Check: {}, CirclePlay: {}, Copy: {}, CopyPlus: {}, Dice5: {}, Eye: {},
-  FolderOpen: {}, Group: {}, Lock: {}, Palette: {}, SlidersHorizontal: {}, Trash2: {}, Ungroup: {}, VolumeX: {}, X: {},
+  ArrowDown: {}, ArrowUp: {}, Ban: {}, Camera: {}, Check: {}, Circle: {}, CirclePlay: {}, Copy: {}, CopyPlus: {}, Dice5: {}, Eye: {},
+  FolderOpen: {}, Group: {}, Lock: {}, Palette: {}, Play: {}, RotateCcw: {}, SlidersHorizontal: {}, Square: {}, Trash2: {}, Ungroup: {}, VolumeX: {}, X: {},
 }))
 
 import { coreOccurrencePlanner, dispatchOccurrenceIntention } from '../src/CanvasHost.js'

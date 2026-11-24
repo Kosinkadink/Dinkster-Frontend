@@ -483,6 +483,8 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
           return { kind: 'section', node, row }
         }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
+        // An unfolded editor's own controls lie over its space; the rest of it is the node's body.
+        if (row.kind === 'editorSpace') continue
         const width = row.width ?? l.width - row.inset * 2
         if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
         return {
@@ -511,6 +513,8 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
           return { kind: 'section', node, row }
         }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
+        // An unfolded editor's own controls lie over its space; the rest of it is the node's body.
+        if (row.kind === 'editorSpace') continue
         const width = row.width ?? l.width - row.inset * 2
         if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
         return {

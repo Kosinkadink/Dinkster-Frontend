@@ -25,6 +25,20 @@ const portParams = (p: { node: string; port: string }): { node: string; port: st
   port: p.port,
 })
 
+/**
+ * A disconnect from an input, batched with compacting the node it fed: a
+ * group member left with nothing plugged in goes in the same undo step, as
+ * it does when the wire is dragged off or deleted with the Delete key.
+ */
+const disconnectAndCompact = (
+  graphId: string,
+  nodeId: string,
+  disconnect: { command: string; params: { [key: string]: string | { node: string; port: string } } },
+) => ({
+  command: 'batch',
+  params: { invocations: [disconnect, { command: 'dynamic.compact', params: { graphId, nodeId } }] },
+})
+
 const NODE_MODES: readonly { mode: NodeMode; label: string; icon: string; command?: string }[] = [
   { mode: 'active', label: 'Active', icon: 'circle-play' },
   { mode: 'muted', label: 'Muted', icon: 'volume-x', command: 'node.mute' },
@@ -434,10 +448,11 @@ const linkDelete: MenuContribution = {
     const t = ctx.target
     // Net-derived noodles have synthetic ids; deletion removes the SINK.
     // (Nets are port-only, so a net noodle's consumer end is always a port.)
-    const invocation =
+    const disconnect =
       t.netId !== undefined && 'node' in t.to
         ? { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to: portParams(t.to) } }
         : { command: 'link.disconnect', params: { graphId: ctx.graphId, linkId: t.linkId } }
+    const invocation = 'node' in t.to ? disconnectAndCompact(ctx.graphId, t.to.node, disconnect) : disconnect
     return [{ id: 'core.link.delete', label: 'Delete link', action: { kind: 'command', invocation } }]
   },
 }
@@ -769,7 +784,7 @@ const pinConnectToNet: MenuContribution = {
           action: {
             kind: 'command',
             invocation: connected
-              ? { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to } }
+              ? disconnectAndCompact(ctx.graphId, t.nodeId, { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to } })
               : { command: 'net.connectInput', params: { graphId: ctx.graphId, netId: net.id, to } },
           },
         }
@@ -889,7 +904,8 @@ const netStubDisconnect: MenuContribution = {
         label: 'Disconnect this input',
         action: {
           kind: 'command',
-          invocation: { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to: portParams({ node: t.nodeId, port: t.portId }) } },
+          invocation: disconnectAndCompact(ctx.graphId, t.nodeId,
+            { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to: portParams({ node: t.nodeId, port: t.portId }) } }),
         },
       },
     ]
