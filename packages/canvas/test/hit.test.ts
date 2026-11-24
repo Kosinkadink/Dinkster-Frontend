@@ -646,7 +646,7 @@ describe('section hits', () => {
     }
   })
 
-  it('collapsed: hidden widget rows and unconnected pins cannot be hit', () => {
+  it('collapsed: hidden widget rows cannot be hit; an unwired socket keeps a grabbable pin', () => {
     const scene = sectionedScene(true)
     const node = nodeOf(scene)
     expect(node.layout.rows.some((r) => r.kind === 'widget')).toBe(false)
@@ -654,10 +654,10 @@ describe('section hits', () => {
     for (let y = node.y; y <= node.y + node.layout.height; y += 2) {
       expect(hitTest(scene, node.x + node.layout.width / 2, y).kind).not.toBe('widget')
     }
-    // Hidden ports w and b have no pins to grab.
+    // Field w has no pin while unwired; socket b keeps its pin on the row.
     const { row } = headerRowOf(scene)
     const pin = hitTestPin(scene, node.x, node.y + row.y + row.height / 2)
-    expect(pin).toBeUndefined()
+    expect(pin).toMatchObject({ portId: 'b', direction: 'in' })
   })
 
   it('collapsed: a CONNECTED hidden port keeps a grabbable pin at the header', () => {
