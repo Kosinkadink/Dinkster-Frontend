@@ -3027,8 +3027,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           items: [
             {
               id: 'core.subgraph.extract',
-              label: 'Extract as subgraph',
-              icon: 'group',
+              label: 'Create subgraph',
+              icon: 'subgraph',
               ...(props.app.keybindings.combo('subgraph.extract') ? { shortcut: props.app.keybindings.combo('subgraph.extract')! } : {}),
               action: { kind: 'host' as const, action: 'extractSubgraph' },
               disabled: tab.execution !== undefined || !canExtractSubgraph(),
@@ -5129,30 +5129,29 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (sel.length === 1) {
         const defId = subgraphDefIdOf(def.nodes[sel[0]!]!.type)
         if (defId !== undefined && tab.store.doc.graphs[defId]) {
-          modifications.push(toolboxButton({ id: 'core.openSubgraph', icon: 'folder-open', label: 'Open subgraph' }))
+          modifications.push(toolboxButton({ id: 'core.openSubgraph', icon: 'group', label: 'Open subgraph' }))
         }
       }
-      const flattenAvailable = canFlattenSubgraph()
-      const flattenRefusal = flattenAvailable
-        ? flattenShellRefusalDiagnostic(def.nodes[sel[0]!]!, currentGraphId(tab), viewInstancePath(tab) ?? [], sel[0]!)
-        : undefined
-      modifications.push(toolboxButton({
-        id: 'core.extractSubgraph',
-        icon: 'group',
-        label: 'Extract as subgraph',
-        disabled: !canExtractSubgraph(),
-      }))
-      modifications.push(toolboxButton({
-        id: 'core.flattenSubgraph',
-        icon: 'ungroup',
-        label: 'Flatten subgraph one level',
-        disabled: !flattenAvailable || flattenRefusal !== undefined,
-        ...(!flattenAvailable
-          ? { reason: 'Select exactly one subgraph occurrence.' }
-          : flattenRefusal !== undefined
-            ? { reason: flattenRefusal.message }
-            : {}),
-      }))
+      // One selected node gets no create button, so a subgraph node's
+      // toolbox never shows the subgraph icon as both its mark and an
+      // action; the menu and the shortcut still create from one node.
+      if (sel.length > 1) {
+        modifications.push(toolboxButton({
+          id: 'core.extractSubgraph',
+          icon: 'subgraph',
+          label: 'Create subgraph',
+          disabled: !canExtractSubgraph(),
+        }))
+      }
+      if (canFlattenSubgraph()) {
+        const flattenRefusal = flattenShellRefusalDiagnostic(def.nodes[sel[0]!]!, currentGraphId(tab), viewInstancePath(tab) ?? [], sel[0]!)
+        modifications.push(toolboxButton({
+          id: 'core.flattenSubgraph',
+          icon: 'ungroup',
+          label: 'Flatten subgraph one level',
+          ...(flattenRefusal !== undefined ? { disabled: true, reason: flattenRefusal.message } : {}),
+        }))
+      }
       rows.push([
         toolboxButton({ id: 'core.delete', icon: 'trash-2', label: 'Delete' }),
         toolboxSeparator(),

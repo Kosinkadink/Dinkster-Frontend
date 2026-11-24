@@ -1,6 +1,7 @@
 # Subgraph lifecycle actions
 
-Dinkster exposes create, extract, and one-level flatten actions on the canvas.
+Dinkster exposes actions on the canvas to create an empty subgraph, create a
+subgraph from a selection, and flatten a subgraph one level.
 They use the same serializable lifecycle commands as undo, redo, and shared
 sessions.
 
@@ -17,11 +18,12 @@ pending. Switching tabs and returning also preserves the user's navigation.
 Creation uses ordinary application dispatch, which selects retained admission
 when its candidate requires it.
 
-## Extract a selection
+## Create a subgraph from a selection
 
-Use **Extract as Subgraph** in the selection toolbox or a node, group,
-reroute, value-source, or selector context menu, find **Extract selection as
-subgraph** in universal search, or press **Ctrl+Shift+E**. Element-row menus
+Use **Create subgraph** in the selection toolbox when two or more nodes are
+selected, or in a node, group, reroute, value-source, or selector context
+menu, find **Create subgraph from selection** in universal search, or press
+**Ctrl+Shift+E**. Element-row menus
 such as widgets, pins, sections, nets, and links stay scoped to that element.
 Extraction submits without a naming prompt. The definition uses
 the shared collision-safe default (`New Subgraph`, then `New Subgraph 2`, and
@@ -83,8 +85,8 @@ as dormant state, never as the target of an incoming link. Enclosing outputs
 and named nets retain the driver where their endpoint model can represent it;
 an unrepresentable structural producer refuses atomically.
 
-Extract and flatten are unavailable while execution owns the tab. Extract is
-unavailable for an empty semantic selection. Flatten is unavailable unless
+Creating a subgraph and flattening are unavailable while execution owns the
+tab. Creating a subgraph is unavailable for an empty semantic selection. Flatten is unavailable unless
 the selection is exactly one resolvable subgraph occurrence.
 
 ## Refusals

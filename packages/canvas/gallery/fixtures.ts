@@ -56,7 +56,7 @@ import {
   structuralGalleryScene,
 } from './structure.js'
 import { smallFlowNodesGallery } from './small-flow-nodes.js'
-import { subgraphIconGallery, subgraphToolbox } from './subgraph-icon.js'
+import { subgraphIconGallery } from './subgraph-icon.js'
 import { switchPrimitiveGallery } from './switch-primitive.js'
 import { typeConflictGallery } from './type-conflict.js'
 import { widgetTapGallery } from './widget-taps.js'
@@ -265,6 +265,7 @@ export interface CanvasGalleryFixture {
     rowMarks?: RowMarkMap
     inactive?: ReadonlySet<string>
     badges?: BadgeMap
+    toolbox?: readonly ToolboxRow[]
   }[]
 }
 
@@ -976,7 +977,6 @@ export function createCanvasGalleryFixture(
   } else if (page === 'subgraph-icon') {
     const cards = subgraphIconGallery(tokens, measure, widgetMeasure)
     fixture.scene.nodes = [...cards[0]!.scene.nodes]
-    fixture.toolbox = subgraphToolbox
     examples.push(...cards)
   } else if (page === 'small-flow-nodes') {
     const cards = smallFlowNodesGallery(tokens, measure, widgetMeasure)
@@ -1345,18 +1345,6 @@ export function createCanvasGalleryFixture(
           id: 'core.mode',
           icon: 'sliders-horizontal',
           label: 'Choose mode',
-        }),
-        toolboxButton({
-          id: 'core.extractSubgraph',
-          icon: 'group',
-          label: 'Extract as subgraph',
-        }),
-        toolboxButton({
-          id: 'core.flattenSubgraph',
-          icon: 'ungroup',
-          label: 'Flatten subgraph one level',
-          disabled: true,
-          reason: 'Select exactly one subgraph occurrence.',
         }),
         toolboxSeparator(),
         toolboxButton({

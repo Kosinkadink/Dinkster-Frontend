@@ -562,6 +562,44 @@ test('opens a subgraph from the selection toolbar and from the node menu', async
   await expect(breadcrumbButtons).toHaveCount(2)
 })
 
+const subgraphToolboxButtons = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.getToolboxLayout()!.buttons
+  .filter((entry) => ['core.openSubgraph', 'core.extractSubgraph', 'core.flattenSubgraph'].includes(entry.button.id))
+  .map((entry) => ({ id: entry.button.id, icon: entry.button.icon, label: entry.button.label, disabled: entry.button.disabled === true })))
+
+const graphCount = (page: Page) => page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs).length)
+
+test('the toolbox draws create for several nodes and open and flatten for one subgraph node, while the menu and shortcut create from one node', async ({ page }) => {
+  await ready(page)
+  const before = await graphCount(page)
+  await selectNode(page, 0)
+  await expect.poll(() => subgraphToolboxButtons(page)).toEqual([])
+
+  const point = await nodePoint(page, 0)
+  await page.mouse.click(point.x, point.y, { button: 'right' })
+  const create = page.locator('[data-item-id="core.subgraph.extract"]')
+  await expect(create).toContainText('Create subgraph')
+  await expect(create.locator('[data-testid="menu-icon"] svg')).toBeVisible()
+  await create.click()
+  await expect.poll(() => graphCount(page)).toBe(before + 1)
+  await expect.poll(() => subgraphToolboxButtons(page)).toEqual([
+    { id: 'core.openSubgraph', icon: 'group', label: 'Open subgraph', disabled: false },
+    { id: 'core.flattenSubgraph', icon: 'ungroup', label: 'Flatten subgraph one level', disabled: false },
+  ])
+  await page.keyboard.press('Control+Z')
+  await expect.poll(() => graphCount(page)).toBe(before)
+
+  await selectNode(page, 0)
+  await extractSelected(page)
+  await page.keyboard.press('Control+Z')
+  await expect.poll(() => graphCount(page)).toBe(before)
+
+  await selectNode(page, 0)
+  await selectNode(page, 1, ['Control'])
+  await expect.poll(() => subgraphToolboxButtons(page)).toEqual([
+    { id: 'core.extractSubgraph', icon: 'subgraph', label: 'Create subgraph', disabled: false },
+  ])
+})
+
 test('flatten is one undoable and redoable operation', async ({ page }) => {
   await ready(page)
   await selectNode(page)
