@@ -41,6 +41,11 @@ const schemas: Record<string, NodeSchema> = {
     { kind: 'group', id: 'branch', value: input('branch', INT, undefined, { optional: true, lazy: true }), keys: { kind: 'named', names: ['a', 'b', 'c'] }, grows: 'button', minMembers: 1 },
     { kind: 'output', id: 'value', type: INT },
   ] as NodeSchema['body'], { selector: { input: 'pick', group: 'branch', names: 'names' } }),
+  Primitive: schemaOf('Primitive', [
+    input('value', { kind: 'variable', templateId: 'T' }),
+    { kind: 'output', id: 'value', type: { kind: 'variable', templateId: 'T' }, knownValue: { input: 'value' } },
+  ] as NodeSchema['body'], { isOutputNode: false }),
+  Tint: schemaOf('Tint', [input('tint', { kind: 'concrete', name: 'STRING' }, { widgetType: 'COLOR', options: {}, default: '#ff0000' }, { displayName: 'tint' })]),
   Far: schemaOf('Far', [input('far', INT, intWidget({ min: 20, max: 30 }))]),
   Sampler: schemaOf('Sampler', [input('sampler', COMBO, { widgetType: 'COMBO', options: { options: ['euler', 'dpm', 'ddim'] } })]),
   Scheduler: schemaOf('Scheduler', [input('sampler', COMBO, { widgetType: 'COMBO', options: { options: ['ddim', 'dpm', 'lms'] } })]),
@@ -141,6 +146,13 @@ describe('a primitive works out its value widget', () => {
     expect(effective.spec?.widgetType).toBe('COMBO')
     expect(effective.spec?.options['options']).toEqual(['Quick', 'Detailed'])
     expect(effective.diagnostics).toEqual([])
+  })
+
+  it('gives the general Primitive the widget and label of the field it feeds, though it runs', () => {
+    const doc = docOf({ prim: { type: 'Primitive', values: { value: '#00ff00' } }, t: { type: 'Tint' } }, [['prim', 'value', 't', 'tint']])
+    const effective = effectiveOf(doc, 'prim')!
+    expect(effective.spec).toMatchObject({ widgetType: 'COLOR', default: '#ff0000' })
+    expect(effective.label).toBe('tint')
   })
 
   it('lets a Choice that feeds nothing be typed in as text', () => {

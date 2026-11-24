@@ -2217,6 +2217,21 @@ function compileImpl(
           anyCandidateDelivers = true
           if (!flat.has(terminal.src.runtimeId)) continue
           producers.add(terminal.src.runtimeId)
+          // A primitive typed by a variable runs instead of passing on its
+          // value, but its value field still takes its widget from the
+          // fields it feeds.
+          const source = queryingSources ? flat.get(terminal.src.runtimeId)! : undefined
+          const known = source?.elab.outputs.filter((output) => output.wireable !== false)[terminal.src.outputIndex]?.spec.knownValue
+          const knownInput = known === undefined ? undefined : source!.elab.inputsByValueKey.get(known.input)
+          if (source !== undefined && knownInput !== undefined) {
+            const consumer = flat.get(destination.runtimeId)!
+            sourceConsumers.push({
+              sources: [{ graph: source.graphId, occurrence: source.occ, valueKey: valueKeyOf(knownInput) }],
+              terminal: { graph: consumer.graphId, occurrence: consumer.occ, valueKey: valueKeyOf(destination.input) },
+              ref: { node: consumer.occ.node, ...destination.input.address, port: destination.input.address.port as PortRef['port'] },
+              input: destination.input.spec,
+            })
+          }
         }
         if (anyCandidateDelivers) recordSuccessfulDelivery(destination)
       }
