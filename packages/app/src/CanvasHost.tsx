@@ -2814,6 +2814,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const tab = activeTab()
       return tab !== undefined && isFlattenSelection(tab.store.doc, currentGraphId(tab), [...controller.getSelection()], lifecycleOtherSelectionCount(controller))
     }
+    /** Why the one selected subgraph node cannot be flattened, when canFlattenSubgraph holds. */
+    const flattenRefusalOfSelection = (tab: Tab) => {
+      const graphId = currentGraphId(tab)
+      const nodeId = [...controller.getSelection()][0]!
+      return flattenShellRefusalDiagnostic(tab.store.doc.graphs[graphId]!.nodes[nodeId]!, graphId, viewInstancePath(tab) ?? [], nodeId)
+    }
     const captureLifecycleTarget = (tab: Tab, graphId: string) => {
       const store = tab.store
       const stack = tab.graphStack.get()
@@ -3033,14 +3039,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               action: { kind: 'host' as const, action: 'extractSubgraph' },
               disabled: tab.execution !== undefined || !canExtractSubgraph(),
             },
-            {
+            // As on the toolbox, Flatten is offered only for one selected
+            // subgraph node, disabled when that node cannot be flattened.
+            ...(canFlattenSubgraph() ? [{
               id: 'core.subgraph.flatten',
               label: 'Flatten subgraph one level',
               icon: 'ungroup',
               ...(props.app.keybindings.combo('subgraph.flatten') ? { shortcut: props.app.keybindings.combo('subgraph.flatten')! } : {}),
               action: { kind: 'host' as const, action: 'flattenSubgraph' },
-              disabled: tab.execution !== undefined || !canFlattenSubgraph(),
-            },
+              disabled: tab.execution !== undefined || flattenRefusalOfSelection(tab) !== undefined,
+            }] : []),
           ],
         }),
         ...additionalGroups,
@@ -5144,7 +5152,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }))
       }
       if (canFlattenSubgraph()) {
-        const flattenRefusal = flattenShellRefusalDiagnostic(def.nodes[sel[0]!]!, currentGraphId(tab), viewInstancePath(tab) ?? [], sel[0]!)
+        const flattenRefusal = flattenRefusalOfSelection(tab)
         modifications.push(toolboxButton({
           id: 'core.flattenSubgraph',
           icon: 'ungroup',

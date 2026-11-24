@@ -568,7 +568,7 @@ const subgraphToolboxButtons = (page: Page) => page.evaluate(() => window.__dink
 
 const graphCount = (page: Page) => page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs).length)
 
-test('the toolbox draws create for several nodes and open and flatten for one subgraph node, while the menu and shortcut create from one node', async ({ page }) => {
+test('the toolbox draws create for several nodes and open and flatten for one subgraph node, the menu offers flatten only for one subgraph node, and the menu and shortcut create from one node', async ({ page }) => {
   await ready(page)
   const before = await graphCount(page)
   await selectNode(page, 0)
@@ -579,12 +579,21 @@ test('the toolbox draws create for several nodes and open and flatten for one su
   const create = page.locator('[data-item-id="core.subgraph.extract"]')
   await expect(create).toContainText('Create subgraph')
   await expect(create.locator('[data-testid="menu-icon"] svg')).toBeVisible()
+  await expect(page.locator('[data-item-id="core.subgraph.flatten"]')).toHaveCount(0)
   await create.click()
   await expect.poll(() => graphCount(page)).toBe(before + 1)
   await expect.poll(() => subgraphToolboxButtons(page)).toEqual([
     { id: 'core.openSubgraph', icon: 'group', label: 'Open subgraph', disabled: false },
     { id: 'core.flattenSubgraph', icon: 'ungroup', label: 'Flatten subgraph one level', disabled: false },
   ])
+  const occurrence = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.findIndex((node) => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    return tab.store.doc.graphs[tab.store.doc.root]!.nodes[node.id]!.type.startsWith('#')
+  }))
+  const occurrencePoint = await nodePoint(page, occurrence)
+  await page.mouse.click(occurrencePoint.x, occurrencePoint.y, { button: 'right' })
+  await expect(page.locator('[data-item-id="core.subgraph.flatten"]')).toHaveAttribute('aria-disabled', 'false')
+  await page.keyboard.press('Escape')
   await page.keyboard.press('Control+Z')
   await expect.poll(() => graphCount(page)).toBe(before)
 
