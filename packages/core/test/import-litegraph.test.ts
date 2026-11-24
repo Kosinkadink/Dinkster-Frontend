@@ -213,12 +213,12 @@ describe('a rule that names the inputs of a node nothing describes', () => {
   const switchSchema: NodeSchema = {
     type: 'test.switch', displayName: 'Switch', category: 'test', source: 'v3', isOutputNode: false,
     body: [
-      { kind: 'input', id: 'pick', type: { kind: 'union', names: ['BOOLEAN', 'STRING'] }, optional: true,
-        widget: { widgetType: 'STRING', options: {} } },
-      { kind: 'group', id: 'branch', value: { kind: 'input', id: 'value', type: value, optional: true },
+      { kind: 'input', id: 'pick', type: { kind: 'union', names: ['BOOLEAN', 'STRING'] }, optional: true },
+      { kind: 'group', id: 'branch', value: { kind: 'input', id: 'value', type: value, optional: true, lazy: true },
         keys: { kind: 'named', names: ['b1', 'b2'] }, grows: 'link', minMembers: 0 },
       { kind: 'output', id: 'result', type: value },
     ],
+    selector: { input: 'pick', group: 'branch' },
   }
   const branches = { branch: { kind: 'members', members: [
     { suffix: 'b1', inputs: { value: { kind: 'copy', input: 'on_false' } } },

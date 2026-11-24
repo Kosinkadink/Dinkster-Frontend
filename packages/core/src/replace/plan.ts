@@ -1312,7 +1312,9 @@ function planReplacementForCase(
       continue
     }
     const writesValue = mapping.kind === 'constant' || mapping.kind === 'value' || mapping.kind === 'copy'
-    if (writesValue && spec.widget === undefined && mapping.kind !== 'copy') {
+    // A selector input stores its pick without a widget.
+    const holdsValue = spec.widget !== undefined || address.schema.selector?.input === address.port
+    if (writesValue && !holdsValue && mapping.kind !== 'copy') {
       errors.push(diag('error', 'replace.target.notWidget', `replace: target input '${targetInput}' has no widget; cannot write a value`))
       continue
     }
