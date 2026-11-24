@@ -77,7 +77,7 @@ export type RowProblemMap = Readonly<Record<string, Readonly<Record<string, Prob
 /** The row key of an output, kept apart from an input with the same port id. */
 export const outputRowKey = (portId: string): string => `\u0000output\u0000${portId}`
 
-export const SUBGRAPH_BADGE: NodeBadge = { id: 'core.subgraph', glyph: 'Subgraph', icon: 'boxes', placement: 'title', color: canvasPaintTokens.badge.colors.subgraph }
+export const SUBGRAPH_BADGE: NodeBadge = { id: 'core.subgraph', glyph: 'Subgraph', icon: 'subgraph', placement: 'title', color: canvasPaintTokens.badge.colors.subgraph }
 export const subgraphBadge = (occurrences: number): NodeBadge => occurrences >= 2
   ? { ...SUBGRAPH_BADGE, count: occurrences }
   : SUBGRAPH_BADGE
@@ -91,6 +91,17 @@ export const executionErrorBadge = (count: number): NodeBadge => ({
   ...ERROR_BADGE,
   glyph: count > 1 ? `Error ${count}` : 'Error',
 })
+/**
+ * The run's error tab once the node has changed since that run: drawn in the
+ * theme's label gray with no count, opening the same runtime details.
+ */
+export const LAST_RUN_BADGE: NodeBadge = {
+  id: 'core.error.lastRun',
+  glyph: 'Last run',
+  icon: 'circle-x',
+  placement: 'below',
+  color: defaultTokens.colors.label,
+}
 /** One engine explanation for the root absence that blocked this node. */
 export const executionBlockedBadge = (message: string): NodeBadge => ({
   id: 'core.execution.blocked',
@@ -222,7 +233,8 @@ export function layoutNodeBadges(
   const labelWidth = (text: string): number => Math.ceil(options.measureLabel?.(text) ?? text.length * paint.fontSize)
   const result: BadgePlacement[] = []
 
-  let markRight = node.x + node.layout.width - options.tokens.padX
+  // The mark sits as far from the node's right edge as from the bar's top and bottom.
+  let markRight = node.x + node.layout.width - (node.layout.headerHeight - mark.size) / 2
   for (const badge of badges) {
     if (badge.placement !== 'title') continue
     const width = badge.count === undefined

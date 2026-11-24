@@ -350,6 +350,8 @@ export type LayoutRow =
       readonly top: number
       /** How many rows a section holds, or how many members a group shows. */
       readonly count: number
+      /** A group that declares a maximum: that maximum, shown after its count. */
+      readonly maxCount?: number
       /**
        * Count of MODIFIED widget values this box hides while collapsed
        * (derived via resettableWidgetsOf, never stored). Present only when
@@ -1055,6 +1057,7 @@ export function layoutNode(
     /** Keys of the declared boxes around this one, outermost first. */
     readonly parents: readonly string[]
     readonly members?: number
+    readonly maxMembers?: number
     readonly construct?: string
     readonly ordinal?: number
     readonly ghost?: true
@@ -1148,6 +1151,7 @@ export function layoutNode(
         parents: item.boxes ?? [],
         construct: item.construct,
         ...(item.members !== undefined ? { members: item.members } : {}),
+        ...(item.maxMembers !== undefined ? { maxMembers: item.maxMembers } : {}),
         ...(item.ordinal !== undefined ? { ordinal: item.ordinal } : {}),
         ...(item.ghost ? { ghost: true as const } : {}),
         ...(item.byHand ? { byHand: true as const } : {}),
@@ -1728,6 +1732,7 @@ export function layoutNode(
           collapsed: decl.closed,
           inset: outlineX(depth),
           count,
+          ...(decl.kind === 'group' && decl.maxMembers !== undefined ? { maxCount: decl.maxMembers } : {}),
           ...(decl.closed && modified !== undefined ? { hiddenModified: modified } : {}),
           ...(decl.closed && hiddenPorts.has(decl.id) ? { hiddenPorts: hiddenPorts.get(decl.id)! } : {}),
         }

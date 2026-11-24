@@ -968,7 +968,8 @@ describe('sections', () => {
     )
     expect(l.rows).toMatchObject([
       { kind: 'section', sectionId: 'advanced', box: 'section', collapsed: false },
-      { kind: 'section', sectionId: 'group:items', box: 'group', collapsed: false },
+      // A group that declares a maximum carries it to its header: "0 of 2".
+      { kind: 'section', sectionId: 'group:items', box: 'group', collapsed: false, count: 0, maxCount: 2 },
       { kind: 'growth', construct: 'items' },
     ])
     expect(l.boxes).toMatchObject([
@@ -991,6 +992,9 @@ describe('sections', () => {
       nodeData, defaultTokens, measure, widgetMeasure,
     )
     const insetOf = (id: string) => (l.rows.find((r) => r.kind === 'widget' && r.inputId === id) as { inset: number }).inset
+    // A group that declares no maximum shows its count alone.
+    expect(l.rows.find((r) => r.kind === 'section' && r.sectionId === 'group:loras')).toMatchObject({ count: 1 })
+    expect(l.rows.find((r) => r.kind === 'section' && r.sectionId === 'group:loras')).not.toHaveProperty('maxCount')
     const outside = insetOf('outside')
     // section > group > member: three boxes deep.
     expect([insetOf('one'), insetOf('loras.lora0.name')]).toEqual([outside + 3, outside + 3 + 7 + 7])
