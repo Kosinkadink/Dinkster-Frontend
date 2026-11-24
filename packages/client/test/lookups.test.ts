@@ -77,6 +77,29 @@ describe('lookup client', () => {
     // A failure stays until a trigger; showing it does not ask again.
     expect(await client.request(call('a', 'sdxl'))).toEqual({ state: 'unavailable', reason: 'failed' })
     expect(host.seen).toHaveLength(3)
+    // An answer that does not fit where it is used keeps the earlier one, stale.
+    const misfit = client.request(call('a', 'sd'), { refresh: true, accept: (answer) => Array.isArray(answer) })
+    await host.answer(200, { answer: 7 })
+    expect(await misfit).toEqual({ state: 'stale', answer: ['sd/x'], reason: 'wrong-shape' })
+  })
+
+  it('keeps no answer that arrives after the host moved to another pack catalog', async () => {
+    const host = fakeHost()
+    const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })
+    client.setPartition({ backend: '', epoch: 3, principal: 0 })
+    const flight = client.request(call('a', 'sd'))
+    for (let i = 0; i < 20 && host.seen.length === 0; i += 1) await Promise.resolve()
+    expect(host.seen).toHaveLength(1)
+    // A pack reload replaces the catalog while the call is under way.
+    client.setPartition({ backend: '', epoch: 4, principal: 0 })
+    await expect(flight).rejects.toThrow('aborted')
+    expect(client.entry(call('a', 'sd'))).toBeUndefined()
+    // The old request's late answer reaches nobody.
+    host.waiting.shift()!(new Response(JSON.stringify({ answer: ['sd/old'] }), { status: 200 }))
+    const fresh = client.request(call('a', 'sd'))
+    await host.answer(200, { answer: ['sd/new'] })
+    expect(await fresh).toEqual({ state: 'ready', answer: ['sd/new'] })
+    expect(host.seen).toHaveLength(2)
   })
 
   it('cancels a shared call only when its last waiter leaves', async () => {

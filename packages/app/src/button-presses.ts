@@ -22,7 +22,7 @@ import {
   type WidgetSpec,
   type WorkflowDocument,
 } from '@dinkster/core'
-import type { LookupArg, LookupCall, LookupEntry } from '@dinkster/client'
+import type { LookupCall, LookupEntry } from '@dinkster/client'
 import type { AppState, Tab } from './app-state.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
 import { desktopSaveBridge } from './desktop-bridge.js'
@@ -112,7 +112,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
     nodeType: request.nodeType,
     node: request.node,
     function: request.function,
-    args: request.args as readonly LookupArg[],
+    args: request.args,
   })
 
   /** The backend's one lookup client; it follows the schema epoch the backend holds. */

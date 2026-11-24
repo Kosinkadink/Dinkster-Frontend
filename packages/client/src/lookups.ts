@@ -15,10 +15,6 @@ export const LOOKUP_ANSWER_MAX_BYTES = 1024 * 1024
 /** Guards against a connection that never answers; the host bounds the call itself. */
 const LOOKUP_NETWORK_LIMIT_MS = 120_000
 
-export type LookupScalar = bigint | number | boolean | string
-/** A typed argument: a value, a list of values, or an asset's wire object. */
-export type LookupArg = LookupScalar | readonly LookupScalar[] | Readonly<Record<string, unknown>>
-
 export interface LookupCall {
   /** A node type that declares the lookup; the host checks it does. */
   readonly nodeType: string
@@ -26,7 +22,8 @@ export interface LookupCall {
   readonly node: string
   /** The lookup's wire name, as declared. */
   readonly function: string
-  readonly args: readonly LookupArg[]
+  /** Typed arguments as JSON values (a whole number past 2^53 may be a bigint). */
+  readonly args: readonly unknown[]
 }
 
 export type LookupFailure =
@@ -66,6 +63,11 @@ export interface LookupRequestOptions {
   readonly refresh?: boolean
   /** Default `edit`. A call already under way is shared whoever asked for it. */
   readonly askedBy?: LookupAsker
+  /**
+   * Whether an answer fits where it is used. One that does not is a wrong
+   * shape: the answer kept for these arguments stays, marked stale.
+   */
+  readonly accept?: (answer: unknown) => boolean
 }
 
 export interface LookupClient {
@@ -214,7 +216,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     return (body as { answer: unknown }).answer
   }
 
-  const start = (entry: Kept, call: LookupCall, askedBy: LookupAsker): Inflight => {
+  const start = (entry: Kept, call: LookupCall, askedBy: LookupAsker, accept?: (answer: unknown) => boolean): Inflight => {
     const controller = new AbortController()
     const owner = kept
     const before = entry.answer || entry.state.state !== 'loading' ? entry.state : undefined
@@ -226,6 +228,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       try {
         const answer = await ask(call, askedBy, controller.signal)
         if (kept !== owner) throw aborted()
+        if (accept !== undefined && !accept(answer)) throw new LookupFault('wrong-shape')
         entry.answer = { value: answer }
         entry.old = false
         return settle(entry, { state: 'ready', answer })
@@ -305,7 +308,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       entry = { state: { state: 'loading' }, old: false }
       kept.set(key, entry)
     }
-    if (!entry.inflight) entry.inflight = start(entry, call, options.askedBy ?? 'edit')
+    if (!entry.inflight) entry.inflight = start(entry, call, options.askedBy ?? 'edit', options.accept)
     return join(key, entry, entry.inflight, options.signal)
   }
 

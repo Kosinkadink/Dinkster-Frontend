@@ -54,6 +54,11 @@ describe('stepNumericValue', () => {
     expect(stepNumericValue(0, 1, frames)).toBe(1)
     expect(stepNumericValue(1, -1, frames)).toBe(0)
     expect(stepNumericValue(0, -1, frames)).toBe(0)
+    // While a worked-out offset is not known there is no grid: a step moves from the value, never onto min's grid.
+    const unknown = numericStepConstraints({ widgetType: 'INT', options: { min: 0, max: 20, step: 4, offsetUnknown: true } })
+    expect(stepNumericValue(6, 1, unknown)).toBe(10)
+    expect(stepNumericValue(6, -1, unknown)).toBe(2)
+    expect(stepNumericValue(18, 1, unknown)).toBe(18)
   })
 
   it('shows a special value by its label, and a drag that has not moved a step leaves it', () => {

@@ -25,7 +25,7 @@ import {
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, previewHasPanel, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type MemberGrip, type NodeLayout } from './layout.js'
+import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, noteLookupRows } from './layout.js'
 import {
   boundaryFieldNode,
   boundarySceneId,
@@ -3880,10 +3880,15 @@ export class CanvasRenderer {
           const rowAlpha = ctx.globalAlpha
           if (row.unknown) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
           const width = row.width ?? l.width - row.inset * 2
+          const textX = node.x + row.inset + canvasPaintTokens.widget.labelInset
+          const room = width - canvasPaintTokens.widget.labelInset * 2
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
-          ctx.fillText(row.text, node.x + row.inset + canvasPaintTokens.widget.labelInset, rowY + row.height / 2, width - canvasPaintTokens.widget.labelInset * 2)
+          const unit = row.lookup === undefined ? row.height : row.height / noteLookupRows(row.lookup)
+          ctx.fillText(row.text, textX, rowY + unit / 2, room)
           ctx.globalAlpha = rowAlpha
+          if (row.lookup !== undefined) this.paintNoteLookup(ctx, row.lookup, textX, rowY + unit, unit, room,
+            this.overlay.hoveredButton?.nodeId === node.id && this.overlay.hoveredButton.key === `lookup:${row.noteId}`)
         } else if (row.kind === 'button') {
           {
             const paint = this.buttonPaint[sceneNode.id]?.[row.buttonId]
@@ -4778,6 +4783,57 @@ export class CanvasRenderer {
    * the picture's place is drawn inset. `left` is the node's or panel's left
    * edge and `rowY` the space's top, in world coordinates.
    */
+  /**
+   * A lookup note's state line, one row under its text: the shared spinner
+   * while loading (drawn still) or an info mark, and its words, dimmed; then
+   * Try again on the row below when the call can be asked again.
+   */
+  private paintNoteLookup(ctx: CanvasRenderingContext2D, line: NoteLookupLine, x: number, top: number, unit: number, room: number, hovered: boolean): void {
+    const t = this.tokens
+    const alpha = ctx.globalAlpha
+    const paint = canvasPaintTokens.node.lookupNote
+    const cy = top + unit / 2
+    const r = Math.max(paint.markMinRadius, t.fontSize * paint.markRadiusScale)
+    ctx.lineWidth = paint.markStroke
+    if (line.tone === 'busy') {
+      ctx.strokeStyle = t.colors.boxOutline
+      ctx.beginPath()
+      ctx.arc(x + r, cy, r, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.strokeStyle = t.colors.rowLink
+      ctx.beginPath()
+      ctx.arc(x + r, cy, r, -Math.PI / 2, 0)
+      ctx.stroke()
+    } else {
+      ctx.strokeStyle = t.colors.label
+      ctx.beginPath()
+      ctx.arc(x + r, cy, r, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.fillStyle = t.colors.label
+      ctx.textAlign = 'center'
+      const font = ctx.font
+      ctx.font = `${Math.round(r * paint.glyphScale)}px ${t.fontFamily}`
+      ctx.fillText('i', x + r, cy + paint.glyphNudge)
+      ctx.font = font
+    }
+    const gap = r * 2 + paint.textGap
+    ctx.globalAlpha = alpha * GHOST_ALPHA
+    ctx.fillStyle = t.colors.label
+    ctx.textAlign = 'left'
+    ctx.fillText(fitText(ctx, line.text, Math.max(0, room - gap)), x + gap, cy)
+    ctx.globalAlpha = alpha
+    if (line.retry === undefined) return
+    const label = translate('canvas.lookup.tryAgain')
+    const ry = cy + unit
+    if (hovered) {
+      ctx.fillStyle = t.colors.buttonHover
+      const inset = paint.hoverInset
+      ctx.fillRect(x - inset, ry - unit / 2 + inset, ctx.measureText(label).width + inset * 2, unit - inset * 2)
+    }
+    ctx.fillStyle = t.colors.rowLink
+    ctx.fillText(fitText(ctx, label, room), x, ry)
+  }
+
   private paintEditorSpace(
     ctx: CanvasRenderingContext2D,
     left: number,

@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GraphDef } from '../src/format/document.js'
 import { asNodeId } from '../src/ids.js'
-import { buildGraphConnectivity, elabInputsOf, elabOutputsOf, elaborateInterface, EMPTY_CONNECTIVITY, inGoneMember, type Connectivity } from '../src/schema/elaborate.js'
+import { buildGraphConnectivity, elabInputsOf, elabOutputsOf, elaborateInterface, EMPTY_CONNECTIVITY, inGoneMember, type Connectivity, type LookupAnswerState } from '../src/schema/elaborate.js'
 import { checkBody, initialDynamicStateOf } from '../src/schema/body.js'
 import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeChoiceSpec } from '../src/schema/model.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
@@ -1074,6 +1074,75 @@ describe('formula properties', () => {
     // A wire into the row, or out of its field, shows it.
     expect(hiddenInputs(elaborate(body('w > 5'), { w: 3 }, wired(['extra'])))).toEqual([])
     expect(hiddenInputs(elaborate(body('w > 5'), { w: 3 }, wired([], ['extra'])))).toEqual([])
+  })
+
+  it('works out lookup fields and notes for their own arguments and uses only an answer for exactly them', () => {
+    const type = (name: string) => ({ kind: 'concrete', types: [name] })
+    const lookup = (name: string, ...args: string[]) => ({ lookup: `pack.${name}`, args })
+    const { schema } = parseDinksterSchema('Picker', { body: [
+      { kind: 'input', id: 'category', type: type('COMBO'), pin: false, sent: false, widget: { type: 'COMBO', options: ['sd', 'sdxl'] } },
+      { kind: 'input', id: 'lora', type: type('COMBO'), widget: { type: 'COMBO', options: lookup('loras', 'category') } },
+      { kind: 'input', id: 'frames', type: int, widget: { type: 'NUMBER', min: 0, max: lookup('most', 'category'), step: 4, offset: lookup('start', 'category') } },
+      { kind: 'input', id: 'trigger', type: type('STRING'), widget: { type: 'STRING', completions: lookup('words', 'lora') } },
+      { kind: 'note', id: 'count', text: lookup('count', 'category'), unknown: 'Counting...' },
+    ] } as never)
+    const run = (category: string, held: Record<string, LookupAnswerState> = {}, connectivity = EMPTY_CONNECTIVITY) => {
+      const elaborated = elaborateInterface(schema!, { values: { category, lora: 'a.safetensors', frames: 6 } }, connectivity,
+        { lookupAnswers: (name, args) => held[JSON.stringify([name, args])] })
+      const input = (id: string) => elabInputsOf(elaborated).find((item) => item.spec.id === id)!
+      return { input, note: elaborated.items.find((item) => item.kind === 'note')! }
+    }
+    const key = (name: string, ...args: unknown[]) => JSON.stringify([`pack.${name}`, args])
+
+    // Nothing held yet: each site is loading for its own call, with no list, no max and no step grid.
+    const first = run('sd')
+    expect(first.input('lora').looked).toEqual({ options: { state: 'loading', call: { lookup: 'pack.loras', args: ['sd'] } } })
+    expect(first.input('lora').spec.widget!.options).not.toHaveProperty('options')
+    expect(first.input('frames').spec.widget!.options).toEqual({ min: 0, step: 4, offsetUnknown: true })
+    expect(first.note).toMatchObject({ text: 'Counting...', unknown: true, lookup: { state: 'loading' } })
+    expect(first.input('trigger').looked).toEqual({ completions: { state: 'loading', call: { lookup: 'pack.words', args: ['a.safetensors'] } } })
+
+    // Answers for sd are never shown for sdxl.
+    const forSd = { [key('loras', 'sd')]: { state: 'ready', answer: ['old.safetensors'] }, [key('count', 'sd')]: { state: 'ready', answer: '3 LoRAs' } } as const
+    const changed = run('sdxl', forSd)
+    expect(changed.input('lora').looked!.options).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
+    expect(changed.note).toMatchObject({ text: 'Counting...', unknown: true })
+
+    // Ready answers replace the fields.
+    const ready = run('sdxl', {
+      [key('loras', 'sdxl')]: { state: 'ready', answer: ['x.safetensors', { value: 'y.safetensors', label: 'Y', folder: 'styles' }] },
+      [key('most', 'sdxl')]: { state: 'ready', answer: 40 },
+      [key('start', 'sdxl')]: { state: 'ready', answer: 2 },
+      [key('count', 'sdxl')]: { state: 'stale', answer: '2 LoRAs', reason: 'timeout' },
+      [key('words', 'a.safetensors')]: { state: 'loading', answer: ['glow', { value: 'mist', info: 'soft' }] },
+    })
+    expect(ready.input('lora').spec.widget!.options['options']).toEqual(['x.safetensors', { value: 'y.safetensors', label: 'Y', folder: 'styles' }])
+    expect(ready.input('frames').spec.widget!.options).toEqual({ min: 0, max: 40, step: 4, offset: 2 })
+    expect(ready.note).toEqual(expect.objectContaining({ text: '2 LoRAs', lookup: { state: 'stale', call: { lookup: 'pack.count', args: ['sdxl'] }, reason: 'timeout' } }))
+    expect(ready.note).not.toHaveProperty('unknown')
+    expect(ready.input('trigger').looked!.completions).toMatchObject({ state: 'ready', refreshing: true })
+    expect(ready.input('trigger').spec.widget!.textCompletions!.items.map((item) => [item.value, item.label, item.detail]))
+      .toEqual([['glow', 'glow', ''], ['mist', 'mist', 'soft']])
+
+    // A max below min, a whole-number field given a fraction, or a note given a number is a wrong shape, never repaired.
+    const wrong = run('sdxl', {
+      [key('most', 'sdxl')]: { state: 'ready', answer: -4 },
+      [key('start', 'sdxl')]: { state: 'ready', answer: 2.5 },
+      [key('count', 'sdxl')]: { state: 'ready', answer: 7 },
+    })
+    expect(wrong.input('frames').looked).toMatchObject({ max: { state: 'unavailable', reason: 'wrong-shape' }, offset: { state: 'unavailable', reason: 'wrong-shape' } })
+    expect(wrong.input('frames').spec.widget!.options).toEqual({ min: 0, step: 4, offsetUnknown: true })
+    expect(wrong.note).toMatchObject({ text: 'Counting...', unknown: true, lookup: { state: 'unavailable', reason: 'wrong-shape' } })
+    // None means no limit, and no offset: the step counts from min.
+    const none = run('sdxl', { [key('most', 'sdxl')]: { state: 'ready', answer: null }, [key('start', 'sdxl')]: { state: 'ready', answer: null } })
+    expect(none.input('frames').spec.widget!.options).toEqual({ min: 0, step: 4 })
+
+    // A wired argument is not known: nothing is called, and the row names the input it waits for.
+    const wired = run('sd', {}, { ...EMPTY_CONNECTIVITY, isInputConnected: (port: string) => port === 'lora' })
+    expect(wired.input('trigger').looked).toEqual({ completions: { state: 'waiting', input: 'lora' } })
+    // Without lookup answers (search, registry previews) lookups are off.
+    const off = elaborateInterface(schema!, { values: { category: 'sd' } })
+    expect(elabInputsOf(off).find((item) => item.spec.id === 'lora')!.looked).toEqual({ options: { state: 'off' } })
   })
 
   it('hides a box with everything in it, unless a row inside has a wire', () => {

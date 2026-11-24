@@ -1467,6 +1467,12 @@ describe('v14 COMBO layout', () => {
     expect(l.rows.find((r) => r.kind === 'ports' && r.output?.portId === 'choice')).toMatchObject({ output: { type: { name: 'COMBO' } } })
   })
 
+  it("gives a field that is never sent to the run no output, and keeps its editor", () => {
+    const l = doLayout([comboWidget('shaping', { socketless: true, sent: false }), comboWidget('picked', { socketless: true })])
+    expect(l.pins.filter((p) => p.widgetTap === true).map((p) => p.portId)).toEqual(['picked'])
+    expect(l.rows.filter((r) => r.kind === 'widget').map((r) => r.kind === 'widget' && r.inputId)).toEqual(['shaping', 'picked'])
+  })
+
   it("draws a field's output on a choice's dropdown and on its chosen option's field", () => {
     const leaf = comboWidget('leaf')
     const schema = schemaOf([{ kind: 'choice', id: 'combo', required: true, shared: [], options: [{ key: 'a', rows: [leaf] }] }])

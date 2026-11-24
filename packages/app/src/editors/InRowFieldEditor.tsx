@@ -209,12 +209,20 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     void commit()
   }
   const side = createMemo(() => {
+    // A limit from a lookup follows the answers as they come, for the row's current arguments.
+    const lookups = inRow.lookups?.current()
     const facts = numeric
-      ? numberFieldFacts(spec).map((fact) => ({
+      ? numberFieldFacts(lookups?.spec ?? spec, lookups?.looked).map((fact) => ({
           key: fact.key,
           value: fact.key === 'default' && defaultValue !== undefined
             ? <CanvasSideLink onClick={storeDefault}>{fact.text}</CanvasSideLink>
-            : fact.text,
+            : fact.busy === true || fact.note !== undefined
+              ? <>
+                  {fact.busy === true ? <span class="dinkster-spinner dinkster-canvas-side-spinner" aria-hidden="true" /> : null}
+                  {fact.text}
+                  {fact.note !== undefined ? <span class="dinkster-canvas-side-note">{fact.note}</span> : null}
+                </>
+              : fact.text,
         }))
       : []
     const resolved = typed()

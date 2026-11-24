@@ -60,6 +60,7 @@ import {
   type MaterializeFrame,
   type EffectiveLinkIdentity,
   type LinkEndpoint,
+  type LookupCallSpec,
   type OccurrenceLinkEndpoint,
   type TypeExpr,
   type WidgetSpec,
@@ -402,6 +403,8 @@ function composeBatch(
 export interface InteractionHost {
   /** Submit a document command; the host owns its final result and diagnostics. */
   dispatch(invocation: CommandInvocation): { readonly ok: boolean } | Promise<{ readonly ok: boolean }>
+  /** A lookup note's Try again: ask for its call again. Nothing is stored. */
+  retryLookup?(node: SceneNode, call: LookupCallSpec): void
   /** Current wheel policy; omitted hosts retain cursor-anchored zoom. */
   wheelNavigationMode?(): WheelNavigationMode
   smoothWheelZoom?(): boolean
@@ -1810,6 +1813,9 @@ export class InteractionController {
       case 'button':
         this.gesture = { kind: 'button', hit, moved: false }
         this.pushOverlay({ pressedButton: { nodeId: hit.node.id, key: `button:${hit.row.buttonId}` } })
+        return
+      case 'lookupRetry':
+        this.host.retryLookup?.(hit.node, hit.row.lookup!.retry!)
         return
       case 'grip':
         this.gesture = { kind: 'grip', hit, moved: false }
@@ -4367,6 +4373,8 @@ export class InteractionController {
         return j('section', hit.node.id, hit.row.sectionId)
       case 'growth':
         return j('growth', hit.node.id, hit.row.construct)
+      case 'lookupRetry':
+        return j('lookupRetry', hit.node.id, hit.row.noteId)
       case 'grip':
         return j('grip', hit.node.id, hit.grip.construct, hit.grip.member)
       case 'button':
@@ -4993,7 +5001,7 @@ export class InteractionController {
       : undefined
     const button = hit?.kind === 'growth' ? { nodeId: hit.node.id, key: `growth:${hit.row.construct}` }
       : hit?.kind === 'button' ? { nodeId: hit.node.id, key: `button:${hit.row.buttonId}` }
-      : undefined
+      : hit?.kind === 'lookupRetry' ? { nodeId: hit.node.id, key: `lookup:${hit.row.noteId}` } : undefined
     const pinNode = pin?.node.id
     const pinPort = pin?.kind === 'widgetTap' ? pin.pin.portId : pin?.portId
     const pinDirection = pin?.kind === 'widgetTap' ? 'out' : pin?.direction

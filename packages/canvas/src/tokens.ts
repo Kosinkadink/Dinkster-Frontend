@@ -66,6 +66,8 @@ export const canvasPaintTokens = {
       iconGap: 4,
       /** Gap in screen px between the node's lowest tab and its open problem box. */
       problemBoxGap: 4,
+      /** Widest an open problem box gets, in screen px, and the room it keeps from each side of the canvas pane. */
+      problemBox: { maxWidth: 400, paneMargin: 16 },
       maxLabelWidth: 120,
       stroke: 1,
       /** Shares of the tab's color: its fill over the canvas, its line over the canvas, its words over the title color. */
@@ -119,6 +121,21 @@ export const canvasPaintTokens = {
     pairedPortGap: canvasSemanticTokens.space[24],
     sectionWidthPadding: 18,
     growthWidthPadding: 18,
+    /** A lookup note's state line: its mark (spinner or info), the words after it, and Try again under it. */
+    lookupNote: {
+      /** Rows a note takes with a state line, and with Try again under that too. */
+      stateRows: 2,
+      retryRows: 3,
+      markMinRadius: 3,
+      /** The mark's radius as a share of the font size. */
+      markRadiusScale: 0.45,
+      markStroke: 1,
+      /** The info mark's letter as a share of the mark's radius. */
+      glyphScale: 1.6,
+      glyphNudge: 0.5,
+      textGap: canvasSemanticTokens.space[4] + 2,
+      hoverInset: 2,
+    },
     widgetLabelPadding: canvasSemanticTokens.space[12],
     widgetValueMinWidth: 90,
     widgetColumnGap: 20,
@@ -833,6 +850,8 @@ export interface DesignTokens {
     readonly dropTarget: string
     /** Subtle dot marking non-default values hidden by a collapsed section. */
     readonly modifiedIndicator: string
+    /** A link drawn in a row, such as a lookup note's Try again. */
+    readonly rowLink: string
     /** The cyan subgraph icon on a field shown on the subgraph node without a wire. */
     readonly subgraphMark: string
     /** A box's outline, and the outline of a box inside a box. */
@@ -1059,6 +1078,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     // The dot on a closed section that hides changed values. Yellow is kept
     // for problems.
     modifiedIndicator: tokens.meaning.accent.foreground,
+    rowLink: tokens.meaning.accent.foreground,
     subgraphMark: tokens.meaning.accent.foreground,
     companionValue: tokens.text.secondary,
     companionUnproven: tokens.meaning.info.foreground,

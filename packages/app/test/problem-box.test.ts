@@ -88,12 +88,23 @@ describe('problemBoxLines', () => {
 })
 
 describe('problemBoxPlacement', () => {
-  it('hangs below the node and its lowest tab, left edge with the node, at screen scale', () => {
-    const tab = (y: number, height: number, badge = PROBLEM_ERROR_BADGE) =>
-      ({ x: 100, y, width: 40, height, badge, compact: false }) as BadgePlacement
-    const at = problemBoxPlacement(node, [tab(190, 16), tab(192, 18, PROBLEM_WARNING_BADGE)], { x: 10, y: -20, scale: 2 })
-    expect(at).toEqual({ x: 100 * 2 + 10, y: 210 * 2 - 20 + 4 })
+  it('hangs below the node and its lowest tab, at least its tabs wide, at screen scale', () => {
+    const tab = (x: number, y: number, height: number, badge = PROBLEM_ERROR_BADGE) =>
+      ({ x, y, width: 40, height, badge, compact: false }) as BadgePlacement
+    const at = problemBoxPlacement(node, [tab(100, 190, 16), tab(144, 192, 18, PROBLEM_WARNING_BADGE)], { x: 10, y: -20, scale: 2 }, 1200)
+    // The tabs reach from the node's left edge at 100 to 184, so the box is at least 84 * 2 wide.
+    expect(at).toEqual({ x: 100 * 2 + 10, y: 210 * 2 - 20 + 4, maxWidth: 400, minWidth: 84 * 2 })
     const nodeBottomOnScreen = (50 + 140) * 2 - 20
-    expect(at.y).toBeGreaterThan(nodeBottomOnScreen)
+    expect(at!.y).toBeGreaterThan(nodeBottomOnScreen)
+  })
+
+  it('limits the box by the screen, not the node or the zoom, and draws none once tabs are not drawn', () => {
+    // A narrow node zoomed out and a wide node zoomed in have the same limit.
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.6 }, 1200)?.maxWidth).toBe(400)
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 3 }, 1200)?.maxWidth).toBe(400)
+    // A pane narrower than 400 + 2 * 16 keeps 16 px at each side.
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 1 }, 300)?.maxWidth).toBe(268)
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.5 }, 1200)).toBeDefined()
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.49 }, 1200)).toBeUndefined()
   })
 })

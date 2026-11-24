@@ -9,7 +9,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, on, onCleanup, onMount, Show, For, Index, untrack, type JSX } from 'solid-js'
-import type { ExecutionLogEntry } from '@dinkster/client'
+import type { ExecutionLogEntry, LookupClient } from '@dinkster/client'
 import {
   buildScene,
   boundarySceneId,
@@ -86,6 +86,7 @@ import {
   effectiveOccurrenceTopology,
   effectiveWidgetDefault,
   elabInputsOf,
+  lookupSitesOf,
   formatWidgetValue,
   flattenShellRefusalDiagnostic,
   scopeClosure,
@@ -137,6 +138,9 @@ import {
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, Snowflake, TriangleAlert, X } from 'lucide-solid'
 import { executionProgress } from './ExecutionActivityCard.js'
 import { controllerAdvancementPlan, currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
+import { LookupDemand, lookupAnswersOf, rowListLookupOf } from './lookup-demand.js'
+import { provideRowListLookups } from './editors/InRowListEditor.js'
+import type { RowLookups } from './WidgetEditorController.js'
 import { panelDockZone, setPanelOpen } from './panel-location.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
 import { liveExactnessFor } from './companion-display.js'
@@ -2172,7 +2176,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   /** The box a pointer press outside closed, so the same press on its tab does not reopen it. */
   let problemBoxPointerClose: { readonly nodeId: string; readonly at: number } | undefined
   let problemBoxHost: {
-    readonly place: (nodeId: string) => { readonly x: number; readonly y: number } | undefined
+    readonly place: (nodeId: string) => ReturnType<typeof problemBoxPlacement>
     readonly lines: (nodeId: string) => readonly ProblemBoxLine[]
     readonly title: (nodeId: string) => string
     readonly owner: () => string | undefined
@@ -3190,6 +3194,83 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             : undefined
       renderer.setScopeHighlight(scope ? selectionScopeHighlight(scope) : undefined)
     }
+    // One demand per backend's lookup client: the nodes on screen ask, the
+    // ones that leave the screen stop asking.
+    const lookupDemands = new Map<LookupClient, LookupDemand>()
+    const lookupDemandFor = (lookups: LookupClient): LookupDemand => {
+      let demand = lookupDemands.get(lookups)
+      if (demand === undefined) {
+        demand = new LookupDemand(lookups)
+        lookupDemands.set(lookups, demand)
+      }
+      return demand
+    }
+    const lookupNodeKey = (tab: Tab, nodeId: string): string =>
+      JSON.stringify([tab.id, currentGraphId(tab), viewInstancePath(tab) ?? [], nodeId])
+    const [sceneVersion, setSceneVersion] = createSolidSignal(0)
+    /** The open row's lookup fields, read from the scene as it is rebuilt. */
+    const rowLookupsOf = (tab: Tab, nodeId: string, inputId: string): RowLookups | undefined => {
+      const itemOf = () => {
+        const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
+        const item = node?.elaborated === undefined ? undefined : elabInputsOf(node.elaborated).find((input) => input.spec.id === inputId)
+        return node === undefined || item?.looked === undefined || item.spec.widget === undefined ? undefined : { node, item, spec: item.spec.widget }
+      }
+      if (itemOf() === undefined) return undefined
+      return {
+        current: () => {
+          sceneVersion()
+          const found = itemOf()
+          if (found === undefined) return undefined
+          // A waiting field names the input it waits for by that row's label.
+          const label = (port: string): string =>
+            elabInputsOf(found.node.elaborated!).find((input) => input.spec.id === port)?.spec.displayName ?? port
+          const looked = Object.fromEntries(Object.entries(found.item.looked!).map(([field, state]) =>
+            [field, state.state === 'waiting' ? { ...state, input: label(state.input) } : state]))
+          return { spec: found.spec, looked }
+        },
+        refresh: (field) => {
+          const found = itemOf()
+          const state = found?.item.looked![field]
+          if (found === undefined || state === undefined || !('call' in state) || state.call === undefined || tab.execution !== undefined) return
+          const site = lookupSitesOf([found.item]).find((candidate) => candidate.call === state.call)
+          lookupDemandFor(props.app.backendForTab(tab).lookups).refresh(found.node.node.type, lookupNodeKey(tab, nodeId), state.call, site?.accepts)
+        },
+      }
+    }
+    const showLookups = (): void => {
+      const tab = activeTab()
+      const lookups = tab !== undefined && tab.execution === undefined ? props.app.backendForTab(tab).lookups : undefined
+      for (const [client, demand] of lookupDemands) {
+        if (client === lookups) continue
+        demand.dispose()
+        lookupDemands.delete(client)
+      }
+      if (tab === undefined || lookups === undefined) return
+      const viewport = renderer.getViewport()
+      const width = canvasEl.clientWidth
+      const height = canvasEl.clientHeight
+      if (width <= 0 || height <= 0 || viewport.scale <= 0) return
+      const left = -viewport.x / viewport.scale
+      const top = -viewport.y / viewport.scale
+      const right = left + width / viewport.scale
+      const bottom = top + height / viewport.scale
+      lookupDemandFor(lookups).show(renderer.getScene().nodes.flatMap((node) =>
+        node.elaborated === undefined || node.x > right || node.y > bottom ||
+          node.x + node.layout.width < left || node.y + node.layout.height < top
+          ? []
+          : [{ nodeType: node.node.type, node: lookupNodeKey(tab, node.id), items: node.elaborated.items }]))
+    }
+    // A choice row edited in its row lists the options its lookup gave.
+    provideRowListLookups((editor) => {
+      const lookups = editor.editor.ed.inRow?.lookups
+      return lookups === undefined ? undefined : rowListLookupOf(lookups)
+    })
+    onCleanup(() => {
+      provideRowListLookups(undefined)
+      for (const demand of lookupDemands.values()) demand.dispose()
+      lookupDemands.clear()
+    })
+
     controller = editorPictureHeights = new InteractionController(canvasEl, renderer, {
       dispatch: (invocation) => {
         const tab = activeTab()
@@ -3198,6 +3279,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       wheelNavigationMode: () => props.app.settings.get<WheelNavigationMode>('canvas.scrollBehavior'),
       smoothWheelZoom: () => props.app.settings.get<boolean>('canvas.smoothWheelZoom'),
+      retryLookup: (node, call) => {
+        const tab = activeTab()
+        if (tab === undefined || tab.execution !== undefined) return
+        lookupDemandFor(props.app.backendForTab(tab).lookups).refresh(node.node.type, lookupNodeKey(tab, node.id), call,
+          (answer) => typeof answer === 'string')
+      },
       frozen,
       dispatchOccurrenceMutation: (intention) => {
         const tab = activeTab()
@@ -4342,7 +4429,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       place: (nodeId) => {
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
-        return node === undefined ? undefined : problemBoxPlacement(node, renderer.getNodeBadgeLayout(node), renderer.getViewport())
+        return node === undefined ? undefined : problemBoxPlacement(node, renderer.getNodeBadgeLayout(node), renderer.getViewport(), canvasEl.clientWidth)
       },
       lines: (nodeId) => {
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
@@ -4408,6 +4495,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly extensionRevision: number
       readonly seedControllerEnabled: boolean
       readonly plannerAvailable: boolean
+      readonly lookups: LookupClient | undefined
+      readonly lookupGeneration: number
     } | undefined
     let sceneViewportOwner: { readonly tabId: string; readonly graphId: string } | undefined
     let pendingViewport: { readonly tabId: string; readonly graphId: string; readonly viewport: ReturnType<CanvasRenderer['getViewport']> } | undefined
@@ -4424,7 +4513,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (!sceneViewportOwner) return
       pendingViewport = { ...sceneViewportOwner, viewport: { ...viewport } }
       if (viewportPause !== undefined) clearTimeout(viewportPause)
-      viewportPause = setTimeout(flushViewport, 100)
+      viewportPause = setTimeout(() => {
+        flushViewport()
+        showLookups()
+      }, 100)
+    })
+
+    // The scene rebuilds when the active backend's lookup client holds new answers.
+    const [lookupTick, setLookupTick] = createSolidSignal(0)
+    createEffect(() => {
+      backendsTick()
+      const tab = activeTab()
+      if (tab === undefined) return
+      const unsubscribe = props.app.backendForTab(tab).lookupGeneration.subscribe(() => setLookupTick((tick) => tick + 1))
+      onCleanup(unsubscribe)
     })
 
     // Scene: rebuilt when the tab, graph stack, document, or schemas change.
@@ -4457,6 +4559,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         node: asNodeId(path[path.length - 1]!),
       }
       const plannerAvailable = occurrenceOwner !== undefined && occurrencePlanner() !== undefined
+      // A frozen view of a run calls no lookups.
+      const lookupBackend = tab.execution === undefined ? props.app.backendForTab(tab) : undefined
+      const lookups = lookupBackend?.lookups
+      lookupTick()
+      const lookupGeneration = lookupBackend?.lookupGeneration.get() ?? 0
+      const lookupAnswers = lookups === undefined ? undefined : lookupAnswersOf(lookups)
       const currentExtensionRevision = props.app.extensionRevision.get()
       const previousBuild = sceneBuildContext
       const graphNodes = new Map(Object.entries(doc.graphs[graphId]?.nodes ?? {}))
@@ -4467,9 +4575,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         previousBuild.extensionsGeneration === extensionsGeneration &&
         previousBuild.extensionRevision === currentExtensionRevision &&
         previousBuild.seedControllerEnabled === seedControllerEnabled &&
-        previousBuild.plannerAvailable === plannerAvailable
+        previousBuild.plannerAvailable === plannerAvailable &&
+        previousBuild.lookups === lookups &&
+        previousBuild.lookupGeneration === lookupGeneration
       const valuesUpdated = canReuseScene && path.length === 0
-        ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => reg?.resolve(type))
+        ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => reg?.resolve(type), lookupAnswers)
         : undefined
       const canReusePositions = canReuseScene &&
         previousBuild.graphNodes.size === graphNodes.size &&
@@ -4485,6 +4595,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         return buildScene({
           document: doc,
           seedControllerEnabled,
+          ...(lookupAnswers === undefined ? {} : { lookupAnswers }),
           graphId,
           resolve,
           // A hidden row shows while its stored value has a problem, as Problems lists it.
@@ -4526,6 +4637,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         extensionRevision: currentExtensionRevision,
         seedControllerEnabled,
         plannerAvailable,
+        lookups,
+        lookupGeneration,
       }
       // A rebuild can produce a scene identical to the installed one: a
       // workspace-session swap re-reads an equal document, and an edit in
@@ -4545,6 +4658,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (replaced) {
         scene = built
         renderer.setScene(scene)
+        setSceneVersion((version) => version + 1)
         controller.setSelectionOwner(key)
         if (keptSelection) controller.setSelection(...keptSelection)
         // A document op replaces the scene but not remote gesture state.
@@ -4558,6 +4672,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         // Untracked: hover announcement reads reactive app state.
         untrack(() => controller.refreshHover())
       }
+      untrack(showLookups)
       // Overlays anchor to scene nodes, so they must be reassembled against
       // the scene that was JUST installed. Sibling-effect ordering is not
       // something Solid guarantees, so the rebuild calls the helper directly
@@ -5360,6 +5475,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
       const tokens = renderer.getDesignTokens()
       const inRow = editsInRow(tab, hit.node, hit.row)
+      const rowLookups = inRow ? rowLookupsOf(tab, hit.node.id, hit.row.inputId) : undefined
       const fieldInsetY = tokens.rowGeometry.fieldInsetY
       const inputItem = schema?.body.find((item) => item.kind === 'input' && item.id === hit.row.inputId)
       const help = inputItem?.kind === 'input' ? inputItem.tooltip : undefined
@@ -5414,6 +5530,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ...(help === undefined ? {} : { help }),
           ...(caret === undefined || hit.row.viewId !== 'core.line' ? {} : { caret }),
           ...(hit.row.controllerMode === undefined ? {} : { controllerMode: hit.row.controllerMode }),
+          ...(rowLookups === undefined ? {} : { lookups: rowLookups }),
         } } : {}),
         initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
         ...(missingAssetDigest === undefined ? {} : { missingAssetDigest }),
@@ -7433,6 +7550,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   ref={(element) => { problemBoxElement = element }}
                   x={at().x}
                   y={at().y}
+                  maxWidth={at().maxWidth}
+                  minWidth={at().minWidth}
                   nodeId={box().nodeId}
                   nodeTitle={box().nodeTitle}
                   lines={box().lines}

@@ -7,6 +7,7 @@
 import type { TypeExpr } from '@dinkster/core'
 import type { LayoutRow, MemberGrip, PinLayout } from './layout.js'
 import { canvasPaintTokens, defaultTokens, type CanvasDetailLevel } from './tokens.js'
+import { noteLookupRows } from './layout.js'
 import {
   boundaryFieldNode,
   GROUP_HEADER_HEIGHT,
@@ -112,6 +113,12 @@ export type Hit =
       readonly kind: 'grip'
       readonly node: SceneNode
       readonly grip: MemberGrip
+    }
+  /** A lookup note's Try again: asks for the note's call again. */
+  | {
+      readonly kind: 'lookupRetry'
+      readonly node: SceneNode
+      readonly row: Extract<LayoutRow, { kind: 'note' }>
     }
   /** The bottom edge of a multiline text box: dragging it sets the box's height in lines. */
   | {
@@ -404,6 +411,14 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
       const grip = gripAt(node, wx, wy)
       if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const row of l.rows) {
+        if (row.kind === 'note' && row.lookup?.retry !== undefined) {
+          // Try again is the note's last row.
+          const unit = row.height / noteLookupRows(row.lookup)
+          const ry = node.y + row.y + row.height - unit
+          if (wy >= ry && wy <= ry + unit && wx >= node.x + row.inset && wx <= node.x + row.inset + (row.width ?? l.width - row.inset * 2)) {
+            return { kind: 'lookupRetry', node, row }
+          }
+        }
         if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'member') continue
         const ry = node.y + row.y
         if (wy < ry || wy > ry + row.height) continue
@@ -437,6 +452,14 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
       const grip = gripAt(node, wx, wy)
       if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const row of l.rows) {
+        if (row.kind === 'note' && row.lookup?.retry !== undefined) {
+          // Try again is the note's last row.
+          const unit = row.height / noteLookupRows(row.lookup)
+          const ry = node.y + row.y + row.height - unit
+          if (wy >= ry && wy <= ry + unit && wx >= node.x + row.inset && wx <= node.x + row.inset + (row.width ?? l.width - row.inset * 2)) {
+            return { kind: 'lookupRetry', node, row }
+          }
+        }
         if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'member') continue
         const ry = node.y + row.y
         if (wy < ry || wy > ry + row.height) continue
