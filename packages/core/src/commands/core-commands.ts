@@ -2178,9 +2178,8 @@ const viewSetSectionCollapsed: CommandDefinition = {
 
 /**
  * Set, or with null clear, one editor's fold or picture height. The editor
- * is a node's, by value key; the Inputs panel's (`inputsPanel: true`), by
- * field value key; or a value source's own (`valueSourceId`). Per-key
- * records are removed when their last entry goes. Value keys live in
+ * is a node's, by value key, or the Inputs panel's (`inputsPanel: true`), by
+ * field value key. Per-key records are removed when their last entry goes. Value keys live in
  * schemas, which commands cannot resolve, so any non-empty key is accepted.
  */
 function setEditorViewEntry(
@@ -2194,18 +2193,6 @@ function setEditorViewEntry(
   const def = graphOf(doc, params.graphId)
   if (!def) return [err('graph.missing', `${id}: unknown graph '${String(params.graphId)}'`)]
   const graphId = params.graphId as string
-  if (typeof params.valueSourceId === 'string') {
-    const valueSourceId = params.valueSourceId
-    const view = doc.view.graphs[graphId]?.valueSources?.[valueSourceId]
-    if (!def.valueSources?.[valueSourceId] || !view) return [err('valueSource.missing', `${id}: unknown value source '${valueSourceId}'`)]
-    const field = record === 'editors' ? 'editorUnfolded' : 'pictureHeight'
-    const value = entry === null ? null : record === 'editors' ? (entry as JsonObject).unfolded! : entry
-    const path = ['view', 'graphs', graphId, 'valueSources', valueSourceId, field]
-    if (value === null) {
-      if (view[field] !== undefined) tx.remove(path)
-    } else tx.set(path, value)
-    return []
-  }
   const valueKey = params.valueKey as string
   let owner: Readonly<Partial<Record<'editors' | 'pictureHeights', Readonly<Record<string, Json>>>>> | undefined
   let ownerPath: string[]
@@ -2235,19 +2222,19 @@ function setEditorViewEntry(
   return []
 }
 
-const EDITOR_TARGET = '{graphId, nodeId, valueKey} | {graphId, inputsPanel: true, valueKey} | {graphId, valueSourceId}'
+const EDITOR_TARGET = '{graphId, nodeId, valueKey} | {graphId, inputsPanel: true, valueKey}'
 
 const hasEditorTarget = (params: Json | undefined): params is JsonObject =>
-  isObj(params) && (typeof params.valueSourceId === 'string' ||
-    ((typeof params.nodeId === 'string' || params.inputsPanel === true) && typeof params.valueKey === 'string' && params.valueKey.length > 0))
+  isObj(params) && (typeof params.nodeId === 'string' || params.inputsPanel === true) &&
+    typeof params.valueKey === 'string' && params.valueKey.length > 0
 
 // ---------------------------------------------------------------------------
 // view.setEditorUnfolded {graphId, nodeId, valueKey, unfolded: boolean | null}
-//   or {graphId, inputsPanel: true, valueKey, unfolded} or {graphId, valueSourceId, unfolded}
+//   or {graphId, inputsPanel: true, valueKey, unfolded}
 //
-// Folds or unfolds an editor shown in a node, on the Inputs panel or under a
-// value source's pill. A node's is a per-node OVERRIDE of the declaration's
-// starting state; null clears it, which for the others means folded.
+// Folds or unfolds an editor shown in a node or on the Inputs panel. A node's
+// is a per-node OVERRIDE of the declaration's starting state; null clears it,
+// which on the Inputs panel means folded.
 // ---------------------------------------------------------------------------
 
 const viewSetEditorUnfolded: CommandDefinition = {
@@ -2263,7 +2250,7 @@ const viewSetEditorUnfolded: CommandDefinition = {
 
 // ---------------------------------------------------------------------------
 // view.setPictureHeight {graphId, nodeId, valueKey, height: positive integer | null}
-//   or {graphId, inputsPanel: true, valueKey, height} or {graphId, valueSourceId, height}
+//   or {graphId, inputsPanel: true, valueKey, height}
 //
 // Keeps the height an unfolded editor's picture was dragged to; null returns
 // it to the editor's own height. Layout clamps the stored number.

@@ -753,10 +753,6 @@ export interface ValueSourceViewState {
   readonly position: Vec2
   /** Chosen WidgetView (only when diverging from the effective spec's default). */
   readonly view?: string
-  /** The value source's editor is folded out under its pill. Absent = folded. */
-  readonly editorUnfolded?: boolean
-  /** Height in canvas units the user dragged its editor's picture to. Absent = the editor's own. */
-  readonly pictureHeight?: number
   readonly ext?: ExtData
 }
 

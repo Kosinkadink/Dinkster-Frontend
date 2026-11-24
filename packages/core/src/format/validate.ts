@@ -645,8 +645,6 @@ function checkValueSourceView(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   checkVec2(c, v['position'], `${path}.position`)
   c.optStr(v['view'], `${path}.view`)
-  c.optBool(v['editorUnfolded'], `${path}.editorUnfolded`)
-  if (v['pictureHeight'] !== undefined) c.num(v['pictureHeight'], `${path}.pictureHeight`)
   c.optExt(v['ext'], `${path}.ext`)
 }
 

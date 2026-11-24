@@ -82,7 +82,6 @@ import {
   REGION_INDEX_SLOT,
   TITLE_START,
   layoutNode,
-  unfoldedEditorSpace,
   type BoundarySlotInfo,
   type LayoutRow,
   type NodeLayout,
@@ -91,7 +90,7 @@ import {
   type TextMeasurer,
   type WidgetMeasure,
 } from './layout.js'
-import { IN_NODE_EDITORS, canvasPaintTokens, type DesignTokens } from './tokens.js'
+import { canvasPaintTokens, type DesignTokens } from './tokens.js'
 
 interface PositionedSceneCacheEntry {
   readonly graph: GraphDef
@@ -479,14 +478,8 @@ export interface SceneValueSource {
   readonly source: ValueSourceData
   /** Display title: explicit title, else the effective widget kind, else 'value'. */
   readonly title: string
-  /**
-   * Compact one-line value text (raw JSON rendering for non-strings), or for
-   * a source edited by one of the editors shown in a node, that editor's
-   * summary (`summarized`), which is drawn at its width and shortened with an
-   * ellipsis instead of squeezed.
-   */
+  /** Compact one-line value text (raw JSON rendering for non-strings). */
   readonly valueText: string
-  readonly summarized?: true
   /** Effective spec + consumers + diagnostics, derived during build. */
   readonly effective: EffectiveValueSourceSpec
   /** Advisory concrete type (pin/noodle color), when determinable. */
@@ -507,24 +500,7 @@ export interface SceneValueSource {
    * the cyan subgraph icon before the title (valueSourceMarkRect).
    */
   readonly subgraphMark?: { readonly item: string; readonly label: string }
-  /**
-   * The source's editor folded out under its pill line, for a source shown
-   * by one of the editors shown in a node. `height` stays the line's, so the
-   * pin, the badge and the mark keep their places; the space hangs under it
-   * (valueSourceBoxHeight). `field` is the editor's row as a node face holds
-   * it, at the line, writing the source's own value.
-   */
-  readonly editor?: {
-    readonly field: Extract<LayoutRow, { kind: 'widget' }>
-    readonly space: Extract<LayoutRow, { kind: 'editorSpace' }>
-  }
 }
-
-/** A value source's whole height: its pill line, and the editor folded out under it. */
-export const valueSourceBoxHeight = (vs: SceneValueSource): number => vs.height + (vs.editor?.space.height ?? 0)
-
-/** The value key a value source's editor face keeps the source's value under. */
-export const VALUE_SOURCE_EDITOR_KEY = 'value'
 
 export const VS_HEIGHT_PAD = canvasPaintTokens.valueSource.heightPadding
 export const VS_MIN_WIDTH = canvasPaintTokens.valueSource.minWidth
@@ -1587,12 +1563,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const effective = resolveSource(def.id, vs.id, sourcePath)!
     const title = vs.title ?? effective.spec?.widgetType ?? 'value'
     const sent = sentSourceValues.has(vs.id) ? { value: sentSourceValues.get(vs.id)! } : undefined
-    // A source edited by one of the editors shown in a node reads that
-    // editor's summary, as its folded row does on a node.
-    const measured = effective.spec === undefined ? undefined : input.widgetMeasure(effective.spec)
-    const editor = measured === undefined ? undefined : IN_NODE_EDITORS[measured.viewId]
-    const summary = editor === undefined ? undefined : measured?.summary?.(sent !== undefined ? sent.value : vs.value)
-    const valueText = summary ?? valueSourceValueText(sent !== undefined ? sent.value : vs.value)
+    const valueText = valueSourceValueText(sent !== undefined ? sent.value : vs.value)
     // A sent value comes from a field on the entered node: room for its mark.
     const markReserve = sent === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
     const width = Math.min(
@@ -1610,49 +1581,20 @@ export function buildScene(input: BuildSceneInput): Scene {
       ),
     )
     const typeName = canonicalTypeIdOf(effective.type)
-    const lineHeight = input.tokens.rowHeight + VS_HEIGHT_PAD
-    // The editor folds out under the pill. A sent value is edited on the
-    // Inputs panel, so its pill stays folded.
-    const unfolded = editor !== undefined && sent === undefined && viewValueSources[vs.id]?.editorUnfolded === true
-    const inset = input.tokens.rowGeometry.fieldInsetX
-    const boxWidth = !unfolded ? width : Math.max(width, canvasPaintTokens.node.editorSpace.minWidth + inset * 2)
-    const editorRows = !unfolded || editor === undefined || measured === undefined || effective.spec === undefined ? undefined : (() => {
-      const key = VALUE_SOURCE_EDITOR_KEY
-      const pictureHeight = viewValueSources[vs.id]?.pictureHeight
-      const space = unfoldedEditorSpace(editor, input.tokens, {
-        ...(pictureHeight !== undefined ? { pictureHeight } : {}),
-        ...(measured.editorControls !== undefined && Number.isFinite(measured.editorControls)
-          ? { controls: Math.max(0, measured.editorControls) } : {}),
-      })
-      return {
-        field: {
-          kind: 'widget' as const, y: 0, height: lineHeight, inset: 0, unfolded: true as const,
-          inputId: key, valueKey: key, address: { port: key }, label: title, type: effective.type,
-          viewId: measured.viewId, rows: 1, spec: effective.spec,
-          valueSourceOwner: { graphId: def.id, valueSourceId: vs.id },
-        },
-        space: {
-          kind: 'editorSpace' as const, y: lineHeight, inset, rowAbove: 0,
-          inputId: key, valueKey: key, viewId: measured.viewId, ...space,
-        },
-      }
-    })()
     const sceneSource: SceneValueSource = {
       id: vs.id,
       x: pos.x,
       y: pos.y,
-      width: boxWidth,
-      height: lineHeight,
+      width,
+      height: input.tokens.rowHeight + VS_HEIGHT_PAD,
       source: vs,
       title,
       valueText,
-      ...(summary !== undefined ? { summarized: true as const } : {}),
       effective,
       ...(typeName !== undefined ? { typeName } : {}),
       specState: vs.spec ? 'declared' : effective.spec ? 'derived' : 'raw',
       conflict: effective.diagnostics.length > 0,
       ...(sent !== undefined ? { arriving: sent } : {}),
-      ...(editorRows !== undefined ? { editor: editorRows } : {}),
     }
     valueSources.push(sceneSource)
     valueSourceById.set(vs.id, sceneSource)

@@ -1,15 +1,13 @@
 import { For, Show, createEffect, createSignal, onCleanup, untrack, type JSX } from 'solid-js'
-import type { Json, WidgetRegistry } from '@dinkster/core'
+import type { WidgetRegistry } from '@dinkster/core'
 import {
   boundaryFieldNode,
   CanvasRenderer,
   canvasColorsForTheme,
   canvasPaintTokens,
   canvasTypePaintForTheme,
-  compactSummary,
   createRegistryPainter,
   defaultTokens,
-  valueSourceBoxHeight,
   type DesignTokens,
   type LayoutRow,
   type Scene,
@@ -357,24 +355,13 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
   }
 }
 
-/**
- * The box the example's editors are in: its node, the Inputs panel that
- * shows them, or a value source with its editor folded out, as the app
- * lays each one out.
- */
-function boxOf(scene: Scene, example: InNodeEditorExample):
-  { readonly x: number; readonly y: number; readonly layout: Pick<SceneNode['layout'], 'width' | 'height' | 'rows'> } | undefined {
-  if (example.place === 'valueSource') {
-    const vs = scene.valueSources[0]
-    return vs?.editor === undefined ? undefined
-      : { x: vs.x, y: vs.y, layout: { width: vs.width, height: valueSourceBoxHeight(vs), rows: [vs.editor.field, vs.editor.space] } }
-  }
+/** One example: the production renderer's node with each unfolded editor's controls over its space. */
+/** The box the example's editors are in: its node, or the Inputs panel that shows them. */
+function boxOf(scene: Scene, example: InNodeEditorExample): Pick<SceneNode, 'x' | 'y' | 'layout'> | undefined {
   if (example.place !== 'inputsPanel') return scene.nodes.find((item) => item.id === example.id)
   const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')
   return panel === undefined ? undefined : boundaryFieldNode(panel)
 }
-
-/** One example: the production renderer's node with each unfolded editor's controls over its space. */
 
 function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'light'; registry: WidgetRegistry }) {
   let canvas!: HTMLCanvasElement
@@ -409,8 +396,7 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
         const noBackend = view.id === 'core.audioRecord' &&
           Object.values(example.states ?? {}).some((state) => state['status'] === 'noBackend')
         const space = (example.width ?? GALLERY_NODE_WIDTH) - tokens.rowGeometry.fieldInsetX * 2 - canvasPaintTokens.node.editorSpace.pad * 2
-        return { viewId: view.id, rows: view.measure(spec).rows, summary: (value: Json) => compactSummary(view, value, spec)?.text,
-          ...(noBackend ? { editorControls: noBackendHeight(space) } : {}) }
+        return { viewId: view.id, rows: view.measure(spec).rows, ...(noBackend ? { editorControls: noBackendHeight(space) } : {}) }
       }
       const built = createInNodeEditorScene(tokens, measure, widgetMeasure, example, { x: MARGIN, y: MARGIN })
       const node = boxOf(built, example)!

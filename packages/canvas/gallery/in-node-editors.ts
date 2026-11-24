@@ -12,7 +12,6 @@ import {
 } from '@dinkster/core'
 import {
   buildScene,
-  VALUE_SOURCE_EDITOR_KEY,
   type DesignTokens,
   type EditorSummaryMap,
   type Scene,
@@ -158,11 +157,9 @@ export interface InNodeEditorExample {
    * Where the editor is shown when it is not the node's own: on the Inputs
    * panel of the subgraph the node is in, as the field of an input that
    * promotes it, entered from no subgraph node so the panel shows the
-   * defaults a new one starts with. Or under a value source's pill that
-   * feeds the node's first editor, whose value is `values` under
-   * VALUE_SOURCE_EDITOR_KEY and whose fold is `view.editors` under it.
+   * defaults a new one starts with.
    */
-  readonly place?: 'inputsPanel' | 'valueSource'
+  readonly place?: 'inputsPanel'
 }
 
 const asset = (name: string, mediaType: string, extra: Record<string, Json> = {}): Json =>
@@ -293,9 +290,6 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
   { id: 'panel-curve', card: 37, caption: "On a subgraph's Inputs panel: the curve folded out under its field, and the panel grown downward", type: 'Curve editor',
     place: 'inputsPanel', values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] } },
     view: unfold('curve') },
-  { id: 'source-curve', card: 38, caption: "Under a value source's pill: the curve folded out, the pill's line and output pin where they were", type: 'Curve editor',
-    place: 'valueSource', values: { [VALUE_SOURCE_EDITOR_KEY]: { interpolation: 'linear', points: [{ position: 0, value: 0.2 }, { position: 0.6, value: 0.4 }, { position: 1, value: 0.9 }] } },
-    view: unfold(VALUE_SOURCE_EDITOR_KEY) },
 ]
 
 const SOURCE = 'Wire source'
@@ -310,7 +304,6 @@ export function createInNodeEditorScene(
 ): Scene {
   const target = inNodeEditorSchemas.find((item) => item.type === example.type)!
   if (example.place === 'inputsPanel') return createInputsPanelScene(tokens, measure, widgetMeasure, example, target, position)
-  if (example.place === 'valueSource') return createValueSourceScene(tokens, measure, widgetMeasure, example, target, position)
   const wired = Object.entries(example.wired ?? {})
   const source: NodeSchema = schema(SOURCE, wired.map(([id, type]) => output(id.replaceAll('.', '_'), type)))
   const id = example.id
@@ -416,54 +409,6 @@ function createInputsPanelScene(
     document: loaded.document,
     graphId: 'inside',
     resolve: documentResolver(loaded.document, (type) => type === target.type ? target : undefined),
-    tokens,
-    measure,
-    widgetMeasure,
-  })
-}
-
-/**
- * A value source at `position` whose wire feeds the example's first editor,
- * so its spec is that editor's, with the example's node out of sight. The
- * source is titled by the node's type.
- */
-function createValueSourceScene(
-  tokens: DesignTokens,
-  measure: TextMeasurer,
-  widgetMeasure: WidgetMeasure,
-  example: InNodeEditorExample,
-  target: NodeSchema,
-  position: { x: number; y: number },
-): Scene {
-  const port = target.body.flatMap((row) => row.kind === 'input' && row.widget !== undefined ? [row.id] : [])[0]!
-  const key = VALUE_SOURCE_EDITOR_KEY
-  const loaded = loadDocument({
-    format: 'dinkster-workflow',
-    formatVersion: 1,
-    lineage: 'canvas-gallery',
-    root: 'gallery',
-    graphs: {
-      gallery: {
-        id: 'gallery', name: 'Gallery', nextOrdinal: 3, nets: {}, reroutes: {},
-        nodes: { [example.id]: { id: example.id, type: target.type, values: defaultValuesOf(target) } },
-        valueSources: { source: { id: 'source', title: example.type, value: example.values?.[key] ?? null } },
-        links: { wire: { id: 'wire', from: { valueSource: 'source' }, to: { node: example.id, port } } },
-      },
-    },
-    view: {
-      graphs: {
-        gallery: {
-          nodes: { [example.id]: { position: { x: position.x + 2000, y: position.y } } },
-          valueSources: { source: { position, ...(example.view?.editors?.[key]?.unfolded === true ? { editorUnfolded: true } : {}) } },
-        },
-      },
-    },
-  } as never)
-  if (!loaded.document) throw new Error(`Invalid gallery document: ${JSON.stringify(loaded)}`)
-  return buildScene({
-    document: loaded.document,
-    graphId: 'gallery',
-    resolve: (type) => type === target.type ? target : undefined,
     tokens,
     measure,
     widgetMeasure,

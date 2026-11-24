@@ -65,17 +65,7 @@ export type TextMeasurer = (text: string, role: 'title' | 'renamedTitle' | 'labe
  * host knows they differ from the editor's fixed rows, such as a recorder on
  * a backend that cannot take uploads, which shows one sentence instead.
  */
-/**
- * A host's measure of a widget: its view, its rows and, for an editor shown
- * in the node, its controls' height. `summary` is the text its folded row
- * shows for a value, which a value source edited by that editor reads.
- */
-export type WidgetMeasure = (spec: WidgetSpec) => {
-  viewId: string
-  rows: number
-  editorControls?: number
-  summary?: (value: Json) => string | undefined
-} | undefined
+export type WidgetMeasure = (spec: WidgetSpec) => { viewId: string; rows: number; editorControls?: number } | undefined
 
 export interface DynamicEditOwner {
   readonly graphId: string
@@ -654,36 +644,6 @@ export function projectTextBoxLines(
 export function clampPictureHeight(height: number): number {
   const space = canvasPaintTokens.node.editorSpace
   return Math.min(space.pictureMax, Math.max(space.pictureMin, Math.round(height)))
-}
-
-/**
- * The height an unfolded editor takes under its row, and its picture's place
- * within it. `pictureHeight` is the height the user dragged the picture to,
- * `controls` the host's measure of the controls' height, and `openSections`
- * the editor's own sections that are open.
- */
-export function unfoldedEditorSpace(
-  editor: (typeof IN_NODE_EDITORS)[string],
-  tokens: DesignTokens,
-  at: {
-    readonly pictureHeight?: number
-    readonly controls?: number
-    readonly openSections?: readonly { readonly rows: number }[]
-    readonly wiredLine?: boolean
-  } = {},
-): { readonly height: number; readonly picture?: { readonly top: number; readonly height: number } } {
-  const space = canvasPaintTokens.node.editorSpace
-  const pictureHeight = editor.picture === undefined ? undefined
-    : at.pictureHeight !== undefined && Number.isFinite(at.pictureHeight) ? clampPictureHeight(at.pictureHeight)
-    : editor.picture
-  const controls = at.controls ??
-    (editor.controlRows + (at.wiredLine === true ? 1 : 0) + (at.openSections ?? []).reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
-  return {
-    // The editor's outline stops `fieldInsetY` above the space's bottom, as
-    // every row's box does; its controls fill the space above that.
-    height: space.pad * 2 + controls + (pictureHeight === undefined ? 0 : pictureHeight + space.gap) + tokens.rowGeometry.fieldInsetY,
-    ...(pictureHeight !== undefined ? { picture: { top: space.pad, height: pictureHeight } } : {}),
-  }
 }
 
 /**
@@ -1566,6 +1526,7 @@ export function layoutNode(
 
   // An unfolded editor takes its space under the whole line of its row. A
   // declaration may start it unfolded; a growing group's members start folded.
+  const space = canvasPaintTokens.node.editorSpace
   const withSpaces: PendingRow[] = []
   for (const row of pending) {
     withSpaces.push(row)
@@ -1580,11 +1541,16 @@ export function layoutNode(
       // Unfolded, the row is the editor's one-row header: what the folded row
       // shows in small (the curve's sketch) is the editor itself under it.
       cell.widget = { ...w, unfolded: true, rows: 1 }
+      const stored = options.pictureHeights?.[w.valueKey]
+      const pictureHeight = editor.picture === undefined ? undefined
+        : stored !== undefined && Number.isFinite(stored)
+          ? clampPictureHeight(stored)
+          : editor.picture
       const openSections = (editor.sections ?? []).filter((section) =>
         options.sectionOverrides?.[`${w.valueKey}.${section.id}`] === false)
       const wiredLine = editor.wiredLine !== undefined && isConnected('in', editor.wiredLine)
-      const pictureHeight = options.pictureHeights?.[w.valueKey]
-      const controls = editorControlHeights.get(w.valueKey)
+      const controls = editorControlHeights.get(w.valueKey) ??
+        (editor.controlRows + (wiredLine ? 1 : 0) + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
       const spaceRow: PendingRow = {
         kind: 'editorSpace',
         boxes: cell.boxes,
@@ -1594,12 +1560,10 @@ export function layoutNode(
           viewId: w.viewId,
           ...(openSections.length > 0 ? { openSections: openSections.map((section) => section.id) } : {}),
           ...(wiredLine ? { wiredLine: true as const } : {}),
-          ...unfoldedEditorSpace(editor, tokens, {
-            ...(pictureHeight !== undefined ? { pictureHeight } : {}),
-            ...(controls !== undefined ? { controls } : {}),
-            openSections,
-            wiredLine,
-          }),
+          // The editor's outline stops `fieldInsetY` above the space's bottom,
+          // as every row's box does; its controls fill the space above that.
+          height: space.pad * 2 + controls + (pictureHeight === undefined ? 0 : pictureHeight + space.gap) + tokens.rowGeometry.fieldInsetY,
+          ...(pictureHeight !== undefined ? { picture: { top: space.pad, height: pictureHeight } } : {}),
         },
       }
       lines.set(spaceRow, [spaceRow])

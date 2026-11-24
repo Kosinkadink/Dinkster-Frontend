@@ -774,8 +774,6 @@ export const WORKFLOW_SCHEMA = {
       properties: {
         position: { $ref: '#/$defs/vec2' },
         view: { type: 'string' },
-        editorUnfolded: { type: 'boolean' },
-        pictureHeight: { type: 'number' },
         ext: { $ref: '#/$defs/extData' },
       },
     },

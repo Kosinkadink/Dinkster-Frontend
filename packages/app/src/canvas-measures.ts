@@ -1,5 +1,5 @@
-import { t, type Json, type WidgetRegistry } from '@dinkster/core'
-import { canvasPaintTokens, compactSummary, defaultTokens, type TextMeasurer, type WidgetMeasure } from '@dinkster/canvas'
+import { t, type WidgetRegistry } from '@dinkster/core'
+import { canvasPaintTokens, defaultTokens, type TextMeasurer, type WidgetMeasure } from '@dinkster/canvas'
 
 /**
  * The height of the recorder's one sentence on a backend that cannot take
@@ -51,9 +51,7 @@ export function canvasMeasures(registry: () => WidgetRegistry, uploadsRefused?: 
     const view = registry().viewsFor(spec.widgetType).find((v) => v.id === viewId)
     if (!view) return undefined
     const rows = view.measure(spec).rows
-    const summary = (value: Json): string | undefined => compactSummary(view, value, spec)?.text
-    return viewId === 'core.audioRecord' && uploadsRefused?.() === true
-      ? { viewId, rows, editorControls: noUploadsHeight(), summary } : { viewId, rows, summary }
+    return viewId === 'core.audioRecord' && uploadsRefused?.() === true ? { viewId, rows, editorControls: noUploadsHeight() } : { viewId, rows }
   }
   return { measure, widgetMeasure }
 }

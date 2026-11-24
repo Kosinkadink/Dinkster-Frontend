@@ -32,7 +32,7 @@ const stringList = (value: unknown): readonly string[] | undefined =>
   Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : undefined
 
 /** A row's value text, whether it is the row's empty-state message, and any color square before it. */
-export interface RowSummary extends CompanionSummary {
+interface RowSummary extends CompanionSummary {
   readonly placeholder: boolean
 }
 
@@ -41,7 +41,7 @@ export interface RowSummary extends CompanionSummary {
  * down a wire reads the same as a stored one. Undefined when the view draws
  * no value text or cannot draw this value.
  */
-export function compactSummary(view: WidgetView, value: Json, spec: WidgetSpec): RowSummary | undefined {
+function compactSummary(view: WidgetView, value: Json, spec: WidgetSpec): RowSummary | undefined {
   let summary: RowSummary | undefined
   try {
     view.drawCompact({
