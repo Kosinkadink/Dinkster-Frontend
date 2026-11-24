@@ -33,6 +33,11 @@ const loadImage = schema('Load Image', 'Load Image', [out('IMAGE', 'IMAGE')])
 const findFace = schema('Find Face', 'Find Face', [
   { ...out('IMAGE', 'IMAGE'), optional: true } satisfies OutputSpec,
 ])
+/** An image, and a face that may not be found. */
+const detect = schema('Detect', 'Detect', [
+  out('IMAGE', 'IMAGE'),
+  { ...out('face', 'IMAGE', 'face'), optional: true } satisfies OutputSpec,
+])
 const blur = schema('Blur', 'Blur', [input('image', 'IMAGE'), out('IMAGE', 'IMAGE')])
 /** Takes a face when there is one. */
 const retouch = schema('Retouch', 'Retouch', [input('face', 'IMAGE', true), out('IMAGE', 'IMAGE')])
@@ -89,15 +94,25 @@ export function wireLooksGallery(
       'node' in link.from && 'node' in link.to && keptIds.has(link.from.node) && keptIds.has(link.to.node)),
   }
 
-  // A muted and a bypassed source, each with a wire out, under the wire
-  // that gives nothing.
+  // A muted source with an ordinary output and one that may carry nothing,
+  // and a bypassed source, each wired out, under the wire that gives nothing.
   const keptBottom = Math.max(...keptNodes.map((node) => node.y + node.layout.height))
   const keptLeft = Math.min(...keptNodes.map((node) => node.x))
-  const modePair = (mode: 'muted' | 'bypassed', y: number): Graph => {
-    const graph = pair(loadImage, 'IMAGE', blur, 'image', y, true, mode, 120)
-    return { ...graph, nodes: { ...graph.nodes, [`from${mode}`]: { ...graph.nodes[`from${mode}`]!, mode, title: mode === 'muted' ? 'Muted source' : 'Bypassed source' } } }
-  }
-  const moded = scene(merged(modePair('muted', keptBottom + 50), modePair('bypassed', keptBottom + 160)))
+  const top = keptBottom + 50
+  const moded = scene({
+    nodes: {
+      muted: { type: detect, x: 0, y: top, width: SOURCE_WIDTH, mode: 'muted', title: 'Muted source' },
+      mutedImage: { type: blur, x: COLUMN + 120, y: top - 20, width: SOURCE_WIDTH },
+      mutedFace: { type: retouch, x: COLUMN + 120, y: top + 70, width: SOURCE_WIDTH },
+      bypassed: { type: loadImage, x: 0, y: top + 190, width: SOURCE_WIDTH, mode: 'bypassed', title: 'Bypassed source' },
+      bypassedImage: { type: blur, x: COLUMN + 120, y: top + 190, width: SOURCE_WIDTH },
+    },
+    links: [
+      ['muted', 'IMAGE', 'mutedImage', 'image'],
+      ['muted', 'face', 'mutedFace', 'face'],
+      ['bypassed', 'IMAGE', 'bypassedImage', 'image'],
+    ],
+  })
   const dx = keptLeft
   const besideKept = joined(kept, {
     ...moded,
@@ -159,7 +174,7 @@ export function wireLooksGallery(
     },
     {
       caption:
-        'A wire that gives nothing, from a row kept for its wire under an option not chosen, has the same dashes and stays faded (top). A muted node gives nothing, so a wire out of it is drawn the same way: dashed and faded. A wire out of a bypassed node is an ordinary wire.',
+        'A wire that gives nothing, from a row kept for its wire under an option not chosen, has the same dashes and stays faded (top). A wire out of a muted node is faded like the node, and the mute adds no dashes: its ordinary output gives a solid faded wire, and its output that may carry nothing a dashed faded one. A wire out of a bypassed node is an ordinary wire.',
       scene: besideKept,
     },
     {

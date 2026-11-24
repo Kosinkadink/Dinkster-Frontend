@@ -2408,10 +2408,9 @@ export class CanvasRenderer {
         (this.scopeHighlight !== undefined || this.inactiveNodes !== undefined) &&
         (this.endOutOfScope(link.from) || this.endOutOfScope(link.to))
       if (outOfScope) ctx.globalAlpha = SCOPE_DIM
-      // A wire from a kept row and a wire out of a muted node both give
-      // nothing, and are drawn alike: faded and dashed.
-      const givesNothing = link.dimmed === true || link.sourceMuted === true
-      if (givesNothing) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
+      if (link.dimmed === true) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
+      // A wire out of a muted node fades with it; the mute adds no dashes.
+      if (link.sourceMuted === true) ctx.globalAlpha *= canvasPaintTokens.node.modeOpacity
       if (this.overlay.linkSelection?.has(link.id)) {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName, {
           color: this.tokens.colors.nodeSelectedBorder,
@@ -2420,9 +2419,9 @@ export class CanvasRenderer {
         })
       }
       // A dashed wire means only that it may carry nothing (an optional
-      // producer) or gives nothing; every other wire, including one being
-      // dragged, is solid.
-      const dashed = link.maybeAbsent === true || givesNothing
+      // producer) or carries nothing (a dimmed wire from a kept row); every
+      // other wire, including one being dragged, is solid.
+      const dashed = link.maybeAbsent === true || link.dimmed === true
       if (dashed) ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.maybeAbsentLink.world, canvasPaintTokens.dash.maybeAbsentLink.screen, scale))
       // A PROVEN type conflict paints the noodle in error red, overriding
       // the type color: the break must be visible where it is, not hunted

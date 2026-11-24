@@ -379,7 +379,7 @@ export interface SceneLink {
   readonly maybeAbsent?: true
   /** The wire leaves a kept row (a field no longer part of its node): drawn dimmed, it gives nothing. */
   readonly dimmed?: true
-  /** The traced producer is a muted node: the wire gives nothing and is drawn like a dimmed one. */
+  /** The traced producer is a muted node: the wire is drawn faded like that node. */
   readonly sourceMuted?: true
   /**
    * Set when this noodle renders a named-net fan-out rather than a document
