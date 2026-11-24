@@ -20,11 +20,16 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
-import type { DynamicPortState, GraphDef, Json, JsonObject, WorkflowDocument } from '../format/document.js'
+import type { DynamicPortState, GraphDef, Json, JsonObject, NodeData, WorkflowDocument } from '../format/document.js'
 import { resolveDynamicAddress } from '../format/document.js'
 import type { CommandDefinition } from './contract.js'
 import { isPortEndpoint, isWidgetTapRef, MAX_MEMBER_ORDINAL } from '../ids.js'
-import { DEFAULT_ELAB_BUDGET } from '../schema/elaborate.js'
+import { DEFAULT_ELAB_BUDGET, elabInputsOf, elaborateInterface, selectorMembersOf, valueKeyOf } from '../schema/elaborate.js'
+import { documentPrimitiveResolver } from '../compile/compile.js'
+import { primitiveOf } from '../primitive.js'
+import { buildRerouteIndex, traceEndpoint } from '../reroute.js'
+import type { SchemaResolver } from '../schema/derive-boundary.js'
+import { schemaResolverForCommand } from './command-support.js'
 import { constructsOf } from '../schema/body.js'
 import type { ChoiceSpec, GroupSpec, TypeChoiceSpec } from '../schema/model.js'
 import { checkDocument, subgraphDefIdOf } from '../invariants.js'
@@ -243,52 +248,125 @@ function labelMembers(
   } }
 }
 
-const dynamicLabelMember: CommandDefinition = {
-  id: 'dynamic.labelMember',
-  run(doc, params, tx) {
-    if (!isObj(params) || typeof params.nodeId !== 'string' ||
-        typeof params.construct !== 'string' || params.construct.length === 0 ||
-        typeof params.member !== 'string' || params.member.length === 0 ||
-        (params.label !== null && (typeof params.label !== 'string' || params.label.trim().length === 0))) {
-      return [err('params.invalid', 'dynamic.labelMember: params must be {graphId, nodeId, construct, member, label: string|null}')]
-    }
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `dynamic.labelMember: unknown graph '${String(params.graphId)}'`)]
-    const node = def.nodes[params.nodeId]
-    if (!node) return [err('node.missing', `dynamic.labelMember: unknown node '${params.nodeId}'`)]
-    const label = typeof params.label === 'string' ? params.label.trim() : null
-    const next = labelMembers(node.dynamic, params.construct, { [params.member]: label })
-    if (!next.ok) return [next.diagnostic]
-    if (JSON.stringify(next.scope) === JSON.stringify(node.dynamic ?? {})) return []
-    tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'dynamic'], next.scope as unknown as Json)
-    return []
-  },
+/**
+ * A Switch's branches renamed: each Choice wired to its Pick (directly,
+ * through reroutes or a named net) that holds an old name gets the new one,
+ * when every field it feeds then offers that name. Text primitives and
+ * values from outside the graph are not rewritten. `after` is the document
+ * with the new names.
+ */
+function choiceRenamesOf(
+  before: WorkflowDocument,
+  after: WorkflowDocument,
+  graphId: string,
+  nodeId: string,
+  construct: string,
+  resolve: SchemaResolver,
+): JsonObject[] {
+  const def = after.graphs[graphId]
+  const was = before.graphs[graphId]?.nodes[nodeId]
+  const now = def?.nodes[nodeId]
+  const schema = now && resolve(now.type)
+  const selector = schema?.selector
+  if (!def || !was || !now || !schema || selector?.names === undefined || selector.group !== construct) return []
+  const namesOf = (node: NodeData): Map<string, string> => {
+    const inputs = elabInputsOf(elaborateInterface(schema, node))
+    return new Map(selectorMembersOf(selector, inputs).map((member) => [member,
+      inputs.find((input) => valueKeyOf(input) === member)?.spec.displayName ?? member.slice(selector.group.length + 1)]))
+  }
+  const newNames = namesOf(now)
+  const renamed = new Map<string, string>()
+  for (const [member, name] of namesOf(was)) {
+    const next = newNames.get(member)
+    if (next !== undefined && next !== name) renamed.set(name, next)
+  }
+  if (renamed.size === 0) return []
+  const index = buildRerouteIndex(def)
+  const drivers = [
+    ...Object.values(def.links).filter((link) => isPortEndpoint(link.to) && link.to.node === nodeId && link.to.port === selector.input).map((link) => link.from),
+    ...Object.values(def.nets ?? {}).filter((net) => net.sinks.some((sink) => sink.node === nodeId && sink.port === selector.input)).map((net) => net.source),
+  ]
+  const resolvePrimitive = documentPrimitiveResolver(after, resolve)
+  const rewrites: JsonObject[] = []
+  for (const from of drivers) {
+    const trace = traceEndpoint(def, from, index)
+    if (trace.kind !== 'output') continue
+    const choice = def.nodes[trace.ref.node]
+    const choiceSchema = choice && resolve(choice.type)
+    const shape = choiceSchema && primitiveOf(choiceSchema)
+    if (!choice || !shape || shape.output.id !== trace.ref.port || shape.value.type.kind !== 'concrete' || shape.value.type.name !== 'COMBO') continue
+    const value = choice.values[shape.value.id]
+    const next = typeof value === 'string' ? renamed.get(value) : undefined
+    const offered = next === undefined ? undefined : resolvePrimitive(graphId, choice)?.spec?.options['options']
+    if (next !== undefined && Array.isArray(offered) && offered.includes(next) &&
+      !rewrites.some((rewrite) => rewrite['node'] === choice.id)) rewrites.push({ node: choice.id, valueKey: shape.value.id, value: next })
+  }
+  return rewrites
 }
 
-const dynamicLabelMembers: CommandDefinition = {
-  id: 'dynamic.labelMembers',
-  run(doc, params, tx) {
-    if (!isObj(params) || typeof params.nodeId !== 'string' ||
-        typeof params.construct !== 'string' || params.construct.length === 0 ||
-        !isObj(params.labels) || Object.keys(params.labels).length === 0 ||
-        !Object.entries(params.labels).every(([member, label]) => member.length > 0 &&
-          (label === null || typeof label === 'string' && label.trim().length > 0))) {
-      return [err('params.invalid', 'dynamic.labelMembers: params must be {graphId, nodeId, construct, labels: {member: string|null}}')]
-    }
+/** Rename members and, in the same undo step, the Choices that pick them by name. */
+function labelMembersCommand(
+  id: string,
+  updatesOf: (params: JsonObject) => Readonly<Record<string, string | null>> | undefined,
+  usage: string,
+): CommandDefinition {
+  const plan = (doc: WorkflowDocument, params: Json) => {
+    if (!isObj(params) || typeof params.nodeId !== 'string' || typeof params.construct !== 'string' || params.construct.length === 0)
+      return { error: err('params.invalid', usage) }
+    const updates = updatesOf(params)
+    if (updates === undefined) return { error: err('params.invalid', usage) }
     const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `dynamic.labelMembers: unknown graph '${String(params.graphId)}'`)]
+    if (!def) return { error: err('graph.missing', `${id}: unknown graph '${String(params.graphId)}'`) }
     const node = def.nodes[params.nodeId]
-    if (!node) return [err('node.missing', `dynamic.labelMembers: unknown node '${params.nodeId}'`)]
-    const labels = Object.fromEntries(Object.entries(params.labels).map(([member, label]) => [
-      member, typeof label === 'string' ? label.trim() : null,
-    ]))
-    const next = labelMembers(node.dynamic, params.construct, labels)
-    if (!next.ok) return [next.diagnostic]
-    if (JSON.stringify(next.scope) === JSON.stringify(node.dynamic ?? {})) return []
-    tx.set(['graphs', params.graphId as string, 'nodes', params.nodeId, 'dynamic'], next.scope as unknown as Json)
-    return []
-  },
+    if (!node) return { error: err('node.missing', `${id}: unknown node '${params.nodeId}'`) }
+    const next = labelMembers(node.dynamic, params.construct, updates)
+    if (!next.ok) return { error: next.diagnostic }
+    const graphId = params.graphId as string
+    const after = { ...doc, graphs: { ...doc.graphs, [graphId]: { ...def, nodes: { ...def.nodes, [node.id]: { ...node, dynamic: next.scope } } } } } as WorkflowDocument
+    return { graphId, node, construct: params.construct, scope: next.scope, after }
+  }
+  return {
+    id,
+    run(doc, params, tx, context) {
+      const planned = plan(doc, params)
+      if ('error' in planned) return [planned.error]
+      if (JSON.stringify(planned.scope) === JSON.stringify(planned.node.dynamic ?? {})) return []
+      tx.set(['graphs', planned.graphId, 'nodes', planned.node.id, 'dynamic'], planned.scope as unknown as Json)
+      const resolve = schemaResolverForCommand(doc, context)
+      const given = (params as JsonObject)['choices']
+      const rewrites = Array.isArray(given) ? given.filter(isObj)
+        : resolve === undefined ? [] : choiceRenamesOf(doc, planned.after, planned.graphId, planned.node.id, planned.construct, resolve)
+      for (const rewrite of rewrites) {
+        const target = typeof rewrite['node'] === 'string' ? planned.after.graphs[planned.graphId]?.nodes[rewrite['node']] : undefined
+        if (target !== undefined && typeof rewrite['valueKey'] === 'string' && typeof rewrite['value'] === 'string')
+          tx.set(['graphs', planned.graphId, 'nodes', target.id, 'values', rewrite['valueKey']], rewrite['value'])
+      }
+      return []
+    },
+    prepareForSharedReplay(doc, params, context) {
+      const planned = plan(doc, params)
+      const resolve = schemaResolverForCommand(doc, context)
+      if ('error' in planned || resolve === undefined || (params as JsonObject)['choices'] !== undefined) return undefined
+      const choices = choiceRenamesOf(doc, planned.after, planned.graphId, planned.node.id, planned.construct, resolve)
+      return { ok: true, params: { ...(params as JsonObject), choices } }
+    },
+  }
 }
+
+const dynamicLabelMember = labelMembersCommand('dynamic.labelMember', (params) => {
+  if (typeof params.member !== 'string' || params.member.length === 0 ||
+    (params.label !== null && (typeof params.label !== 'string' || params.label.trim().length === 0))) return undefined
+  return { [params.member]: typeof params.label === 'string' ? params.label.trim() : null }
+}, 'dynamic.labelMember: params must be {graphId, nodeId, construct, member, label: string|null}')
+
+const dynamicLabelMembers = labelMembersCommand('dynamic.labelMembers', (params) => {
+  if (!isObj(params.labels) || Object.keys(params.labels).length === 0 ||
+    !Object.entries(params.labels).every(([member, label]) => member.length > 0 &&
+      (label === null || typeof label === 'string' && label.trim().length > 0))) return undefined
+  return Object.fromEntries(Object.entries(params.labels).map(([member, label]) => [
+    member, typeof label === 'string' ? label.trim() : null,
+  ]))
+}, 'dynamic.labelMembers: params must be {graphId, nodeId, construct, labels: {member: string|null}}')
 
 // Slot specialization deliberately shares the choice editor: selected has one
 // persisted home, and idempotence semantics must not drift. Like every core

@@ -94,7 +94,11 @@ Nodes surface the current run's records as tabs on their bottom edge,
 left-aligned and flowing right: error, then warning, then info. The error tab
 is the run error report's single visual - the same `ExecutionState.errors`
 diagnostics the Execution log projects - and shows a count when more than one
-diagnostic anchors to the node. The warning tab counts the node's warning log
+diagnostic anchors to the node. On a live tab the error keeps its color only
+while the node would run the same way again (`run-problem-standing.ts`);
+once it has changed since the run, the node loses its run outline and row
+outlines and the tab reads Last run in gray, opening the same popover under
+"From the last run. Changed since." The warning tab counts the node's warning log
 records; a Log tab marks that the node produced any informational records. Warning and info badges derive from the run's log records, so they
 clear when the next run starts, and they follow the view: inside a subgraph
 they sit on the inner node that logged, and on the collapsed instance node

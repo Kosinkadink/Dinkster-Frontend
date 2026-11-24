@@ -343,7 +343,7 @@ is disabled.
 
 Open Subgraph, Extract, and Flatten use folder-open, group, and ungroup icons
 from the same canvas icon painter as the other toolbox controls. A subgraph
-node's mark at the right end of its title bar uses the boxes icon. When a
+node's mark at the right end of its title bar uses the subgraph icon. When a
 definition is referenced by two or more occurrences, the mark adds the
 document-derived linked count; a single occurrence keeps the icon-only mark.
 

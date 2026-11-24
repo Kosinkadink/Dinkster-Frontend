@@ -2989,8 +2989,8 @@ describe('badge and toolbox paint on the live renderer', () => {
       const call = calls.find((candidate) => candidate.method === 'fillText' && candidate.args[0] === word)!
       expect(side === 'above' ? Number(call.args[2]) < header.top : Number(call.args[2]) > n.y + n.layout.height).toBe(true)
     }
-    // The mark: 3 px padding, a 14 px icon, a 3 px gap and "12" (6 px a character here), ending padX before the right edge.
-    const markX = n.x + n.layout.width - defaultTokens.padX - (3 + 14 + 3 + 12 + 3)
+    // The mark: 3 px padding, a 14 px icon, a 3 px gap and "12" (6 px a character here), ending 3 px before the right edge.
+    const markX = n.x + n.layout.width - 3 - (3 + 14 + 3 + 12 + 3)
     const count = calls.find((call) => call.method === 'fillText' && call.args[0] === '12')!
     expect(count.args[1]).toBe(markX + 3 + 14 + 3)
     expect(Number(count.args[2])).toBeGreaterThan(header.top)
@@ -3008,7 +3008,7 @@ describe('badge and toolbox paint on the live renderer', () => {
     // Lucide's 24-unit box, moved to the given corner and scaled to the given size, with nothing kept clear.
     for (const size of [7, 14, 20]) {
       const { ctx, calls } = recordingCtx()
-      paintToolboxIcon(ctx, 'boxes', 3, 5, size, '#fff')
+      paintToolboxIcon(ctx, 'subgraph', 3, 5, size, '#fff')
       const at = calls.findIndex((call) => call.method === 'translate')
       expect(calls[at]!.args).toEqual([3, 5])
       expect(calls[at + 1]).toMatchObject({ method: 'scale', args: [size / 24, size / 24] })
@@ -3031,7 +3031,7 @@ describe('badge and toolbox paint on the live renderer', () => {
     // An icon is drawn by moving to its corner, then scaling Lucide's 24-unit box.
     const scaleAfter = (x: number, y: number) =>
       calls[calls.findIndex((call) => call.method === 'translate' && call.args[0] === x && call.args[1] === y) + 1]
-    const markX = n.x + n.layout.width - defaultTokens.padX - 20
+    const markX = n.x + n.layout.width - 3 - 20
     const markY = n.y + n.layout.headerHeight / 2 - 10
     expect(scaleAfter(markX + 3, markY + 3)).toMatchObject({ method: 'scale', args: [14 / 24, 14 / 24] })
     // The tab's words follow its 14 px icon and a 4 px gap; the tab's top is 10.5 above them.

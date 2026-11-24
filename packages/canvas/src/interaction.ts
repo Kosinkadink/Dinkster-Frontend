@@ -930,6 +930,7 @@ export class InteractionController {
   private hoveredBoxNode: string | undefined
   private hoveredBoxId: string | undefined
   private hoveredGrip: { readonly nodeId: string; readonly construct: string; readonly member: string } | undefined
+  private hoveredButton: { readonly nodeId: string; readonly key: string } | undefined
   private hoveredToolboxButton: string | undefined
   /** A toolbox press can synchronously remove/move the toolbox before the
    * browser emits dblclick. Remember that press briefly so its dblclick can
@@ -1218,7 +1219,7 @@ export class InteractionController {
       // hover on every replacement, even when an identity happens to recur.
       const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined ||
         this.hoveredMinimize !== undefined || this.hoveredBadge !== undefined ||
-        this.hoveredBoxNode !== undefined || this.hoveredGrip !== undefined
+        this.hoveredBoxNode !== undefined || this.hoveredGrip !== undefined || this.hoveredButton !== undefined
       if (staleNode) {
         this.hoveredNode = undefined
         this.host.onNodeHover?.(undefined)
@@ -1897,6 +1898,7 @@ export class InteractionController {
         return
       case 'growth':
         this.gesture = { kind: 'growth', hit, moved: false }
+        this.pushOverlay({ pressedButton: { nodeId: hit.node.id, key: `growth:${hit.row.construct}` } })
         return
       case 'grip':
         this.gesture = { kind: 'grip', hit, moved: false }
@@ -3566,8 +3568,14 @@ export class InteractionController {
       case 'preview-affordance':
       case 'section':
       case 'preview-caption':
-      case 'growth':
         if (passed) g.moved = true
+        return
+      case 'growth':
+        // A press that moves away does not add: the button stops looking pressed.
+        if (passed && !g.moved) {
+          g.moved = true
+          this.pushOverlay()
+        }
         return
       case 'grip': {
         if (!passed && !g.moved) return
@@ -5087,6 +5095,7 @@ export class InteractionController {
       bodyDropNode?: string
       dropRow?: { nodeId: string; valueKey: string }
       memberDrag?: NonNullable<OverlayState['memberDrag']>
+      pressedButton?: NonNullable<OverlayState['pressedButton']>
     } = {},
   ): void {
     const ghost = extra.ghostLink ?? this.paletteGhost
@@ -5129,6 +5138,7 @@ export class InteractionController {
         hoveredBox: { nodeId: this.hoveredBoxNode, boxId: this.hoveredBoxId! },
       } : {}),
       ...(this.hoveredGrip !== undefined ? { hoveredGrip: this.hoveredGrip } : {}),
+      ...(this.hoveredButton !== undefined ? { hoveredButton: this.hoveredButton } : {}),
       ...extra,
       ...(ghost !== undefined ? { ghostLink: ghost } : {}),
       ...(this.placementGhost !== undefined ? { placementGhost: this.placementGhost } : {}),
@@ -5402,6 +5412,7 @@ export class InteractionController {
     const grip = hit?.kind === 'grip' && hit.grip.alone !== true
       ? { nodeId: hit.node.id, construct: hit.grip.construct, member: hit.grip.member }
       : undefined
+    const button = hit?.kind === 'growth' ? { nodeId: hit.node.id, key: `growth:${hit.row.construct}` } : undefined
     const pinNode = pin?.node.id
     const pinPort = pin?.kind === 'widgetTap' ? pin.pin.portId : pin?.portId
     const pinDirection = pin?.kind === 'widgetTap' ? 'out' : pin?.direction
@@ -5422,7 +5433,9 @@ export class InteractionController {
       boxId === this.hoveredBoxId &&
       grip?.nodeId === this.hoveredGrip?.nodeId &&
       grip?.construct === this.hoveredGrip?.construct &&
-      grip?.member === this.hoveredGrip?.member
+      grip?.member === this.hoveredGrip?.member &&
+      button?.nodeId === this.hoveredButton?.nodeId &&
+      button?.key === this.hoveredButton?.key
     ) return
     this.hoveredPinNode = pinNode
     this.hoveredPinPort = pinPort
@@ -5435,6 +5448,7 @@ export class InteractionController {
     this.hoveredBoxNode = boxNode
     this.hoveredBoxId = boxId
     this.hoveredGrip = grip
+    this.hoveredButton = button
     this.pushOverlay()
   }
 
@@ -5450,6 +5464,7 @@ export class InteractionController {
     this.hoveredBoxNode = undefined
     this.hoveredBoxId = undefined
     this.hoveredGrip = undefined
+    this.hoveredButton = undefined
   }
 }
 

@@ -57,6 +57,7 @@ import {
 } from './structure.js'
 import { boundaryTreeGallery } from './boundary-tree.js'
 import { smallFlowNodesGallery } from './small-flow-nodes.js'
+import { subgraphIconGallery, subgraphToolbox } from './subgraph-icon.js'
 import { switchPrimitiveGallery } from './switch-primitive.js'
 import { typeConflictGallery } from './type-conflict.js'
 import { widgetTapGallery } from './widget-taps.js'
@@ -94,6 +95,7 @@ export const canvasGalleryPages = [
   ['boundary', 'Subgraph boundaries'],
   ['boundary-names', 'Subgraph names'],
   ['boundary-tree', 'Subgraph boundary tree'],
+  ['subgraph-icon', 'Subgraph icon'],
   ['badges', 'Badges and toolbar'],
   ['previews', 'Previews'],
   ['zoom', 'Controls zoom'],
@@ -1035,6 +1037,11 @@ export function createCanvasGalleryFixture(
     fixture.scene.links = [...first.links]
     fixture.scene.boundaryNodes = [...first.boundaryNodes]
     examples.push(...cards)
+  } else if (page === 'subgraph-icon') {
+    const cards = subgraphIconGallery(tokens, measure, widgetMeasure)
+    fixture.scene.nodes = [...cards[0]!.scene.nodes]
+    fixture.toolbox = subgraphToolbox
+    examples.push(...cards)
   } else if (page === 'small-flow-nodes') {
     const cards = smallFlowNodesGallery(tokens, measure, widgetMeasure)
     const first = cards[0]!.scene
@@ -1900,6 +1907,35 @@ export function createCanvasGalleryFixture(
       caption: 'Room under the last thing in a box',
       nodes: examples.slice(-4).flatMap((example) => example.nodes ?? []),
     })
+    // A group's add row and a button the node declares stand raised, in
+    // each state. An add row is never disabled: it goes at the group's most.
+    nextRow()
+    const raised = (enabled?: false) => schema('LoRA stack', [
+      loras('loras', 'LoRAs'),
+      {
+        kind: 'button',
+        id: 'clear',
+        label: 'Clear LoRAs',
+        steps: [],
+        ...(enabled === false ? { enabled } : {}),
+      },
+    ])
+    const buttonStates: readonly [string, number, OverlayState, false?][] = [
+      ['Buttons at rest', 0, {}],
+      ['Add row pointed at', 1, { hoveredButton: { nodeId: 'Add row pointed at', key: 'growth:loras' } }],
+      ['Add row pressed', 2, { pressedButton: { nodeId: 'Add row pressed', key: 'growth:loras' } }],
+      ['Button pointed at', 0, { hoveredButton: { nodeId: 'Button pointed at', key: 'button:clear' } }],
+      ['Button pressed', 1, { pressedButton: { nodeId: 'Button pressed', key: 'button:clear' } }],
+      ['Button disabled', 2, {}, false],
+    ]
+    for (const [caption, at, overlay, enabled] of buttonStates) {
+      if (at === 0 && caption !== 'Buttons at rest') nextRow()
+      add(caption, raised(enabled), {}, 30, false, {
+        at: column(at),
+        dynamic: { loras: { members: ['lora0'] } },
+      })
+      examples[examples.length - 1] = { ...examples[examples.length - 1]!, overlay }
+    }
     const dragging = fixture.scene.nodes.find((node) => node.id === 'Dragging lora 1 below lora 2')!
     const draggedGrip = dragging.layout.rows.flatMap((row) =>
       row.kind === 'member' && row.reorder?.member === 'lora0' ? [row.reorder] : [])[0]!
