@@ -46,6 +46,7 @@ import { NodeLookGallery } from './node-look.js'
 import { ColorEditingGallery } from './color-editing.js'
 import { RowEditingGallery } from './row-editing.js'
 import { RowListsGallery } from './row-lists.js'
+import { ProblemBoxGallery } from './problem-box.js'
 
 type Theme = 'dark' | 'light'
 
@@ -55,6 +56,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
       'Nodes',
       [
         'anatomy',
+        'boxes',
         'idle-outline',
         'titles',
         'titles-content',
@@ -89,6 +91,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
     ['Wires', ['types', 'structure']],
     ['Subgraphs', ['boundary', 'boundary-names']],
     ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
+    ['Problems with fixes', ['problem-box']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
 
@@ -139,11 +142,15 @@ export function selectCanvasPage(href: string) {
 const pageNotes: Record<CanvasGalleryPage, string> = {
   anatomy:
     'The parts of a node: title bar with its minimize arrow, pins, value rows, a section open and closed, a subgraph node with its mark, and a node whose type is missing.',
+  boxes:
+    'Sections, groups and choices drawn as boxes. A closed box shows how many rows it holds and marks a changed value with a dot. Its row carries the pins of the fields inside it, pressed together, at most three on a side with wired pins first; an unwired input is hollow, and a fourth wire ends on the last pin drawn. A wire held over a closed box names the field it would reach. Opening or closing a box moves neither its name nor any row above it. A member of a group that can be reordered has a grip: dragging it shows where the member would land and dims it in place, and its menu has Move up and Move down. The remove cross on a member of a group that grows by hand is shown here only; the editor leaves it off until pressing it removes the member.',
   'idle-outline':
     'The outline of a node at rest, hovered and selected; hovering adds dots at the ends of the rows.',
   titles:
     'A title that does not fit ends in an ellipsis instead of squeezing its letters, drawn at 75 percent zoom.',
   'titles-content': 'The same titles at 50 percent zoom.',
+  'problem-box':
+    'A problem outlines its row; the node\'s Error or Warning tab counts the causes and opens one box under the node with each problem and, where one exists, the action that leads to it. Point at a line to light its row.',
   'title-suffix':
     'A node\'s declared title suffix, worked out from its values ("20 steps, euler"), one space after the title in the row names\' dim regular type: beside a pack title, beside a renamed title, cut first on a narrow node ("20 steps with the euler sampler"), and on a minimized node.',
   'node-look':
@@ -233,6 +240,9 @@ const rowsAfter: Variant = {
 
 function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
   switch (page) {
+    case 'boxes':
+      // The page shows the remove cross the editor leaves off until it works.
+      return [{ ...current, tokens: (t) => ({ ...t, memberRemoveCross: true }) }]
     case 'idle-outline':
       return [
         {
@@ -344,7 +354,6 @@ function ExampleCard(props: {
     renderer.setScene(scene)
     renderer.setNodeStates(example.states ?? fixture.states)
     renderer.setBadges(example.badges ?? fixture.badges)
-    renderer.setPortProblems(example.portProblems ?? {})
     renderer.setOverlay(example.overlay ?? fixture.overlay)
     renderer.setRowMarks(example.rowMarks ?? fixture.rowMarks)
     renderer.setCompanions(example.companions ?? fixture.companions)
@@ -590,7 +599,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'node-look') return
+    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'node-look' || currentPage === 'problem-box') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -694,6 +703,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'color-editing'}>
           <ColorEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'problem-box'}>
+          <ProblemBoxGallery theme={theme()} />
         </Show>
         <Show when={prepared()[0]}>
           {(first) => (

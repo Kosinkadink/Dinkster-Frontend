@@ -90,6 +90,29 @@ describe('companionSourcesOf', () => {
       .toEqual({ kind: 'literal', value: stored })
   })
 
+  it('gives no literal for a tap on a field under an option that is not chosen', () => {
+    const FLOAT = { kind: 'concrete', name: 'FLOAT' } as const
+    const schema: NodeSchema = {
+      type: 'Options', displayName: 'Options', category: '', source: 'v3', isOutputNode: false,
+      body: [{
+        kind: 'choice', id: 'mode', required: true, shared: [],
+        options: [
+          { key: 'fixed', rows: [{ kind: 'input', id: 'amount', type: FLOAT, optional: false, widget: { widgetType: 'FLOAT', options: {}, default: 0.8 } }] },
+          { key: 'none', rows: [] },
+        ],
+      }],
+    }
+    const def = graph({
+      id: 'g0',
+      nodes: { opt: { ...node('opt', 'Options', { 'mode.amount': 0.65 }), dynamic: { mode: { selected: 'fixed' } } }, sink: node('sink') },
+      links: { l1: link('l1', tap('opt', 'mode.amount'), port('sink', 'value')) },
+    })
+    const resolve = (type: string) => (type === 'Options' ? schema : undefined)
+    expect(companionSourcesOf(def, undefined, undefined, resolve).get('sink')?.get('value')).toEqual({ kind: 'literal', value: 0.65 })
+    ;(def.nodes['opt'] as { dynamic: object }).dynamic = { mode: { selected: 'none' } }
+    expect(companionSourcesOf(def, undefined, undefined, resolve).get('sink')?.get('value')).toBeUndefined()
+  })
+
   it('resolves a node-output link to a runtime producer', () => {
     const def = graph({
       id: 'g0',

@@ -453,15 +453,18 @@ describe('dynamic layout on plain nodes', () => {
     expect(growthRowsOf(back, 'p')[0]!.frames).toEqual([{ construct: 'items', members: ['item1'], seq: 2 }])
   })
 
-  it('a group of outputs offers its spare symmetrically, before trailing static outputs', () => {
+  it('a group of outputs offers its spare symmetrically, in its own box', () => {
     const scene = sceneOf(docOf({ g0: { nodes: { s: { type: 'Split' } } } }))
     const outs = pinsOf(scene, 's', 'out')
-    expect(outs.map((p) => p.portId)).toEqual(['outs.o0', 'last'])
-    const ghost = outs[0]!
+    // The node's own output pairs with its own input row; the group's
+    // members sit in the group's box below it.
+    expect(outs.map((p) => p.portId)).toEqual(['last', 'outs.o0'])
+    const ghost = outs[1]!
     expect(ghost.ghost).toBe(true)
     expect(ghost.address).toEqual({ port: 'outs.o0' })
     expect(ghost.materialize).toEqual([{ construct: 'outs', members: ['o0'], seq: 1 }])
-    expect(outs[1]!.address).toEqual({ port: 'last' })
+    expect(outs[0]!.address).toEqual({ port: 'last' })
+    expect(nodeOf(scene, 's').layout.boxes).toMatchObject([{ id: 'group:outs', kind: 'group' }])
   })
 
   it("a choice renders its dropdown row (derivedValue, selector routing) plus the chosen option's widgets", () => {
@@ -559,16 +562,10 @@ describe('dynamic layout on plain nodes', () => {
     })
     const stale = sceneOf(docWith('latent'))
     expect(stale.diagnostics.map((d) => d.code)).toContain('solve.slot.staleSpecialization')
-    // The diagnostic anchors to the type choice's pin, so the pin itself
-    // warns on canvas - the user sees the ring where the problem lives, not
-    // only a Problems-panel row.
-    const stalePin = pinsOf(stale, 's', 'in').find((p) => p.address.port === 'slot')!
-    expect(stalePin.warn).toBe(true)
+    expect(stale.diagnostics.find((d) => d.code === 'solve.slot.staleSpecialization')?.anchor?.port?.port).toBe('slot')
     // Compatible choice: the same graph shape produces a clean scene.
     const fixed = sceneOf(docWith('image'))
     expect(fixed.diagnostics).toEqual([])
-    const fixedPin = pinsOf(fixed, 's', 'in').find((p) => p.address.port === 'slot')!
-    expect(fixedPin.warn).toBeUndefined()
   })
 })
 
