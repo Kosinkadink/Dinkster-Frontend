@@ -447,7 +447,7 @@ function createPrimitiveScene(
   target: NodeSchema,
   position: { x: number; y: number },
 ): Scene {
-  const fed = target.body.find((row) => row.kind === 'input' && row.widget !== undefined)!.id
+  const fed = target.body.flatMap((row) => row.kind === 'input' && row.widget !== undefined ? [row.id] : [])[0]!
   const loaded = loadDocument({
     format: 'dinkster-workflow',
     formatVersion: 1,
