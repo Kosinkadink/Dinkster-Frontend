@@ -15,7 +15,7 @@ import {
   canvasEditorIcons,
   type CanvasCurveStrip,
 } from '@dinkster/ui'
-import { createEffect, createSignal, on, onCleanup, Show, type JSX } from 'solid-js'
+import { createEffect, createSignal, on, onCleanup, Show, untrack, type JSX } from 'solid-js'
 import type { ExecutionState } from '@dinkster/client'
 import { useAppMessage } from './locale.js'
 import { frameFromVideo, webcamError, type WebcamDimensions } from './webcam.js'
@@ -129,6 +129,8 @@ export function NodeEditorSpaceOverlay(props: {
     readonly preview: (height: number | undefined) => void
     readonly commit: (height: number) => void
   }
+  /** Screen rectangles the canvas draws in front of the editor, cut out of it. */
+  readonly covers: readonly EditorWorldRect[]
   readonly children: JSX.Element
 }) {
   // The picture's bottom edge is dragged, or stepped with the arrow keys, like a text box's.
@@ -186,7 +188,7 @@ export function NodeEditorSpaceOverlay(props: {
   return (
     <div class="node-editor-space-overlay" data-node-id={props.item.nodeId} data-value-key={props.item.row.valueKey}
       data-view-id={props.item.row.viewId}
-      style={overlayClipStyle({ ...props.rect, height: props.rect.height + grown() * props.scale }, props.canvas)}
+      style={overlayClipStyle({ ...props.rect, height: props.rect.height + grown() * props.scale }, props.canvas, props.covers)}
       ref={(element) => {
         element.addEventListener('wheel', forwardWheel, { capture: true, passive: false })
         element.addEventListener('pointerdown', press, { capture: true })
@@ -803,6 +805,8 @@ export function WebcamSpace(props: {
   readonly wired: boolean
   /** What the wire brought in the last run, when it is known. */
   readonly carried: Json | undefined
+  /** Something is drawn in front of the editor; a live camera turns off. */
+  readonly covered: boolean
 }) {
   const message = useAppMessage()
   const [camera, setCamera] = createSignal<CameraState>('off')
@@ -848,6 +852,10 @@ export function WebcamSpace(props: {
     release()
     setCamera('off')
   }
+  // Covered, the camera turns off as it does when its node leaves the screen.
+  createEffect(() => {
+    if (props.covered && untrack(camera) !== 'off' && untrack(camera) !== 'error') stop()
+  })
   const capture = async () => {
     const upload = props.ports.upload
     if (camera() !== 'live' || video === undefined || upload === undefined) return

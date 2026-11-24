@@ -1626,6 +1626,27 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [editorSpaces, setEditorSpaces] = createSolidSignal<readonly EditorSpaceItem[]>([])
   let editorPictureHeights: Pick<InteractionController, 'previewPictureHeight' | 'commitPictureHeight'> | undefined
   const editorSpaceByKey = createMemo(() => new Map(editorSpaces().map((item) => [item.key, item])))
+  /** Every node's box in the order the canvas draws them, so a later one is drawn in front. */
+  const [nodeBoxes, setNodeBoxes] = createSolidSignal<readonly { readonly id: string; readonly box: EditorWorldRect }[]>([])
+  const [nodeDrag, setNodeDrag] = createSolidSignal<ReadonlyMap<string, { readonly dx: number; readonly dy: number }>>()
+  const dragged = (box: EditorWorldRect, nodeId: string): EditorWorldRect => {
+    const offset = nodeDrag()?.get(nodeId)
+    return offset === undefined ? box : { ...box, x: box.x + offset.dx, y: box.y + offset.dy }
+  }
+  /** The screen rectangles of nodes the canvas draws in front of an editor that overlap its space. */
+  const editorCovers = (item: EditorSpaceItem): readonly EditorWorldRect[] => {
+    const boxes = nodeBoxes()
+    const at = boxes.findIndex((entry) => entry.id === item.nodeId)
+    if (at < 0) return []
+    const node = dragged(item.node, item.nodeId)
+    const space = { x: node.x + item.space.x, y: node.y + item.space.y, width: item.space.width, height: item.space.height }
+    return boxes.slice(at + 1).flatMap((entry) => {
+      const box = dragged(entry.box, entry.id)
+      if (box.x >= space.x + space.width || box.x + box.width <= space.x || box.y >= space.y + space.height || box.y + box.height <= space.y) return []
+      const screen = mediaScreenRect({ x: 0, y: 0, width: 0, height: 0 }, box, editorViewport(), canvasClientRect())
+      return screen === undefined ? [] : [screen]
+    })
+  }
   const audioRecorders = createAudioRecorders()
   const visibleEditorSpaceKeys = (): readonly string[] => {
     const viewport = editorViewport()
@@ -3184,6 +3205,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onDragOffsets: (offsets) => {
         dragOffsets = offsets
+        setNodeDrag(offsets)
         publishPresence()
       },
       onLinkDragPresence: (origin) => {
@@ -4725,6 +4747,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setSemanticSource(undefined)
         setMediaPreviews([])
         setEditorSpaces([])
+        setNodeBoxes([])
         setOutputImagePreviews([])
         setOutputPages((current) => current.size === 0 ? current : new Map())
         setOutputViewerKey(undefined)
@@ -5016,6 +5039,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         carried: (nodeId, valueKey) => companionDisplays[nodeId]?.[valueKey]?.value,
       }
       setEditorSpaces(editorSpaceItems(renderer.getScene().nodes, editorWires))
+      setNodeBoxes(renderer.getScene().nodes.map((node) => ({ id: node.id, box: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height } })))
       renderer.setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown')))
       setMediaPreviews(renderer.getScene().nodes.flatMap((node) => {
         if (node.layout.minimized) return []
@@ -6623,6 +6647,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setSemanticFocused(false)
       setMediaPreviews([])
       setEditorSpaces([])
+      setNodeBoxes([])
       setActiveCanvasMedia(new Set<string>())
       setOutputImagePreviews([])
       setOutputPages(new Map())
@@ -6882,8 +6907,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const item = () => editorSpaceByKey().get(key)
         const projected = () => {
           const current = item()
-          return current === undefined ? undefined : mediaScreenRect(current.node, current.space, editorViewport(), canvasClientRect())
+          return current === undefined ? undefined : mediaScreenRect(dragged(current.node, current.nodeId), current.space, editorViewport(), canvasClientRect())
         }
+        const covers = () => {
+          const current = item()
+          return current === undefined ? [] : editorCovers(current)
+        }
+        // While anything in front overlaps the editor, a live view shows its still picture.
+        const covered = () => covers().length > 0
         /** Where the editor's value is written: a group member's goes to its family's owner. */
         const valueTarget = () => {
           const current = item()
@@ -7001,7 +7032,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
         return (
           <Show when={item() !== undefined && projected() !== undefined}>
-            <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl}
+            <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl} covers={covers()}
               pictureHeight={{
                 preview: (height) => editorPictureHeights?.previewPictureHeight(height === undefined ? undefined
                   : { nodeId: item()!.nodeId, valueKey: item()!.row.valueKey, height }),
@@ -7012,7 +7043,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               </Show>
               <Show when={webcam()}>
                 {(ports) => <WebcamSpace value={item()?.value} ports={ports()}
-                  wired={item()?.wired === true} carried={item()?.carried} />}
+                  wired={item()?.wired === true} carried={item()?.carried} covered={covered()} />}
               </Show>
               <Show when={curve()}>
                 {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wiredLine={item()?.row.wiredLine === true}
@@ -7021,7 +7052,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               <Show when={load3d()}>
                 {(at) => <Load3dSpace value={item()?.value}
                   sourceKey={at().sourceKey} ports={at().ports} captures={at().captures}
-                  live={liveModelViews().has(key)}
+                  live={liveModelViews().has(key) && !covered()}
                   onWake={() => setWokenModelViews((woken) => [key, ...woken.filter((other) => other !== key)].slice(0, LIVE_MODEL_VIEWS))}
                   openSections={item()?.row.openSections ?? []}
                   cameraWired={item()?.wiredParts.has('camera_info') === true}
