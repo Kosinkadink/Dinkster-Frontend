@@ -1866,6 +1866,14 @@ export function layoutNode(
       // Label + a value area floor; widget content depth lives in the
       // expanded editor, so rows never force extreme widths.
       content = measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + extra
+      if (row.kind === 'widget' && row.viewId === 'core.curve' && !row.unfolded && tokens.widgetRowLook === 'raised-editors') {
+        // A folded curve's square and its opener icon come before its name,
+        // and the column under the name holds how the points are joined.
+        const curve = canvasPaintTokens.widget.curve
+        content += widgetChromeRect(0, 0, 0, row.height, tokens.rowGeometry.fieldInsetY).height - curve.inset + curve.gap +
+          canvasPaintTokens.widget.opener.iconReserve +
+          Math.max(0, canvasPaintTokens.node.widgetValueMinWidth - measure(row.label, 'label'))
+      }
     }
     if (row.kind === 'widget' || row.kind === 'note' || row.kind === 'button') fieldDepth = Math.max(fieldDepth, depth)
     width = Math.max(width, content + tokens.padX * 2)

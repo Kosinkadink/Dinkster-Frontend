@@ -91,10 +91,10 @@ export function editorSpaceItems(nodes: readonly {
 }
 
 /**
- * What the row of an editor shown in the node reads while a wire decides its
- * value, folded or not: the name of what the wire brought in the last run,
- * or `notKnown` in the placeholder color before one. The value stored under
- * the wire is not shown.
+ * What the row of an editor shown in the node shows while a wire decides its
+ * value, folded or not: what the wire brought in the last run, read by its
+ * name when it has one, or `notKnown` in the placeholder color before one.
+ * The value stored under the wire is not shown.
  */
 export function wiredEditorSummaries(nodes: readonly {
   readonly id: string
@@ -104,10 +104,10 @@ export function wiredEditorSummaries(nodes: readonly {
     const summaries = Object.fromEntries(node.layout.rows.flatMap((row): [string, EditorSummary][] => {
       if (row.kind !== 'widget' || IN_NODE_EDITORS[row.viewId] === undefined || !wires.wired(node.id, row.inputId)) return []
       const carried = wires.carried(node.id, row.valueKey)
-      if (carried === undefined) return [[row.valueKey, { text: notKnown, placeholder: true }]]
+      if (carried === undefined) return [[row.valueKey, { text: notKnown, placeholder: true, value: null }]]
       const named = typeof carried === 'object' && carried !== null && !Array.isArray(carried) ? (carried as JsonObject)['name'] : undefined
       const name = typeof carried === 'string' ? carried : typeof named === 'string' ? named : undefined
-      return name === undefined || name === '' ? [] : [[row.valueKey, { text: name }]]
+      return [[row.valueKey, name === undefined || name === '' ? { value: carried } : { text: name, value: carried }]]
     }))
     return Object.keys(summaries).length === 0 ? [] : [[node.id, summaries]]
   }))

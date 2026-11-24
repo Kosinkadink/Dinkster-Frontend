@@ -531,7 +531,12 @@ export const canvasPaintTokens = {
     opener: { iconSize: 12, iconInset: 6, trailingInset: 8, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
     /** The subgraph icon before the name of a field shown on the subgraph node without a wire; `size` is drawn. */
     subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
-    curve: { sourceRows: 2, inset: 4, insetX: 6, minSampleHeight: 1 },
+    /**
+     * A folded curve in the raised look: a square of its plot at the row's
+     * start, `inset` inside the row and as tall as the row allows, `gap`
+     * before the name; the plot sits `plotInset` inside its frame.
+     */
+    curve: { inset: 5, gap: 8, plotInset: 3, lineWidth: 1.5, pointRadius: 2.5, pointStroke: 1.25, dash: [2, 2] },
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
     valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3, edge: 1 },
     /** A folded editor's small picture before its value, such as the stored frame. */
