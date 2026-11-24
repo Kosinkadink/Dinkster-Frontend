@@ -1,5 +1,6 @@
 import {
   For,
+  Index,
   Show,
   createEffect,
   createMemo,
@@ -238,45 +239,48 @@ function Menu(props: {
               </div>
             )}
           </Show>
-          <For each={props.items}>
+          {/* Index keeps each item's button when the host passes new item objects, so an open
+              menu whose items update (a count arriving) keeps focus and stays open. */}
+          <Index each={props.items}>
             {(item) => (
               <button
                 type="button"
                 role={
-                  item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'
+                  item().checked === undefined ? 'menuitem' : 'menuitemcheckbox'
                 }
-                aria-checked={item.checked}
+                aria-checked={item().checked}
                 tabindex="-1"
-                aria-label={
-                  item.attention
-                    ? `${item.label}${strings.statusSeparator}${item.attention.label}`
+                aria-label={(() => {
+                  const attention = item().attention
+                  return attention
+                    ? `${item().label}${strings.statusSeparator}${attention.label}`
                     : undefined
-                }
+                })()}
                 class="dinkster-menu-item"
-                data-role={item.intent ?? 'neutral'}
-                disabled={item.disabled}
+                data-role={item().intent ?? 'neutral'}
+                disabled={item().disabled}
                 onClick={() => {
                   close(true)
-                  item.onSelect()
+                  item().onSelect()
                 }}
               >
                 <Show
-                  when={item.checked !== undefined}
+                  when={item().checked !== undefined}
                   fallback={
-                    <Show when={item.icon}>
+                    <Show when={item().icon}>
                       {(icon) => <ProductIcon icon={icon()} />}
                     </Show>
                   }
                 >
                   <ProductIcon icon={Check} />
                 </Show>
-                {item.label}
-                <Show when={item.attention}>
+                {item().label}
+                <Show when={item().attention}>
                   {(attention) => <Attention attention={attention()} />}
                 </Show>
               </button>
             )}
-          </For>
+          </Index>
         </div>
       </Show>
     </div>
