@@ -16,7 +16,7 @@ import type { Diagnostic } from '../src/diagnostics.js'
 import type { JsonObject } from '../src/format/document.js'
 import { importLitegraph, resolveImportedNodePacks, type ComfyNodeUpgradeTable, type ComfyTranslation } from '../src/format/import-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
-import { asConnectionId } from '../src/ids.js'
+import { asConnectionId, asNodeId } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import type { ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
@@ -3260,4 +3260,56 @@ describe('view extras', () => {
       position: { x: 12, y: 34 }, size: { width: 420, height: 210 }, color: '#335577',
     })
   })
+})
+
+it('imports a ComfyUI FLOATS wire into Create Hook Keyframes From Floats as list<FLOAT>', () => {
+  const float = { kind: 'concrete', types: ['FLOAT'] }
+  const fromFloats = parseDinksterSchema('dinkster.models.create_hook_keyframes_from_floats', { schemaVersion: 2, body: [
+    { kind: 'input', id: 'floats_strength', type: float, required: true, default: -1,
+      widget: { type: 'NUMBER', min: -1, step: 0.001 }, pinFirst: true, acceptsList: true },
+    { kind: 'input', id: 'start_percent', type: float, required: true, default: 0, widget: { type: 'NUMBER', min: 0, max: 1, step: 0.001 } },
+    { kind: 'input', id: 'end_percent', type: float, required: true, default: 1, widget: { type: 'NUMBER', min: 0, max: 1, step: 0.001 } },
+    { kind: 'input', id: 'prev_hook_kf', type: { kind: 'concrete', types: ['HOOK_KEYFRAMES'] }, required: false },
+    { kind: 'output', id: 'HOOK_KF', type: { kind: 'concrete', types: ['HOOK_KEYFRAMES'] } },
+  ] }).schema!
+  const createList = parseDinksterSchema('dinkster.utilities.create_list', { schemaVersion: 2, body: [
+    { kind: 'group', id: 'inputs', keys: { numbered: { prefix: 'input', start: 0, pad: 0 } }, grows: 'link',
+      minMembers: 1, optionalAfterMinimum: true,
+      value: { kind: 'input', id: 'input', type: { kind: 'variable', templateId: 'T' }, required: true, acceptsList: true } },
+    { kind: 'output', id: 'list', type: { kind: 'list', element: { kind: 'variable', templateId: 'T' } } },
+  ] }).schema!
+  const source = parseDinksterSchema('FloatProducer', { body: [{ kind: 'output', id: 'FLOAT', type: float }] }).schema!
+  const translations: ComfyTranslation[] = [
+    { schema: createList, rule: { from: 'CreateList', cases: [{ to: createList.type, outputs: { list: 'list' },
+      inputFamilies: { inputs: { kind: 'copy', sourceFamily: 'inputs', inputs: { input: { kind: 'copy', input: 'input' } },
+        sourceTemplate: { inputs: ['input'] } } } }] } },
+    { schema: fromFloats, rule: { from: 'CreateHookKeyframesFromFloats', cases: [{ to: fromFloats.type, outputs: { HOOK_KF: 'HOOK_KF' },
+      inputs: Object.fromEntries(['floats_strength', 'start_percent', 'end_percent', 'prev_hook_kf']
+        .map((id) => [id, { kind: 'copy' as const, input: id }])) }] } },
+  ]
+  const localResolve = (type: string) => [source, createList, fromFloats].find((schema) => schema.type === type)
+  const imported = importLitegraph({ nodes: [
+    { id: 1, type: source.type, outputs: [{ name: 'FLOAT', type: 'FLOAT', links: [1] }] },
+    { id: 2, type: source.type, outputs: [{ name: 'FLOAT', type: 'FLOAT', links: [2] }] },
+    { id: 3, type: 'CreateList', inputs: [{ name: 'inputs.input0', type: '*', link: 1 }, { name: 'inputs.input1', type: '*', link: 2 }],
+      outputs: [{ name: 'list', type: 'FLOATS', links: [3] }] },
+    { id: 4, type: 'CreateHookKeyframesFromFloats', widgets_values: [0.2, 0.8],
+      inputs: [{ name: 'floats_strength', type: 'FLOATS', link: 3 }, { name: 'prev_hook_kf', type: 'HOOK_KEYFRAMES', link: null }],
+      outputs: [{ name: 'HOOK_KF', type: 'HOOK_KEYFRAMES', links: [] }] },
+    { id: 5, type: 'sg', inputs: [{ name: 'strengths', type: 'FLOATS' }], outputs: [] },
+  ], links: [[1, 1, 0, 3, 0, 'FLOAT'], [2, 2, 0, 3, 1, 'FLOAT'], [3, 3, 0, 4, 0, 'FLOATS']],
+  definitions: { subgraphs: [{ id: 'sg', name: 'Unused strengths', version: 1, nodes: [], links: [],
+    inputs: [{ id: 'in', name: 'strengths', type: 'FLOATS', linkIds: [] }], outputs: [] }] } },
+  localResolve, undefined, translations)
+  expect(imported.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+  const graph = imported.document!.graphs.g0!
+  expect(graph.nodes.n4).toMatchObject({ type: fromFloats.type, values: { start_percent: 0.2, end_percent: 0.8 } })
+  expect(Object.values(graph.links).map((link) => [link.from, link.to])).toContainEqual(
+    [{ node: 'n3', port: 'list' }, { node: 'n4', port: 'floats_strength' }])
+  const solved = solveGraphTypes(graph, localResolve)
+  expect(solved.portTypeOf(asNodeId('n3'), 'output', 'list')).toEqual({ kind: 'list', element: { kind: 'concrete', name: 'FLOAT' } })
+  expect([...solved.linkVerdicts.values()]).toEqual(['ok', 'ok', 'ok'])
+  // A FLOATS slot with nothing inside to take its type from still names list<FLOAT>.
+  expect(imported.document!.graphs.sg!.boundary!.inputs[0]!.binds).toEqual(
+    { kind: 'unbound', type: { kind: 'list', element: { kind: 'concrete', name: 'FLOAT' } } })
 })
