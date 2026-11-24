@@ -133,7 +133,7 @@ export function wireLooksGallery(
     },
     {
       caption:
-        'A wire that gives nothing, from a row kept for its wire under an option not chosen, has the same dashes and stays faded (top). A wire out of a muted node is faded like the node, in its type\'s color, and gains no dashes. A wire out of a bypassed node is drawn as it would be from an active node.',
+        'A wire that gives nothing, from a row kept for its wire under an option not chosen, has the same dashes and stays faded (top). A muted node gives nothing, so a wire out of it is drawn the same way: dashed and faded. A wire out of a bypassed node is an ordinary wire.',
       scene: besideKept,
     },
     {

@@ -3505,13 +3505,15 @@ describe('wire dashes', () => {
     expect(curve.globalAlpha).toBeCloseTo(canvasPaintTokens.widget.inactiveOpacity)
   })
 
-  it('draws a wire out of a muted node at that node\'s opacity, in its type\'s color, with no dashes of its own', () => {
+  it('draws a wire out of a muted node exactly like a wire that gives nothing', () => {
     const plain = wire({})
-    const muted = wire({ sourceMuted: true })
-    expect(muted.globalAlpha).toBeCloseTo(plain.globalAlpha * canvasPaintTokens.node.modeOpacity)
-    expect(muted.strokeStyle).toBe(plain.strokeStyle)
-    expect(muted.lineDash).toEqual([])
-    expect(wire({ sourceMuted: true, maybeAbsent: true }).lineDash).toEqual(maybeDash)
+    const givesNothing = wire({ dimmed: true })
+    for (const muted of [wire({ sourceMuted: true }), wire({ sourceMuted: true, maybeAbsent: true })]) {
+      expect(muted.lineDash).toEqual(maybeDash)
+      expect(muted.globalAlpha).toBeCloseTo(givesNothing.globalAlpha)
+      expect(muted.strokeStyle).toBe(plain.strokeStyle)
+    }
+    expect(givesNothing.globalAlpha).toBeLessThan(plain.globalAlpha)
   })
 
   it('does not fade a wire into a muted or bypassed node, or out of a bypassed one', () => {
