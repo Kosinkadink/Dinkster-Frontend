@@ -184,7 +184,6 @@ export const galleryWidgetInputs: readonly InputSpec[] = [
     },
   },
   widget('color', 'COLOR', '#3366cc80'),
-  widget('colors', 'COLORS', ['#32E6C5', '#FF7468', '#FFD166']),
   widget('curve', 'CURVE', {
     points: [
       { position: 0, value: 0 },
@@ -686,27 +685,18 @@ export function createCanvasGalleryFixture(
   }
   if (page === 'collection-rows') {
     const collection = galleryWidgetInputs.filter((item) =>
-      ['multi_choice', 'list', 'colors', 'curve'].includes(item.id),
+      ['multi_choice', 'list', 'curve'].includes(item.id),
     )
     const definition = schema('Collection widgets', collection)
     add('Selected values', definition)
     add('Empty and minimal values', definition, {
       multi_choice: [],
       list: [],
-      colors: [],
       curve: { points: [{ position: 0, value: 0.25 }] },
     })
     add('Long and varied values', definition, {
       multi_choice: ['red', 'green', 'blue', 'alpha'],
       list: [0.125, 1.5, 12.75, 256.25, 4096.875],
-      colors: [
-        '#32e6c5',
-        '#ff7468',
-        '#ffd166',
-        '#3366cc80',
-        '#cc66ff',
-        '#ffffff',
-      ],
       curve: {
         interpolation: 'monotone_cubic',
         points: [
@@ -753,7 +743,6 @@ export function createCanvasGalleryFixture(
         'save_target',
         'video_edit',
         'list',
-        'colors',
         'curve',
         'camera_angle',
         'resolution',
@@ -806,7 +795,6 @@ export function createCanvasGalleryFixture(
       save_target: null,
       video_edit: {},
       list: [],
-      colors: [],
       curve: {
         points: [
           { position: 0, value: 0 },
