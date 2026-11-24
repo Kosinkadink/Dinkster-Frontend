@@ -3492,12 +3492,12 @@ describe('node title double-click minimization', () => {
     harness.fire('dblclick', 50, 40)
     expect(open).not.toHaveBeenCalled()
 
-    // The mark is drawn 20 px at x 80..100; its target is the same 20 px.
-    harness.fire('pointerdown', 81, 20)
+    // The mark fills this 20 px bar, so it sits 0 px from the right edge too: x 90..110; its target is the same 20 px.
+    harness.fire('pointerdown', 91, 20)
     expect(badgeClick).not.toHaveBeenCalled()
-    harness.fire('pointerup', 81, 20)
-    expect(badgeClick).toHaveBeenCalledWith(subgraph, SUBGRAPH_BADGE, { x: 80, y: 10, width: 20, height: 20 })
-    harness.fire('dblclick', 92, 20)
+    harness.fire('pointerup', 91, 20)
+    expect(badgeClick).toHaveBeenCalledWith(subgraph, SUBGRAPH_BADGE, { x: 90, y: 10, width: 20, height: 20 })
+    harness.fire('dblclick', 102, 20)
     expect(open).toHaveBeenCalledWith(subgraph)
     expect(harness.dispatched).toHaveLength(1)
   })
@@ -4418,6 +4418,94 @@ describe('Inputs panel fields', () => {
     expect(source()).toBe(4)
     expect(store.undo()).toBe(true)
     expect(source()).toBe(3)
+  })
+
+  it('shows a promoted primitive\'s value as a field with its worked-out range, edited where it is owned', () => {
+    const int = { kind: 'concrete', name: 'INT' } as const
+    const primitive: NodeSchema = {
+      type: 'Int', displayName: 'Int', category: 'test', source: 'v3', isOutputNode: false,
+      body: [
+        { kind: 'input', id: 'value', type: int, optional: false, widget: { widgetType: 'INT', options: { min: -1000, max: 1000 }, default: 0 } },
+        { kind: 'output', id: 'INT', type: int, knownValue: { input: 'value' } },
+      ],
+    }
+    const doc = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-primitives', root: 'g0',
+      graphs: {
+        g0: {
+          id: 'g0', name: 'Root', nextOrdinal: 4, links: {}, nets: {}, reroutes: {},
+          nodes: {
+            set: { id: 'set', type: '#g1', values: { strength: 6 } },
+            unset: { id: 'unset', type: '#g1', values: {} },
+            outer: { id: 'outer', type: '#g2', values: { amount: 20 } },
+          },
+        },
+        g1: {
+          id: 'g1', name: 'Soften', nextOrdinal: 3, nets: {}, reroutes: {},
+          nodes: { prim: { id: 'prim', type: 'Int', values: { value: 3 } }, inner: { id: 'inner', type: 'Blur', values: {} } },
+          links: { l0: { id: 'l0', from: { node: 'prim', port: 'INT' }, to: { node: 'inner', port: 'radius' } } },
+          boundary: {
+            inputs: [{ id: 'strength', promoted: true, wireHidden: true, binds: { kind: 'port', node: 'prim', port: 'value' } }],
+            outputs: [{ id: 'image_out', binds: { kind: 'port', node: 'inner', port: 'IMAGE' } }],
+          },
+        },
+        g2: {
+          id: 'g2', name: 'Wrap', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+          nodes: { mid: { id: 'mid', type: '#g1', values: { strength: 9 } } },
+          boundary: { inputs: [{ id: 'amount', promoted: true, binds: { kind: 'port', node: 'mid', port: 'strength' } }], outputs: [] },
+        },
+      },
+      view: { graphs: { g0: { nodes: {} }, g1: { nodes: { prim: { position: { x: 200, y: 100 } }, inner: { position: { x: 400, y: 100 } } } }, g2: { nodes: {} } } },
+    }).document as WorkflowDocument
+    const store = new DocumentStore(doc, coreCommandRegistry())
+    const base = (type: string) => type === 'Blur' ? blur : type === 'Int' ? primitive : undefined
+    /** Entered along `path` (none: from no node): the field's value, its largest value, and the plus press it dispatched. */
+    const press = (path: readonly string[]): readonly [unknown, unknown, CommandInvocation] => {
+      const resolve = documentResolver(store.doc, base)
+      const scene = buildScene({
+        document: store.doc, graphId: 'g1', resolve, tokens: defaultTokens,
+        measure: (text) => text.length * 6,
+        widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+        ...(path.length === 0 ? {} : {
+          occurrence: { owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!) }, plannerAvailable: false },
+          occurrenceView: occurrenceDynamicView(store.doc, resolve, path),
+        }),
+      })
+      const panel = scene.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+      const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'strength')
+      if (row?.kind !== 'widget') throw new Error('expected a strength field on the Inputs panel')
+      // No pin, and the cyan mark before the label.
+      expect(row.subgraphMark?.item).toBe('strength')
+      const width = row.width ?? panel.layout.width - row.inset * 2
+      const harness = interactionHarness(scene)
+      harness.fire('pointerdown', panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2, panel.y + row.y + defaultTokens.rowHeight / 2)
+      harness.fire('pointerup', panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2, panel.y + row.y + defaultTokens.rowHeight / 2)
+      expect(harness.dispatched).toHaveLength(1)
+      const invocation = harness.dispatched[0] as CommandInvocation
+      expect(store.dispatch(invocation).ok).toBe(true)
+      return [panel.fields!.node.values['strength'], row.spec.options['max'], invocation]
+    }
+    const value = (graph: string, node: string, key: string) => store.doc.graphs[graph]!.nodes[node]!.values[key]
+
+    // The row has the range the field the primitive feeds gives it (0 to 64), not the primitive's declared one.
+    expect(press(['set'])).toEqual([6, 64, expect.anything()])
+    expect(value('g0', 'set', 'strength')).toBe(7)
+    // With no value of its own the entered node shows the primitive's value, and an edit makes its own.
+    expect(press(['unset'])).toEqual([3, 64, expect.anything()])
+    expect(value('g0', 'unset', 'strength')).toBe(4)
+    // Two levels deep, the outer node that promotes the input owns its value.
+    expect(press(['outer', 'mid'])).toEqual([20, 64, expect.anything()])
+    expect(value('g0', 'outer', 'amount')).toBe(21)
+    expect(value('g2', 'mid', 'strength')).toBe(9)
+    expect(value('g1', 'prim', 'value')).toBe(3)
+    // From no node the field is the primitive's own value, the default a new instance starts with.
+    const [shown, max, invocation] = press([])
+    expect([shown, max]).toEqual([3, 64])
+    expect(invocation.params).toMatchObject({ graphId: 'g1', nodeId: 'prim' })
+    expect(value('g1', 'prim', 'value')).toBe(4)
+    expect(value('g0', 'set', 'strength')).toBe(7)
+    expect(store.undo()).toBe(true)
+    expect(value('g1', 'prim', 'value')).toBe(3)
   })
 
   it('marks a value source shown as a field: a pinless panel row, and its pill while a node is entered', () => {

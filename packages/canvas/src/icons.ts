@@ -23,8 +23,6 @@ import ArrowUp from 'lucide/dist/esm/icons/arrow-up.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import ArrowDown from 'lucide/dist/esm/icons/arrow-down.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
-import Boxes from 'lucide/dist/esm/icons/boxes.mjs'
-// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import FolderOpen from 'lucide/dist/esm/icons/folder-open.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Group from 'lucide/dist/esm/icons/group.mjs'
@@ -166,7 +164,13 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   'folder-open': FolderOpen,
   group: Group,
   ungroup: Ungroup,
-  boxes: Boxes,
+  // The workflow drawing, smaller, inside a frame: not a Lucide icon.
+  subgraph: [
+    ['rect', { x: '2', y: '2', width: '20', height: '20', rx: '3' }],
+    ['rect', { x: '6', y: '6', width: '5', height: '5', rx: '1' }],
+    ['path', { d: 'M8.5 11v3.5a1 1 0 0 0 1 1H13' }],
+    ['rect', { x: '13', y: '13', width: '5', height: '5', rx: '1' }],
+  ],
   'sliders-horizontal': SlidersHorizontal,
   'panel-top-close': PanelTopClose,
   'panel-top-open': PanelTopOpen,

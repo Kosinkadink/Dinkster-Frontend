@@ -68,6 +68,7 @@ function ProblemBoxCard(props: {
       renderer.setReducedMotion(true)
       renderer.setGridVisible(false)
       renderer.setScene(card.scene)
+      renderer.setNodeStates(card.states ?? {})
       renderer.setBadges(card.badges)
       renderer.setRowMarks(card.rowMarks)
       renderer.setProblemRowHighlight(card.highlight)

@@ -1186,6 +1186,7 @@
   "problems.importedPacks.applying": "正在安装并激活节点包...",
   "problems.importedPacks.versionConflict": "导入节点的节点包版本不一致。安装前请解决转换数据冲突。",
   "problems.migration.title": "工作流已升级",
+  "problems.lastRun.changedSince": "来自上次运行。此后已更改。",
   "problems.migration.apply": "应用替换",
   "problems.migration.undo": "撤销升级",
   "problems.migration.undoHint": "一步撤销所有升级。如果此按钮不可用，请先撤销后续编辑。",

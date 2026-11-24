@@ -12,7 +12,7 @@ import { canvasPaintTokens } from './tokens.js'
 
 export type CanvasIconName =
   | 'volume-x' | 'ban' | 'play' | 'play-to' | 'play-from' | 'play-between'
-  | 'trash-2' | 'circle' | 'ellipsis-vertical' | 'folder-open' | 'group' | 'ungroup' | 'boxes'
+  | 'trash-2' | 'circle' | 'ellipsis-vertical' | 'folder-open' | 'group' | 'ungroup' | 'subgraph'
   | 'sliders-horizontal' | 'panel-top-close' | 'panel-top-open'
   | 'check' | 'clock' | 'database' | 'triangle-alert' | 'info'
   | 'image' | 'palette' | 'chevron-right' | 'chevron-down' | 'list' | 'list-checks' | 'spline'
