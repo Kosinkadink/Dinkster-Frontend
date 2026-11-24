@@ -157,9 +157,11 @@ export interface InNodeEditorExample {
    * Where the editor is shown when it is not the node's own: on the Inputs
    * panel of the subgraph the node is in, as the field of an input that
    * promotes it, entered from no subgraph node so the panel shows the
-   * defaults a new one starts with.
+   * defaults a new one starts with. Or in a general Primitive node whose
+   * output feeds the example node's field, so the Primitive takes that
+   * field's widget; the Primitive holds the example's values.
    */
-  readonly place?: 'inputsPanel'
+  readonly place?: 'inputsPanel' | 'primitive'
 }
 
 const asset = (name: string, mediaType: string, extra: Record<string, Json> = {}): Json =>
@@ -290,7 +292,23 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
   { id: 'panel-curve', card: 37, caption: "On a subgraph's Inputs panel: the curve folded out under its field, and the panel grown downward", type: 'Curve editor',
     place: 'inputsPanel', values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] } },
     view: unfold('curve') },
+  { id: 'primitive-curve', card: 38, caption: "In a Primitive wired to a Curve editor's curve: the Primitive takes the curve's widget and folds it out like any node", type: 'Curve editor',
+    place: 'primitive', values: { value: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] } },
+    view: unfold('value') },
 ]
+
+/**
+ * The general Primitive as its pack declares it: one value whose type, and
+ * so its widget, follows the field its output feeds, and a default under
+ * Limits.
+ */
+const primitiveSchema: NodeSchema = schema('Primitive', [
+  { kind: 'input', id: 'value', displayName: 'Value', type: { kind: 'variable', templateId: 'value' }, optional: true },
+  { kind: 'section', id: 'limits', displayName: 'Limits', collapsedByDefault: true, rows: [
+    { kind: 'input', id: 'default', displayName: 'Default', type: { kind: 'variable', templateId: 'value' }, optional: true },
+  ] },
+  { kind: 'output', id: 'value', displayName: 'Value', type: { kind: 'variable', templateId: 'value' }, knownValue: { input: 'value', limits: { default: 'default' } } },
+] as readonly BodyRow[])
 
 const SOURCE = 'Wire source'
 
@@ -304,6 +322,7 @@ export function createInNodeEditorScene(
 ): Scene {
   const target = inNodeEditorSchemas.find((item) => item.type === example.type)!
   if (example.place === 'inputsPanel') return createInputsPanelScene(tokens, measure, widgetMeasure, example, target, position)
+  if (example.place === 'primitive') return createPrimitiveScene(tokens, measure, widgetMeasure, example, target, position)
   const wired = Object.entries(example.wired ?? {})
   const source: NodeSchema = schema(SOURCE, wired.map(([id, type]) => output(id.replaceAll('.', '_'), type)))
   const id = example.id
@@ -409,6 +428,57 @@ function createInputsPanelScene(
     document: loaded.document,
     graphId: 'inside',
     resolve: documentResolver(loaded.document, (type) => type === target.type ? target : undefined),
+    tokens,
+    measure,
+    widgetMeasure,
+  })
+}
+
+/**
+ * A general Primitive at `position` whose output feeds the example node's
+ * first editor, laid out by the production scene builder. The fed node
+ * stands to the right, off the card.
+ */
+function createPrimitiveScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  example: InNodeEditorExample,
+  target: NodeSchema,
+  position: { x: number; y: number },
+): Scene {
+  const fed = target.body.find((row) => row.kind === 'input' && row.widget !== undefined)!.id
+  const loaded = loadDocument({
+    format: 'dinkster-workflow',
+    formatVersion: 1,
+    lineage: 'canvas-gallery',
+    root: 'gallery',
+    graphs: {
+      gallery: {
+        id: 'gallery', name: 'Gallery', nextOrdinal: 3, nets: {}, reroutes: {},
+        nodes: {
+          [example.id]: { id: example.id, type: primitiveSchema.type, values: example.values ?? {} },
+          fed: { id: 'fed', type: target.type, values: defaultValuesOf(target) },
+        },
+        links: { primitive: { id: 'primitive', from: { node: example.id, port: 'value' }, to: { node: 'fed', port: fed } } },
+      },
+    },
+    view: {
+      graphs: {
+        gallery: {
+          nodes: {
+            [example.id]: { position, size: { width: example.width ?? GALLERY_NODE_WIDTH, height: 0 }, ...(example.view ?? {}) },
+            fed: { position: { x: position.x + 2000, y: position.y }, size: { width: GALLERY_NODE_WIDTH, height: 0 } },
+          },
+        },
+      },
+    },
+  } as never)
+  if (!loaded.document) throw new Error(`Invalid gallery document: ${JSON.stringify(loaded)}`)
+  return buildScene({
+    document: loaded.document,
+    graphId: 'gallery',
+    resolve: (type) => type === primitiveSchema.type ? primitiveSchema : type === target.type ? target : undefined,
     tokens,
     measure,
     widgetMeasure,
