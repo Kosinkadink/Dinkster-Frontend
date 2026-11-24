@@ -68,6 +68,24 @@ export function liveExactnessFor(
   live: CompileArtifact | undefined,
   ran: CompileArtifact | undefined,
 ): ((runtimeId: string) => boolean) | undefined {
+  const standing = recipeStandingFor(live, ran)
+  return standing && ((runtimeId) => standing(runtimeId) === 'same')
+}
+
+/** Whether a runtime node's upstream recipe in a past run equals the current one. */
+export type RecipeStanding = 'same' | 'changed' | 'unknown'
+
+/**
+ * The comparison behind liveExactnessFor, telling a recipe that differs from
+ * one that cannot be compared: a node behind a random selector is 'unknown'.
+ * Undefined under the same whole-artifact gates. `ignored` leaves literal
+ * inputs out of the comparison (upstreamRecipesEqual).
+ */
+export function recipeStandingFor(
+  live: CompileArtifact | undefined,
+  ran: CompileArtifact | undefined,
+  ignored?: (runtimeId: string, input: string) => boolean,
+): ((runtimeId: string) => RecipeStanding) | undefined {
   if (!live || !ran) return undefined
   if (live.schemaHash !== ran.schemaHash) return undefined
   const rolled = (a: CompileArtifact) => (a.choices ?? []).some((c) => c.policy === 'random')
@@ -90,10 +108,9 @@ export function liveExactnessFor(
     }
     return false
   }
-  return (runtimeId) =>
-    !randomConeContains(live, runtimeId) &&
-    !randomConeContains(ran, runtimeId) &&
-    upstreamRecipesEqual(live.prompt, ran.prompt, runtimeId)
+  return (runtimeId) => randomConeContains(live, runtimeId) || randomConeContains(ran, runtimeId)
+    ? 'unknown'
+    : upstreamRecipesEqual(live.prompt, ran.prompt, runtimeId, ignored) ? 'same' : 'changed'
 }
 
 export interface CompanionDerivation {
