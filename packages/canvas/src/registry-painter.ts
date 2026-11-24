@@ -135,7 +135,7 @@ function paintSubgraphMark(args: WidgetPaintArgs, companion: boolean, numeric: b
   const alpha = ctx.globalAlpha
   // The mark keeps its full color on a dimmed (driven) row.
   if (args.markAlpha !== undefined) ctx.globalAlpha = args.markAlpha
-  paintToolboxIcon(ctx, 'boxes', x + rect.x, y + rect.y, rect.size, tokens.colors.subgraphMark)
+  paintToolboxIcon(ctx, 'subgraph', x + rect.x, y + rect.y, rect.size, tokens.colors.subgraphMark)
   ctx.globalAlpha = alpha
 }
 

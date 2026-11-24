@@ -31,6 +31,7 @@ import {
   toolboxSeparator,
   updateSceneNodePositions,
   updateSceneNodeValues,
+  memberAt,
   type Hit,
   type GhostLink,
   type LinkDoubleClickContext,
@@ -72,6 +73,11 @@ import {
   initialDynamicStateOf,
   ruleProblemRefs,
   documentResolver,
+  documentNodeResolver,
+  elaborateInterface,
+  primitiveForField,
+  primitiveOf,
+  valueKeyOf,
   elabOutputsOf,
   effectiveOccurrenceTopology,
   effectiveWidgetDefault,
@@ -128,10 +134,11 @@ import {
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, Snowflake, TriangleAlert, X } from 'lucide-solid'
 import { executionProgress } from './ExecutionActivityCard.js'
-import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
+import { controllerAdvancementPlan, currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
 import { panelDockZone, setPanelOpen } from './panel-location.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
 import { liveExactnessFor } from './companion-display.js'
+import { drawnAnewInputs, RunStandingMemory, runStandingFor } from './run-problem-standing.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
 import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
@@ -1444,6 +1451,19 @@ interface CanvasFileDropSurface {
   readonly location?: { readonly backend: Extract<Backend, { protocol: 'dinkster' }>; readonly digest: string; readonly project: string }
 }
 
+/** The graph with each node's values as the scene's occurrence shows them. */
+function occurrenceValuesDef(def: GraphDef | undefined, scene: Scene): GraphDef | undefined {
+  if (def === undefined) return undefined
+  let nodes: Record<string, GraphDef['nodes'][string]> | undefined
+  for (const sceneNode of scene.nodes) {
+    const node = def.nodes[sceneNode.id]
+    if (node === undefined || node.values === sceneNode.node.values) continue
+    nodes ??= { ...def.nodes }
+    nodes[sceneNode.id] = { ...node, values: sceneNode.node.values }
+  }
+  return nodes === undefined ? def : { ...def, nodes: nodes as GraphDef['nodes'] }
+}
+
 export function CanvasHost(props: { app: AppState; host?: EditorHostContext; tooltips?: TooltipController; occurrencePlanner?: OccurrenceMutationPlanner }) {
   const message = useAppMessage()
   const tooltipOwner = Symbol('canvas-host')
@@ -1946,6 +1966,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
   /** Current graph's document problem content, keyed independently of runtime errors. */
   let nodeProblems: NodeProblemMap = {}
+  /** Nodes whose run problems lost their color (scene-overlays lastRunNodes), and each node's last answer. */
+  let lastRunNodes: ReadonlySet<string> = new Set()
+  const runStanding = new RunStandingMemory()
 
   // -- node problem box -------------------------------------------------------
   // Opened by a node's Error or Warning tab, or by Show on canvas. It hangs
@@ -3368,10 +3391,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const nodeId = target.hit.node.id
         const badgeId = target.hit.badge.id
         let tooltip: { summary: string; detail: readonly string[] } | undefined
-        if (badgeId === 'core.error') {
+        if (badgeId === 'core.error' || badgeId === 'core.error.lastRun') {
           const errors = nodeErrors(nodeId)
           tooltip = {
-            summary: `${errors.length} execution error${errors.length === 1 ? '' : 's'}`,
+            summary: badgeId === 'core.error.lastRun'
+              ? message('problems.lastRun.changedSince')
+              : `${errors.length} execution error${errors.length === 1 ? '' : 's'}`,
             detail: errors.map((d) => `${d.runtime ? `${d.runtime.exceptionType}: ` : `${d.code}: `}${d.message}`),
           }
         } else if (badgeId === 'core.subgraph') {
@@ -3434,6 +3459,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onLinkDropOnEmpty: (context, worldX, worldY) => {
         if (refuseFrozenEdit()) return // read-only view: no node adds
+        // A wire dragged off a field makes the primitive for that field,
+        // starting with the field's value, instead of opening the search.
+        const tab = activeTab()
+        const fieldPrimitive = tab && fieldDropPrimitive(tab, context)
+        if (tab && fieldPrimitive) {
+          void commitPaletteEntry(fieldPrimitive.entry, { x: 0, y: 0, worldX, worldY, linkDrop: context }, undefined, fieldPrimitive.values)
+          return
+        }
         openPaletteAt(worldX, worldY, context)
         // Keep the dropped noodle visible while the palette is browsed:
         // fixed anchor to drop point, oriented by what the drag was seeking.
@@ -3477,6 +3510,24 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 disabled: slot.selected === undefined || definitionPicks,
                 action: { kind: 'command' as const, invocation: specialize(null) },
               },
+            ],
+          })
+        }
+        // A member of a group that can be reordered moves one place up or
+        // down, through the same command as dragging its grip.
+        const memberNode = 'node' in hit && !('bnode' in hit && hit.bnode !== undefined) ? hit.node : undefined
+        const member = memberNode === undefined ? undefined : memberAt(memberNode.layout, worldY - memberNode.y)
+        if (memberNode !== undefined && member !== undefined) {
+          const move = (index: number): CommandInvocation => ({
+            command: 'dynamic.moveMember',
+            params: { graphId: currentGraphId(tab), nodeId: memberNode.id, construct: member.construct, member: member.member, index },
+          })
+          const frozen = tab.execution !== undefined
+          additionalGroups.push({
+            group: '45-member-order',
+            items: [
+              { id: 'core.member.moveUp', label: 'Move up', disabled: frozen || member.index === 0, action: { kind: 'command' as const, invocation: move(member.index - 1) } },
+              { id: 'core.member.moveDown', label: 'Move down', disabled: frozen || member.index === member.count - 1, action: { kind: 'command' as const, invocation: move(member.index + 1) } },
             ],
           })
         }
@@ -4050,10 +4101,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     clearPaletteGhost = () => controller.setPaletteGhost(undefined)
 
+    const fieldDropPrimitive = (tab: Tab, context: LinkDropContext): { entry: PaletteEntry; values: Record<string, Json> } | undefined => {
+      const into = context.fixedInto
+      const reg = registry()
+      if (context.seeking !== 'out' || reg === undefined || into === undefined ||
+        typeof into['node'] !== 'string' || typeof into['port'] !== 'string') return undefined
+      const graphId = currentGraphId(tab)
+      const node = tab.store.doc.graphs[graphId]?.nodes[into['node']]
+      const schema = node && documentNodeResolver(tab.store.doc, reg.resolve)(graphId, node)
+      const field = schema && node && elabInputsOf(elaborateInterface(schema, node)).find((item) => item.address.port === into['port'])
+      if (!field || field.spec.widget === undefined) return undefined
+      const primitive = primitiveForField(reg.schemas.values(), field.spec)
+      const shape = primitive && primitiveOf(primitive)
+      if (!primitive || !shape) return undefined
+      const value = node.values[valueKeyOf(field)] ?? effectiveWidgetDefault(field.spec.widget)
+      return {
+        entry: { type: primitive.type, name: primitive.displayName, category: primitive.category, kind: 'node', schema: primitive, fields: [] },
+        values: value === undefined ? {} : { [shape.value.id]: value },
+      }
+    }
+
     const commitPaletteEntry = async (
       entry: PaletteEntry,
       p: PaletteAnchor,
       owner?: { readonly tab: Tab; readonly graphId: string },
+      startValues?: Readonly<Record<string, Json>>,
     ): Promise<void> => {
       const tab = owner?.tab ?? activeTab()
       if (!tab) return
@@ -4086,7 +4158,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // Registry state can change after the palette opens. Preserve the old
       // unresolved-node fallback rather than turning that narrow race into a
       // silent no-op; only known schemas can contribute defaults or state.
-      const values = virtualKind?.defaultValues ?? (schema ? (defaultValuesOf(schema) as Record<string, Json>) : {})
+      const values = { ...(virtualKind?.defaultValues ?? (schema ? (defaultValuesOf(schema) as Record<string, Json>) : {})), ...startValues }
       const dynamic = schema ? initialDynamicStateOf(schema) : {}
       const addInvocation = {
         command: 'node.add',
@@ -4175,7 +4247,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (node === undefined || tab === undefined) return []
         // A runtime cause belongs to the run's own Error tab, not this box.
         const problems = (nodeProblems[nodeId] ?? []).filter((line) =>
-          !(runErrorsByNode().has(nodeId) && line.diagnostic.origin === 'runtime'))
+          !((runErrorsByNode().has(nodeId) || lastRunNodes.has(nodeId)) && line.diagnostic.origin === 'runtime'))
         return problemBoxLines(problems, problemBoxRows(node), (row) => {
           const port = row.startsWith(outputRowKey('')) ? row.slice(outputRowKey('').length) : row
           return node.layout.pins.find((pin) => pin.portId === port)?.label ?? port
@@ -4658,6 +4730,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const exec = retained?.execution ?? boundExec
       if (!frozen && exec?.artifact && liveArtifact?.connection === exec.ref.connection &&
           exec.artifact.connection === exec.ref.connection) exactProducer = liveExactnessFor(liveArtifact, exec.artifact)
+      let runChanged: ((sceneNodeId: string, runtimeIds: readonly string[]) => boolean) | undefined
+      if (!frozen && exec?.artifact) {
+        const comparable = liveArtifact?.connection === exec.ref.connection && exec.artifact.connection === exec.ref.connection
+        const standing = runStandingFor({
+          live: comparable ? live : undefined,
+          ran: exec.artifact,
+          drawnAnew: liveArtifact && props.app.settings.get<boolean>('features.seedController.enabled')
+            ? drawnAnewInputs(liveArtifact, controllerAdvancementPlan(liveArtifact.snapshot, liveArtifact))
+            : new Map(),
+        })
+        const runKey = exec.key
+        const viewKey = `${gid}\u0000${JSON.stringify(viewedPath ?? [])}\u0000`
+        runChanged = (id, runtimeIds) => runStanding.changedSince(runKey, viewKey + id, standing(runtimeIds))
+      }
       // Terminal NATIVE runs can peek recorded values via GET /api/values.
       const values =
         exec && exec.status !== 'queued' && exec.status !== 'running'
@@ -4688,10 +4774,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         exec,
         graphId: gid,
         doc: tab.store.doc,
-        def: tab.store.doc.graphs[gid],
+        // Inside an entered subgraph node a field fed by a primitive shows
+        // the value that node's occurrence gives the primitive.
+        def: occurrenceValuesDef(tab.store.doc.graphs[gid], scene),
         instancePath: viewInstancePath(tab),
         frozen,
         exactProducer,
+        ...(runChanged === undefined ? {} : { runChanged }),
         reviewReplacements: !frozen && reviewReplacements(),
         replacementNodes: reviewReplacements()
           ? new Set(props.app.scanTabReplacements(tab).filter((item) => item.graphId === gid).map((item) => item.nodeId))
@@ -4717,6 +4806,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       renderer.setNodeStates(model.states)
       setRunLogsByNode(model.runLogsByNode)
       setRunErrorsByNode(model.runErrorsByNode)
+      lastRunNodes = model.lastRunNodes
       minimap.setStates(model.states)
       companionInputs = model.companionSources
       arrivingCompanions = model.companions

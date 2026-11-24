@@ -207,10 +207,7 @@ Changing a controller mode and restoring it still invalidates pending advancemen
 explicitly storing an unchanged effective mode does not. Source advancement uses
 the ordinary undoable value-source command, without helper nodes.
 
-Forced-input FLOATS sockets can carry a NUMBER presentation with floating-point
-constraints. The decoder retains the FLOATS socket and scalar default, min and
-step; it does not replace the runtime type with FLOAT or a primitive list.
-Unforced FLOATS and list<FLOATS> do not accept this numeric presentation.
+A ComfyUI FLOATS slot type imports as list<FLOAT>.
 
 Native inputs may declare `pin: false`. It omits only the incoming socket and
 its hit target, preserving the editor, outgoing value tap, runtime type,

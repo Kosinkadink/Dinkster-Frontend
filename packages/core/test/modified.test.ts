@@ -108,7 +108,7 @@ describe('resettableWidgetsOf eligibility', () => {
     const dynamic = { items: { members: ['item0'] } }
     const elaborated = elaborateInterface(schemaOf([family]), { values, dynamic })
     // The filled member is followed by a spare ghost member.
-    expect(elaborated.items.map((item) => item.kind === 'input' ? item.address.port : item.kind)).toEqual(['items.item0', 'items.item1'])
+    expect(elaborated.items.map((item) => item.kind === 'input' ? item.address.port : item.kind)).toEqual(['box', 'items.item0', 'items.item1'])
     const rs = resettable([family], values, dynamic)
     expect(rs.map((r) => r.valueKey)).toEqual(['items.item0'])
     expect(rs[0]!.defaultValue).toBe(5)
