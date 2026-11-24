@@ -3843,28 +3843,7 @@ export class CanvasRenderer {
           // A group that grows by hand ends in an Add button, as wide as a member's box.
           paintButton(node.x + row.inset, rowY, l.width - row.inset * 2, row.height, `+ ${row.label}`, `growth:${row.construct}`, true)
         } else if (row.kind === 'editorSpace') {
-          // The unfolded editor and its row are one open box: one outline runs
-          // from the row's top around the space, so the editor's own rows sit
-          // on the node's body as the node's rows do. Its controls are the
-          // host's, laid over it; the picture's place is drawn inset.
-          const space = canvasPaintTokens.node.editorSpace
-          const x = node.x + row.inset
-          const width = row.width ?? l.width - row.inset * 2
-          const stroke = canvasPaintTokens.node.box.stroke
-          const top = rowY - row.rowAbove + t.rowGeometry.fieldInsetY
-          ctx.strokeStyle = t.colors.boxOutline
-          ctx.lineWidth = stroke
-          ctx.beginPath()
-          // The row's corners, so the outline meets the row's fill exactly.
-          ctx.roundRect(x + stroke / 2, top + stroke / 2, width - stroke,
-            rowY + row.height - t.rowGeometry.fieldInsetY - top - stroke, canvasPaintTokens.widget.radius)
-          ctx.stroke()
-          if (row.picture) {
-            ctx.fillStyle = t.colors.canvasBackground
-            ctx.beginPath()
-            ctx.roundRect(x + space.pad, rowY + row.picture.top, width - space.pad * 2, row.picture.height, canvasPaintTokens.node.box.radius)
-            ctx.fill()
-          }
+          this.paintEditorSpace(ctx, node.x, rowY, row, l.width)
         } else if (row.kind === 'note') {
           // A formula note's text is unknown until formulas are evaluated, so
           // it draws dimmed like any other offer that is not settled yet.
@@ -4690,6 +4669,41 @@ export class CanvasRenderer {
    * dashed border and no execution state, badges, widgets, or resize
    * affordance. dx/dy is the live drag offset.
    */
+  /**
+   * The unfolded editor and its row are one open box: one outline runs from
+   * the row's top around the space, so the editor's own rows sit on the
+   * body as the node's rows do. Its controls are the host's, laid over it;
+   * the picture's place is drawn inset. `left` is the node's or panel's left
+   * edge and `rowY` the space's top, in world coordinates.
+   */
+  private paintEditorSpace(
+    ctx: CanvasRenderingContext2D,
+    left: number,
+    rowY: number,
+    row: Extract<LayoutRow, { kind: 'editorSpace' }>,
+    layoutWidth: number,
+  ): void {
+    const t = this.tokens
+    const space = canvasPaintTokens.node.editorSpace
+    const x = left + row.inset
+    const width = row.width ?? layoutWidth - row.inset * 2
+    const stroke = canvasPaintTokens.node.box.stroke
+    const top = rowY - row.rowAbove + t.rowGeometry.fieldInsetY
+    ctx.strokeStyle = t.colors.boxOutline
+    ctx.lineWidth = stroke
+    ctx.beginPath()
+    // The row's corners, so the outline meets the row's fill exactly.
+    ctx.roundRect(x + stroke / 2, top + stroke / 2, width - stroke,
+      rowY + row.height - t.rowGeometry.fieldInsetY - top - stroke, canvasPaintTokens.widget.radius)
+    ctx.stroke()
+    if (row.picture) {
+      ctx.fillStyle = t.colors.canvasBackground
+      ctx.beginPath()
+      ctx.roundRect(x + space.pad, rowY + row.picture.top, width - space.pad * 2, row.picture.height, canvasPaintTokens.node.box.radius)
+      ctx.fill()
+    }
+  }
+
   private drawBoundaryNode(
     ctx: CanvasRenderingContext2D,
     bnode: SceneBoundaryNode,
@@ -4774,6 +4788,10 @@ export class CanvasRenderer {
             bnode.fields!.wired[row.valueKey])
           ctx.font = `${t.fontSize}px ${t.fontFamily}`
           ctx.textBaseline = 'middle'
+          continue
+        }
+        if (row.kind === 'editorSpace') {
+          this.paintEditorSpace(ctx, x, y + row.y, row, l.width)
           continue
         }
         if (row.kind !== 'ports') continue

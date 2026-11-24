@@ -957,11 +957,10 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
   await page.evaluate(() => (window as unknown as { disposeBadgeVisual(): void }).disposeBadgeVisual())
 })
 
-test('Editor host and target fallbacks explain unavailable editors', async ({ page }) => {
+test('Editor host fallback explains an unavailable editor', async ({ page }) => {
   await boot(page)
   await closeGallery(page)
   for (const [kind, text] of [
-    ['curve', 'No curve target is active.'],
     ['unregistered-editor', "No editor registered for kind 'unregistered-editor'"],
   ] as const) {
     await page.evaluate((kind) => {

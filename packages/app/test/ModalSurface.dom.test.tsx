@@ -140,19 +140,18 @@ function mountWidget(ed: WidgetEditorState) {
 }
 
 describe('ModalSurface', () => {
-  it.each(['Painter', 'LOAD_3D'].flatMap((editor) =>
-    [false, true].map((local) => ({ editor, local }))))(
-    'aborts the pending $editor source body on close, local=$local', async ({ editor, local }) => {
+  it.each([false, true])(
+    'aborts the pending Painter source body on close, local=%s', async (local) => {
       vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
         fillRect() {},
       } as unknown as CanvasRenderingContext2D)
       const metadata = { name: 'source', size: 3, mediaType: 'application/octet-stream', virtualPath: 'source' }
       const source = local ? { ...metadata, verification: 'unverified', localBinding: 'source-grant' }
         : { ...metadata, digest: `blake3:${'a'.repeat(64)}` }
-      const valueKey = editor === 'Painter' ? 'mask' : 'image'
-      const ed = { ...widgetState(editor === 'Painter' ? 'PAINTER' : editor, {}, editor === 'Painter' ? source : {},
-        false, { valueKey, nodeType: editor }), target: { kind: 'input', nodeId: 'n0', valueKey,
-        parts: editor === 'Painter' ? { writes: { mask: 'mask' }, reads: {} } : { writes: {}, reads: { model_file: 'model_file' } } } } satisfies WidgetEditorState
+      const valueKey = 'mask'
+      const ed = { ...widgetState('PAINTER', {}, source,
+        false, { valueKey, nodeType: 'Painter' }), target: { kind: 'input', nodeId: 'n0', valueKey,
+        parts: { writes: { mask: 'mask' }, reads: {} } } } satisfies WidgetEditorState
       Object.assign(ed.tab.store.doc.graphs.g0!.nodes.n0!.values, { model_file: source })
       let started = false
       let aborted = false
@@ -1188,14 +1187,11 @@ describe('ASSET widget modal integration', () => {
 
 describe('registered interactive widget expanded-editor integration', () => {
 
-  it.each([
-    ['ASSET', 'remove'], ['ASSET', 'close'], ['ASSET', 'replace'],
-    ['AUDIO_RECORD', 'remove'], ['AUDIO_RECORD', 'close'],
-  ] as const)('cancels a pending %s preview read on %s without publishing late bytes', async (type, action) => {
+  it.each(['remove', 'close', 'replace'] as const)('cancels a pending ASSET preview read on %s without publishing late bytes', async (action) => {
     const root = document.createElement('div')
     document.body.append(root)
     const ref = { digest: `blake3:${'a'.repeat(64)}`, name: 'preview', size: 4,
-      mediaType: type === 'ASSET' ? 'image/png' : 'audio/webm', virtualPath: '' }
+      mediaType: 'image/png', virtualPath: '' }
     let signal: AbortSignal | undefined
     let finish!: (bytes: ArrayBuffer) => void
     const fetchAssetBytes = (_digest: string, pending?: AbortSignal): Promise<ArrayBuffer> => {
@@ -1217,8 +1213,8 @@ describe('registered interactive widget expanded-editor integration', () => {
       workflowAssetReader: () => ({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
       retainPickerAssets: vi.fn().mockResolvedValue({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
       widgetRegistry: { kind: () => undefined } } as unknown as AppState
-    const ed: WidgetEditorState = { ...widgetState(type, {}, ref),
-      ...(type === 'ASSET' ? { spec: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] } } } : {}),
+    const ed: WidgetEditorState = { ...widgetState('ASSET', {}, ref),
+      spec: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] } },
     }
     const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:late-preview')
     const [open, setOpen] = createSignal(true)
@@ -1236,8 +1232,7 @@ describe('registered interactive widget expanded-editor integration', () => {
         await vi.waitFor(() => expect(signal).not.toBe(original))
         expect(signal!.aborted).toBe(false)
       }
-      else if (type === 'ASSET') root.querySelector<HTMLButtonElement>('[data-testid="asset-selection-remove"]')!.click()
-      else [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Remove recording')!.click()
+      else root.querySelector<HTMLButtonElement>('[data-testid="asset-selection-remove"]')!.click()
       await vi.waitFor(() => expect(original.aborted).toBe(true))
       finishOriginal(new ArrayBuffer(4))
       await new Promise<void>((resolve) => queueMicrotask(resolve))
@@ -1250,89 +1245,6 @@ describe('registered interactive widget expanded-editor integration', () => {
       }
       expect(app.dispatchTo).not.toHaveBeenCalled()
     } finally { unmount() }
-  })
-
-  it.each(['accepted', 'closed', 'backend', 'session'] as const)('does not publish a recorded draft after %s during upload', async (outcome) => {
-    const root = document.createElement('div')
-    document.body.append(root)
-    const old = { digest: `blake3:${'a'.repeat(64)}`, name: 'previous.webm', size: 3, mediaType: 'audio/webm', virtualPath: '' }
-    const recorded = { ...old, digest: `blake3:${'b'.repeat(64)}`, name: 'recording.webm', size: 4 }
-    class Recorder {
-      state = 'inactive'
-      mimeType = 'audio/webm'
-      ondataavailable?: (event: { data: Blob }) => void
-      onstop?: () => void
-      start(): void { this.state = 'recording' }
-      stop(): void {
-        this.state = 'inactive'
-        queueMicrotask(() => { this.ondataavailable?.({ data: new Blob(['clip'], { type: 'audio/webm' }) }); this.onstop?.() })
-      }
-    }
-    vi.stubGlobal('MediaRecorder', Recorder)
-    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => {} }] }) } })
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:recording')
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    const reset = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
-    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
-    const fetchAssetBytes = vi.fn<(digest: string, signal: AbortSignal) => Promise<ArrayBuffer>>().mockResolvedValue(new ArrayBuffer(4))
-    let finish!: () => void
-    const uploadMediaAsset = vi.fn(() => new Promise<typeof recorded>((resolve) => { finish = () => resolve(recorded) }))
-    const backend = { protocol: 'dinkster', id: 'native', connection: { uploadMediaAsset, fetchAssetBytes } }
-    let selectedBackend = backend
-    const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
-    const app = { backendForTab: () => selectedBackend, dispatchTo } as unknown as AppState
-    const ed = widgetState('AUDIO_RECORD', {}, old)
-    const close = vi.fn()
-    const [open, setOpen] = createSignal(true)
-    const unmount = render(() => <Show when={open()}><WidgetEditor app={app} ed={ed}
-      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => { close(); setOpen(false) }} /></Show>, root)
-    const click = (text: string) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === text)!.click()
-    try {
-      click('Record microphone')
-      await vi.waitFor(() => expect(root.textContent).toContain('Recording microphone'))
-      click('Stop recording')
-      await vi.waitFor(() => expect(root.textContent).toContain('Recording ready'))
-      click('Save recording')
-      await vi.waitFor(() => expect(uploadMediaAsset).toHaveBeenCalledOnce())
-      expect(root.textContent).toContain('previous.webm')
-      expect(root.textContent).not.toContain('recording.webm')
-      expect(fetchAssetBytes.mock.calls.map((call) => call[0])).toEqual([old.digest])
-      const oldRead = fetchAssetBytes.mock.calls[0]![1]
-      expect(oldRead.aborted).toBe(false)
-      expect([...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Use asset')!.disabled).toBe(true)
-      expect(dispatchTo).not.toHaveBeenCalled()
-      if (outcome === 'closed') click('Cancel')
-      if (outcome === 'backend') selectedBackend = { ...backend }
-      if (outcome === 'session') ed.tab = { ...ed.tab, store: { ...ed.tab.store } as Tab['store'] }
-      finish()
-      if (outcome === 'accepted') {
-        await vi.waitFor(() => expect(root.textContent).toContain('recording.webm'))
-        await vi.waitFor(() => expect(fetchAssetBytes.mock.calls.map((call) => call[0])).toEqual([old.digest, recorded.digest]))
-        expect(oldRead.aborted).toBe(true)
-        expect(fetchAssetBytes.mock.calls[1]![1].aborted).toBe(false)
-        expect(dispatchTo).not.toHaveBeenCalled()
-        await vi.waitFor(() => expect(root.querySelector('audio')?.getAttribute('src')).toBe('blob:recording'))
-        click('Use asset')
-        expect(dispatchTo).toHaveBeenCalledWith(ed.tab, expect.objectContaining({ params: expect.objectContaining({ value: recorded }) }))
-      } else if (outcome !== 'closed') {
-        await vi.waitFor(() => expect(root.textContent).toContain('Clip retained for retry'))
-        expect(root.textContent).toContain('previous.webm')
-        expect(fetchAssetBytes.mock.calls.map((call) => call[0])).toEqual([old.digest])
-        expect(oldRead.aborted).toBe(false)
-      }
-      if (outcome !== 'accepted') expect(dispatchTo).not.toHaveBeenCalled()
-    } finally { finish?.(); unmount(); vi.unstubAllGlobals() }
-  })
-
-  it('opens AUDIO_RECORD through the registry and refuses upload on a non-native backend', () => {
-    const mounted = mountWidget(widgetState('AUDIO_RECORD', {}, null))
-    expect(mounted.root.querySelector('[data-testid="audio-record-editor"]')?.textContent).toContain('Recording uploads require a native Dinkster backend')
-    const use = Array.from(mounted.root.querySelectorAll('button')).find((button) => button.textContent === 'Use asset')!
-    expect(use.disabled).toBe(true)
-    mounted.clickAway()
-    expect(mounted.close).toHaveBeenCalledOnce()
-    expect(mounted.dispatchTo).not.toHaveBeenCalled()
-    mounted.unmount()
   })
 
   it('preserves a COLORS draft and discards it on click-away without mutating the initial array', () => {

@@ -496,9 +496,11 @@ export const canvasPaintTokens = {
     /**
      * A row that opens an editor: `iconSize` is the drawn size of its kind icon
      * and chevron, `iconInset` the kind icon's distance from the row's left
-     * edge and `trailingInset` the chevron's from its right edge.
+     * edge and `trailingInset` the chevron's from its right edge. `iconReserve`
+     * is the room before the name's label inset, so the name starts 8 px (the
+     * mode icon gap) after the kind icon: iconInset + iconSize + 8 - labelInset.
      */
-    opener: { iconSize: 12, iconInset: 6, trailingInset: 8, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
+    opener: { iconSize: 12, iconInset: 6, trailingInset: 8, iconReserve: 20, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
     /** The subgraph icon before the name of a field shown on the subgraph node without a wire; `size` is drawn. */
     subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
     /**

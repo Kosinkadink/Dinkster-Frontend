@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '../visual.js'
-import { executionDetails, waitForWorkspaceReady } from './fixtures.js'
+import { executionDetails, unfoldNodeEditor, waitForWorkspaceReady } from './fixtures.js'
 
 const backend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 const nativeFrontend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
@@ -66,7 +66,7 @@ test.beforeEach(async ({ page }) => {
   await waitForWorkspaceReady(page)
 })
 
-test('Record Audio records a fake microphone and executes its saved asset after reopening', async ({ page, request }, info) => {
+test('Record Audio in the node records a fake microphone and executes its stored clip after reopening', async ({ page, request }, info) => {
   await page.evaluate(() => {
     Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { value: async () => {
       const audio = new AudioContext()
@@ -81,22 +81,28 @@ test('Record Audio records a fake microphone and executes its saved asset after 
     } })
   })
   await openGraph(page, 'dinkster.audio.record_audio', {})
-  await openInput(page, 'target', 'audio')
-  const editor = page.getByTestId('audio-record-editor')
-  await expect(editor).toBeVisible()
-  await editor.getByRole('button', { name: 'Record microphone', exact: true }).click()
-  await expect(editor.getByTestId('audio-recorded-bytes')).toHaveText(/Recorded [1-9][0-9]* bytes/)
-  await editor.getByRole('button', { name: 'Stop recording', exact: true }).click()
-  await expect(editor.getByRole('button', { name: 'Save recording', exact: true })).toBeVisible()
-  await page.screenshot({ path: info.outputPath('record-audio.png') })
+  const editor = await unfoldNodeEditor(page, 'target', 'audio')
+  await expect(editor).toContainText('Nothing stored')
+  await editor.getByRole('button', { name: 'Record', exact: true }).click()
+  await expect(editor).toContainText('Listening...')
+  // The time and the take's rounded size, such as "0:01, 12 KB".
+  await expect(editor.locator('.dinkster-canvas-recorder-detail')).toHaveText(/^0:0[1-9], [1-9][0-9]* (B|KB)$/, { timeout: 10_000 })
+  await editor.screenshot({ path: info.outputPath('record-audio.png') })
+  // Stopping stores the take at once.
   const uploaded = page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/assets/media')
-  await editor.getByRole('button', { name: 'Save recording', exact: true }).click()
+  await editor.getByRole('button', { name: 'Stop', exact: true }).click()
   const response = await uploaded
   expect(response.ok()).toBe(true)
   const { asset } = await response.json()
-  await expect(editor).toContainText('Recording saved')
-  await editor.getByRole('button', { name: 'Use asset', exact: true }).click()
-  await expect(editor).toBeHidden()
+  await expect(editor).toContainText('Ready')
+  await expect(editor).toContainText('Stored: ')
+  // Play fetches the stored clip's bytes from the backend.
+  const fetched = page.waitForResponse((response) => response.request().method() === 'GET' &&
+    decodeURIComponent(new URL(response.url()).pathname).endsWith(`/api/assets/${asset.digest}`))
+  await editor.getByRole('button', { name: 'Play', exact: true }).click()
+  expect((await fetched).ok()).toBe(true)
+  await expect(editor.getByRole('button', { name: 'Stop playing', exact: true })).toBeVisible()
+  await editor.getByRole('button', { name: 'Stop playing', exact: true }).click()
   const saved = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
   expect(saved.graphs.g0!.nodes.target!.values.audio).toEqual(asset)
   for (const reopen of [false, true]) {
@@ -147,10 +153,10 @@ function modelFile(cloud: boolean): { name: string; mimeType: string; buffer: Bu
 
 for (const type of ['load3_d', 'load3_d_advanced', 'preview3_d_advanced', 'preview_gaussian_splat',
   'preview_point_cloud', 'save3_d_advanced', 'save_gaussian_splat', 'save_point_cloud']) {
-  test(`LOAD_3D opens, applies and executes saved values for ${type}`, async ({ page, request }, info) => {
+  test(`Load 3D in the node stores and executes its view for ${type}`, async ({ page, request }, info) => {
     const file = modelFile(type.includes('splat') || type.includes('cloud'))
     const loader = type.startsWith('load')
-    await openGraph(page, loader ? `dinkster.3d.${type}` : 'dinkster.3d.load3_d_advanced', { viewport_state: {}, width: 256, height: 192 })
+    await openGraph(page, loader ? `dinkster.3d.${type}` : 'dinkster.3d.load3_d_advanced', { width: 256, height: 192 })
     await openInput(page, 'target', 'model_file')
     const picker = page.getByTestId('asset-editor')
     await expect(picker).toBeVisible()
@@ -164,21 +170,25 @@ for (const type of ['load3_d', 'load3_d_advanced', 'preview3_d_advanced', 'previ
     if (!loader) await openGraph(page, `dinkster.3d.${type}`, {
       model_3d: { $typed: { type: file.name.endsWith('.ply') ? 'FILE_3D_PLY' : 'FILE_3D_GLB',
         value: { format: file.name.endsWith('.ply') ? 'ply' : 'glb', source: asset, resources: {} } } },
-      viewport_state: {}, width: 256, height: 192,
+      width: 256, height: 192,
       ...(type.startsWith('save') ? { filename_prefix: `widget-editors/${type}` } : {}),
     })
-    const inputId = type === 'load3_d' ? 'image' : 'viewport_state'
-    await openInput(page, 'target', inputId)
-    const editor = page.getByTestId('load3d-widget-editor')
-    await expect(editor).toBeVisible()
-    await expect(editor.locator('#load3d-fov')).toBeVisible()
-    await editor.locator('#load3d-fov').fill('53')
-    await editor.locator('#load3d-fov').dispatchEvent('change')
-    await editor.locator('#load3d-position-x').fill('0.25')
-    await editor.locator('#load3d-position-x').dispatchEvent('change')
+    // Load 3D's view is its own input; the others' view row writes viewport_state.
+    const [rowId, valueKey] = type === 'load3_d' ? ['image', 'image'] : ['viewport', 'viewport_state']
+    const editor = await unfoldNodeEditor(page, 'target', rowId)
+    // The camera's fields fill in once the model has loaded in the view.
+    const fov = editor.getByRole('button', { name: /^Field of view: \d/ })
+    await expect(fov).toBeVisible({ timeout: 20_000 })
+    await fov.click()
+    await page.keyboard.press('ControlOrMeta+A'); await page.keyboard.type('53'); await page.keyboard.press('Enter')
+    await expect(editor.getByRole('button', { name: 'Field of view: 53' })).toBeVisible()
+    await editor.locator('summary', { hasText: 'Model placement' }).click()
+    await editor.getByRole('button', { name: /^Position X Y Z/ }).click()
+    await page.keyboard.press('ControlOrMeta+A'); await page.keyboard.type('0.25, 0, 0'); await page.keyboard.press('Enter')
+    await expect(editor.getByRole('button', { name: /^Position X Y Z/ })).toContainText('0.25, 0, 0')
     if (type.includes('splat')) {
       await expect.poll(async () => {
-        const png = await editor.getByTestId('load3d-viewport').screenshot()
+        const png = await editor.locator('.node-load3d-view').screenshot()
         return page.evaluate(async (base64) => {
           const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
           const image = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
@@ -197,11 +207,9 @@ for (const type of ['load3_d', 'load3_d_advanced', 'preview3_d_advanced', 'previ
         }, png.toString('base64'))
       }).toBeGreaterThan(100)
     }
-    await page.screenshot({ path: info.outputPath(`${type}.png`) })
-    await editor.getByRole('button', { name: 'Apply', exact: true }).click()
-    await expect(editor).toBeHidden()
+    await editor.screenshot({ path: info.outputPath(`${type}.png`) })
     const saved = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc)
-    expect(saved.graphs.g0!.nodes.target!.values[inputId]).toMatchObject({ camera_info: { fov: 53 }, model_3d_info: [{ position: { x: 0.25 } }] })
+    expect(saved.graphs.g0!.nodes.target!.values[valueKey]).toMatchObject({ camera_info: { fov: 53 }, model_3d_info: [{ position: { x: 0.25 } }] })
     for (const reopen of [false, true]) {
       if (reopen) await page.evaluate(async (saved) => { await window.__dinksterTest!.app.openDocument(saved, 'Reopened viewport') }, saved)
       const job = await run(page)

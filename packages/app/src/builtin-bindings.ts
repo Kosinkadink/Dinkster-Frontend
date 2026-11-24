@@ -1,7 +1,6 @@
 import type { EditorBinding } from '@dinkster/core'
 import {
   APP_EDITOR_KIND,
-  CURVE_EDITOR_KIND,
   GLSL_EDITOR_KIND,
   GRAPH_EDITOR_KIND,
 } from './editors.js'
@@ -13,7 +12,6 @@ export const builtinEditorBindings: readonly EditorBinding[] = [
   { id: 'builtin.editor-role.named-route-switch', editor: GRAPH_EDITOR_KIND, match: { editorRole: 'named-route-switch' }, priority: 100 },
   { id: 'builtin.editor-role.video-trim', editor: GRAPH_EDITOR_KIND, match: { editorRole: 'video-trim' }, priority: 100 },
   { id: 'builtin.editor-role.video-crop', editor: GRAPH_EDITOR_KIND, match: { editorRole: 'video-crop' }, priority: 100 },
-  { id: 'builtin.editor-role.curve', editor: CURVE_EDITOR_KIND, match: { editorRole: 'curve' }, priority: 100 },
   { id: 'builtin.editor-role.glsl', editor: GLSL_EDITOR_KIND, match: { editorRole: 'glsl' }, priority: 100 },
 ]
 
