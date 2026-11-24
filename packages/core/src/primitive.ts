@@ -229,9 +229,10 @@ export interface EffectivePrimitiveSpec {
  * The value a primitive holds while nothing is stored in it, which is also
  * where Reset takes it: its own Default, else the default of the first field
  * it feeds (the field its widget comes from), else its declared default. A
- * default it does not hold itself is moved into the effective range, so every
- * fed field accepts it. The value field shows it, the fields it feeds show
- * it, and a run sends it.
+ * default it does not hold itself must suit every fed field: a number is
+ * moved into the effective range, and a choice the fields do not all offer
+ * gives way to the widget's first option. The value field shows it, the
+ * fields it feeds show it, and a run sends it.
  */
 function emptyPrimitiveValue(
   explicitDefault: Json | undefined,
@@ -241,6 +242,8 @@ function emptyPrimitiveValue(
 ): unknown {
   if (explicitDefault !== undefined) return explicitDefault
   const value = first?.default ?? declared?.default
+  const offered = options['options']
+  if (Array.isArray(offered) && !offered.some((option) => normalizeComboOption(option)?.value === value)) return undefined
   if (typeof value !== 'number') return value
   const min = typeof options['min'] === 'number' ? options['min'] : -Infinity
   const max = typeof options['max'] === 'number' ? options['max'] : Infinity
