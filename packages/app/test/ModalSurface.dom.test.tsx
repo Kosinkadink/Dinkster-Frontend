@@ -149,8 +149,10 @@ describe('ModalSurface', () => {
       const metadata = { name: 'source', size: 3, mediaType: 'application/octet-stream', virtualPath: 'source' }
       const source = local ? { ...metadata, verification: 'unverified', localBinding: 'source-grant' }
         : { ...metadata, digest: `blake3:${'a'.repeat(64)}` }
-      const ed = widgetState(editor === 'Painter' ? 'ASSET' : editor, {}, editor === 'Painter' ? source : {},
-        false, { valueKey: editor === 'Painter' ? 'mask' : 'image', nodeType: editor })
+      const valueKey = editor === 'Painter' ? 'mask' : 'image'
+      const ed = { ...widgetState(editor === 'Painter' ? 'PAINTER' : editor, {}, editor === 'Painter' ? source : {},
+        false, { valueKey, nodeType: editor }), target: { kind: 'input', nodeId: 'n0', valueKey,
+        parts: editor === 'Painter' ? { writes: { mask: 'mask' }, reads: {} } : { writes: {}, reads: { model_file: 'model_file' } } } } satisfies WidgetEditorState
       Object.assign(ed.tab.store.doc.graphs.g0!.nodes.n0!.values, { model_file: source })
       let started = false
       let aborted = false

@@ -7,7 +7,14 @@ const contract = JSON.parse(await readFile(new URL('../fixtures/video-edit-contr
   nodes: Record<string, Record<string, unknown>>
 }
 
-const schemaWire = contract.nodes['dinkster.video.trim']!.schemaVersion
+const schemaWire = contract.nodes['dinkster.video.video_trim']!.schemaVersion
+// Each node keeps its edit on its own input: Trim Video on `trim`, Crop Video on
+// `crop`, the fixture-only node on `video_edit`. The tests call that value `video_edit`.
+const nodeTypes = { trim: 'dinkster.video.video_trim', crop: 'dinkster.video.video_crop', both: 'test.video.edit' } as const
+const editKeys = { trim: 'trim', crop: 'crop', both: 'video_edit' } as const
+const editKeyOf = new WeakMap<Page, string>()
+const renameKey = (values: Record<string, unknown>, from: string, to: string) =>
+  Object.fromEntries(Object.entries(values).map(([key, value]) => [key === from ? to : key, value]))
 const typed = (name: string) => ({ kind: 'concrete', types: [name] })
 const input = (id: string, name: string, value?: unknown) => ({ kind: 'input', id, type: typed(name), ...(value === undefined ? {} : { default: value }) })
 const node = (entries: unknown[]) => ({ schemaVersion: schemaWire, signature: 'video-edit-test', outputNode: true, body: entries })
@@ -22,11 +29,11 @@ const catalog = {
     ]),
     ...contract.nodes,
     // Isolated compile targets; computational ports come from the backend fixture.
-    'dinkster.video.trim': { ...contract.nodes['dinkster.video.trim'], outputNode: true },
-    'dinkster.video.crop': { ...contract.nodes['dinkster.video.crop'], outputNode: true },
+    'dinkster.video.video_trim': { ...contract.nodes['dinkster.video.video_trim'], outputNode: true },
+    'dinkster.video.video_crop': { ...contract.nodes['dinkster.video.video_crop'], outputNode: true },
     'test.video.edit': node([
       input('video', 'VIDEO'),
-      { ...input('video_edit', 'VIDEO_EDIT'), required: false, widget: { type: 'VIDEO_EDIT', features: ['trim', 'crop'] } },
+      { ...input('video_edit', 'VIDEO_EDIT'), required: false, widget: { type: 'VIDEO_EDIT', features: ['trim', 'crop'], writes: { strict_duration: 'strict_duration' } } },
       input('strict_duration', 'BOOLEAN', false),
       { kind: 'output', id: 'video', type: typed('VIDEO') },
     ]),
@@ -56,18 +63,20 @@ async function openDocument(page: Page, kind: 'trim' | 'crop' | 'both', values: 
     const tab = window.__dinksterTest!.app.activeTab()
     return tab !== undefined && 'status' in tab.store
   })).toBe(true)
-  await page.evaluate(async ({ kind, values, linked }) => {
+  const key = editKeys[kind]
+  editKeyOf.set(page, key)
+  await page.evaluate(async ({ type, key, values, linked }) => {
     const app = window.__dinksterTest!.app
     await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'video-editor-test', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Video', nodes: {
         source: { id: 'source', type: 'test.video', values: {} },
-        edit: { id: 'edit', type: kind === 'both' ? 'test.video.edit' : `dinkster.video.${kind}`, values },
+        edit: { id: 'edit', type, values },
       }, links: Object.fromEntries(['video', ...linked].map((port) => [port, { id: port, from: { node: 'source', port }, to: { node: 'edit', port } }])), nets: {}, reroutes: {}, nextOrdinal: 3 } },
       view: { graphs: { g0: { nodes: { source: { position: { x: 50, y: 80 } }, edit: { position: { x: 480, y: 80 } } } } } },
-      ext: { 'dinkster.exposed': [{ graphId: 'g0', nodeId: 'edit', inputId: 'video_edit', label: 'Video edit' }] },
+      ext: { 'dinkster.exposed': [{ graphId: 'g0', nodeId: 'edit', inputId: key, label: 'Video edit' }] },
     }, 'Video editor')
-  }, { kind, values, linked })
+  }, { type: nodeTypes[kind], key, values: renameKey(values, 'video_edit', key), linked })
   await expect.poll(() => page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()
     return tab !== undefined && 'status' in tab.store && tab.store.doc.lineage === 'video-editor-test'
@@ -94,23 +103,26 @@ async function openEditor(page: Page) {
 }
 
 async function openEditorFor(page: Page, nodeId: string) {
-  const point = await page.evaluate((id) => {
+  const point = await page.evaluate(({ id, key }) => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === id)!
-    const row = node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'video_edit')!
+    const row = node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === key)!
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const viewport = renderer.getViewport()
     return {
       x: rect.left + viewport.x + (node.x + node.layout.width / 2) * viewport.scale,
       y: rect.top + viewport.y + (node.y + row.y + row.height / 2) * viewport.scale,
     }
-  }, nodeId)
+  }, { id: nodeId, key: editKeyOf.get(page)! })
   await page.mouse.click(point.x, point.y)
   await expect(page.getByTestId('video-edit-editor')).toBeVisible()
 }
-const valuesOf = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.edit!.values)
+const valuesOf = async (page: Page) => renameKey(
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.edit!.values), editKeyOf.get(page)!, 'video_edit')
 
-const persistedState = (page: Page) => page.evaluate(() => {
+const persistedState = async (page: Page) => {
+  const key = editKeyOf.get(page)!
+  const state = await page.evaluate((key) => {
   const app = window.__dinksterTest!.app
   const tab = app.activeTab()!
   const compiled = app.compileTab(tab)
@@ -122,10 +134,12 @@ const persistedState = (page: Page) => page.evaluate(() => {
   return {
     workflow: app.exportDocument(tab.id),
     values: edit.values,
-    featureSubset: schema.body.find((item) => item.kind === 'input' && item.id === 'video_edit')?.widget?.options.features ?? [],
+    featureSubset: schema.body.find((item) => item.kind === 'input' && item.id === key)?.widget?.options.features ?? [],
     compiledPrompt: compiled.artifact.prompt,
   }
-})
+  }, key)
+  return { ...state, values: renameKey(state.values, key, 'video_edit') }
+}
 
 async function retainRoundTrip(
   page: Page, info: TestInfo, name: string, before: unknown, expected: Record<string, unknown>,
@@ -161,7 +175,7 @@ async function retainRoundTrip(
   expect(submitted).toBeDefined()
   const compiledNodeInputs = submitted!.graph.nodes
   if ('video_edit' in expected) {
-    expect(compiledNodeInputs.edit!.inputs.video_edit).toEqual(expected.video_edit)
+    expect(compiledNodeInputs.edit!.inputs[editKeyOf.get(page)!]).toEqual(expected.video_edit)
     expect(compiledNodeInputs.edit!.inputs.video).toEqual({ $link: { node: 'source', output: 'video' } })
     expect(compiledNodeInputs.edit!.inputs).not.toHaveProperty('features')
     if ('strict_duration' in expected) expect(compiledNodeInputs.edit!.inputs.strict_duration).toBe(expected.strict_duration)
@@ -281,29 +295,24 @@ test('native crop source-pixel geometry, pointer handles, presets, and App edito
   expect((await valuesOf(page)).video_edit).toEqual({ ...imported, crop: { ...imported.crop, width: 0 } })
 })
 
-test('absent VIDEO_EDIT preserves scalar settings until a real edit', async ({ page }, info) => {
-  await openDocument(page, 'trim', { start_time: 2, duration: 3, strict_duration: true })
+test('an unset trim opens at its declared default and Apply unchanged writes nothing', async ({ page }, info) => {
+  await openDocument(page, 'trim', { strict_duration: true })
   const before = await valuesOf(page)
   await openEditor(page)
-  await expect(page.getByTestId('video-trim-start-seconds')).toHaveValue('2')
   await page.getByTestId('widget-modal-surface').screenshot({ path: info.outputPath('unset-video-edit.png') })
+  await expect(page.getByTestId('video-trim-start-seconds')).toHaveValue('0')
   await page.getByTestId('video-edit-apply').click()
   expect(await valuesOf(page)).toEqual(before)
   await openEditor(page)
-  await page.getByTestId('video-trim-duration-seconds').fill('0')
+  await page.getByTestId('video-trim-start-seconds').fill('2')
   await page.getByTestId('video-edit-apply').click()
   expect(await valuesOf(page)).toEqual({ ...before, video_edit: { trim: { start_time: 2, duration: 0 } } })
   await openEditor(page)
-  await expect(page.getByTestId('video-trim-duration-seconds')).toHaveValue('0')
+  await expect(page.getByTestId('video-trim-start-seconds')).toHaveValue('2')
   await page.getByTestId('widget-modal-surface').screenshot({ path: info.outputPath('applied-video-edit.png') })
 })
 
-test('linked scalar overrides refuse Apply and linked strict duration stays read-only', async ({ page }, info) => {
-  await openDocument(page, 'trim', { start_time: 2, duration: 3 }, ['start_time'])
-  await openEditor(page)
-  await expect(page.getByTestId('video-edit-editor')).toContainText('Scalar edit inputs are linked')
-  await expect(page.getByTestId('video-edit-apply')).toBeDisabled()
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+test('linked strict duration stays read-only while the edit applies', async ({ page }, info) => {
   await openDocument(page, 'trim', { video_edit: {}, strict_duration: false }, ['strict_duration'])
   await openEditor(page)
   await expect(page.getByTestId('video-trim-strict')).toBeDisabled()
@@ -343,7 +352,7 @@ test('execution snapshots refuse VIDEO_EDIT writes and changing editor views', a
   await expect(page.getByTestId('views-switcher')).toBeDisabled()
   expect(await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
-    return (await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'video_edit', value: {} } })).ok
+    return (await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'edit', inputId: 'trim', value: {} } })).ok
   })).toBe(false)
   await expect(page.getByRole('button', { name: 'Edit Video edit video' })).toHaveCount(0)
   await expect(page.getByTestId('video-edit-editor')).toHaveCount(0)
@@ -403,12 +412,12 @@ const persistenceCases: {
     fields: {}, expected: { video_edit: { crop: { x: 101, y: -3, width: 1279, height: -1 } } },
   },
   {
-    name: 'trim-missing-section', kind: 'trim', before: { video_edit: { crop: { width: 0 } }, start_time: 8, duration: 1, strict_duration: false },
-    fields: {}, expected: { video_edit: { crop: { width: 0 } }, start_time: 8, duration: 1, strict_duration: false },
+    name: 'trim-missing-section', kind: 'trim', before: { video_edit: { crop: { width: 0 } }, strict_duration: false },
+    fields: {}, expected: { video_edit: { crop: { width: 0 } }, strict_duration: false },
   },
   {
-    name: 'crop-missing-section', kind: 'crop', before: { video_edit: { trim: { duration: 0 } }, x: 50, width: 200 },
-    fields: {}, expected: { video_edit: { trim: { duration: 0 } }, x: 50, width: 200 },
+    name: 'crop-missing-section', kind: 'crop', before: { video_edit: { trim: { duration: 0 } } },
+    fields: {}, expected: { video_edit: { trim: { duration: 0 } } },
   },
 ]
 
@@ -475,7 +484,7 @@ test('VIDEO_EDIT value-source pills apply, undo and reopen without sibling write
     const graph = doc.graphs.g0!
     await app.openDocument({ ...doc, lineage: 'video-edit-value-source', graphs: { ...doc.graphs, g0: {
       ...graph, valueSources: { v0: { id: 'v0', value } }, links: { ...graph.links,
-        literal: { id: 'literal', from: { valueSource: 'v0' }, to: { node: 'edit', port: 'video_edit' } },
+        literal: { id: 'literal', from: { valueSource: 'v0' }, to: { node: 'edit', port: 'trim' } },
       },
     } }, view: { ...doc.view, graphs: { ...doc.view.graphs, g0: {
       ...doc.view.graphs.g0, valueSources: { v0: { position: { x: 120, y: 430 } } },

@@ -46,6 +46,7 @@ import { NodeLookGallery } from './node-look.js'
 import { ColorEditingGallery } from './color-editing.js'
 import { RowEditingGallery } from './row-editing.js'
 import { RowListsGallery } from './row-lists.js'
+import { ProblemBoxGallery } from './problem-box.js'
 import { FixesNoticeGallery } from './fixes-notice.js'
 
 type Theme = 'dark' | 'light'
@@ -59,6 +60,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'idle-outline',
         'titles',
         'titles-content',
+        'title-suffix',
         'node-look',
         'previews',
         'badges',
@@ -88,8 +90,8 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
     ],
     ['Wires', ['types', 'structure']],
     ['Subgraphs', ['boundary', 'boundary-names']],
-    ['Flow nodes', ['switch-primitive', 'small-flow-nodes']],
-    ['Problems with fixes', ['fixes-notice']],
+    ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
+    ['Problems with fixes', ['problem-box', 'fixes-notice']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
 
@@ -145,6 +147,10 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   titles:
     'A title that does not fit ends in an ellipsis instead of squeezing its letters, drawn at 75 percent zoom.',
   'titles-content': 'The same titles at 50 percent zoom.',
+  'problem-box':
+    'A problem outlines its row; the node\'s Error or Warning tab counts the causes and opens one box under the node with each problem and, where one exists, the action that leads to it. Point at a line to light its row.',
+  'title-suffix':
+    'A node\'s declared title suffix, worked out from its values ("20 steps, euler"), one space after the title in the row names\' dim regular type: beside a pack title, beside a renamed title, cut first on a narrow node ("20 steps with the euler sampler"), and on a minimized node.',
   'node-look':
     'The same nodes in the original look and in the flat-title look the owner chose.',
   'fixes-notice':
@@ -181,7 +187,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'widget-companions':
     'A value passed down a wire shows in italics: grey when known, teal when unproven, green when estimated.',
   'widget-taps':
-    'A field feeds another node through a pin at the right end of its row: at rest, pointed at, with a wire dragged toward it and wired, beside each kind of row, and where it does not work today.',
+    'A field feeds another node through a pin at the right end of its row: at rest, pointed at, with a wire dragged toward it and wired, beside each kind of row, and a row kept dimmed for its wire when it is no longer part of the node.',
   'widget-states':
     'One widget kind in its default, hovered, offered, invalid and empty states; choose the kind above.',
   'text-boxes':
@@ -205,6 +211,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields. They replace the value source pill and the selector box shown in the second card.',
   'small-flow-nodes':
     'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
+  'type-conflict':
+    'Inputs that must share one type but are fed two different types: an error on the node, its wires and in Problems, and a refusal before the run. By hand such a wire is not accepted.',
 }
 
 /** A look an example is drawn in; a page with two or more shows them side by side. */
@@ -342,7 +350,7 @@ function ExampleCard(props: {
     renderer.setGridVisible(false)
     renderer.setScene(scene)
     renderer.setNodeStates(example.states ?? fixture.states)
-    renderer.setBadges(fixture.badges)
+    renderer.setBadges(example.badges ?? fixture.badges)
     renderer.setOverlay(example.overlay ?? fixture.overlay)
     renderer.setRowMarks(example.rowMarks ?? fixture.rowMarks)
     renderer.setCompanions(example.companions ?? fixture.companions)
@@ -588,7 +596,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'node-look' || currentPage === 'fixes-notice') return
+    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'fixes-notice') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -692,6 +700,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'color-editing'}>
           <ColorEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'problem-box'}>
+          <ProblemBoxGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'fixes-notice'}>
           <FixesNoticeGallery theme={theme()} />

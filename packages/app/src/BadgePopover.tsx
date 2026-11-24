@@ -138,11 +138,7 @@ export function BadgePopover(props: {
       <Show when={props.anchor.badge.id.startsWith('core.problem.')}>
         {(() => {
           const kind = props.anchor.badge.id.slice('core.problem.'.length) as NodeProblemKind
-          const title = kind === 'error'
-            ? 'Document errors'
-            : kind === 'blocking-warning'
-              ? 'Execution-blocking warnings'
-              : 'Document warnings'
+          const title = kind === 'error' ? 'Errors' : 'Warnings'
           return <>
             <div class="badge-popover-title">{title}: {props.anchor.nodeId}</div>
             <For each={props.problems(props.anchor.nodeId, kind)} fallback={<ProductEmptyState title="No problem details recorded." />}>

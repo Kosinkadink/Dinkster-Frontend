@@ -48,6 +48,7 @@ import {
   type PortAddress,
   type SourceFilenameSpec,
   type TypeExpr,
+  type WidgetParts,
   type WidgetSpec,
 } from '@dinkster/core'
 import { canvasPaintTokens, type DesignTokens } from './tokens.js'
@@ -90,6 +91,12 @@ export interface DynamicAnnotations {
   }
   /** Inactive branch of a document-time selector; display-only. */
   readonly inactive?: true
+  /**
+   * A row no longer part of the node, kept only for the wire on its output
+   * (ElaboratedInput.kept): drawn inactive, not editable, no new wire starts
+   * or ends on it. The text says why.
+   */
+  readonly kept?: string
   /** Input that takes one value or a whole list (InputSpec.acceptsList), whatever its matched type. */
   readonly acceptsList?: true
   /** Derived source for the immediate enclosing region's iteration index. */
@@ -176,6 +183,13 @@ export type LayoutRow =
         readonly construct: string
         readonly valueKey: string
       }
+      /** The rows its widget's `writes` and `reads` name (flattened ids). */
+      readonly parts?: WidgetParts
+      /**
+       * An editor row: a widget with no value of its own. It has no label and
+       * no pin; `inputId` and `valueKey` are its layout id, which stores nothing.
+       */
+      readonly editor?: true
       /**
        * Set for an Inputs panel field whose value is a value source's own
        * value: edits dispatch valueSource.setValue and
@@ -210,6 +224,8 @@ export type LayoutRow =
       readonly text: string
       /** The text is the note's "while unknown" answer. */
       readonly unknown?: true
+      /** Drawn dimmed: a remark about the rows, such as the members inside a subgraph. */
+      readonly quiet?: true
     }
   | {
       /** A button (ElaboratedButton): drawn and inert; its steps never run here. */
@@ -268,10 +284,8 @@ export interface PinLayout extends DynamicAnnotations {
   readonly inferred?: true
   /** Input belongs to a widget row rather than a forced socket row. */
   readonly widgetBacked?: true
-  /** Producer affordance for a static memberless widget input. */
+  /** A field's output: the value the field's node runs with. */
   readonly widgetTap?: true
-  /** Proven by elaboration to originate from a static schema input. */
-  readonly staticWidgetTap?: true
   /** Optional input (InputSpec.optional): renders as a donut, not a filled dot. */
   readonly optional?: true
   /** Output pin whose producer may deliberately emit no value (OutputSpec.optional). */
@@ -283,12 +297,6 @@ export interface PinLayout extends DynamicAnnotations {
   readonly collapsedSection?: string
   /** Pin belongs to a minimized node and is represented by an aggregate side proxy. */
   readonly minimized?: true
-  /**
-   * A port-anchored solver diagnostic points here (e.g. a stale DynamicSlot
-   * specialization). Set during scene build, never by layout itself; the
-   * renderer paints a warning ring so the advisory is actionable at the pin.
-   */
-  readonly warn?: true
 }
 
 export interface NodeLayout {
@@ -307,6 +315,8 @@ export interface NodeLayout {
   readonly subtitle?: string
   /** True only when an override differs from the schema/fallback display name. */
   readonly titleRenamed?: boolean
+  /** The declared title suffix, drawn dim after the title; never counted in the width. */
+  readonly titleSuffix?: string
   readonly rows: readonly LayoutRow[]
   readonly pins: readonly PinLayout[]
   /** Body rows are hidden while title, compact preview, and endpoint anchors remain visible. */
@@ -772,6 +782,7 @@ const annotationsOf = (a: DynamicAnnotations): DynamicAnnotations => ({
   ...(a.materialize !== undefined ? { materialize: a.materialize } : {}),
   ...(a.dynamicSlot !== undefined ? { dynamicSlot: a.dynamicSlot } : {}),
   ...(a.inactive ? { inactive: true } : {}),
+  ...(a.kept !== undefined ? { kept: a.kept } : {}),
   ...(a.acceptsList ? { acceptsList: true } : {}),
 })
 
@@ -801,7 +812,7 @@ export function layoutNode(
       : never
     section?: { sectionId: string; label: string; collapsed: boolean; hiddenModified?: number }
     growth?: { construct: string; label: string; frames: readonly MaterializeFrame[] }
-    note?: { noteId: string; text: string; unknown?: true }
+    note?: { noteId: string; text: string; unknown?: true; quiet?: true }
     button?: { buttonId: string; label: string }
     sectionId?: string
   }
@@ -873,14 +884,14 @@ export function layoutNode(
       ...(item.origin.kind === 'member' || (item.ancestry?.length ?? 0) > 0 ? { familyMember: true } : {}),
       ...(frames !== undefined ? { materialize: frames } : {}),
       ...(dynamicSlot !== undefined ? { dynamicSlot } : {}),
-      ...(selectorDisplay?.[item.address.port] === 'inactive' ? { inactive: true } : {}),
+      ...(selectorDisplay?.[item.address.port] === 'inactive' || (item.kind === 'input' && item.kept !== undefined) ? { inactive: true } : {}),
+      ...(item.kind === 'input' && item.kept !== undefined ? { kept: item.kept } : {}),
       ...(item.kind === 'input' && item.spec.acceptsList ? { acceptsList: true } : {}),
     }
   }
 
   // Connected ports hidden by a collapsed section: pins anchor to the header.
-  const collapsedPins: ({ sectionId: string; portId: string; direction: 'in' | 'out'; type: TypeExpr; optional?: true; maybeAbsent?: true; widgetTap?: true; staticWidgetTap?: true } & DynamicAnnotations)[] = []
-  const staticWidgetInputs = new Set<string>()
+  const collapsedPins: ({ sectionId: string; portId: string; direction: 'in' | 'out'; type: TypeExpr; optional?: true; maybeAbsent?: true; widgetTap?: true } & DynamicAnnotations)[] = []
 
   let outputIndex = 0
   for (const item of items) {
@@ -908,19 +919,50 @@ export function layoutNode(
       })
       continue
     }
+    if (item.kind === 'editor') {
+      if (isHidden(item.section)) continue
+      const measured = widgetMeasure(item.widget) ?? { viewId: 'core.unknown', rows: 1 }
+      // The compact view shows the one row the editor writes, when it writes exactly one.
+      const written = Object.values(item.parts.writes)
+      const shown = written.length === 1 ? node.values[written[0]!] : undefined
+      const ghost = (item.origin.kind === 'member' && item.origin.ghost === true) || item.ancestry?.some((a) => a.ghost) === true
+      pending.push({
+        kind: 'widget',
+        ...(item.section !== undefined ? { sectionId: item.section } : {}),
+        widget: {
+          inputId: item.id,
+          valueKey: item.id,
+          label: '',
+          type: { kind: 'wildcard' },
+          viewId: measured.viewId,
+          rows: Number.isFinite(measured.rows) ? Math.max(1, Math.floor(measured.rows)) : 1,
+          spec: item.widget,
+          socketless: true,
+          ...(shown !== undefined ? { derivedValue: shown } : {}),
+          parts: item.parts,
+          editor: true,
+          address: { port: item.id },
+          ...(ghost ? { ghost: true } : {}),
+          ...(item.origin.kind === 'member' || (item.ancestry?.length ?? 0) > 0 ? { familyMember: true } : {}),
+          ...(item.materialize !== undefined ? { materialize: item.materialize } : {}),
+        },
+        })
+        continue
+      }
     if (item.kind === 'note' || item.kind === 'button') {
       if (isHidden(item.section)) continue
       pending.push({
         kind: item.kind,
         ...(item.section !== undefined ? { sectionId: item.section } : {}),
         ...(item.kind === 'note'
-          ? { note: { noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}) } }
+          ? { note: { noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}), ...(item.quiet ? { quiet: true as const } : {}) } }
           : { button: { buttonId: item.id, label: item.label } }),
       })
       continue
     }
     if (item.kind === 'output') {
       const spec = item.spec
+      if (spec.hidden === true) continue
       if (isHidden(spec.section)) {
         if (isConnected('out', spec.id)) {
           collapsedPins.push({ sectionId: spec.section!, portId: spec.id, direction: 'out', type: spec.type, ...(spec.optional ? { maybeAbsent: true as const } : {}), ...annotate(item) })
@@ -945,7 +987,6 @@ export function layoutNode(
     if (spec.hidden === true) continue
     const section = inputSection(spec)
     const widget = spec.widget
-    if (spec.widget && item.origin.kind === 'static') staticWidgetInputs.add(spec.id)
     if (isHidden(section)) {
       if (!spec.socketless && isConnected('in', spec.id)) {
         collapsedPins.push({
@@ -959,7 +1000,7 @@ export function layoutNode(
       if (widget && !spec.forceInput && isConnected('out', spec.id)) {
         collapsedPins.push({
           sectionId: section!, portId: spec.id, direction: 'out', type: spec.type, widgetTap: true,
-          ...(item.origin.kind === 'static' ? { staticWidgetTap: true as const } : {}), ...annotate(item),
+          ...annotate(item),
         })
       }
       continue
@@ -1020,6 +1061,7 @@ export function layoutNode(
         // A menu's state lives under its flattened id, members included.
         ...(representation.spec.editableOptions === true ? { optionsTarget: { construct: item.address.port } } : {}),
         ...(selector !== undefined ? { selector } : {}),
+        ...(item.parts !== undefined ? { parts: item.parts } : {}),
         ...annotate(item),
       },
     })
@@ -1192,16 +1234,15 @@ export function layoutNode(
       rowIndex.set(row, rows.length)
       rows.push({ kind: 'widget', y, height, inset, ...w })
       // Socketless controls keep their editor and outgoing value tap.
-      if (!w.socketless) pins.push({
+      if (!w.socketless && w.editor !== true && w.kept === undefined) pins.push({
         ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2, type: w.type,
         ...(w.optional ? { optional: true as const } : {}),
         widgetBacked: true as const,
       })
       // A widget can also produce its effective value. The duplicate
       // right-edge anchor deliberately shares the input's flattened id.
-      pins.push({
+      if (w.editor !== true) pins.push({
         ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
-        ...(staticWidgetInputs.has(w.inputId) ? { staticWidgetTap: true as const } : {}),
       })
       if (row.sectionId === advancedSectionId && advancedBounds !== undefined) {
         advancedBounds.bottom = Math.max(advancedBounds.bottom, y + height)
@@ -1220,7 +1261,6 @@ export function layoutNode(
       ...annotationsOf(p), portId: p.portId, direction: p.direction, y: anchorY, type: p.type, collapsedSection: p.sectionId,
       ...(p.optional ? { optional: true as const } : {}), ...(p.maybeAbsent ? { maybeAbsent: true as const } : {}),
       ...(p.widgetTap ? { widgetTap: true as const } : {}),
-      ...(p.staticWidgetTap ? { staticWidgetTap: true as const } : {}),
     })
   }
 
@@ -1308,6 +1348,7 @@ export function layoutNode(
       headerHeight: tokens.headerHeight,
       title,
       titleRenamed,
+      ...(elaborated.titleSuffix !== undefined ? { titleSuffix: elaborated.titleSuffix } : {}),
       rows: [],
       pins: pins.map((pin) => ({
         ...pin,
@@ -1327,6 +1368,7 @@ export function layoutNode(
     headerHeight: tokens.headerHeight,
     title,
     titleRenamed,
+    ...(elaborated.titleSuffix !== undefined ? { titleSuffix: elaborated.titleSuffix } : {}),
     rows,
     pins,
     ...(advancedBounds !== undefined

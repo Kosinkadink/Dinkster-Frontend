@@ -132,12 +132,16 @@ const sessionPatchCommand: CommandDefinition = {
 
 export type SharedSessionStatus = 'live' | 'catching-up' | 'closed' | 'error'
 
-/** A pending intention dropped because it no longer applies after a rebase. */
+/** A pending intention dropped because it no longer applies or the server refused it. */
 export interface SessionConflict {
   readonly invocation: CommandInvocation
   readonly diagnostics: readonly Diagnostic[]
-  /** 'rebase' = foreign op invalidated it; 'undo'/'redo' = history replay refused. */
-  readonly during: 'rebase' | 'undo' | 'redo'
+  /**
+   * 'rebase' = foreign op invalidated it; 'undo'/'redo' = history replay
+   * refused; 'refused' = the server stored none of it, and the diagnostic
+   * carries the server's reason.
+   */
+  readonly during: 'rebase' | 'undo' | 'redo' | 'refused'
 }
 
 export interface SharedSessionOptions {
@@ -842,6 +846,11 @@ class SharedDocumentSession implements DocumentSession {
         this.fail(`protocol version ${COLLAB_PROTOCOL_VERSION} unsupported (server supports ${outcome.supported.join(', ')})`)
         break
       }
+      if (outcome.kind === 'refused') {
+        // A rebase during the request reminted the head; its new op is judged afresh.
+        if (this.pending[0] === head) this.dropRefused(head, outcome.code, outcome.message)
+        continue
+      }
       if ('diagnostic' in outcome) {
         this.submissionDenial = outcome.diagnostic
         this.fail(JSON.stringify(outcome.diagnostic))
@@ -1202,6 +1211,21 @@ class SharedDocumentSession implements DocumentSession {
     committed?.()
     this.docSignal.set(this.store.doc)
     for (const conflict of conflicts) this.notifyConflict(conflict)
+  }
+
+  /**
+   * Drop the refused intention with its history record and rebuild the
+   * optimistic document from confirmed state without it; the intentions
+   * queued after it re-execute as on any rebase.
+   */
+  private dropRefused(entry: PendingEntry, code: string, message: string): void {
+    if (entry.record) this.removeRecord(entry.record)
+    this.rebase(this.confirmed, new Set([entry]))
+    this.notifyConflict({
+      invocation: entry.invocation,
+      diagnostics: [diag('error', 'command', `session.refused.${code}`, message)],
+      during: 'refused',
+    })
   }
 
   private createStore(doc: WorkflowDocument): DocumentStore {
