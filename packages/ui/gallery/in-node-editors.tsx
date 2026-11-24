@@ -22,6 +22,7 @@ import {
   type InNodeEditorExample,
 } from '../../canvas/gallery/in-node-editors.js'
 import {
+  CanvasAnglePicture,
   CanvasCurvePlot,
   CanvasEditorButtons,
   CanvasEditorChoice,
@@ -114,24 +115,6 @@ function thumbnailOf(kind: 'frame' | 'view', tokens: DesignTokens): HTMLCanvasEl
     context.fill()
   }
   return image
-}
-
-/** The orbit and elevation drawing of the camera angle, with its dots. */
-function AnglePicture(props: { horizontal?: number; vertical: number; hollow?: boolean }) {
-  const dot = (cx: number, cy: number, hollow: boolean) => (
-    <circle class="dinkster-gallery-angle-dot" data-hollow={hollow ? 'true' : 'false'} cx={cx} cy={cy} r="6" />
-  )
-  const h = () => ((props.horizontal ?? 0) * Math.PI) / 180
-  const v = () => (props.vertical * Math.PI) / 180
-  return (
-    <svg viewBox="0 0 320 150" aria-hidden="true">
-      <circle class="dinkster-gallery-angle-ring" cx="80" cy="75" r="55" />
-      <line class="dinkster-gallery-angle-ring" x1="190" y1="120" x2="300" y2="120" />
-      <path class="dinkster-gallery-angle-ring" d="M 190 120 A 100 100 0 0 1 240 33" />
-      <Show when={props.horizontal !== undefined}>{dot(80 + Math.sin(h()) * 55, 75 - Math.cos(h()) * 55, props.hollow === true)}</Show>
-      {dot(190 + Math.cos(v()) * 95, 120 - Math.sin(v()) * 95, false)}
-    </svg>
-  )
 }
 
 /** A wired histogram for the curve's examples, as bar heights. */
@@ -310,14 +293,15 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
       return (
         <>
           {picture(
-            <AnglePicture
-              {...(wired() === 'horizontal_angle' && !known() ? {} : { horizontal: wired() === 'horizontal_angle' ? 120 : 45 })}
-              vertical={20}
-              hollow={wired() === 'horizontal_angle'}
+            <CanvasAnglePicture
+              horizontal={{ degrees: wired() === 'horizontal_angle' && !known() ? undefined : wired() === 'horizontal_angle' ? 120 : 45,
+                fixed: wired() === 'horizontal_angle' }}
+              vertical={{ degrees: 20, fixed: false }}
             />,
           )}
           <CanvasEditorNote tone={wired() !== undefined && !known() ? 'muted' : undefined}>
-            {wired() !== undefined && !known() ? 'Not known yet' : 'Front right, a little above, zoom 5.0'}
+            {wired() !== undefined && !known() ? 'Not known yet'
+              : wired() === 'horizontal_angle' ? 'Back right, a little above, zoom 5.0' : 'Front right, a little above, zoom 5.0'}
           </CanvasEditorNote>
         </>
       )

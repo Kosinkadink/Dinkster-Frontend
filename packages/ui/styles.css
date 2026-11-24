@@ -610,9 +610,13 @@
 .dinkster-gallery-still-light { fill: var(--dinkster-border-strong); }
 .dinkster-gallery-still-divider { stroke: var(--dinkster-text-primary); stroke-width: 2; }
 .dinkster-gallery-still-handle { fill: var(--dinkster-text-primary); }
-.dinkster-gallery-angle-ring { fill: none; stroke: var(--dinkster-border-strong); stroke-width: 1.5; }
-.dinkster-gallery-angle-dot { fill: var(--dinkster-accent-border); }
-.dinkster-gallery-angle-dot[data-hollow='true'] { fill: var(--dinkster-surface-canvas); stroke: var(--dinkster-accent-border); stroke-width: 2; }
+.dinkster-canvas-angle { display: block; width: 100%; height: 100%; touch-action: none; -webkit-user-select: none; user-select: none; }
+.dinkster-canvas-angle[data-movable='true'] { cursor: grab; }
+.dinkster-canvas-angle-line { fill: none; stroke: var(--dinkster-border-strong); stroke-width: 1.5; }
+.dinkster-canvas-angle-subject { fill: var(--dinkster-surface-inset); stroke: var(--dinkster-border-strong); stroke-width: 1; }
+.dinkster-canvas-angle-sight { stroke: var(--dinkster-accent-border); stroke-width: 1; stroke-opacity: 0.6; }
+.dinkster-canvas-angle-dot { fill: var(--dinkster-accent-border); }
+.dinkster-canvas-angle-dot[data-fixed='true'] { fill: var(--dinkster-surface-canvas); stroke: var(--dinkster-accent-border); stroke-width: 2; }
 .dinkster-canvas-curve { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; -webkit-user-select: none; user-select: none; }
 .dinkster-canvas-curve:focus-visible { outline: none; }
 .dinkster-canvas-curve-hover .dinkster-canvas-curve-readout { fill: var(--dinkster-surface-raised); stroke: none; }
