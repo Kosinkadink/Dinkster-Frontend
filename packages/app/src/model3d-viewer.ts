@@ -480,6 +480,13 @@ export interface Model3dViewerHandle {
   setAnimation(index: number, time: number, playing: boolean, speed: number): void
   recordingStream(width: number, height: number): { stream: MediaStream; stop(): void }
   capture(width: number, height: number): Promise<{ image: Blob; mask: Blob; normal: Blob }>
+  /**
+   * Calls `listener` each time the user lets go of the camera after moving
+   * it; returns the function that stops it. While a listener is set the
+   * camera follows the pointer without easing, so the view at the release is
+   * the view that stays.
+   */
+  onViewReleased(listener: () => void): () => void
 }
 
 type Vector3State = { x: number; y: number; z: number }
@@ -523,6 +530,11 @@ export async function mountModel3dViewer(
   let useCustomUp = false
   let cancelCapture: ((reason: Error) => void) | undefined
   let activeCamera: import('three').PerspectiveCamera | import('three').OrthographicCamera = framed.camera
+  const releaseListeners = new Set<() => void>()
+  const watchControls = (orbit: InstanceType<ThreeModules['OrbitControls']>): void => {
+    orbit.enableDamping = releaseListeners.size === 0
+    orbit.addEventListener('end', () => { for (const listener of releaseListeners) listener() })
+  }
   const updateProjection = (width: number, height: number): void => {
     fitCameraAspect(modules.THREE, activeCamera, width / height)
   }
@@ -602,7 +614,7 @@ export async function mountModel3dViewer(
     const orbit = new modules.OrbitControls(framed.camera, gl.domElement)
     controls = orbit
     orbit.target.copy(framed.center)
-    orbit.enableDamping = true
+    watchControls(orbit)
     orbit.update()
 
     const renderLoop = (): void => {
@@ -655,7 +667,7 @@ export async function mountModel3dViewer(
       // OrbitControls caches the camera-up basis when it is constructed.
       controls!.dispose()
       controls = new modules.OrbitControls(activeCamera, renderer!.domElement)
-      controls.enableDamping = true
+      watchControls(controls)
       controls!.target.copy(state.target)
       activeCamera.lookAt(controls!.target)
       const size = renderer!.getSize(new modules.THREE.Vector2())
@@ -781,6 +793,14 @@ export async function mountModel3dViewer(
         }
         normalMaterial.dispose()
         capturing = false
+      }
+    },
+    onViewReleased(listener) {
+      releaseListeners.add(listener)
+      controls!.enableDamping = false
+      return () => {
+        releaseListeners.delete(listener)
+        controls!.enableDamping = releaseListeners.size === 0
       }
     },
   }
