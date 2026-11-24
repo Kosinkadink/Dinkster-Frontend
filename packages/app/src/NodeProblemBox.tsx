@@ -11,7 +11,8 @@ import type { ProblemBoxAction, ProblemBoxLine } from './problem-box.js'
 export function NodeProblemBox(props: {
   readonly x: number
   readonly y: number
-  readonly width: number
+  readonly maxWidth: number
+  readonly minWidth: number
   readonly nodeId: string
   readonly nodeTitle: string
   readonly lines: readonly ProblemBoxLine[]
@@ -48,7 +49,8 @@ export function NodeProblemBox(props: {
       {...(props.highlighted === undefined ? {} : { highlighted: props.highlighted })}
       x={props.x}
       y={props.y}
-      width={props.width}
+      maxWidth={props.maxWidth}
+      minWidth={props.minWidth}
       onPointLine={(view) => props.onPointLine(lineOf(view))}
       onAction={(view, action) => {
         const line = lineOf(view)

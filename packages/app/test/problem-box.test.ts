@@ -77,18 +77,19 @@ describe('problemBoxLines', () => {
 })
 
 describe('problemBoxPlacement', () => {
-  it('hangs below the node and its lowest tab, as wide as the node, at screen scale', () => {
-    const tab = (y: number, height: number, badge = PROBLEM_ERROR_BADGE) =>
-      ({ x: 100, y, width: 40, height, badge, compact: false }) as BadgePlacement
-    const at = problemBoxPlacement(node, [tab(190, 16), tab(192, 18, PROBLEM_WARNING_BADGE)], { x: 10, y: -20, scale: 2 })
-    expect(at).toEqual({ x: 100 * 2 + 10, y: 210 * 2 - 20 + 4, width: node.layout.width * 2 })
+  it('hangs below the node and its lowest tab, at most as wide as the node and at least its tabs, at screen scale', () => {
+    const tab = (x: number, y: number, height: number, badge = PROBLEM_ERROR_BADGE) =>
+      ({ x, y, width: 40, height, badge, compact: false }) as BadgePlacement
+    const at = problemBoxPlacement(node, [tab(100, 190, 16), tab(144, 192, 18, PROBLEM_WARNING_BADGE)], { x: 10, y: -20, scale: 2 })
+    // The tabs reach from the node's left edge at 100 to 184, so the box is at least 84 * 2 wide.
+    expect(at).toEqual({ x: 100 * 2 + 10, y: 210 * 2 - 20 + 4, maxWidth: node.layout.width * 2, minWidth: 84 * 2 })
     const nodeBottomOnScreen = (50 + 140) * 2 - 20
     expect(at!.y).toBeGreaterThan(nodeBottomOnScreen)
   })
 
-  it('never draws the box narrower than 160 px on screen, and not at all once tabs are not drawn', () => {
+  it('lets the box take 160 px on screen under a narrower node, and draws none once tabs are not drawn', () => {
     const narrowOnScreen = 150 / node.layout.width
-    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: narrowOnScreen })?.width).toBe(160)
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: narrowOnScreen })?.maxWidth).toBe(160)
     expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.5 })).toBeDefined()
     expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.49 })).toBeUndefined()
   })

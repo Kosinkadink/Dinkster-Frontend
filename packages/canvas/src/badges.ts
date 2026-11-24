@@ -374,21 +374,23 @@ export function hitTestBadge(scene: Scene, badges: BadgeMap, wx: number, wy: num
 export const PROBLEM_BOX_GAP = canvasPaintTokens.badge.tab.problemBoxGap
 
 /**
- * Where the box hangs, in canvas-pane px (the canvas element's own px): below the node and its tabs, as
- * wide as the node but never narrower than its floor, so it never covers the node, its pins or its wires.
- * Its lines wrap to that width. Undefined while the zoom is too low for tabs: the box returns with them.
+ * Where the box hangs, in canvas-pane px (the canvas element's own px): below the node and its tabs, its
+ * left edge under the node's, so it never covers the node, its pins or its wires. The box is as wide as
+ * its longest line needs, at most the node's width or the floor when that is wider, where longer lines
+ * wrap, and at least its row of tabs. Undefined while the zoom is too low for tabs: the box returns with them.
  */
 export function problemBoxPlacement(
   node: SceneNode,
   tabs: readonly BadgePlacement[],
   viewport: { readonly x: number; readonly y: number; readonly scale: number },
-): { readonly x: number; readonly y: number; readonly width: number } | undefined {
+): { readonly x: number; readonly y: number; readonly maxWidth: number; readonly minWidth: number } | undefined {
   if (viewport.scale < CANVAS_DETAIL_MIN_SCALE) return undefined
   const below = tabs.filter((entry) => entry.badge.placement === 'below')
   const bottom = Math.max(node.y + node.layout.height, ...below.map((entry) => entry.y + entry.height))
   return {
     x: node.x * viewport.scale + viewport.x,
     y: bottom * viewport.scale + viewport.y + PROBLEM_BOX_GAP,
-    width: Math.max(node.layout.width * viewport.scale, canvasPaintTokens.badge.tab.problemBoxMinWidth),
+    maxWidth: Math.max(node.layout.width * viewport.scale, canvasPaintTokens.badge.tab.problemBoxMinWidth),
+    minWidth: Math.max(0, ...below.map((entry) => entry.x + entry.width - node.x)) * viewport.scale,
   }
 }

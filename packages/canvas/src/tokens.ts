@@ -68,7 +68,7 @@ export const canvasPaintTokens = {
       iconGap: 4,
       /** Gap in screen px between the node's lowest tab and its open problem box. */
       problemBoxGap: 4,
-      /** Narrowest the open problem box gets on screen, under a narrow or zoomed-out node. */
+      /** Width in screen px an open problem box may always take, even under a narrower or zoomed-out node. */
       problemBoxMinWidth: 160,
       maxLabelWidth: 120,
       stroke: 1,

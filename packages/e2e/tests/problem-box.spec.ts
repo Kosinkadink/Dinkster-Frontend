@@ -135,12 +135,12 @@ test('a problem outlines its row and the tab opens one box under the node', asyn
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getProblemRowHighlight()))
     .toEqual({ nodeId: 'gen', row: 'height' })
 
-  // The box is as wide as the node, but never narrower than 160 px on screen, and covers
-  // neither the node nor any pin.
+  // The box's left edge is under the node's; it is at most as wide as the node, or 160 px on
+  // screen under a narrower node, and covers neither the node nor any pin.
   const rect = await box.boundingBox()
   const boxRect = { left: rect!.x, top: rect!.y, right: rect!.x + rect!.width, bottom: rect!.y + rect!.height }
   expect(Math.abs(boxRect.left - nodes.node.left)).toBeLessThan(1)
-  expect(Math.abs(boxRect.right - boxRect.left - Math.max(nodes.node.right - nodes.node.left, 160))).toBeLessThan(1)
+  expect(rect!.width).toBeLessThan(Math.max(nodes.node.right - nodes.node.left, 160) + 1)
   expect(overlaps(boxRect, nodes.node)).toBe(false)
   for (const pin of nodes.pins) expect(overlaps(boxRect, pin)).toBe(false)
 

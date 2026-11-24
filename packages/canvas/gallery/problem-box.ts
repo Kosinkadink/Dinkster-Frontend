@@ -372,7 +372,7 @@ export function problemBoxGallery(
     },
     {
       id: 'widths',
-      caption: 'The box is as wide as its node and its lines wrap inside it, so the same long line takes more lines under a narrow node than under a wide one, and under the narrow one its action moves to a line of its own, still at the right end. The box grows downward; nothing is cut. Its text stays one screen size whatever the zoom.',
+      caption: 'A long line: the box takes its node\'s width and the line wraps inside it, so the same line takes more lines under a narrow node than under a wide one, and under the narrow one its action moves to a line of its own, still at the right end. The box grows downward; nothing is cut. Its text stays one screen size whatever the zoom.',
       scene: scene([
         { id: 'narrow', schema: loadModel, x: LEFT, width: NARROW },
         { id: 'wide', schema: loadModel, x: LEFT + NARROW + GAP, width: WIDE },
@@ -386,8 +386,17 @@ export function problemBoxGallery(
       width: LEFT * 2 + NARROW + GAP + WIDE,
     },
     {
+      id: 'short-line',
+      caption: 'A short line: the box is only as wide as its longest line needs, so under a wide node it is narrower than the node. Its left edge stays under the node\'s, it is never narrower than the node\'s row of tabs, and each line\'s action sits at the box\'s right end.',
+      scene: scene([{ id: 'wide', schema: resizeImage, x: LEFT, width: WIDE, values: { width: 0 } }]),
+      badges: { wide: [errors(1)] },
+      rowMarks: { wide: { width: 'error' } },
+      boxes: [{ nodeId: 'wide', nodeTitle: 'Resize image', lines: [line('error', 'width', 'Width must be positive.', [EDIT])] }],
+      width: LEFT * 2 + WIDE,
+    },
+    {
       id: 'zoomed-out',
-      caption: 'Zoomed out to 55%, the node is 143 px wide on screen, so its box is drawn at its floor of 160 px, a little wider than the node; its text stays one screen size. Below 50%, where tabs are no longer drawn, an open box is not drawn either, and it returns with the tabs.',
+      caption: 'Zoomed out to 55%, the node is 143 px wide on screen, so the most its box takes is the floor of 160 px, a little wider than the node, and its line wraps there; its text stays one screen size. Below 50%, where tabs are no longer drawn, an open box is not drawn either, and it returns with the tabs.',
       scene: scene([{ id: 'load', schema: loadModel, x: LEFT }]),
       badges: { load: [errors(1)] },
       rowMarks: { load: { model: 'error' } },

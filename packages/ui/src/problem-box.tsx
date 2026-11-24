@@ -37,8 +37,10 @@ export function ProblemBox(props: {
   /** Top-left corner in the positioned parent's px. */
   readonly x: number
   readonly y: number
-  /** The node's width in the same px; the lines wrap to it. */
-  readonly width: number
+  /** Widest the box gets in the same px, where its lines wrap; up to it, the box is as wide as its longest line. */
+  readonly maxWidth: number
+  /** Narrowest the box gets in the same px. */
+  readonly minWidth: number
   readonly onPointLine?: (line: ProblemBoxViewLine | undefined) => void
   readonly onAction?: (line: ProblemBoxViewLine, action: string) => void
   readonly ref?: (element: HTMLDivElement) => void
@@ -48,7 +50,8 @@ export function ProblemBox(props: {
     if (element === undefined) return
     element.style.left = `${props.x}px`
     element.style.top = `${props.y}px`
-    element.style.width = `${props.width}px`
+    element.style.maxWidth = `${props.maxWidth}px`
+    element.style.minWidth = `${props.minWidth}px`
   })
   const strongest = (): ProblemBoxKind =>
     props.lines.some((line) => line.kind === 'error') ? 'error' : 'warning'

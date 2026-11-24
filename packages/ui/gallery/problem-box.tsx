@@ -30,7 +30,8 @@ interface PlacedBox {
   readonly box: ProblemBoxGalleryCard['boxes'][number]
   readonly x: number
   readonly y: number
-  readonly width: number
+  readonly maxWidth: number
+  readonly minWidth: number
 }
 
 function ProblemBoxCard(props: {
@@ -86,7 +87,7 @@ function ProblemBoxCard(props: {
         const node = card.scene.nodes.find((candidate) => candidate.id === box.nodeId)
         if (node === undefined) return []
         const at = problemBoxPlacement(node, renderer!.getNodeBadgeLayout(node), viewport)
-        return at === undefined ? [] : [{ box, x: at.x, y: at.y, width: at.width }]
+        return at === undefined ? [] : [{ box, x: at.x, y: at.y, maxWidth: at.maxWidth, minWidth: at.minWidth }]
       }))
       // The boxes wrap to their nodes' widths, so the frame grows to hold them once drawn.
       requestAnimationFrame(() => {
@@ -131,7 +132,8 @@ function ProblemBoxCard(props: {
               {...(highlighted()[placed.box.nodeId] === undefined ? {} : { highlighted: highlighted()[placed.box.nodeId]! })}
               x={placed.x}
               y={placed.y}
-              width={placed.width}
+              maxWidth={placed.maxWidth}
+              minWidth={placed.minWidth}
               onPointLine={(line) => point(placed.box.nodeId, line?.key, line?.row)}
             />
           )}
