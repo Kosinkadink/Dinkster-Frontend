@@ -119,6 +119,21 @@ export const canvasPaintTokens = {
     pairedPortGap: canvasSemanticTokens.space[24],
     sectionWidthPadding: 18,
     growthWidthPadding: 18,
+    /** A lookup note's state line: its mark (spinner or info), the words after it, and Try again under it. */
+    lookupNote: {
+      /** Rows a note takes with a state line, and with Try again under that too. */
+      stateRows: 2,
+      retryRows: 3,
+      markMinRadius: 3,
+      /** The mark's radius as a share of the font size. */
+      markRadiusScale: 0.45,
+      markStroke: 1,
+      /** The info mark's letter as a share of the mark's radius. */
+      glyphScale: 1.6,
+      glyphNudge: 0.5,
+      textGap: canvasSemanticTokens.space[4] + 2,
+      hoverInset: 2,
+    },
     widgetLabelPadding: canvasSemanticTokens.space[12],
     widgetValueMinWidth: 90,
     widgetColumnGap: 20,

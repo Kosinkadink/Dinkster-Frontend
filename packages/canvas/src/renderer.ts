@@ -4689,9 +4689,10 @@ export class CanvasRenderer {
   private paintNoteLookup(ctx: CanvasRenderingContext2D, line: NoteLookupLine, x: number, top: number, unit: number, room: number, hovered: boolean): void {
     const t = this.tokens
     const alpha = ctx.globalAlpha
+    const paint = canvasPaintTokens.node.lookupNote
     const cy = top + unit / 2
-    const r = Math.max(3, t.fontSize * 0.45)
-    ctx.lineWidth = 1
+    const r = Math.max(paint.markMinRadius, t.fontSize * paint.markRadiusScale)
+    ctx.lineWidth = paint.markStroke
     if (line.tone === 'busy') {
       ctx.strokeStyle = t.colors.boxOutline
       ctx.beginPath()
@@ -4709,11 +4710,11 @@ export class CanvasRenderer {
       ctx.fillStyle = t.colors.label
       ctx.textAlign = 'center'
       const font = ctx.font
-      ctx.font = `${Math.round(r * 1.6)}px serif`
-      ctx.fillText('i', x + r, cy + 0.5)
+      ctx.font = `${Math.round(r * paint.glyphScale)}px ${t.fontFamily}`
+      ctx.fillText('i', x + r, cy + paint.glyphNudge)
       ctx.font = font
     }
-    const gap = r * 2 + 6
+    const gap = r * 2 + paint.textGap
     ctx.globalAlpha = alpha * GHOST_ALPHA
     ctx.fillStyle = t.colors.label
     ctx.textAlign = 'left'
@@ -4724,7 +4725,8 @@ export class CanvasRenderer {
     const ry = cy + unit
     if (hovered) {
       ctx.fillStyle = t.colors.buttonHover
-      ctx.fillRect(x - 2, ry - unit / 2 + 2, ctx.measureText(label).width + 4, unit - 4)
+      const inset = paint.hoverInset
+      ctx.fillRect(x - inset, ry - unit / 2 + inset, ctx.measureText(label).width + inset * 2, unit - inset * 2)
     }
     ctx.fillStyle = t.colors.rowLink
     ctx.fillText(fitText(ctx, label, room), x, ry)

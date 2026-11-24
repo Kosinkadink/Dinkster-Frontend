@@ -96,7 +96,8 @@ export function noteLookupLine(state: LookedState, label: (port: string) => stri
 }
 
 /** Rows a lookup note takes: its text, the state line, and Try again under that. */
-export const noteLookupRows = (line: NoteLookupLine): number => line.retry === undefined ? 2 : 3
+export const noteLookupRows = (line: NoteLookupLine): number =>
+  line.retry === undefined ? canvasPaintTokens.node.lookupNote.stateRows : canvasPaintTokens.node.lookupNote.retryRows
 
 /** Injected text measurement (canvas measureText in the app; approximate in tests). */
 export type TextMeasurer = (text: string, role: 'title' | 'renamedTitle' | 'label' | 'value') => number
@@ -1949,7 +1950,7 @@ export function layoutNode(
       content = measure(`+ ${row.label}`, 'label') + canvasPaintTokens.node.growthWidthPadding + (row.inset - tokens.padX) * 2
     } else if (row.kind === 'note') {
       // The state line's words follow a mark about as wide as a letter and a gap.
-      const line = row.lookup === undefined ? 0 : measure(row.lookup.text, 'label') + tokens.fontSize + 6
+      const line = row.lookup === undefined ? 0 : measure(row.lookup.text, 'label') + tokens.fontSize + canvasPaintTokens.node.lookupNote.textGap
       content = Math.max(measure(row.text, 'label'), line) + row.inset * 2
     } else if (row.kind === 'button') {
       content = measure(row.label, 'label') + canvasPaintTokens.node.growthWidthPadding + extra
