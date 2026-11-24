@@ -92,7 +92,7 @@ function ctx(target: MenuTarget, values: Record<string, Json>): MenuContext {
     doc: docWith(values),
     graphId: 'g0',
     target,
-    selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] },
+    selection: { nodes: [], links: [], reroutes: [] },
     worldX: 0,
     worldY: 0,
   }

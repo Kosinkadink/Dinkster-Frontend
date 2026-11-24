@@ -13,8 +13,7 @@
  *   flattened id
  * - a root reroute CHAIN feeding one forwarded group member
  * - a named net feeding the sibling member
- * - a value source driving the promoted branch widget
- * - a selector (fixed policy) feeding a root sink
+ * - a primitive node driving the promoted branch widget
  */
 import { describe, expect, it } from 'vitest'
 import { compile, documentResolver, type CompileInput } from '../src/compile/compile.js'
@@ -23,6 +22,7 @@ import type { WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId } from '../src/ids.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
 import type { BodyRow, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
+import { withPrimitives } from './fixtures/primitive-schemas.js'
 
 const IMAGE: TypeExpr = { kind: 'concrete', name: 'IMAGE' }
 const FLOAT: TypeExpr = { kind: 'concrete', name: 'FLOAT' }
@@ -69,7 +69,7 @@ const schemas: Record<string, NodeSchema> = {
   ]),
   Sink: schemaOf('Sink', [input('in')]),
 }
-const resolveBase = (type: string) => schemas[type]
+const resolveBase = withPrimitives((type: string) => schemas[type])
 
 /**
  * The full coexistence document, as raw JSON so loadDocument exercises the
@@ -94,21 +94,17 @@ const coexistenceJson = () => ({
           values: { gain: 8 },
         },
         snk: { id: 'snk', type: 'Sink', values: {} },
-        snk2: { id: 'snk2', type: 'Sink', values: {} },
+        prim: { id: 'prim', type: 'dinkster.utilities.primitive_float', values: { value: 2.5 } },
       },
       links: {
         // Reroute CHAIN into a forwarded group member (image0).
         l1: { id: 'l1', from: { node: 'src1', port: 'out' }, to: { reroute: 'r1' } },
         l2: { id: 'l2', from: { reroute: 'r1' }, to: { reroute: 'r2' } },
         l3: { id: 'l3', from: { reroute: 'r2' }, to: { node: 'inst', port: 'img0' } },
-        // Value source into the promoted option row.
-        l4: { id: 'l4', from: { valueSource: 'vs' }, to: { node: 'inst', port: 'amount' } },
+        // Primitive into the promoted option row.
+        l4: { id: 'l4', from: { node: 'prim', port: 'value' }, to: { node: 'inst', port: 'amount' } },
         // Instance result into a root sink.
         l5: { id: 'l5', from: { node: 'inst', port: 'result' }, to: { node: 'snk', port: 'in' } },
-        // Selector branches and its resolved output.
-        l6: { id: 'l6', from: { node: 'src1', port: 'out' }, to: { selector: 'sel', candidate: 'c1' } },
-        l7: { id: 'l7', from: { node: 'src2', port: 'out' }, to: { selector: 'sel', candidate: 'c2' } },
-        l8: { id: 'l8', from: { selector: 'sel' }, to: { node: 'snk2', port: 'in' } },
       },
       // Named net feeding the SIBLING forwarded member (image1).
       nets: {
@@ -119,8 +115,6 @@ const coexistenceJson = () => ({
         },
       },
       reroutes: { r1: { id: 'r1' }, r2: { id: 'r2' } },
-      valueSources: { vs: { id: 'vs', value: 2.5, spec: { widgetType: 'FLOAT' } } },
-      selectors: { sel: { id: 'sel', candidates: [{ id: 'c1' }, { id: 'c2' }], policy: { kind: 'fixed', candidate: 'c1' } } },
       nextOrdinal: 100,
     },
     sub: {
@@ -200,8 +194,8 @@ describe('coexistence: all constructs in one document', () => {
     const prompt = result.artifact.prompt
 
     // Choice: the definition-side key 'b' travels in slotVariants, and the
-    // promoted option row takes the value-source literal (baked, not
-    // linked - value sources compile away). The unpromoted row of option
+    // promoted option row takes the primitive's value (baked, not linked -
+    // a fixed-type primitive compiles away). The unpromoted row of option
     // 'b' keeps its schema default.
     expect(prompt['inst.cmb2']!.inputs).toEqual({ 'mode.amount': 2.5, 'mode.bias': 3 })
     expect(prompt['inst.cmb2']!.slotVariants).toEqual({ mode: 'b' })
@@ -218,13 +212,10 @@ describe('coexistence: all constructs in one document', () => {
     // the instance and stored there.
     expect(prompt['inst.slot']!.inputs).toEqual({ slot: ['inst.fam', 0], 'slot.gain': 8 })
 
-    // Boundary output reaches the root sink; the selector resolves to its
-    // fixed candidate and records the choice in the artifact.
+    // Boundary output reaches the root sink, and the primitive itself
+    // never reaches the prompt.
     expect(prompt['snk']!.inputs).toEqual({ in: ['inst.slot', 0] })
-    expect(prompt['snk2']!.inputs).toEqual({ in: ['src1', 0] })
-    expect(result.artifact.choices).toEqual([
-      { graph: 'g0', selector: 'sel', policy: 'fixed', candidate: 'c1' },
-    ])
+    expect(prompt['prim']).toBeUndefined()
 
     // Compilation is a pure read of the document.
     expect(JSON.stringify(doc)).toBe(before)
@@ -258,7 +249,7 @@ describe('coexistence: all constructs in one document', () => {
     const doc = loaded.document as WorkflowDocument
     const result = compile({
       ...compileInput(doc),
-      resolve: documentResolver(doc, (t) => variantSchemas[t]),
+      resolve: documentResolver(doc, withPrimitives((t) => variantSchemas[t])),
     })
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) throw new Error('unreachable')

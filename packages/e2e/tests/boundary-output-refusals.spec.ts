@@ -34,23 +34,12 @@ async function openStructuralWorkflow(page: Page): Promise<void> {
           id: 'producers', name: 'Structural producers',
           nodes: {
             first: { id: 'first', type: 'RefusalFloatSource', values: {} },
-            second: { id: 'second', type: 'RefusalFloatSource', values: {} },
           },
           links: {
             rerouteDriver: { id: 'rerouteDriver', from: { node: 'first', port: 'value' }, to: { reroute: 'junction' } },
-            choiceA: { id: 'choiceA', from: { node: 'first', port: 'value' }, to: { selector: 'choice', candidate: 'a' } },
-            choiceB: { id: 'choiceB', from: { node: 'second', port: 'value' }, to: { selector: 'choice', candidate: 'b' } },
           },
           nets: {},
           reroutes: { junction: { id: 'junction' } },
-          valueSources: { literal: { id: 'literal', value: 2.5, spec: { widgetType: 'FLOAT' } } },
-          selectors: {
-            choice: {
-              id: 'choice',
-              candidates: [{ id: 'a', title: 'First' }, { id: 'b', title: 'Second' }],
-              policy: { kind: 'fixed', candidate: 'a' },
-            },
-          },
           boundary: { inputs: [], outputs: [] },
           nextOrdinal: 20,
         },
@@ -60,11 +49,8 @@ async function openStructuralWorkflow(page: Page): Promise<void> {
         producers: {
           nodes: {
             first: { position: { x: 80, y: 80 } },
-            second: { position: { x: 80, y: 260 } },
           },
           reroutes: { junction: { position: { x: 400, y: 100 } } },
-          valueSources: { literal: { position: { x: 100, y: 480 } } },
-          selectors: { choice: { position: { x: 430, y: 400 } } },
         },
       } },
     }, 'Structural output refusal'))
@@ -75,25 +61,6 @@ async function openStructuralWorkflow(page: Page): Promise<void> {
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().graphId)).toBe('producers')
-}
-
-type StructuralProducer = 'valueSource' | 'selector' | 'reroute'
-
-async function producerPoint(page: Page, producer: StructuralProducer): Promise<{ x: number; y: number }> {
-  return page.evaluate((producer) => {
-    const scene = window.__dinksterTest!.renderer!.getScene()
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    if (producer === 'valueSource') {
-      const source = scene.valueSources.find((item) => item.id === 'literal')!
-      return { x: rect.left + source.x + source.width, y: rect.top + source.y + source.height / 2 }
-    }
-    if (producer === 'selector') {
-      const selector = scene.selectors.find((item) => item.id === 'choice')!
-      return { x: rect.left + selector.x + selector.width, y: rect.top + selector.y + selector.headerHeight / 2 }
-    }
-    const reroute = scene.reroutes.find((item) => item.id === 'junction')!
-    return { x: rect.left + reroute.x + 21, y: rect.top + reroute.y }
-  }, producer)
 }
 
 async function rerouteCenter(page: Page): Promise<{ x: number; y: number }> {
@@ -113,12 +80,11 @@ async function outputBoundaryPoint(page: Page): Promise<{ x: number; y: number }
   })
 }
 
-async function dragStructuralProducer(page: Page, producer: StructuralProducer): Promise<void> {
-  if (producer === 'reroute') {
-    const center = await rerouteCenter(page)
-    await page.mouse.move(center.x, center.y)
-  }
-  const from = await producerPoint(page, producer)
+async function dragReroute(page: Page): Promise<void> {
+  // Hovering the junction reveals its output handle to the right.
+  const center = await rerouteCenter(page)
+  await page.mouse.move(center.x, center.y)
+  const from = { x: center.x + 21, y: center.y }
   const to = await outputBoundaryPoint(page)
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
@@ -139,7 +105,7 @@ test.beforeEach(async ({ page }) => {
   await registerSchemas(page)
 })
 
-test('structural producers refuse direct boundary outputs with visible diagnostics', async ({ page }) => {
+test('a reroute refuses a direct boundary output with a visible diagnostic', async ({ page }) => {
   await openStructuralWorkflow(page)
   const before = await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
@@ -147,22 +113,11 @@ test('structural producers refuse direct boundary outputs with visible diagnosti
       .find((item) => item.side === 'outputs')!.layout.pins.map((pin) => pin.portId)
     return { revision: tab.store.revision, outputs }
   })
-  const cases = [
-    { producer: 'valueSource' as const, label: "value source 'literal'" },
-    { producer: 'selector' as const, label: "selector 'choice'" },
-    { producer: 'reroute' as const, label: "reroute 'junction'" },
-  ]
-  const expectedMessages: string[] = []
-  for (const item of cases) {
-    await dragStructuralProducer(page, item.producer)
-    expectedMessages.push(
-      `Cannot expose ${item.label} on boundary outputs: structural producers require stamped public output types`,
-    )
-    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.problems.get()
-      .filter((diagnostic) => diagnostic.code === 'boundary.structuralProducerUnsupported')
-      .map((diagnostic) => diagnostic.message))).toEqual(expectedMessages)
-    await expect(page.getByTestId('problems-panel')).toContainText(`Cannot expose ${item.label} on boundary outputs`)
-  }
+  const message = "Cannot expose reroute 'junction' on boundary outputs: structural producers require stamped public output types"
+  await dragReroute(page)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.problems.get()
+    .filter((diagnostic) => diagnostic.code === 'boundary.structuralProducerUnsupported')
+    .map((diagnostic) => diagnostic.message))).toEqual([message])
   const after = await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
     const outputs = window.__dinksterTest!.renderer!.getScene().boundaryNodes
@@ -173,9 +128,7 @@ test('structural producers refuse direct boundary outputs with visible diagnosti
 
   await openRailPanel(page, 'Problems')
   await expect(page.getByTestId('problems-panel')).toBeVisible()
-  for (const item of cases) {
-    await expect(page.getByTestId('problems-panel')).toContainText(`Cannot expose ${item.label} on boundary outputs`)
-  }
+  await expect(page.getByTestId('problems-panel')).toContainText("Cannot expose reroute 'junction' on boundary outputs")
   await page.mouse.move(20, 20)
   if (proofDir) {
     await page.screenshot({

@@ -88,7 +88,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   const [mode, setMode] = createSignal<CanvasSeedMode | undefined>(inRow.controllerMode)
   const chooseMode = (next: CanvasSeedMode): void => {
     const previous = mode()
-    if (next === previous || ed.target.kind !== 'input') return
+    if (next === previous) return
     setMode(next)
     void props.commitCommand({ command: 'node.setController', params: {
       graphId: ed.target.familyOwner?.graphId ?? ed.graphId,
@@ -104,16 +104,14 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   }
 
   const commitText = (value: string): Promise<boolean> => {
-    if (ed.target.kind === 'input') {
-      const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
-      const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
-      const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
-      const current = ed.tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[inputId]
-      const resolution = resolveTextCommit(ed.initial, value, current)
-      if (resolution.kind === 'none') { props.close(); return Promise.resolve(true) }
-      if (resolution.kind === 'splice') {
-        return props.commitCommand({ command: 'text.splice', params: { graphId, nodeId, inputId, ...resolution.splice } })
-      }
+    const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
+    const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
+    const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
+    const current = ed.tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[inputId]
+    const resolution = resolveTextCommit(ed.initial, value, current)
+    if (resolution.kind === 'none') { props.close(); return Promise.resolve(true) }
+    if (resolution.kind === 'splice') {
+      return props.commitCommand({ command: 'text.splice', params: { graphId, nodeId, inputId, ...resolution.splice } })
     }
     return props.commitValue(value)
   }
@@ -194,7 +192,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
       // Stored with Enter, the keyboard stays on the row.
       const target = ed.target
       void commit().then((closed) => {
-        if (closed && target.kind === 'input') host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
+        if (closed) host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
       })
     }
     else if (event.key === 'Escape') { event.preventDefault(); props.close() }
@@ -202,7 +200,6 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
       event.preventDefault()
       const direction = event.shiftKey ? -1 : 1
       const target = ed.target
-      if (target.kind !== 'input') return
       void commit().then((closed) => { if (closed) host.moveRow?.({ nodeId: target.nodeId, valueKey: target.valueKey }, direction) })
     }
   }

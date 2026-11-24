@@ -114,7 +114,7 @@ describe('preview exposure menu', () => {
       doc: value,
       graphId: 'g0',
       target: { kind: 'node', nodeId: 'n1', ...(previewSurface ? { previewSurface } : {}) },
-      selection: { nodes: ['n1'], links: [], reroutes: [], valueSources: [], selectors: [] },
+      selection: { nodes: ['n1'], links: [], reroutes: [] },
       worldX: 0,
       worldY: 0,
     }

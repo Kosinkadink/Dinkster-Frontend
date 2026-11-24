@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { compile } from '../src/compile/compile.js'
+import { compile, documentPrimitiveResolver } from '../src/compile/compile.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { Diagnostic } from '../src/diagnostics.js'
@@ -22,6 +22,7 @@ import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import type { ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
+import { PRIMITIVE_SCHEMAS, withPrimitives } from './fixtures/primitive-schemas.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -1970,7 +1971,76 @@ describe('Autogrow endpoint reconstruction', () => {
     expect(solveGraphTypes(namesGraph, namesResult.localResolve).diagnostics.filter((d) => d.code === 'solve.portMissing')).toEqual([])
   })
 
-  it('rewrites value-source and named-net Autogrow sinks', () => {
+  it('imports frontend PrimitiveNodes as the primitive the fed field drags out', () => {
+    const consumer = sdSchema('Consumer', 'Consumer', [
+      sdInput('seed', 'INT', 'INT'), sdInput('image', 'IMAGE'), sdInput('steps', 'INT', 'INT'),
+    ], true)
+    const localResolve = withPrimitives((type) => (type === consumer.type ? consumer : undefined))
+    const result = importLitegraph(
+      workflow([
+        lgNode(1, 'PrimitiveNode', { outputs: [{ name: 'INT', links: [1] }], widgets_values: [42, 'randomize'], title: 'Seed', mode: 2 }),
+        lgNode(2, 'PrimitiveNode', { outputs: [{ name: 'IMAGE', links: [2] }], widgets_values: ['pic.png'] }),
+        lgNode(3, 'PrimitiveNode', { outputs: [{ name: 'INT', links: [3] }], widgets_values: [9] }),
+        lgNode(4, 'SetNode', { inputs: [{ name: 'value', link: 3 }], outputs: [{ name: '*' }], widgets_values: ['count'] }),
+        lgNode(5, 'GetNode', { outputs: [{ name: 'value', links: [4] }], widgets_values: ['count'] }),
+        lgNode(6, 'PrimitiveNode', { outputs: [{ name: 'INT' }] }),
+        lgNode(7, consumer.type, {
+          inputs: [{ name: 'seed', link: 1, widget: { name: 'seed' } }, { name: 'image', link: 2 }, { name: 'steps', link: 4, widget: { name: 'steps' } }],
+        }),
+      ], [lgLink(1, 1, 0, 7, 0), lgLink(2, 2, 0, 7, 1), lgLink(3, 3, 0, 4, 0), lgLink(4, 5, 0, 7, 2)]),
+      localResolve, undefined, [], PRIMITIVE_SCHEMAS,
+    )
+    const graph = result.document!.graphs.g0!
+    expect(graph.nodes['n1']).toMatchObject({
+      type: 'dinkster.utilities.primitive_int', values: { value: 42 }, controllers: { value: 'randomize' }, mode: 'muted', title: 'Seed',
+    })
+    expect(graph.nodes['n2']).toMatchObject({ type: 'dinkster.utilities.primitive', values: { value: 'pic.png' } })
+    expect(graph.nodes['n3']).toMatchObject({ type: 'dinkster.utilities.primitive_int', values: { value: 9 } })
+    expect(graph.nodes['n6']).toBeUndefined()
+    expect(Object.values(graph.links).map((link) => [link.from, link.to])).toEqual(expect.arrayContaining([
+      [{ node: 'n1', port: 'value' }, { node: 'n7', port: 'seed' }],
+      [{ node: 'n2', port: 'value' }, { node: 'n7', port: 'image' }],
+    ]))
+    expect(Object.values(graph.nets)).toEqual([expect.objectContaining({
+      source: { node: 'n3', port: 'value' }, sinks: [{ node: 'n7', port: 'steps' }],
+    })])
+    expect(result.diagnostics.map((d) => d.code)).toEqual(expect.arrayContaining(['import.primitive.converted', 'import.primitive.dropped']))
+  })
+
+  it.each([
+    ['FLOAT', 'dinkster.utilities.primitive_float', 0.75],
+    ['STRING', 'dinkster.utilities.primitive_string', 'a cat'],
+    ['BOOLEAN', 'dinkster.utilities.primitive_boolean', true],
+    ['COMBO', 'dinkster.utilities.primitive_choice', 'dpm'],
+  ] as const)('imports a PrimitiveNode feeding a %s field as %s', (widgetType, primitiveType, value) => {
+    const field: InputSpec = {
+      kind: 'input', id: 'field', type: { kind: 'concrete', name: widgetType }, optional: false,
+      widget: { widgetType, options: widgetType === 'COMBO' ? { options: ['euler', 'dpm', 'ddim'] } : {} },
+    }
+    const consumer = sdSchema('Consumer', 'Consumer', [field], true)
+    const localResolve = withPrimitives((type) => (type === consumer.type ? consumer : undefined))
+    const result = importLitegraph(
+      workflow([
+        lgNode(1, 'PrimitiveNode', { outputs: [{ name: widgetType, type: widgetType, links: [1] }], widgets_values: [value] }),
+        lgNode(2, consumer.type, { inputs: [{ name: 'field', link: 1, widget: { name: 'field' } }] }),
+      ], [lgLink(1, 1, 0, 2, 0)]),
+      localResolve, undefined, [], PRIMITIVE_SCHEMAS,
+    )
+    expect(errorsOf(result.diagnostics)).toEqual([])
+    const document = result.document!
+    const primitive = document.graphs.g0!.nodes['n1']!
+    expect(primitive).toMatchObject({ type: primitiveType, values: { value } })
+    expect(Object.values(document.graphs.g0!.links).map((link) => [link.from, link.to])).toEqual([
+      [{ node: 'n1', port: 'value' }, { node: 'n2', port: 'field' }],
+    ])
+    if (widgetType === 'COMBO') {
+      // The Choice stores only its pick; its options are the fed field's.
+      const effective = documentPrimitiveResolver(document, localResolve)('g0', primitive)
+      expect(effective?.spec).toMatchObject({ widgetType: 'COMBO', options: { options: ['euler', 'dpm', 'ddim'] } })
+    }
+  })
+
+  it('rewrites primitive and named-net Autogrow sinks', () => {
     const schema: NodeSchema = {
       type: 'RoutedBatch', displayName: 'Routed Batch', category: 'test', source: 'v3', isOutputNode: false,
       body: [{
@@ -1984,9 +2054,11 @@ describe('Autogrow endpoint reconstruction', () => {
         lgNode(1, 'PrimitiveNode', { outputs: [{ name: 'IMAGE', links: [1] }], widgets_values: ['asset'] }),
         lgNode(2, schema.type, { inputs: [{ name: 'images.image0', link: 1 }] }),
       ], [lgLink(1, 1, 0, 2, 0)]),
-      localResolve,
+      withPrimitives(localResolve), undefined, [], PRIMITIVE_SCHEMAS,
     )
-    expect(primitive.document!.graphs.g0!.links['l1']!.to).toEqual({ node: 'n2', port: 'images.image0' })
+    expect(primitive.document!.graphs.g0!.links['l1']!).toMatchObject({
+      from: { node: 'n1', port: 'value' }, to: { node: 'n2', port: 'images.image0' },
+    })
 
     const net = importLitegraph(
       workflow([

@@ -659,7 +659,6 @@ describe('retainProvenExecution', () => {
   it.each([
     ['different backend', { connection: 'backend-b' }],
     ['schema change', { schemaHash: 'schema-b' }],
-    ['random selector', { choices: [{ graph: 'root', selector: 's', policy: 'random', candidate: 'x' }] }],
     ['missing provenance', { provenance: { toSource: {}, fromSource: {} } }],
   ])('rejects retention for %s', (_name, change) => {
     const live = artifact()
@@ -688,28 +687,6 @@ describe('retainProvenExecution', () => {
     expect(retained.execution.nodes.a).toBeUndefined()
     expect(retained.execution.nodes.b?.state).toBe('cached')
     expect(retained.retainedRuntimeIds).toEqual(new Set(['b']))
-  })
-
-  it('retains an independent branch while rejecting a random selector cone', () => {
-    const random = {
-      choices: [{ graph: 'root', selector: 's', policy: 'random', candidate: 'x' }],
-      provenance: {
-        toSource: { a: 'a', b: 'b' },
-        fromSource: { a: ['a'], b: ['b'] },
-        randomSelectorInputs: { b: ['value'] },
-      },
-    } as Partial<CompileArtifact>
-    const live = artifact(random)
-    const current = execution('n+1', 20, artifact({ ...random, scope: { kind: 'partial', targets: [] }, prompt: {} }))
-    const prior = execution('n', 10, artifact(random), {
-      nodes: {
-        a: { state: 'done', outputs: { out: { typeId: 'INT', value: 1 } } },
-        b: { state: 'done', outputs: { out: { typeId: 'INT', value: 2 } } },
-      },
-    })
-    const retained = retainProvenExecution(current, [prior, current], live, [], resolveSchema)
-    expect(retained.execution.nodes.a).toMatchObject({ state: 'cached' })
-    expect(retained.execution.nodes.b).toBeUndefined()
   })
 
   it('rejects recyclable V1 filenames while retaining digest assets and in-memory frames', () => {
@@ -1350,29 +1327,6 @@ describe('deriveSceneOverlays', () => {
     expect(model.badges.first).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'core.subgraph', count: 2, icon: 'subgraph', placement: 'title' }),
     ]))
-  })
-
-  it('resolves recorded selector choices on frozen tabs only, filtered to the current graph', () => {
-    const artifact = {
-      choices: [
-        { graph: 'g0', selector: 'sel', candidate: 'c1' },
-        { graph: 'other', selector: 'x', candidate: 'y' },
-      ],
-      provenance: {},
-    }
-    const frozen = deriveSceneOverlays({ ...base, frozen: true, exec: exec({ artifact }) })
-    expect(frozen.selectorResolutions).toEqual(new Map([['sel', 'c1']]))
-    // Live tabs never get resolutions - the document is editable.
-    const live = deriveSceneOverlays({ ...base, frozen: false, exec: exec({ artifact }) })
-    expect(live.selectorResolutions).toBeUndefined()
-    // No choice in this graph: undefined, not an empty map.
-    const elsewhere = deriveSceneOverlays({
-      ...base,
-      frozen: true,
-      graphId: 'g9',
-      exec: exec({ artifact }),
-    })
-    expect(elsewhere.selectorResolutions).toBeUndefined()
   })
 
   it('wraps a decoded retained preview as cached without mutating the shared decode', () => {

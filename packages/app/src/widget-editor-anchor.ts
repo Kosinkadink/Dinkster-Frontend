@@ -1,5 +1,5 @@
 import { assetMultiSelect, jsonSameValue, type Json, type WorkflowDocument } from '@dinkster/core'
-import type { LayoutRow, SceneValueSource } from '@dinkster/canvas'
+import type { LayoutRow } from '@dinkster/canvas'
 import type { Tab } from './app-state.js'
 import type { WidgetEditorState } from './WidgetEditor.js'
 
@@ -37,16 +37,10 @@ export function widgetEditorAnchorAlive(
   graphId: string,
   currentMergeableTypes: readonly string[] | undefined,
   documentUnchanged = false,
-  valueSources: readonly Pick<SceneValueSource, 'id' | 'effective'>[] = [],
 ): boolean {
   if (ed === undefined) return false
   if (ed.tab.id !== tabId || ed.graphId !== graphId) return false
   const target = ed.target
-  if (target.kind === 'valueSource') {
-    const source = valueSources.find((item) => item.id === target.valueSourceId)
-    return documentUnchanged && source !== undefined &&
-      JSON.stringify(source.effective.spec) === JSON.stringify(ed.spec)
-  }
   const node = nodes.find((item) => item.id === target.nodeId)
   if (node === undefined) return false
   const row = node.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === target.valueKey)
@@ -79,7 +73,7 @@ export function widgetEditorAnchorAlive(
  * changes are not affected.
  */
 export function inRowValueKept(ed: WidgetEditorState | undefined, doc: WorkflowDocument): boolean {
-  if (ed?.inRow === undefined || ed.target.kind !== 'input') return true
+  if (ed?.inRow === undefined) return true
   const target = ed.target
   const stored = doc.graphs[target.familyOwner?.graphId ?? ed.graphId]?.nodes[target.familyOwner?.nodeId ?? target.nodeId]
     ?.values[target.familyOwner?.valueKey ?? target.valueKey]

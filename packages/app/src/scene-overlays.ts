@@ -90,8 +90,6 @@ const controllerSensitiveFor = (
   artifact: NonNullable<ExecutionState['artifact']>,
   resolveSchema: ((type: string) => NodeSchema | undefined) | undefined,
 ) => {
-  const valueSourceSensitive = Object.values(artifact.snapshot.graphs).some((graph) =>
-    Object.values(graph.valueSources ?? {}).some((source) => source.controller !== undefined && source.controller !== 'fixed'))
   const controlled = new Set(Object.entries(artifact.provenance.toSource).flatMap(([runtimeId, key]) => {
     try {
       const source = parseOccurrenceKey(key)
@@ -116,7 +114,6 @@ const controllerSensitiveFor = (
   }))
   const provenRuntimeIds = new Set(Object.keys(artifact.provenance.toSource))
   return (runtimeId: string): boolean => {
-    if (valueSourceSensitive) return true
     const pending = [runtimeId]
     const seen = new Set<string>()
     while (pending.length > 0) {
@@ -371,8 +368,6 @@ export interface SceneOverlayModel {
    * consumers, e.g. the lens context, must abstain rather than guess).
    */
   readonly ownRuntimeIds: ((nodeId: string) => readonly string[]) | undefined
-  /** Recorded selector choices (frozen tabs only); undefined = none. */
-  readonly selectorResolutions: Map<string, string> | undefined
   readonly badges: Readonly<Record<string, NodeBadge[]>>
   /**
    * Chronological run log records attributed to each scene node in this
@@ -891,20 +886,6 @@ export function deriveSceneOverlays(args: {
     estimates,
   })
 
-  // Frozen views show the selector branches that ACTUALLY ran: the
-  // artifact's recorded choices are authoritative (a random policy must
-  // display its recorded roll, never a fresh one). Live tabs never get
-  // resolutions - their document is editable and the policy badge already
-  // tells the truth about the NEXT run.
-  let selectorResolutions: Map<string, string> | undefined
-  if (args.frozen && exec?.artifact) {
-    const resolutions = new Map<string, string>()
-    for (const c of exec.artifact.choices ?? []) {
-      if (c.graph === gid) resolutions.set(c.selector, c.candidate)
-    }
-    if (resolutions.size > 0) selectorResolutions = resolutions
-  }
-
   const badges: Record<string, NodeBadge[]> = {}
   for (const n of scene.nodes) {
     const list: NodeBadge[] = []
@@ -1108,7 +1089,6 @@ export function deriveSceneOverlays(args: {
     companions: derived.companions,
     companionSources: derived.sources,
     ownRuntimeIds,
-    selectorResolutions,
     badges,
     runLogsByNode,
     runErrorsByNode,

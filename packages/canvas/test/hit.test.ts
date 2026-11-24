@@ -23,11 +23,6 @@ import { historicalSchemas as schemas } from './historical-schemas.js'
 import {
   buildScene,
   GROUP_HEADER_HEIGHT,
-  selectorBadgeRect,
-  selectorCandidatePinPosition,
-  selectorOutPinPosition,
-  valueSourceBadgeRect,
-  valueSourcePinPosition,
   type Scene,
 } from '../src/scene.js'
 import { hitTest, hitTestLink, hitTestPin, hoveredNodeAt, linkBounds, linkControlOffset, pinPosition, LINK_HIT_RADIUS, LINK_MIDPOINT_HIT_RADIUS, PIN_HIT_RADIUS } from '../src/hit.js'
@@ -191,46 +186,6 @@ describe('hitTest', () => {
       node.y + input.y,
       { scale: 0.1, detailLevel: 'overview' },
     )).toMatchObject({ kind: 'pin', node: { id: node.id }, portId: input.portId })
-  })
-
-  it('FR3 a value source pill overlapping a node body wins the click (paint order)', () => {
-    const local = sceneOf('value-source')
-    const node = local.nodes[0]!
-    const valueSource = local.valueSources[0]!
-    ;(valueSource as any).x = node.x + 20
-    ;(valueSource as any).y = node.y + 20
-    expect(hitTest(local, valueSource.x + 10, valueSource.y + 10)).toMatchObject({
-      kind: 'valueSource', valueSource,
-    })
-  })
-
-  it('FR3 a selector box overlapping a value source pill wins the click (topmost paint)', () => {
-    const local = sceneOf('selector')
-    const valueScene = sceneOf('value-source')
-    ;(local as any).valueSources = valueScene.valueSources
-    const selector = local.selectors[0]!
-    const valueSource = local.valueSources[0]!
-    ;(valueSource as any).x = selector.x + 20
-    ;(valueSource as any).y = selector.y + 20
-    expect(hitTest(local, valueSource.x + 10, valueSource.y + 10)).toMatchObject({
-      kind: 'selector', selector,
-    })
-  })
-
-  it('FR3 a selector pin overlapping a node pin wins (topmost paint band)', () => {
-    const local = sceneOf('selector')
-    const nodeScene = sceneOf('exec-basic')
-    ;(local as any).nodes = nodeScene.nodes
-    const selector = local.selectors[0]!
-    const node = local.nodes[0]!
-    const pin = node.layout.pins.find((candidate) => candidate.widgetTap !== true)!
-    const x = pin.direction === 'in' ? node.x : node.x + node.layout.width
-    const y = node.y + pin.y
-    ;(selector as any).x = x - selector.width
-    ;(selector as any).y = y - selector.headerHeight / 2
-
-    expect(selectorOutPinPosition(selector)).toEqual({ x, y })
-    expect(hitTest(local, x, y)).toMatchObject({ kind: 'selectorOut', selector })
   })
 
   it('pins hit within PIN_HIT_RADIUS and win over the node body', () => {
@@ -407,14 +362,14 @@ describe('hitTestLink', () => {
   })
 
   it('omits the midpoint control but keeps a screen-sized curve target in overview', () => {
-    const linkOnly = { ...scene, nodes: [], boundaryNodes: [], reroutes: [], valueSources: [], selectors: [] }
+    const linkOnly = { ...scene, nodes: [], boundaryNodes: [], reroutes: [] }
     expect(hitTest(linkOnly, mx, my + 30, { scale: 0.1, detailLevel: 'overview' })).toMatchObject({
       kind: 'link', link: { id: link.id }, midpoint: false,
     })
   })
 
   it('does not mark ordinary curve hits as midpoint hits', () => {
-    const linkOnly = { ...scene, nodes: [], boundaryNodes: [], reroutes: [], valueSources: [], selectors: [] }
+    const linkOnly = { ...scene, nodes: [], boundaryNodes: [], reroutes: [] }
     expect(hitTest(linkOnly, link.x1, link.y1)).toMatchObject({
       kind: 'link', link: { id: link.id }, midpoint: false,
     })
@@ -422,7 +377,7 @@ describe('hitTestLink', () => {
 
   it('grants net delivery noodles no midpoint flag and no widened grab ring', () => {
     const netScene = {
-      ...scene, nodes: [], boundaryNodes: [], reroutes: [], valueSources: [], selectors: [],
+      ...scene, nodes: [], boundaryNodes: [], reroutes: [],
       links: [{ ...link, id: 'net100:0', netId: 'net100', netName: 'latents' }],
     }
     // The curve still hits at its midpoint, but never as a midpoint handle.
@@ -828,102 +783,6 @@ describe('group hit testing', () => {
     expect(hitTest(overlap, group.x, group.y, { scale: 2 })).toMatchObject({
       kind: 'resize', node: { id: node.id }, handle: 'nw',
     })
-  })
-})
-
-describe('value source hit testing', () => {
-  // value-source fixture: pill v2 at (80,140) driving n0.width/height.
-  const scene = sceneOf('value-source')
-  const vs = scene.valueSources[0]!
-
-  it('the output pin wins over the pill body (link drags beat moves)', () => {
-    const pin = valueSourcePinPosition(vs)
-    // Just inside the pill's right edge, still within pin grab radius.
-    const hit = hitTest(scene, pin.x - 2, pin.y)
-    expect(hit.kind).toBe('valueSourceOut')
-    if (hit.kind === 'valueSourceOut') {
-      expect(hit.valueSource.id).toBe('v2')
-      expect(hit.x).toBe(pin.x)
-      expect(hit.y).toBe(pin.y)
-    }
-  })
-
-  it('the spec badge wins over the pill body (details beat drags)', () => {
-    const badge = valueSourceBadgeRect(vs)
-    const hit = hitTest(scene, badge.x + badge.width / 2, badge.y + badge.height / 2)
-    expect(hit.kind).toBe('valueSourceBadge')
-    if (hit.kind === 'valueSourceBadge') expect(hit.valueSource.id).toBe('v2')
-  })
-
-  it('the pill body resolves to valueSource (select/drag/edit)', () => {
-    // Left half of the pill: away from the badge and the output pin.
-    const hit = hitTest(scene, vs.x + 10, vs.y + vs.height / 2)
-    expect(hit.kind).toBe('valueSource')
-    if (hit.kind === 'valueSource') expect(hit.valueSource.id).toBe('v2')
-  })
-
-  it('outside the pill misses it', () => {
-    expect(hitTest(scene, vs.x - PIN_HIT_RADIUS - 1, vs.y - PIN_HIT_RADIUS - 1).kind).toBe('empty')
-  })
-})
-
-describe('selector hit testing', () => {
-  // selector fixture: s6 fixed (IMAGE branches) at (440,140), s9 random
-  // (mixed IMAGE/LATENT) at (440,560).
-  const scene = sceneOf('selector')
-  const s6 = scene.selectors.find((s) => s.id === 's6')!
-  const s9 = scene.selectors.find((s) => s.id === 's9')!
-
-  it('the output pin wins over the box body and reports the traced type', () => {
-    const out = selectorOutPinPosition(s6)
-    // Just inside the right edge, still within pin grab radius.
-    const hit = hitTest(scene, out.x - 2, out.y)
-    expect(hit.kind).toBe('selectorOut')
-    if (hit.kind === 'selectorOut') {
-      expect(hit.selector.id).toBe('s6')
-      expect({ x: hit.x, y: hit.y }).toEqual(out)
-      expect(hit.type).toEqual({ kind: 'concrete', name: 'IMAGE' })
-    }
-  })
-
-  it('a candidate pin wins over the box body and reports branch + type', () => {
-    const pin = selectorCandidatePinPosition(s6, 'c8')!
-    const hit = hitTest(scene, pin.x + 2, pin.y)
-    expect(hit.kind).toBe('selectorIn')
-    if (hit.kind === 'selectorIn') {
-      expect(hit.selector.id).toBe('s6')
-      expect(hit.candidate).toBe('c8')
-      expect({ x: hit.x, y: hit.y }).toEqual(pin)
-      expect(hit.type).toEqual({ kind: 'concrete', name: 'IMAGE' })
-    }
-  })
-
-  it('a mixed selector reports wildcard at the output but concrete branches', () => {
-    const out = hitTest(scene, selectorOutPinPosition(s9).x, selectorOutPinPosition(s9).y)
-    expect(out.kind).toBe('selectorOut')
-    if (out.kind === 'selectorOut') expect(out.type).toEqual({ kind: 'wildcard' })
-    const latent = selectorCandidatePinPosition(s9, 'c11')!
-    const branch = hitTest(scene, latent.x, latent.y)
-    expect(branch.kind).toBe('selectorIn')
-    if (branch.kind === 'selectorIn') expect(branch.type).toEqual({ kind: 'concrete', name: 'LATENT' })
-  })
-
-  it('the policy badge wins over the body (details beat drags)', () => {
-    const badge = selectorBadgeRect(s6)
-    const hit = hitTest(scene, badge.x + badge.width / 2, badge.y + badge.height / 2)
-    expect(hit.kind).toBe('selectorBadge')
-    if (hit.kind === 'selectorBadge') expect(hit.selector.id).toBe('s6')
-  })
-
-  it('the box interior resolves to selector (select/drag/menu)', () => {
-    // Center-left of the header band: away from the badge and both pin edges.
-    const hit = hitTest(scene, s6.x + s6.width / 3, s6.y + s6.headerHeight / 2)
-    expect(hit.kind).toBe('selector')
-    if (hit.kind === 'selector') expect(hit.selector.id).toBe('s6')
-  })
-
-  it('outside the box misses it', () => {
-    expect(hitTest(scene, s6.x - PIN_HIT_RADIUS - 1, s6.y - PIN_HIT_RADIUS - 1).kind).toBe('empty')
   })
 })
 

@@ -829,19 +829,16 @@ type DynEnd =
   | [node: string, port: string]
   | { reroute: string }
   | { node: string; tap: string }
-  | { valueSource: string }
 const dynDoc = (parts: {
   nodes: Record<string, DynNode>
   links?: [from: DynEnd, to: DynEnd][]
   reroutes?: string[]
-  valueSources?: Record<string, unknown>
   nets?: [name: string, source: [node: string, port: string], sinks: [node: string, port: string][]][]
   boundary?: { inputs?: unknown[]; outputs?: unknown[] }
   subgraphs?: Record<string, {
     nodes: Record<string, DynNode>
     links?: [from: DynEnd, to: DynEnd][]
     reroutes?: string[]
-    valueSources?: Record<string, unknown>
     boundary: { inputs?: unknown[]; outputs?: unknown[] }
   }>
 }): WorkflowDocument => {
@@ -854,7 +851,6 @@ const dynDoc = (parts: {
     links: [DynEnd, DynEnd][],
     boundary?: { inputs?: unknown[]; outputs?: unknown[] },
     reroutes: readonly string[] = [],
-    valueSources: Record<string, unknown> = {},
   ): unknown => ({
     id,
     name: id,
@@ -869,19 +865,14 @@ const dynDoc = (parts: {
       name, source: end(source), sinks: sinks.map((sink) => end(sink)),
     }])) : {},
     reroutes: Object.fromEntries(reroutes.map((reroute) => [reroute, { id: reroute }])),
-    valueSources: Object.fromEntries(Object.entries(valueSources).map(([sourceId, value]) => [sourceId, {
-      id: sourceId,
-      value,
-      spec: { widgetType: 'IMAGE' },
-    }])),
     nextOrdinal: 100,
     ...(boundary ? { boundary: { inputs: boundary.inputs ?? [], outputs: boundary.outputs ?? [] } } : {}),
   })
   const graphs: Record<string, unknown> = {
-    g0: defOf('g0', parts.nodes, parts.links ?? [], undefined, parts.reroutes, parts.valueSources),
+    g0: defOf('g0', parts.nodes, parts.links ?? [], undefined, parts.reroutes),
   }
   for (const [id, sub] of Object.entries(parts.subgraphs ?? {})) {
-    graphs[id] = defOf(id, sub.nodes, sub.links ?? [], sub.boundary, sub.reroutes, sub.valueSources)
+    graphs[id] = defOf(id, sub.nodes, sub.links ?? [], sub.boundary, sub.reroutes)
   }
   return {
     format: 'dinkster-workflow',
