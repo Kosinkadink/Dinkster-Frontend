@@ -47,6 +47,7 @@ import { ColorEditingGallery } from './color-editing.js'
 import { InNodeEditorsGallery } from './in-node-editors.js'
 import { RowEditingGallery } from './row-editing.js'
 import { RowListsGallery } from './row-lists.js'
+import { LookupsGallery } from './lookups.js'
 import { ProblemBoxGallery } from './problem-box.js'
 
 type Theme = 'dark' | 'light'
@@ -78,6 +79,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'core-rows',
         'row-editing',
         'row-lists',
+        'lookups',
         'color-editing',
         'collection-rows',
         'editor-rows',
@@ -176,6 +178,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
   'row-lists':
     'A choice, and a list a pack fills from a lookup, open one filtered list in their own row: the value becomes the filter, a check marks the stored option and the grey highlight the candidate. Opening, filtering, refreshing or Tab never changes the stored value; only Enter or a click picks. Model and media fields are asset fields and keep their own editor; a list of plain names is what a pack\'s own dropdown shows.',
+  lookups:
+    'Fields and notes a pack fills from a declared lookup, in every state, worked out by the production elaboration and drawn by the production renderer. Only an answer for exactly the current arguments is used; a closed row always shows its stored value, and nothing a lookup gives is ever stored.',
   'color-editing':
     'A color row becomes its own field when clicked, with a picker under it and what Enter stores beside it. Nothing is stored until the field is left. The saved color is a line in the side part beside the field, read here as the tooltip asked for, while the draft differs from it; nothing marks it by the name.',
   'collection-rows':
@@ -608,7 +612,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box') return
+    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -709,6 +713,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'row-lists'}>
           <RowListsGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'lookups'}>
+          <LookupsGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'color-editing'}>
           <ColorEditingGallery theme={theme()} />

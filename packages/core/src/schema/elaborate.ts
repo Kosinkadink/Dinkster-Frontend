@@ -47,9 +47,13 @@ import type {
   ButtonSpec,
   ChoiceSpec,
   DescribedSpec,
+  FormulaSpec,
   Formulated,
   GroupSpec,
   InputSpec,
+  LookedNumberField,
+  LookedWidgetField,
+  LookupSpec,
   NoteSpec,
   NodeSchema,
   NodeSelectorSpec,
@@ -64,6 +68,8 @@ import type {
   WidgetSpec,
 } from './model.js'
 import { isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
+import { normalizeComboOption } from './combo-options.js'
+import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
 
 // ---------------------------------------------------------------------------
 // Connectivity facts (structural link presence - built once per graph)
@@ -234,6 +240,11 @@ export interface ElaboratedInput {
   readonly kept?: string
   /** Inside its member's box: the row's own label, drawn in place of the full name. */
   readonly ownLabel?: string
+  /**
+   * The widget's fields declared as a lookup, with what the editor holds for
+   * each. The answers in use are already in `spec.widget`.
+   */
+  readonly looked?: Readonly<Partial<Record<LookedWidgetField, LookedState>>>
 }
 
 /**
@@ -363,11 +374,105 @@ export interface ElaboratedNote {
   readonly text: string
   /** The text is the note's "while unknown" answer. */
   readonly unknown?: true
+  /** A note whose text is a lookup: what the editor holds for it, drawn on a line under the text. */
+  readonly lookup?: LookedState
   readonly section?: string
   readonly boxes?: readonly string[]
   /** Line key of the cell drawn before this one in a `Row`. */
   readonly adjacentTo?: string
 }
+
+/** Why the editor holds no fresh answer for a lookup call. */
+export type LookupFailure = 'failed' | 'timeout' | 'wrong-shape' | 'invalid-arguments' | 'unknown' | 'file-unchecked' | 'offline'
+
+/** What the editor holds for one lookup call, as the lookup client reports it. */
+export type LookupAnswerState =
+  | { readonly state: 'loading'; readonly answer?: Json }
+  | { readonly state: 'ready'; readonly answer: Json }
+  | { readonly state: 'stale'; readonly answer: Json; readonly reason: LookupFailure }
+  | { readonly state: 'unavailable'; readonly reason: LookupFailure }
+  | { readonly state: 'paused'; readonly answer?: Json }
+
+/** One call of a declared lookup: its wire name and its arguments, worked out. */
+export interface LookupCallSpec {
+  readonly lookup: string
+  readonly args: readonly Json[]
+}
+
+/**
+ * What a part of a field, or a note, worked out by a lookup shows. Only an
+ * answer for exactly these arguments is ever used.
+ * - off: lookups are not called here (node search, registry previews).
+ * - waiting: an argument is not known, so nothing is called; `input` is the
+ *   flattened id (or, failing that, the name) of the input it reads.
+ * - loading: called, no answer yet.
+ * - ready: the answer is used; `refreshing` while a newer one is asked for.
+ * - stale: the newest call failed; the answer for these arguments is kept.
+ * - unavailable: no answer for these arguments. Without `call` the
+ *   arguments themselves failed and nothing was called.
+ * - paused: the editing budget is spent; `kept` when an answer is used.
+ */
+export type LookedState =
+  | { readonly state: 'off' }
+  | { readonly state: 'waiting'; readonly input: string }
+  | { readonly state: 'loading'; readonly call: LookupCallSpec }
+  | { readonly state: 'ready'; readonly call: LookupCallSpec; readonly refreshing?: true }
+  | { readonly state: 'stale'; readonly call: LookupCallSpec; readonly reason: LookupFailure }
+  | { readonly state: 'unavailable'; readonly call?: LookupCallSpec; readonly reason: LookupFailure }
+  | { readonly state: 'paused'; readonly call: LookupCallSpec; readonly kept: boolean }
+
+const isAnswerOption = (item: unknown): boolean => !Array.isArray(item) && normalizeComboOption(item) !== undefined
+
+/**
+ * A lookup's or formula's answer as the value of a widget field, or undefined
+ * when it has the wrong shape. A limit of null means no limit; a step must be
+ * above zero, and a whole-number field's limits and step whole.
+ */
+export function lookedAnswerValue(widget: Pick<WidgetSpec, 'widgetType' | 'options'>, field: LookedWidgetField, answer: unknown): unknown {
+  if (field === 'options' || field === 'completions') {
+    return Array.isArray(answer) && answer.every(isAnswerOption) ? answer : undefined
+  }
+  if (answer === null) return field === 'step' ? undefined : null
+  const integer = numericStepConstraints(widget).integer
+  const fits = typeof answer === 'number' && Number.isFinite(answer) && (!integer || Number.isSafeInteger(answer))
+  if (!fits && !(integer && isCanonicalUnsafeInteger(answer))) return undefined
+  if (field === 'step' && (typeof answer === 'number' ? answer <= 0 : BigInt(answer as string) <= 0n)) return undefined
+  return answer
+}
+
+/** A lookup call a drawn node waits on, and whether an answer fits where it is used. */
+export interface LookupSite {
+  readonly call: LookupCallSpec
+  readonly accepts: (answer: unknown) => boolean
+}
+
+/** The calls the lookup fields and notes of an elaborated node are loading for, or hold an answer for. */
+export function lookupSitesOf(items: readonly ElaboratedItem[]): LookupSite[] {
+  const sites: LookupSite[] = []
+  for (const item of items) {
+    if (item.kind === 'note' && item.lookup !== undefined && 'call' in item.lookup && item.lookup.call !== undefined) {
+      sites.push({ call: item.lookup.call, accepts: (answer) => typeof answer === 'string' })
+    }
+    if (item.kind !== 'input' || item.looked === undefined) continue
+    const widget = item.spec.widget
+    if (widget === undefined) continue
+    for (const [field, state] of Object.entries(item.looked) as [LookedWidgetField, LookedState][]) {
+      if (!('call' in state) || state.call === undefined) continue
+      sites.push({ call: state.call, accepts: (answer) => lookedAnswerValue(widget, field, answer) !== undefined })
+    }
+  }
+  return sites
+}
+
+const jsonOf = (value: FormulaValue): Json => {
+  const scalar = (item: unknown): Json => typeof item === 'bigint'
+    ? (item >= BigInt(Number.MIN_SAFE_INTEGER) && item <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(item) : item.toString())
+    : item as Json
+  return Array.isArray(value) ? value.map(scalar) : scalar(value)
+}
+
+const limitOf = (value: unknown): bigint | number | undefined =>
+  typeof value === 'number' ? value : isCanonicalUnsafeInteger(value) ? BigInt(value) : undefined
 
 /** An action drawn as a row. The editor does not run its steps. */
 export interface ElaboratedButton {
@@ -511,6 +616,12 @@ export interface ElaborateOptions {
   readonly includeDormant?: boolean
   /** Node identity for diagnostic anchors. */
   readonly nodeId?: NodeId
+  /**
+   * What the editor holds for a lookup call, by the lookup's wire name and
+   * its arguments. A call it holds nothing for is loading. Absent where
+   * lookups are not called, such as node search and registry previews.
+   */
+  readonly lookupAnswers?: (lookup: string, args: readonly Json[]) => LookupAnswerState | undefined
   /**
    * Flattened ids of rows that have a problem (an error or a warning) found
    * outside elaboration. Such a row, and every box that holds it, shows even
@@ -1006,6 +1117,140 @@ function elaboratePass(
     return label === undefined || label === '' ? id : label
   }
 
+  /**
+   * The input a formula that is not known waits for: the first name it reads
+   * that is unknown or wired, by flattened id. Its text when none resolves.
+   */
+  const waitingFor = (text: string, scope: Scope): string => {
+    const names = framesNamesOf(scope.formulaFrames.map((frame) => frame.rows))
+    const { where, unknown } = namesAt(scope)
+    let reads: readonly string[] = []
+    try {
+      reads = [...Formula.parse(text, {
+        names: names.names,
+        inputs: names.inputs,
+        assets: names.assets,
+        tables,
+        derived,
+        inMember: scope.formulaFrames.some((frame) => frame.index !== undefined),
+      }).uses().names]
+    } catch (error) {
+      if (!(error instanceof FormulaRefused)) throw error
+    }
+    const paths = reads.flatMap((name) => {
+      const path = where.get(name)
+      return path === undefined ? [] : [{ path, waits: unknown.has(name) || linked(path) }]
+    })
+    return (paths.find((item) => item.waits) ?? paths[0])?.path ?? text
+  }
+
+  /**
+   * What the editor holds for a declared lookup in this scope, and the answer
+   * in use, if any. Arguments are worked out as formulas; one that is not
+   * known means nothing is called.
+   */
+  const lookedOf = (lookup: LookupSpec, scope: Scope): { readonly state: LookedState; readonly answer?: Json } => {
+    if (options.lookupAnswers === undefined) return { state: { state: 'off' } }
+    const args: Json[] = []
+    for (const argument of lookup.args) {
+      const text = typeof argument === 'string' ? argument : argument.formula
+      const outcome = evaluate(text, scope)
+      if (outcome.kind === 'unknown') return { state: { state: 'waiting', input: waitingFor(text, scope) } }
+      // A lookup takes no None argument.
+      if (outcome.kind === 'failed' || outcome.value === null) return { state: { state: 'unavailable', reason: 'invalid-arguments' } }
+      args.push(jsonOf(outcome.value))
+    }
+    const call: LookupCallSpec = { lookup: lookup.lookup, args }
+    const held = options.lookupAnswers(call.lookup, call.args)
+    if (held === undefined) return { state: { state: 'loading', call } }
+    switch (held.state) {
+      case 'loading':
+        return held.answer === undefined
+          ? { state: { state: 'loading', call } }
+          : { state: { state: 'ready', call, refreshing: true }, answer: held.answer }
+      case 'ready':
+        return { state: { state: 'ready', call }, answer: held.answer }
+      case 'stale':
+        return { state: { state: 'stale', call, reason: held.reason }, answer: held.answer }
+      case 'unavailable':
+        return { state: { state: 'unavailable', call, reason: held.reason } }
+      case 'paused':
+        return held.answer === undefined
+          ? { state: { state: 'paused', call, kept: false } }
+          : { state: { state: 'paused', call, kept: true }, answer: held.answer }
+    }
+  }
+
+  /** A held answer that does not fit where it is used: no answer, for these arguments. */
+  const wrongShape = (state: LookedState): LookedState =>
+    'call' in state && state.call !== undefined ? { state: 'unavailable', call: state.call, reason: 'wrong-shape' } : state
+
+  /**
+   * A widget with its fields declared as a formula or a lookup worked out:
+   * each answer in use replaces the field, and a field with none has no
+   * value (no limit, no options, no completions). Limits that contradict
+   * each other are a wrong shape, never swapped. While a worked-out offset
+   * is not known the field has no step grid.
+   */
+  const lookedWidget = (widget: WidgetSpec & { readonly looked: NonNullable<WidgetSpec['looked']> }, scope: Scope): {
+    readonly widget: WidgetSpec
+    readonly states: Partial<Record<LookedWidgetField, LookedState>>
+  } => {
+    const states: Partial<Record<LookedWidgetField, LookedState>> = {}
+    const fields: Record<string, unknown> = { ...widget.options }
+    let completions = widget.textCompletions
+    const worked = new Set<LookedNumberField>()
+    for (const [field, declared] of Object.entries(widget.looked) as [LookedWidgetField, FormulaSpec | LookupSpec][]) {
+      let found: Json | undefined
+      if (isLookupSpec(declared)) {
+        const site = lookedOf(declared, scope)
+        states[field] = site.state
+        found = site.answer
+      } else {
+        const outcome = evaluate(declared.formula, scope)
+        if (outcome.kind === 'value') found = jsonOf(outcome.value)
+      }
+      const value = found === undefined ? undefined : lookedAnswerValue(widget, field, found)
+      if (found !== undefined && value === undefined && states[field] !== undefined) states[field] = wrongShape(states[field])
+      if (value === undefined) {
+        if (field === 'offset') fields[OFFSET_UNKNOWN] = true
+        continue
+      }
+      if (field === 'options') {
+        fields['options'] = value
+      } else if (field === 'completions') {
+        completions = {
+          items: (value as unknown[]).map((item) => {
+            const option = normalizeComboOption(item)!
+            return { value: String(option.value), label: option.label, insertText: String(option.value), detail: option.info ?? '', kind: 'identifier' as const }
+          }),
+        }
+      } else {
+        if (value === null) delete fields[field]
+        else fields[field] = value
+        worked.add(field)
+      }
+    }
+    const min = limitOf(fields['min'])
+    const max = limitOf(fields['max'])
+    if (min !== undefined && max !== undefined && min > max) {
+      for (const field of ['min', 'max'] as const) {
+        if (!worked.has(field)) continue
+        delete fields[field]
+        const state = states[field]
+        if (state !== undefined) states[field] = wrongShape(state)
+      }
+    }
+    return {
+      widget: {
+        ...widget,
+        options: fields,
+        ...(completions !== undefined ? { textCompletions: completions } : {}),
+      },
+      states,
+    }
+  }
+
   const connectedPorts = [...(connectivity.inputPorts?.() ?? []), ...(connectivity.outputPorts?.() ?? [])]
 
   /**
@@ -1092,16 +1337,22 @@ function elaboratePass(
       const stored = stateOf(path)?.options
       if (stored !== undefined) spec = { ...spec, widget: { ...widget, options: { ...widget.options, options: stored } } }
     }
+    const declared = spec.widget
+    const lookupScope = row.lookupScope === undefined ? scope : { ...scope, formulaFrames: outerFrames(row.lookupScope) }
+    const looked = declared?.looked === undefined ? undefined : lookedWidget({ ...declared, looked: declared.looked }, lookupScope)
+    if (looked !== undefined) spec = { ...spec, widget: looked.widget }
     const parts = row.widget === undefined ? undefined : partsAt(row.widget, scope)
     push({
       kind: 'input',
       address: { port: path },
-      ...(scope.ghost || scope.dormant ? {} : { apiName: path }),
+      // A field that is not sent is drawn and edited but never reaches the run.
+      ...(scope.ghost || scope.dormant || row.sent === false ? {} : { apiName: path }),
       spec,
       ...common(scope),
       ...(parts !== undefined ? { parts } : {}),
       ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
       ...(boxedLabel ? { ownLabel: own } : {}),
+      ...(looked !== undefined && Object.keys(looked.states).length > 0 ? { looked: looked.states } : {}),
       ...extra,
     })
   }
@@ -1244,8 +1495,17 @@ function elaboratePass(
     }
     let item: ElaboratedItem
     if (row.kind === 'note') {
-      const text = isLookupSpec(row.text) ? undefined : answer(row.text, scope, 'string')
-      item = text !== undefined ? { kind: 'note', id, text, ...placed } : { kind: 'note', id, text: row.unknown ?? '', unknown: true, ...placed }
+      if (isLookupSpec(row.text)) {
+        const site = lookedOf(row.text, scope)
+        const text = typeof site.answer === 'string' ? site.answer : undefined
+        const lookup = site.answer !== undefined && text === undefined ? wrongShape(site.state) : site.state
+        item = text !== undefined
+          ? { kind: 'note', id, text, lookup, ...placed }
+          : { kind: 'note', id, text: row.unknown ?? '', unknown: true, lookup, ...placed }
+      } else {
+        const text = answer(row.text, scope, 'string')
+        item = text !== undefined ? { kind: 'note', id, text, ...placed } : { kind: 'note', id, text: row.unknown ?? '', unknown: true, ...placed }
+      }
     } else {
       // Unknown or failed: enabled, with no reason (section 2).
       const enabled = answer(row.enabled, scope, 'boolean')

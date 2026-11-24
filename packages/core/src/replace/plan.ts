@@ -55,12 +55,13 @@ import {
   type TypeChoiceSpec,
   type TypeExpr,
 } from '../schema/model.js'
-import type {
-  InputFamilyMapping,
-  MappingSource,
-  ReplacementCase,
-  ReplacementPredicate,
-  ReplacementRule,
+import {
+  isSameTypeMigration,
+  type InputFamilyMapping,
+  type MappingSource,
+  type ReplacementCase,
+  type ReplacementPredicate,
+  type ReplacementRule,
 } from './model.js'
 import type { ReplacementScanItem } from './scan.js'
 
@@ -591,7 +592,17 @@ export function planReplacement(
   rule: ReplacementRule,
   resolve: ReplacementSchemaResolver,
 ): ReplacementPlanResult {
-  return planReplacementForCase(document, graphId, nodeId, rule, resolve)
+  return planReplacementForCase(document, graphId, nodeId, ordinaryUnlessSameType(rule), resolve)
+}
+
+/**
+ * A rule that changes the type plans as an ordinary replacement: its
+ * historical inputs only tell an importer how to read the saved source node.
+ */
+const ordinaryUnlessSameType = (rule: ReplacementRule): ReplacementRule => {
+  if (rule.migration === undefined || isSameTypeMigration(rule)) return rule
+  const { migration: _historical, ...ordinary } = rule
+  return ordinary
 }
 
 /** Only validated batch composition may retain a previously selected case. */
@@ -1301,7 +1312,9 @@ function planReplacementForCase(
       continue
     }
     const writesValue = mapping.kind === 'constant' || mapping.kind === 'value' || mapping.kind === 'copy'
-    if (writesValue && spec.widget === undefined && mapping.kind !== 'copy') {
+    // A selector input stores its pick without a widget.
+    const holdsValue = spec.widget !== undefined || address.schema.selector?.input === address.port
+    if (writesValue && !holdsValue && mapping.kind !== 'copy') {
       errors.push(diag('error', 'replace.target.notWidget', `replace: target input '${targetInput}' has no widget; cannot write a value`))
       continue
     }
@@ -2192,7 +2205,7 @@ export function replacementInvocation(
   for (const item of items) {
     for (const hop of item.hops) {
       if (scratch.graphs[item.graphId]?.nodes[item.nodeId]?.type !== hop.plan.from) return undefined
-      const planned = planReplacementForCase(scratch, item.graphId, item.nodeId, hop.rule, resolve, hop.plan.caseIndex)
+      const planned = planReplacementForCase(scratch, item.graphId, item.nodeId, ordinaryUnlessSameType(hop.rule), resolve, hop.plan.caseIndex)
       if (planned.plan === undefined) return undefined
       // Archive the originally reviewed source, but guard against the exact
       // intermediate state that this hop will see inside the atomic batch.

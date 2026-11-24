@@ -152,6 +152,10 @@ describe('resolveTypedNumber', () => {
     expect(resolveTypedNumber('330', width, 512)).toEqual({ kind: 'store', value: 320, problem: 'Not a multiple of 64. Enter uses 320.' })
     expect(resolveTypedNumber('150', cfg, 7)).toEqual({ kind: 'store', value: 100, problem: 'Above 100.00. Enter uses 100.00.' })
     expect(resolveTypedNumber('7.555', cfg, 7)).toEqual({ kind: 'store', value: 7.555 })
+    // While a worked-out offset is not known, a whole number is not moved onto a step; limits still hold.
+    const unknownOffset: WidgetSpec = { widgetType: 'INT', options: { min: 64, max: 4096, step: 64, offsetUnknown: true } }
+    expect(resolveTypedNumber('330', unknownOffset, 512)).toEqual({ kind: 'store', value: 330 })
+    expect(resolveTypedNumber('10', unknownOffset, 512)).toEqual({ kind: 'store', value: 64, problem: 'Below 64. Enter uses 64.' })
   })
 
   it('keeps 64-bit whole numbers exact', () => {

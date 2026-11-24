@@ -11,13 +11,20 @@ const CANONICAL_DECIMAL_INTEGER = /^-?(?:0|[1-9][0-9]*)$/
 
 export type IntegerWidgetValue = number | string
 
+/** Set by the editor on a number widget's options while its worked-out offset is not known. */
+export const OFFSET_UNKNOWN = 'offsetUnknown'
+
 export interface IntegerStepConstraints {
   readonly integer: true
   readonly step: bigint
   readonly min?: bigint
   readonly max?: bigint
-  /** What the step counts from: the declared offset, else min, else 0. */
-  readonly offset: bigint
+  /**
+   * What the step counts from: the declared offset, else min, else 0.
+   * Undefined while a worked-out offset is not known: there is no step grid,
+   * so a step moves from the current value.
+   */
+  readonly offset?: bigint
   /** Values allowed outside the limits and off the step, ascending. */
   readonly special: readonly bigint[]
 }
@@ -85,7 +92,7 @@ export function numericStepConstraints(widget: Pick<WidgetSpec, 'widgetType' | '
       step: declaredStep !== undefined && declaredStep > 0n ? declaredStep : 1n,
       ...(min !== undefined ? { min } : {}),
       ...(max !== undefined ? { max } : {}),
-      offset: integerOption(widget.options['offset']) ?? min ?? 0n,
+      ...(widget.options[OFFSET_UNKNOWN] === true ? {} : { offset: integerOption(widget.options['offset']) ?? min ?? 0n }),
       special: specialValues(widget.options['special'], integerOption),
     }
   }
@@ -145,7 +152,8 @@ const floorDiv = (a: bigint, b: bigint): bigint => (a % b === 0n || a >= 0n ? a 
  * step inside the limits, or a special value. Undefined when there is none.
  */
 function nextIntegerValue(current: bigint, direction: -1 | 1, constraints: IntegerStepConstraints): bigint | undefined {
-  const { step, offset } = constraints
+  const { step } = constraints
+  const offset = constraints.offset ?? current
   const min = constraints.min ?? MIN_INTEGER_WIDGET_VALUE
   const max = constraints.max ?? MAX_INTEGER_WIDGET_VALUE
   let onStep: bigint | undefined
