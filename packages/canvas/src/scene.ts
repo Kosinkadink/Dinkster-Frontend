@@ -140,7 +140,8 @@ const onlyNodePositionsChanged = (
       previous.reroutes !== next.reroutes || previous.valueSources !== next.valueSources ||
       previous.selectors !== next.selectors || previous.groups !== next.groups ||
       previous.groupSeq !== next.groupSeq || previous.collapsedNets !== next.collapsedNets ||
-      previous.guideNets !== next.guideNets || previous.boundary !== next.boundary || previous.ext !== next.ext) return false
+      previous.guideNets !== next.guideNets || previous.boundary !== next.boundary || previous.inputsPanel !== next.inputsPanel ||
+      previous.ext !== next.ext) return false
   const previousIds = Object.keys(previous.nodes)
   const nextIds = Object.keys(next.nodes)
   if (previousIds.length !== nextIds.length || previousIds.some((id) => next.nodes[id] === undefined)) return false
