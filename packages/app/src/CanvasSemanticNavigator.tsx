@@ -28,8 +28,6 @@ export type CanvasSemanticTarget =
   | { readonly kind: 'boundary'; readonly id: string }
   | { readonly kind: 'link'; readonly id: string }
   | { readonly kind: 'reroute'; readonly id: string }
-  | { readonly kind: 'valueSource'; readonly id: string }
-  | { readonly kind: 'selector'; readonly id: string }
   | { readonly kind: 'net'; readonly id: string }
   | { readonly kind: 'group'; readonly id: string }
 
@@ -131,8 +129,6 @@ const endpointName = (
   direction: 'in' | 'out',
   nodes: ReadonlyMap<string, SceneNode>,
   reroutes: ReadonlyMap<string, string>,
-  valueSources: ReadonlyMap<string, string>,
-  selectors: ReadonlyMap<string, string>,
   pinNames: ReadonlyMap<string, string>,
 ): string => {
   if (end.kind === 'port') {
@@ -145,11 +141,6 @@ const endpointName = (
     return `${nodes.get(end.node)?.layout.title ?? end.node}.${input}`
   }
   if (end.kind === 'reroute') return reroutes.get(end.reroute) ?? `reroute ${end.reroute}`
-  if (end.kind === 'valueSource') return valueSources.get(end.valueSource) ?? `value source ${end.valueSource}`
-  if (end.kind === 'selector') {
-    const title = selectors.get(end.selector) ?? `selector ${end.selector}`
-    return end.candidate === undefined ? title : `${title}.${end.candidate}`
-  }
   const id = boundarySceneId(end.side)
   const port = pinNames.get(pinConnectionKey(id, direction, end.item, 'boundary')) ?? end.item
   return `${end.side} boundary.${port}`
@@ -177,8 +168,6 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
   const items: CanvasSemanticItem[] = []
   const nodes = new Map(scene.nodes.map((node) => [node.id, node]))
   const reroutes = new Map(scene.reroutes.map((reroute) => [reroute.id, `reroute ${reroute.id}`]))
-  const valueSources = new Map(scene.valueSources.map((valueSource) => [valueSource.id, valueSource.title]))
-  const selectors = new Map(scene.selectors.map((selector) => [selector.id, selector.title]))
   const pinNames = new Map<string, string>()
   const connections = new Map<string, number>()
   const groupsForNode = new Map<string, string[]>()
@@ -329,8 +318,8 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
     // A hidden (collapsed-net) delivery is represented by its net tags; it
     // still counts as a pin connection above but is not a navigable link.
     if (link.hidden === true) continue
-    const from = endpointName(link.from, 'out', nodes, reroutes, valueSources, selectors, pinNames)
-    const to = endpointName(link.to, 'in', nodes, reroutes, valueSources, selectors, pinNames)
+    const from = endpointName(link.from, 'out', nodes, reroutes, pinNames)
+    const to = endpointName(link.to, 'in', nodes, reroutes, pinNames)
     const traits = [
       ...(link.typeName === undefined ? [] : [typeIdDisplayLabel(link.typeName)]),
       ...(link.maybeAbsent === true ? ['may be absent'] : []),
@@ -348,18 +337,6 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
     category: 'reroute',
     label: `Reroute: ${reroute.id}${reroute.typeName === undefined ? '' : `, ${typeIdDisplayLabel(reroute.typeName)}`}`,
     target: { kind: 'reroute', id: reroute.id },
-  })
-  for (const valueSource of scene.valueSources) items.push({
-    key: `value-source:${valueSource.id}`,
-    category: 'valueSource',
-    label: `Value source: ${valueSource.title}, ${valueSource.specState}${valueSource.conflict ? ', conflict' : ''}`,
-    target: { kind: 'valueSource', id: valueSource.id },
-  })
-  for (const selector of scene.selectors) items.push({
-    key: `selector:${selector.id}`,
-    category: 'selector',
-    label: `Selector: ${selector.title}, ${selector.random ? 'random' : 'fixed'}, ${selector.candidates.length} candidates`,
-    target: { kind: 'selector', id: selector.id },
   })
   for (const stub of scene.netStubs) items.push({
     key: `net:${stub.id}`,

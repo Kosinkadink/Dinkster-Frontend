@@ -182,7 +182,7 @@ describe('core.widget.expose menu contribution', () => {
     doc: d,
     graphId: 'g0',
     target: { kind: 'widget', nodeId, inputId, ...extra },
-    selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] },
+    selection: { nodes: [], links: [], reroutes: [] },
     worldX: 0,
     worldY: 0,
   })

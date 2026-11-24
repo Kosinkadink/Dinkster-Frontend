@@ -7,8 +7,6 @@ import {
   asNodeId,
   asPortId,
   asRerouteId,
-  asSelectorCandidateId,
-  asSelectorId,
   type GraphDef,
   type LinkEndpoint,
 } from '../src/index.js'
@@ -103,24 +101,6 @@ describe('analyzeSelectionExecution', () => {
     const result = analyzeSelectionExecution(graph(['a', 'b', 'c'], [], [['a', ['b', 'c']]]), ['a', 'b', 'c'])
     expect(result.first).toEqual(['a'])
     expect(result.last).toEqual(['b', 'c'])
-    expect(result.contiguous).toBe(true)
-  })
-
-  it('expands every defined selector candidate for authored connectivity', () => {
-    const selector = asSelectorId('s')
-    const x = asSelectorCandidateId('x')
-    const y = asSelectorCandidateId('y')
-    const def = graph(['a', 'b', 'c'], [
-      ['a', { selector, candidate: x }],
-      ['b', { selector, candidate: y }],
-      [{ selector }, 'c'],
-    ])
-    ;(def as { selectors: Record<string, unknown> }).selectors = {
-      s: { id: selector, candidates: [{ id: x }, { id: y }], policy: { kind: 'fixed', candidate: x } },
-    }
-    const result = analyzeSelectionExecution(def, ['a', 'b', 'c'])
-    expect(result.first).toEqual(['a', 'b'])
-    expect(result.last).toEqual(['c'])
     expect(result.contiguous).toBe(true)
   })
 

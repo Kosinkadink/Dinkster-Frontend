@@ -15,8 +15,6 @@ import {
   asNodeId,
   asPortId,
   asRerouteId,
-  asSelectorCandidateId,
-  asSelectorId,
   documentResolver,
   createLocalSession,
   connectSharedSession,
@@ -29,7 +27,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { historicalSchemas as schemas } from './historical-schemas.js'
-import { buildScene, boundaryPositions, boundaryNodesInGroup, nodesInGroup, selectorsInGroup, nodeStatesForGraph, scenesEqual, selectorBadgeRect, selectorCandidatePinPosition, selectorOutPinPosition, updateSceneNodePositions, updateSceneNodeValues, valueSourcesInGroup, valueSourcePinPosition, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, SELECTOR_MIN_WIDTH, VS_MIN_WIDTH, type Scene } from '../src/scene.js'
+import { buildScene, boundaryPositions, boundaryNodesInGroup, nodesInGroup, nodeStatesForGraph, scenesEqual, updateSceneNodePositions, updateSceneNodeValues, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, type Scene } from '../src/scene.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 
@@ -216,50 +214,6 @@ describe('buildScene', () => {
     const scene = sceneOf('exec-subgraph', 'g1')
     expect(scene.nodes.map((n) => n.id)).toEqual(['n0'])
     expect(scene.nodes[0]!.isSubgraph).toBe(false)
-  })
-
-  it('value sources are scene items separate from nodes, with derived INT spec', () => {
-    const scene = sceneOf('value-source')
-    expect(scene.nodes.map((n) => n.id).sort()).toEqual(['n0', 'n1'])
-    expect(scene.valueSources).toHaveLength(1)
-    const vs = scene.valueSources[0]!
-    expect(vs.id).toBe('v2')
-    expect(vs.x).toBe(80)
-    expect(vs.y).toBe(140)
-    expect(vs.width).toBeGreaterThanOrEqual(VS_MIN_WIDTH)
-    // No declared spec, but INT consumers: spec derives; no conflicts.
-    expect(vs.specState).toBe('derived')
-    expect(vs.conflict).toBe(false)
-    expect(vs.effective.spec?.widgetType).toBe('INT')
-    expect(vs.typeName).toBe('INT')
-    expect(vs.title).toBe('INT')
-    expect(vs.valueText).toBe('128')
-  })
-
-  it('value source noodles render: direct, into a reroute, and onward (fan-out)', () => {
-    const scene = sceneOf('value-source')
-    const vs = scene.valueSources[0]!
-    const pin = valueSourcePinPosition(vs)
-    const n0 = scene.nodes.find((n) => n.id === 'n0')!
-
-    const direct = scene.links.find((l) => l.id === 'l4')!
-    expect(direct.from).toEqual({ kind: 'valueSource', valueSource: 'v2' })
-    expect(direct.x1).toBe(pin.x)
-    expect(direct.y1).toBe(pin.y)
-    const widthPin = n0.layout.pins.find((p) => p.direction === 'in' && p.portId === 'width')!
-    expect(direct.x2).toBe(n0.x)
-    expect(direct.y2).toBe(n0.y + widthPin.y)
-    expect(direct.typeName).toBe('INT')
-
-    const intoReroute = scene.links.find((l) => l.id === 'l5')!
-    expect(intoReroute.from).toEqual({ kind: 'valueSource', valueSource: 'v2' })
-    expect(intoReroute.to).toEqual({ kind: 'reroute', reroute: 'r3' })
-    expect(intoReroute.typeName).toBe('INT')
-
-    // The reroute dot itself takes the source's advisory type color.
-    expect(scene.reroutes.find((r) => r.id === 'r3')!.typeName).toBe('INT')
-    const onward = scene.links.find((l) => l.id === 'l6')!
-    expect(onward.typeName).toBe('INT')
   })
 
   it('marks a resolver-missing node type as unrecognized', () => {
@@ -559,14 +513,9 @@ describe('buildScene', () => {
             second: { id: asNodeId('second'), type: '#body', values: {} },
           },
           links: {
-            latentFeed: {
-              id: asLinkId('latentFeed'),
-              from: { node: asNodeId('latent'), port: asPortId('value') },
-              to: { selector: asSelectorId('pick'), candidate: asSelectorCandidateId('only') },
-            },
             latentDelivery: {
               id: asLinkId('latentDelivery'),
-              from: { selector: asSelectorId('pick') },
+              from: { node: asNodeId('latent'), port: asPortId('value') },
               to: { node: asNodeId('second'), port: asPortId('input') },
             },
           },
@@ -579,13 +528,6 @@ describe('buildScene', () => {
             },
           },
           reroutes: {},
-          selectors: {
-            pick: {
-              id: asSelectorId('pick'),
-              candidates: [{ id: asSelectorCandidateId('only') }],
-              policy: { kind: 'fixed', candidate: asSelectorCandidateId('only') },
-            },
-          },
           nextOrdinal: 1,
         },
         body: {
@@ -1508,20 +1450,6 @@ describe('groups', () => {
     expect(nodesInGroup(scene, { ...group, x: -5_000, y: -5_000, width: 10, height: 10 })).toEqual([])
   })
 
-  it('value sources and selectors use center membership with inclusive edges', () => {
-    const base = sceneOf('exec-basic')
-    const group = { id: 'g', title: 'g', x: 10, y: 20, width: 100, height: 80 }
-    // Centers are inside, one unit past the right edge, and exactly on it.
-    const positioned = (id: string, centerX: number) => ({ id, x: centerX - 5, y: 55, width: 10, height: 10 })
-    const scene = {
-      ...base,
-      valueSources: [positioned('vs-inside', 50), positioned('vs-outside', 111), positioned('vs-edge', 110)],
-      selectors: [positioned('sel-inside', 50), positioned('sel-outside', 111), positioned('sel-edge', 110)],
-    } as unknown as Scene
-
-    expect(valueSourcesInGroup(scene, group)).toEqual(['vs-inside', 'vs-edge'])
-    expect(selectorsInGroup(scene, group)).toEqual(['sel-inside', 'sel-edge'])
-  })
 })
 
 describe('boundary pseudo-nodes', () => {
@@ -1729,83 +1657,6 @@ describe('boundary pseudo-nodes', () => {
     expect(outLink.typeName).toBe('IMAGE')
   })
 
-  it.each([false, true])('renders exported promoted literals with occurrence constraints and inherited state (reverse: %s)', (reverse) => {
-    const graph = (id: string, nodes = {}) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10 })
-    const binds = { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } }
-    const document: any = {
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'promoted-source', root: 'root',
-      graphs: {
-        root: graph('root', {
-          a: { id: 'a', type: '#wrapper', values: {} },
-          b: { id: 'b', type: '#wrapper', values: { value: 17 }, controllers: { value: 'fixed' } },
-          left: { id: 'left', type: 'Left', values: {} }, right: { id: 'right', type: 'Right', values: {} },
-        }),
-        wrapper: { ...graph('wrapper', { inner: { id: 'inner', type: '#body', values: {} } }), boundary: {
-          inputs: [{ id: 'value', promoted: true, binds: { kind: 'port', node: 'inner', port: 'value' } }],
-          outputs: [{ id: 'out', binds: { kind: 'port', node: 'inner', port: 'out' } }],
-        } },
-        body: { ...graph('body'), valueSources: { v0: { id: 'v0', value: 11, controller: 'increment' } },
-          boundary: { inputs: [{ id: 'value', promoted: true, binds }], outputs: [{ id: 'out', binds }] } },
-      },
-      view: { graphs: {} },
-    }
-    document.graphs.root.links = {
-      l0: { id: 'l0', from: { node: 'a', port: 'out' }, to: { node: 'left', port: 'value' } },
-      l1: { id: 'l1', from: { node: 'b', port: 'out' }, to: { node: 'right', port: 'value' } },
-    }
-    if (reverse) document.graphs.root.nodes = Object.fromEntries(Object.entries(document.graphs.root.nodes).reverse())
-    const resolve = (type: string): NodeSchema | undefined => type === 'Left' || type === 'Right' ? {
-      type, displayName: type, category: 'test', source: 'v3', isOutputNode: false, body: [
-        { kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'INT' }, widget: {
-          widgetType: 'INT', controller: 'after_generate', options: type === 'Left'
-            ? { min: 3, max: 17, step: 2 } : { min: 10, max: 20, step: 7 },
-        } },
-      ],
-    } : undefined
-    const before = structuredClone(document)
-    const root = buildScene({ document, graphId: 'root', resolve, tokens: defaultTokens, measure, widgetMeasure })
-    for (const [id, options, mode] of [
-      ['a', { min: 3, max: 17, step: 2 }, 'increment'],
-      ['b', { min: 10, max: 20, step: 7 }, 'fixed'],
-    ] as const) {
-      const row = root.nodes.find((node) => node.id === id)!.layout.rows.find((row) => row.kind === 'widget')
-      expect(row).toMatchObject({ kind: 'widget', spec: { options, default: 11 }, controllerMode: mode })
-      const drilled = buildScene({ document, graphId: 'wrapper', resolve, tokens: defaultTokens, measure, widgetMeasure,
-        occurrence: { owner: { node: asNodeId(id), instancePath: [] }, plannerAvailable: false },
-        occurrenceView: occurrenceDynamicView(document, resolve, [id]),
-      })
-      expect(drilled.nodes[0]!.layout.rows.find((row) => row.kind === 'widget'))
-        .toMatchObject({ kind: 'widget', spec: { options, default: 11 }, controllerMode: mode })
-    }
-    expect(document).toEqual(before)
-  })
-
-  it('anchors shared literal output bindings at the source pin without creating a consuming input', () => {
-    const binds = { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } }
-    const document = {
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'source-boundary-scene', root: 'g0',
-      graphs: { g0: {
-        id: 'g0', name: 'literal', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
-        valueSources: { v0: { id: 'v0', value: 23 } },
-        boundary: { inputs: [{ id: 'value', promoted: true, binds }], outputs: [{ id: 'out', binds }, { id: 'shared', binds }] },
-      } },
-      view: { graphs: { g0: { nodes: {}, valueSources: { v0: { position: { x: 137, y: 241 } } } } } },
-    } as unknown as WorkflowDocument
-    const scene = buildScene({ document, graphId: 'g0', resolve: documentResolver(document, () => undefined), tokens: defaultTokens, measure, widgetMeasure })
-    expect(scene.nodes).toEqual([])
-    const source = scene.valueSources[0]!
-    expect(source).toMatchObject({ id: 'v0', x: 137, y: 241, valueText: '23' })
-    const links = scene.links.filter((link) => link.boundary)
-    expect(links.map((link) => link.id).sort()).toEqual(['boundary:outputs:out', 'boundary:outputs:shared'])
-    for (const link of links) {
-      expect(link.from).toEqual({ kind: 'valueSource', valueSource: 'v0' })
-      expect(link.to).toMatchObject({ kind: 'boundary', side: 'outputs' })
-      expect(link.x1).toBe(source.x + source.width)
-      expect(link.y1).toBe(source.y + source.height / 2)
-      expect(link.typeName).toBe('INT')
-    }
-  })
-
   it('projects an output widget-tap binding from the exact widget pin', () => {
     const doc = loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document as WorkflowDocument
     const g1 = doc.graphs['g1']!
@@ -1944,133 +1795,6 @@ describe('boundary pseudo-nodes', () => {
     const inLink = scene.links.find((l) => l.id === 'boundary:inputs:color')!
     expect(inLink.x1).toBe(-321 + inputs.layout.width)
     expect(inLink.y1).toBe(77 + inputs.layout.pins[0]!.y)
-  })
-})
-
-describe('selector scene items', () => {
-  // selector fixture: s6 fixed (two IMAGE branches, one via reroute, output
-  // fanning out to two consumers) + s9 random (mixed IMAGE/LATENT branches).
-  const scene = sceneOf('selector')
-  const s6 = scene.selectors.find((s) => s.id === 's6')!
-  const s9 = scene.selectors.find((s) => s.id === 's9')!
-
-  it('selectors are scene items separate from nodes, at their view positions', () => {
-    expect(scene.selectors).toHaveLength(2)
-    expect(scene.nodes.some((n) => n.id === 's6' || n.id === 's9')).toBe(false)
-    expect({ x: s6.x, y: s6.y }).toEqual({ x: 440, y: 140 })
-    expect({ x: s9.x, y: s9.y }).toEqual({ x: 440, y: 560 })
-    expect(s6.width).toBeGreaterThanOrEqual(SELECTOR_MIN_WIDTH)
-  })
-
-  it('title, candidate labels, and policy flags come from the document', () => {
-    expect(s6.title).toBe('Quality')
-    expect(s6.candidates.map((c) => c.label)).toEqual(['full', '2']) // title else 1-based ordinal
-    expect(s6.activeCandidate).toBe('c7')
-    expect(s6.random).toBe(false)
-    expect(s9.title).toBe('Select')
-    expect(s9.activeCandidate).toBeUndefined()
-    expect(s9.random).toBe(true)
-  })
-
-  it('homogeneous driven branches give the output the single agreed type', () => {
-    expect(s6.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'IMAGE'])
-    expect(s6.typeName).toBe('IMAGE')
-  })
-
-  it('mixed branch types keep their own colors but leave the output unresolved', () => {
-    expect(s9.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'LATENT'])
-    expect(s9.typeName).toBeUndefined()
-  })
-
-  it('distinct prefixed and native branch types do not claim one agreed type', () => {
-    const extra: Record<string, NodeSchema> = {
-      DinksterImageSrc: {
-        type: 'DinksterImageSrc', displayName: 'DinksterImageSrc', category: 'test', source: 'v3', isOutputNode: false,
-        body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'IMAGE' } }],
-      },
-      ComfyImageSrc: {
-        type: 'ComfyImageSrc', displayName: 'ComfyImageSrc', category: 'test', source: 'v3', isOutputNode: false,
-        body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'comfy.IMAGE' } }],
-      },
-    }
-    const doc = loadDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: 'lineage-compat-sel', root: 'g0',
-      graphs: {
-        g0: {
-          id: 'g0', name: 'root',
-          nodes: { n0: { id: 'n0', type: 'DinksterImageSrc', values: {} }, n1: { id: 'n1', type: 'ComfyImageSrc', values: {} } },
-          links: {
-            l2: { id: 'l2', from: { node: 'n0', port: 'out' }, to: { selector: 's4', candidate: 'c5' } },
-            l3: { id: 'l3', from: { node: 'n1', port: 'out' }, to: { selector: 's4', candidate: 'c6' } },
-          },
-          nets: {},
-          reroutes: {},
-          selectors: { s4: { id: 's4', candidates: [{ id: 'c5' }, { id: 'c6' }], policy: { kind: 'random' } } },
-          nextOrdinal: 7,
-        },
-      },
-      view: {
-        graphs: {
-          g0: {
-            nodes: { n0: { position: { x: 0, y: 0 } }, n1: { position: { x: 0, y: 200 } } },
-            selectors: { s4: { position: { x: 400, y: 100 } } },
-          },
-        },
-      },
-    }).document as WorkflowDocument
-    const mixed = buildScene({
-      document: doc,
-      graphId: 'g0',
-      resolve: documentResolver(doc, (t) => extra[t] ?? schemas.get(t)),
-      tokens: defaultTokens,
-      measure,
-      widgetMeasure,
-    })
-    const sel = mixed.selectors.find((s) => s.id === 's4')!
-    expect(sel.candidates.map((c) => c.typeName)).toEqual(['IMAGE', 'comfy.IMAGE'])
-    expect(sel.typeName).toBeUndefined()
-  })
-
-  it('every candidate noodle stays visible and anchors at the candidate pin', () => {
-    const direct = scene.links.find((l) => l.id === 'l12')!
-    expect(direct.to).toEqual({ kind: 'selector', selector: 's6', candidate: 'c7' })
-    const pin7 = selectorCandidatePinPosition(s6, 'c7')!
-    expect({ x: direct.x2, y: direct.y2 }).toEqual(pin7)
-
-    // The second branch arrives via a reroute; both hops render.
-    const intoReroute = scene.links.find((l) => l.id === 'l13')!
-    expect(intoReroute.to).toEqual({ kind: 'reroute', reroute: 'r5' })
-    const fromReroute = scene.links.find((l) => l.id === 'l14')!
-    expect(fromReroute.from).toEqual({ kind: 'reroute', reroute: 'r5' })
-    const pin8 = selectorCandidatePinPosition(s6, 'c8')!
-    expect({ x: fromReroute.x2, y: fromReroute.y2 }).toEqual(pin8)
-
-    // Candidate pins sit on the left edge, one per row, below the header.
-    expect(pin7.x).toBe(s6.x)
-    expect(pin8.x).toBe(s6.x)
-    expect(pin7.y).toBeGreaterThan(s6.y + s6.headerHeight)
-    expect(pin8.y).toBeGreaterThan(pin7.y)
-  })
-
-  it('the single output pin anchors fan-out links in the header band', () => {
-    const out = selectorOutPinPosition(s6)
-    expect(out.x).toBe(s6.x + s6.width)
-    expect(out.y).toBe(s6.y + s6.headerHeight / 2)
-    const fanOut = scene.links.filter((l) => l.id === 'l15' || l.id === 'l16')
-    expect(fanOut).toHaveLength(2)
-    for (const link of fanOut) {
-      expect(link.from).toEqual({ kind: 'selector', selector: 's6' })
-      expect({ x: link.x1, y: link.y1 }).toEqual(out)
-      expect(link.typeName).toBe('IMAGE') // traced through the selector
-    }
-    expect(fanOut.map((l) => (l.to as { node: string }).node).sort()).toEqual(['n2', 'n3'])
-  })
-
-  it('the policy badge sits inside the header band at the right edge', () => {
-    const badge = selectorBadgeRect(s6)
-    expect(badge.x + badge.width).toBeLessThanOrEqual(s6.x + s6.width)
-    expect(badge.y).toBeGreaterThanOrEqual(s6.y)
-    expect(badge.y + badge.height).toBeLessThanOrEqual(s6.y + s6.headerHeight)
   })
 })
 

@@ -65,9 +65,7 @@ const companions = (page: Page) => page.evaluate(() => structuredClone(
   (window.__dinksterTest!.renderer as unknown as { companions: unknown }).companions,
 ))
 
-test('wire-34 primitive identity declarations show typed values before execution', async ({ page }, testInfo) => {
-  const pageErrors: string[] = []
-  page.on('pageerror', (error) => pageErrors.push(error.message))
+async function serveSchemas(page: Page): Promise<void> {
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
@@ -87,7 +85,12 @@ test('wire-34 primitive identity declarations show typed values before execution
       'e2e.known-value-sink': sinkSchema,
     },
   } }))
+}
 
+test('wire-34 primitive identity declarations show typed values before execution', async ({ page }, testInfo) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  await serveSchemas(page)
   await page.goto('/')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(5)
@@ -217,4 +220,48 @@ test('wire-34 primitive identity declarations show typed values before execution
   await page.screenshot({ path: screenshotPath, animations: 'disabled' })
   await testInfo.attach('primitive-known-values', { path: screenshotPath, contentType: 'image/png' })
   expect(pageErrors).toEqual([])
+})
+
+test('a wire dragged off a field onto the canvas makes its primitive, and one undo removes both', async ({ page }) => {
+  await serveSchemas(page)
+  await page.goto('/')
+  await expect.poll(() => page.evaluate(() =>
+    window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas.size)).toBe(5)
+  expect(await page.evaluate(async () => {
+    const diagnostics = (await window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'field-drop-primitive', root: 'g0',
+      graphs: { g0: {
+        id: 'g0', name: 'root',
+        nodes: { sink: { id: 'sink', type: 'e2e.known-value-sink', values: { integer: 5 } } },
+        links: {}, nets: {}, reroutes: {}, nextOrdinal: 10,
+      } },
+      view: { graphs: { g0: { nodes: { sink: { position: { x: 600, y: 200 } } } } } },
+    } as never, 'Field drop primitive'))
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    return diagnostics
+  })).toEqual([])
+  const pin = await page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'sink')!
+    const pin = node.layout.pins.find((item) => item.direction === 'in' && item.portId === 'integer')!
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return { x: rect.left + node.x, y: rect.top + node.y + pin.y }
+  })
+  const graph = () => page.evaluate(() => {
+    const def = window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!
+    return { nodes: Object.values(def.nodes).map((node) => ({ type: node.type, values: node.values })), links: Object.values(def.links).map((link) => link.to) }
+  })
+  await page.mouse.move(pin.x, pin.y)
+  await page.mouse.down()
+  await page.mouse.move(pin.x - 150, pin.y + 60)
+  await page.mouse.move(pin.x - 300, pin.y + 120)
+  await page.mouse.up()
+  await expect.poll(graph).toEqual({
+    nodes: [
+      { type: 'e2e.known-value-sink', values: { integer: 5 } },
+      { type: 'e2e.identity.integer', values: { source: 5 } },
+    ],
+    links: [{ node: 'sink', port: 'integer' }],
+  })
+  await page.keyboard.press('Control+z')
+  await expect.poll(graph).toEqual({ nodes: [{ type: 'e2e.known-value-sink', values: { integer: 5 } }], links: [] })
 })

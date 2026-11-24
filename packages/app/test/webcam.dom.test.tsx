@@ -135,7 +135,7 @@ it('refuses queue on device failure or edits during capture without replacing a 
 
 it('does not replace connected literal camera inputs with unused captures', async () => {
   const device = camera()
-  for (const kind of ['valueSource', 'tap', 'net']) {
+  for (const kind of ['tap', 'net']) {
     const state = await queueSetup()
     try {
       const document = state.tab.store.doc
@@ -146,9 +146,8 @@ it('does not replace connected literal camera inputs with unused captures', asyn
         nodes: { ...graph.nodes, n2: kind === 'net'
           ? { ...graph.nodes.n2!, type: 'test.frame', values: {} }
           : { ...graph.nodes.n2!, values: { ...graph.nodes.n2!.values, image: connected } } },
-        valueSources: { v0: { id: 'v0', value: connected, type: { kind: 'concrete', types: ['WEBCAM'] } } },
         links: kind === 'net' ? {} : { l0: {
-          id: 'l0', from: kind === 'tap' ? { node: 'n2', tap: 'image' } : { valueSource: 'v0' }, to: { node: 'n1', port: 'image' },
+          id: 'l0', from: { node: 'n2', tap: 'image' }, to: { node: 'n1', port: 'image' },
         } },
         nets: kind === 'net' ? { net0: { id: 'net0', name: 'camera', source: { node: 'n2', port: 'frame' }, sinks: [{ node: 'n1', port: 'image' }] } } : {},
       } } }, 'Connected camera'))).toEqual([])
@@ -194,9 +193,12 @@ it('saves a nested camera on its promoted owner and preserves a connected bounda
       const root = document.graphs.g0!
       const frame = { ...state.saved, digest: `blake3:${'e'.repeat(64)}`, name: 'boundary.png' }
       expect((await state.app.openDocument({ ...document, graphs: {
-        g0: { ...root, nodes: { n1: { id: 'n1', type: '#camera', values: { frame: state.saved } } },
-          valueSources: { v0: { id: 'v0', value: frame, type: { kind: 'concrete', types: ['WEBCAM'] } } },
-          links: connected ? { l0: { id: 'l0', from: { valueSource: 'v0' }, to: { node: 'n1', port: 'frame' } } } : {},
+        g0: { ...root,
+          nodes: {
+            n1: { id: 'n1', type: '#camera', values: { frame: state.saved } },
+            ...(connected ? { n2: { ...root.nodes.n2!, values: { ...root.nodes.n2!.values, image: frame } } } : {}),
+          },
+          links: connected ? { l0: { id: 'l0', from: { node: 'n2', tap: 'image' }, to: { node: 'n1', port: 'frame' } } } : {},
         },
         camera: { id: 'camera', name: 'Camera', nodes: { inner: { ...root.nodes.n1!, id: 'inner' } },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,

@@ -196,7 +196,7 @@ export type LayoutRow =
       readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
       /**
        * Inside a subgraph: this field is on the subgraph node without a wire
-       * (BoundaryItem.wireHidden, or a value source shown as a field). Names
+       * (BoundaryItem.wireHidden). Names
        * the boundary input it became and that input's name on the subgraph
        * node; painted as the cyan subgraph icon before the field's name.
        */
@@ -236,12 +236,6 @@ export type LayoutRow =
        * no pin; `inputId` and `valueKey` are its layout id, which stores nothing.
        */
       readonly editor?: true
-      /**
-       * Set for an Inputs panel field whose value is a value source's own
-       * value: edits dispatch valueSource.setValue and
-       * valueSource.setController, never node.setValue.
-       */
-      readonly valueSourceOwner?: { readonly graphId: string; readonly valueSourceId: string }
     } & DynamicAnnotations)
   | {
       /**
@@ -2094,7 +2088,7 @@ export interface BoundarySlotInfo {
   readonly fields?: readonly Omit<Extract<LayoutRow, { kind: 'widget' }>, 'kind' | 'y' | 'height' | 'inset' | 'width'>[]
   /** Inputs panel only: the space of each unfolded editor among the fields, by its row's value key. */
   readonly editorSpaces?: Readonly<Record<string, Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset' | 'width' | 'rowAbove'>>>
-  /** Fields drawn without their wire, or a value source's field: no pin. */
+  /** Fields drawn without their wire: no pin. */
   readonly pinless?: true
   /** Inputs panel only: the input takes one value or a whole list. */
   readonly acceptsList?: true

@@ -31,7 +31,7 @@ export function dynamicSelectorCommitCommand(
   ed: WidgetEditorState,
   value: Json,
 ): CommandInvocation | undefined {
-  if (ed.target.kind !== 'input' || ed.target.selector === undefined) return undefined
+  if (ed.target.selector === undefined) return undefined
   // A choice shown whole on a subgraph node is picked on that node.
   const owner = ed.target.familyOwner
   if (owner?.valueKey !== undefined) {
