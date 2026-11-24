@@ -142,6 +142,8 @@ import {
   PackInstallError,
   ExecutionStore,
   createScopedClient,
+  createLookupClient,
+  type LookupClient,
   discoverBackend,
   hydrateDinksterCompletedExecution,
   probeSupervisorStatus,
@@ -2282,6 +2284,12 @@ interface BackendBase {
   /** Request the latest native advisory snapshot. */
   readonly refreshDiagnostics: () => void
   readonly scopedClient: RefreshableScopedClient
+  /**
+   * The one lookup client for this backend: every field, note, list and
+   * button press asks declared lookups through it, so equal calls share one
+   * answer. Its partition follows the held schema epoch.
+   */
+  readonly lookups: LookupClient
   /** Clear remote-choice authority after a schema/server generation change. */
   readonly invalidateRemoteChoices: () => void
   /**
@@ -4390,6 +4398,7 @@ export class AppState {
     const registry = createSignal<SchemaRegistry | undefined>(undefined)
     const workerCatalog = createSignal<WorkerCatalogState>({ status: 'unsupported' })
     const scopedClient = createScopedClient({ baseUrl })
+    const lookups = createLookupClient({ baseUrl })
     const schemaProblemsOwner = Symbol(`schema-problems:${id}`)
     const packProblemsOwner = Symbol(`pack-problems:${id}`)
     let refreshDiagnostics = (): void => {}
@@ -4404,6 +4413,7 @@ export class AppState {
         principalGeneration: 0,
         schemaEpoch: remoteChoiceSchemaGeneration,
       })
+      lookups.setPartition({ backend: baseUrl, epoch: registry.get()?.epoch, principal: 0 })
       this.backendsTick.update((value) => value + 1)
     }
     // Scoped client per backend: remote combos (model lists) differ per server.
@@ -4426,6 +4436,7 @@ export class AppState {
       packInferenceUnavailable: createSignal<readonly PackInferenceUnavailable[]>([]),
       refreshDiagnostics: () => refreshDiagnostics(),
       scopedClient,
+      lookups,
       invalidateRemoteChoices,
       supervisor: createSignal<SupervisorStatus | undefined>(undefined),
       composition: createSignal<SupervisorProgress | undefined>(undefined),
@@ -4720,6 +4731,8 @@ export class AppState {
         }
         this.invalidateWorkerCatalog(nativeBackend)
         base.invalidateRemoteChoices()
+        // A new server life may answer differently: ask again what is shown.
+        lookups.invalidate()
         startRefresh('reconnect')
       }
       const handleStatusChange = (status: ConnectionStatus): void => {
@@ -4742,6 +4755,7 @@ export class AppState {
         handleStatusChange,
       )
       const disposeMountHealth = connection.mountError.subscribe(() => this.backendsTick.update((v) => v + 1))
+      const disposeLookupChanges = connection.onLookupsChanged((functions) => lookups.invalidate(functions))
       const disposeLibraryChanges = connection.onLibraryChanged(() => {
         for (const tab of this.tabs.get()) {
           if (tab.execution || this.backendForTab(tab) !== nativeBackend) continue
@@ -4786,8 +4800,10 @@ export class AppState {
           disposeCompletionHydration()
           disposeLibraryChanges()
           disposeMountHealth()
+          disposeLookupChanges()
           disposeConnection()
           scopedClient.dispose()
+          lookups.dispose()
         },
       }
       return nativeBackend
