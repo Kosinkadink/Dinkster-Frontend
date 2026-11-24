@@ -21,6 +21,7 @@ import {
   canvasTypePaintForTheme,
   createRegistryPainter,
   defaultTokens,
+  SUBGRAPH_BADGE,
   type DesignTokens,
   type LayoutRow,
   type Scene,
@@ -116,6 +117,8 @@ interface AutomaticExample {
   readonly automatic?: AutomaticState;
   /** The open field: the text typed so far. Absent when nothing is open. */
   readonly open?: { readonly text: string };
+  /** Drawn as a subgraph node that shows the inner node's frame_rate. */
+  readonly subgraph?: true;
 }
 
 const WORKED_OUT: AutomaticState = { state: "worked-out", value: 24 };
@@ -258,6 +261,25 @@ const groups: readonly {
       },
     ],
   },
+  {
+    title: "On a subgraph node",
+    examples: [
+      {
+        id: "subgraph-automatic",
+        caption:
+          "A subgraph node shows the inner node's frame_rate. Neither this instance nor the definition stores a value, so the row is automatic, worked out from this instance's rate.",
+        automatic: WORKED_OUT,
+        subgraph: true,
+      },
+      {
+        id: "subgraph-fixed",
+        caption:
+          "The same node with 30 typed on this instance: fixed. Emptying it removes only this instance's value and makes the row automatic again; the definition does not change.",
+        stored: 30,
+        subgraph: true,
+      },
+    ],
+  },
 ];
 
 /** The scene with frame_rate's automatic state, as elaboration would give it, on its row. */
@@ -384,10 +406,13 @@ function AutomaticExampleView(props: {
         };
         const closedAutomatic =
           example.open === undefined ? example.automatic : undefined;
-        const built = withAutomatic(
+        const automaticScene = withAutomatic(
           retimeScene(tokens, measure, widgetMeasure, example.stored),
           closedAutomatic,
         );
+        const built: Scene = example.subgraph
+          ? { ...automaticScene, nodes: automaticScene.nodes.map((node) => ({ ...node, isSubgraph: true })) }
+          : automaticScene;
         const node = built.nodes[0]!;
         canvas.style.width = `${width()}px`;
         canvas.style.height = `${node.y + node.layout.height + MARGIN}px`;
@@ -398,6 +423,7 @@ function AutomaticExampleView(props: {
         );
         renderer.setReducedMotion(true);
         renderer.setGridVisible(false);
+        if (example.subgraph) renderer.setBadges({ [node.id]: [SUBGRAPH_BADGE] });
         renderer.setScene(built);
         renderer.setOpenRow(
           example.open !== undefined
