@@ -140,6 +140,8 @@ for (const theme of ['dark', 'light'] as const) {
     await page.setViewportSize({ width: 390, height: 900 })
     await expect(trigger).toHaveAccessibleName('Dinkster')
     expect((await trigger.boundingBox())!.width).toBe(44)
+    // The panel switches leave once the toolbar observes its new width.
+    await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
     for (const control of await header.locator('button:visible').all()) {
       const box = (await control.boundingBox())!
       expect(box.x).toBeGreaterThanOrEqual(12)
@@ -150,23 +152,22 @@ for (const theme of ['dark', 'light'] as const) {
       const app = window.__dinksterTest!.app
       app.reportProblems(app.activeTab()!.id, [{ severity: 'error', origin: 'runtime', code: 'toolbar.attention', message: 'Toolbar attention fixture.' }])
     })
-    const rail = page.getByTestId('rail-toggle')
-    const attention = rail.locator('.panel-indicator')
-    await expect(attention).toBeVisible()
-    await expect(attention).toHaveCSS('position', 'absolute')
-    // The keyed badge can be replaced by a problem-list publication between protocol calls.
-    const { railBox, iconBox, badgeBox } = await page.evaluate(() => {
-      const element = document.querySelector('[data-testid="rail-toggle"]')!
-      return {
-        railBox: element.getBoundingClientRect().toJSON(),
-        iconBox: element.querySelector('svg')!.getBoundingClientRect().toJSON(),
-        badgeBox: element.querySelector('.panel-indicator')!.getBoundingClientRect().toJSON(),
-      }
-    })
-    expect(iconBox.width).toBe(20)
-    expect(iconBox.height).toBe(18)
-    expect(badgeBox.y).toBeLessThan(railBox.y)
-    expect(badgeBox.x).toBeGreaterThan(iconBox.x)
+    // The narrow row keeps the right panel switch in the layout menu, so the layout button and
+    // its Right panel item carry the attention, and both names read it after the control's name.
+    await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
+    const layout = page.getByRole('button', { name: /^Customize layout, 1 problem/ })
+    const attention = layout.locator('.dinkster-attention')
+    await expect(attention).toHaveText('1')
+    await expect(attention).toHaveAttribute('data-tone', 'problem')
+    const layoutBox = (await layout.boundingBox())!
+    const badgeBox = (await attention.boundingBox())!
+    expect(badgeBox.y).toBeLessThan(layoutBox.y)
+    expect(badgeBox.x + badgeBox.width).toBeGreaterThan(layoutBox.x + layoutBox.width)
+    await layout.click()
+    const right = page.getByRole('menuitemcheckbox', { name: /^Right panel, 1 problem/ })
+    await expect(right.locator('.dinkster-attention')).toHaveText('1')
+    await page.keyboard.press('Escape')
+    await expect(layout).toBeFocused()
     await trigger.click()
     await expect(trigger).toHaveAttribute('aria-expanded', 'true')
     await page.keyboard.press('Escape')

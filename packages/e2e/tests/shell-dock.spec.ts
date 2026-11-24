@@ -5,7 +5,7 @@
  * narrow side sheets preserve tabs and status. The thin status bar is not
  * the bottom panel and never toggles with it.
  */
-import { expect, nativeTest as test, waitForWorkspaceReady, type Locator } from './fixtures.js'
+import { expect, nativeTest as test, setShellRegion, waitForWorkspaceReady, type Locator } from './fixtures.js'
 
 async function expectWholeTabs(tablist: Locator, tabs: Locator): Promise<void> {
   const strip = (await tablist.boundingBox())!
@@ -531,7 +531,7 @@ test('narrow side surfaces preserve tabs and status without document overflow', 
   expect(inspectorBox.y).toBeGreaterThanOrEqual(dockBox.y + dockBox.height - 1)
   expect(inspectorBox.x + inspectorBox.width).toBeLessThanOrEqual(480)
 
-  await page.getByTestId('rail-toggle').click()
+  await setShellRegion(page, 'right', false)
   await expect(inspector).toBeHidden()
   await expect(dock).toBeVisible()
   const expandedDockBox = (await dock.boundingBox())!
@@ -626,81 +626,76 @@ test('Ctrl+O opens the library dock', async ({ page }) => {
   await expect(page.getByTestId('library-overlay')).toBeVisible()
 })
 
-test('topbar Customize layout button opens the existing modal', async ({ page }) => {
-  const button = page.getByRole('button', { name: 'Customize layout' })
-  await expect(button).toBeVisible()
-  await button.click()
-  await expect(page.getByRole('dialog', { name: 'Customize layout' })).toBeVisible()
-  await expect(page.getByTestId('customize-layout')).toBeVisible()
+test('layout menu opens and closes like every menu and holds the bar switches and Reset layout', async ({ page }) => {
+  const trigger = page.getByRole('button', { name: 'Customize layout' })
+  const menu = page.getByRole('menu', { name: 'Customize layout' })
+  expect(await trigger.evaluate((element) => getComputedStyle(element).userSelect)).toBe('none')
+  await trigger.click()
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('menuitemcheckbox')).toHaveText(['Left bar', 'Status bar'])
+  await expect(menu.getByRole('menuitem')).toHaveText(['Reset layout'])
+  await expect(page.getByTestId('rail-toggle')).toBeVisible()
+  await trigger.click()
+  await expect(menu).toBeHidden()
+  await trigger.click()
+  await page.getByTestId('status-bar').click({ position: { x: 1, y: 1 } })
+  await expect(menu).toBeHidden()
+  await trigger.click()
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(trigger).toBeFocused()
+  await trigger.click()
+  await menu.getByRole('menuitemcheckbox', { name: 'Left bar' }).click()
+  await expect(menu).toBeHidden()
+  await expect(page.locator('.left-sidebar')).toBeHidden()
 })
 
-test('Customize Layout toggles supported regions and persists status bar visibility', async ({ page }) => {
-  const waitForTemplateSetting = () => page.waitForFunction(() => {
-    const settings = window.__dinksterTest!.app.settings as unknown as { list(): readonly { id: string }[] }
-    return settings.list().some((setting) => setting.id === 'templates.registryUrl')
-  })
-  await waitForTemplateSetting()
+test('layout menu switches persist and Reset layout restores the bars and regions', async ({ page }) => {
   await waitForWorkspaceReady(page)
-  await page.getByTestId('library-toggle').click()
-  await page.getByTestId('bottom-panel-toggle').click()
-  await page.getByTestId('dinkster-menu-button').click()
-  await page.locator('[data-item-id="layout.customize"]').click()
-  await expect(page.getByTestId('customize-layout')).toBeVisible()
-  await expect(page.locator('[data-modal="customize-layout"]')).toContainText('Visibility')
-  await expect(page.locator('[data-modal="customize-layout"]')).toHaveJSProperty('open', true)
-
-  const region = (id: string) => page.locator(`[data-layout-region="${id}"]`).getByRole('checkbox')
-  await expect(page.locator('[data-layout-region]')).toHaveCount(5)
-  expect(await page.locator('[data-layout-region]').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-layout-region')))).toEqual([
-    'activity-bar', 'primary-dock', 'bottom-panel', 'right-rail', 'status-bar',
-  ])
-  await expect(region('activity-bar')).toHaveAttribute('aria-checked', 'true')
-  await expect(region('primary-dock')).toHaveAttribute('aria-checked', 'true')
-  await expect(region('bottom-panel')).toHaveAttribute('aria-checked', 'true')
-  await expect(region('right-rail')).toHaveAttribute('aria-checked', 'true')
-  await expect(region('status-bar')).toHaveAttribute('aria-checked', 'true')
-
+  const trigger = page.getByRole('button', { name: 'Customize layout' })
+  const item = (name: string) => page.getByRole('menu', { name: 'Customize layout' }).getByRole('menuitemcheckbox', { name })
+  await page.getByTestId('rail-toggle').click()
+  await expect(page.getByTestId('dock-zone-right')).not.toBeVisible()
   await page.getByTestId('status-bar').evaluate((element) => { element.dataset['mountedMarker'] = 'same-status-bar' })
   const statusContent = await page.getByTestId('status-bar').textContent()
-  await region('activity-bar').click()
-  const leftZone = page.getByTestId('dock-zone-left')
-  await expect(leftZone.getByRole('tab', { name: 'Library', exact: true })).toBeVisible()
-  await expect(leftZone.getByRole('heading', { name: 'Library', exact: true })).toHaveCount(0)
-  await region('primary-dock').click()
-  await region('bottom-panel').click()
-  await region('right-rail').click()
-  await region('status-bar').click()
-  await expect(page.locator('.left-sidebar')).toBeHidden()
-  await expect(page.getByTestId('dock-panel')).not.toBeVisible()
-  await expect(page.getByTestId('bottom-panel')).not.toBeVisible()
-  await expect(page.getByTestId('dock-zone-right')).not.toBeVisible()
+  await trigger.click()
+  await expect(item('Status bar')).toHaveAttribute('aria-checked', 'true')
+  await item('Status bar').click()
   await expect(page.getByTestId('status-bar')).toBeHidden()
   await expect(page.getByTestId('status-bar')).toHaveAttribute('data-mounted-marker', 'same-status-bar')
   expect(await page.getByTestId('status-bar').textContent()).toBe(statusContent)
+  await trigger.click()
+  await item('Left bar').click()
+  await expect(page.locator('.left-sidebar')).toBeHidden()
 
-  await page.keyboard.press('Escape')
-  await expect(page.getByTestId('customize-layout')).not.toBeVisible()
-  await expect(page.getByTestId('dinkster-menu-button')).toBeFocused()
   await page.reload()
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  await waitForTemplateSetting()
   await waitForWorkspaceReady(page)
   await expect(page.getByTestId('status-bar')).toBeHidden()
+  await expect(page.locator('.left-sidebar')).toBeHidden()
+  await trigger.click()
+  await expect(item('Status bar')).toHaveAttribute('aria-checked', 'false')
+  await expect(item('Left bar')).toHaveAttribute('aria-checked', 'false')
+  await page.getByRole('menu', { name: 'Customize layout' }).getByRole('menuitem', { name: 'Reset layout' }).click()
+  await expect(page.getByTestId('status-bar')).toBeVisible()
+  await expect(page.locator('.left-sidebar')).toBeVisible()
+  await expect(page.getByTestId('dock-zone-right')).toBeVisible()
 
   await page.getByTestId('dinkster-menu-button').click()
   await page.locator('[data-item-id="layout.customize"]').click()
-  await page.getByTestId('layout-reset').click()
-  await expect(page.getByTestId('status-bar')).toBeVisible()
-  await expect(page.locator('.left-sidebar')).toBeVisible()
-  await expect(region('right-rail')).toHaveAttribute('aria-checked', 'true')
-
+  await expect(item('Left bar')).toBeFocused()
   await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu', { name: 'Customize layout' })).toBeHidden()
+  await expect(page.getByTestId('dinkster-menu-button')).toBeFocused()
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('> Customize layout')
   await page.getByTestId('universal-search-input').press('Enter')
-  await expect(page.getByTestId('customize-layout')).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(page.getByTestId('topbar-search')).toBeFocused()
+  await expect(item('Left bar')).toBeFocused()
+  await item('Status bar').focus()
+  await page.evaluate(() => (window.__dinksterTest!.app.commands.get('layout.customize') as unknown as { run(): void }).run())
+  await expect(item('Left bar')).toBeFocused()
+  await page.mouse.click(700, 500)
+  await expect(page.getByRole('menu', { name: 'Customize layout' })).toBeHidden()
 })
 
 test('right-zone tab strip shrinks tabs with ellipsis instead of a native scrollbar', async ({ page }) => {
