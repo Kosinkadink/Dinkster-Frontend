@@ -25,7 +25,7 @@ describe('core extension door dogfooding', () => {
     expect(app.settingsOpenRequest.get()).toBeUndefined()
     expect(app.modalPanel.get()).toBe('settings')
     app.commands.get('layout.customize')!.run()
-    expect(app.modalPanel.get()).toBe('customize-layout')
+    expect(app.layoutMenuRequests.get()).toBe(1)
   })
 
   it('cancels window work through a bindable command even without an active workflow', async () => {

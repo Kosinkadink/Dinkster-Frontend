@@ -3,7 +3,7 @@
  * It uses the real signal store and backend loop.
  */
 
-import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, onCleanup, onMount, Show, type JSX } from 'solid-js'
+import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, on, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { BrandMark } from './BrandMark.js'
 import { StatusBar } from './StatusBar.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
@@ -41,8 +41,10 @@ import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductRunActivity, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductRunActivity, type ProductMenuItem, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
+import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
+import { TopBarAccount } from './TopBarAccount.js'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
 import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
@@ -52,7 +54,6 @@ import { TemplateGallery } from './TemplateGallery.js'
 import { useSignal } from './solid-adapter.js'
 import { comboFromEvent, isNativeTextScopeTarget, shortcutSuppressed, type CommandRegistry, type KeybindingRegistry } from './settings.js'
 import { SettingsDialog } from './SettingsDialog.js'
-import { CustomizeLayoutDialog, type LayoutVisibilityItem } from './CustomizeLayoutDialog.js'
 import { SubgraphDefinitionsDialog } from './SubgraphDefinitionsDialog.js'
 import { AssetConsentDialog } from './AssetConsentDialog.js'
 import { AssetsBody } from './AssetsBody.js'
@@ -88,7 +89,6 @@ import { HostUiProviderHost } from './host-ui.js'
 import {
   activePanelIndicator,
   ActivityBarButton,
-  CustomizeLayoutButton,
   DockZoneHost,
   FloatingPanelHost,
   PanelIndicatorBadge,
@@ -1715,18 +1715,6 @@ export function App(props: {
       />,
     }),
     registerBuiltinPanel({
-      id: 'customize-layout', get title() { return message('shell.panel.customizeLayout.title') },
-      get description() { return message('shell.panel.customizeLayout.description') }, get ariaLabel() { return message('shell.panel.customizeLayout.title') },
-      placement: 'modal', allowedPlacements: ['modal'], order: 15,
-      component: () => <CustomizeLayoutDialog
-        items={layoutVisibilityItems()}
-        onReset={() => {
-          app.shell.resetVisibility()
-          app.dock.resetOpen()
-        }}
-      />,
-    }),
-    registerBuiltinPanel({
       id: 'projects', get title() { return message('shell.panel.projects.title') },
       get description() { return message('shell.panel.projects.description') }, get ariaLabel() { return message('shell.panel.projects.title') },
       placement: 'modal', allowedPlacements: ['modal'], order: 18,
@@ -2304,38 +2292,43 @@ export function App(props: {
   const toggleBottomRegion = (): void => {
     if (bottomZonePanels().length > 0) app.dock.setOpen('bottom', !bottomOpen())
   }
-  const layoutVisibilityItems = (): readonly LayoutVisibilityItem[] => [
+  /** The layout menu holds the region switches the bar is not showing, then Reset layout. */
+  const layoutMenuItems = (narrow: boolean): readonly ProductMenuItem[] => [
+    ...(narrow ? [
+      { label: message('shell.layout.leftPanel'), checked: leftOpen(), disabled: leftPanels().length === 0, onSelect: toggleLeftRegion },
+      { label: message('shell.layout.bottomPanel'), checked: bottomOpen(), disabled: bottomZonePanels().length === 0, onSelect: toggleBottomRegion },
+      { label: message('shell.layout.rightPanel'), checked: railOpen(), onSelect: () => app.dock.setOpen('right', !railOpen()) },
+    ] : []),
+    { label: message('shell.layout.leftBar'), checked: activityBarVisible(), onSelect: () => app.shell.activityBarVisible.update((visible) => !visible) },
+    { label: message('shell.layout.statusBar'), checked: statusBarVisible(), onSelect: () => app.shell.statusBarVisible.update((visible) => !visible) },
     {
-      id: 'activity-bar',
-      label: message('shell.layout.activityBar'),
-      checked: activityBarVisible,
-      toggle: () => app.shell.activityBarVisible.update((visible) => !visible),
-    },
-    {
-      id: 'primary-dock',
-      label: message('shell.layout.primaryDock'),
-      checked: leftOpen,
-      toggle: toggleLeftRegion,
-    },
-    {
-      id: 'bottom-panel',
-      label: message('shell.layout.bottomPanel'),
-      checked: bottomOpen,
-      toggle: toggleBottomRegion,
-    },
-    {
-      id: 'right-rail',
-      label: message('shell.layout.rightRail'),
-      checked: railOpen,
-      toggle: () => app.dock.setOpen('right', !railOpen()),
-    },
-    {
-      id: 'status-bar',
-      label: message('shell.layout.statusBar'),
-      checked: statusBarVisible,
-      toggle: () => app.shell.statusBarVisible.update((visible) => !visible),
+      label: message('shell.layout.reset'),
+      onSelect: () => {
+        app.shell.resetVisibility()
+        app.dock.resetOpen()
+      },
     },
   ]
+  let layoutMenu!: HTMLSpanElement
+  const layoutMenuRequests = useSignal(app.layoutMenuRequests)
+  createEffect(on(layoutMenuRequests, () => {
+    // A menu item that runs the command restores focus to its own trigger first.
+    queueMicrotask(() => layoutMenu.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]:not([aria-expanded="true"])')?.click())
+  }, { defer: true }))
+  const [projectName, setProjectName] = createSolidSignal<string>()
+  const primaryConnected = createMemo(() => {
+    const backend = backends()[0]
+    return backend !== undefined && statusOf(backend) === 'connected' ? backend : undefined
+  })
+  // The name is read again when a modal closes, since the Projects dialog renames projects.
+  createEffect(() => {
+    const backend = primaryConnected()
+    if (backend === undefined || modalPanel() !== '') return
+    const controller = new AbortController()
+    backend.connection.getProject(activeProjectId(), controller.signal)
+      .then((project) => setProjectName(project.name), () => {})
+    onCleanup(() => controller.abort())
+  })
   const modalDescriptor = () => {
     panelsTick()
     const id = modalPanel()
@@ -2842,7 +2835,8 @@ export function App(props: {
           />
         }
         search={<UniversalSearchTrigger shortcut={searchShortcut()} onOpen={() => app.searchOpen.set(true)} />}
-        actions={<>
+        account={<TopBarAccount connection={app.connection} />}
+        actions={(narrow) => <>
           <Show when={allWorkflowActivity().running > 0}>
             <ProductRunActivity {...allWorkflowActivity()} label={message('runs.activity', allWorkflowActivity())} />
           </Show>
@@ -2850,31 +2844,48 @@ export function App(props: {
             <ProductWindowAction label={message('shell.window.moveToMain')} icon={PanelTop} data-testid="redock-workflow" onClick={redockCurrentWindow} />
           </Show>
           <CancelExecutionButton toolbar app={app} execution={(executions(), activeTab(), app.currentCancellableExecution())} />
-          <CustomizeLayoutButton commands={app.commands} />
-          <ProductIconButton label={message('shell.toggle.leftPanel')} icon={() => <ShellRegionIcon region="left" active={leftOpen()} />}
-            data-testid="left-panel-toggle"
-            data-tooltip-label={message('shell.toggle.leftPanel')}
-            aria-pressed={leftOpen()}
-            disabled={leftPanels().length === 0}
-            onClick={toggleLeftRegion}
-          />
-          <ProductIconButton label={message('shell.toggle.bottomPanel')} icon={() => <ShellRegionIcon region="bottom" active={bottomOpen()} />}
-            data-testid="bottom-panel-toggle"
-            data-tooltip-label={message('shell.toggle.bottomPanel')}
-            aria-pressed={bottomOpen()}
-            disabled={bottomZonePanels().length === 0}
-            onClick={toggleBottomRegion}
-          />
-          <ProductIconButton
-            label={railIndicator() === undefined ? message('shell.toggle.rightRail') : message('shell.toggle.rightRailWithStatus', { status: railIndicator()!.label })}
-            icon={() => <><ShellRegionIcon region="right" active={railOpen()} /><Show when={railIndicator()} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show></>}
-            data-testid="rail-toggle"
-            data-tooltip-label={message('shell.toggle.rightRail')}
-            aria-pressed={railOpen()}
-            onClick={() => app.dock.setOpen('right', !railOpen())}
-          />
+          <span class="app-layout-menu" ref={layoutMenu}><ProductMenu
+            label={message('command.layout.customize')}
+            icon={() => <><ProductIcon icon={SlidersHorizontal} /><Show when={narrow() ? railIndicator() : undefined} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show></>}
+            items={layoutMenuItems(narrow())}
+          /></span>
+          <Show when={!narrow()}>
+            <ProductIconButton label={message('shell.toggle.leftPanel')} icon={() => <ShellRegionIcon region="left" active={leftOpen()} />}
+              data-testid="left-panel-toggle"
+              data-tooltip-label={message('shell.toggle.leftPanel')}
+              aria-pressed={leftOpen()}
+              disabled={leftPanels().length === 0}
+              onClick={toggleLeftRegion}
+            />
+            <ProductIconButton label={message('shell.toggle.bottomPanel')} icon={() => <ShellRegionIcon region="bottom" active={bottomOpen()} />}
+              data-testid="bottom-panel-toggle"
+              data-tooltip-label={message('shell.toggle.bottomPanel')}
+              aria-pressed={bottomOpen()}
+              disabled={bottomZonePanels().length === 0}
+              onClick={toggleBottomRegion}
+            />
+            <ProductIconButton
+              label={railIndicator() === undefined ? message('shell.toggle.rightRail') : message('shell.toggle.rightRailWithStatus', { status: railIndicator()!.label })}
+              icon={() => <><ShellRegionIcon region="right" active={railOpen()} /><Show when={railIndicator()} keyed>{(indicator) => <PanelIndicatorBadge indicator={indicator} />}</Show></>}
+              data-testid="rail-toggle"
+              data-tooltip-label={message('shell.toggle.rightRail')}
+              aria-pressed={railOpen()}
+              onClick={() => app.dock.setOpen('right', !railOpen())}
+            />
+          </Show>
           <Show when={managedContext().kind === 'primary'}>
-            <ProductIconButton label={message('shell.panel.projects.title')} icon={FolderOpen} data-testid="projects-button" data-tooltip-label={message('shell.panel.projects.title')} data-tooltip-detail={message('shell.panel.projects.description')} onClick={() => app.modalPanel.set('projects')} />
+            <ProductWindowAction
+              label={projectName() ?? message('shell.panel.projects.title')}
+              labelContent={
+                <span class="dinkster-window-project-label">
+                  <ProductIcon icon={FolderOpen} />
+                  <span class="dinkster-window-project-name">{projectName() ?? message('shell.panel.projects.title')}</span>
+                </span>
+              }
+              icon={FolderOpen}
+              data-testid="projects-button"
+              onClick={() => app.modalPanel.set('projects')}
+            />
           </Show>
           <ProductIconButton label={message('shell.panel.workspace.title')} icon={Users} data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} onClick={() => app.modalPanel.set('collab')} />
         </>}

@@ -7,6 +7,9 @@
   gap: var(--dinkster-space-4);
 }
 
+/* Holds the layout menu so a command can open it; it takes no box of its own. */
+.app-layout-menu { display: contents; }
+
 .services-badge {
   flex-shrink: 0;
   padding: var(--dinkster-space-4) var(--dinkster-space-8);
@@ -770,9 +773,6 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
 }
 
 @media (max-width: 520px) {
-  .dinkster-window-toolbar-actions [data-testid='left-panel-toggle'],
-  .dinkster-window-toolbar-actions [data-testid='bottom-panel-toggle'],
-  .dinkster-window-toolbar-actions [data-testid='customize-layout-button'] { display: none; }
   .modal-surface { min-width: 0; max-width: calc(100vw - var(--dinkster-space-32)); }
   .modal-surface[data-modal='settings'] { min-width: 0; width: calc(100vw - var(--dinkster-space-32)); max-width: calc(100vw - var(--dinkster-space-32)); height: calc(100vh - var(--dinkster-space-32)); max-height: calc(100vh - var(--dinkster-space-32)); }
   .settings-searchbar { padding: var(--dinkster-space-8); }

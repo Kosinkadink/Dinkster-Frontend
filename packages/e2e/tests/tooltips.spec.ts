@@ -97,7 +97,7 @@ test('Settings keeps immediate help, Alt detail, and hover-out', async ({ page }
 })
 
 test('top-right tooltip uses its real width and follows content changes', async ({ page }, testInfo) => {
-  const target = page.getByTestId('customize-layout-button')
+  const target = page.getByTestId('collab-button')
   const tooltip = page.getByTestId('app-tooltip')
   await target.focus()
   await expect(tooltip).toBeVisible()

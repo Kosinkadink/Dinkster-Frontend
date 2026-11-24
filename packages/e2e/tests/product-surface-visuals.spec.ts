@@ -150,22 +150,19 @@ for (const theme of ['dark', 'light'] as const) {
       const app = window.__dinksterTest!.app
       app.reportProblems(app.activeTab()!.id, [{ severity: 'error', origin: 'runtime', code: 'toolbar.attention', message: 'Toolbar attention fixture.' }])
     })
-    const rail = page.getByTestId('rail-toggle')
-    const attention = rail.locator('.panel-indicator')
+    // The narrow row keeps the right panel switch in the layout menu, so its attention badge is on the layout button.
+    await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
+    const layout = page.getByRole('button', { name: 'Customize layout' })
+    const attention = layout.locator('.panel-indicator')
     await expect(attention).toBeVisible()
     await expect(attention).toHaveCSS('position', 'absolute')
     // The keyed badge can be replaced by a problem-list publication between protocol calls.
-    const { railBox, iconBox, badgeBox } = await page.evaluate(() => {
-      const element = document.querySelector('[data-testid="rail-toggle"]')!
-      return {
-        railBox: element.getBoundingClientRect().toJSON(),
-        iconBox: element.querySelector('svg')!.getBoundingClientRect().toJSON(),
-        badgeBox: element.querySelector('.panel-indicator')!.getBoundingClientRect().toJSON(),
-      }
-    })
-    expect(iconBox.width).toBe(20)
-    expect(iconBox.height).toBe(18)
-    expect(badgeBox.y).toBeLessThan(railBox.y)
+    const { layoutBox, iconBox, badgeBox } = await layout.evaluate((element) => ({
+      layoutBox: element.getBoundingClientRect().toJSON(),
+      iconBox: element.querySelector('svg')!.getBoundingClientRect().toJSON(),
+      badgeBox: element.querySelector('.panel-indicator')!.getBoundingClientRect().toJSON(),
+    }))
+    expect(badgeBox.y).toBeLessThan(layoutBox.y)
     expect(badgeBox.x).toBeGreaterThan(iconBox.x)
     await trigger.click()
     await expect(trigger).toHaveAttribute('aria-expanded', 'true')
