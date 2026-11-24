@@ -297,12 +297,6 @@ const groupSettings = () => (
     <Setting label="Goes to">
       <ProductLink href="#canvas">images on Stack</ProductLink>
     </Setting>
-    <Setting label="Members">
-      <span>
-        The 2 members inside the definition come first on every subgraph node;
-        each node adds its own after them.
-      </span>
-    </Setting>
   </>
 )
 
