@@ -19,6 +19,7 @@ import {
   documentValueSourceResolver,
   effectiveOccurrenceTopology,
   elabInputsOf,
+  elabOutputsOf,
   elaborateInterface,
   hasPreviewSurface,
   inputsOf,
@@ -28,9 +29,11 @@ import {
   isSelectorRef,
   isValueSourceRef,
   isWidgetTapRef,
+  matchBypassInput,
   netSinkKey,
   netViewPositions,
   occurrenceDynamicView,
+  portAddressKey,
   portRefKey,
   regionBoundaryLabels,
   resolveBoundaryRoute,
@@ -45,6 +48,7 @@ import {
   typeExprFromTypeId,
   valueKeyOf,
   type BoundaryItem,
+  type BypassCandidate,
   type BoundaryPositionResolver,
   type CommandInvocation,
   type Connectivity,
@@ -64,6 +68,7 @@ import {
   type OccurrenceLinkEndpoint,
   type OccurrenceRef,
   type PortRef,
+  type RerouteTrace,
   type SchemaResolver,
   type SelectorData,
   type SolveResult,
@@ -1632,8 +1637,53 @@ export function buildScene(input: BuildSceneInput): Scene {
    * it needs no solver. A selector counts when ANY driven branch is
    * maybe-absent (policy can switch to that branch at any moment).
    */
+  /**
+   * The real producers behind `from`, routed as the compiler routes a
+   * value: past a bypassed node to the input its passthrough matcher picks,
+   * and past an output that passes on one of its node's inputs (knownValue)
+   * to that input's wire. A muted node stops the walk: it is the producer.
+   */
+  const passedOn = (ref: PortRef): LinkEndpoint | undefined => {
+    const node = byId.get(ref.node)
+    const elab = node?.elaborated
+    if (node === undefined || elab === undefined || node.node.mode === 'muted') return undefined
+    const address = portAddressKey(ref.port)
+    const outputs = elabOutputsOf(elab)
+    const output = outputs.find((candidate) => portAddressKey(candidate.address.port) === address)
+    if (output === undefined) return undefined
+    const driverOf = (port: string): LinkEndpoint | undefined => {
+      const key = portRefKey({ node: ref.node, port: asPortId(port) })
+      return rerouteIndex.inputDriverOf.get(key)?.from ?? rerouteIndex.netSourceOf.get(key)
+    }
+    if (node.node.mode === 'bypassed') {
+      const index = outputs.filter((candidate) => candidate.wireable !== false).indexOf(output)
+      if (index < 0) return undefined
+      const candidates: BypassCandidate<LinkEndpoint>[] = []
+      let wireIndex = 0
+      for (const input of elabInputsOf(elab)) {
+        if (input.apiName === undefined || input.ancestry?.some((entry) => entry.synthetic) === true) continue
+        const candidateIndex = wireIndex++
+        const driver = driverOf(input.address.port)
+        if (driver !== undefined) candidates.push({ index: candidateIndex, type: input.spec.type, driver })
+      }
+      return matchBypassInput({ index, type: output.spec.type }, candidates)?.driver
+    }
+    const known = output.spec.knownValue
+    if (known === undefined) return undefined
+    const input = elabInputsOf(elab).find((candidate) => candidate.spec.id === known.input)
+    return input === undefined ? undefined : driverOf(input.address.port)
+  }
+  const tracedProducers = (from: LinkEndpoint, seen = new Set<string>()): RerouteTrace[] =>
+    traceEndpointAll(def, from, rerouteIndex).flatMap((t) => {
+      if (t.kind !== 'output') return [t]
+      const key = portRefKey(t.ref)
+      if (seen.has(key)) return []
+      seen.add(key)
+      const next = passedOn(t.ref)
+      return next === undefined ? [t] : tracedProducers(next, seen)
+    })
   const tracedMaybeAbsent = (from: LinkEndpoint): boolean => {
-    for (const t of traceEndpointAll(def, from, rerouteIndex)) {
+    for (const t of tracedProducers(from)) {
       if (t.kind !== 'output') continue
       const producer = byId.get(t.ref.node)
       const key = t.ref.port
@@ -1647,7 +1697,7 @@ export function buildScene(input: BuildSceneInput): Scene {
    * all its driven branches come from muted nodes.
    */
   const tracedSourceMuted = (from: LinkEndpoint): boolean => {
-    const traces = traceEndpointAll(def, from, rerouteIndex)
+    const traces = tracedProducers(from)
     return traces.length > 0 && traces.every((t) => t.kind === 'output' && byId.get(t.ref.node)?.node.mode === 'muted')
   }
   for (const reroute of Object.values(def.reroutes)) {

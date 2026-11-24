@@ -28,6 +28,8 @@ import { defaultTokens } from '../src/tokens.js'
 // ---------------------------------------------------------------------------
 
 const IMAGE: TypeExpr = { kind: 'concrete', name: 'IMAGE' }
+const MASK: TypeExpr = { kind: 'concrete', name: 'MASK' }
+const INT: TypeExpr = { kind: 'concrete', name: 'INT' }
 const input = (id: string, extra?: Partial<InputSpec>): InputSpec => ({
   kind: 'input',
   id,
@@ -55,6 +57,18 @@ const schemas: Record<string, NodeSchema> = {
   MaybeSrc: schemaOf('MaybeSrc', [output('out', { optional: true })]),
   Sink: schemaOf('Sink', [input('in')]),
   Sink2: schemaOf('Sink2', [input('a'), input('b')]),
+  /** Two inputs of different types; bypassed, its MASK output passes on the MASK input. */
+  Blend: schemaOf('Blend', [input('image'), input('mask', { type: MASK }), output('out', { type: MASK })]),
+  MaskSrc: schemaOf('MaskSrc', [output('out', { type: MASK })]),
+  MaskSink: schemaOf('MaskSink', [input('in', { type: MASK })]),
+  Pass: schemaOf('Pass', [input('in'), output('out')]),
+  IntSrc: schemaOf('IntSrc', [output('out', { type: INT })]),
+  IntSink: schemaOf('IntSink', [input('in', { type: INT })]),
+  /** Passes on its field's value, like a Primitive. */
+  Prim: schemaOf('Prim', [
+    input('value', { type: INT, widget: { widgetType: 'INT', options: {}, default: 0 } }),
+    output('out', { type: INT, knownValue: { input: 'value' } }),
+  ]),
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +319,56 @@ describe('wires out of muted nodes', () => {
       expect(link.sourceMuted, link.id).toBe(true)
       expect(link.maybeAbsent, link.id).toBe(true)
     }
+  })
+
+  it('follows a bypassed node to the input its passthrough takes', () => {
+    // Blend's MASK output passes on its MASK input, not the IMAGE one.
+    const blendFedBy = (image: GraphSpec['nodes'][string], mask: GraphSpec['nodes'][string]) => sceneOf(docOf({
+      g0: {
+        nodes: { i: image, m: mask, b: { type: 'Blend', mode: 'bypassed' }, k: { type: 'MaskSink' } },
+        links: [
+          [['i', 'out'], ['b', 'image']],
+          [['m', 'out'], ['b', 'mask']],
+          [['b', 'out'], ['k', 'in']],
+        ],
+      },
+    })).links.find((l) => l.id === 'l2')!.sourceMuted
+    expect(blendFedBy({ type: 'Src' }, { type: 'MaskSrc', mode: 'muted' })).toBe(true)
+    expect(blendFedBy({ type: 'Src', mode: 'muted' }, { type: 'MaskSrc' })).toBeUndefined()
+    // Two bypassed nodes in a row, and the may-be-nothing hint the same way.
+    const chain = sceneOf(docOf({
+      g0: {
+        nodes: {
+          a: { type: 'Src', mode: 'muted' }, b1: { type: 'Pass', mode: 'bypassed' }, b2: { type: 'Pass', mode: 'bypassed' },
+          m: { type: 'MaybeSrc' }, b3: { type: 'Pass', mode: 'bypassed' },
+          k1: { type: 'Sink' }, k2: { type: 'Sink' },
+        },
+        links: [
+          [['a', 'out'], ['b1', 'in']],
+          [['b1', 'out'], ['b2', 'in']],
+          [['b2', 'out'], ['k1', 'in']],
+          [['m', 'out'], ['b3', 'in']],
+          [['b3', 'out'], ['k2', 'in']],
+        ],
+      },
+    }))
+    const link = (id: string) => chain.links.find((l) => l.id === id)!
+    expect(link('l2').sourceMuted).toBe(true)
+    expect(link('l2').maybeAbsent).toBeUndefined()
+    expect(link('l4').maybeAbsent).toBe(true)
+    expect(link('l4').sourceMuted).toBeUndefined()
+  })
+
+  it('follows a node that passes on its field\'s value to the wire into that field', () => {
+    const fromPrim = (feed: GraphSpec['nodes'][string] | undefined) => sceneOf(docOf({
+      g0: {
+        nodes: { ...(feed ? { f: feed } : {}), p: { type: 'Prim' }, k: { type: 'IntSink' } },
+        links: [...(feed ? [[['f', 'out'], ['p', 'value']] as [End, End]] : []), [['p', 'out'], ['k', 'in']]],
+      },
+    })).links.find((l) => 'node' in l.from && l.from.node === 'p')!.sourceMuted
+    expect(fromPrim({ type: 'IntSrc', mode: 'muted' })).toBe(true)
+    expect(fromPrim({ type: 'IntSrc' })).toBeUndefined()
+    expect(fromPrim(undefined)).toBeUndefined()
   })
 
   it('marks the wire into Outputs from a muted node inside a subgraph', () => {
