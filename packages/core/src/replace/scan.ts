@@ -28,7 +28,7 @@ import { REPLACE_COMMANDS } from '../commands/replace-commands.js'
 import type { Diagnostic } from '../diagnostics.js'
 import type { Json, WorkflowDocument } from '../format/document.js'
 import type { NodeSchema } from '../schema/model.js'
-import type { ReplacementRule } from './model.js'
+import { isSameTypeMigration, type ReplacementRule } from './model.js'
 import { planReplacement, type NodeReplacePlan, type ReplacementSchemaResolver } from './plan.js'
 import type { ReplacementRegistry } from './registry.js'
 
@@ -148,7 +148,7 @@ function planChain(
         hop = { rule, plan: out.plan, diagnostics: out.diagnostics }
         break
       }
-      if (rule.migration !== undefined) {
+      if (isSameTypeMigration(rule)) {
         if (out.diagnostics.length === 0) continue
         failures.push(...out.diagnostics)
         break
@@ -177,7 +177,7 @@ function planChain(
       })
       break
     }
-    const sameTypeMigration = hop.rule.migration !== undefined && hop.plan.to === currentType
+    const sameTypeMigration = isSameTypeMigration(hop.rule) && hop.plan.to === currentType
     if (seen.has(hop.plan.to) && !sameTypeMigration) {
       // The looping hop is dropped, not applied: migrating back to a
       // visited type is churn, never progress.

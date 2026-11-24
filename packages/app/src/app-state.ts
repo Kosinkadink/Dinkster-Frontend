@@ -76,6 +76,7 @@ import {
   projectWorkspaceCompileArtifact,
   randomNumericValue,
   registerSchemaRules,
+  isSameTypeMigration,
   replacementInvocation,
   scanReplacements,
   stepNumericValue,
@@ -7671,7 +7672,7 @@ export class AppState {
     }
     const installed = [...registry.schemas.values()].flatMap((schema): ComfyTranslation[] => {
       const version = schema.pack === undefined ? undefined : registry.packs?.get(schema.pack)?.version
-      return (schema.replacements ?? []).filter((rule) => rule.migration === undefined).map((rule) => ({
+      return (schema.replacements ?? []).filter((rule) => !isSameTypeMigration(rule)).map((rule) => ({
         schema, rule,
         ...(schema.pack !== undefined ? { pack: schema.pack } : {}),
         ...(version !== undefined ? { version } : {}),
@@ -7680,9 +7681,9 @@ export class AppState {
     const installedSources = new Set(installed.map((record) => record.rule.from))
     const result = importLitegraph(json as JsonObject, registry.resolve, undefined, [
       ...translations.filter((record) => !installedSources.has(record.source ?? record.rule.from)),
-      // Input renames need the historical source values and undoable migration,
-      // not the target interface used as a decoder for the saved source.
-      ...installed.filter(({ rule }) => rule.cases.every((branch) =>
+      // A rule that renames inputs must name the source's inputs, so the saved
+      // node is not read through the target's interface.
+      ...installed.filter(({ rule }) => rule.migration !== undefined || rule.cases.every((branch) =>
         Object.entries(branch.inputs ?? {}).every(([target, mapping]) =>
           mapping.kind === 'constant' || mapping.input === target))),
     ], registry.schemas.values())

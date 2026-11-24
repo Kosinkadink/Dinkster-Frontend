@@ -758,8 +758,9 @@ export function importLitegraph(
     bySource.set(source, record)
   }
   for (const source of ambiguous) bySource.delete(source)
+  const historical = historicalSourcesOf(ingress.value as JsonObject, bySource, resolve)
   const importSchemas = new Map([...bySource].flatMap(([source, record]) => [
-    [source, { ...record.schema, type: source }] as const,
+    [source, historical.interfaces.get(source) ?? { ...record.schema, type: source }] as const,
     ...(record.interfaces ?? [record.schema]).map((schema) => [schema.type, schema] as const),
   ]))
   const resolveForImport = (type: string): NodeSchema | undefined => {
@@ -785,6 +786,10 @@ export function importLitegraph(
       if (node === undefined) continue
       const record = bySource.get(node.type)
       if (record === undefined) continue
+      if (historical.unmarked.has(`${graphId}:${nodeId}`)) {
+        diagnostics.push(imp('warning', 'import.translation.unmarkedWidgets', `node ${nodeId} ('${node.type}') in ${graphId}: its saved inputs do not say which ones hold its widget values; node kept for review`))
+        continue
+      }
       // Helpers inherit ancestry too: fresh helper IDs must not evade cycle detection.
       if (sources.includes(node.type)) {
         diagnostics.push(imp('warning', 'import.translation.cycle', `translation cycle at '${node.type}' in ${graphId}/${nodeId}; node kept for review`))
@@ -825,6 +830,73 @@ export function importLitegraph(
   })
   if (!retained.ok) return { diagnostics: [...diagnostics, imp('error', 'import.notJson', `workflow provenance rejected: ${retained.reason}`)] }
   return { diagnostics, document: retained.value as unknown as WorkflowDocument }
+}
+
+/**
+ * Import-only interfaces for sources that only a rule's historical inputs
+ * describe: no installed schema has the source's type and no registry
+ * interface does. Its inputs are the historical inputs in order; one is a
+ * widget when a saved node of that type marks it as one, with the saved
+ * input type as its widget type. Its outputs are the source outputs the
+ * rule's cases map. A saved node with widget values whose inputs mark none
+ * cannot say which input holds which value, so it is listed as unmarked.
+ */
+function historicalSourcesOf(
+  workflow: JsonObject,
+  bySource: ReadonlyMap<string, ComfyTranslation>,
+  resolve: (type: string) => NodeSchema | undefined,
+): { readonly interfaces: ReadonlyMap<string, NodeSchema>; readonly unmarked: ReadonlySet<string> } {
+  const rules = new Map<string, ReplacementRule & { readonly migration: NonNullable<ReplacementRule['migration']> }>()
+  for (const [source, record] of bySource) {
+    const { migration } = record.rule
+    if (migration === undefined || resolve(source)?.type === source ||
+      (record.interfaces ?? []).some((schema) => schema.type === source)) continue
+    rules.set(source, { ...record.rule, migration })
+  }
+  const interfaces = new Map<string, NodeSchema>()
+  const unmarked = new Set<string>()
+  if (rules.size === 0) return { interfaces, unmarked }
+  const object = (value: unknown): value is JsonObject => typeof value === 'object' && value !== null && !Array.isArray(value)
+  const definitions = object(workflow['definitions']) && Array.isArray(workflow['definitions']['subgraphs'])
+    ? workflow['definitions']['subgraphs'].filter(object) : []
+  const graphs: [string, unknown][] = [['g0', workflow['nodes']], ...definitions.map((def): [string, unknown] => [String(def['id']), def['nodes']])]
+  const widgets = new Map<string, Map<string, string>>()
+  for (const [graphId, nodes] of graphs) {
+    for (const node of Array.isArray(nodes) ? nodes.filter(object) : []) {
+      const rule = typeof node['type'] === 'string' ? rules.get(node['type']) : undefined
+      if (rule === undefined) continue
+      const marked = widgets.get(rule.from) ?? new Map<string, string>()
+      widgets.set(rule.from, marked)
+      let marks = 0
+      for (const input of Array.isArray(node['inputs']) ? node['inputs'].filter(object) : []) {
+        const widget = input['widget']
+        const name = object(widget) && typeof widget['name'] === 'string' ? widget['name'] : undefined
+        if (name === undefined || !rule.migration.historicalInputs.includes(name) || typeof input['type'] !== 'string') continue
+        marks++
+        marked.set(name, input['type'])
+      }
+      const stored = node['widgets_values']
+      const holdsValues = Array.isArray(stored) ? stored.length > 0 : object(stored) && Object.keys(stored).length > 0
+      if (holdsValues && marks === 0) unmarked.add(`${graphId}:n${String(node['id'])}`)
+    }
+  }
+  for (const [source, rule] of rules) {
+    const marked = widgets.get(source) ?? new Map<string, string>()
+    const outputs = [...new Set(rule.cases.flatMap((candidate) => Object.values(candidate.outputs ?? {})))]
+    interfaces.set(source, {
+      type: source, displayName: source, category: 'imported', source: 'v3', isOutputNode: false,
+      body: [
+        ...rule.migration.historicalInputs.map((id): InputSpec => {
+          const widgetType = marked.get(id)
+          return widgetType === undefined
+            ? { kind: 'input', id, type: { kind: 'variable', templateId: id }, optional: true }
+            : { kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: true, widget: { widgetType, options: {} } }
+        }),
+        ...outputs.map((id) => ({ kind: 'output' as const, id, type: { kind: 'variable' as const, templateId: id } })),
+      ],
+    })
+  }
+  return { interfaces, unmarked }
 }
 
 export interface ImportedAssetLiteral {
