@@ -57,6 +57,8 @@ export interface ProblemBoxGalleryCard {
   /** The row drawn highlighted with its line. */
   readonly highlight?: { readonly nodeId: string; readonly row: string }
   readonly width: number
+  /** Zoom the card is drawn at; 1 when absent. */
+  readonly scale?: number
 }
 
 const NODE_WIDTH = 260
@@ -348,6 +350,16 @@ export function problemBoxGallery(
         { nodeId: 'wide', nodeTitle: 'Load model', lines: [line('error', 'model', LONG_MISSING, ['Locate or replace'])] },
       ],
       width: LEFT * 2 + NARROW + GAP + WIDE,
+    },
+    {
+      id: 'zoomed-out',
+      caption: 'Zoomed out to 55%, the node is 143 px wide on screen, so its box is drawn at its floor of 160 px, a little wider than the node; its text stays one screen size. Below 50%, where tabs are no longer drawn, an open box is not drawn either, and it returns with the tabs.',
+      scene: scene([{ id: 'load', schema: loadModel, x: LEFT }]),
+      badges: { load: [errors(1)] },
+      rowMarks: { load: { model: 'error' } },
+      boxes: [{ nodeId: 'load', nodeTitle: 'Load model', lines: [line('error', 'model', 'Model file is missing.', ['Locate or replace'])] }],
+      scale: 0.55,
+      width: 360,
     },
   ]
 }

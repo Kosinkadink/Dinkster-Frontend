@@ -83,6 +83,13 @@ describe('problemBoxPlacement', () => {
     const at = problemBoxPlacement(node, [tab(190, 16), tab(192, 18, PROBLEM_WARNING_BADGE)], { x: 10, y: -20, scale: 2 })
     expect(at).toEqual({ x: 100 * 2 + 10, y: 210 * 2 - 20 + 4, width: node.layout.width * 2 })
     const nodeBottomOnScreen = (50 + 140) * 2 - 20
-    expect(at.y).toBeGreaterThan(nodeBottomOnScreen)
+    expect(at!.y).toBeGreaterThan(nodeBottomOnScreen)
+  })
+
+  it('never draws the box narrower than 160 px on screen, and not at all once tabs are not drawn', () => {
+    const narrowOnScreen = 150 / node.layout.width
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: narrowOnScreen })?.width).toBe(160)
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.5 })).toBeDefined()
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.49 })).toBeUndefined()
   })
 })

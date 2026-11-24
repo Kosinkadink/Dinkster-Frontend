@@ -62,7 +62,8 @@ function ProblemBoxCard(props: {
       }
       const card = props.card(tokens)
       const nodesBottom = Math.max(...card.scene.nodes.map((node) => node.y + node.layout.height))
-      const height = nodesBottom + TAB_ROOM
+      const scale = card.scale ?? 1
+      const height = nodesBottom * scale + TAB_ROOM
       canvas.style.width = `${card.width}px`
       canvas.style.height = `${height}px`
       frame.style.width = `${card.width}px`
@@ -76,7 +77,7 @@ function ProblemBoxCard(props: {
       renderer.setBadges(card.badges)
       renderer.setRowMarks(card.rowMarks)
       renderer.setProblemRowHighlight(card.highlight)
-      renderer.setViewport({ x: 0, y: 0, scale: 1 })
+      renderer.setViewport({ x: 0, y: 0, scale })
       renderer.renderNow()
       const viewport = renderer.getViewport()
       setCaption(card.caption)
@@ -85,7 +86,7 @@ function ProblemBoxCard(props: {
         const node = card.scene.nodes.find((candidate) => candidate.id === box.nodeId)
         if (node === undefined) return []
         const at = problemBoxPlacement(node, renderer!.getNodeBadgeLayout(node), viewport)
-        return [{ box, x: at.x, y: at.y, width: at.width }]
+        return at === undefined ? [] : [{ box, x: at.x, y: at.y, width: at.width }]
       }))
       // The boxes wrap to their nodes' widths, so the frame grows to hold them once drawn.
       requestAnimationFrame(() => {

@@ -9,7 +9,7 @@
 
 import type { NodeProgress, NodeRunState } from '@dinkster/core'
 import type { Scene, SceneNode } from './scene.js'
-import { canvasPaintTokens, defaultTokens, type DesignTokens } from './tokens.js'
+import { CANVAS_DETAIL_MIN_SCALE, canvasPaintTokens, defaultTokens, type DesignTokens } from './tokens.js'
 import type { CanvasIconName } from './toolbox.js'
 
 export interface NodeBadge {
@@ -375,18 +375,20 @@ export const PROBLEM_BOX_GAP = canvasPaintTokens.badge.tab.problemBoxGap
 
 /**
  * Where the box hangs, in canvas-pane px (the canvas element's own px): below the node and its tabs, as
- * wide as the node, so it never covers the node, its pins or its wires. Its lines wrap to that width.
+ * wide as the node but never narrower than its floor, so it never covers the node, its pins or its wires.
+ * Its lines wrap to that width. Undefined while the zoom is too low for tabs: the box returns with them.
  */
 export function problemBoxPlacement(
   node: SceneNode,
   tabs: readonly BadgePlacement[],
   viewport: { readonly x: number; readonly y: number; readonly scale: number },
-): { readonly x: number; readonly y: number; readonly width: number } {
+): { readonly x: number; readonly y: number; readonly width: number } | undefined {
+  if (viewport.scale < CANVAS_DETAIL_MIN_SCALE) return undefined
   const below = tabs.filter((entry) => entry.badge.placement === 'below')
   const bottom = Math.max(node.y + node.layout.height, ...below.map((entry) => entry.y + entry.height))
   return {
     x: node.x * viewport.scale + viewport.x,
     y: bottom * viewport.scale + viewport.y + PROBLEM_BOX_GAP,
-    width: node.layout.width * viewport.scale,
+    width: Math.max(node.layout.width * viewport.scale, canvasPaintTokens.badge.tab.problemBoxMinWidth),
   }
 }
