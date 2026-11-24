@@ -312,6 +312,8 @@ export interface ElaboratedBox {
   readonly label: string
   /** A group: how many members it shows, not counting the spare one. */
   readonly members?: number
+  /** A group: the most members it declares, when it declares a maximum. */
+  readonly maxMembers?: number
   /** A member: its position in the group, from 0. */
   readonly ordinal?: number
   /** A member the document does not store yet. */
@@ -1322,6 +1324,7 @@ function elaboratePass(
         construct: path,
         label: literalText(row.displayName) ?? row.id,
         ...(row.grows === 'button' ? { byHand: true as const } : {}),
+        ...(row.maxMembers !== undefined ? { maxMembers: row.maxMembers } : {}),
         ...(row.reorderable === true && typeof row.grows === 'string' ? { reorderable: true as const } : {}),
         ...(row.openName === false ? { openName: false as const } : {}),
         ...boxed(scope),
