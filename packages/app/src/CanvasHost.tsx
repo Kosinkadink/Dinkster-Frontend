@@ -4862,7 +4862,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (!companion && !linked) return []
         return [{
           id: `${node.id}:${row.valueKey}`,
-          label: `${node.layout.title}, ${row.label}`,
+          label: `${node.layout.title}, ${row.name ?? row.label}`,
           target: { kind: 'widget', hit: { node, row }, ...(companion ? { companion } : {}), connected: true },
         }]
       }))
@@ -4898,7 +4898,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               ? []
               : [{
                   id: `exposure:${node.id}:${row.inputId}`,
-                  label: `${node.layout.title}, ${row.label}: ${item.label}`,
+                  label: `${node.layout.title}, ${row.name ?? row.label}: ${item.label}`,
                   pressed: item.checked === true,
                   disabled: frozen || item.disabled === true,
                   activate: () => {
@@ -5219,7 +5219,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const sourceOwner = hit.row.valueSourceOwner
       if (sourceOwner !== undefined) {
         const vs = renderer.getScene().valueSources.find((candidate) => candidate.id === sourceOwner.valueSourceId)
-        if (vs !== undefined) openValueSourceEditor(vs, { label: hit.row.label, rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height } })
+        if (vs !== undefined) openValueSourceEditor(vs, { label: hit.row.name ?? hit.row.label, rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height } })
         return
       }
       const graphId = currentGraphId(tab)
@@ -5311,7 +5311,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         tab,
         graphId,
         // An editor row has no label of its own; its editor is titled by its node.
-        label: hit.row.editor === true ? hit.node.layout.title : hit.row.label,
+        label: hit.row.editor === true ? hit.node.layout.title : hit.row.name ?? hit.row.label,
         target: {
           kind: 'input',
           nodeId,
