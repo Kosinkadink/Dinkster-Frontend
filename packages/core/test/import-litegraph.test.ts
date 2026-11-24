@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { compile } from '../src/compile/compile.js'
+import { compile, documentPrimitiveResolver } from '../src/compile/compile.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { Diagnostic } from '../src/diagnostics.js'
@@ -2005,6 +2005,39 @@ describe('Autogrow endpoint reconstruction', () => {
       source: { node: 'n3', port: 'value' }, sinks: [{ node: 'n7', port: 'steps' }],
     })])
     expect(result.diagnostics.map((d) => d.code)).toEqual(expect.arrayContaining(['import.primitive.converted', 'import.primitive.dropped']))
+  })
+
+  it.each([
+    ['FLOAT', 'dinkster.utilities.primitive_float', 0.75],
+    ['STRING', 'dinkster.utilities.primitive_string', 'a cat'],
+    ['BOOLEAN', 'dinkster.utilities.primitive_boolean', true],
+    ['COMBO', 'dinkster.utilities.primitive_choice', 'dpm'],
+  ] as const)('imports a PrimitiveNode feeding a %s field as %s', (widgetType, primitiveType, value) => {
+    const field: InputSpec = {
+      kind: 'input', id: 'field', type: { kind: 'concrete', name: widgetType }, optional: false,
+      widget: { widgetType, options: widgetType === 'COMBO' ? { options: ['euler', 'dpm', 'ddim'] } : {} },
+    }
+    const consumer = sdSchema('Consumer', 'Consumer', [field], true)
+    const localResolve = withPrimitives((type) => (type === consumer.type ? consumer : undefined))
+    const result = importLitegraph(
+      workflow([
+        lgNode(1, 'PrimitiveNode', { outputs: [{ name: widgetType, type: widgetType, links: [1] }], widgets_values: [value] }),
+        lgNode(2, consumer.type, { inputs: [{ name: 'field', link: 1, widget: { name: 'field' } }] }),
+      ], [lgLink(1, 1, 0, 2, 0)]),
+      localResolve, undefined, [], PRIMITIVE_SCHEMAS,
+    )
+    expect(errorsOf(result.diagnostics)).toEqual([])
+    const document = result.document!
+    const primitive = document.graphs.g0!.nodes['n1']!
+    expect(primitive).toMatchObject({ type: primitiveType, values: { value } })
+    expect(Object.values(document.graphs.g0!.links).map((link) => [link.from, link.to])).toEqual([
+      [{ node: 'n1', port: 'value' }, { node: 'n2', port: 'field' }],
+    ])
+    if (widgetType === 'COMBO') {
+      // The Choice stores only its pick; its options are the fed field's.
+      const effective = documentPrimitiveResolver(document, localResolve)('g0', primitive)
+      expect(effective?.spec).toMatchObject({ widgetType: 'COMBO', options: { options: ['euler', 'dpm', 'ddim'] } })
+    }
   })
 
   it('rewrites primitive and named-net Autogrow sinks', () => {
