@@ -3492,12 +3492,12 @@ describe('node title double-click minimization', () => {
     harness.fire('dblclick', 50, 40)
     expect(open).not.toHaveBeenCalled()
 
-    // The mark is drawn 20 px at x 80..100; its target is the same 20 px.
-    harness.fire('pointerdown', 81, 20)
+    // The mark fills this 20 px bar, so it sits 0 px from the right edge too: x 90..110; its target is the same 20 px.
+    harness.fire('pointerdown', 91, 20)
     expect(badgeClick).not.toHaveBeenCalled()
-    harness.fire('pointerup', 81, 20)
-    expect(badgeClick).toHaveBeenCalledWith(subgraph, SUBGRAPH_BADGE, { x: 80, y: 10, width: 20, height: 20 })
-    harness.fire('dblclick', 92, 20)
+    harness.fire('pointerup', 91, 20)
+    expect(badgeClick).toHaveBeenCalledWith(subgraph, SUBGRAPH_BADGE, { x: 90, y: 10, width: 20, height: 20 })
+    harness.fire('dblclick', 102, 20)
     expect(open).toHaveBeenCalledWith(subgraph)
     expect(harness.dispatched).toHaveLength(1)
   })

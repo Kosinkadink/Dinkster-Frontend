@@ -134,10 +134,11 @@ import {
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, Snowflake, TriangleAlert, X } from 'lucide-solid'
 import { executionProgress } from './ExecutionActivityCard.js'
-import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
+import { controllerAdvancementPlan, currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
 import { panelDockZone, setPanelOpen } from './panel-location.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
 import { liveExactnessFor } from './companion-display.js'
+import { drawnAnewInputs, RunStandingMemory, runStandingFor } from './run-problem-standing.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
 import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
@@ -1965,6 +1966,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
   /** Current graph's document problem content, keyed independently of runtime errors. */
   let nodeProblems: NodeProblemMap = {}
+  /** Nodes whose run problems lost their color (scene-overlays lastRunNodes), and each node's last answer. */
+  let lastRunNodes: ReadonlySet<string> = new Set()
+  const runStanding = new RunStandingMemory()
 
   // -- node problem box -------------------------------------------------------
   // Opened by a node's Error or Warning tab, or by Show on canvas. It hangs
@@ -3387,10 +3391,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const nodeId = target.hit.node.id
         const badgeId = target.hit.badge.id
         let tooltip: { summary: string; detail: readonly string[] } | undefined
-        if (badgeId === 'core.error') {
+        if (badgeId === 'core.error' || badgeId === 'core.error.lastRun') {
           const errors = nodeErrors(nodeId)
           tooltip = {
-            summary: `${errors.length} execution error${errors.length === 1 ? '' : 's'}`,
+            summary: badgeId === 'core.error.lastRun'
+              ? message('problems.lastRun.changedSince')
+              : `${errors.length} execution error${errors.length === 1 ? '' : 's'}`,
             detail: errors.map((d) => `${d.runtime ? `${d.runtime.exceptionType}: ` : `${d.code}: `}${d.message}`),
           }
         } else if (badgeId === 'core.subgraph') {
@@ -4241,7 +4247,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (node === undefined || tab === undefined) return []
         // A runtime cause belongs to the run's own Error tab, not this box.
         const problems = (nodeProblems[nodeId] ?? []).filter((line) =>
-          !(runErrorsByNode().has(nodeId) && line.diagnostic.origin === 'runtime'))
+          !((runErrorsByNode().has(nodeId) || lastRunNodes.has(nodeId)) && line.diagnostic.origin === 'runtime'))
         return problemBoxLines(problems, problemBoxRows(node), (row) => {
           const port = row.startsWith(outputRowKey('')) ? row.slice(outputRowKey('').length) : row
           return node.layout.pins.find((pin) => pin.portId === port)?.label ?? port
@@ -4724,6 +4730,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const exec = retained?.execution ?? boundExec
       if (!frozen && exec?.artifact && liveArtifact?.connection === exec.ref.connection &&
           exec.artifact.connection === exec.ref.connection) exactProducer = liveExactnessFor(liveArtifact, exec.artifact)
+      let runChanged: ((sceneNodeId: string, runtimeIds: readonly string[]) => boolean) | undefined
+      if (!frozen && exec?.artifact) {
+        const comparable = liveArtifact?.connection === exec.ref.connection && exec.artifact.connection === exec.ref.connection
+        const standing = runStandingFor({
+          live: comparable ? live : undefined,
+          ran: exec.artifact,
+          drawnAnew: liveArtifact && props.app.settings.get<boolean>('features.seedController.enabled')
+            ? drawnAnewInputs(liveArtifact, controllerAdvancementPlan(liveArtifact.snapshot, liveArtifact))
+            : new Map(),
+        })
+        const runKey = exec.key
+        const viewKey = `${gid}\u0000${JSON.stringify(viewedPath ?? [])}\u0000`
+        runChanged = (id, runtimeIds) => runStanding.changedSince(runKey, viewKey + id, standing(runtimeIds))
+      }
       // Terminal NATIVE runs can peek recorded values via GET /api/values.
       const values =
         exec && exec.status !== 'queued' && exec.status !== 'running'
@@ -4760,6 +4780,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         instancePath: viewInstancePath(tab),
         frozen,
         exactProducer,
+        ...(runChanged === undefined ? {} : { runChanged }),
         reviewReplacements: !frozen && reviewReplacements(),
         replacementNodes: reviewReplacements()
           ? new Set(props.app.scanTabReplacements(tab).filter((item) => item.graphId === gid).map((item) => item.nodeId))
@@ -4785,6 +4806,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       renderer.setNodeStates(model.states)
       setRunLogsByNode(model.runLogsByNode)
       setRunErrorsByNode(model.runErrorsByNode)
+      lastRunNodes = model.lastRunNodes
       minimap.setStates(model.states)
       companionInputs = model.companionSources
       arrivingCompanions = model.companions

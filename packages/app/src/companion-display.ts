@@ -66,9 +66,26 @@ export function liveExactnessFor(
   live: CompileArtifact | undefined,
   ran: CompileArtifact | undefined,
 ): ((runtimeId: string) => boolean) | undefined {
+  const standing = recipeStandingFor(live, ran)
+  return standing && ((runtimeId) => standing(runtimeId) === 'same')
+}
+
+/** Whether a runtime node's upstream recipe in a past run equals the current one. */
+export type RecipeStanding = 'same' | 'changed' | 'unknown'
+
+/**
+ * The comparison behind liveExactnessFor, telling a recipe that differs from
+ * one that is the same. Undefined under the same whole-artifact gates.
+ * `ignored` leaves literal inputs out of the comparison (upstreamRecipesEqual).
+ */
+export function recipeStandingFor(
+  live: CompileArtifact | undefined,
+  ran: CompileArtifact | undefined,
+  ignored?: (runtimeId: string, input: string) => boolean,
+): ((runtimeId: string) => RecipeStanding) | undefined {
   if (!live || !ran) return undefined
   if (live.schemaHash !== ran.schemaHash) return undefined
-  return (runtimeId) => upstreamRecipesEqual(live.prompt, ran.prompt, runtimeId)
+  return (runtimeId) => upstreamRecipesEqual(live.prompt, ran.prompt, runtimeId, ignored) ? 'same' : 'changed'
 }
 
 export interface CompanionDerivation {

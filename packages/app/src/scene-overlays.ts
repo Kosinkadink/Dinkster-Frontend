@@ -17,6 +17,7 @@ import {
   executionExpandedBadge,
   executionErrorBadge,
   isCanvasIconName,
+  LAST_RUN_BADGE,
   LOG_INFO_BADGE,
   logWarningBadge,
   mediaDiagnosticBadge,
@@ -31,6 +32,7 @@ import {
   type NodeOutputText,
   type NodePreview,
   type OutputTextMap,
+  type ProblemKind,
   type RowProblemMap,
   type Scene,
 } from '@dinkster/canvas'
@@ -287,6 +289,8 @@ export interface SceneOverlayModel {
   /** Runtime expansion child counts projected onto their visible parent nodes. */
   readonly expandedByNode: ReadonlyMap<string, number>
   readonly rowProblems: RowProblemMap
+  /** Nodes whose problems from the run have lost their color: changed since it (run-problem-standing.ts). */
+  readonly lastRunNodes: ReadonlySet<string>
   readonly previews: Readonly<Record<string, NodePreview>>
   /** Scene node -> source authority for host-owned media element failures. */
   readonly previewSources: Readonly<Record<string, PreviewSource>>
@@ -533,6 +537,12 @@ export function deriveSceneOverlays(args: {
   /** Nodes whose runtime error badge the user dismissed for THIS run. */
   readonly dismissedErrorNodes?: ReadonlySet<string>
   readonly rowProblems?: RowProblemMap
+  /**
+   * Live tabs: whether a node no longer runs as the run ran it, given the
+   * runtime ids in this view that failed (all of its runtime ids when none
+   * is known to have failed); run-problem-standing.ts. Absent = unchanged.
+   */
+  readonly runChanged?: (sceneNodeId: string, runtimeIds: readonly string[]) => boolean
   readonly resolveSchema: ((type: string) => NodeSchema | undefined) | undefined
   /**
    * Locally evaluate schema-declared expression mirrors and display the
@@ -673,6 +683,40 @@ export function deriveSceneOverlays(args: {
     }
   }
 
+  // A run's problems on a node lose their color once the node has changed
+  // since the run: no Failed state, a gray Last run tab, no row outlines.
+  // A node is judged by its failed runtime nodes, so a subgraph node follows
+  // the failed nodes inside it rather than every node inside it.
+  const lastRunNodes = new Set<string>()
+  if (!args.frozen && occ !== undefined && args.runChanged !== undefined && exec !== undefined) {
+    for (const n of scene.nodes) {
+      if (!runErrorsByNode.has(n.id) && states[n.id]?.state !== 'error') continue
+      const ids = runtimeIdsFor(occ, n.id)
+      const failed = new Set(ids.filter((id) => exec.nodes[id]?.state === 'error'))
+      for (const diagnostic of runErrorsByNode.get(n.id) ?? []) {
+        const id = diagnostic.data?.['runtimeId']
+        if (typeof id === 'string') failed.add(id)
+      }
+      if (args.runChanged(n.id, failed.size > 0 ? [...failed] : ids)) lastRunNodes.add(n.id)
+    }
+  }
+  const shownStates = lastRunNodes.size === 0 ? states : Object.fromEntries(
+    Object.entries(states).filter(([id, progress]) => !(lastRunNodes.has(id) && progress.state === 'error')))
+  let rowProblems = args.rowProblems ?? {}
+  if (lastRunNodes.size > 0) {
+    const rows: Record<string, Readonly<Record<string, ProblemKind>>> = { ...rowProblems }
+    for (const id of lastRunNodes) {
+      const kept: Record<string, ProblemKind> = {}
+      for (const line of args.nodeProblems?.[id] ?? []) {
+        if (line.row === undefined || line.diagnostic.origin === 'runtime') continue
+        if (kept[line.row] !== 'error') kept[line.row] = line.kind
+      }
+      if (Object.keys(kept).length > 0) rows[id] = kept
+      else delete rows[id]
+    }
+    rowProblems = rows
+  }
+
   // Resolve tap defaults from the elaborated interface, not only top-level
   // schema items: a persisted dynamic member is a real widget source too.
   // Cache one elaboration per source node for this overlay pass.
@@ -769,7 +813,7 @@ export function deriveSceneOverlays(args: {
     // never a log level); dismissal hides it for this run only.
     const runErrors = runErrorsByNode.get(n.id)
     if (runErrors !== undefined && args.dismissedErrorNodes?.has(n.id) !== true) {
-      list.push(executionErrorBadge(runErrors.length))
+      list.push(lastRunNodes.has(n.id) ? LAST_RUN_BADGE : executionErrorBadge(runErrors.length))
     }
     const blocked = blockedByNode.get(n.id)
     if (blocked !== undefined) list.push(executionBlockedBadge(blocked))
@@ -790,7 +834,7 @@ export function deriveSceneOverlays(args: {
     // Execution errors already own the runtime error badge and its
     // runtime-details popover, so a runtime cause is not counted again here.
     const problemLines = (args.nodeProblems?.[n.id] ?? []).filter((line) =>
-      !(runErrorsByNode.has(n.id) && line.diagnostic.origin === 'runtime'))
+      !((runErrorsByNode.has(n.id) || lastRunNodes.has(n.id)) && line.diagnostic.origin === 'runtime'))
     const errorLines = problemLines.filter((line) => line.kind === 'error')
     const warningLines = problemLines.filter((line) => line.kind === 'warning')
     // A node that cannot run here says so on its tab, with no count.
@@ -959,7 +1003,7 @@ export function deriveSceneOverlays(args: {
   }
 
   return {
-    states,
+    states: shownStates,
     companions: derived.companions,
     companionSources: derived.sources,
     ownRuntimeIds,
@@ -969,7 +1013,8 @@ export function deriveSceneOverlays(args: {
     runErrorsByNode,
     blockedByNode,
     expandedByNode,
-    rowProblems: args.rowProblems ?? {},
+    rowProblems,
+    lastRunNodes,
     previews,
     previewSources,
     executedImages,
