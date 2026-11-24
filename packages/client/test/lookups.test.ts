@@ -77,6 +77,10 @@ describe('lookup client', () => {
     // A failure stays until a trigger; showing it does not ask again.
     expect(await client.request(call('a', 'sdxl'))).toEqual({ state: 'unavailable', reason: 'failed' })
     expect(host.seen).toHaveLength(3)
+    // An answer that does not fit where it is used keeps the earlier one, stale.
+    const misfit = client.request(call('a', 'sd'), { refresh: true, accept: (answer) => Array.isArray(answer) })
+    await host.answer(200, { answer: 7 })
+    expect(await misfit).toEqual({ state: 'stale', answer: ['sd/x'], reason: 'wrong-shape' })
   })
 
   it('cancels a shared call only when its last waiter leaves', async () => {

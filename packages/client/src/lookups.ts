@@ -66,6 +66,11 @@ export interface LookupRequestOptions {
   readonly refresh?: boolean
   /** Default `edit`. A call already under way is shared whoever asked for it. */
   readonly askedBy?: LookupAsker
+  /**
+   * Whether an answer fits where it is used. One that does not is a wrong
+   * shape: the answer kept for these arguments stays, marked stale.
+   */
+  readonly accept?: (answer: unknown) => boolean
 }
 
 export interface LookupClient {
@@ -214,7 +219,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     return (body as { answer: unknown }).answer
   }
 
-  const start = (entry: Kept, call: LookupCall, askedBy: LookupAsker): Inflight => {
+  const start = (entry: Kept, call: LookupCall, askedBy: LookupAsker, accept?: (answer: unknown) => boolean): Inflight => {
     const controller = new AbortController()
     const owner = kept
     const before = entry.answer || entry.state.state !== 'loading' ? entry.state : undefined
@@ -226,6 +231,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       try {
         const answer = await ask(call, askedBy, controller.signal)
         if (kept !== owner) throw aborted()
+        if (accept !== undefined && !accept(answer)) throw new LookupFault('wrong-shape')
         entry.answer = { value: answer }
         entry.old = false
         return settle(entry, { state: 'ready', answer })
@@ -305,7 +311,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       entry = { state: { state: 'loading' }, old: false }
       kept.set(key, entry)
     }
-    if (!entry.inflight) entry.inflight = start(entry, call, options.askedBy ?? 'edit')
+    if (!entry.inflight) entry.inflight = start(entry, call, options.askedBy ?? 'edit', options.accept)
     return join(key, entry, entry.inflight, options.signal)
   }
 
