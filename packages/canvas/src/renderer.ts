@@ -321,7 +321,10 @@ export type CompanionMap = Readonly<Record<string, Readonly<Record<string, Compa
 
 /** What a folded editor's row reads when it depends on more than the row's own value, such as a clip's length or a run's images. */
 export interface EditorSummary {
-  readonly text: string
+  /** What the row reads in place of the view's own value text. */
+  readonly text?: string
+  /** The value the row draws in place of the stored one, such as what a wire brought; null when nothing is known yet. */
+  readonly value?: Json
   /** Drawn in the placeholder color, for an editor that holds nothing. */
   readonly placeholder?: boolean
   /** A small picture before the text, such as the stored frame or the last 3D view. */
@@ -4442,7 +4445,10 @@ export class CanvasRenderer {
       row,
       // Selector rows (DynamicCombo) carry their value on the row itself;
       // everything else persists under the row's value key.
-      value: drag !== undefined ? drag.value : row.derivedValue !== undefined ? row.derivedValue : node.node.values[row.valueKey],
+      value: drag !== undefined ? drag.value
+        : companion === undefined && this.editorSummaries[sceneNode.id]?.[row.valueKey]?.value !== undefined
+          ? this.editorSummaries[sceneNode.id]![row.valueKey]!.value
+          : row.derivedValue !== undefined ? row.derivedValue : node.node.values[row.valueKey],
       ...(drag !== undefined ? { dragging: true } : {}),
       ...(companion !== undefined ? { companion } : {}),
       ...(companion !== undefined ? { companionAlpha } : {}),

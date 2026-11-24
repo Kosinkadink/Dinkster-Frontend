@@ -885,18 +885,27 @@ export const curveView: WidgetView<Json> = {
   isCompatible: () => true,
   measure: () => ({ rows: 2 }),
   drawCompact(ctx, value, spec, state) {
-    const curve = isCurveValue(value) ? value : curveKind.defaultValue(spec) as unknown as CurveValue
     ctx.rect(0, 0, 1, 2, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
-    const points = curve.points
-    const interpolate = curveInterpolator(curve)
+    // A wire decides a connected curve: what it brought is drawn, and nothing before a run.
+    const curve = isCurveValue(value) ? value
+      : state.connected ? undefined : curveKind.defaultValue(spec) as unknown as CurveValue
+    const points = curve?.points ?? []
+    const interpolate = curve === undefined ? undefined : curveInterpolator(curve)
+    const samples = interpolate === undefined ? []
+      : Array.from({ length: 64 }, (_, index) => Math.max(0, Math.min(1, interpolate(index / 63))))
     // The sketch spans the plot's range, 0 to 1, so the held ends show.
-    for (let index = 0; index < 64; index += 1) {
-      const fraction = index / 63
-      const sample = interpolate(fraction)
-      ctx.rect(fraction, 1.8 - Math.max(0, Math.min(1, sample)) * 1.6, 0.02, 0.08,
-        { role: 'curveSample' })
-    }
+    samples.forEach((sample, index) => ctx.rect(index / 63, 1.8 - sample * 1.6, 0.02, 0.08, { role: 'curveSample' }))
+    // The folded square of the raised look: the plot in small, with its points unless a wire brings the curve.
+    ctx.rect(0, 0, 1, 2, {
+      role: 'curveSketch',
+      samples,
+      points: state.connected ? [] : points.map((point) => [point.position, point.value]),
+      held: points.length === 0 ? [] : [points[0]!.position, points[points.length - 1]!.position],
+    })
     ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'}`, { role: 'widgetValue', align: 'right', width: 1 })
+    if (curve !== undefined) {
+      ctx.text(0, 1, t((curve.interpolation ?? 'linear') === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic'), { role: 'curveJoin' })
+    }
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 2, 'widget.edit')
   },
 }

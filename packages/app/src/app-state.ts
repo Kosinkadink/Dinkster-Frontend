@@ -9006,9 +9006,6 @@ export class AppState {
     })
   }
 
-  /** Per tab and value owner: the 3D view whose pictures that value holds, as taken at a queue. */
-  private readonly capturedModelViews = new Map<string, string>()
-
   /**
    * Takes what a run needs from the user's devices and views as it is queued:
    * a webcam frame where capture on queue is on, and the image, mask and
@@ -9066,7 +9063,6 @@ export class AppState {
           graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: { ...ref },
         } })
       }
-      const remembered: [string, string][] = []
       if (models.length > 0) {
         const [{ openLoad3dSource, Load3dSourceError }, { mountModel3dViewer }] = await Promise.all([
           import('./load3d-source.js'), import('./model3d-viewer.js'),
@@ -9075,23 +9071,39 @@ export class AppState {
           const stored = node.inputs[input.id]
           const value: Record<string, Json> = typeof stored === 'object' && stored !== null && !Array.isArray(stored)
             ? { ...(stored as Record<string, Json>) } : {}
+          const pictureKeys = ['image', 'mask', 'normal', 'pictures_view']
+          // A model a wire brings is known only once this run brings it, so no pictures are stored
+          // or sent for it, not even ones of an earlier model.
+          const dropPictures = (): void => {
+            if (!pictureKeys.some((name) => name in value)) return
+            const rest = Object.fromEntries(Object.entries(value).filter(([name]) => !pictureKeys.includes(name)))
+            invocations.push({ command: 'node.setValue', params: { graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: rest } })
+          }
           let source
           try {
             source = await openLoad3dSource(this, tab, { graphId: location.graphId, nodeId, parts: { writes: {}, reads: input.widget?.reads ?? {} } }, signal)
           } catch (error) {
             // No model, or one a wire brings in this same run: no pictures can be taken now.
-            if (error instanceof Load3dSourceError && error.problem !== 'unavailable') continue
+            if (error instanceof Load3dSourceError && error.problem !== 'unavailable') {
+              if (error.modelWired) dropPictures()
+              continue
+            }
             throw error
+          }
+          if (source.modelWired) {
+            source.release()
+            dropPictures()
+            continue
           }
           const size = (part: 'width' | 'height'): number => {
             const read = source.inputValue(part)
             return typeof read === 'number' ? read : 1024
           }
-          const memory = `${tab.id}:${JSON.stringify(owner)}`
-          const view = (state: Record<string, Json>): string => JSON.stringify([source.inputValue('model_file') ?? null,
-            state['camera_info'] ?? null, state['model_3d_info'] ?? null, size('width'), size('height')])
+          // The view the pictures show, stored with them so a run (and a reopened workflow) can tell whether they still match.
+          const view = (state: Record<string, Json>): Json => ({ model_file: source.inputValue('model_file') ?? null,
+            camera_info: state['camera_info'] ?? null, model_3d_info: state['model_3d_info'] ?? null, width: size('width'), height: size('height') })
           const captured = ['image', 'mask', 'normal'].every((name) => value[name] !== undefined && value[name] !== null && value[name] !== '')
-          if (captured && this.capturedModelViews.get(memory) === view(value)) {
+          if (captured && value['pictures_view'] !== undefined && canonicalJson(value['pictures_view']) === canonicalJson(view(value))) {
             source.release()
             continue
           }
@@ -9118,9 +9130,9 @@ export class AppState {
                 const ref = await backend.connection.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal })
                 next[name] = JSON.parse(JSON.stringify(ref)) as Json
               }
+              next['pictures_view'] = view(next)
               current()
               invocations.push({ command: 'node.setValue', params: { graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: next } })
-              remembered.push([memory, view(next)])
             } finally {
               viewer.dispose()
             }
@@ -9134,7 +9146,6 @@ export class AppState {
       if (invocations.length === 0) return document
       const outcome = await this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })
       if (!outcome.ok) throw new Error('Could not save the pictures taken for the run.')
-      for (const [memory, view] of remembered) this.capturedModelViews.set(memory, view)
       return outcome.doc
     })()
   }

@@ -12,7 +12,8 @@ import type { Model3dLoadOptions } from './model3d-viewer.js'
 export type Load3dSourceProblem = 'native' | 'noModel' | 'notKnown' | 'unavailable'
 
 export class Load3dSourceError extends Error {
-  constructor(readonly problem: Load3dSourceProblem) {
+  /** `modelWired`: the model itself is what a wire brings, not only the camera, placement or size. */
+  constructor(readonly problem: Load3dSourceProblem, readonly modelWired = false) {
     super(problem)
   }
 }
@@ -24,6 +25,8 @@ export interface Load3dSource {
   readonly options: Model3dLoadOptions
   /** A row the viewport reads, by the part its widget names: the node's own value, or what its wire brought. */
   readonly inputValue: (part: string) => Json | undefined
+  /** Whether the model is the one a wire brought in the last run. */
+  readonly modelWired: boolean
   /** Whether what was read still holds: the same backend, the same run and, for a dialog, the same document. */
   readonly current: () => boolean
   /** Releases the model's object URLs, once nothing reads them any more. */
@@ -64,6 +67,9 @@ export async function openLoad3dSource(app: AppState, tab: Tab, at: {
   const rowOf = (part: string): string | undefined => parts === undefined ? undefined
     : Object.hasOwn(parts.writes, part) ? parts.writes[part] : Object.hasOwn(parts.reads, part) ? parts.reads[part] : undefined
   const resolved = new Map<string, Json>()
+  const nodeSchema = node === undefined ? undefined : resolveSchema?.(node.type)
+  // A row left at its default holds no value; the run receives the default.
+  const defaults = nodeSchema === undefined ? {} : defaultValuesOf(nodeSchema) as Record<string, Json>
   const inputValue = (part: string): Json | undefined => {
     const row = rowOf(part)
     if (row === undefined) return undefined
@@ -72,7 +78,7 @@ export async function openLoad3dSource(app: AppState, tab: Tab, at: {
       const key = portRefKey({ node: node.id, port: asPortId(row) })
       if (index.inputDriverOf.has(key) || index.netSourceOf.has(key)) return undefined
     }
-    const value = source === undefined ? node?.values[row] : source.kind === 'literal' ? source.value : resolved.get(part)
+    const value = source === undefined ? node?.values[row] ?? defaults[row] : source.kind === 'literal' ? source.value : resolved.get(part)
     const typed = value === undefined ? undefined : parseTypedLiteralWire(value)
     return typed === undefined ? value : typed.value
   }
@@ -93,7 +99,9 @@ export async function openLoad3dSource(app: AppState, tab: Tab, at: {
       if (producers.some(({ source }) => graph?.nodes[source.node] === undefined)) throw unavailable()
       const execution = app.executionForTab(tab)
       const ran = execution?.artifact
-      if (!execution || execution.status !== 'completed' || !ran) throw new Load3dSourceError('notKnown')
+      if (!execution || execution.status !== 'completed' || !ran) {
+        throw new Load3dSourceError('notKnown', producers.some(({ inputId }) => inputId === 'model_3d' || inputId === 'model_file'))
+      }
       const compiled = app.compileTabCached(tab)
       const compiledArtifact = compiled?.ok ? compiled.artifact : undefined
       const path = viewInstancePath(tab)
@@ -227,12 +235,11 @@ export async function openLoad3dSource(app: AppState, tab: Tab, at: {
       && /^property\s+float\s+scale_0\s*$/m.test(header)
       && /^property\s+float\s+rot_0\s*$/m.test(header)
     const mime = format === 'gltf' ? 'model/gltf+json' : unspecified ? gaussian ? 'model/ply' : 'application/octet-stream' : String(model.mediaType ?? 'model/gltf-binary')
-    const schema = node === undefined ? undefined : resolveSchema?.(node.type)
-    const pointCloud = schema !== undefined && inputsOf(schema).some((input) =>
+    const pointCloud = nodeSchema !== undefined && inputsOf(nodeSchema).some((input) =>
       input.id === rowOf('model_3d') && (input.type.kind === 'concrete' ? input.type.name === 'FILE_3D_POINT_CLOUD_ANY'
         : input.type.kind === 'union' && input.type.names.includes('FILE_3D_POINT_CLOUD_ANY')))
     if (!current()) throw unavailable()
-    return { src: primary.url, mime, options: { resources, ...(format ? { format } : {}), pointCloud }, inputValue, current, release }
+    return { src: primary.url, mime, options: { resources, ...(format ? { format } : {}), pointCloud }, inputValue, modelWired: modelExecution !== undefined, current, release }
   } catch (reason) {
     release()
     throw reason

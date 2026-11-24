@@ -1,5 +1,5 @@
 import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
-import { canvasPaintTokens, clampPictureHeight, defaultTokens, type LayoutRow } from '@dinkster/canvas'
+import { canvasPaintTokens, clampPictureHeight, defaultTokens, IN_NODE_EDITORS, type EditorSummary, type EditorSummaryMap, type LayoutRow } from '@dinkster/canvas'
 import { audioRecordKind, curveInterpolator, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
   CanvasAnglePicture,
@@ -88,6 +88,29 @@ export function editorSpaceItems(nodes: readonly {
       }]
     })
   })
+}
+
+/**
+ * What the row of an editor shown in the node shows while a wire decides its
+ * value, folded or not: what the wire brought in the last run, read by its
+ * name when it has one, or `notKnown` in the placeholder color before one.
+ * The value stored under the wire is not shown.
+ */
+export function wiredEditorSummaries(nodes: readonly {
+  readonly id: string
+  readonly layout: { readonly rows: readonly LayoutRow[] }
+}[], wires: EditorWires, notKnown: string): EditorSummaryMap {
+  return Object.fromEntries(nodes.flatMap((node) => {
+    const summaries = Object.fromEntries(node.layout.rows.flatMap((row): [string, EditorSummary][] => {
+      if (row.kind !== 'widget' || IN_NODE_EDITORS[row.viewId] === undefined || !wires.wired(node.id, row.inputId)) return []
+      const carried = wires.carried(node.id, row.valueKey)
+      if (carried === undefined) return [[row.valueKey, { text: notKnown, placeholder: true, value: null }]]
+      const named = typeof carried === 'object' && carried !== null && !Array.isArray(carried) ? (carried as JsonObject)['name'] : undefined
+      const name = typeof carried === 'string' ? carried : typeof named === 'string' ? named : undefined
+      return [[row.valueKey, name === undefined || name === '' ? { value: carried } : { text: name, value: carried }]]
+    }))
+    return Object.keys(summaries).length === 0 ? [] : [[node.id, summaries]]
+  }))
 }
 
 /**
@@ -902,8 +925,9 @@ const CAMERA_SIDES = ['front', 'frontRight', 'right', 'backRight', 'back', 'back
 /** The camera's place in a few words: its side in steps of 45 degrees, its height, and its zoom. */
 export function cameraAngleWords(message: ReturnType<typeof useAppMessage>, horizontal: number, vertical: number, zoom: number): string {
   const side = CAMERA_SIDES[Math.round((((horizontal % 360) + 360) % 360) / 45) % 8]!
-  // The heights are the node's own shot bands: low-angle, eye-level, elevated and high-angle.
-  const height = vertical < -15 ? 'below' : vertical < 15 ? 'level' : vertical < 45 ? 'littleAbove' : 'highAbove'
+  // The heights repeat the node's own shot bands in dinkster-nodes camera_angle.py
+  // (low-angle, eye-level, elevated, high-angle), so the line agrees with its prompt.
+  const height = vertical < -15 ? 'below' : vertical < 15 ? 'level' : vertical < 45 ? 'above' : 'highAbove'
   return message('inNodeCameraAngle.place', {
     side: message(`inNodeCameraAngle.side.${side}`),
     height: message(`inNodeCameraAngle.height.${height}`),
