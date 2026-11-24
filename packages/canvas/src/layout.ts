@@ -1516,6 +1516,13 @@ export function layoutNode(
         under = box.step
       }
     }
+    /**
+     * Where a box header's outline starts: `headerGap` under a field or pin
+     * row, `memberGap` under a member box, and just under any other outline
+     * or header.
+     */
+    const headerTop = (): number =>
+      afterMember ? y + box.memberGap : slack > 0 ? y - slack + box.headerGap : y + verticalInset
     /** Close the boxes the row is not in and open the option boxes it is in. */
     const enter = (chain: readonly string[]): void => {
       let shared = 0
@@ -1540,7 +1547,7 @@ export function layoutNode(
         const depth = open.length + 1
         const index = rows.length
         if (decl.kind === 'member') {
-          const top = afterMember ? y + box.memberGap : y + verticalInset - slack
+          const top = headerTop()
           const height = top + box.stroke + headerHeight - y
           const grip = decl.member !== undefined && !decl.ghost ? gripOf(decl.construct!, decl.member) : undefined
           push({
@@ -1568,7 +1575,7 @@ export function layoutNode(
           ...(decl.closed && hiddenPorts.has(decl.id) ? { hiddenPorts: hiddenPorts.get(decl.id)! } : {}),
         }
         if (decl.closed) {
-          const top = y + verticalInset - slack
+          const top = headerTop()
           push({ ...header, y, height: top + closedHeight - y, top }, depth)
           boxes.push({
             id: decl.id, kind: decl.kind, depth, x: outlineX(depth), y: top, width: 0, height: closedHeight,
@@ -1585,7 +1592,7 @@ export function layoutNode(
           open.push({ decl, top, first: index })
           y = top + box.stroke + box.tabPad
         } else {
-          const top = y + verticalInset - slack
+          const top = headerTop()
           push({ ...header, y, height: top + box.stroke + headerHeight - y, top }, depth)
           open.push({ decl, top, first: index })
           y = top + box.stroke + headerHeight

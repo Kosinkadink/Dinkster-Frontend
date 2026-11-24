@@ -983,7 +983,7 @@ describe('sections', () => {
     expect(outer!.y + outer!.height).toBeGreaterThan(inner!.y + inner!.height)
   })
 
-  it('narrows a field by 3 px a side in one box and 7 more per level, its outline past the pins', () => {
+  it('narrows a field by 8 px a side in one box and 9 more per level, its outline past the pins', () => {
     const member = { kind: 'group' as const, id: 'loras', member: [widget('name'), widget('strength')],
       keys: { kind: 'numbered' as const, prefix: 'lora', start: 0, pad: 0 }, grows: 'button' as const, minMembers: 1 }
     const l = layoutNode(
@@ -993,9 +993,9 @@ describe('sections', () => {
     const insetOf = (id: string) => (l.rows.find((r) => r.kind === 'widget' && r.inputId === id) as { inset: number }).inset
     const outside = insetOf('outside')
     // section > group > member: three boxes deep.
-    expect([insetOf('one'), insetOf('loras.lora0.name')]).toEqual([outside + 3, outside + 3 + 7 + 7])
+    expect([insetOf('one'), insetOf('loras.lora0.name')]).toEqual([outside + 8, outside + 8 + 9 + 9])
     const outer = l.boxes!.find((b) => b.id === 'outer')!
-    expect(insetOf('one') - (outer.x + canvasPaintTokens.node.box.stroke)).toBe(3)
+    expect(insetOf('one') - (outer.x + canvasPaintTokens.node.box.stroke)).toBe(8)
     expect(outer.x - defaultTokens.pinRadius).toBeGreaterThanOrEqual(1)
   })
 
@@ -1093,9 +1093,9 @@ describe('sections', () => {
     expect(shown.boxes?.map((b) => b.id)).toEqual(['group:prompts'])
   })
 
-  it('leaves as much room under the last thing in a box as at its sides', () => {
+  it('leaves a step under an inner box or add row in a box, and bottomGap under a field', () => {
     const box = canvasPaintTokens.node.box
-    const sides = { field: box.fieldGap, outline: box.step }
+    const sides = { field: box.bottomGap, outline: box.step }
     const stroke = box.stroke
     const lay = (body: NodeSchema['body'], dynamic = {}) =>
       layoutNode(schemaOf(body), { ...nodeData, dynamic }, defaultTokens, measure, widgetMeasure)
@@ -1155,6 +1155,13 @@ describe('sections', () => {
     ]) {
       expect(r.below).toBe(box.step - inset)
       expect(r.above).toBe(r.below)
+    }
+    // A box header under a field or a pin row stands `headerGap` below it.
+    for (const above of [widget('top'), input('top')]) {
+      const l = lay([above, { kind: 'section', id: 's', displayName: 'S', rows: [widget('a')] }], [])
+      const row = l.rows[0]!
+      const section = l.boxes!.find((b) => b.id === 's')!
+      expect(section.y - (row.y + row.height - inset)).toBe(box.headerGap)
     }
   })
 
@@ -1297,8 +1304,8 @@ describe('sections', () => {
   it('connected members of a collapsed section keep pins anchored on the header row', () => {
     const l = layout({ sectionOverrides: { adv: true }, connectedPorts: new Set(['in:b']) })
     const pinB = l.pins.find((p) => p.portId === 'b')!
-    const header = l.rows.find((r) => r.kind === 'section')!
-    expect(pinB.y).toBe(header.y + header.height / 2)
+    const closed = l.boxes!.find((b) => b.closed)!
+    expect(pinB.y).toBe(closed.y + closed.height / 2)
     expect(pinB.optional).toBe(true)
     // The unconnected member stays hidden.
     expect(l.pins.find((p) => p.portId === 'w')).toBeUndefined()
