@@ -991,29 +991,36 @@ describe('sections in scenes', () => {
     expect(fieldIds(sectionedScene(false, false, false, true).nodes.find((n) => n.id === 's0')!)).toEqual(['w'])
   })
 
-  it('link and named-net noodles into a collapsed section anchor on its header', () => {
+  it('link and named-net noodles into a collapsed section anchor on its closed row', () => {
     const scene = sectionedScene(true)
     const s0 = scene.nodes.find((n) => n.id === 's0')!
     const header = s0.layout.rows.find((r) => r.kind === 'section')!
-    const anchorY = s0.y + header.y + header.height / 2
+    const pinY = (portId: string) => s0.y + s0.layout.pins.find((p) => p.portId === portId && p.direction === 'in')!.y
+    // Both hidden inputs gather on the closed row, as a cluster.
+    for (const portId of ['b', 'w']) {
+      expect(pinY(portId)).toBeGreaterThan(s0.y + header.y)
+      expect(pinY(portId)).toBeLessThan(s0.y + header.y + header.height)
+    }
+    expect(pinY('b')).not.toBe(pinY('w'))
     // Ordinary link into hidden port b.
     const link = scene.links.find((l) => l.id === 'l1')!
     expect(link.x2).toBe(s0.x)
-    expect(link.y2).toBe(anchorY)
+    expect(link.y2).toBe(pinY('b'))
     // Named-net noodle into hidden widget input w.
     const netLink = scene.links.find((l) => l.netId === 't2')!
-    expect(netLink.y2).toBe(anchorY)
+    expect(netLink.y2).toBe(pinY('w'))
   })
 
   it('connected widget tap in a collapsed section keeps a header pin and noodle anchor', () => {
     const scene = sectionedScene(true, true)
     const s0 = scene.nodes.find((n) => n.id === 's0')!
     const header = s0.layout.rows.find((r) => r.kind === 'section')!
-    const anchorY = s0.y + header.y + header.height / 2
     const tapPin = s0.layout.pins.find((p) => p.direction === 'out' && p.portId === 'w' && p.widgetTap === true)!
     const tapLink = scene.links.find((l) => l.id === 'tap')!
+    const anchorY = s0.y + tapPin.y
 
-    expect(s0.y + tapPin.y).toBe(anchorY)
+    expect(anchorY).toBeGreaterThan(s0.y + header.y)
+    expect(anchorY).toBeLessThan(s0.y + header.y + header.height)
     expect(tapLink.from).toEqual({ kind: 'widgetTap', node: 's0', input: 'w' })
     expect(tapLink.x1).toBe(s0.x + s0.layout.width)
     expect(tapLink.y1).toBe(anchorY)

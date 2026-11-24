@@ -45,6 +45,7 @@
 
 import {
   canonicalTypeIdOf,
+  groupBoxKey,
   hasKnownLinkDropAnchorType,
   dragNumericValue,
   isIntegerWidgetValue,
@@ -69,7 +70,7 @@ import { subgraphMarkRect } from './registry-painter.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
 import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, minimizeArrowRect, pinPosition, previewEdgeShown, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
 import { canvasPaintTokens, type DesignTokens } from './tokens.js'
-import { BOUNDARY_ADD_SLOT, clampTextBoxLines, multilineWidgetHeight, projectTextBoxLines, type LayoutRow, type PinLayout } from './layout.js'
+import { BOUNDARY_ADD_SLOT, clampTextBoxLines, memberSpans, multilineWidgetHeight, projectTextBoxLines, type LayoutRow, type MemberGrip, type PinLayout } from './layout.js'
 import { PointerTrace, type PointerTraceEntry, type PointerTraceReason } from './pointer-trace.js'
 import { touchNavViewport } from './touch-nav.js'
 import { wheelNavigationViewport, type WheelNavigationMode } from './zoom.js'
@@ -82,6 +83,7 @@ import {
   valueSourceTargetKey,
   type CanvasRenderer,
   type GhostLink,
+  type OverlayState,
   type PlacementGhost,
   previewSurfaceAffordanceRect,
   widgetRowAffordanceRect,
@@ -767,6 +769,8 @@ type Gesture =
   | { readonly kind: 'section'; readonly hit: Extract<Hit, { kind: 'section' }>; moved: boolean }
   | { readonly kind: 'preview-caption'; readonly node: SceneNode; moved: boolean }
   | { readonly kind: 'growth'; readonly hit: Extract<Hit, { kind: 'growth' }>; moved: boolean }
+  /** A member dragged by its grip; `index` is where a release puts it in the stored order. */
+  | { readonly kind: 'grip'; readonly hit: Extract<Hit, { kind: 'grip' }>; moved: boolean; index?: number | undefined }
   | {
       /** Dragging a text box's bottom edge: its height follows in whole lines. */
       readonly kind: 'text-box-lines'
@@ -923,6 +927,10 @@ export class InteractionController {
   private textBoxFit: { readonly nodeId: string; readonly valueKey: string; readonly fitted: number; readonly before: number } | undefined
   private hoveredMinimize: string | undefined
   private hoveredBadge: { readonly nodeId: string; readonly badgeId: string } | undefined
+  private hoveredBoxNode: string | undefined
+  private hoveredBoxId: string | undefined
+  private hoveredGrip: { readonly nodeId: string; readonly construct: string; readonly member: string } | undefined
+  private hoveredButton: { readonly nodeId: string; readonly key: string } | undefined
   private hoveredToolboxButton: string | undefined
   /** A toolbox press can synchronously remove/move the toolbox before the
    * browser emits dblclick. Remember that press briefly so its dblclick can
@@ -1210,7 +1218,8 @@ export class InteractionController {
       // Rows and pin layouts belong to the exact scene instance. Clear their
       // hover on every replacement, even when an identity happens to recur.
       const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined ||
-        this.hoveredMinimize !== undefined || this.hoveredBadge !== undefined
+        this.hoveredMinimize !== undefined || this.hoveredBadge !== undefined ||
+        this.hoveredBoxNode !== undefined || this.hoveredGrip !== undefined || this.hoveredButton !== undefined
       if (staleNode) {
         this.hoveredNode = undefined
         this.host.onNodeHover?.(undefined)
@@ -1889,6 +1898,10 @@ export class InteractionController {
         return
       case 'growth':
         this.gesture = { kind: 'growth', hit, moved: false }
+        this.pushOverlay({ pressedButton: { nodeId: hit.node.id, key: `growth:${hit.row.construct}` } })
+        return
+      case 'grip':
+        this.gesture = { kind: 'grip', hit, moved: false }
         return
       case 'pin':
       case 'widgetTap':
@@ -2896,6 +2909,15 @@ export class InteractionController {
         const ok = direction === 'in' ? typesCompatible(type, pin.type) : typesCompatible(pin.type, type)
         if (ok) keys.add(dropTargetKey(node.id, pin.portId, direction, pin.widgetTap === true))
       }
+      // A closed box takes a wire for a port it hides.
+      for (const row of node.layout.rows) {
+        if (row.kind !== 'section') continue
+        for (const port of row.hiddenPorts ?? []) {
+          if (port.direction !== direction) continue
+          const ok = direction === 'in' ? typesCompatible(type, port.type) : typesCompatible(port.type, type)
+          if (ok) keys.add(dropTargetKey(node.id, port.portId, direction))
+        }
+      }
     }
     for (const r of scene.reroutes) {
       if (r.id === excludeReroute) continue
@@ -2991,6 +3013,46 @@ export class InteractionController {
       if (g.bodyCandidate) break
     }
     return g.bodyCandidate
+  }
+
+  /**
+   * Links hidden by the gesture (the grabbed rewire or net delivery) do not
+   * occupy their sink: the drag is moving them off it. Outputs fan out, so
+   * an output is never occupied.
+   */
+  private dropOccupied(
+    g: Extract<Gesture, { kind: 'link' }>,
+    scene: Scene,
+    nodeId: string,
+    port: { readonly portId: string; readonly direction: 'in' | 'out' },
+  ): boolean {
+    return port.direction === 'in' && scene.links.some((link) =>
+      link.id !== g.rewireLinkId && g.hideLinkIds?.has(link.id) !== true &&
+      link.to.kind === 'port' && link.to.node === nodeId && link.to.port === port.portId,
+    )
+  }
+
+  /**
+   * A wire held over a closed box takes the first port inside that fits, in
+   * declared order, a free input before an occupied one; the box stays
+   * closed and the wire meets the node's edge at its row.
+   */
+  private closedBoxDropCandidate(
+    g: Extract<Gesture, { kind: 'link' }>,
+    scene: Scene,
+    hit: Hit,
+  ): Extract<Hit, { kind: 'pin' }> | undefined {
+    if (hit.kind !== 'section' || !hit.row.collapsed) return undefined
+    const { node, row } = hit
+    const fits = (row.hiddenPorts ?? []).filter((port) =>
+      port.direction === g.seeking && g.dropTargets.has(dropTargetKey(node.id, port.portId, port.direction)))
+    const port = fits.find((candidate) => !this.dropOccupied(g, scene, node.id, candidate)) ?? fits[0]
+    if (port === undefined) return undefined
+    const y = (row.top + row.y + row.height) / 2
+    return {
+      kind: 'pin', node, pin: { ...port, y }, portId: port.portId, direction: port.direction,
+      x: node.x + (port.direction === 'in' ? 0 : node.layout.width), y: node.y + y, type: port.type,
+    }
   }
 
   /**
@@ -3295,7 +3357,8 @@ export class InteractionController {
       ? hit.handle === 'nw' || hit.handle === 'se'
         ? 'nwse-resize'
         : 'nesw-resize'
-      : hit?.kind === 'text-box-edge' ? 'ns-resize' : ''
+      : hit?.kind === 'text-box-edge' ? 'ns-resize'
+      : hit?.kind === 'grip' && hit.grip.alone !== true ? 'grab' : ''
     const controllerChip = hit?.kind === 'widget' && hit.row.controllerMode !== undefined
       && this.controllerChipContains(hit)
     const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
@@ -3451,7 +3514,8 @@ export class InteractionController {
         const boundaryBody = explicitPin ? undefined : this.boundaryOfBodyHit(hit)
         const boundaryCandidate = boundaryBody ? this.boundaryBodyDropCandidate(g, scene, boundaryBody) : undefined
         const fieldRow = bodyNode && hit.kind === 'widget' && hit.row.kept === undefined ? hit.row : undefined
-        const nodeCandidate = explicitPin ?? (bodyNode ? this.bodyDropCandidate(g, scene, bodyNode, fieldRow) : undefined)
+        const closedBox = explicitPin ? undefined : this.closedBoxDropCandidate(g, scene, hit)
+        const nodeCandidate = explicitPin ?? closedBox ?? (bodyNode ? this.bodyDropCandidate(g, scene, bodyNode, fieldRow) : undefined)
         const candidate = nodeCandidate ?? boundaryCandidate
         const dropRow = nodeCandidate && !explicitPin && landsOnRow(nodeCandidate, fieldRow) ? fieldRow : undefined
         if (!bodyNode) {
@@ -3480,6 +3544,10 @@ export class InteractionController {
           ...(bodyNode && dropRow ? { dropRow: { nodeId: bodyNode.id, valueKey: dropRow.valueKey } } : {}),
           ...(bodyNode && nodeCandidate && !dropRow ? { bodyDropNode: bodyNode.id } : {}),
           ...(boundaryBody && boundaryCandidate ? { bodyDropNode: boundarySceneId(boundaryBody.side) } : {}),
+          // The closed row names the field the wire would reach.
+          ...(closedBox && hit.kind === 'section'
+            ? { hoveredBox: { nodeId: hit.node.id, boxId: hit.row.sectionId, target: closedBox.pin.label ?? closedBox.portId } }
+            : {}),
           ...(g.hideLinkIds !== undefined ? { hiddenLinkIds: g.hideLinkIds } : {}),
         })
         return
@@ -3501,9 +3569,31 @@ export class InteractionController {
       case 'preview-affordance':
       case 'section':
       case 'preview-caption':
-      case 'growth':
         if (passed) g.moved = true
         return
+      case 'growth':
+        // A press that moves away does not add: the button stops looking pressed.
+        if (passed && !g.moved) {
+          g.moved = true
+          this.pushOverlay()
+        }
+        return
+      case 'grip': {
+        if (!passed && !g.moved) return
+        g.moved = true
+        if (g.hit.grip.alone === true) return
+        this.canvas.style.cursor = 'grabbing'
+        const w = this.renderer.toWorld(sx, sy)
+        const drop = memberDropAt(g.hit.node, g.hit.grip, w.x, w.y)
+        g.index = drop?.index
+        this.pushOverlay({
+          memberDrag: {
+            nodeId: g.hit.node.id, construct: g.hit.grip.construct, member: g.hit.grip.member,
+            ...(drop !== undefined ? { line: drop.line } : {}),
+          },
+        })
+        return
+      }
       case 'text-box-lines': {
         if (!passed && !g.moved) return
         g.moved = true
@@ -3767,6 +3857,21 @@ export class InteractionController {
               nodeId: g.hit.node.id,
               sectionId: g.hit.row.sectionId,
               collapsed: !g.hit.row.collapsed,
+            },
+          })
+        }
+        return
+      case 'grip':
+        this.pushOverlay()
+        if (g.index !== undefined) {
+          this.host.dispatch({
+            command: 'dynamic.moveMember',
+            params: {
+              graphId: scene.graphId,
+              nodeId: g.hit.node.id,
+              construct: g.hit.grip.construct,
+              member: g.hit.grip.member,
+              index: g.index,
             },
           })
         }
@@ -4129,7 +4234,8 @@ export class InteractionController {
     const fieldRow = bodyNode && rawHit.kind === 'widget' && rawHit.row.kept === undefined ? rawHit.row : undefined
     const hit: Hit = boundaryBody
       ? (this.boundaryBodyDropCandidate(g, scene, boundaryBody) ?? rawHit)
-      : bodyNode ? (this.bodyDropCandidate(g, scene, bodyNode, fieldRow) ?? rawHit) : rawHit
+      : this.closedBoxDropCandidate(g, scene, rawHit) ??
+        (bodyNode ? (this.bodyDropCandidate(g, scene, bodyNode, fieldRow) ?? rawHit) : rawHit)
     const rerouteLegal = hit.kind === 'reroute' && g.dropTargets.has(rerouteTargetKey(hit.reroute.id))
     const pinLegal =
       hit.kind === 'pin' &&
@@ -4674,6 +4780,8 @@ export class InteractionController {
         return j('section', hit.node.id, hit.row.sectionId)
       case 'growth':
         return j('growth', hit.node.id, hit.row.construct)
+      case 'grip':
+        return j('grip', hit.node.id, hit.grip.construct, hit.grip.member)
       case 'header':
       case 'body':
       case 'preview-caption':
@@ -4987,6 +5095,8 @@ export class InteractionController {
       groupResizeGhost?: { groupId: string; x: number; y: number; width: number; height: number }
       bodyDropNode?: string
       dropRow?: { nodeId: string; valueKey: string }
+      memberDrag?: NonNullable<OverlayState['memberDrag']>
+      pressedButton?: NonNullable<OverlayState['pressedButton']>
     } = {},
   ): void {
     const ghost = extra.ghostLink ?? this.paletteGhost
@@ -5025,6 +5135,11 @@ export class InteractionController {
       ...(this.activePreviewEdge() !== undefined ? { previewEdge: this.activePreviewEdge()! } : {}),
       ...(this.hoveredMinimize !== undefined ? { hoveredMinimize: this.hoveredMinimize } : {}),
       ...(this.hoveredBadge !== undefined ? { hoveredBadge: this.hoveredBadge } : {}),
+      ...(this.hoveredBoxNode !== undefined ? {
+        hoveredBox: { nodeId: this.hoveredBoxNode, boxId: this.hoveredBoxId! },
+      } : {}),
+      ...(this.hoveredGrip !== undefined ? { hoveredGrip: this.hoveredGrip } : {}),
+      ...(this.hoveredButton !== undefined ? { hoveredButton: this.hoveredButton } : {}),
       ...extra,
       ...(ghost !== undefined ? { ghostLink: ghost } : {}),
       ...(this.placementGhost !== undefined ? { placementGhost: this.placementGhost } : {}),
@@ -5293,6 +5408,12 @@ export class InteractionController {
     if (this.host.frozen?.()) hit = undefined
     const pin = hit?.kind === 'pin' || hit?.kind === 'widgetTap' ? hit : undefined
     const widget = hit?.kind === 'widget' ? hit : undefined
+    const boxNode = hit?.kind === 'section' ? hit.node.id : undefined
+    const boxId = hit?.kind === 'section' ? hit.row.sectionId : undefined
+    const grip = hit?.kind === 'grip' && hit.grip.alone !== true
+      ? { nodeId: hit.node.id, construct: hit.grip.construct, member: hit.grip.member }
+      : undefined
+    const button = hit?.kind === 'growth' ? { nodeId: hit.node.id, key: `growth:${hit.row.construct}` } : undefined
     const pinNode = pin?.node.id
     const pinPort = pin?.kind === 'widgetTap' ? pin.pin.portId : pin?.portId
     const pinDirection = pin?.kind === 'widgetTap' ? 'out' : pin?.direction
@@ -5308,7 +5429,14 @@ export class InteractionController {
       widgetValue === this.hoveredWidgetValue &&
       titleControl.minimize === this.hoveredMinimize &&
       titleControl.badge?.nodeId === this.hoveredBadge?.nodeId &&
-      titleControl.badge?.badgeId === this.hoveredBadge?.badgeId
+      titleControl.badge?.badgeId === this.hoveredBadge?.badgeId &&
+      boxNode === this.hoveredBoxNode &&
+      boxId === this.hoveredBoxId &&
+      grip?.nodeId === this.hoveredGrip?.nodeId &&
+      grip?.construct === this.hoveredGrip?.construct &&
+      grip?.member === this.hoveredGrip?.member &&
+      button?.nodeId === this.hoveredButton?.nodeId &&
+      button?.key === this.hoveredButton?.key
     ) return
     this.hoveredPinNode = pinNode
     this.hoveredPinPort = pinPort
@@ -5318,6 +5446,10 @@ export class InteractionController {
     this.hoveredWidgetValue = widgetValue
     this.hoveredMinimize = titleControl.minimize
     this.hoveredBadge = titleControl.badge
+    this.hoveredBoxNode = boxNode
+    this.hoveredBoxId = boxId
+    this.hoveredGrip = grip
+    this.hoveredButton = button
     this.pushOverlay()
   }
 
@@ -5330,5 +5462,43 @@ export class InteractionController {
     this.hoveredWidgetValue = undefined
     this.hoveredMinimize = undefined
     this.hoveredBadge = undefined
+    this.hoveredBoxNode = undefined
+    this.hoveredBoxId = undefined
+    this.hoveredGrip = undefined
+    this.hoveredButton = undefined
   }
+}
+
+/**
+ * Where releasing a dragged member at world (`wx`, `wy`) puts it: the gap
+ * between members nearest the pointer while it is over the group, as the
+ * member's new index in the stored order and the node-local line that marks
+ * it. The two gaps beside the member itself would leave it in place, so they
+ * give none.
+ */
+export function memberDropAt(
+  node: SceneNode,
+  grip: MemberGrip,
+  wx: number,
+  wy: number,
+): { readonly index: number; readonly line: { readonly x: number; readonly y: number; readonly width: number } } | undefined {
+  const spans = memberSpans(node.layout, grip.construct)
+  const from = spans.findIndex((span) => span.member === grip.member)
+  if (from < 0) return undefined
+  const x = wx - node.x
+  const y = wy - node.y
+  const group = node.layout.boxes?.find((candidate) => candidate.id === groupBoxKey(grip.construct))
+  const top = group?.y ?? spans[0]!.top
+  const bottom = group === undefined ? spans.at(-1)!.bottom : group.y + group.height
+  const left = group?.x ?? 0
+  const right = group === undefined ? node.layout.width : group.x + group.width
+  if (x < left || x > right || y < top || y > bottom) return undefined
+  const half = spans.length > 1 ? (spans[1]!.top - spans[0]!.bottom) / 2 : 0
+  const gaps = spans.map((span, index) => index === 0 ? span.top - half : (spans[index - 1]!.bottom + span.top) / 2)
+  gaps.push(spans.at(-1)!.bottom + half)
+  let gap = 0
+  for (const [index, gy] of gaps.entries()) if (Math.abs(gy - y) < Math.abs(gaps[gap]! - y)) gap = index
+  if (gap === from || gap === from + 1) return undefined
+  const dragged = spans[from]!
+  return { index: gap > from ? gap - 1 : gap, line: { x: dragged.x, y: gaps[gap]!, width: dragged.width } }
 }
