@@ -32,6 +32,10 @@ const schemas: Record<string, NodeSchema> = {
     input('value', COMBO),
     { kind: 'output', id: 'COMBO', type: COMBO, knownValue: { input: 'value' } },
   ] as NodeSchema['body'], { isOutputNode: false }),
+  Boolean: schemaOf('Boolean', [
+    input('value', { kind: 'concrete', name: 'BOOLEAN' }, { widgetType: 'BOOLEAN', options: {} }),
+    { kind: 'output', id: 'BOOLEAN', type: { kind: 'concrete', name: 'BOOLEAN' }, knownValue: { input: 'value' } },
+  ] as NodeSchema['body'], { isOutputNode: false }),
   Steps: schemaOf('Steps', [input('steps', INT, intWidget({ min: 0, max: 8 }, { default: 4 }), { displayName: 'Steps' })]),
   Count: schemaOf('Count', [input('count', INT, intWidget({ min: 4, max: 12, step: 2 }, { default: 4 }), { displayName: 'Count' })]),
   Counter: schemaOf('Counter', [{ kind: 'output', id: 'INT', type: INT }] as NodeSchema['body'], { isOutputNode: false }),
@@ -146,6 +150,14 @@ describe('a primitive works out its value widget', () => {
     expect(effective.spec?.widgetType).toBe('COMBO')
     expect(effective.spec?.options['options']).toEqual(['Quick', 'Detailed'])
     expect(effective.diagnostics).toEqual([])
+  })
+
+  it('keeps a Boolean on a Switch\'s Pick a Boolean without a conflict, and reports one on a number field', () => {
+    const onPick = effectiveOf(docOf({ flag: { type: 'Boolean' }, s1: { type: 'Switch' } }, [['flag', 'BOOLEAN', 's1', 'pick']]), 'flag')!
+    expect(onPick.spec?.widgetType).toBe('BOOLEAN')
+    expect(onPick.diagnostics).toEqual([])
+    const onSteps = effectiveOf(docOf({ flag: { type: 'Boolean' }, a: { type: 'Steps' } }, [['flag', 'BOOLEAN', 'a', 'steps']]), 'flag')!
+    expect(onSteps.diagnostics.map((d) => d.code)).toEqual(['primitive.widgetType.conflict'])
   })
 
   it('gives the general Primitive the widget and label of the field it feeds, though it runs', () => {
