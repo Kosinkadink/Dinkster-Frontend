@@ -2023,7 +2023,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   /** The box a pointer press outside closed, so the same press on its tab does not reopen it. */
   let problemBoxPointerClose: { readonly nodeId: string; readonly at: number } | undefined
   let problemBoxHost: {
-    readonly place: (nodeId: string) => { readonly x: number; readonly y: number } | undefined
+    readonly place: (nodeId: string) => ReturnType<typeof problemBoxPlacement>
     readonly lines: (nodeId: string) => readonly ProblemBoxLine[]
     readonly title: (nodeId: string) => string
     readonly owner: () => string | undefined
@@ -4160,7 +4160,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       place: (nodeId) => {
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
-        return node === undefined ? undefined : problemBoxPlacement(node, renderer.getNodeBadgeLayout(node), renderer.getViewport())
+        return node === undefined ? undefined : problemBoxPlacement(node, renderer.getNodeBadgeLayout(node), renderer.getViewport(), canvasEl.clientWidth)
       },
       lines: (nodeId) => {
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
@@ -7279,6 +7279,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   ref={(element) => { problemBoxElement = element }}
                   x={at().x}
                   y={at().y}
+                  maxWidth={at().maxWidth}
+                  minWidth={at().minWidth}
                   nodeId={box().nodeId}
                   nodeTitle={box().nodeTitle}
                   lines={box().lines}
