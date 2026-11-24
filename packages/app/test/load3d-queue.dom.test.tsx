@@ -22,7 +22,7 @@ afterEach(() => { document.body.replaceChildren(); viewer.mounts.length = 0; vi.
 const asset = (letter: string, name: string) =>
   ({ digest: `blake3:${letter.repeat(64)}`, name, size: 8, mediaType: 'image/png', virtualPath: `input/${name}` })
 
-async function queueSetup() {
+async function queueSetup(options: { wiredModel?: boolean } = {}) {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:model')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   const app = createWorkflowApp()
@@ -35,8 +35,14 @@ async function queueSetup() {
     { kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, default: 320 },
     { kind: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 240 },
     { kind: 'output', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] } },
+  ] }, 'test.model_source': { body: [
+    { kind: 'output', id: 'model', type: { kind: 'concrete', types: ['ASSET'] } },
   ] } } }))
-  await app.importWorkflowFile({ name: 'load3d.json', text: async () => JSON.stringify({ nodes: [{ id: 1, type }], links: [] }) })
+  const workflow = options.wiredModel
+    ? { nodes: [{ id: 1, type, inputs: [{ name: 'model_file', type: 'ASSET', link: 1 }] },
+      { id: 2, type: 'test.model_source', outputs: [{ name: 'model', type: 'ASSET', links: [1] }] }], links: [[1, 2, 0, 1, 0, 'ASSET']] }
+    : { nodes: [{ id: 1, type }], links: [] }
+  await app.importWorkflowFile({ name: 'load3d.json', text: async () => JSON.stringify(workflow) })
   const tab = app.activeTab()!
   const model = { ...asset('a', 'model.glb'), mediaType: 'model/gltf-binary' }
   tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'model_file', value: model } })
@@ -67,6 +73,10 @@ it('takes a 3D view\'s pictures at queue only when the view changed since they w
     const sent = Object.values(state.submit.mock.calls[0]![0].prompt)[0]!.inputs['image'] as Record<string, { name?: string }>
     expect([sent['image']?.name, sent['mask']?.name, sent['normal']?.name]).toEqual(['viewport-image.png', 'viewport-mask.png', 'viewport-normal.png'])
     expect(sent['recording']).toBe('')
+    // The view the pictures show is stored with them, for the run to compare with the view it receives.
+    expect(sent['pictures_view']).toEqual({ model_file: expect.objectContaining({ name: 'model.glb' }),
+      camera_info: sent['camera_info'], model_3d_info: sent['model_3d_info'], width: 320, height: 240 })
+    expect(sent['pictures_view']).toMatchObject({ camera_info: { fov: 50 } })
 
     // Queued again with the view unchanged: no pictures are taken, the stored ones are sent.
     await state.queue()
@@ -82,5 +92,24 @@ it('takes a 3D view\'s pictures at queue only when the view changed since they w
     await state.queue()
     expect(state.upload).toHaveBeenCalledTimes(6)
     expect(viewer.mounts.at(-1)).toMatchObject({ camera: { fov: 30 } })
+  } finally { state.app.dispose() }
+})
+
+it('stores and sends no pictures for a model that a wire brings', async () => {
+  const state = await queueSetup({ wiredModel: true })
+  try {
+    const stored = state.tab.store.doc.graphs['g0']!.nodes['n1']!.values['image'] as Record<string, unknown>
+    // Pictures left from when the model was a file.
+    state.tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'image', value: {
+      ...stored, image: asset('d', 'old-image.png'), mask: asset('e', 'old-mask.png'), normal: asset('f', 'old-normal.png'),
+      pictures_view: { model_file: null, camera_info: null, model_3d_info: null, width: 320, height: 240 },
+    } as never } })
+    await state.queue()
+    expect(state.submit, JSON.stringify(state.app.problems.get())).toHaveBeenCalledOnce()
+    expect(state.upload).not.toHaveBeenCalled()
+    const prompt = state.submit.mock.calls[0]![0].prompt as Record<string, { inputs: Record<string, unknown> }>
+    const sent = Object.values(prompt).map((entry) => entry.inputs['image']).find((value) => typeof value === 'object') as Record<string, unknown>
+    expect(Object.keys(sent).sort()).toEqual(['camera_info'])
+    expect(Object.keys(state.tab.store.doc.graphs['g0']!.nodes['n1']!.values['image'] as object)).toEqual(['camera_info'])
   } finally { state.app.dispose() }
 })
