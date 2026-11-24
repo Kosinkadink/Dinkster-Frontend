@@ -190,23 +190,27 @@ export function structuralGalleryScene(
           },
         },
         boundary: {
-          inputs: [
+          body: [
             {
+              kind: 'input',
               id: 'image',
               binds: { kind: 'port', node: 'inner', port: 'image' },
             },
             {
+              kind: 'input',
               id: 'radius',
               binds: { kind: 'port', node: 'inner', port: 'radius' },
               promoted: true,
             },
             {
+              kind: 'input',
               id: 'strength',
               binds: { kind: 'port', node: 'inner', port: 'strength' },
               promoted: true,
               wireHidden: true,
             },
             {
+              kind: 'input',
               id: 'feather',
               displayName: 'feather',
               binds: { kind: 'port', node: 'edge', port: 'edge.feather' },
@@ -214,6 +218,7 @@ export function structuralGalleryScene(
               wireHidden: true,
             },
             {
+              kind: 'input',
               id: 'grain',
               binds: {
                 kind: 'valueSource',
@@ -222,9 +227,8 @@ export function structuralGalleryScene(
               },
               promoted: true,
             },
-          ],
-          outputs: [
             {
+              kind: 'output',
               id: 'image_out',
               binds: { kind: 'port', node: 'inner', port: 'IMAGE' },
             },
@@ -372,27 +376,31 @@ export function boundaryNamesGalleryScene(
         nets: {},
         reroutes: {},
         boundary: {
-          inputs: inputs.map((id) => ({
-            id,
-            ...(id === 'named_input'
-              ? { displayName: 'Source image' }
-              : exactIds
-                ? {}
-                : { displayName: previousNames[id] }),
-            binds: { kind: 'port', node: 'inner', port: id },
-          })),
-          outputs: [
+          body: [
+            ...inputs.map((id) => ({
+              kind: 'input',
+              id,
+              ...(id === 'named_input'
+                ? { displayName: 'Source image' }
+                : exactIds
+                  ? {}
+                  : { displayName: previousNames[id] }),
+              binds: { kind: 'port', node: 'inner', port: id },
+            })),
             {
+              kind: 'output',
               id: 'result',
               ...(exactIds ? {} : { displayName: 'Image' }),
               binds: { kind: 'port', node: 'inner', port: 'IMAGE' },
             },
             {
+              kind: 'output',
               id: 'refined_image',
               ...(exactIds ? {} : { displayName: 'Refined image' }),
               binds: { kind: 'port', node: 'inner', port: 'refined_image' },
             },
             {
+              kind: 'output',
               id: 'preview',
               displayName: 'Chosen preview',
               binds: { kind: 'port', node: 'inner', port: 'preview' },

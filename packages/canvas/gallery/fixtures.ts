@@ -453,11 +453,10 @@ function subgraphAcceptsListScenes(
           single: { type: 'Single', title: 'One image' },
         }),
         boundary: {
-          inputs: [
-            { id: 'lists', displayName: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
-            { id: 'mixed', displayName: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
+          body: [
+            { kind: 'input', id: 'lists', displayName: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
+            { kind: 'input', id: 'mixed', displayName: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
           ],
-          outputs: [],
         },
       },
     },

@@ -457,8 +457,9 @@ export function switchPrimitiveGallery(
       ['amount', 'FLOAT', 'blend', 'amount'],
     ],
     boundary: {
-      inputs: [
+      body: [
         {
+          kind: 'input',
           id: 'mode',
           displayName: 'Mode',
           binds: { kind: 'port', node: 'mode', port: 'pick' },
@@ -466,15 +467,14 @@ export function switchPrimitiveGallery(
           wireHidden: true,
         },
         {
+          kind: 'input',
           id: 'amount',
           displayName: 'Amount',
           binds: { kind: 'port', node: 'amount', port: 'value' },
           promoted: true,
           wireHidden: true,
         },
-      ],
-      outputs: [
-        { id: 'image', binds: { kind: 'port', node: 'blend', port: 'IMAGE' } },
+        { kind: 'output', id: 'image', binds: { kind: 'port', node: 'blend', port: 'IMAGE' } },
       ],
     },
     panels: { inputs: 0, outputs: 790 },
@@ -826,8 +826,9 @@ export function switchPrimitiveGallery(
       },
     },
     boundary: {
-      inputs: [
+      body: [
         {
+          kind: 'input',
           id: 'mode',
           displayName: 'Mode',
           binds: { kind: 'port', node: 'resize', port: 'pick' },
@@ -836,7 +837,6 @@ export function switchPrimitiveGallery(
           wireHidden: true,
         },
       ],
-      outputs: [],
     },
     panels: { inputs: 0, outputs: 720 },
   })

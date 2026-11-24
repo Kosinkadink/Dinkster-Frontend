@@ -52,12 +52,12 @@ const detail: Graph = {
     { from: { valueSource: 'strength' }, to: { node: 'sharp', port: 'amount' } },
   ],
   boundary: {
-    inputs: [
-      { id: 'image', displayName: 'image', binds: { kind: 'port', node: 'up', port: 'image' } },
-      { id: 'scale', displayName: 'Scale', binds: { kind: 'port', node: 'up', port: 'scale' }, promoted: true, wireHidden: true },
-      { id: 'strength', displayName: 'Strength', binds: { kind: 'valueSource', valueSource: 'strength', type: { kind: 'concrete', name: 'FLOAT' } }, promoted: true },
+    body: [
+      { kind: 'input', id: 'image', displayName: 'image', binds: { kind: 'port', node: 'up', port: 'image' } },
+      { kind: 'input', id: 'scale', displayName: 'Scale', binds: { kind: 'port', node: 'up', port: 'scale' }, promoted: true, wireHidden: true },
+      { kind: 'input', id: 'strength', displayName: 'Strength', binds: { kind: 'valueSource', valueSource: 'strength', type: { kind: 'concrete', name: 'FLOAT' } }, promoted: true },
+      { kind: 'output', id: 'result', displayName: 'image', binds: { kind: 'port', node: 'sharp', port: 'IMAGE' } },
     ],
-    outputs: [{ id: 'result', displayName: 'image', binds: { kind: 'port', node: 'sharp', port: 'IMAGE' } }],
   },
   panels: { inputs: 0, outputs: 650 },
   extra: {
