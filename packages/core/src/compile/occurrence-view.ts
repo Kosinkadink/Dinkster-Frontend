@@ -22,18 +22,6 @@ export interface OccurrenceDynamicView {
   readonly controllers: ReadonlyMap<string, NonNullable<NodeData['controllers']>>
   /** Per inner-node projected value: where an edit must be written. */
   readonly valueOwners: ReadonlyMap<string, ReadonlyMap<string, ValueOwner>>
-  /**
-   * Per value source a promoted boundary input binds: where an edit of the
-   * input must be written, and the value and controller the occurrence
-   * gives the source when it sets one.
-   */
-  readonly valueSources: ReadonlyMap<string, OccurrenceValueSource>
-}
-
-export interface OccurrenceValueSource {
-  readonly owner: ValueOwner
-  readonly value?: Json
-  readonly controller?: NonNullable<NodeData['controllers']>[string]
 }
 
 /**
@@ -102,7 +90,7 @@ export function occurrenceDynamicView(
   instancePath: readonly string[],
   rootGraph: string = doc.root,
 ): OccurrenceDynamicView {
-  const empty = (): OccurrenceDynamicView => ({ inputPorts: new Map(), dynamic: new Map(), values: new Map(), controllers: new Map(), valueOwners: new Map(), valueSources: new Map() })
+  const empty = (): OccurrenceDynamicView => ({ inputPorts: new Map(), dynamic: new Map(), values: new Map(), controllers: new Map(), valueOwners: new Map() })
 
   const resolveNode = documentNodeResolver(doc, resolve)
   let def = doc.graphs[rootGraph]
@@ -110,7 +98,6 @@ export function occurrenceDynamicView(
   let values = new Map<string, Readonly<Record<string, Json>>>()
   let controllers = new Map<string, NonNullable<NodeData['controllers']>>()
   let valueOwners = new Map<string, ReadonlyMap<string, ValueOwner>>()
-  let valueSources: OccurrenceDynamicView['valueSources'] = new Map()
   const traversedPath: string[] = []
   let inputEvidence = authoredInputEvidence(doc, def, traversedPath)
   for (const hop of instancePath) {
@@ -126,7 +113,6 @@ export function occurrenceDynamicView(
     const childValues = new Map<string, Readonly<Record<string, Json>>>()
     const childControllers = new Map<string, NonNullable<NodeData['controllers']>>()
     const childValueOwners = new Map<string, Map<string, ValueOwner>>()
-    const childValueSources = new Map<string, OccurrenceValueSource>()
     // A recorded route ends in this body; only unrecorded deliveries may continue freely.
     const instanceEvidence = inputEvidence.filter(({ ref, route }) => ref.node === node.id && route?.length !== 0)
     if (boundaryOutputFanOutProblems(child).length > 0) return empty()
@@ -152,11 +138,6 @@ export function occurrenceDynamicView(
     for (const item of boundaryItems(child.boundary, 'inputs')) {
       if (item.promoted !== true) continue
       const owner = valueOwners.get(hop)?.get(item.id) ?? { graphId: def.id, nodeId: hop, valueKey: item.id }
-      if (item.binds.kind === 'valueSource') childValueSources.set(item.binds.valueSource, {
-        owner,
-        ...(Object.hasOwn(instanceValues, item.id) ? { value: instanceValues[item.id]! } : {}),
-        ...(Object.hasOwn(instanceControllers ?? {}, item.id) ? { controller: instanceControllers![item.id]! } : {}),
-      })
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (binding.kind !== 'port') continue
         const target = child.nodes[binding.node]
@@ -193,7 +174,6 @@ export function occurrenceDynamicView(
     values = childValues
     controllers = childControllers
     valueOwners = childValueOwners
-    valueSources = childValueSources
     inputEvidence = childEvidence
     traversedPath.push(hop)
   }
@@ -203,5 +183,5 @@ export function occurrenceDynamicView(
     if (!inputPorts.has(ref.node)) inputPorts.set(ref.node, ports)
     if (!ports.includes(ref.port)) ports.push(ref.port)
   }
-  return { inputPorts, dynamic: overlays, values, controllers, valueOwners, valueSources }
+  return { inputPorts, dynamic: overlays, values, controllers, valueOwners }
 }

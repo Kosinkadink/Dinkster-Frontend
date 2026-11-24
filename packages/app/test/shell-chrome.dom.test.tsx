@@ -374,7 +374,7 @@ describe('canvas context menu availability', () => {
       namedNets: true,
       graphId: 'g0',
       target: { kind: 'canvas' },
-      selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] },
+      selection: { nodes: [], links: [], reroutes: [] },
       worldX: 10,
       worldY: 20,
     }), false, false)

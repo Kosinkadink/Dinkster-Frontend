@@ -135,16 +135,6 @@ has the height the subgraph node gives it and is resized there.
 A field whose input reaches the inner node through a reroute is the same
 field, and the inner field shows its value through the reroute.
 
-A value source exposed as a field is a field too. It shows the value the
-entered node (or the outer node that owns it) gives the source, and the
-source's own value when that node sets none. While a node is entered, the
-source's pill and the fields it feeds show that same value dimmed, as an
-arriving value, and the pill is not edited there: an edit on it would change
-the value every other node of the definition falls back to. Entered with no
-node, the field is the source's own value: its stepper and drag edit the
-source, and a click opens the source's own editor over the field (never an
-in-row editor), the same editor a click on the pill opens.
-
 ## Showing a field on the subgraph node
 
 Inside a subgraph, the right-click menu of a field on an inner node offers
@@ -175,12 +165,6 @@ on the inner node and on its Inputs panel row; a field whose wire is drawn
 and the subgraph node outside carry none. Hovering the icon names the input
 ("On the subgraph node as strength"); clicking it opens the Boundary panel
 with that input selected.
-
-A value source exposed as a field has no wire to its pill either (the pill
-has only an output), so its Inputs panel row has no pin and carries the icon
-too. While a node is entered, the pill carries the same icon before its
-title, so the pill and the row read as one field; hovering and clicking it
-work as on a field, and a click elsewhere on the pill works as before.
 
 ## Groups and choices
 

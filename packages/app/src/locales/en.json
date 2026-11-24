@@ -1523,7 +1523,6 @@
   "boundaryPanel.aria.editor": "Boundary editor",
   "boundaryPanel.empty.rows": "No rows yet. Right-click a field inside and choose Show on subgraph node.",
   "boundaryPanel.unbound": "Nothing inside",
-  "boundaryPanel.valueSource": "A value inside",
   "boundaryPanel.aria.rows": "Rows on the subgraph node",
   "boundaryPanel.aria.settings": "Settings of {name}",
   "boundaryPanel.usedIn": "used in {count, plural, one {# place} other {# places}}",

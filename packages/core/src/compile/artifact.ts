@@ -56,8 +56,6 @@ export interface Provenance {
   readonly outputAliases?: Readonly<Record<string, Readonly<Record<string, string>>>>
   /** Runtime input names whose exact compiled widget representation enables dynamic prompts. */
   readonly dynamicPromptInputs?: Readonly<Record<string, readonly string[]>>
-  /** Runtime nodes with an input routed through a random graph selector. */
-  readonly randomSelectorInputs?: Readonly<Record<string, readonly string[]>>
   /** Included after-generate controls, resolved from the compiled occurrence view. */
   readonly controllerInputs?: readonly ControllerInputProvenance[]
 }
@@ -65,14 +63,12 @@ export interface Provenance {
 /**
  * A selector choice resolved at compile time, recorded for reproducibility:
  * a frozen view must show exactly what executed, and re-running the artifact
- * must not re-roll random policies. A graph selector has one entry per
- * (graph definition, selector), shared by every occurrence of the
- * definition. A Switch node whose pick is random has one entry per
- * occurrence: `selector` is the occurrence's runtime id and `candidate` the
- * picked member key.
+ * must not re-roll random picks. A Switch node whose pick is random has one
+ * entry per occurrence: `selector` is the occurrence's runtime id and
+ * `candidate` the picked member key.
  */
 export interface SelectorChoice {
-  /** Graph definition id the selector or Switch lives in. */
+  /** Graph definition id the Switch lives in. */
   readonly graph: string
   readonly selector: string
   /** The policy that produced this choice. */
@@ -88,11 +84,7 @@ export interface ControllerNodeInputSource {
   readonly valueKey: string
 }
 
-export type ControllerInputSource = ControllerNodeInputSource | {
-  readonly graph: GraphDefId
-  readonly instancePath: readonly NodeId[]
-  readonly valueSource: string
-}
+export type ControllerInputSource = ControllerNodeInputSource
 
 /**
  * The compiled occurrence view of one after-generate input. Sources are in
@@ -148,7 +140,6 @@ export interface WorkspaceProvenance {
   readonly inputSources?: Readonly<Record<string, Readonly<Record<string, PortRef>>>>
   readonly outputAliases?: Readonly<Record<string, Readonly<Record<string, string>>>>
   readonly dynamicPromptInputs?: Readonly<Record<string, readonly string[]>>
-  readonly randomSelectorInputs?: Readonly<Record<string, readonly string[]>>
 }
 
 /** Compile output retained by other windows for execution projection. */
@@ -175,7 +166,6 @@ export function projectWorkspaceCompileArtifact(artifact: CompileArtifact): Work
     ...(artifact.provenance.inputSources === undefined ? {} : { inputSources: artifact.provenance.inputSources }),
     ...(artifact.provenance.outputAliases === undefined ? {} : { outputAliases: artifact.provenance.outputAliases }),
     ...(artifact.provenance.dynamicPromptInputs === undefined ? {} : { dynamicPromptInputs: artifact.provenance.dynamicPromptInputs }),
-    ...(artifact.provenance.randomSelectorInputs === undefined ? {} : { randomSelectorInputs: artifact.provenance.randomSelectorInputs }),
   }
   const scope: ExecutionScope = artifact.scope.kind === 'full'
     ? { kind: 'full' }
@@ -221,20 +211,13 @@ export type CompileResult =
  */
 export interface ScopeStructuralGraph {
   readonly reroutes: ReadonlySet<string>
-  /**
-   * selector id -> candidate ids on possibly-run branches. A fixed selector
-   * contributes exactly its chosen candidate; a random one contributes EVERY
-   * candidate (its branch is rolled at queue time - would-run superset).
-   */
-  readonly selectors: ReadonlyMap<string, ReadonlySet<string>>
-  readonly valueSources: ReadonlySet<string>
 }
 
 /**
  * The upstream closure of a scope (nodes that would run), for would-run
  * highlighting. Derived from the same object the compiler consumes so the
  * preview and the submission cannot disagree on anything decided at edit
- * time; random selectors widen the closure to every candidate ("may run").
+ * time; random Switch picks widen the closure to every branch ("may run").
  */
 export interface ScopeClosure {
   readonly scope: ExecutionScope

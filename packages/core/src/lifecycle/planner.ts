@@ -23,13 +23,10 @@ import { asGraphDefId, asNodeId, asPortId } from '../ids.js'
 import {
   isPortEndpoint,
   isRerouteRef,
-  isSelectorRef,
-  isValueSourceRef,
   isWidgetTapRef,
   portRefKey,
   type LinkEndpoint,
   type PortRef,
-  type ValueSourceRef,
   type WidgetTapRef,
 } from '../ids.js'
 import { canonicalJson, sha256Hex } from '../compile/hash.js'
@@ -257,10 +254,6 @@ export function classifyFlattenBoundaryRoute(
   expectedSide?: 'input' | 'output',
 ): FlattenRouteKind {
   const routes = [item.binds, ...(item.alsoBinds ?? [])].flatMap((binding) => flattenBindingTargets(body, binding)).map((binding) => {
-    if (binding.kind === 'valueSource') {
-      if (expectedSide === undefined || body.valueSources?.[binding.valueSource] === undefined) return 'unresolved'
-      return expectedSide === 'input' && item.promoted === true ? 'plainWidget' : 'plain'
-    }
     if (!isNodeBoundaryBinding(binding)) return 'unresolved'
     const node = body.nodes[binding.node]
     return classifyFlattenBindingRoute(binding, node === undefined ? undefined : resolveSchema(node.type), expectedSide, node)
@@ -712,16 +705,12 @@ export const EMPTY_SUBGRAPH_VIEW: GraphViewState = { nodes: {} }
 export interface LifecycleSelectionInput {
   readonly nodeIds?: readonly string[]
   readonly rerouteIds?: readonly string[]
-  readonly valueSourceIds?: readonly string[]
-  readonly selectorIds?: readonly string[]
   readonly groupIds?: readonly string[]
 }
 
 export interface LifecycleSelection {
   readonly nodeIds: readonly string[]
   readonly rerouteIds: readonly string[]
-  readonly valueSourceIds: readonly string[]
-  readonly selectorIds: readonly string[]
   readonly groupIds: readonly string[]
 }
 
@@ -739,8 +728,6 @@ export function canonicalizeLifecycleSelection(selection: LifecycleSelectionInpu
   return {
     nodeIds: sortedUnique(selection.nodeIds),
     rerouteIds: sortedUnique(selection.rerouteIds),
-    valueSourceIds: sortedUnique(selection.valueSourceIds),
-    selectorIds: sortedUnique(selection.selectorIds),
     groupIds: sortedUnique(selection.groupIds),
   }
 }
@@ -755,8 +742,6 @@ export function missingLifecycleEntities(
   const collections: Readonly<Record<LifecycleEntityKind, Readonly<Record<string, unknown>> | undefined>> = {
     nodeIds: graph?.nodes,
     rerouteIds: graph?.reroutes,
-    valueSourceIds: graph?.valueSources,
-    selectorIds: graph?.selectors,
     groupIds: view?.groups,
   }
   const missing: MissingLifecycleEntity[] = []
@@ -770,7 +755,7 @@ export function missingLifecycleEntities(
 }
 
 export function hasSemanticLifecycleSelection(selection: LifecycleSelection): boolean {
-  return selection.nodeIds.length > 0 || selection.valueSourceIds.length > 0 || selection.selectorIds.length > 0
+  return selection.nodeIds.length > 0
 }
 
 interface FingerprintProjection {
@@ -780,8 +765,6 @@ interface FingerprintProjection {
   readonly entities: {
     readonly nodes: readonly unknown[]
     readonly reroutes: readonly unknown[]
-    readonly valueSources: readonly unknown[]
-    readonly selectors: readonly unknown[]
     readonly groups: readonly unknown[]
   }
   readonly links: readonly unknown[]
@@ -794,19 +777,14 @@ interface FingerprintProjection {
 const selectedSets = (selection: LifecycleSelection) => ({
   nodes: new Set(selection.nodeIds),
   reroutes: new Set(selection.rerouteIds),
-  valueSources: new Set(selection.valueSourceIds),
-  selectors: new Set(selection.selectorIds),
 })
 
 function endpointSelected(endpoint: LinkEndpoint, selection: ReturnType<typeof selectedSets>): boolean {
   if (isRerouteRef(endpoint)) return selection.reroutes.has(endpoint.reroute)
-  if (isValueSourceRef(endpoint)) return selection.valueSources.has(endpoint.valueSource)
-  if (isSelectorRef(endpoint)) return selection.selectors.has(endpoint.selector)
   return selection.nodes.has(endpoint.node)
 }
 
 function bindingSelected(binding: BoundaryBinding, selection: ReturnType<typeof selectedSets>): boolean {
-  if (binding.kind === 'valueSource') return selection.valueSources.has(binding.valueSource)
   return isNodeBoundaryBinding(binding) && selection.nodes.has(binding.node)
 }
 
@@ -855,8 +833,6 @@ export function lifecycleSelectionProjection(
     entities: {
       nodes: recordProjection(selection.nodeIds, graph.nodes, graphView?.nodes),
       reroutes: recordProjection(selection.rerouteIds, graph.reroutes, graphView?.reroutes),
-      valueSources: recordProjection(selection.valueSourceIds, graph.valueSources, graphView?.valueSources),
-      selectors: recordProjection(selection.selectorIds, graph.selectors, graphView?.selectors),
       groups: recordProjection(selection.groupIds, graphView?.groups, undefined),
     },
     links,
@@ -1061,7 +1037,7 @@ export interface InputCutGroup {
 }
 
 export interface OutputCutGroup {
-  readonly source: PortRef | WidgetTapRef | ValueSourceRef
+  readonly source: PortRef | WidgetTapRef
   readonly consumers: readonly LinkEndpoint[]
   readonly netIds: readonly string[]
   readonly boundaryItems: readonly { readonly itemIndex: number; readonly itemId: string }[]
@@ -1085,8 +1061,6 @@ export interface ExtractionCutOptions {
 
 function endpointKey(endpoint: LinkEndpoint): string {
   if (isRerouteRef(endpoint)) return canonicalJson(['reroute', endpoint.reroute])
-  if (isValueSourceRef(endpoint)) return canonicalJson(['valueSource', endpoint.valueSource])
-  if (isSelectorRef(endpoint)) return canonicalJson(['selector', endpoint.selector, endpoint.candidate ?? null])
   if (isWidgetTapRef(endpoint)) return canonicalJson(['tap', endpoint.node, endpoint.tap])
   return canonicalJson(['port', endpoint.node, endpoint.port])
 }
@@ -1109,18 +1083,16 @@ function refusalForLink(
       ? undefined
       : { code: 'subgraph.lifecycle.boundaryUnresolved', source: 'link', id: link.id, endpoint: inner }
   }
-  if (kind === 'out-cut' && isValueSourceRef(inner)) return undefined
   return { code: 'subgraph.extract.structuralCutUnsupported', source: 'link', id: link.id, endpoint: inner }
 }
 
-const bindingAsPort = (binding: Exclude<BoundaryBinding, { kind: 'widgetTap' | 'unbound' | 'valueSource' }>): PortRef => ({
+const bindingAsPort = (binding: Exclude<BoundaryBinding, { kind: 'widgetTap' | 'unbound' }>): PortRef => ({
   node: binding.node,
   port: binding.port,
 })
 
-const bindingAsOutputEndpoint = (binding: BoundaryBinding): PortRef | WidgetTapRef | ValueSourceRef => {
+const bindingAsOutputEndpoint = (binding: BoundaryBinding): PortRef | WidgetTapRef => {
   if (binding.kind === 'unbound') throw new Error('unbound boundary has no endpoint')
-  if (binding.kind === 'valueSource') return { valueSource: binding.valueSource }
   return binding.kind === 'widgetTap'
     ? { node: binding.node, tap: binding.tap }
     : bindingAsPort(binding)
@@ -1168,7 +1140,7 @@ export function auditExtractionCuts(
         linkInputGroups.set(key, group)
       }
       group.targets.push(link.to)
-    } else if (kind === 'out-cut' && (isPortEndpoint(link.from) || isWidgetTapRef(link.from) || isValueSourceRef(link.from))) {
+    } else if (kind === 'out-cut' && (isPortEndpoint(link.from) || isWidgetTapRef(link.from))) {
       const key = endpointKey(link.from)
       let group = outputGroups.get(key)
       if (group === undefined) {
@@ -1453,7 +1425,7 @@ export function boundaryNameCandidates(audit: ExtractionCutAudit): readonly Boun
       })),
     ...audit.outputs.map((cut) => ({
       side: 'output' as const,
-      base: isValueSourceRef(cut.source) ? cut.source.valueSource : isWidgetTapRef(cut.source) ? cut.source.tap : cut.source.port,
+      base: isWidgetTapRef(cut.source) ? cut.source.tap : cut.source.port,
       orderKey: `${endpointKey(cut.source)}:${cut.consumers[0] === undefined ? '' : endpointKey(cut.consumers[0])}`,
     })),
   ]
@@ -1590,7 +1562,7 @@ export function flattenShellRefusalDiagnostic(
 
 export interface ResolvedGeometryItem {
   readonly id: string
-  readonly kind: 'node' | 'reroute' | 'valueSource' | 'selector' | 'group'
+  readonly kind: 'node' | 'reroute' | 'group'
   readonly x: number
   readonly y: number
   readonly width: number
@@ -1615,8 +1587,6 @@ export interface GroupSelectionMembership {
   readonly groupId: string
   readonly nodeIds: readonly string[]
   readonly rerouteIds: readonly string[]
-  readonly valueSourceIds: readonly string[]
-  readonly selectorIds: readonly string[]
 }
 
 export interface ExpandedLifecycleSelection {
@@ -1638,17 +1608,15 @@ export function expandLifecycleSelectionFromGroups(
     }
   }
   const memberships: GroupSelectionMembership[] = []
-  const expanded: Record<'nodeIds' | 'rerouteIds' | 'valueSourceIds' | 'selectorIds', Set<string>> = {
+  const expanded: Record<'nodeIds' | 'rerouteIds', Set<string>> = {
     nodeIds: new Set(selection.nodeIds),
     rerouteIds: new Set(selection.rerouteIds),
-    valueSourceIds: new Set(selection.valueSourceIds),
-    selectorIds: new Set(selection.selectorIds),
   }
   for (const groupId of selection.groupIds) {
     const group = byGroup.get(groupId)
     if (group === undefined) return undefined
     const members: Record<keyof typeof expanded, string[]> = {
-      nodeIds: [], rerouteIds: [], valueSourceIds: [], selectorIds: [],
+      nodeIds: [], rerouteIds: [],
     }
     for (const item of geometry) {
       const kind = selectionKindOfGeometry(item.kind)
@@ -1663,8 +1631,6 @@ export function expandLifecycleSelectionFromGroups(
     selection: canonicalizeLifecycleSelection({
       nodeIds: [...expanded.nodeIds],
       rerouteIds: [...expanded.rerouteIds],
-      valueSourceIds: [...expanded.valueSourceIds],
-      selectorIds: [...expanded.selectorIds],
       groupIds: selection.groupIds,
     }),
     groups: memberships,
@@ -1673,11 +1639,9 @@ export function expandLifecycleSelectionFromGroups(
 
 function selectionKindOfGeometry(
   kind: ResolvedGeometryItem['kind'],
-): 'nodeIds' | 'rerouteIds' | 'valueSourceIds' | 'selectorIds' | undefined {
+): 'nodeIds' | 'rerouteIds' | undefined {
   if (kind === 'node') return 'nodeIds'
   if (kind === 'reroute') return 'rerouteIds'
-  if (kind === 'valueSource') return 'valueSourceIds'
-  if (kind === 'selector') return 'selectorIds'
   return undefined
 }
 
@@ -1696,8 +1660,6 @@ export function validateLifecycleGeometry(
   const expected = new Set<string>([
     ...selection.nodeIds.map((id) => geometryKey('node', id)),
     ...selection.rerouteIds.map((id) => geometryKey('reroute', id)),
-    ...selection.valueSourceIds.map((id) => geometryKey('valueSource', id)),
-    ...selection.selectorIds.map((id) => geometryKey('selector', id)),
     ...selection.groupIds.map((id) => geometryKey('group', id)),
   ])
   const seen = new Set<string>()

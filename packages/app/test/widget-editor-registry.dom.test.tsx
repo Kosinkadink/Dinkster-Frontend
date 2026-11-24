@@ -164,13 +164,13 @@ it('shows a wired camera angle only when its wire carries a readable value and w
   ] }).schema!
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema).document!
   const graph = imported.graphs.g0!
-  // pitch is wired from a literal value of 45; zoom, when wired, comes from a node that has not run.
+  // pitch is wired from another node's stored value of 45; zoom, when wired, comes from a node that has not run.
   const open = (zoomWired: boolean, writes: Readonly<Record<string, string>>) => {
     const store = new DocumentStore({ ...imported, graphs: { g0: { ...graph,
-      nodes: { ...graph.nodes, source: { id: asNodeId('source'), type: 'Source', values: {} } },
-      valueSources: { v0: { id: 'v0', value: 45, type: { kind: 'concrete', types: ['INT'] } } },
+      nodes: { ...graph.nodes, source: { id: asNodeId('source'), type: 'Source', values: {} },
+        literal: { id: asNodeId('literal'), type: schema.type, values: { pitch: 45 } } },
       links: {
-        pitch: { id: asLinkId('pitch'), from: { valueSource: 'v0' }, to: { node: asNodeId('n1'), port: asPortId('pitch') } },
+        pitch: { id: asLinkId('pitch'), from: { node: asNodeId('literal'), tap: asPortId('pitch') }, to: { node: asNodeId('n1'), port: asPortId('pitch') } },
         ...(zoomWired ? { zoom: { id: asLinkId('zoom'), from: { node: asNodeId('source'), port: asPortId('FLOAT') },
           to: { node: asNodeId('n1'), port: asPortId('zoom') } } } : {}),
       },

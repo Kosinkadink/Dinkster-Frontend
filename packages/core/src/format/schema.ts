@@ -46,24 +46,6 @@ const rerouteRef = {
   },
 } as const
 
-const valueSourceRef = {
-  type: 'object',
-  required: ['valueSource'],
-  properties: {
-    valueSource: { type: 'string', minLength: 1 },
-  },
-} as const
-
-// {selector} = the selector's output; {selector, candidate} = one candidate input.
-const selectorRef = {
-  type: 'object',
-  required: ['selector'],
-  properties: {
-    selector: { type: 'string', minLength: 1 },
-    candidate: { type: 'string', minLength: 1 },
-  },
-} as const
-
 const widgetTapRef = {
   type: 'object',
   required: ['node', 'tap'],
@@ -75,11 +57,6 @@ const widgetTapRef = {
 
 const boundaryBinding = {
   oneOf: [
-    {
-      type: 'object', required: ['kind', 'valueSource', 'type'],
-      properties: { kind: { const: 'valueSource' }, valueSource: { type: 'string', minLength: 1 }, type: { $ref: '#/$defs/typeExpr' } },
-      not: { anyOf: ['node', 'port', 'tap', 'viaReroute'].map((field) => ({ required: [field] })) },
-    },
     {
       type: 'object', required: ['kind', 'type'],
       properties: { kind: { const: 'unbound' }, type: { $ref: '#/$defs/typeExpr' } },
@@ -150,13 +127,6 @@ const boundaryItem = {
     ext: { $ref: '#/$defs/extData' },
   },
   allOf: [
-    {
-      if: {
-        properties: { binds: { type: 'object', properties: { kind: { const: 'valueSource' } }, required: ['kind'] } },
-        required: ['binds'],
-      },
-      then: { not: { required: ['alsoBinds'] } },
-    },
     {
       if: {
         properties: { binds: { type: 'object', properties: { kind: { enum: ['widgetTap', 'unbound'] } }, required: ['kind'] } },
@@ -293,11 +263,9 @@ export const WORKFLOW_SCHEMA = {
     extData,
     portRef,
     rerouteRef,
-    valueSourceRef,
-    selectorRef,
     widgetTapRef,
-    // A link endpoint is a node port, a reroute junction, a value source, a
-    // selector endpoint, or (source side only) a widget tap. anyOf (not
+    // A link endpoint is a node port, a reroute junction, or (source side
+    // only) a widget tap. anyOf (not
     // oneOf): unknown extra properties are allowed everywhere
     // (additive-first), so an endpoint carrying a foreign key must not
     // double-match. Widget taps PRODUCE, never consume - the target def
@@ -306,8 +274,6 @@ export const WORKFLOW_SCHEMA = {
       anyOf: [
         { $ref: '#/$defs/portRef' },
         { $ref: '#/$defs/rerouteRef' },
-        { $ref: '#/$defs/valueSourceRef' },
-        { $ref: '#/$defs/selectorRef' },
         { $ref: '#/$defs/widgetTapRef' },
       ],
     },
@@ -315,8 +281,6 @@ export const WORKFLOW_SCHEMA = {
       anyOf: [
         { $ref: '#/$defs/portRef' },
         { $ref: '#/$defs/rerouteRef' },
-        { $ref: '#/$defs/valueSourceRef' },
-        { $ref: '#/$defs/selectorRef' },
       ],
     },
     occurrenceRef: {
@@ -635,59 +599,6 @@ export const WORKFLOW_SCHEMA = {
         ext: { $ref: '#/$defs/extData' },
       },
     },
-    declaredSpec: {
-      type: 'object',
-      properties: {
-        widgetType: { type: 'string', minLength: 1 },
-        options: { type: 'object' },
-        controller: { enum: ['after_generate', 'after_refresh'] },
-      },
-    },
-    valueSourceData: {
-      type: 'object',
-      // 'value' must be PRESENT but may be any JSON value including null.
-      required: ['id', 'value'],
-      properties: {
-        id: { type: 'string', minLength: 1 },
-        value: true,
-        spec: { $ref: '#/$defs/declaredSpec' },
-        controller: { enum: ['fixed', 'increment', 'decrement', 'randomize'] },
-        title: { type: 'string' },
-        ext: { $ref: '#/$defs/extData' },
-      },
-    },
-    selectorCandidateData: {
-      type: 'object',
-      required: ['id'],
-      properties: {
-        id: { type: 'string', minLength: 1 },
-        title: { type: 'string' },
-      },
-    },
-    selectorPolicy: {
-      type: 'object',
-      required: ['kind'],
-      properties: {
-        kind: { enum: ['fixed', 'random'] },
-        candidate: { type: 'string', minLength: 1 },
-      },
-      if: {
-        properties: { kind: { const: 'fixed' } },
-        required: ['kind'],
-      },
-      then: { required: ['candidate'] },
-    },
-    selectorData: {
-      type: 'object',
-      required: ['id', 'candidates', 'policy'],
-      properties: {
-        id: { type: 'string', minLength: 1 },
-        candidates: { type: 'array', items: { $ref: '#/$defs/selectorCandidateData' } },
-        policy: { $ref: '#/$defs/selectorPolicy' },
-        title: { type: 'string' },
-        ext: { $ref: '#/$defs/extData' },
-      },
-    },
     namedNetData: {
       type: 'object',
       required: ['id', 'name', 'source', 'sinks'],
@@ -709,8 +620,6 @@ export const WORKFLOW_SCHEMA = {
         links: { type: 'object', additionalProperties: { $ref: '#/$defs/linkData' } },
         nets: { type: 'object', additionalProperties: { $ref: '#/$defs/namedNetData' } },
         reroutes: { type: 'object', additionalProperties: { $ref: '#/$defs/rerouteData' } },
-        valueSources: { type: 'object', additionalProperties: { $ref: '#/$defs/valueSourceData' } },
-        selectors: { type: 'object', additionalProperties: { $ref: '#/$defs/selectorData' } },
         boundary: {
           type: 'object',
           required: ['body'],
@@ -809,23 +718,6 @@ export const WORKFLOW_SCHEMA = {
         ext: { $ref: '#/$defs/extData' },
       },
     },
-    valueSourceViewState: {
-      type: 'object',
-      required: ['position'],
-      properties: {
-        position: { $ref: '#/$defs/vec2' },
-        view: { type: 'string' },
-        ext: { $ref: '#/$defs/extData' },
-      },
-    },
-    selectorViewState: {
-      type: 'object',
-      required: ['position'],
-      properties: {
-        position: { $ref: '#/$defs/vec2' },
-        ext: { $ref: '#/$defs/extData' },
-      },
-    },
     boundaryNodeViewState: {
       type: 'object',
       required: ['position'],
@@ -842,8 +734,6 @@ export const WORKFLOW_SCHEMA = {
         groups: { type: 'object', additionalProperties: { $ref: '#/$defs/groupViewState' } },
         groupSeq: { type: 'integer', minimum: 0, maximum: 9007199254740991 },
         reroutes: { type: 'object', additionalProperties: { $ref: '#/$defs/rerouteViewState' } },
-        valueSources: { type: 'object', additionalProperties: { $ref: '#/$defs/valueSourceViewState' } },
-        selectors: { type: 'object', additionalProperties: { $ref: '#/$defs/selectorViewState' } },
         collapsedNets: { type: 'array', items: { type: 'string' } },
         guideNets: { type: 'array', items: { type: 'string' } },
         boundary: {

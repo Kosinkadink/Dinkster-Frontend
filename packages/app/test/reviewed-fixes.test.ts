@@ -14,8 +14,7 @@ import { parseNumericCommit } from '../src/WidgetEditor.js'
 
 describe('occurrence delete classification', () => {
   const counts = {
-    boundaryCount: 0, nodeCount: 0, rerouteCount: 0,
-    valueSourceCount: 0, selectorCount: 0, groupCount: 0,
+    boundaryCount: 0, nodeCount: 0, rerouteCount: 0, groupCount: 0,
   }
   const identity = { kind: 'parent', from: 'a', to: 'b' }
 
@@ -59,7 +58,7 @@ describe('occurrence delete classification', () => {
 
 describe('reviewed fixes', () => {
   const deletionScene = (links: Scene['links']): Scene => ({
-    graphId: 'g0', nodes: [], links, reroutes: [], valueSources: [], selectors: [],
+    graphId: 'g0', nodes: [], links, reroutes: [],
     netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
   })
   const deletionDef = (overrides: Record<string, unknown> = {}) => ({
@@ -101,7 +100,7 @@ describe('reviewed fixes', () => {
           command: 'graph.deleteItems',
           params: {
             graphId: 'g0', nodeIds: [], ...expectedDelete,
-            rerouteIds: [], valueSourceIds: [], selectorIds: [],
+            rerouteIds: [],
           },
         },
         { command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'target' } },
@@ -297,7 +296,7 @@ describe('reviewed fixes', () => {
         command: 'graph.deleteItems',
         params: {
           graphId: 'g0', nodeIds: ['source'], linkIds: [], netSinks: [],
-          rerouteIds: [], valueSourceIds: [], selectorIds: [],
+          rerouteIds: [],
         },
       },
       { command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'target' } },

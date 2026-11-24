@@ -249,7 +249,7 @@ export function BoundaryPanel(props: { app: AppState }) {
     const spec = specOf(row)
     if (spec !== undefined) return canonicalTypeIdOf(spec.type) ?? (spec.kind === 'input' ? spec.widget?.widgetType : undefined) ?? '*'
     const binds = row.item.binds
-    return (binds.kind === 'unbound' || binds.kind === 'valueSource' ? canonicalTypeIdOf(binds.type) : undefined) ?? '*'
+    return (binds.kind === 'unbound' ? canonicalTypeIdOf(binds.type) : undefined) ?? '*'
   }
 
   const innerNodeName = (nodeId: string): string => {
@@ -261,7 +261,7 @@ export function BoundaryPanel(props: { app: AppState }) {
 
   /** The inner field or pin's label: its schema name, else its id. */
   const innerPortName = (side: Side, binding: BoundaryBinding): string => {
-    if (binding.kind === 'unbound' || binding.kind === 'valueSource') return ''
+    if (binding.kind === 'unbound') return ''
     const node = context()?.def.nodes[binding.node]
     const schema = node === undefined ? undefined : resolver()?.(node.type)
     const port = binding.kind === 'widgetTap' ? binding.tap : binding.port
@@ -273,7 +273,6 @@ export function BoundaryPanel(props: { app: AppState }) {
   const destination = (row: Row): string | undefined => {
     const binds = row.item.binds
     if (binds.kind === 'unbound') return undefined
-    if (binds.kind === 'valueSource') return context()?.def.valueSources?.[binds.valueSource]?.title ?? message('boundaryPanel.valueSource')
     const text = message('boundaryPanel.destination', { name: innerPortName(row.side, binds), node: innerNodeName(binds.node) })
     const more = row.item.alsoBinds?.length ?? 0
     return more > 0 ? message('boundaryPanel.destination.more', { destination: text, count: more }) : text
@@ -282,7 +281,6 @@ export function BoundaryPanel(props: { app: AppState }) {
   const quietNodeName = (row: Row): string => {
     const binds = row.item.binds
     if (binds.kind === 'unbound') return message('boundaryPanel.unbound')
-    if (binds.kind === 'valueSource') return context()?.def.valueSources?.[binds.valueSource]?.title ?? message('boundaryPanel.valueSource')
     return innerNodeName(binds.node)
   }
 
@@ -738,10 +736,6 @@ export function BoundaryPanel(props: { app: AppState }) {
     if (!ctx || binds.kind === 'unbound') return
     if (ctx.outsideNode !== undefined) {
       pushGraph(ctx.tab, ctx.def.id, ctx.outsideNode)
-      return
-    }
-    if (binds.kind === 'valueSource') {
-      props.app.canvasBridge.get()?.showValueSource?.(ctx.tab.id, ctx.def.id, binds.valueSource)
       return
     }
     activateProblem(props.app, {

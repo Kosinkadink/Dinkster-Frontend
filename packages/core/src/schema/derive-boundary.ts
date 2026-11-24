@@ -37,7 +37,6 @@ import { isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type Co
 import { isPortEndpoint, portAddressKey, type DynamicMemberId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
-import { effectiveValueSourceSpec, type EffectiveValueSourceSpec } from '../value-source.js'
 import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
 import { buildGraphConnectivity, describedEntries, elabInputsOf, elaborateInterface, EMPTY_CONNECTIVITY, type Connectivity } from './elaborate.js'
 import { applyUse, choiceScopeRows, framesNamesOf, isRowId, keyPosition, memberKeyAt, memberLimitOf, memberRowsOf, scopeNamesOf } from './body.js'
@@ -240,7 +239,7 @@ export function resolveBoundaryRoute(
   values?: Readonly<Record<string, unknown>>,
   _dynamic?: NodeData['dynamic'],
 ): RouteResult {
-  if (binding.kind === 'unbound' || binding.kind === 'valueSource') return { ok: false, code: 'boundary.unboundRoute', message: 'a structural boundary has no node port route' }
+  if (binding.kind === 'unbound') return { ok: false, code: 'boundary.unboundRoute', message: 'a structural boundary has no node port route' }
   if (binding.kind === 'widgetTap') {
     return { ok: false, code: 'boundary.tapRoute', message: `widget tap '${binding.tap}' is not a port or family route` }
   }
@@ -651,7 +650,6 @@ export function deriveBoundarySchema(
   resolve: SchemaResolver,
   region?: RegionContract,
   resolveNode: (node: NodeData) => NodeSchema | undefined = (node) => resolve(node.type),
-  resolveSource?: (sourceId: string) => EffectiveValueSourceSpec | undefined,
 ): DeriveResult {
   const diags: Diagnostic[] = []
   const fail = (code: string, msg: string): void => {
@@ -945,36 +943,11 @@ export function deriveBoundarySchema(
     return { ...(min !== undefined ? { min } : {}), ...(max !== undefined ? { max } : {}) }
   }
 
-  const valueSourceInputs = new Map<string, string>()
   for (const item of boundaryItems(def.boundary, 'inputs')) {
     if (!checkId(item)) continue
     if (item.binds.kind === 'construct') {
       const row = constructRow(item, 'input')
       if (row !== undefined) items.push(row)
-      continue
-    }
-    if (item.binds.kind === 'valueSource') {
-      const previous = valueSourceInputs.get(item.binds.valueSource)
-      if (previous !== undefined) {
-        fail('boundary.valueSourceConflict', `boundary inputs '${previous}' and '${item.id}' both bind value source '${item.binds.valueSource}'`)
-        continue
-      }
-      valueSourceInputs.set(item.binds.valueSource, item.id)
-      const source = def.valueSources?.[item.binds.valueSource]
-      if (!source) {
-        fail('boundary.danglingValueSource', `boundary input '${item.id}' binds missing value source '${item.binds.valueSource}'`)
-        continue
-      }
-      const effective = resolveSource?.(source.id) ?? effectiveValueSourceSpec(def, source, resolve)
-      items.push({ kind: 'input', id: item.id, type: item.binds.type, optional: true,
-        ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
-        ...tooltipOf(item),
-        ...(item.promoted === true && effective.spec !== undefined ? { widget: {
-          ...effective.spec,
-          default: source.value,
-          ...(source.controller !== undefined ? { controllerInitial: source.controller } : {}),
-        } } : {}),
-      })
       continue
     }
     if (item.binds.kind === 'unbound') {
@@ -1085,16 +1058,6 @@ export function deriveBoundarySchema(
       }
       const row = constructRow(item, 'output')
       if (row !== undefined) items.push(row)
-      continue
-    }
-    if (item.binds.kind === 'valueSource') {
-      if (!def.valueSources?.[item.binds.valueSource]) {
-        fail('boundary.danglingValueSource', `boundary output '${item.id}' binds missing value source '${item.binds.valueSource}'`)
-        continue
-      }
-      items.push({ kind: 'output', id: item.id, type: item.binds.type,
-        ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
-      })
       continue
     }
     if (item.binds.kind === 'unbound') {

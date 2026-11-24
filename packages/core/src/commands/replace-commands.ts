@@ -353,9 +353,7 @@ const nodeReplace: CommandDefinition = {
       def.nodes[id] !== undefined ||
       def.links[id] !== undefined ||
       def.nets[id] !== undefined ||
-      def.reroutes[id] !== undefined ||
-      def.valueSources?.[id] !== undefined ||
-      def.selectors?.[id] !== undefined
+      def.reroutes[id] !== undefined
     for (const created of createdNodes) {
       if (localIds.has(created.localId) || helperIds.has(created.nodeId))
         return [err('params.invalid', `node.replace: duplicate helper '${created.localId}'`)]

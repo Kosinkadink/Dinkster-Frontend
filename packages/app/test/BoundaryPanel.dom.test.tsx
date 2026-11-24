@@ -30,7 +30,7 @@ const blend: NodeSchema = {
   ],
 }
 
-const blendDocument = (extra: { valueSource?: boolean } = {}): WorkflowDocument => ({
+const blendDocument = (): WorkflowDocument => ({
   format: 'dinkster-workflow',
   formatVersion: 1,
   lineage: 'boundary-panel-component',
@@ -49,7 +49,6 @@ const blendDocument = (extra: { valueSource?: boolean } = {}): WorkflowDocument 
         n1: { id: 'n1', type: 'BlendTest', values: { strength: 0.45 } },
         n2: { id: 'n2', type: 'BlendTest', title: 'Blur', values: {} },
       },
-      ...(extra.valueSource ? { valueSources: { v0: { id: 'v0', title: 'Literal amount', value: 23 } } } : {}),
       boundary: {
         body: [
           { kind: 'input', id: 'image', binds: { kind: 'port', node: 'n1', port: 'image' }, alsoBinds: [{ kind: 'port', node: 'n2', port: 'image' }] },
@@ -57,7 +56,6 @@ const blendDocument = (extra: { valueSource?: boolean } = {}): WorkflowDocument 
           { kind: 'input', id: 'strength', displayName: 'Strength', binds: { kind: 'port', node: 'n1', port: 'strength' }, promoted: true },
           { kind: 'input', id: 'mode', binds: { kind: 'port', node: 'n1', port: 'mode' }, promoted: true },
           { kind: 'output', id: 'out', binds: { kind: 'port', node: 'n1', port: 'out' } },
-          ...(extra.valueSource ? [{ kind: 'output', id: 'amount', displayName: 'Amount', binds: { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } } }] : []),
         ],
       },
     },
@@ -70,7 +68,7 @@ const blendDocument = (extra: { valueSource?: boolean } = {}): WorkflowDocument 
   },
 } as unknown as WorkflowDocument)
 
-const mountPanel = async (options: { valueSource?: boolean; inside?: boolean } = {}) => {
+const mountPanel = async (options: { inside?: boolean } = {}) => {
   const app = prepareWorkflowApp(new AppState())
   apps.push(app)
   const backend = app.backends.get()[0]!
@@ -81,7 +79,7 @@ const mountPanel = async (options: { valueSource?: boolean; inside?: boolean } =
     diagnostics: [],
     resolve: (type) => type === blend.type ? blend : undefined,
   })
-  expect(await app.openDocument(blendDocument(options), 'Boundary component')).toEqual([])
+  expect(await app.openDocument(blendDocument(), 'Boundary component')).toEqual([])
   const tab = app.activeTab()!
   // Drill in through the real occurrence so navigation survives the
   // document-change reconciler (graphStack.length === instancePath.length + 1).
@@ -338,21 +336,6 @@ describe('BoundaryPanel rows and settings', () => {
       anchor: { port: { node: 'n1', port: 'strength' } },
       portInstancePath: ['occ'],
     })
-    unmount()
-  })
-
-  it('names a literal binding and offers source navigation without editing the definition', async () => {
-    const { tab, root, unmount } = await mountPanel({ valueSource: true })
-    expect(rowOf(root, 'amount').textContent).toContain('Literal amount')
-    select(root, 'amount')
-    const revision = tab.store.revision
-    const button = root.querySelector<HTMLButtonElement>('[data-testid="boundary-show-on-canvas"]')!
-    expect(button.textContent).toBe('Literal amount')
-    expect(button.getAttribute('aria-label')).toBe('Show Literal amount on the canvas')
-    expect(root.querySelector('[data-testid="boundary-remove"]')).toBeNull()
-    button.click()
-    expect(tab.store.revision).toBe(revision)
-    expect(tab.instancePath.get()).toEqual(['occ'])
     unmount()
   })
 

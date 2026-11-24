@@ -9,7 +9,7 @@
  * additional family targets. Outputs keep exactly one source.
  *
  * Layers pinned here: format shape validation, boundary schema derivation
- * (type/optionality/diagnostics), compiler lowering (links, value sources,
+ * (type/optionality/diagnostics), compiler lowering (links, primitives,
  * promoted values, nesting, dynamic members, muted targets), and the
  * boundary.addBinding / boundary.removeBinding commands (undo included).
  */
@@ -23,6 +23,7 @@ import { validateDocumentShape } from '../src/format/validate.js'
 import { asConnectionId } from '../src/ids.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import { inputsOf, type InputSpec, type NodeSchema, type OutputSpec, type TypeExpr } from '../src/schema/model.js'
+import { withPrimitives } from './fixtures/primitive-schemas.js'
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -71,13 +72,13 @@ const schemas: Record<string, NodeSchema> = {
     ],
   },
 }
-const resolve = (type: string) => schemas[type]
+const resolve = withPrimitives((type: string) => schemas[type])
 
 // ---------------------------------------------------------------------------
 // Document builder (same shape as compile-forwarding.test.ts)
 // ---------------------------------------------------------------------------
 
-type End = [node: string, port: string] | { reroute: string } | { valueSource: string }
+type End = [node: string, port: string] | { reroute: string }
 type NodeSpec = {
   type: string
   values?: Record<string, unknown>
@@ -88,7 +89,6 @@ type GraphSpec = {
   nodes: Record<string, NodeSpec>
   links?: [from: End, to: End][]
   reroutes?: string[]
-  valueSources?: Record<string, unknown>
   boundary?: { inputs?: unknown[]; outputs?: unknown[] }
 }
 
@@ -118,13 +118,6 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
       ),
       nets: {},
       reroutes: Object.fromEntries((g.reroutes ?? []).map((r) => [r, { id: r }])),
-      ...(g.valueSources
-        ? {
-            valueSources: Object.fromEntries(
-              Object.entries(g.valueSources).map(([vid, value]) => [vid, { id: vid, value }]),
-            ),
-          }
-        : {}),
       nextOrdinal: 100,
       ...(g.boundary ? { boundary: boundaryOf((g.boundary.inputs ?? []) as BoundaryItem[], (g.boundary.outputs ?? []) as BoundaryItem[]) } : {}),
     }
@@ -295,15 +288,14 @@ describe('compile lowers boundary fan-out', () => {
     expect(prompt['i.k2']!.inputs).toEqual({ v: 2 })
   })
 
-  it('a value source through a reroute chain bakes into every target (mixed components)', () => {
+  it('a primitive value through a reroute chain bakes into every target (mixed components)', () => {
     const prompt = okPrompt(
       docOf({
         g0: {
-          nodes: { i: { type: '#sub' } },
+          nodes: { i: { type: '#sub' }, p: { type: 'dinkster.utilities.primitive_float', values: { value: 7 } } },
           reroutes: ['r0', 'r1'],
-          valueSources: { v0: 7 },
           links: [
-            [{ valueSource: 'v0' }, { reroute: 'r0' }],
+            [['p', 'value'], { reroute: 'r0' }],
             [{ reroute: 'r0' }, { reroute: 'r1' }],
             [{ reroute: 'r1' }, ['i', 'gain']],
           ],

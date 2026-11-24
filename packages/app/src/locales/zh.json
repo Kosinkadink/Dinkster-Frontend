@@ -1523,7 +1523,6 @@
   "boundaryPanel.aria.editor": "边界编辑器",
   "boundaryPanel.empty.rows": "还没有行。在子图内右键单击一个字段，选择“显示在子图节点上”。",
   "boundaryPanel.unbound": "内部无连接",
-  "boundaryPanel.valueSource": "内部的一个值",
   "boundaryPanel.aria.rows": "子图节点上的行",
   "boundaryPanel.aria.settings": "{name} 的设置",
   "boundaryPanel.usedIn": "用于 {count} 处",

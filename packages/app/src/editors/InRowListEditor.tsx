@@ -175,7 +175,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
   const shown = createMemo(() => listed().slice(window().start, window().end))
   const target = ed.target
   const focusRow = (): void => {
-    if (target.kind === 'input') host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
+    host.focusRow?.({ nodeId: target.nodeId, valueKey: target.valueKey })
   }
   const [picked, setPicked] = createSignal<string>()
   const store = (value: Json, text: string): void => {
@@ -199,7 +199,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
   }
 
   const [authoring, setAuthoring] = createSignal(false)
-  const editable = spec.remote === undefined && ed.target.kind === 'input' &&
+  const editable = spec.remote === undefined &&
     spec.editableOptions === true && ed.target.optionsTarget !== undefined
   const refreshing = (): boolean => {
     const state = lookupState()
@@ -319,7 +319,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
     } else if (event.key === 'Tab') {
       // Tab keeps the stored value and moves to the next or previous row.
       event.preventDefault()
-      if (props.commitPending() || target.kind !== 'input') return
+      if (props.commitPending()) return
       props.close()
       host.moveRow?.({ nodeId: target.nodeId, valueKey: target.valueKey }, event.shiftKey ? -1 : 1)
     } else if (event.key === 'Backspace' && query() === '' && folder().length > 0) {

@@ -178,6 +178,20 @@ describe('document shape rejection', () => {
     }])
   })
 
+  it.each([
+    ['valueSources', 'value sources are no longer supported; use primitive nodes'],
+    ['selectors', 'selectors are no longer supported; use a Switch node'],
+  ])('refuses a document holding %s and returns no document', (field, reason) => {
+    const raw = structuredClone(loadFixture('subgraph')) as JsonObject
+    ;((raw['graphs'] as JsonObject)['g0'] as Record<string, unknown>)[field] = {}
+    const result = loadDocument(raw)
+    expect(result.document).toBeUndefined()
+    expect(errorsOf(result.diagnostics)).toMatchObject([{
+      code: 'doc.shape.invalid',
+      message: expect.stringContaining(`$.graphs.g0.${field}: ${reason}`),
+    }])
+  })
+
   it('rejects nested flattened ids that do not resolve through persisted dynamic state', () => {
     const raw = structuredClone(loadFixture('subgraph')) as JsonObject
     const graph = (raw['graphs'] as JsonObject)['g1'] as JsonObject

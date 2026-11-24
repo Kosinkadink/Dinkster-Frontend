@@ -20,7 +20,7 @@ const document = (): WorkflowDocument => ({
         inside: { id: 'inside' as never, type: 'Plain', values: {} },
         outside: { id: 'outside' as never, type: 'Plain', values: {} },
       },
-      links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, nextOrdinal: 10,
+      links: {}, nets: {}, reroutes: {}, nextOrdinal: 10,
     },
   },
   view: { graphs: { root: {
@@ -75,7 +75,7 @@ describe('subgraph lifecycle app plans', () => {
     expect(hasExtractSelection({ geometry: [] })).toBe(false)
     expect(hasExtractSelection({ groupIds: ['empty'], geometry: [{ id: 'empty', kind: 'group', x: 0, y: 0, width: 10, height: 10 }] })).toBe(false)
     expect(isFlattenSelection(doc, 'root', ['inside'], 0)).toBe(false)
-    ;(doc as any).graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, boundary: boundaryOf([], []), nextOrdinal: 0 }
+    ;(doc as any).graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, boundary: boundaryOf([], []), nextOrdinal: 0 }
     ;(doc as any).view.graphs.body = { nodes: {} }
     ;(doc as any).graphs.root.nodes.inside.type = '#body'
     expect(isFlattenSelection(doc, 'root', ['inside'], 0)).toBe(true)
@@ -102,7 +102,7 @@ describe('subgraph lifecycle app plans', () => {
           regionBody: {
             id: 'regionBody', name: 'Region Body',
             nodes: { n0: { id: 'n0', type: 'Plain', values: {} } },
-            links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {},
+            links: {}, nets: {}, reroutes: {},
             boundary: {
               body: [
                 { kind: 'input', id: 'item', binds: { kind: 'port', node: 'n0', port: 'item' } },
@@ -160,7 +160,7 @@ describe('subgraph lifecycle app plans', () => {
 
   it('reports actionable bridge planning failures instead of swallowing them', async () => {
     const doc = document() as any
-    doc.graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, boundary: boundaryOf([], []), nextOrdinal: 0 }
+    doc.graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, boundary: boundaryOf([], []), nextOrdinal: 0 }
     doc.view.graphs.body = { nodes: {} }
     doc.graphs.root.nodes.inside.type = '#body'
     const reports: Diagnostic[] = []
@@ -225,7 +225,7 @@ describe('subgraph lifecycle app plans', () => {
 
   it('reports every flatten dispatch and post-commit failure arm', async () => {
     const doc = document() as any
-    doc.graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, boundary: boundaryOf([], []), nextOrdinal: 0 }
+    doc.graphs.body = { id: 'body', name: 'Body', nodes: {}, links: {}, nets: {}, reroutes: {}, boundary: boundaryOf([], []), nextOrdinal: 0 }
     doc.view.graphs.body = { nodes: {} }
     doc.graphs.root.nodes.inside.type = '#body'
     const reports: Diagnostic[] = []
@@ -394,7 +394,7 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     }]),
   }
   const resolveSchema = (type: string) => schemas[type]
-  const empty = { links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, nextOrdinal: 100 }
+  const empty = { links: {}, nets: {}, reroutes: {}, nextOrdinal: 100 }
   const construct = (id: string, node: string, port: string) => ({ id, binds: { kind: 'construct', node, port } })
   const fixture = (mode: 'active' | 'muted' | 'bypassed' = 'active'): WorkflowDocument => ({
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'lineage' as never, root: 'root' as never,
@@ -535,28 +535,6 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     expect(refused.ok).toBe(false)
     expect(refused.session.doc).toEqual(bypassed)
     expect(refused.session.canUndo).toBe(false)
-  })
-
-  it('a muted subgraph node whose output passes on a value source is not flattened', async () => {
-    const base = fixture('muted')
-    const portrait = base.graphs.portrait!
-    const doc: WorkflowDocument = { ...base, graphs: {
-      ...base.graphs,
-      root: { ...base.graphs.root!, links: {
-        ...base.graphs.root!.links,
-        l2: { id: 'l2' as never, from: { node: 'first', port: 'fixed' } as never, to: { node: 'k', port: 'in' } as never },
-      } },
-      portrait: {
-        ...portrait,
-        valueSources: { v: { id: 'v' as never, value: 3 } },
-        boundary: { body: [...portrait.boundary!.body.filter((entry) => entry.kind !== 'output'), { kind: 'output', id: 'fixed', binds: { kind: 'valueSource', valueSource: 'v', type: IMAGE } }] } as never,
-      },
-    } }
-    // Muted, the sink gets nothing; flattened, the value source would reach it.
-    const { ok, reports, session } = await flatten(doc, 'root', [], 'first')
-    expect(ok).toBe(false)
-    expect(reports.map((entry) => entry.code)).toContain('subgraph.flatten.modeUnsupported')
-    expect(session.doc).toEqual(doc)
   })
 
   it('extracting the inner nodes inside the definition keeps them shown whole through the new subgraph node', () => {
