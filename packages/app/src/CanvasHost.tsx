@@ -5032,12 +5032,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         },
       })
       setPreviewA11yTargets(selectedInputPreviewA11yTargets(scene, model.selectedInputPreviews))
+      // The Inputs panel's fields fold out on the panel; one wired outside the subgraph keeps its wired look.
+      const panel = renderer.getScene().boundaryNodes.find((bnode) => bnode.side === 'inputs' && bnode.fields !== undefined)
+      const panelFace = panel === undefined ? undefined : boundaryFieldNode(panel)
       const editorWires: EditorWires = {
-        wired: (nodeId, inputId) => companionInputs.get(nodeId)?.has(inputId) === true || scene.links.some((link) =>
-          link.to.kind === 'port' && link.to.node === nodeId && link.to.port === inputId),
-        carried: (nodeId, valueKey) => companionDisplays[nodeId]?.[valueKey]?.value,
+        wired: (nodeId, inputId) => nodeId === panelFace?.id ? Object.hasOwn(panel!.fields!.wired, inputId)
+          : companionInputs.get(nodeId)?.has(inputId) === true || scene.links.some((link) =>
+            link.to.kind === 'port' && link.to.node === nodeId && link.to.port === inputId),
+        carried: (nodeId, valueKey) => nodeId === panelFace?.id ? panel!.fields!.wired[valueKey]?.value : companionDisplays[nodeId]?.[valueKey]?.value,
       }
-      setEditorSpaces(editorSpaceItems(renderer.getScene().nodes, editorWires))
+      setEditorSpaces(editorSpaceItems([...renderer.getScene().nodes, ...(panelFace === undefined ? [] : [panelFace])], editorWires))
       setNodeBoxes(renderer.getScene().nodes.map((node) => ({ id: node.id, box: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height } })))
       renderer.setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown')))
       setMediaPreviews(renderer.getScene().nodes.flatMap((node) => {
@@ -5251,14 +5255,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (!tab) return
       // An editor shown in the node folds out under its row and back, as a
       // section opens and closes, also while a run holds the workflow. A
-      // field face of the Inputs panel is no node and keeps its editor.
-      if (IN_NODE_EDITORS[hit.row.viewId] !== undefined && hit.row.valueSourceOwner === undefined &&
-        tab.store.doc.graphs[currentGraphId(tab)]?.nodes[hit.node.id] !== undefined) {
-        void props.app.dispatchTo(tab, {
-          command: 'view.setEditorUnfolded',
-          params: { graphId: currentGraphId(tab), nodeId: hit.node.id, valueKey: hit.row.valueKey, unfolded: hit.row.unfolded !== true },
-        })
-        return
+      // field on the Inputs panel folds out on the panel, which keeps its
+      // own folds apart from the subgraph node outside.
+      if (IN_NODE_EDITORS[hit.row.viewId] !== undefined) {
+        const graphId = currentGraphId(tab)
+        const owner = hit.bnode !== undefined ? { inputsPanel: true }
+          : tab.store.doc.graphs[graphId]?.nodes[hit.node.id] !== undefined ? { nodeId: hit.node.id } : undefined
+        if (owner !== undefined) {
+          void props.app.dispatchTo(tab, {
+            command: 'view.setEditorUnfolded',
+            params: { graphId, ...owner, valueKey: hit.row.valueKey, unfolded: hit.row.unfolded !== true },
+          })
+          return
+        }
       }
       if (refuseFrozenEdit()) return
       // An Inputs panel field holding a value source's own value edits that
@@ -6921,9 +6930,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           if (current === undefined || tab === undefined) return undefined
           const graphId = currentGraphId(tab)
           const owner = current.field.familyOwner
+          const source = current.field.valueSourceOwner
           const target = { graphId: owner?.graphId ?? graphId, nodeId: owner?.nodeId ?? current.nodeId, inputId: owner?.valueKey ?? current.valueKey }
-          const commit = (value: Json): void => void props.app.dispatchTo(tab, withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize,
-            { command: 'node.setValue', params: { ...target, value } }))
+          // A field on the Inputs panel that holds a value source's own value edits that source.
+          const commit = (value: Json): void => void props.app.dispatchTo(tab, source !== undefined
+            ? { command: 'valueSource.setValue', params: { graphId: source.graphId, valueSourceId: source.valueSourceId, value } }
+            : withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
           return { tab, graphId, current, target, commit }
         }
         const recorder = () => {
@@ -7032,7 +7044,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         return (
           <Show when={item() !== undefined && projected() !== undefined}>
             <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl} covers={covers()}
-              pictureHeight={{
+              pictureHeight={item()!.nodeId === boundarySceneId('inputs') ? {
+                // The panel has no stored size: its picture's new height is stored when the drag ends.
+                preview: () => {},
+                commit: (height) => {
+                  const tab = activeTab()
+                  if (tab !== undefined) void props.app.dispatchTo(tab, { command: 'view.setPictureHeight',
+                    params: { graphId: currentGraphId(tab), inputsPanel: true, valueKey: item()!.row.valueKey, height } })
+                },
+              } : {
                 preview: (height) => editorPictureHeights?.previewPictureHeight(height === undefined ? undefined
                   : { nodeId: item()!.nodeId, valueKey: item()!.row.valueKey, height }),
                 commit: (height) => editorPictureHeights?.commitPictureHeight(item()!.nodeId, item()!.row.valueKey, height),

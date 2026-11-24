@@ -975,6 +975,8 @@ export interface LayoutOptions {
   readonly textBoxLines?: Readonly<Record<string, number>>
   /** Per-editor fold overrides by value key (view.setEditorUnfolded). */
   readonly editorUnfolded?: Readonly<Record<string, boolean>>
+  /** Editors start folded whatever their declaration says, as on the Inputs panel. */
+  readonly editorsStartFolded?: true
   /** Height of each unfolded editor's picture the user dragged, by value key (view.setPictureHeight). */
   readonly pictureHeights?: Readonly<Record<string, number>>
   /**
@@ -1534,7 +1536,7 @@ export function layoutNode(
       const w = cell.widget
       const editor = w === undefined ? undefined : IN_NODE_EDITORS[w.viewId]
       if (w === undefined || editor === undefined) continue
-      const declared = w.familyMember !== true && w.spec.options['unfolded'] === true
+      const declared = options.editorsStartFolded !== true && w.familyMember !== true && w.spec.options['unfolded'] === true
       if (!(options.editorUnfolded?.[w.valueKey] ?? declared)) continue
       // Unfolded, the row is the editor's one-row header: what the folded row
       // shows in small (the curve's sketch) is the editor itself under it.
@@ -2076,6 +2078,8 @@ export interface BoundarySlotInfo {
    * the first.
    */
   readonly fields?: readonly Omit<Extract<LayoutRow, { kind: 'widget' }>, 'kind' | 'y' | 'height' | 'inset' | 'width'>[]
+  /** Inputs panel only: the space of each unfolded editor among the fields, by its row's value key. */
+  readonly editorSpaces?: Readonly<Record<string, Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset' | 'width' | 'rowAbove'>>>
   /** Fields drawn without their wire, or a value source's field: no pin. */
   readonly pinless?: true
   /** Inputs panel only: the input takes one value or a whole list. */
@@ -2122,6 +2126,12 @@ export function layoutBoundaryNode(
         const height = field.viewId === 'core.text' ? multilineWidgetHeight(field.rows, tokens) : field.rows * tokens.rowHeight
         rows.push({ ...field, ...(index === 0 ? { label: slot.label } : {}), kind: 'widget', y, height, inset: tokens.rowGeometry.fieldInsetX })
         y += height
+        // An unfolded editor hangs under its field, and the panel grows downward.
+        const space = slot.editorSpaces?.[field.valueKey]
+        if (space !== undefined) {
+          rows.push({ ...space, kind: 'editorSpace', y, inset: tokens.rowGeometry.fieldInsetX, rowAbove: height })
+          y += space.height
+        }
       }
       continue
     }
@@ -2173,6 +2183,10 @@ export function layoutBoundaryNode(
     if (row.kind === 'widget') {
       const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
       width = Math.max(width, mark + measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + tokens.padX * 2)
+      continue
+    }
+    if (row.kind === 'editorSpace') {
+      width = Math.max(width, canvasPaintTokens.node.editorSpace.minWidth + row.inset * 2)
       continue
     }
     if (row.kind !== 'ports') continue
