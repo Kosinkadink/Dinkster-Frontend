@@ -2,8 +2,8 @@
  * The node's problem box, drawn as a part of the node: one row-high line per
  * problem with the kind's icon, its row's name, the message and its action at
  * the right end, the action drawn as a list status line's action. Only the
- * icon and the message take the problem's color. It hangs below the
- * node at one screen size; the caller places it.
+ * icon and the message take the problem's color. It hangs below the node
+ * as wide as the node, its lines wrapping; the caller places and sizes it.
  */
 import { createEffect, For, Show } from 'solid-js'
 import { CircleX, TriangleAlert } from 'lucide-solid'
@@ -37,6 +37,8 @@ export function ProblemBox(props: {
   /** Top-left corner in the positioned parent's px. */
   readonly x: number
   readonly y: number
+  /** The node's width in the same px; the lines wrap to it. */
+  readonly width: number
   readonly onPointLine?: (line: ProblemBoxViewLine | undefined) => void
   readonly onAction?: (line: ProblemBoxViewLine, action: string) => void
   readonly ref?: (element: HTMLDivElement) => void
@@ -46,6 +48,7 @@ export function ProblemBox(props: {
     if (element === undefined) return
     element.style.left = `${props.x}px`
     element.style.top = `${props.y}px`
+    element.style.width = `${props.width}px`
   })
   const strongest = (): ProblemBoxKind =>
     props.lines.some((line) => line.kind === 'error') ? 'error' : 'warning'

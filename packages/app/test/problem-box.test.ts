@@ -77,11 +77,11 @@ describe('problemBoxLines', () => {
 })
 
 describe('problemBoxPlacement', () => {
-  it('hangs below the node and its lowest tab, left edge with the node, at screen scale', () => {
+  it('hangs below the node and its lowest tab, as wide as the node, at screen scale', () => {
     const tab = (y: number, height: number, badge = PROBLEM_ERROR_BADGE) =>
       ({ x: 100, y, width: 40, height, badge, compact: false }) as BadgePlacement
     const at = problemBoxPlacement(node, [tab(190, 16), tab(192, 18, PROBLEM_WARNING_BADGE)], { x: 10, y: -20, scale: 2 })
-    expect(at).toEqual({ x: 100 * 2 + 10, y: 210 * 2 - 20 + 4 })
+    expect(at).toEqual({ x: 100 * 2 + 10, y: 210 * 2 - 20 + 4, width: node.layout.width * 2 })
     const nodeBottomOnScreen = (50 + 140) * 2 - 20
     expect(at.y).toBeGreaterThan(nodeBottomOnScreen)
   })

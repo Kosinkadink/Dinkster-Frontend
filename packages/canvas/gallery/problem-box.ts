@@ -56,12 +56,13 @@ export interface ProblemBoxGalleryCard {
   readonly boxes: readonly ProblemBoxGalleryBox[]
   /** The row drawn highlighted with its line. */
   readonly highlight?: { readonly nodeId: string; readonly row: string }
-  /** Canvas height below the nodes left for the open boxes, in px. */
-  readonly room: number
   readonly width: number
 }
 
 const NODE_WIDTH = 260
+const NARROW = 200
+const WIDE = 460
+const LONG_MISSING = 'sdxl_base.safetensors is not in any model folder on this machine, and no download source is declared for it in the workflow or in its node pack.'
 const GAP = 72
 const TOP = 16
 const LEFT = 16
@@ -143,6 +144,8 @@ interface Placed {
   readonly x: number
   readonly values?: Record<string, Json>
   readonly minimized?: true
+  /** Node width; NODE_WIDTH when absent. */
+  readonly width?: number
 }
 
 function sceneOf(
@@ -174,7 +177,7 @@ function sceneOf(
     },
     view: { graphs: { gallery: { nodes: Object.fromEntries(nodes.map((node) => [node.id, {
       position: { x: node.x, y: TOP },
-      size: { width: NODE_WIDTH, height: 0 },
+      size: { width: node.width ?? NODE_WIDTH, height: 0 },
       ...(node.minimized ? { collapsed: true } : {}),
     }])) } } },
   })
@@ -232,7 +235,6 @@ export function problemBoxGallery(
       badges: { gen: [errors(2), warnings(1)] },
       rowMarks: { gen: brokenMarks },
       boxes: [],
-      room: 24,
       width: widthOf(1),
     },
     {
@@ -243,8 +245,7 @@ export function problemBoxGallery(
       rowMarks: { gen: brokenMarks },
       boxes: [{ nodeId: 'gen', nodeTitle: 'Generate image', lines: brokenLines, highlighted: brokenLines[1]!.key }],
       highlight: { nodeId: 'gen', row: 'height' },
-      room: 126,
-      width: widthOf(1) + 160,
+      width: widthOf(1),
     },
     {
       id: 'two-causes',
@@ -256,8 +257,7 @@ export function problemBoxGallery(
         line('error', 'width', 'Width is required.', [EDIT]),
         line('error', 'width', 'Width could not be inferred from the image.', [EDIT]),
       ] }],
-      room: 96,
-      width: widthOf(1) + 160,
+      width: widthOf(1),
     },
     {
       id: 'whole-node',
@@ -269,8 +269,7 @@ export function problemBoxGallery(
         line('error', undefined, 'Width times height must be at least 4096 pixels.'),
         line('warning', 'steps', 'Steps exceeds 10000.', [EDIT]),
       ] }],
-      room: 96,
-      width: widthOf(1) + 160,
+      width: widthOf(1),
     },
     {
       id: 'minimized',
@@ -279,8 +278,7 @@ export function problemBoxGallery(
       badges: { gen: [errors(2), warnings(1)] },
       rowMarks: { gen: brokenMarks },
       boxes: [{ nodeId: 'gen', nodeTitle: 'Generate image', lines: brokenLines }],
-      room: 126,
-      width: widthOf(1) + 160,
+      width: widthOf(1),
     },
     {
       id: 'outline',
@@ -292,7 +290,6 @@ export function problemBoxGallery(
       badges: { error: [errors(1)], warning: [warnings(1)] },
       rowMarks: { error: { width: 'error' }, warning: { steps: 'warning' } },
       boxes: [],
-      room: 24,
       width: widthOf(2),
     },
     {
@@ -310,7 +307,6 @@ export function problemBoxGallery(
         { nodeId: 'caption', nodeTitle: 'Caption image', lines: [line('error', 'image', 'Image is required.')] },
         { nodeId: 'resize', nodeTitle: 'Resize image', lines: [line('error', 'width', 'Width must be positive.', [EDIT])] },
       ],
-      room: 76,
       width: widthOf(3),
     },
     {
@@ -324,7 +320,6 @@ export function problemBoxGallery(
       badges: { ran: [executionErrorBadge(1)], changed: [LAST_RUN_BADGE] },
       rowMarks: { ran: { method: 'error' } },
       boxes: [],
-      room: 24,
       width: widthOf(2),
     },
     {
@@ -337,24 +332,22 @@ export function problemBoxGallery(
         line('error', undefined, 'This node needs a graphics card, and this machine has none.'),
         line('warning', 'scale', 'Scale exceeds 8.', [EDIT]),
       ] }],
-      room: 96,
-      width: widthOf(1) + 160,
+      width: widthOf(1),
     },
     {
       id: 'widths',
-      caption: 'The box is drawn at one screen size whatever the zoom. It is at least 240 px wide, as for a short message with its button, and at most 400 px, where a long message wraps.',
+      caption: 'The box is as wide as its node and its lines wrap inside it, so the same long line takes more lines under a narrow node than under a wide one, and under the narrow one its action moves to a line of its own, still at the right end. The box grows downward; nothing is cut. Its text stays one screen size whatever the zoom.',
       scene: scene([
-        { id: 'short', schema: resizeImage, x: column(0), values: { width: 0 } },
-        { id: 'long', schema: loadModel, x: column(1) + 40 },
+        { id: 'narrow', schema: loadModel, x: LEFT, width: NARROW },
+        { id: 'wide', schema: loadModel, x: LEFT + NARROW + GAP, width: WIDE },
       ]),
-      badges: { short: [errors(1)], long: [errors(1)] },
-      rowMarks: { short: { width: 'error' }, long: { model: 'error' } },
+      badges: { narrow: [errors(1)], wide: [errors(1)] },
+      rowMarks: { narrow: { model: 'error' }, wide: { model: 'error' } },
       boxes: [
-        { nodeId: 'short', nodeTitle: 'Resize image', lines: [line('error', 'width', 'Width must be positive.', [EDIT])] },
-        { nodeId: 'long', nodeTitle: 'Load model', lines: [line('error', 'model', 'sdxl_base.safetensors is not in any model folder on this machine, and no download source is declared for it in the workflow or in its node pack.', ['Locate or replace'])] },
+        { nodeId: 'narrow', nodeTitle: 'Load model', lines: [line('error', 'model', LONG_MISSING, ['Locate or replace'])] },
+        { nodeId: 'wide', nodeTitle: 'Load model', lines: [line('error', 'model', LONG_MISSING, ['Locate or replace'])] },
       ],
-      room: 116,
-      width: widthOf(2) + 200,
+      width: LEFT * 2 + NARROW + GAP + WIDE,
     },
   ]
 }
