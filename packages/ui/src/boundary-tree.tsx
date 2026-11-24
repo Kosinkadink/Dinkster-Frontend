@@ -356,7 +356,12 @@ export function BoundaryTree(props: {
           </span>
         </Show>
       </div>
-      <div class="boundary-tree-template" role="group">
+      <div
+        class="boundary-tree-template"
+        role="group"
+        onPointerDown={press(constructProps.construct.id)}
+        onClick={select(constructProps.construct.id)}
+      >
         <For each={constructProps.construct.template}>
           {(row) => (
             <span class="boundary-tree-template-row" data-side={row.side}>
