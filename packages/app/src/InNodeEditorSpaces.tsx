@@ -1,5 +1,5 @@
 import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, occurrenceKey, type AssetRef, type Json, type JsonObject } from '@dinkster/core'
-import { canvasPaintTokens, clampPictureHeight, defaultTokens, type LayoutRow } from '@dinkster/canvas'
+import { canvasPaintTokens, clampPictureHeight, defaultTokens, IN_NODE_EDITORS, type EditorSummary, type EditorSummaryMap, type LayoutRow } from '@dinkster/canvas'
 import { audioRecordKind, curveInterpolator, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
   CanvasAnglePicture,
@@ -88,6 +88,29 @@ export function editorSpaceItems(nodes: readonly {
       }]
     })
   })
+}
+
+/**
+ * What the row of an editor shown in the node reads while a wire decides its
+ * value, folded or not: the name of what the wire brought in the last run,
+ * or `notKnown` in the placeholder color before one. The value stored under
+ * the wire is not shown.
+ */
+export function wiredEditorSummaries(nodes: readonly {
+  readonly id: string
+  readonly layout: { readonly rows: readonly LayoutRow[] }
+}[], wires: EditorWires, notKnown: string): EditorSummaryMap {
+  return Object.fromEntries(nodes.flatMap((node) => {
+    const summaries = Object.fromEntries(node.layout.rows.flatMap((row): [string, EditorSummary][] => {
+      if (row.kind !== 'widget' || IN_NODE_EDITORS[row.viewId] === undefined || !wires.wired(node.id, row.inputId)) return []
+      const carried = wires.carried(node.id, row.valueKey)
+      if (carried === undefined) return [[row.valueKey, { text: notKnown, placeholder: true }]]
+      const named = typeof carried === 'object' && carried !== null && !Array.isArray(carried) ? (carried as JsonObject)['name'] : undefined
+      const name = typeof carried === 'string' ? carried : typeof named === 'string' ? named : undefined
+      return name === undefined || name === '' ? [] : [[row.valueKey, { text: name }]]
+    }))
+    return Object.keys(summaries).length === 0 ? [] : [[node.id, summaries]]
+  }))
 }
 
 /**

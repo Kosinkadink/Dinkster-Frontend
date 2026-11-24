@@ -565,6 +565,7 @@
   "inNodeLoad3d.clip": "片段",
   "inNodeLoad3d.time": "时间（秒）",
   "inNodeLoad3d.speed": "速度",
+  "inNodeEditor.notKnown": "尚不知道",
   "inNodeEditor.pictureHeight": "图片高度",
   "inNodeCompare.runToCompare": "运行后比较",
   "inNodeCompare.divider": "分割线 (%)",

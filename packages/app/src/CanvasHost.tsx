@@ -181,7 +181,7 @@ import {
   type CanvasSemanticSource,
   type CanvasSemanticTarget,
 } from './CanvasSemanticNavigator.js'
-import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, type EditorSpaceItem } from './InNodeEditorSpaces.js'
+import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
 import { Load3dSpace } from './InNodeLoad3dSpace.js'
 import { ImageCompareSpace } from './InNodeImageCompareSpace.js'
 import { imageCompareFrames } from './image-compare-frames.js'
@@ -4548,6 +4548,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setOutputPages((current) => current.size === 0 ? current : new Map())
         setOutputViewerKey(undefined)
         renderer.setCompanions({})
+        renderer.setEditorSummaries({})
         renderer.setBadges({})
         renderer.setNodeDecorations({})
         minimap.setStates({})
@@ -4795,11 +4796,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         },
       })
       setPreviewA11yTargets(selectedInputPreviewA11yTargets(scene, model.selectedInputPreviews))
-      setEditorSpaces(editorSpaceItems(renderer.getScene().nodes, {
+      const editorWires: EditorWires = {
         wired: (nodeId, inputId) => companionInputs.get(nodeId)?.has(inputId) === true || scene.links.some((link) =>
           link.to.kind === 'port' && link.to.node === nodeId && link.to.port === inputId),
         carried: (nodeId, valueKey) => companionDisplays[nodeId]?.[valueKey]?.value,
-      }))
+      }
+      setEditorSpaces(editorSpaceItems(renderer.getScene().nodes, editorWires))
+      renderer.setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown')))
       setMediaPreviews(renderer.getScene().nodes.flatMap((node) => {
         if (node.layout.minimized) return []
         const media = model.previews[node.id]
