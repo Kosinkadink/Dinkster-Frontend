@@ -20,7 +20,7 @@ import type { ToolboxButton } from './toolbox.js'
 
 const paint = canvasPaintTokens.widget
 /** The word before the value of a row that stays only for the wire on its output. */
-const KEPT_WORD = 'wired'
+const KEPT_WORD = 'inactive'
 const TEXT_PAD = paint.textPadding
 
 function compactBooleanValue(value: Json, options: Readonly<Record<string, unknown>>): string {
@@ -179,7 +179,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       return
     }
     const resolved: Json = value !== undefined ? value : (kind.defaultValue(row.spec) as Json)
-    // A kept row shows "wired" before its value.
+    // A kept row shows "inactive" before its value.
     const keptWord = row.kept !== undefined
     const keptReserve = keptWord ? measureWidth(ctx, KEPT_WORD) + paint.valueWordGap : 0
     // Draw the shared row chrome (label) then let the view draw its content.
