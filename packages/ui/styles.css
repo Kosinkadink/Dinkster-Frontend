@@ -573,8 +573,11 @@
 .dinkster-canvas-editor-buttons .dinkster-button { box-sizing: border-box; min-height: 0; height: var(--dinkster-input-canvas-height); padding-block: 0; }
 /* The canvas overlays sit outside the page root, so an editor dims its own disabled buttons. */
 .dinkster-canvas-editor-buttons .dinkster-button:disabled { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
-/* A row of an editor's buttons: each as the node's row button, the row split evenly between them. */
-.dinkster-canvas-editor > .dinkster-canvas-editor-buttons > .dinkster-button, .dinkster-canvas-editor-section-rows > .dinkster-canvas-editor-buttons > .dinkster-button { flex: 1 1 0; justify-content: center; border: var(--dinkster-border-width) solid var(--dinkster-text-secondary); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-field); }
+/* A row of an editor's buttons: each raised as the node's own buttons are drawn (a face with a lit top edge and a
+   line of shade under it), the row split evenly between them. Pressed, the face sinks: no lit edge, no shade. */
+:is(.dinkster-canvas-editor, .dinkster-canvas-editor-section-rows) > .dinkster-canvas-editor-buttons > .dinkster-button { flex: 1 1 0; justify-content: center; border: var(--dinkster-border-width) solid var(--dinkster-border-box); border-top-color: var(--dinkster-button-lit-edge); border-radius: var(--dinkster-radius-small); background: var(--dinkster-button-face); box-shadow: 0 var(--dinkster-border-width) 0 var(--dinkster-button-shade); }
+:is(.dinkster-canvas-editor, .dinkster-canvas-editor-section-rows) > .dinkster-canvas-editor-buttons > .dinkster-button:not(:disabled, [aria-disabled='true']):hover { background: var(--dinkster-button-face-hover); }
+:is(.dinkster-canvas-editor, .dinkster-canvas-editor-section-rows) > .dinkster-canvas-editor-buttons > .dinkster-button:not(:disabled, [aria-disabled='true']):active { border-top-color: var(--dinkster-border-box); background: var(--dinkster-button-face-pressed); box-shadow: none; color: var(--dinkster-text-secondary); }
 .dinkster-canvas-editor-section > summary { gap: calc(var(--dinkster-space-4) * 1.5); padding: 0 var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); color: var(--dinkster-text-secondary); list-style: none; cursor: pointer; user-select: none; }
 .dinkster-canvas-editor-section > summary:hover { color: var(--dinkster-text-primary); }
 .dinkster-canvas-editor-section > summary::-webkit-details-marker { display: none; }
