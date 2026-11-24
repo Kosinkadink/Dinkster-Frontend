@@ -182,7 +182,32 @@ const chosen = schema('Strength under a choice', [
     ],
   },
 ])
+const typeLed = schema('Resize by input type', [
+  { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
+  {
+    kind: 'typeChoice',
+    id: 'input',
+    displayName: 'input',
+    required: false,
+    rows: [],
+    variants: [
+      {
+        key: 'IMAGE',
+        type: concrete('IMAGE'),
+        rows: [field('width', 'width', 'FLOAT', 512)],
+      },
+      {
+        key: 'LATENT',
+        type: concrete('LATENT'),
+        rows: [
+          field('scale', 'scale', 'FLOAT', 1.5, { min: 0, max: 8, step: 0.25 }),
+        ],
+      },
+    ],
+  },
+])
 const schemas = [
+  typeLed,
   sampler,
   scheduler,
   fieldScheduler,
@@ -369,7 +394,7 @@ export function widgetTapGallery(
       ],
     ),
     card(
-      "Does not work today: the wire from a field under a choice's option is lost on copy and paste and on replacing the node, and a subgraph's face cannot offer it.",
+      "A field under a choice's option has its own pin. Its wire survives copy and paste and replacing the node, and a subgraph's face can offer it.",
       [
         { id: 'chosen', schema: chosen, x: 0 },
         { id: 'chosen blend', schema: blend, x: right, ...small },
@@ -378,6 +403,44 @@ export function widgetTapGallery(
         {
           from: tap('chosen', 'mode.strength'),
           to: { node: 'chosen blend', port: 'factor' },
+        },
+      ],
+      [0, 60],
+    ),
+    card(
+      "A row that stays for its wire, under an option not chosen: the wire stays on strength, dimmed and marked inactive, after the chosen option's rows. It cannot be edited and gives nothing until it is unplugged or 'fixed' is chosen again.",
+      [
+        {
+          id: 'kept option',
+          schema: chosen,
+          x: 0,
+          dynamic: { mode: { selected: 'ramp' } },
+        },
+        { id: 'kept option blend', schema: blend, x: right, ...small },
+      ],
+      [
+        {
+          from: tap('kept option', 'mode.strength'),
+          to: { node: 'kept option blend', port: 'factor' },
+        },
+      ],
+      [0, 60],
+    ),
+    card(
+      'A row that stays for its wire, under a type-led pin: the input now takes an IMAGE, and the LATENT row scale stays, dimmed and marked inactive, after the IMAGE rows, with its wire.',
+      [
+        {
+          id: 'kept type',
+          schema: typeLed,
+          x: 0,
+          dynamic: { input: { selected: 'IMAGE' } },
+        },
+        { id: 'kept type blend', schema: blend, x: right, ...small },
+      ],
+      [
+        {
+          from: tap('kept type', 'input.scale'),
+          to: { node: 'kept type blend', port: 'factor' },
         },
       ],
       [0, 60],

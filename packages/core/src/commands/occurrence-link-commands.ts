@@ -3,7 +3,6 @@ import { documentNodeResolver } from '../compile/compile.js'
 import { canonicalJson } from '../compile/hash.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { suppressedDeliveryKey, type DynamicPortState, type Json, type JsonObject, type OccurrenceLinkData, type OccurrenceLinkEndpoint, type OccurrenceTopology, type SuppressedDelivery, type WorkflowDocument } from '../format/document.js'
-import { validateBoundaryBindingShape } from '../format/validate.js'
 import { actorCursorOf, asLinkId, formatAllocatedId, guardOrdinal, isPortEndpoint, occurrenceKey, sameEndpoint, type OccurrenceRef } from '../ids.js'
 import { lifecycleCanonicalHash } from '../lifecycle/planner.js'
 import { isComboValue } from '../schema/combo-options.js'
@@ -31,18 +30,12 @@ const stringArray = (value: Json | undefined, empty = true): value is readonly s
 function validLinkEndpoint(value: Json | undefined): boolean {
   if (!isObj(value)) return false
   if (value.reroute !== undefined) return exactKeys(value, ['reroute']) && nonEmptyString(value.reroute)
-  if (value.valueSource !== undefined) return exactKeys(value, ['valueSource']) && nonEmptyString(value.valueSource)
-  if (value.selector !== undefined)
-    return exactKeys(value, ['selector'], ['candidate']) && nonEmptyString(value.selector) &&
-      (value.candidate === undefined || nonEmptyString(value.candidate))
   if (value.tap !== undefined) return exactKeys(value, ['node', 'tap']) && nonEmptyString(value.node) && nonEmptyString(value.tap)
   return exactKeys(value, ['node', 'port'], ['kind']) && (value.kind === undefined || value.kind === 'port') &&
     nonEmptyString(value.node) && nonEmptyString(value.port)
 }
 
 function validBinding(value: Json | undefined): boolean {
-  if (isObj(value) && value.kind === 'valueSource')
-    return exactKeys(value, ['kind', 'valueSource', 'type']) && validateBoundaryBindingShape(value).length === 0
   return isObj(value) && exactKeys(value, ['kind', 'node', 'port']) &&
     value.kind === 'port' && nonEmptyString(value.node) && nonEmptyString(value.port)
 }

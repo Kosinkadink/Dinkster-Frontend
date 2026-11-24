@@ -97,16 +97,15 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   }
 
   const commitText = (value: string): Promise<boolean> => {
-    if (ed.target.kind === 'input') {
-      const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
-      const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
-      const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
-      const current = ed.tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[inputId]
-      const resolution = resolveTextCommit(ed.initial, value, current)
-      if (resolution.kind === 'none') { props.close(); return Promise.resolve(true) }
-      if (resolution.kind === 'splice') {
-        return props.commitCommand({ command: 'text.splice', params: { graphId, nodeId, inputId, ...resolution.splice } })
-      }
+    if (ed.target.kind !== 'input') return props.commitValue(value)
+    const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
+    const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
+    const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
+    const current = ed.tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[inputId]
+    const resolution = resolveTextCommit(ed.initial, value, current)
+    if (resolution.kind === 'none') { props.close(); return Promise.resolve(true) }
+    if (resolution.kind === 'splice') {
+      return props.commitCommand({ command: 'text.splice', params: { graphId, nodeId, inputId, ...resolution.splice } })
     }
     return props.commitValue(value)
   }

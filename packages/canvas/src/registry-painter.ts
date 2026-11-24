@@ -19,6 +19,8 @@ import { paintSeedModeIcon, paintToolboxIcon } from './icons.js'
 import type { ToolboxButton } from './toolbox.js'
 
 const paint = canvasPaintTokens.widget
+/** The word before the value of a row that stays only for the wire on its output. */
+const KEPT_WORD = 'inactive'
 const TEXT_PAD = paint.textPadding
 
 function compactBooleanValue(value: Json, options: Readonly<Record<string, unknown>>): string {
@@ -133,7 +135,7 @@ function paintSubgraphMark(args: WidgetPaintArgs, companion: boolean, numeric: b
   const alpha = ctx.globalAlpha
   // The mark keeps its full color on a dimmed (driven) row.
   if (args.markAlpha !== undefined) ctx.globalAlpha = args.markAlpha
-  paintToolboxIcon(ctx, 'boxes', x + rect.x, y + rect.y, rect.size, tokens.colors.subgraphMark)
+  paintToolboxIcon(ctx, 'subgraph', x + rect.x, y + rect.y, rect.size, tokens.colors.subgraphMark)
   ctx.globalAlpha = alpha
 }
 
@@ -177,6 +179,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       return
     }
     const resolved: Json = value !== undefined ? value : (kind.defaultValue(row.spec) as Json)
+    // A kept row shows "inactive" before its value.
+    const keptWord = row.kept !== undefined
+    const keptReserve = keptWord ? measureWidth(ctx, KEPT_WORD) + paint.valueWordGap : 0
     // Draw the shared row chrome (label) then let the view draw its content.
     const chrome = widgetChromeRect(x, y, width, row.height, tokens.rowGeometry.fieldInsetY)
     if (row.viewId !== 'core.compositor') {
@@ -193,22 +198,38 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const modeIcon = inRow && numeric && row.controllerMode !== undefined ? row.controllerMode : undefined
     const rowsRaisedForEditors = tokens.widgetRowLook === 'raised-editors'
     const openerIcon = openerIconOf(row, tokens)
+    // Folded, the raised look draws a curve as a square of its plot at the row's start, before the name.
+    const sketchSize = Math.max(0, chrome.height - paint.curve.inset * 2)
+    const sketch = rowsRaisedForEditors && row.viewId === 'core.curve' && !row.unfolded
+      ? { x: chrome.x + paint.curve.inset, y: chrome.y + paint.curve.inset, size: sketchSize }
+      : undefined
+    const sketchShift = sketch === undefined ? 0 : sketch.x + sketch.size + paint.curve.gap - x - paint.opener.iconInset
+    // Beside the square the name and how the points are joined read as one block, centred on the row;
+    // a wired curve not known yet has no joining word, so its name is centred alone.
+    const sketchJoined = sketch !== undefined && !(args.connected && (resolved === null || typeof resolved !== 'object' || Array.isArray(resolved)))
+    const nameY = sketch === undefined ? y + rowHeight / 2
+      : chrome.y + chrome.height / 2 - (sketchJoined ? paint.curve.lineStep / 2 : 0)
     if (openerIcon !== undefined) {
       ctx.fillStyle = tokens.colors.widgetRaised
       ctx.strokeStyle = tokens.colors.nodeIdleOutline
       ctx.lineWidth = paint.opener.stroke
       ctx.beginPath()
+      // Unfolded, the row is the header of one box with the editor's space:
+      // the space draws the outline around both, so the row has none.
       ctx.roundRect(chrome.x + paint.opener.strokeInset, chrome.y + paint.opener.strokeInset,
-        chrome.width - paint.opener.stroke, chrome.height - paint.opener.stroke, chrome.radius)
+        chrome.width - paint.opener.stroke, chrome.height - paint.opener.stroke,
+        row.unfolded ? [chrome.radius, chrome.radius, 0, 0] : chrome.radius)
       ctx.fill()
-      ctx.stroke()
-      paintToolboxIcon(ctx, openerIcon, x + paint.opener.iconInset,
-        y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.value)
-      paintToolboxIcon(ctx, 'chevron-right', x + width - paint.opener.trailingInset - paint.opener.iconSize,
-        y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.label)
+      if (!row.unfolded) ctx.stroke()
+      paintToolboxIcon(ctx, openerIcon, x + sketchShift + paint.opener.iconInset,
+        nameY - paint.opener.iconSize / 2, paint.opener.iconSize, tokens.colors.value)
+      // An editor shown in the node points down while it is unfolded under this row.
+      paintToolboxIcon(ctx, row.unfolded ? 'chevron-down' : 'chevron-right', x + width - paint.opener.trailingInset - paint.opener.iconSize,
+        (sketch === undefined ? y + rowHeight / 2 : chrome.y + chrome.height / 2) - paint.opener.iconSize / 2, paint.opener.iconSize, tokens.colors.label)
     }
     const geometry = tokens.rowGeometry
-    const leftControl = openerIcon !== undefined ? paint.opener.iconReserve : numeric ? geometry.stepperZone : 0
+    // The name sits as far from the opener icon as a row's mode icon from its label.
+    const leftControl = openerIcon === undefined ? (numeric ? geometry.stepperZone : 0) : sketchShift + paint.opener.iconReserve
     const combo = (row.viewId === 'core.select' && row.spec.widgetType === 'COMBO')
       || (rowsRaisedForEditors && row.viewId === 'core.mount')
     const rightControl = openerIcon !== undefined ? paint.opener.trailingReserve : numeric || combo ? geometry.stepperZone : geometry.textEndInset
@@ -225,7 +246,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const assetSummary = row.viewId === 'core.asset' && row.spec.widgetType === 'ASSET'
       ? compactSummary(view, resolved, row.spec)
       : undefined
-    const valuePreview = assetSummary !== undefined
+    const valuePreview = args.editorSummary?.text !== undefined
+      ? args.editorSummary.text
+      : assetSummary !== undefined
       ? assetSummary.text
       : row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN'
         ? compactBooleanValue(resolved, row.spec.options)
@@ -236,8 +259,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ? measureWidth(ctx, '#ffffff') + paint.colorValueReserve
       : valuePreview === undefined
         ? usableWidth * paint.structuredValueRatio
-        : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding
+        : measureWidth(ctx, valuePreview.split('\n')[0] ?? '') + paint.valueWidthPadding + keptReserve
         + (row.viewId === 'core.color' ? paint.swatchReserve : 0)
+        + (args.editorSummary?.thumbnail !== undefined && !row.unfolded ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
         + (row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN' ? paint.toggleReserve : 0)
     const controller = row.controllerMode !== undefined && modeIcon === undefined
       ? controllerChipRect(width, rowHeight, geometry)
@@ -253,7 +277,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     let labelWidth = multiline
       ? 0
       : shareRowWidth(fieldWidth - modeIconReserve, naturalLabelWidth, naturalValueWidth, true)
-    if (assetSummary?.placeholder === true && valuePreview !== undefined) {
+    if ((args.editorSummary?.placeholder ?? assetSummary?.placeholder) === true && valuePreview !== undefined) {
       // The empty-state message takes priority even when opener controls leave
       // less than the ordinary label floor. Round up for fitText's pixel floor.
       const font = ctx.font
@@ -269,7 +293,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.fillText(
         ellipsize(ctx, row.label, Math.max(0, (multiline ? width : labelWidth) - lead - paint.labelClipPadding)),
         x + lead + (multiline ? 0 : leftControl) + (numeric && openerIcon === undefined ? geometry.stepperLabelInset : paint.labelInset),
-        multiline ? chrome.y + multilineLabelHeight / 2 : y + rowHeight / 2,
+        multiline ? chrome.y + multilineLabelHeight / 2 : nameY,
       )
       paintSubgraphMark(args, false, numeric)
     }
@@ -288,6 +312,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const multilinePadding = tokens.multilineText.padding
     const multilineTextInset = tokens.multilineText.textInset
 
+    // The width of a folded curve's count, which the line under its name stops before.
+    let sketchValueWidth = 0
     let multilineExtraRows = 0
     let multilineVisualRows = 0
     view.drawCompact(
@@ -349,21 +375,14 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             ctx.restore()
             return
           }
+          if (style['role'] === 'curveSketch') {
+            if (sketch !== undefined) paintCurveSketch(ctx, sketch, style, tokens)
+            return
+          }
           if (style['role'] === 'curveSample') {
+            // The unfolded curve is drawn large under its row, and the raised look folds it into its square.
+            if (row.unfolded || rowsRaisedForEditors) return
             ctx.fillStyle = tokens.colors.widgetAffordanceActive
-            if (rowsRaisedForEditors) {
-              // The curve fills the row's second line from the row's start,
-              // clear of the row's edges and of the summary above it.
-              const plotLeft = chrome.x + paint.curve.insetX
-              const plotWidth = Math.max(0, chrome.width - paint.curve.insetX * 2)
-              const plotTop = y + rowHeight + paint.curve.inset
-              const plotHeight = Math.max(0, chrome.y + chrome.height - paint.curve.inset - plotTop)
-              ctx.fillRect(plotLeft + rx * plotWidth,
-                plotTop + ry / paint.curve.sourceRows * plotHeight,
-                Math.min(rw, 1 - rx) * plotWidth,
-                Math.max(paint.curve.minSampleHeight, rh / paint.curve.sourceRows * plotHeight))
-              return
-            }
           }
           const unitHeight = multiline ? multilineHeight : rowHeight
           const rectTop = multiline
@@ -385,7 +404,20 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           ctx.fillRect(contentStart + rx * contentWidth, rectTop, rectWidth, rectHeight)
           ctx.restore()
         },
-        text: (tx, ty, run, style) => {
+        text: (tx, ty, viewRun, viewStyle) => {
+          if (viewStyle['role'] === 'curveJoin') {
+            // How a folded curve's points are joined, under its opener icon and name.
+            if (sketch === undefined) return
+            const joinLeft = sketchShift + paint.opener.iconInset
+            ctx.fillStyle = tokens.colors.valueMark
+            ctx.textAlign = 'left'
+            ctx.fillText(ellipsize(ctx, viewRun, Math.max(0, valueRight - joinLeft - sketchValueWidth - paint.labelValueGap)),
+              x + joinLeft, nameY + paint.curve.lineStep)
+            return
+          }
+          const summary = viewStyle['role'] === 'widgetValue' ? args.editorSummary : undefined
+          const run = summary?.text ?? viewRun
+          const style = summary === undefined ? viewStyle : { ...viewStyle, placeholder: summary.placeholder === true }
           ctx.fillStyle = tokens.colors.value
           const alignRight = style['align'] === 'right'
           ctx.textAlign = alignRight ? 'right' : 'left'
@@ -397,44 +429,73 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
           const zoneRight = alignRight ? px - reserveRight : px + reserveLeft + zoneWidth
           const availableWidth = Math.max(0, zoneWidth - TEXT_PAD * 2)
           if (!multiline) {
+            const role = style['role']
+            const marked = keptWord && (role === undefined || role === 'widgetValue')
             const swatch = typeof style['swatch'] === 'string' && alignRight ? style['swatch'] : undefined
             const items = stringList(style['items'])
             const swatches = alignRight ? stringList(style['swatches']) : undefined
-            const iconReserve = (modeIcon !== undefined && style['role'] === 'widgetValue' && alignRight ? modeIconReserve : 0)
+            // Unfolded, the editor shows the picture itself, so the row drops its small copy.
+            const thumbnail = alignRight && !row.unfolded ? summary?.thumbnail : undefined
+            const markReserve = (modeIcon !== undefined && role === 'widgetValue' && alignRight ? modeIconReserve : 0)
               + (swatch !== undefined ? paint.valueSwatch.size + paint.valueSwatch.gap : 0)
+              + (thumbnail !== undefined ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
+            const iconReserve = markReserve + (marked ? keptReserve : 0)
             const fitWidth = Math.max(0, availableWidth - iconReserve)
             const text = swatches !== undefined ? ''
               : items !== undefined ? fitItems(ctx, items, fitWidth)
               : ellipsize(ctx, run.split('\n')[0] ?? '', fitWidth)
-            const lineTop = y + ty * rowHeight + geometry.fieldInsetY
-            const lineBottom = y + (ty + 1) * rowHeight - geometry.fieldInsetY
+            // A folded curve's count sits beside its square, in the middle of the row.
+            const centered = sketch !== undefined && style['role'] === 'widgetValue'
+            const lineTop = centered ? chrome.y : y + ty * rowHeight + geometry.fieldInsetY
+            const lineBottom = centered ? chrome.y + chrome.height : y + (ty + 1) * rowHeight - geometry.fieldInsetY
             const clipTop = Math.max(y, lineTop)
             const clipBottom = Math.min(y + row.height, lineBottom)
             if (clipBottom > clipTop) {
               ctx.save()
               const placeholder = style['placeholder'] === true
-              const role = style['role']
               // A dragged plain number shows its moving value in the accent; a slider shows its fill instead.
               const draggedValue = inRow && args.dragging === true && !declaredSlider && role === 'widgetValue'
-              ctx.fillStyle = placeholder ? tokens.colors.label : draggedValue ? tokens.colors.widgetAffordanceActive : tokens.colors.value
+              // A kept value and its word are dimmed, as a placeholder is.
+              ctx.fillStyle = placeholder ? tokens.colors.label : draggedValue ? tokens.colors.widgetAffordanceActive
+                : marked ? tokens.colors.label : tokens.colors.value
               if (placeholder) ctx.font = `italic ${ctx.font}`
               ctx.beginPath()
               ctx.rect(alignRight ? zoneRight - zoneWidth : px + reserveLeft, clipTop, zoneWidth, clipBottom - clipTop)
               ctx.clip()
-              const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD
-              const textY = y + (ty + 0.5) * rowHeight
+              const textX = alignRight ? zoneRight - TEXT_PAD : px + reserveLeft + TEXT_PAD + (marked ? keptReserve : 0)
+              const textY = centered ? chrome.y + chrome.height / 2 : y + (ty + 0.5) * rowHeight
               ctx.fillText(text, textX, textY)
+              if (centered) sketchValueWidth = measureWidth(ctx, text) + TEXT_PAD * 2
               if (swatches !== undefined) paintSwatchRow(ctx, swatches, textX, textY, fitWidth, tokens, ctx.fillStyle as string)
               if (modeIcon !== undefined && role === 'widgetValue' && alignRight) {
                 // Marks about a value come before it, so values line up at the right.
                 paintSeedModeIcon(ctx, modeIcon, textX - measureWidth(ctx, text) - paint.modeIconGap - modeIconSize,
                   textY - modeIconSize / 2, modeIconSize, tokens.colors.valueMark)
               }
+              if (thumbnail !== undefined) {
+                const { size, radius, gap } = paint.valueThumbnail
+                const left = Math.round(textX - measureWidth(ctx, text) - gap - size)
+                const top = Math.round(textY - size / 2)
+                ctx.save()
+                ctx.beginPath()
+                ctx.roundRect(left, top, size, size, radius)
+                ctx.clip()
+                ctx.drawImage(thumbnail, left, top, size, size)
+                ctx.restore()
+              }
               if (swatch !== undefined) {
                 paintValueSwatch(ctx, swatch, textX - measureWidth(ctx, text) - paint.valueSwatch.gap - paint.valueSwatch.size,
                   textY - paint.valueSwatch.size / 2, tokens)
               }
-              if (args.connected && (role === undefined || role === 'widgetValue')) {
+              if (marked) {
+                // Marks about a value come before it, so values line up at the right.
+                const wordRight = alignRight ? textX - measureWidth(ctx, text) - markReserve - paint.valueWordGap : textX - paint.valueWordGap
+                ctx.textAlign = 'right'
+                ctx.fillStyle = tokens.colors.label
+                ctx.fillText(KEPT_WORD, wordRight, textY)
+              }
+              // A host's editor summary is what the editor shows, an arriving value included, so it is never struck.
+              if (args.connected && summary === undefined && (role === undefined || role === 'widgetValue')) {
                 paintStaleValueStrikethrough(ctx, text, textX, textY, alignRight ? 'right' : 'left', tokens.colors.value)
               }
               ctx.restore()
@@ -508,4 +569,75 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.fill()
     }
   }
+}
+
+/**
+ * A folded curve's square: the unfolded plot in small, with its frame, the
+ * "no change" diagonal, the curve (held ends muted) and its points.
+ */
+function paintCurveSketch(
+  ctx: CanvasRenderingContext2D,
+  square: { readonly x: number; readonly y: number; readonly size: number },
+  style: Readonly<Record<string, unknown>>,
+  tokens: DesignTokens,
+): void {
+  const paint = canvasPaintTokens.widget.curve
+  const numbers = (value: unknown): number[] => Array.isArray(value) ? value.filter((item): item is number => typeof item === 'number') : []
+  const samples = numbers(style['samples'])
+  const held = numbers(style['held'])
+  const points = Array.isArray(style['points']) ? style['points'].map(numbers).filter((point) => point.length === 2) : []
+  const left = square.x + paint.plotInset
+  const top = square.y + paint.plotInset
+  const span = Math.max(0, square.size - paint.plotInset * 2)
+  const at = (position: number, value: number) => ({ x: left + position * span, y: top + (1 - value) * span })
+  ctx.save()
+  ctx.fillStyle = tokens.colors.widgetBackground
+  ctx.fillRect(square.x, square.y, square.size, square.size)
+  ctx.strokeStyle = tokens.colors.nodeIdleOutline
+  ctx.lineWidth = paint.edge
+  ctx.strokeRect(square.x + paint.edge / 2, square.y + paint.edge / 2, square.size - paint.edge, square.size - paint.edge)
+  ctx.strokeStyle = tokens.colors.valueMark
+  ctx.setLineDash([...paint.dash])
+  // The identity line, from the plot's lower left to its upper right.
+  ctx.beginPath()
+  ctx.moveTo(left, top + span)
+  ctx.lineTo(left + span, top)
+  ctx.stroke()
+  ctx.setLineDash([])
+  if (samples.length > 1) {
+    const line = new Path2D()
+    samples.forEach((sample, index) => {
+      const point = at(index / (samples.length - 1), sample)
+      if (index === 0) line.moveTo(point.x, point.y)
+      else line.lineTo(point.x, point.y)
+    })
+    ctx.lineWidth = paint.lineWidth
+    ctx.lineJoin = 'round'
+    // Before the first point and after the last the curve holds that point's value, drawn muted.
+    const first = held.length === 2 ? at(held[0]!, 0).x : left
+    const last = held.length === 2 ? at(held[1]!, 0).x : left + span
+    for (const [from, to, color] of [
+      [square.x, first, tokens.colors.valueMark],
+      [first, last, tokens.colors.widgetAffordanceActive],
+      [last, square.x + square.size, tokens.colors.valueMark],
+    ] as const) {
+      if (to <= from) continue
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(from, square.y, to - from, square.size)
+      ctx.clip()
+      ctx.strokeStyle = color
+      ctx.stroke(line)
+      ctx.restore()
+    }
+  }
+  // Small solid dots on the line, so close points still read apart and hide little of it.
+  ctx.fillStyle = tokens.colors.widgetAffordanceActive
+  for (const [position, value] of points) {
+    const point = at(position!, value!)
+    ctx.beginPath()
+    ctx.arc(point.x, point.y, paint.pointRadius, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.restore()
 }

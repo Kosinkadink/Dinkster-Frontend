@@ -10,7 +10,7 @@ rewrites or bolted-on views.
 
 - A tab is conceptually **(document, editorKind)**. `Tab.editorKind` names
   the editor that renders it; the built-in kinds are `graph` (the node
-  canvas), `app` (the form-style app view), `curve` and `glsl`.
+  canvas), `app` (the form-style app view) and `glsl`.
 - Editors are projections: they render shared document state and mutate it
   ONLY by dispatching maintained serializable commands - never by reaching
   into renderer or editor internals. This is what keeps undo, document
@@ -33,7 +33,7 @@ rewrites or bolted-on views.
 `packages/app/src/editors.ts`, exposed as `app.editors`. A descriptor is:
 
 - `id`: the stable kind id tabs reference (`GRAPH_EDITOR_KIND = 'graph'`,
-  `APP_EDITOR_KIND = 'app'`, `CURVE_EDITOR_KIND = 'curve'`, `GLSL_EDITOR_KIND = 'glsl'`).
+  `APP_EDITOR_KIND = 'app'`, `GLSL_EDITOR_KIND = 'glsl'`).
 - `title`: human-readable name.
 - `roles`: backend schema roles that open this editor. A role has one owner;
   duplicate role registrations refuse loudly.
@@ -45,7 +45,7 @@ rewrites or bolted-on views.
 Registration follows the house registry discipline (PanelRegistry,
 CommandRegistry, widget registry): `register` returns the unregister
 function, duplicate ids refuse loudly, `changed` ticks on every mutation.
-Core registers graph, app, curve, and GLSL editors through
+Core registers graph, app, and GLSL editors through
 `app.frontendDoors.editor`. Extension packs use the `editor()` door and provide
 a declarative host-UI provider instead of a component.
 
@@ -67,7 +67,7 @@ renders the descriptor's component inside `.canvas-stage`. With no active
 tab the graph editor stays mounted (it owns the empty state). A tab whose
 kind has no registered editor (an unregistered extension kind) renders a
 ProductEmptyState alert with the `editor-missing` test ID, never a blank stage.
-Curve and GLSL editors without an active target use neutral ProductEmptyState
+The GLSL editor without an active target uses neutral ProductEmptyState
 messages rather than an error-colored private placeholder.
 
 The keyed host only remounts when the DESCRIPTOR changes: same-kind tab
@@ -80,8 +80,8 @@ navigation restore the last pan and zoom; App View restores its scroll
 position. Concurrent windows merge different positions independently; the
 latest update wins when they change the same position. This state never
 enters the workflow document, collaboration, `WorkspaceTabRecord`, or
-SharedWorker authority. Gestures in progress, Arrange mode, and curve/GLSL
-editor targets remain session-only. These transient editor projections are
+SharedWorker authority. Gestures in progress, Arrange mode, and GLSL editor
+targets remain session-only. These transient editor projections are
 omitted from tab persistence and cannot be restored after refresh.
 
 ## Switching kinds (the app view)
@@ -179,7 +179,7 @@ cannot submit twice while pending; the draft stays read only until the result.
 Refusal keeps the exact draft and an inline notice for retry. Escape or blur
 dismisses the prompt without cancelling a submitted command. A dismissed or
 replaced prompt cannot close a newer prompt when its command completes.
-This applies to node, group, selector and boundary names, and named-net
+This applies to node, group and boundary names, and named-net
 creation and rename; their existing empty-name rules are unchanged.
 
 A title override that differs from the schema display name is italic. Hovering
@@ -327,9 +327,10 @@ mixed ordinary/boundary selections. Multi-item placement accounts for the
 padded dashed union outline, including other selected canvas citizens, rather
 than measuring from the underlying node bounds.
 
-The bottom row groups Delete, node modification (Mute, Bypass, conditional
-Open Subgraph, Extract, and Flatten), Color, and More actions with thin
-non-interactive vertical separators.
+The bottom row groups Delete, node modification (Mute, Bypass, and the
+subgraph actions), Color, and More actions with thin non-interactive vertical
+separators. Create Subgraph appears when two or more nodes are selected; Open
+Subgraph and Flatten appear when one subgraph node is selected.
 Padding, gaps, and separators still claim clicks as panel chrome; they never
 pass a gesture through to the graph. More actions opens the same menu registry
 target and complete selection context as right-clicking the selected node, at
@@ -341,9 +342,10 @@ affect the selection. The root-node context menu exposes the same up-to action
 as "Execute up to Selection" and disables it whenever the toolbox up-to action
 is disabled.
 
-Open Subgraph, Extract, and Flatten use folder-open, group, and ungroup icons
-from the same canvas icon painter as the other toolbox controls. A subgraph
-node's mark at the right end of its title bar uses the boxes icon. When a
+Open Subgraph, Create Subgraph, and Flatten use the group, subgraph, and
+ungroup icons from the same canvas icon painter as the other toolbox controls,
+and their context menu items use the same icons. A subgraph node's mark at the
+right end of its title bar also uses the subgraph icon. When a
 definition is referenced by two or more occurrences, the mark adds the
 document-derived linked count; a single occurrence keeps the icon-only mark.
 
@@ -393,7 +395,7 @@ absorbing the edit.
 
 This is the L3 command foundation, not yet an end-user canvas gesture. The L7
 UI will add selection actions, preview, naming, and post-success navigation.
-Until L4, extraction refuses value sources, selectors, reroutes, groups,
+Until L4, extraction refuses reroutes, groups,
 promoted or whole-family enclosing forwarding, and direct specialized-slot
 roots rather than omitting them. Every planned invocation must carry explicit
 specialized-slot-root coverage, including an empty array. Selected node view

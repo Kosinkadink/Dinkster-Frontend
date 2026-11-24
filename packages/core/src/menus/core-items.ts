@@ -14,6 +14,7 @@ import { isPreviewExposed } from '../format/exposed-previews.js'
 import { netViewPositions } from '../format/net-views.js'
 import { asNodeId, asPortId, samePortRef, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
+import { constructsAround } from '../schema/derive-boundary.js'
 import { boundaryFieldState } from '../commands/boundary-commands.js'
 import { t } from '../i18n/index.js'
 import type { MenuContribution, MenuContext, MenuItem } from './contract.js'
@@ -22,6 +23,20 @@ import type { MenuContribution, MenuContext, MenuItem } from './contract.js'
 const portParams = (p: { node: string; port: string }): { node: string; port: string } => ({
   node: p.node,
   port: p.port,
+})
+
+/**
+ * A disconnect from an input, batched with compacting the node it fed: a
+ * group member left with nothing plugged in goes in the same undo step, as
+ * it does when the wire is dragged off or deleted with the Delete key.
+ */
+const disconnectAndCompact = (
+  graphId: string,
+  nodeId: string,
+  disconnect: { command: string; params: { [key: string]: string | { node: string; port: string } } },
+) => ({
+  command: 'batch',
+  params: { invocations: [disconnect, { command: 'dynamic.compact', params: { graphId, nodeId } }] },
 })
 
 const NODE_MODES: readonly { mode: NodeMode; label: string; icon: string; command?: string }[] = [
@@ -199,7 +214,7 @@ const nodeMinimize: MenuContribution = {
     return [{
       id: 'core.node.minimize',
       label: collapsed ? 'Restore' : 'Minimize',
-      icon: 'minimize-2',
+      icon: collapsed ? 'maximize-2' : 'minimize-2',
       ...(ctx.shortcuts?.['node.minimize'] === undefined
         ? {}
         : { shortcut: ctx.shortcuts['node.minimize'] }),
@@ -228,7 +243,7 @@ const nodeOpenSubgraph: MenuContribution = {
       {
         id: 'core.node.openSubgraph',
         label: 'Open subgraph',
-        icon: 'folder-open',
+        icon: 'group',
         action: { kind: 'host', action: 'openSubgraph', params: { nodeId: ctx.target.nodeId } },
       },
     ]
@@ -312,6 +327,7 @@ const nodeRename: MenuContribution = {
     return [{
       id: 'core.node.rename',
       label: 'Rename...',
+      icon: 'pencil',
       action: { kind: 'host', action: 'renameNode', params: { nodeId: ctx.target.nodeId } },
     }]
   },
@@ -418,6 +434,7 @@ const nodeQueueSelection: MenuContribution = {
       {
         id: 'core.node.queueSelection',
         label: 'Execute up to selection',
+        icon: 'circle-play',
         action: { kind: 'host', action: 'queueSelection', params: { nodeIds: [...nodeIds] } },
       },
     ]
@@ -433,10 +450,11 @@ const linkDelete: MenuContribution = {
     const t = ctx.target
     // Net-derived noodles have synthetic ids; deletion removes the SINK.
     // (Nets are port-only, so a net noodle's consumer end is always a port.)
-    const invocation =
+    const disconnect =
       t.netId !== undefined && 'node' in t.to
         ? { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to: portParams(t.to) } }
         : { command: 'link.disconnect', params: { graphId: ctx.graphId, linkId: t.linkId } }
+    const invocation = 'node' in t.to ? disconnectAndCompact(ctx.graphId, t.to.node, disconnect) : disconnect
     return [{ id: 'core.link.delete', label: 'Delete link', action: { kind: 'command', invocation } }]
   },
 }
@@ -482,203 +500,6 @@ const rerouteDissolve: MenuContribution = {
           invocation: {
             command: 'reroute.remove',
             params: { graphId: ctx.graphId, rerouteIds: [...ids], reconnect: false },
-          },
-        },
-      },
-    ]
-  },
-}
-
-// ---------------------------------------------------------------------------
-// Value sources: compact literal pills. Deletion rides the selection like
-// nodes do (the host's deleteSelection already cascades dependent links);
-// spec pinning lives in the app's badge popover because it needs schema
-// resolution, which MenuContext deliberately does not carry.
-// ---------------------------------------------------------------------------
-
-/** Selected value sources when the target rides the selection, else just the target. */
-function targetValueSourceIds(ctx: MenuContext, valueSourceId: string): readonly string[] {
-  return ctx.selection.valueSources.includes(valueSourceId) ? ctx.selection.valueSources : [valueSourceId]
-}
-
-const valueSourceDelete: MenuContribution = {
-  id: 'core.valueSource.delete',
-  targets: ['valueSource'],
-  group: '90-edit',
-  resolve(ctx) {
-    if (ctx.target.kind !== 'valueSource') return []
-    const def = ctx.doc.graphs[ctx.graphId]
-    if (!def) return []
-    const ids = targetValueSourceIds(ctx, ctx.target.valueSourceId).filter((id) => def.valueSources?.[id])
-    if (ids.length === 0) return []
-    return [
-      {
-        id: 'core.valueSource.delete',
-        label: ids.length > 1 ? `Delete ${ids.length} value sources` : 'Delete value source',
-        action: { kind: 'host', action: 'deleteSelection' },
-      },
-    ]
-  },
-}
-
-// ---------------------------------------------------------------------------
-// Selectors: policy switching, candidate management, rename, delete. All
-// semantic edits are commands; rename anchors a host popover (text entry is
-// a UI concern).
-// ---------------------------------------------------------------------------
-
-/** Selected selectors when the target rides the selection, else just the target. */
-function targetSelectorIds(ctx: MenuContext, selectorId: string): readonly string[] {
-  return ctx.selection.selectors.includes(selectorId) ? ctx.selection.selectors : [selectorId]
-}
-
-/** Display label for one candidate: explicit title, else its 1-based ordinal. */
-const candidateLabel = (c: { readonly id: string; readonly title?: string }, index: number): string =>
-  c.title ?? `${index + 1}`
-
-const selectorPolicy: MenuContribution = {
-  id: 'core.selector.policy',
-  targets: ['selector'],
-  group: '20-mode',
-  resolve(ctx) {
-    if (ctx.target.kind !== 'selector') return []
-    const sel = ctx.doc.graphs[ctx.graphId]?.selectors?.[ctx.target.selectorId]
-    if (!sel) return []
-    const selectorId = sel.id
-    const items: MenuItem[] = sel.candidates.map((c, i) => ({
-      id: `core.selector.policy.fixed.${c.id}`,
-      label: `Select: ${candidateLabel(c, i)}`,
-      checked: sel.policy.kind === 'fixed' && sel.policy.candidate === c.id,
-      action: {
-        kind: 'command',
-        invocation: {
-          command: 'selector.setPolicy',
-          params: { graphId: ctx.graphId, selectorId, policy: { kind: 'fixed', candidate: c.id } },
-        },
-      },
-    }))
-    items.push({
-      id: 'core.selector.policy.random',
-      label: 'Select: random',
-      checked: sel.policy.kind === 'random',
-      action: {
-        kind: 'command',
-        invocation: {
-          command: 'selector.setPolicy',
-          params: { graphId: ctx.graphId, selectorId, policy: { kind: 'random' } },
-        },
-      },
-    })
-    return items
-  },
-}
-
-const selectorAddCandidate: MenuContribution = {
-  id: 'core.selector.addCandidate',
-  targets: ['selector'],
-  group: '30-layout',
-  resolve(ctx) {
-    if (ctx.target.kind !== 'selector') return []
-    const sel = ctx.doc.graphs[ctx.graphId]?.selectors?.[ctx.target.selectorId]
-    if (!sel) return []
-    return [
-      {
-        id: 'core.selector.addCandidate',
-        label: 'Add branch',
-        action: {
-          kind: 'command',
-          invocation: {
-            command: 'selector.addCandidate',
-            params: { graphId: ctx.graphId, selectorId: sel.id },
-          },
-        },
-      },
-    ]
-  },
-}
-
-const selectorRemoveCandidate: MenuContribution = {
-  id: 'core.selector.removeCandidate',
-  targets: ['selector'],
-  group: '30-layout',
-  order: 1,
-  resolve(ctx) {
-    if (ctx.target.kind !== 'selector') return []
-    const sel = ctx.doc.graphs[ctx.graphId]?.selectors?.[ctx.target.selectorId]
-    // The last candidate is not removable: a selector is never candidate-less.
-    if (!sel || sel.candidates.length <= 1) return []
-    return sel.candidates.map((c, i) => ({
-      id: `core.selector.removeCandidate.${c.id}`,
-      label: `Remove branch ${candidateLabel(c, i)}`,
-      action: {
-        kind: 'command',
-        invocation: {
-          command: 'selector.removeCandidate',
-          params: { graphId: ctx.graphId, selectorId: sel.id, candidateId: c.id },
-        },
-      },
-    }))
-  },
-}
-
-const selectorRename: MenuContribution = {
-  id: 'core.selector.rename',
-  targets: ['selector'],
-  group: '30-layout',
-  order: 2,
-  resolve(ctx) {
-    if (ctx.target.kind !== 'selector') return []
-    const sel = ctx.doc.graphs[ctx.graphId]?.selectors?.[ctx.target.selectorId]
-    if (!sel) return []
-    return [
-      {
-        id: 'core.selector.rename',
-        label: 'Rename selector...',
-        action: { kind: 'host', action: 'renameSelector', params: { selectorId: sel.id } },
-      },
-    ]
-  },
-}
-
-const selectorDelete: MenuContribution = {
-  id: 'core.selector.delete',
-  targets: ['selector'],
-  group: '90-edit',
-  resolve(ctx) {
-    if (ctx.target.kind !== 'selector') return []
-    const def = ctx.doc.graphs[ctx.graphId]
-    if (!def) return []
-    const ids = targetSelectorIds(ctx, ctx.target.selectorId).filter((id) => def.selectors?.[id])
-    if (ids.length === 0) return []
-    return [
-      {
-        id: 'core.selector.delete',
-        label: ids.length > 1 ? `Delete ${ids.length} selectors` : 'Delete selector',
-        action: { kind: 'host', action: 'deleteSelection' },
-      },
-    ]
-  },
-}
-
-const canvasAddSelector: MenuContribution = {
-  id: 'core.canvas.addSelector',
-  targets: ['canvas'],
-  group: '10-nav',
-  order: 2,
-  resolve(ctx) {
-    if (ctx.target.kind !== 'canvas') return []
-    return [
-      {
-        id: 'core.canvas.addSelector',
-        label: 'Add selector',
-        action: {
-          kind: 'command',
-          invocation: {
-            command: 'selector.add',
-            params: {
-              graphId: ctx.graphId,
-              position: { x: Math.round(ctx.worldX), y: Math.round(ctx.worldY) },
-            },
           },
         },
       },
@@ -768,7 +589,7 @@ const pinConnectToNet: MenuContribution = {
           action: {
             kind: 'command',
             invocation: connected
-              ? { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to } }
+              ? disconnectAndCompact(ctx.graphId, t.nodeId, { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to } })
               : { command: 'net.connectInput', params: { graphId: ctx.graphId, netId: net.id, to } },
           },
         }
@@ -888,7 +709,8 @@ const netStubDisconnect: MenuContribution = {
         label: 'Disconnect this input',
         action: {
           kind: 'command',
-          invocation: { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to: portParams({ node: t.nodeId, port: t.portId }) } },
+          invocation: disconnectAndCompact(ctx.graphId, t.nodeId,
+            { command: 'net.disconnectInput', params: { graphId: ctx.graphId, to: portParams({ node: t.nodeId, port: t.portId }) } }),
         },
       },
     ]
@@ -957,34 +779,6 @@ const canvasCreateSubgraph: MenuContribution = {
 // text popover, so it is a host action too.
 // ---------------------------------------------------------------------------
 
-const canvasAddValueSource: MenuContribution = {
-  id: 'core.canvas.addValueSource',
-  targets: ['canvas'],
-  group: '10-nav',
-  order: 1,
-  resolve(ctx) {
-    if (ctx.target.kind !== 'canvas') return []
-    return [
-      {
-        id: 'core.canvas.addValueSource',
-        label: 'Add value source',
-        action: {
-          kind: 'command',
-          invocation: {
-            command: 'valueSource.add',
-            params: {
-              graphId: ctx.graphId,
-              position: { x: Math.round(ctx.worldX), y: Math.round(ctx.worldY) },
-              // Starts as a raw null literal; connecting it derives a spec.
-              value: null,
-            },
-          },
-        },
-      },
-    ]
-  },
-}
-
 const canvasAddGroup: MenuContribution = {
   id: 'core.canvas.addGroup',
   targets: ['canvas'],
@@ -1026,11 +820,11 @@ const nodeGroupSelection: MenuContribution = {
   group: '30-layout',
   resolve(ctx) {
     if (ctx.target.kind !== 'node') return []
-    const count = targetNodeIds(ctx, ctx.target.nodeId).length
     return [
       {
         id: 'core.node.groupSelection',
-        label: count > 1 ? `Group ${count} nodes` : 'Group node',
+        label: 'Group',
+        icon: 'square-dashed',
         action: { kind: 'host', action: 'groupSelection' },
       },
     ]
@@ -1184,6 +978,11 @@ const widgetSubgraphNode: MenuContribution = {
     const def = ctx.doc.graphs[ctx.graphId]
     if (def?.nodes[t.nodeId] === undefined) return []
     const target = portParams({ node: t.nodeId, port: t.address.port })
+    // A row of a construct shown whole is that construct's.
+    const wholly = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
+      .flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
+      .some((binding) => binding.kind === 'construct' && binding.node === target.node && target.port.startsWith(`${binding.port}.`))
+    if (wholly) return []
     const state = boundaryFieldState(def, { node: asNodeId(target.node), port: asPortId(target.port) })
     if (state.item === undefined) {
       return state.driven ? [] : [{
@@ -1232,8 +1031,65 @@ const nodePreviewExpose: MenuContribution = {
   },
 }
 
+/**
+ * Inside a subgraph: show a whole group, choice, type choice or described row
+ * on the subgraph node, from any row in it or a group's add row. Each
+ * enclosing construct is offered once, outermost first, unless a row in it is
+ * already shown; one already shown whole is offered for removal instead.
+ */
+const showConstructOnSubgraphNode: MenuContribution = {
+  id: 'core.boundary.showWhole',
+  targets: ['widget', 'pin', 'growth'],
+  group: '85-expose',
+  resolve(ctx) {
+    const target = ctx.target
+    if (target.kind !== 'widget' && target.kind !== 'pin' && target.kind !== 'growth') return []
+    if (target.kind === 'widget' && target.synthetic === true) return []
+    const def = ctx.doc.graphs[ctx.graphId]
+    const node = def?.nodes[target.nodeId]
+    if (!def || !node || ctx.graphId === ctx.doc.root) return []
+    const schema = ctx.resolve?.(node.type)
+    if (schema === undefined) return []
+    const port = target.kind === 'widget' ? target.inputId : target.kind === 'pin' ? target.portId : target.construct
+    const shown = (['inputs', 'outputs'] as const).flatMap((side) => (def.boundary?.[side] ?? [])
+      .flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])].map((binding) => ({ item: item.id, side, binding }))))
+      .filter(({ binding }) => (binding.kind === 'port' || binding.kind === 'construct') && binding.node === node.id)
+      .map(({ item, side, binding }) => ({ item, side, port: (binding as { port: string }).port, whole: binding.kind === 'construct' }))
+    return constructsAround(schema, port).flatMap((construct) => {
+      const whole = shown.find((other) => other.whole && other.port === construct.path)
+      if (whole !== undefined) {
+        return [{
+          id: `core.boundary.hideWhole.${construct.path}`,
+          label: `Remove ${construct.label} from subgraph node`,
+          action: {
+            kind: 'command' as const,
+            invocation: {
+              command: 'boundary.unbind',
+              params: { graphId: ctx.graphId, side: whole.side, itemId: whole.item, node: node.id, port: construct.path },
+            },
+          },
+        }]
+      }
+      if (shown.some((other) => other.port.startsWith(`${construct.path}.`) ||
+        (other.whole && construct.path.startsWith(`${other.port}.`)))) return []
+      return [{
+        id: `core.boundary.showWhole.${construct.path}`,
+        label: `Show ${construct.label} on subgraph node`,
+        action: {
+          kind: 'command' as const,
+          invocation: {
+            command: 'boundary.showOnSubgraphNode',
+            params: { graphId: ctx.graphId, node: node.id, port: construct.path },
+          },
+        },
+      }]
+    })
+  },
+}
+
 export function coreMenuContributions(): readonly MenuContribution[] {
   return [
+    showConstructOnSubgraphNode,
     nodeMode,
     nodePreviews,
     nodeMirrorPreviews,
@@ -1252,13 +1108,6 @@ export function coreMenuContributions(): readonly MenuContribution[] {
     linkDelete,
     linkAddReroute,
     rerouteDissolve,
-    valueSourceDelete,
-    selectorPolicy,
-    selectorAddCandidate,
-    selectorRemoveCandidate,
-    selectorRename,
-    selectorDelete,
-    canvasAddSelector,
     pinPromoteToNet,
     pinConnectToNet,
     linkNetManage,
@@ -1267,7 +1116,6 @@ export function coreMenuContributions(): readonly MenuContribution[] {
     netStubDisconnect,
     netDelete,
     canvasAddNode,
-    canvasAddValueSource,
     canvasAddGroup,
     canvasPaste,
     nodeGroupSelection,

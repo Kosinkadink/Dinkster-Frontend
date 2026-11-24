@@ -115,13 +115,8 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
     args: request.args as readonly LookupArg[],
   })
 
-  /** The backend's lookup client, partitioned by the schema epoch the tab resolves against. */
-  const lookupsOf = (tab: Tab) => {
-    const backend = app.backendForTab(tab)
-    const lookups = backend.connection.lookups
-    lookups.setPartition({ backend: String(backend.id), epoch: app.registryForTab(tab)?.epoch ?? 0, principal: 0 })
-    return lookups
-  }
+  /** The backend's one lookup client; it follows the schema epoch the backend holds. */
+  const lookupsOf = (tab: Tab) => app.backendForTab(tab).lookups
 
   /** What `buttonAvailability` reads; cheap enough for every repaint and hover. */
   const lookOf = (place: ButtonPlace): Pick<ActionHost, 'schemaOf' | 'editorFor'> => {

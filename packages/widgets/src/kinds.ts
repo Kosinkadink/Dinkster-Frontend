@@ -21,7 +21,7 @@ import type {
   WidgetView,
   IntegerWidgetValue,
 } from '@dinkster/core'
-import { diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isComboValue, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision, t } from '@dinkster/core'
+import { diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isComboValue, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision, specialValueLabel, t } from '@dinkster/core'
 
 // ---------------------------------------------------------------------------
 // Kind helpers
@@ -63,6 +63,8 @@ const num = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback
 
 function rangeDiags(value: number, spec: WidgetSpec, type: string): Diagnostic[] {
+  // A declared special value is allowed outside the limits.
+  if (specialValueLabel(value, spec) !== undefined) return []
   const out: Diagnostic[] = []
   const min = spec.options['min']
   const max = spec.options['max']
@@ -84,6 +86,7 @@ function integerRangeDiags(value: IntegerWidgetValue, spec: WidgetSpec): Diagnos
   }
   const out: Diagnostic[] = []
   const numeric = BigInt(value)
+  if (specialValueLabel(numeric, spec) !== undefined) return out
   const min = spec.options['min']
   const max = spec.options['max']
   if ((Number.isSafeInteger(min) || isCanonicalUnsafeInteger(min)) && numeric < BigInt(min as number | string)) {
@@ -149,6 +152,15 @@ export const imageCompareKind: WidgetKind<null> = {
   defaultValue: () => null,
   validate: () => [],
   defaultView: () => 'core.imageCompare',
+}
+
+/** The painter: an editor row that writes a mask file; it has no value of its own. */
+export const painterKind: WidgetKind<Json> = {
+  type: 'PAINTER',
+  valueSchema: { version: 1, validate: (value): value is Json => value === null || isAssetRef(value) },
+  defaultValue: () => null,
+  validate: () => [],
+  defaultView: () => 'core.painter',
 }
 
 export const cameraAngleKind: WidgetKind<string> = {
@@ -706,7 +718,7 @@ function drawCompactNumber(
 export const numberView: WidgetView<IntegerWidgetValue> = {
   ...makeCompactView<IntegerWidgetValue>('core.number', 'INT'),
   drawCompact(ctx, value, spec, state) {
-    drawCompactNumber(ctx, value, spec, state, String(value))
+    drawCompactNumber(ctx, value, spec, state, formatWidgetValue(value, spec))
   },
 }
 export const floatNumberView: WidgetView<number> = {
@@ -873,20 +885,27 @@ export const curveView: WidgetView<Json> = {
   isCompatible: () => true,
   measure: () => ({ rows: 2 }),
   drawCompact(ctx, value, spec, state) {
-    const curve = isCurveValue(value) ? value : curveKind.defaultValue(spec) as unknown as CurveValue
     ctx.rect(0, 0, 1, 2, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
-    const points = curve.points
-    const minX = points[0]?.position ?? 0
-    const maxX = points.at(-1)?.position ?? 1
-    const spanX = maxX - minX || 1
-    const interpolate = curveInterpolator(curve)
-    for (let index = 0; index < 64; index += 1) {
-      const fraction = index / 63
-      const sample = interpolate(minX + fraction * spanX)
-      ctx.rect(fraction, 1.8 - Math.max(0, Math.min(1, sample)) * 1.6, 0.02, 0.08,
-        { role: 'curveSample' })
+    // A wire decides a connected curve: what it brought is drawn, and nothing before a run.
+    const curve = isCurveValue(value) ? value
+      : state.connected ? undefined : curveKind.defaultValue(spec) as unknown as CurveValue
+    const points = curve?.points ?? []
+    const interpolate = curve === undefined ? undefined : curveInterpolator(curve)
+    const samples = interpolate === undefined ? []
+      : Array.from({ length: 64 }, (_, index) => Math.max(0, Math.min(1, interpolate(index / 63))))
+    // The sketch spans the plot's range, 0 to 1, so the held ends show.
+    samples.forEach((sample, index) => ctx.rect(index / 63, 1.8 - sample * 1.6, 0.02, 0.08, { role: 'curveSample' }))
+    // The folded square of the raised look: the plot in small, with its points.
+    ctx.rect(0, 0, 1, 2, {
+      role: 'curveSketch',
+      samples,
+      points: points.map((point) => [point.position, point.value]),
+      held: points.length === 0 ? [] : [points[0]!.position, points[points.length - 1]!.position],
+    })
+    ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'}`, { role: 'widgetValue', align: 'right', width: 1 })
+    if (curve !== undefined) {
+      ctx.text(0, 1, t((curve.interpolation ?? 'linear') === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic'), { role: 'curveJoin' })
     }
-    ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'} - ${curve.interpolation ?? 'linear'}`, { role: 'widgetValue', align: 'right', width: 1 })
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 2, 'widget.edit')
   },
 }
@@ -936,14 +955,14 @@ export const audioRecordView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.audioRecord', 'AUDIO_RECORD'),
   drawCompact(ctx, value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      isAssetRef(value) ? value.name : 'Record audio', state, 'widget.edit', !isAssetRef(value))
+      isAssetRef(value) ? value.name : 'No clip', state, 'widget.edit', !isAssetRef(value))
   },
 }
 export const webcamView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.webcam', 'WEBCAM'),
   drawCompact(ctx, value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      isAssetRef(value) ? value.name : 'Capture frame', state, 'widget.edit', !isAssetRef(value))
+      isAssetRef(value) ? value.name : 'No frame', state, 'widget.edit', !isAssetRef(value))
   },
 }
 export const mountView: WidgetView<Json> = {
@@ -976,6 +995,13 @@ export const imageCompareView: WidgetView<null> = {
   drawCompact(ctx, _value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
       t('imageCompareWidget.open'), state, 'widget.edit')
+  },
+}
+export const painterView: WidgetView<Json> = {
+  ...makeCompactView<Json>('core.painter', 'PAINTER'),
+  drawCompact(ctx, _value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      t('painterWidget.open'), state, 'widget.edit')
   },
 }
 export const cameraAngleView: WidgetView<string> = {
@@ -1054,11 +1080,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, cameraAngleKind, resolutionKind, saveTargetKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, painterKind, cameraAngleKind, resolutionKind, saveTargetKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView, cameraAngleView, resolutionView, saveTargetView]) {
+    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView, painterView, cameraAngleView, resolutionView, saveTargetView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

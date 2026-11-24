@@ -306,12 +306,25 @@ export interface WidgetDescriptorSpec {
   readonly remote?: RemoteSourceSpec
   /** Ordered choices authored on an occurrence, independently of its selected value. */
   readonly editableOptions?: true
+  /** With editableOptions: the hidden list<STRING> input the compiler fills with the authored options. */
+  readonly optionsInput?: string
   /** Schema-declared text completion vocabulary (wire 36). */
   readonly textCompletions?: TextCompletionsSpec
+  /**
+   * Fields declared as a formula the editor works out or a lookup the host
+   * calls, in place of the literal in `options` or `textCompletions`. None of
+   * them is workflow state, and none decides the stored value.
+   */
+  readonly looked?: Readonly<Partial<Record<LookedWidgetField, FormulaSpec | LookupSpec>>>
   /** A custom or compositor widget's own part names -> the row ids it writes. */
   readonly writes?: Readonly<Record<string, string>>
   /** A custom or compositor widget's own part names -> the row ids it reads. */
   readonly reads?: Readonly<Record<string, string>>
+  /**
+   * Set by the editor, never declared: an empty field shows its `default`
+   * dimmed, as a value worked out for it (a primitive's derived limit).
+   */
+  readonly automatic?: true
 }
 
 export interface TextCompletionItemSpec {
@@ -445,6 +458,11 @@ export interface LookupSpec {
   readonly args: readonly (string | FormulaSpec)[]
 }
 
+/** A number field's limits and offset that may be worked out. */
+export type LookedNumberField = 'min' | 'max' | 'step' | 'offset'
+/** Widget fields that may be a formula or a lookup. */
+export type LookedWidgetField = 'options' | 'completions' | LookedNumberField
+
 /** A literal, or a formula that works it out. */
 export type Formulated<T> = T | FormulaSpec
 /** A literal, a formula, or a lookup. */
@@ -488,7 +506,7 @@ interface PortSpecBase {
   /** A label the declaration works out by formula; `displayName` is then unset. */
   readonly labelFormula?: FormulaSpec
   readonly tooltip?: string
-  /** Whether the row shows, as declared; the editor does not evaluate it yet. */
+  /** Whether the row shows. A hidden row is still stored and sent to the run. */
   readonly visible?: Formulated<boolean>
   /** Alpha handling at this port; undefined is the default 'preserve'. */
   readonly alphaPolicy?: AlphaPolicy
@@ -540,6 +558,11 @@ export interface InputSpec extends PortSpecBase {
   readonly forceInput?: boolean
   /** A field with no input pin (declared `pin=False`); values and output taps are unchanged. */
   readonly socketless?: boolean
+  /**
+   * Declared `sent=False`: stored and edited like any field, but never sent
+   * to the run and outside both signatures. Always socketless.
+   */
+  readonly sent?: false
   /** Backend computation-semantic demand marker (wire 16); true or omitted. */
   readonly lazy?: true
   /** Execution binding for a staged Comfy source filename (wire 22). */
@@ -580,16 +603,24 @@ export const supportsOutputRepresentation = (
   represents: OutputRepresents | undefined,
 ): represents is OutputRepresents => represents?.rendition === 'decoded-image'
 
+/** A limit of a known value that one of the node's own inputs may hold. */
+export type KnownValueLimit = 'min' | 'max' | 'step' | 'default'
+export const KNOWN_VALUE_LIMITS: readonly KnownValueLimit[] = ['min', 'max', 'step', 'default']
+
 /** An output equal to one same-typed primitive input before execution. */
 export interface OutputKnownValue {
   /** Top-level input whose resolved value is the output value. */
   readonly input: string
+  /** The node's own optional inputs that hold the value's limits, by limit. */
+  readonly limits?: Readonly<Partial<Record<KnownValueLimit, string>>>
 }
 
 /** An output pin. Inside a group member or an option it exists only with it. */
 export interface OutputSpec extends PortSpecBase {
   readonly kind: 'output'
   readonly type: TypeExpr
+  /** Set by elaboration, never declared: its `visible` is false. Still part of the run. */
+  readonly hidden?: true
   readonly isList?: boolean
   /**
    * Presentation/discovery-only marker: this final output is offered as a
@@ -695,6 +726,21 @@ export type GroupGrowsSpec =
   | { readonly count: string }
   | { readonly followList: string }
 
+/**
+ * On a construct a subgraph node shows whole: what each name its formulas
+ * read outside the construct means on that node. The formulas keep the inner
+ * node's scope; a name the subgraph also shows reads that row of the subgraph
+ * node, and any other name reads the definition's fixed value.
+ */
+export interface OuterScope {
+  /** The inner node's scopes around the construct, outermost first, each with what its names mean. */
+  readonly frames: readonly { readonly rows: readonly OptionRow[]; readonly names: Readonly<Record<string, OuterName>> }[]
+}
+
+export type OuterName =
+  | { readonly row: string }
+  | { readonly value: unknown; readonly linked?: true }
+
 /** A box that repeats its member rows. */
 export interface GroupSpec {
   readonly kind: 'group'
@@ -718,6 +764,9 @@ export interface GroupSpec {
   readonly addLabel?: string
   readonly memberLabel?: Formulated<string>
   readonly openName?: false
+  /** On a subgraph node: how many members the definition holds before this node's own. */
+  readonly interiorMembers?: number
+  readonly outer?: OuterScope
 }
 
 /** One option of a choice: its key and the rows it holds. */
@@ -763,6 +812,7 @@ export interface ChoiceSpec {
   readonly required: boolean
   readonly hidden?: true
   readonly onEdit?: readonly StepSpec[]
+  readonly outer?: OuterScope
 }
 
 /** One variant of a type choice: the type plugged in and the rows it reveals. */
@@ -788,6 +838,9 @@ export interface TypeChoiceSpec {
   readonly required: boolean
   /** Node-level type variable bound by the chosen variant. */
   readonly typeVariable?: string
+  /** On a subgraph node that shows it whole: the variant the definition picks, used while the node stores none. */
+  readonly default?: string
+  readonly outer?: OuterScope
 }
 
 /** Rows listed by a stored description, stored under the row's own id. */
@@ -803,6 +856,9 @@ export interface DescribedSpec {
   readonly maxEntries: number
   readonly fixedIds: boolean
   readonly probe?: { readonly input: string; readonly kind: 'model'; readonly revision: string }
+  /** The description a node starts with while it stores none of its own. */
+  readonly default?: unknown
+  readonly outer?: OuterScope
 }
 
 export type BodyRow =
@@ -966,23 +1022,39 @@ export interface PackBlueprintDescriptor {
  * the first member. A whole number is a position counting from 0, and a
  * boolean picks between exactly two members, false first. Submission carries
  * the full graph for server-owned lowering.
+ *
+ * `names` names a top-level hidden list<STRING> input; the pick then also
+ * takes text or a choice. The compiler fills it with the branch names, in
+ * member order, only when the pick is a text or choice wire whose value is
+ * not known before the run.
  */
 export interface NodeSelectorSpec {
   readonly input: string
   readonly group: string
+  readonly names?: string
 }
 
 /**
  * The member input id a pick names among `members` (flattened ids, in stored
- * order), or undefined when the pick is not one the server accepts.
+ * order), or undefined when the pick is not one the server accepts. With
+ * `names` (the branch names in member order), text is strict: it picks the
+ * branch with that name, then the member with that key, and otherwise
+ * nothing, as for text on a wire.
  */
 export const selectedMember = (
   selector: NodeSelectorSpec,
   members: readonly string[],
   pick: unknown,
+  names?: readonly string[],
 ): string | undefined => {
   if (members.length === 0) return undefined
   if (pick === undefined || pick === null) return members[0]
+  if (typeof pick === 'string' && names !== undefined) {
+    const named = names.indexOf(pick)
+    if (named >= 0) return members[named]
+    const member = `${selector.group}.${pick}`
+    return members.includes(member) ? member : undefined
+  }
   if (typeof pick === 'string') {
     const member = `${selector.group}.${pick}`
     return members.includes(member) ? member : members[0]

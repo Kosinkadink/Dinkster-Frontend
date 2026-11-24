@@ -31,8 +31,7 @@ import { canvasBaselineRow, devicePixelSnap, domFirstBaseline, editorScreenAncho
 import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, widgetCommitError } from '../widget-commit.js'
 
 export function isInNodeTextEditor(ed: WidgetEditorState): boolean {
-  return ed.target.kind === 'input' &&
-    ed.spec?.widgetType === 'STRING' && ed.multiline
+  return ed.spec?.widgetType === 'STRING' && ed.multiline
 }
 
 

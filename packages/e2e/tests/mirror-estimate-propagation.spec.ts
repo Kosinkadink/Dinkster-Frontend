@@ -107,7 +107,6 @@ test('represented estimates propagate and recompute after connect and reconnect'
           },
           nets: {},
           reroutes: {},
-          valueSources: {},
           nextOrdinal: 10,
         },
       },

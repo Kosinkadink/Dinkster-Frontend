@@ -20,15 +20,20 @@ Dimensions use the backend's 1024-based megapixels and ties-to-even rounding.
 Connected inputs disable this composer instead of showing invented dimensions.
 
 CAMERA_ANGLE_VIEW opens a top-down orbit and side elevation preview with named
-horizontal angle, vertical angle and zoom fields. Apply camera angle updates
-the three real numeric inputs as one undoable edit; the presentation-only view
-string is unchanged. Blank, fractional angle and out-of-range drafts cannot be
-applied. Connected numeric inputs disable this composer rather than pretending
-to override their drivers; edit the source inputs or disconnect them first.
-Cancel and outside dismissal discard the draft.
+horizontal angle, vertical angle and zoom fields. Each field edits the row its
+widget writes under that part name. Apply camera angle updates those rows as
+one undoable edit; the presentation-only view string is unchanged. Blank,
+fractional angle and out-of-range drafts cannot be applied. A field whose row
+has a link, or that the widget does not name, is disabled and not written; the
+other fields stay editable. A linked field shows the value its link carries
+when that is a literal value, and otherwise shows Linked with no number, never
+the stored value under the link. The preview needs all three numbers; when one
+is missing, a line names it and the preview is not drawn. With no editable
+field, Apply is not offered. Opening and Cancel write nothing, and outside
+dismissal discards the draft.
 
-IMAGECOMPARE opens a wipe comparison of the node's executed image_a and
-image_b preview streams. The divider supports pointer and keyboard controls;
+IMAGECOMPARE opens a wipe comparison of the previews the executed node streams
+under the rows its widget reads as `image_a` and `image_b`. The divider supports pointer and keyboard controls;
 each side has an independent frame selector. A single connected side fills
 the preview without a divider. Unequal image sizes fit without distortion.
 The divider and frame choices are local display state, not graph values.
@@ -40,7 +45,8 @@ BOUNDING_BOX rows summarize X, Y, width and height in pixels. Opening the crop
 region shows four named fields; Apply crop stores the complete region as one
 undoable edit. Coordinates must be nonnegative whole pixels and dimensions
 must be positive whole pixels. Cancel or outside dismissal discards the draft.
-After running the connected image source, the editor shows its first frame
+After running the image source of the row its widget reads as `image`, the
+editor shows its first frame
 with the selected crop outlined and the excluded area shaded. The outline
 matches the backend's edge clamping. An unavailable or stale source leaves
 the numeric controls usable without showing an unrelated image.
@@ -114,16 +120,21 @@ continues independently; closing one selection does not cancel other borrowers.
 
 The AUDIO_RECORD input on Record Audio opens the recording editor. Recording
 and applying a clip stores its audio asset on the node for the next run.
-The LOAD_3D input opens the 3D viewport on Load 3D, Load 3D Advanced, and the
-advanced mesh, gaussian-splat and point-cloud preview/save nodes. Preview Point
+The LOAD_3D widget opens the 3D viewport on Load 3D, Load 3D Advanced, and the
+advanced mesh, gaussian-splat and point-cloud preview/save nodes. It reads the
+model, camera and model information, width and height from the rows its widget
+names under `model_3d`, `model_file`, `camera_info`, `model_3d_info`, `width`
+and `height`. Preview Point
 Cloud and Save Point Cloud use point rendering rather than mesh surfaces.
 Stored model inputs retain their concrete typed-literal envelopes when the
 input accepts several file formats; the viewport reads the enclosed model.
-Applying the viewport retains the node's camera and model state; Load 3D also
-captures its image, mask and normal assets.
+Applying the viewport retains the node's camera and model state. A viewport
+on an editor row writes that state to the row it writes as `state`; a viewport
+widget on its own input also captures its image, mask and normal assets.
 
 The WEBCAM row opens a camera capture dialog. Capture frame requests browser
-camera permission, takes one PNG resized to the node's width and height, stages
+camera permission, takes one PNG resized to the rows its widget reads as
+`width` and `height`, stages
 it on the node's native backend, and releases the camera tracks. A zero width
 uses the camera's native dimensions for both axes. Use frame
 commits the asset reference as an undoable input edit; Cancel or closing the
@@ -132,8 +143,9 @@ named error (for example NotFoundError when no camera is available).
 A captured frame is staged after its upload completes, without cleanup checks.
 A failed upload leaves the prior draft unchanged. Closing the dialog revokes
 its local preview URL.
-With capture_on_queue enabled, queue captures and saves a fresh frame for each
-included camera before submitting. Disabled capture reuses the saved frame.
+With the row the widget reads as `capture_on_queue` enabled, queue captures and
+saves a fresh frame for each included camera before submitting; a widget that
+reads no such row never captures on queue. Disabled capture reuses the saved frame.
 Changing the workflow or backend during capture refuses that queue attempt
 without overwriting the input. Closing the tab cancels capture.
 Connected image inputs retain their source instead of opening the camera.
@@ -200,14 +212,14 @@ numbers and booleans, including duplicate entries and an empty array.
 
 ## Painter
 
-The native Painter node's mask row opens an RGBA canvas over its background
-color or a connected image's current first frame. The served schema's replacement
-of `Painter` identifies this editor after node migration; other asset mask rows
-keep the ordinary asset picker. A connected source must have
+A PAINTER editor row shows Paint mask and opens an RGBA canvas over the background color its widget
+reads as `bg_color`, or over the current first frame of the image it reads as
+`image`. The widget type alone selects this editor; asset rows, including the
+mask row it writes, keep the ordinary asset picker. A connected source must have
 a completed, unchanged native execution; stale, unavailable or ambiguous
 sources require another run before painting. The editor scrolls on small screens
 while Cancel and Apply stay visible. Connected images set the canvas
-dimensions; otherwise it uses the authored width and height. Connected IMAGE
+dimensions; otherwise it uses the rows it reads as `width` and `height`. Connected IMAGE
 decoding and drawing borrow the exact descriptor's admitted value reader;
 connection changes refuse drawing even after rendition bytes arrived. The bitmap
 closes before that read settles, without releasing its retained owner. Brush color and
@@ -222,7 +234,7 @@ bytes or decoding the bitmap. Closing, editing or an observed connection change
 refuses late mask publication; bitmap cleanup finishes without releasing the
 retained owner. Apply uploads a PNG
 through the tab's native media authority and stores the returned ASSET
-reference in one undoable edit.
+reference in the row it writes as `mask`, in one undoable edit.
 The shared upload destination picker selects a granted mount and subfolder;
 remembered destinations are scoped to the backend and project.
 Cancel and close discard the draft. Missing files, failed uploads or a changed
@@ -336,9 +348,6 @@ Named numeric representations use the same binding. Mixed nonnumeric unions
 and list-of-union widgets are not numeric editor domains. Concrete INT inputs
 retain their exact-integer editor and decimal-string precision handling.
 
-A forced concrete FLOATS input may carry NUMBER presentation while retaining
-its FLOATS socket, default, bounds, step, and connection requirement. Unforced
-FLOATS, list wrappers and mixed FLOATS unions are not numeric editor domains.
 COLOR widgets accept concrete COLOR or STRING inputs without rewriting the
 socket or stored hexadecimal value. Named representations obey the same rules.
 
@@ -699,13 +708,12 @@ fake expanded surface. User dismissal and commit paths restore keyboard focus
 to the graph canvas.
 
 Popover fields never commit merely because focus moves. Numeric and single-line
-text commit on Enter or Commit, value-source multiline text and raw JSON on
-Ctrl+Enter or Commit, COLOR on Enter or Commit, COMBO on a deliberate option
+text commit on Enter or Commit, raw JSON on Ctrl+Enter or Commit, COLOR on Enter or Commit, COMBO on a deliberate option
 activation, and MOUNT on Apply. An outside pointer commits a changed,
 valid INT, FLOAT, single-line STRING, COLOR, or raw-JSON field
 through that same command path and then closes; unchanged or invalid text
 closes without a write. COMBO still commits only a deliberately activated
-option, and value-source multiline STRING closes without committing its draft.
+option.
 Cancel and Escape discard uncommitted state. The in-node
 multiline editor continues to commit changed text on Ctrl+Enter (which then
 also runs the workflow) or click-away/blur, cancel on Escape, and close without a write when unchanged.
@@ -916,10 +924,8 @@ by single-line and scalar widgets.
 Opening the field replaces the painted multiline surface with a DOM textarea
 over the exact widget rectangle rather than detaching the text into a popover.
 This preserves the node's spatial context and removes the visual jump between
-reading and editing. Value-source multiline editors and the raw JSON fallback
-remain popovers because they are separate source controls rather than
-node-owned text regions; all other widget families retain their dispositions
-above.
+reading and editing. The raw JSON fallback remains a popover; all other
+widget families retain their dispositions above.
 
 The overlay derives its position from the widget's world rectangle and the
 renderer viewport signal. Camera pan and zoom update its screen position and
@@ -1115,7 +1121,7 @@ intentional and the UI must not infer backend behavior or synthetic limits.
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `INT`           | `core.number`: right-aligned exact integer, finite-bounds range fill for safe numeric ranges, independent immediate edge steppers, and optional controller chip/menu                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Anchored exact-text popover with visible min/max/step summary, validation, and commit/cancel; no duplicate +/- or controller controls                                                                                                                                                                                                                                    | `default`, exact `min`, `max`, and positive `step` from signed 64-bit minimum through unsigned 64-bit maximum, display name, after-generate controller and initial mode                                                                                                                                                                | `core/test/dinkster-wire33.golden.test.ts`, `core/test/numeric-step.test.ts`, `widgets/test/widgets.test.ts`, `canvas/test/interaction.test.ts`, `app/test/ProductNumberInput.dom.test.tsx`, `app/test/widget-commit.test.ts`, `app/test/controller-advancement.test.ts`, `e2e/widget-editors.spec.ts`, `e2e/seed-controller.spec.ts`                                                                                                                                                                                                              |
 | `FLOAT`         | `core.number` or bounded `core.slider`: precision-formatted text, slider range fill, and independent immediate edge steppers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Anchored full-precision text popover; slider view adds ProductSlider draft editing, with shared validation and Commit/Cancel                                                                                                                                                                                                                                             | `default`, `min`, `max`, positive `step`, `display`, `round`, optional WidgetSpec `precision`, display name, after-generate controller and initial mode                                                                                                                                                                                | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/interaction.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `app/test/combo-search.dom.test.tsx`, `e2e/widget-editors.spec.ts`                                                                                                                                                                                                                                                                                    |
-| `STRING`        | Fixed-height `core.line` or vertically flexible multiline `core.text`; ordinary strings synthesize both views and use `multiline` only as the default hint. `core.text` floats its label in an 18px band above a 14px/20px/6px-padded content strip with a permanent 8px scrollbar gutter, paints the display name as a muted italic placeholder only when the canonical value is empty, and supports measured wrapping plus live preview-height growth. Overflow hover paints a non-interactive scrollbar indicator inside the chrome. Explicit representation sets can restrict or lock the choices; switchable rows use only the context-menu submenu | `core.line` uses the standard anchored single-line popover. Node-input `core.text` uses a live camera-tracked textarea with matching floating-label, gutter, and content metrics, bounded vertical overflow, no native resize/outline chrome, and a zoom-scaled 6px product scrollbar. Both use the same completion path. Value-source text and raw JSON remain popovers | `default`, `multiline`, display name; optional stable representation ids/default/userSwitchable; optional completion items and dynamic input-family sources; no schema max-length constraint exists                                                                                                                                    | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `widgets/test/text-editor-extension.test.ts`, `canvas/test/layout.test.ts`, `canvas/test/interaction.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/renderer-paint.test.ts`, `core/test/dinkster-wire17.golden.test.ts`, `core/test/dinkster-wire36.golden.test.ts`, `app/test/menu-target.test.ts`, `app/test/text-completion.dom.test.tsx`, `e2e/widget-editors.spec.ts`, `e2e/widget-representations-wire17.spec.ts`, `e2e/text-completion.spec.ts` |
+| `STRING`        | Fixed-height `core.line` or vertically flexible multiline `core.text`; ordinary strings synthesize both views and use `multiline` only as the default hint. `core.text` floats its label in an 18px band above a 14px/20px/6px-padded content strip with a permanent 8px scrollbar gutter, paints the display name as a muted italic placeholder only when the canonical value is empty, and supports measured wrapping plus live preview-height growth. Overflow hover paints a non-interactive scrollbar indicator inside the chrome. Explicit representation sets can restrict or lock the choices; switchable rows use only the context-menu submenu | `core.line` uses the standard anchored single-line popover. Node-input `core.text` uses a live camera-tracked textarea with matching floating-label, gutter, and content metrics, bounded vertical overflow, no native resize/outline chrome, and a zoom-scaled 6px product scrollbar. Both use the same completion path. Raw JSON remains a popover | `default`, `multiline`, display name; optional stable representation ids/default/userSwitchable; optional completion items and dynamic input-family sources; no schema max-length constraint exists                                                                                                                                    | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `widgets/test/text-editor-extension.test.ts`, `canvas/test/layout.test.ts`, `canvas/test/interaction.test.ts`, `canvas/test/registry-painter-label.test.ts`, `canvas/test/renderer-paint.test.ts`, `core/test/dinkster-wire17.golden.test.ts`, `core/test/dinkster-wire36.golden.test.ts`, `app/test/menu-target.test.ts`, `app/test/text-completion.dom.test.tsx`, `e2e/widget-editors.spec.ts`, `e2e/widget-representations-wire17.spec.ts`, `e2e/text-completion.spec.ts` |
 | `BOOLEAN`       | `core.toggle` with a state-bearing track/thumb and optional true/false labels                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Undoable inline toggle; explicit **no-modal** disposition because there is no additional complete control to present                                                                                                                                                                                                                                                     | `default`, `labelOn`, `labelOff`, display name                                                                                                                                                                                                                                                                                         | `widgets/test/widgets.test.ts`, `widgets/test/widget-matrix.test.ts`, `canvas/test/registry-painter-label.test.ts`, `e2e/widget-editors.spec.ts`                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `COLOR`         | `core.color`: filled square swatch and exact hex value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Edited in its row: typed code, saturation/value square, hue strip, opacity strip on a field declaring `alpha: true`, workflow swatches; the anchored card remains outside in-row editing                                                                                                                                                                                 | `default`, display name; typed hex, CSS names and `rgb()`/`rgba()` are stored as lower-case `#rrggbb`, or `#rrggbbaa` on a field declaring `alpha: true`; no backend color-space semantics exist                                                                                                                                       | `widgets/test/widget-matrix.test.ts`, `app/test/ModalSurface.dom.test.tsx`, `canvas/test/registry-painter-label.test.ts`, `e2e/widget-editors.spec.ts`                                                                                                                                                                                                                                                                                                                                                                                             |
 | `COMPOSITOR`    | `core.compositor`: saved command count, or a run-first prompt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | No expanded editor                                                                                                                                                                                                                                                                                                                                                       | Exact fieldless descriptor on concrete `COMPOSITOR`; version 2 commands bound to the runtime document digest and at most 50 layers                                                                                                                                                                                                     | `core/test/compositor.test.ts`, `core/test/dinkster-wire41.golden.test.ts`, `widgets/test/widgets.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -1125,8 +1131,8 @@ intentional and the UI must not infer backend behavior or synthetic limits.
 
 Unavailable widget kinds use the raw JSON fallback; registered views without
 `editorUi` use the generic shared text popover. A registered `editorUi` uses
-the host-decoded path above; it never executes provider DOM. Schema-less
-value sources also use the raw JSON fallback. An unavailable-kind draft
+the host-decoded path above; it never executes provider DOM. An
+unavailable-kind draft
 survives scene refreshes while its document and declared row contract remain
 unchanged; document, schema, target, or extension changes still invalidate it.
 

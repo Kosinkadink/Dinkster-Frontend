@@ -31,6 +31,8 @@ import {
   toolboxSeparator,
   updateSceneNodePositions,
   updateSceneNodeValues,
+  memberAt,
+  IN_NODE_EDITORS,
   type Hit,
   type GhostLink,
   type LinkDoubleClickContext,
@@ -38,13 +40,11 @@ import {
   type CompanionDisplay,
   type CompanionMap,
   type PresenceActor,
-  type RowMarkMap,
+  type StoredValueRow,
   type LayoutRow,
   type Scene,
   type SceneNetStub,
   type SceneNode,
-  type SceneSelector,
-  type SceneValueSource,
   type ScopeHighlight,
   type ToolboxRow,
   type ToolboxButtonRect,
@@ -58,6 +58,8 @@ import {
   type ButtonPaint,
   type ButtonPaintMap,
   BUTTON_CANCEL_ZONE,
+  outputRowKey,
+  problemBoxPlacement,
 } from '@dinkster/canvas'
 import { buttonKey, createButtonPresses, type ButtonBox, type ButtonPlace } from './button-presses.js'
 import { ButtonAskForm, ButtonBoxView, ButtonLinkConfirm, type ScreenRect } from './ButtonOverlays.js'
@@ -68,28 +70,32 @@ import { AudioTransport } from './AudioTransport.js'
 import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
-import { colorFieldHasOpacity, colorKind, resolveColorText } from '@dinkster/widgets'
+import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
 import { CanvasColorArriving } from '@dinkster/ui'
 import {
   defaultValuesOf,
   initialDynamicStateOf,
+  ruleProblemRefs,
   documentResolver,
+  documentNodeResolver,
+  elaborateInterface,
+  primitiveForField,
+  primitiveOf,
+  valueKeyOf,
   elabOutputsOf,
   effectiveOccurrenceTopology,
   effectiveWidgetDefault,
-  documentValueSourceResolver,
   elabInputsOf,
   formatWidgetValue,
   flattenShellRefusalDiagnostic,
-  pinnedSpecOf,
   scopeClosure,
-  selectorCandidateKey,
   parseOccurrenceKey,
   asPortId,
   asNodeId,
   subgraphDefIdOf,
   diag,
   occurrenceDynamicView,
+  definitionPick,
   occurrencesForView,
   autoConnectTarget,
   canonicalJson,
@@ -130,10 +136,11 @@ import {
 } from '@dinkster/core'
 import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, Snowflake, TriangleAlert, X } from 'lucide-solid'
 import { executionProgress } from './ExecutionActivityCard.js'
-import { currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
+import { controllerAdvancementPlan, currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
 import { panelDockZone, setPanelOpen } from './panel-location.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
 import { liveExactnessFor } from './companion-display.js'
+import { drawnAnewInputs, RunStandingMemory, runStandingFor } from './run-problem-standing.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
 import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
@@ -143,6 +150,8 @@ import type { RowBox } from './editors/row-placement.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
 import { applyNodeDecorations, deriveSceneOverlays, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
 import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
+import { problemBoxLines, problemBoxRows, type ProblemBoxLine } from './problem-box.js'
+import { NodeProblemBox } from './NodeProblemBox.js'
 import { BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
 import { pasteClipboardIntoTab } from './clipboard-paste.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
@@ -162,7 +171,7 @@ import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
 import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type EditorTarget, type WidgetEditorState } from './WidgetEditor.js'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
+import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
 import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
 import type { LatentMetadata } from './latent-metadata.js'
@@ -183,7 +192,12 @@ import {
   type CanvasSemanticSource,
   type CanvasSemanticTarget,
 } from './CanvasSemanticNavigator.js'
-import { boundedVisibleOverlayKeys, mediaScreenRect, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
+import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
+import { Load3dSpace } from './InNodeLoad3dSpace.js'
+import { ImageCompareSpace } from './InNodeImageCompareSpace.js'
+import { imageCompareFrames } from './image-compare-frames.js'
+import { openLoad3dSource } from './load3d-source.js'
+import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
 
 type WidgetLayoutRow = Extract<Hit, { kind: 'widget' }>['row']
@@ -333,7 +347,7 @@ export const clipboardSceneEndpointTypes = (source: Scene): ReadonlyMap<string, 
     // flip the type representation and falsely reject a stub.
     for (const pin of node.layout.pins) {
       if (pin.widgetTap === true) {
-        if (node.missingSchema !== true && pin.staticWidgetTap === true)
+        if (node.missingSchema !== true)
           result.set(clipboardEndpointKey('tap', node.id, pin.address.port), JSON.stringify(pin.type))
         continue
       }
@@ -388,6 +402,45 @@ export function armedPlacementGhost(
 
 export function palettePickCommitsImmediately(type: string, placement: PaletteAnchor): boolean {
   return type === '__dinkster.reroute' || placement.linkDrop !== undefined || placement.splice !== undefined
+}
+
+/**
+ * The problems of one field's stored value, checked through the same widget
+ * kind the editors use, so a document that arrives with an out-of-range INT,
+ * an unknown COMBO option or an invalid save target is reported without
+ * anyone opening an editor. Only a stored value is checked: a schema default
+ * is the schema author's contract, not the document's.
+ */
+export function storedValueProblems(
+  registry: ReturnType<AppState['widgetRegistryForTab']>,
+  graphId: string,
+  row: StoredValueRow,
+  value: Json | undefined,
+): Diagnostic[] {
+  const refs = [{ graphId, nodeId: row.nodeId, portId: row.inputId, valueKey: row.valueKey, direction: 'input' as const }]
+  const kind = registry.kind(row.spec.widgetType)
+  if (!kind) {
+    return [diag('warning', 'schema', 'widget.kindUnavailable', `${row.nodeId}.${row.valueKey}: widget kind '${row.spec.widgetType}' is not available; using the raw-value editor`, { refs })]
+  }
+  // JSON cannot store undefined, so undefined means "not stored". An
+  // explicit null IS stored (ASSET and MOUNT use it as "no value") and must
+  // reach the validator.
+  if (value === undefined) return []
+  const where = `${row.nodeId}.${row.valueKey}`
+  if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
+    return [unresolvedAssetImportDiagnostic({
+      graphId,
+      nodeId: row.nodeId,
+      inputId: row.inputId,
+      valueKey: row.valueKey,
+      requested: value,
+      ...(row.spec.kind !== undefined ? { expectedKind: row.spec.kind } : {}),
+    })]
+  }
+  if (!kind.valueSchema.validate(value, row.spec)) {
+    return [diag('warning', 'schema', `widget.${row.spec.widgetType}.badValue`, `${where}: stored value does not fit this widget's value shape`, { refs })]
+  }
+  return kind.validate(value, row.spec).map((d) => ({ ...d, message: `${where}: ${d.message}`, refs }))
 }
 
 export function unresolvedAssetImportDiagnostic(args: {
@@ -803,8 +856,6 @@ export async function flattenSubgraphThroughBridge(args: {
 const geometryOfLifecycleScene = (source: Scene): readonly ResolvedGeometryItem[] => [
   ...source.nodes.map((node): ResolvedGeometryItem => ({ id: node.id, kind: 'node', x: node.x, y: node.y, width: node.layout.width, height: node.layout.height })),
   ...source.reroutes.map((item): ResolvedGeometryItem => ({ id: item.id, kind: 'reroute', x: item.x, y: item.y, width: 0, height: 0 })),
-  ...source.valueSources.map((item): ResolvedGeometryItem => ({ id: item.id, kind: 'valueSource', x: item.x, y: item.y, width: item.width, height: item.height })),
-  ...source.selectors.map((item): ResolvedGeometryItem => ({ id: item.id, kind: 'selector', x: item.x, y: item.y, width: item.width, height: item.height })),
   ...source.groups.map((item): ResolvedGeometryItem => ({ id: item.id, kind: 'group', x: item.x, y: item.y, width: item.width, height: item.height })),
 ]
 
@@ -819,8 +870,6 @@ export function occurrenceDeleteDecision<Identity>(args: {
   readonly boundaryCount: number
   readonly nodeCount: number
   readonly rerouteCount: number
-  readonly valueSourceCount: number
-  readonly selectorCount: number
   readonly groupCount: number
   readonly netViewCount?: number
   readonly drilled: boolean
@@ -828,7 +877,7 @@ export function occurrenceDeleteDecision<Identity>(args: {
   const onlyEffectiveLinks =
     args.effectiveLinks.length > 0 && args.effectiveLinks.every((identity) => identity !== undefined) &&
     args.boundaryCount === 0 && args.nodeCount === 0 && args.rerouteCount === 0 &&
-    args.valueSourceCount === 0 && args.selectorCount === 0 && args.groupCount === 0 &&
+    args.groupCount === 0 &&
     (args.netViewCount ?? 0) === 0
   if (!onlyEffectiveLinks || !args.drilled) return { kind: 'mixed' }
   const identities = args.effectiveLinks.flatMap((items) => items ?? [])
@@ -839,10 +888,9 @@ export function occurrenceDeleteDecision<Identity>(args: {
 }
 
 export function lifecycleOtherSelectionCount(controller: Pick<InteractionController,
-  'getLinkSelection' | 'getRerouteSelection' | 'getValueSourceSelection' | 'getSelectorSelection' | 'getGroupSelection' | 'getNetViewSelection'
+  'getLinkSelection' | 'getRerouteSelection' | 'getGroupSelection' | 'getNetViewSelection'
 >): number {
   return controller.getLinkSelection().size + controller.getRerouteSelection().size +
-    controller.getValueSourceSelection().size + controller.getSelectorSelection().size +
     controller.getGroupSelection().size + controller.getNetViewSelection().size
 }
 
@@ -853,15 +901,11 @@ export function selectionDeleteInvocation(args: {
   readonly nodeIds: readonly string[]
   readonly selectedLinks: readonly string[]
   readonly rerouteIds?: readonly string[]
-  readonly valueSourceIds?: readonly string[]
-  readonly selectorIds?: readonly string[]
   readonly groupIds?: readonly string[]
   readonly selectedNetViews?: readonly SceneNetStub[]
 }): CommandInvocation | undefined {
   const { graphId, def, scene, nodeIds, selectedLinks } = args
   const rerouteIds = [...(args.rerouteIds ?? [])]
-  const valueSourceIds = [...(args.valueSourceIds ?? [])]
-  const selectorIds = [...(args.selectorIds ?? [])]
   const groupIds = [...(args.groupIds ?? [])]
   const selectedNetViews = [...(args.selectedNetViews ?? [])]
   const deletedNodes = new Set(nodeIds)
@@ -923,17 +967,17 @@ export function selectionDeleteInvocation(args: {
       for (const sink of net.sinks) if (!deletedNodes.has(sink.node)) freedNodes.add(sink.node)
     }
     for (const item of def.boundary?.inputs ?? []) {
-      if (item.binds.kind === 'unbound' || item.binds.kind === 'valueSource') continue
+      if (item.binds.kind === 'unbound') continue
       if (!deletedNodes.has(item.binds.node)) continue
       for (const binding of item.alsoBinds ?? []) {
-        if (binding.kind === 'unbound' || binding.kind === 'valueSource') continue
+        if (binding.kind === 'unbound') continue
         if (!deletedNodes.has(binding.node)) freedNodes.add(binding.node)
       }
     }
   }
   const hasDeleteItems =
     nodeIds.length > 0 || linkIds.length > 0 || netSinks.length > 0 ||
-    rerouteIds.length > 0 || valueSourceIds.length > 0 || selectorIds.length > 0
+    rerouteIds.length > 0
   const removedNets = new Set(selectedNetViews.filter((stub) => stub.role === 'source').map((stub) => stub.netId))
   const graphDeletesNet = (netId: string): boolean => {
     const net = def.nets[netId]
@@ -946,7 +990,7 @@ export function selectionDeleteInvocation(args: {
   const invocations: { command: string; params: JsonObject }[] = [
     ...(hasDeleteItems ? [{
       command: 'graph.deleteItems',
-      params: { graphId, nodeIds: [...nodeIds], linkIds, netSinks, rerouteIds, valueSourceIds, selectorIds } as JsonObject,
+      params: { graphId, nodeIds: [...nodeIds], linkIds, netSinks, rerouteIds } as JsonObject,
     }] : []),
     ...boundaryOps,
     ...groupIds.map((groupId) => ({
@@ -987,7 +1031,7 @@ export function reportBoundaryExposureRefusal(args: {
   if (args.tabId === undefined) return
   const producer = args.source.kind === 'widgetTap'
     ? `widget tap '${args.source.node}.${args.source.tap}'`
-    : `${args.source.kind === 'valueSource' ? 'value source' : args.source.kind} '${args.source.id}'`
+    : `${args.source.kind} '${args.source.id}'`
   const reason = args.source.kind === 'widgetTap'
     ? 'widget taps are output bindings only'
     : 'structural producers require stamped public output types'
@@ -997,22 +1041,6 @@ export function reportBoundaryExposureRefusal(args: {
     'boundary.structuralProducerUnsupported',
     `Cannot expose ${producer} on boundary ${args.side}: ${reason}`,
   )])
-}
-
-/** Fixed-position style for a node overlay, clipped to the canvas rect. */
-function overlayClipStyle(rect: EditorWorldRect, canvasEl: HTMLCanvasElement): Record<string, string> {
-  const canvas = canvasEl.getBoundingClientRect()
-  const top = Math.max(0, canvas.top - rect.y)
-  const right = Math.max(0, rect.x + rect.width - (canvas.left + canvas.width))
-  const bottom = Math.max(0, rect.y + rect.height - (canvas.top + canvas.height))
-  const left = Math.max(0, canvas.left - rect.x)
-  return {
-    left: `${rect.x}px`,
-    top: `${rect.y}px`,
-    width: `${rect.width}px`,
-    height: `${rect.height}px`,
-    'clip-path': `inset(${top}px ${right}px ${bottom}px ${left}px)`,
-  }
 }
 
 export function NodeMediaOverlay(props: {
@@ -1057,6 +1085,12 @@ export function NodeMediaOverlay(props: {
     </div>
   )
 }
+
+/**
+ * Unfolded 3D views in nodes that run a live WebGL view at once. The browser
+ * keeps few WebGL contexts (16 in Chromium), so the rest show a still picture.
+ */
+const LIVE_MODEL_VIEWS = 8
 
 /**
  * Orbit viewport for a model3d node preview. The canvas paints the poster;
@@ -1406,6 +1440,19 @@ interface CanvasFileDropSurface {
   readonly location?: { readonly backend: Extract<Backend, { protocol: 'dinkster' }>; readonly digest: string; readonly project: string }
 }
 
+/** The graph with each node's values as the scene's occurrence shows them. */
+function occurrenceValuesDef(def: GraphDef | undefined, scene: Scene): GraphDef | undefined {
+  if (def === undefined) return undefined
+  let nodes: Record<string, GraphDef['nodes'][string]> | undefined
+  for (const sceneNode of scene.nodes) {
+    const node = def.nodes[sceneNode.id]
+    if (node === undefined || node.values === sceneNode.node.values) continue
+    nodes ??= { ...def.nodes }
+    nodes[sceneNode.id] = { ...node, values: sceneNode.node.values }
+  }
+  return nodes === undefined ? def : { ...def, nodes: nodes as GraphDef['nodes'] }
+}
+
 export function CanvasHost(props: { app: AppState; host?: EditorHostContext; tooltips?: TooltipController; occurrencePlanner?: OccurrenceMutationPlanner }) {
   const message = useAppMessage()
   const tooltipOwner = Symbol('canvas-host')
@@ -1569,6 +1616,63 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly onMediaError?: () => void
   }[]>([])
   const [activeCanvasMedia, setActiveCanvasMedia] = createSolidSignal<ReadonlySet<string>>(new Set())
+  const [editorSpaces, setEditorSpaces] = createSolidSignal<readonly EditorSpaceItem[]>([])
+  let editorPictureHeights: Pick<InteractionController, 'previewPictureHeight' | 'commitPictureHeight'> | undefined
+  const editorSpaceByKey = createMemo(() => new Map(editorSpaces().map((item) => [item.key, item])))
+  /** Every node's box in the order the canvas draws them, so a later one is drawn in front. */
+  const [nodeBoxes, setNodeBoxes] = createSolidSignal<readonly { readonly id: string; readonly box: EditorWorldRect }[]>([])
+  const [nodeDrag, setNodeDrag] = createSolidSignal<ReadonlyMap<string, { readonly dx: number; readonly dy: number }>>()
+  const dragged = (box: EditorWorldRect, nodeId: string): EditorWorldRect => {
+    const offset = nodeDrag()?.get(nodeId)
+    return offset === undefined ? box : { ...box, x: box.x + offset.dx, y: box.y + offset.dy }
+  }
+  /** The screen rectangles of nodes the canvas draws in front of an editor that overlap its space. */
+  const editorCovers = (item: EditorSpaceItem): readonly EditorWorldRect[] => {
+    const boxes = nodeBoxes()
+    const at = boxes.findIndex((entry) => entry.id === item.nodeId)
+    if (at < 0) return []
+    const node = dragged(item.node, item.nodeId)
+    const space = { x: node.x + item.space.x, y: node.y + item.space.y, width: item.space.width, height: item.space.height }
+    return boxes.slice(at + 1).flatMap((entry) => {
+      const box = dragged(entry.box, entry.id)
+      if (box.x >= space.x + space.width || box.x + box.width <= space.x || box.y >= space.y + space.height || box.y + box.height <= space.y) return []
+      const screen = mediaScreenRect({ x: 0, y: 0, width: 0, height: 0 }, box, editorViewport(), canvasClientRect())
+      return screen === undefined ? [] : [screen]
+    })
+  }
+  const audioRecorders = createAudioRecorders()
+  const visibleEditorSpaceKeys = (): readonly string[] => {
+    const viewport = editorViewport()
+    if (!editorSpaceInteractive(viewport.scale)) return []
+    const canvas = canvasClientRect()
+    return boundedVisibleOverlayKeys(
+      editorSpaces(),
+      (item) => item.key,
+      (item) => mediaScreenRect(item.node, item.space, viewport, canvas) !== undefined,
+      (item) => selectedNodeIds().has(item.nodeId),
+    )
+  }
+  // 3D views pressed while still, most recent first: each takes a live place ahead of the views by distance.
+  const [wokenModelViews, setWokenModelViews] = createSolidSignal<readonly string[]>([])
+  /**
+   * The 3D views that run a live WebGL view: those on screen nearest the
+   * view's centre, at most LIVE_MODEL_VIEWS; the others show a still picture.
+   */
+  const liveModelViews = createMemo((): ReadonlySet<string> => {
+    const viewport = editorViewport()
+    const canvas = canvasClientRect()
+    const centre = { x: (canvas.width / 2 - viewport.x) / viewport.scale, y: (canvas.height / 2 - viewport.y) / viewport.scale }
+    const woken = wokenModelViews()
+    const distance = (item: EditorSpaceItem): number => Math.hypot(
+      item.node.x + item.space.x + item.space.width / 2 - centre.x, item.node.y + item.space.y + item.space.height / 2 - centre.y)
+    const views = visibleEditorSpaceKeys().flatMap((key) => {
+      const item = editorSpaceByKey().get(key)
+      return item?.row.viewId === 'core.load3d' ? [item] : []
+    })
+    const rank = (item: EditorSpaceItem): number => { const at = woken.indexOf(item.key); return at < 0 ? woken.length : at }
+    return new Set(views.sort((left, right) => rank(left) - rank(right) || distance(left) - distance(right))
+      .slice(0, LIVE_MODEL_VIEWS).map((item) => item.key))
+  })
   const [selectedNodeIds, setSelectedNodeIds] = createSolidSignal<ReadonlySet<string>>(new Set())
   const setCanvasMediaActive = (id: string, active: boolean): void => {
     setActiveCanvasMedia((current) => {
@@ -1882,8 +1986,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly graphId: string
     readonly nodeId: string
     readonly inputId: string
-    /** Set for an Inputs panel field whose value is this value source's own. */
-    readonly valueSourceId?: string
     readonly mode: ControllerMode
     readonly trigger: 'after_generate' | 'after_refresh'
     readonly lifetime: object
@@ -1943,14 +2045,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     setPendingController(controller.lifetime)
     setControllerMenu((current) => current?.lifetime === controller.lifetime ? { ...current, refusal: undefined } : current)
     try {
-      const outcome = await props.app.dispatchTo(controller.tab, controller.valueSourceId !== undefined
-        ? { command: 'valueSource.setController', params: { graphId: controller.graphId, valueSourceId: controller.valueSourceId, mode } }
-        : { command: 'node.setController', params: {
-          graphId: controller.graphId,
-          nodeId: controller.nodeId,
-          inputId: controller.inputId,
-          mode,
-        } })
+      const outcome = await props.app.dispatchTo(controller.tab, { command: 'node.setController', params: {
+        graphId: controller.graphId,
+        nodeId: controller.nodeId,
+        inputId: controller.inputId,
+        mode,
+      } })
       if (!isCurrent()) return
       if (outcome.ok) setControllerMenu(undefined)
       else setControllerMenu((current) => current === undefined ? current : { ...current, refusal: outcome.diagnostics[0] })
@@ -1961,8 +2061,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [selectionSize, setSelectionSize] = createSolidSignal(0)
   const [linkSelectionSize, setLinkSelectionSize] = createSolidSignal(0)
   const [rerouteSelectionSize, setRerouteSelectionSize] = createSolidSignal(0)
-  const [valueSourceSelectionSize, setValueSourceSelectionSize] = createSolidSignal(0)
-  const [selectorSelectionSize, setSelectorSelectionSize] = createSolidSignal(0)
   const [groupSelectionSize, setGroupSelectionSize] = createSolidSignal(0)
   // Bumped on EVERY selection change (size alone misses same-size swaps);
   // the partial-scope preview effect keys off it.
@@ -2054,86 +2152,71 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
   /** Current graph's document problem content, keyed independently of runtime errors. */
   let nodeProblems: NodeProblemMap = {}
+  /** Nodes whose run problems lost their color (scene-overlays lastRunNodes), and each node's last answer. */
+  let lastRunNodes: ReadonlySet<string> = new Set()
+  const runStanding = new RunStandingMemory()
 
-  // -- value source popover ---------------------------------------------------
-  // Opened by clicking a value source's spec badge. Shows the effective
-  // spec's provenance (declared/derived/raw), conflicts, and pin/unpin.
-  interface ValueSourcePopoverState {
-    readonly x: number
-    readonly y: number
-    readonly valueSourceId: string
-  }
-  const [vsPopover, setVsPopover] = createSolidSignal<ValueSourcePopoverState | undefined>(undefined)
+  // -- node problem box -------------------------------------------------------
+  // Opened by a node's Error or Warning tab, or by Show on canvas. It hangs
+  // below the node; only one node's box is open at a time.
+  const [problemBox, setProblemBox] = createSolidSignal<{
+    readonly owner: string
+    readonly nodeId: string
+    readonly nodeTitle: string
+    readonly lines: readonly ProblemBoxLine[]
+    readonly highlighted?: string | undefined
+  } | undefined>(undefined)
+  // Bumped when the scene is rebuilt, so the box follows a moved node.
+  const [problemBoxTick, setProblemBoxTick] = createSolidSignal(0)
+  let problemBoxElement: HTMLDivElement | undefined
+  /** The box a pointer press outside closed, so the same press on its tab does not reopen it. */
+  let problemBoxPointerClose: { readonly nodeId: string; readonly at: number } | undefined
+  let problemBoxHost: {
+    readonly place: (nodeId: string) => { readonly x: number; readonly y: number } | undefined
+    readonly lines: (nodeId: string) => readonly ProblemBoxLine[]
+    readonly title: (nodeId: string) => string
+    readonly owner: () => string | undefined
+    readonly highlightRow: (highlight: { readonly nodeId: string; readonly row: string } | undefined) => void
+    /** Shows the row and puts the cursor in it; with a digest, opens the missing asset's replacement. */
+    readonly editField: (nodeId: string, row: string, missingAssetDigest?: string) => void
+  } | undefined
 
-  interface SelectorExecPopoverState {
-    readonly x: number
-    readonly y: number
-    readonly selectorId: string
-  }
-  /** Frozen-view selector badge popover: the branch this execution ACTUALLY ran. */
-  const [selExecPopover, setSelExecPopover] = createSolidSignal<SelectorExecPopoverState | undefined>(undefined)
-
-  /**
-   * Execution-recorded resolution of one selector on a frozen tab, resolved
-   * lazily at render from the artifact (authoritative) plus the snapshot
-   * document (titles/ordinals) - never stored.
-   */
-  const selectorExecInfoFor = (id: string) => {
-    executions()
-    const tab = activeTab()
-    if (!tab?.execution) return undefined
-    const gid = currentGraphId(tab)
-    const sel = tab.store.doc.graphs[gid]?.selectors?.[id]
-    if (!sel) return undefined
-    const exec = props.app.executionForTab(tab)
-    const choice = exec?.artifact?.choices?.find((c) => c.graph === gid && c.selector === id)
-    const index = choice ? sel.candidates.findIndex((c) => c.id === choice.candidate) : -1
-    return { sel, choice, index, candidate: index >= 0 ? sel.candidates[index] : undefined }
+  const closeProblemBox = (): void => {
+    if (problemBox() === undefined) return
+    setProblemBox(undefined)
+    problemBoxHost?.highlightRow(undefined)
   }
 
-  /**
-   * Value source popover content, resolved lazily at render from the live
-   * document (the popover survives value edits; the spec is derived fresh -
-   * never stored - exactly like the scene build does).
-   */
-  const valueSourceInfoFor = (id: string) => {
-    docTick()
-    const tab = activeTab()
-    const reg = registry()
-    if (!tab) return undefined
-    const graphId = currentGraphId(tab)
-    const def = tab.store.doc.graphs[graphId]
-    const vs = def?.valueSources?.[id]
-    if (!def || !vs) return undefined
-    const resolveSource = documentValueSourceResolver(tab.store.doc, reg?.resolve ?? (() => undefined))
-    const effective = resolveSource(graphId, id, viewInstancePath(tab)?.map(asNodeId))!
-    const specState: 'declared' | 'derived' | 'raw' = vs.spec ? 'declared' : effective.spec ? 'derived' : 'raw'
-    return { graphId, vs, effective, specState }
+  /** Opens the node's box, optionally with one line highlighted; false when the node has no line to show. */
+  const openProblemBox = (nodeId: string, pick?: (line: ProblemBoxLine) => boolean): boolean => {
+    const host = problemBoxHost
+    const owner = host?.owner()
+    if (!host || owner === undefined) return false
+    const lines = host.lines(nodeId)
+    const picked = pick === undefined ? undefined : lines.find(pick)
+    if (lines.length === 0 || (pick !== undefined && picked === undefined)) return false
+    setBadgePopover(undefined)
+    setProblemBox({ owner, nodeId, nodeTitle: host.title(nodeId), lines, ...(picked === undefined ? {} : { highlighted: picked.key }) })
+    host.highlightRow(picked?.row === undefined ? undefined : { nodeId, row: picked.row })
+    return true
   }
 
-  /** Pin the CURRENT effective spec as declared (derivation stops moving). */
-  const pinValueSourceSpec = (id: string): void => {
-    const tab = activeTab()
-    const info = valueSourceInfoFor(id)
-    if (!tab || tab.execution || !info) return
-    const spec = pinnedSpecOf(info.effective)
-    if (!spec) return
-    props.app.dispatchTo(tab, {
-      command: 'valueSource.setSpec',
-      params: { graphId: info.graphId, valueSourceId: id, spec },
+  createEffect(() => {
+    if (problemBox() === undefined) return
+    const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') closeProblemBox() }
+    const onPointer = (event: PointerEvent): void => {
+      const open = problemBox()
+      if (open === undefined || (problemBoxElement?.contains(event.target as Node | null) ?? false)) return
+      problemBoxPointerClose = { nodeId: open.nodeId, at: performance.now() }
+      closeProblemBox()
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('pointerdown', onPointer, true)
+    onCleanup(() => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('pointerdown', onPointer, true)
     })
-  }
-
-  /** Clear the declared spec back to fully derived. Never touches the value. */
-  const unpinValueSourceSpec = (id: string): void => {
-    const tab = activeTab()
-    const info = valueSourceInfoFor(id)
-    if (!tab || tab.execution || !info) return
-    props.app.dispatchTo(tab, {
-      command: 'valueSource.setSpec',
-      params: { graphId: info.graphId, valueSourceId: id, spec: null },
-    })
-  }
+  })
 
   // -- net name prompt --------------------------------------------------------
   // App-owned text popover for the two net actions that need a name (create,
@@ -2216,30 +2299,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     if (invocation) return props.app.dispatchTo(p.tab, invocation)
   }
 
-  // -- selector rename prompt -------------------------------------------------
-  // Same shape as the group prompt: a text popover anchored at the menu point.
-  interface SelectorPromptState {
-    readonly x: number
-    readonly y: number
-    readonly selectorId: string
-    readonly initial: string
-  }
-  const [selectorPrompt, setSelectorPrompt] = createSolidSignal<SelectorPromptState | undefined>(undefined)
-
-  const selectorPromptCommit = (title: string): CommandOutcome | Promise<CommandOutcome> | undefined => {
-    const p = selectorPrompt()
-    const tab = activeTab()
-    if (!p || !tab || tab.execution) return
-    const trimmed = title.trim()
-    if (trimmed.length === 0) return
-    return props.app.dispatchTo(tab, {
-      command: 'selector.setTitle',
-      params: { graphId: currentGraphId(tab), selectorId: p.selectorId, title: trimmed },
-    })
-  }
-
   // -- boundary slot rename prompt --------------------------------------------
-  // Same shape as the selector prompt. Committing an empty string CLEARS the
+  // Same shape as the group prompt. Committing an empty string CLEARS the
   // display name (the slot falls back to its stable item id).
   interface BoundaryPromptState {
     readonly x: number
@@ -2269,7 +2330,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     setNetPrompt(undefined)
     setGroupPrompt(undefined)
     setNodePrompt(undefined)
-    setSelectorPrompt(undefined)
     setBoundaryPrompt(undefined)
   })
 
@@ -2697,6 +2757,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       repaintMinimap?.()
     }
     updateTheme()
+    createEffect(() => renderer.setRenamingNode(nodePrompt()?.nodeId))
     const themeObserver = new MutationObserver(updateTheme)
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     onCleanup(() => themeObserver.disconnect())
@@ -2826,8 +2887,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const lifecycleSelection = (): LifecycleSelectionSnapshot => ({
       nodeIds: [...controller.getSelection()].filter((id) => scene.nodes.some((node) => node.id === id)),
       rerouteIds: [...controller.getRerouteSelection()],
-      valueSourceIds: [...controller.getValueSourceSelection()],
-      selectorIds: [...controller.getSelectorSelection()],
       groupIds: [...controller.getGroupSelection()],
       geometry: geometryOfLifecycleScene(scene),
     })
@@ -2835,6 +2894,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const canFlattenSubgraph = (): boolean => {
       const tab = activeTab()
       return tab !== undefined && isFlattenSelection(tab.store.doc, currentGraphId(tab), [...controller.getSelection()], lifecycleOtherSelectionCount(controller))
+    }
+    /** Why the one selected subgraph node cannot be flattened, when canFlattenSubgraph holds. */
+    const flattenRefusalOfSelection = (tab: Tab) => {
+      const graphId = currentGraphId(tab)
+      const nodeId = [...controller.getSelection()][0]!
+      return flattenShellRefusalDiagnostic(tab.store.doc.graphs[graphId]!.nodes[nodeId]!, graphId, viewInstancePath(tab) ?? [], nodeId)
     }
     const captureLifecycleTarget = (tab: Tab, graphId: string) => {
       const store = tab.store
@@ -2937,8 +3002,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           nodes: [...controller.getSelection()],
           links: [...controller.getLinkSelection()],
           reroutes: [...controller.getRerouteSelection()],
-          valueSources: [...controller.getValueSourceSelection()],
-          selectors: [...controller.getSelectorSelection()],
         },
         worldX: node.x + row.inset,
         worldY: node.y + row.y,
@@ -2958,8 +3021,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           nodes: [...controller.getSelection()],
           links: [...controller.getLinkSelection()],
           reroutes: [...controller.getRerouteSelection()],
-          valueSources: [...controller.getValueSourceSelection()],
-          selectors: [...controller.getSelectorSelection()],
         },
         worldX: node.x + node.layout.width / 2,
         worldY: node.y + node.layout.height / 2,
@@ -3023,6 +3084,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ...(targetSchema?.hasDocs === true ? { nodeHasDocs: true } : {}),
         ...(previewCapable !== undefined ? { previewCapable } : {}),
         ...(mirrorCapable !== undefined ? { mirrorCapable } : {}),
+        ...(menuResolve !== undefined ? { resolve: menuResolve } : {}),
         shortcuts: Object.fromEntries([
           'edit.delete',
           'node.mute',
@@ -3039,8 +3101,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           nodes: [...controller.getSelection()],
           links: [...controller.getLinkSelection()],
           reroutes: [...controller.getRerouteSelection()],
-          valueSources: [...controller.getValueSourceSelection()],
-          selectors: [...controller.getSelectorSelection()],
         },
         worldX,
         worldY,
@@ -3065,20 +3125,22 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           items: [
             {
               id: 'core.subgraph.extract',
-              label: 'Extract as subgraph',
-              icon: 'group',
+              label: 'Create subgraph',
+              icon: 'subgraph',
               ...(props.app.keybindings.combo('subgraph.extract') ? { shortcut: props.app.keybindings.combo('subgraph.extract')! } : {}),
               action: { kind: 'host' as const, action: 'extractSubgraph' },
               disabled: tab.execution !== undefined || !canExtractSubgraph(),
             },
-            {
+            // As on the toolbox, Flatten is offered only for one selected
+            // subgraph node, disabled when that node cannot be flattened.
+            ...(canFlattenSubgraph() ? [{
               id: 'core.subgraph.flatten',
-              label: 'Flatten subgraph one level',
+              label: 'Flatten subgraph',
               icon: 'ungroup',
               ...(props.app.keybindings.combo('subgraph.flatten') ? { shortcut: props.app.keybindings.combo('subgraph.flatten')! } : {}),
               action: { kind: 'host' as const, action: 'flattenSubgraph' },
-              disabled: tab.execution !== undefined || !canFlattenSubgraph(),
-            },
+              disabled: tab.execution !== undefined || flattenRefusalOfSelection(tab) !== undefined,
+            }] : []),
           ],
         }),
         ...additionalGroups,
@@ -3128,7 +3190,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             : undefined
       renderer.setScopeHighlight(scope ? selectionScopeHighlight(scope) : undefined)
     }
-    controller = new InteractionController(canvasEl, renderer, {
+    controller = editorPictureHeights = new InteractionController(canvasEl, renderer, {
       dispatch: (invocation) => {
         const tab = activeTab()
         if (!tab) return { ok: false }
@@ -3165,13 +3227,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           side,
         })
       },
-      onSelectionChange: (nodes, links, reroutes, valueSources, selectors, groups) => {
+      onSelectionChange: (nodes, links, reroutes, groups) => {
         setSelectedNodeIds(new Set(nodes))
         setSelectionSize(nodes.size)
         setLinkSelectionSize(links.size)
         setRerouteSelectionSize(reroutes.size)
-        setValueSourceSelectionSize(valueSources.size)
-        setSelectorSelectionSize(selectors.size)
         setGroupSelectionSize(groups.size)
         setSelVersion((v) => v + 1)
         instanceSelection = { nodes: [...nodes], links: [...links], groups: [...groups] }
@@ -3189,6 +3249,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onDragOffsets: (offsets) => {
         dragOffsets = offsets
+        setNodeDrag(offsets)
         publishPresence()
       },
       onLinkDragPresence: (origin) => {
@@ -3252,7 +3313,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           graphId: hit.row.familyOwner?.graphId ?? currentGraphId(tab),
           nodeId: hit.row.familyOwner?.nodeId ?? hit.node.id,
           inputId: hit.row.familyOwner?.valueKey ?? hit.row.valueKey,
-          ...(hit.row.valueSourceOwner !== undefined ? { valueSourceId: hit.row.valueSourceOwner.valueSourceId } : {}),
           mode: hit.row.controllerMode,
           trigger: hit.row.spec.controller ?? 'after_generate',
         })
@@ -3263,6 +3323,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         closePalette()
         setEditor(undefined)
         setMenu(undefined)
+        if (badge.id.startsWith('core.problem.')) {
+          // Either problem tab opens the node's one box; a second click on
+          // it, which the press outside the box already closed, leaves it closed.
+          const closedByThisPress = problemBoxPointerClose?.nodeId === node.id &&
+            performance.now() - problemBoxPointerClose.at < 1000
+          problemBoxPointerClose = undefined
+          if (problemBox()?.nodeId === node.id || closedByThisPress) closeProblemBox()
+          else if (!openProblemBox(node.id)) closeProblemBox()
+          return
+        }
+        closeProblemBox()
         const vp = renderer.getViewport()
         setBadgePopover({
           lifetime: {},
@@ -3271,73 +3342,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           y: (rect.y + rect.height) * vp.scale + vp.y + 6,
           nodeId: node.id,
           badge,
-        })
-      },
-      // While a subgraph node is entered, its value through a source is
-      // edited on the Inputs panel, not on the pill.
-      onValueSourceActivate: (vs) => { if (vs.arriving === undefined) openValueSourceEditor(vs) },
-      onValueSourceBadgeClick: (vs, rect) => {
-        closePalette()
-        setEditor(undefined)
-        setMenu(undefined)
-        setBadgePopover(undefined)
-        const vp = renderer.getViewport()
-        setVsPopover({
-          x: rect.x * vp.scale + vp.x,
-          y: (rect.y + rect.height) * vp.scale + vp.y + 6,
-          valueSourceId: vs.id,
-        })
-      },
-      onSelectorBadgeClick: (sel, rect) => {
-        const tab = activeTab()
-        if (!tab) return
-        closePalette()
-        setEditor(undefined)
-        setBadgePopover(undefined)
-        // Frozen views are read-only: the badge answers "which branch did THIS
-        // execution take?" from the artifact, never the (uneditable) policy menu.
-        if (tab.execution) {
-          setMenu(undefined)
-          setVsPopover(undefined)
-          const vp = renderer.getViewport()
-          setSelExecPopover({
-            x: rect.x * vp.scale + vp.x,
-            y: (rect.y + rect.height) * vp.scale + vp.y + 6,
-            selectorId: sel.id,
-          })
-          return
-        }
-        // Editable tabs: the policy badge opens the selector's resolved menu
-        // (policy items live there) anchored under the badge: details +
-        // actions, one surface.
-        const worldX = rect.x + rect.width / 2
-        const worldY = rect.y + rect.height
-        const ctx: MenuContext = {
-          doc: tab.store.doc,
-          features: { namedNets: props.app.settings.get<boolean>('features.namedNets.enabled') },
-          graphId: currentGraphId(tab),
-          target: { kind: 'selector', selectorId: sel.id },
-          selection: {
-            nodes: [...controller.getSelection()],
-            links: [...controller.getLinkSelection()],
-            reroutes: [...controller.getRerouteSelection()],
-            valueSources: [...controller.getValueSourceSelection()],
-            selectors: [...controller.getSelectorSelection()],
-          },
-          worldX,
-          worldY,
-        }
-        const groups = props.app.menuRegistry.resolve(ctx)
-        if (groups.length === 0) {
-          setMenu(undefined)
-          return
-        }
-        const vp = renderer.getViewport()
-        setMenu({
-          x: worldX * vp.scale + vp.x, y: worldY * vp.scale + vp.y + 6, worldX, worldY, groups,
-          tab, graphId: currentGraphId(tab), pathKey: (viewInstancePath(tab) ?? []).join('/'),
-          documentRevision: tab.store.revision, schemaRegistry: registry(),
-          extensionsGeneration: props.app.extensions.changed.get(),
         })
       },
       onOpenSubgraph: (node) => {
@@ -3387,6 +3391,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         refreshToolboxScopeHighlight()
       },
       onHoverTarget: (target) => {
+        const openBox = problemBox()
+        if (openBox !== undefined) {
+          // While the box is open, pointing at a row highlights its line.
+          const row = target?.kind === 'widget' && target.hit.node.id === openBox.nodeId
+            ? target.hit.row.valueKey
+            : target?.kind === 'pin' && target.hit.node.id === openBox.nodeId
+              ? target.hit.pin.direction === 'in' ? target.hit.pin.portId : outputRowKey(target.hit.pin.portId)
+              : undefined
+          const line = row === undefined ? undefined : openBox.lines.find((candidate) => candidate.row === row)
+          if (line?.key !== openBox.highlighted) setProblemBox({ ...openBox, highlighted: line?.key })
+          problemBoxHost?.highlightRow(line?.row === undefined ? undefined : { nodeId: openBox.nodeId, row: line.row })
+        }
         const hoverTab = activeTab()
         const hoveredButton = target?.kind === 'button' && hoverTab !== undefined
           ? buttonPlaceOf(hoverTab, target.hit.node.id, target.hit.row.buttonId)
@@ -3414,25 +3430,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               connected: companion !== undefined || linked,
             }
           }
-          if (target.kind === 'pin' && target.hit.pin.warn === true) {
-            const tab = activeTab()
-            const path = tab ? viewInstancePath(tab) : undefined
-            const ref = {
-              node: asNodeId(target.hit.node.id),
-              port: asPortId(target.hit.pin.address.port),
-            }
-            const diagnostics = scene.diagnostics.filter((diagnostic) => {
-              if (!diagnostic.anchor?.port || !samePortRef(diagnostic.anchor.port, ref)) return false
-              const occurrence = diagnostic.anchor.occurrence
-              return occurrence === undefined || (
-                path !== undefined &&
-                occurrence.node === target.hit.node.id &&
-                occurrence.instancePath.length === path.length &&
-                occurrence.instancePath.every((id, index) => id === path[index])
-              )
-            })
-            if (diagnostics.length > 0) tooltipTarget = { ...target, diagnostics }
-          }
           const tooltipTab = activeTab()
           const tooltipRegistry = registry()
           const tooltipResolve = tooltipTab && tooltipRegistry
@@ -3454,10 +3451,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const nodeId = target.hit.node.id
         const badgeId = target.hit.badge.id
         let tooltip: { summary: string; detail: readonly string[] } | undefined
-        if (badgeId === 'core.error') {
+        if (badgeId === 'core.error' || badgeId === 'core.error.lastRun') {
           const errors = nodeErrors(nodeId)
           tooltip = {
-            summary: `${errors.length} execution error${errors.length === 1 ? '' : 's'}`,
+            summary: badgeId === 'core.error.lastRun'
+              ? message('problems.lastRun.changedSince')
+              : `${errors.length} execution error${errors.length === 1 ? '' : 's'}`,
             detail: errors.map((d) => `${d.runtime ? `${d.runtime.exceptionType}: ` : `${d.code}: `}${d.message}`),
           }
         } else if (badgeId === 'core.subgraph') {
@@ -3477,10 +3476,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const details = problemMessages(nodeId, kind)
           tooltip = {
             summary: kind === 'error'
-              ? `${details.length} document error${details.length === 1 ? '' : 's'}`
-              : kind === 'blocking-warning'
-                ? `${details.length} execution-blocking warning${details.length === 1 ? '' : 's'}`
-                : `${details.length} document warning${details.length === 1 ? '' : 's'}`,
+              ? `${details.length} error${details.length === 1 ? '' : 's'}`
+              : `${details.length} warning${details.length === 1 ? '' : 's'}`,
             detail: details,
           }
         }
@@ -3522,6 +3519,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onLinkDropOnEmpty: (context, worldX, worldY) => {
         if (refuseFrozenEdit()) return // read-only view: no node adds
+        // A wire dragged off a field makes the primitive for that field,
+        // starting with the field's value, instead of opening the search.
+        const tab = activeTab()
+        const fieldPrimitive = tab && fieldDropPrimitive(tab, context)
+        if (tab && fieldPrimitive) {
+          void commitPaletteEntry(fieldPrimitive.entry, { x: 0, y: 0, worldX, worldY, linkDrop: context }, undefined, fieldPrimitive.values)
+          return
+        }
         openPaletteAt(worldX, worldY, context)
         // Keep the dropped noodle visible while the palette is browsed:
         // fixed anchor to drop point, oriented by what the drag was seeking.
@@ -3533,6 +3538,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const additionalGroups: ResolvedMenuGroup[] = []
         if (hit.kind === 'pin' && hit.direction === 'in' && hit.pin.dynamicSlot !== undefined) {
           const slot = hit.pin.dynamicSlot
+          // A subgraph node that clears its variant runs the one its
+          // definition picks inside; until a stored "none" exists, clearing
+          // is not offered there, so nobody clears and gets that variant.
+          const shellType = tab.store.doc.graphs[currentGraphId(tab)]?.nodes[hit.node.id]?.type
+          const defId = shellType === undefined ? undefined : subgraphDefIdOf(shellType)
+          const reg = props.app.registryForTab(tab)
+          const definitionPicks = defId !== undefined && reg !== undefined &&
+            definitionPick(tab.store.doc, defId, slot.construct, reg.resolve) !== undefined
           const specialize = (variant: string | null): CommandInvocation => ({
             command: 'dynamic.specializeSlot',
             params: {
@@ -3554,9 +3567,27 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               {
                 id: 'core.slot.specialize.clear',
                 label: 'Clear specialization',
-                disabled: slot.selected === undefined,
+                disabled: slot.selected === undefined || definitionPicks,
                 action: { kind: 'command' as const, invocation: specialize(null) },
               },
+            ],
+          })
+        }
+        // A member of a group that can be reordered moves one place up or
+        // down, through the same command as dragging its grip.
+        const memberNode = 'node' in hit && !('bnode' in hit && hit.bnode !== undefined) ? hit.node : undefined
+        const member = memberNode === undefined ? undefined : memberAt(memberNode.layout, worldY - memberNode.y)
+        if (memberNode !== undefined && member !== undefined) {
+          const move = (index: number): CommandInvocation => ({
+            command: 'dynamic.moveMember',
+            params: { graphId: currentGraphId(tab), nodeId: memberNode.id, construct: member.construct, member: member.member, index },
+          })
+          const frozen = tab.execution !== undefined
+          additionalGroups.push({
+            group: '45-member-order',
+            items: [
+              { id: 'core.member.moveUp', label: 'Move up', disabled: frozen || member.index === 0, action: { kind: 'command' as const, invocation: move(member.index - 1) } },
+              { id: 'core.member.moveDown', label: 'Move down', disabled: frozen || member.index === member.count - 1, action: { kind: 'command' as const, invocation: move(member.index + 1) } },
             ],
           })
         }
@@ -3675,8 +3706,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (target.kind === 'minimize') return false
       if (target.kind === 'link') return controller.getLinkSelection().has(target.id)
       if (target.kind === 'reroute') return controller.getRerouteSelection().has(target.id)
-      if (target.kind === 'valueSource') return controller.getValueSourceSelection().has(target.id)
-      if (target.kind === 'selector') return controller.getSelectorSelection().has(target.id)
       if (target.kind === 'net') return controller.getNetViewSelection().has(target.id)
       return controller.getGroupSelection().has(target.id)
     }
@@ -3717,25 +3746,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (reroute === undefined) return
         controller.setSelection([], [], [target.id])
         rect = { x: reroute.x - 1, y: reroute.y - 1, width: 2, height: 2 }
-      } else if (target.kind === 'valueSource') {
-        const valueSource = source.valueSources.find((candidate) => candidate.id === target.id)
-        if (valueSource === undefined) return
-        controller.setSelection([], [], [], [target.id])
-        rect = { x: valueSource.x, y: valueSource.y, width: valueSource.width, height: valueSource.height }
-      } else if (target.kind === 'selector') {
-        const selector = source.selectors.find((candidate) => candidate.id === target.id)
-        if (selector === undefined) return
-        controller.setSelection([], [], [], [], [target.id])
-        rect = { x: selector.x, y: selector.y, width: selector.width, height: selector.height }
       } else if (target.kind === 'group') {
         const group = source.groups.find((candidate) => candidate.id === target.id)
         if (group === undefined) return
-        controller.setSelection([], [], [], [], [], [target.id])
+        controller.setSelection([], [], [], [target.id])
         rect = { x: group.x, y: group.y, width: group.width, height: group.height }
       } else {
         const stub = source.netStubs.find((candidate) => candidate.id === target.id)
         if (stub === undefined) return
-        controller.setSelection([], [], [], [], [], [], [target.id])
+        controller.setSelection([], [], [], [], [target.id])
         rect = { x: stub.x, y: stub.y, width: stub.width, height: stub.height }
       }
       camera.animateTo(viewportCenteredOnNode(
@@ -3795,8 +3814,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const preservedBoundarySelection = selectedItems.filter((id) => boundaryIds.has(id))
       const selectedLinks = [...controller.getLinkSelection()]
       const rerouteIds = [...controller.getRerouteSelection()]
-      const valueSourceIds = [...controller.getValueSourceSelection()]
-      const selectorIds = [...controller.getSelectorSelection()]
       const groupIds = [...controller.getGroupSelection()]
       const selectedNetViews = [...controller.getNetViewSelection()]
         .flatMap((id) => scene.netStubs.find((stub) => stub.id === id) ?? [])
@@ -3804,8 +3821,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         nodeIds.length === 0 &&
         selectedLinks.length === 0 &&
         rerouteIds.length === 0 &&
-        valueSourceIds.length === 0 &&
-        selectorIds.length === 0 &&
         groupIds.length === 0 &&
         selectedNetViews.length === 0
       )
@@ -3820,8 +3835,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           boundaryCount: preservedBoundarySelection.length,
           nodeCount: nodeIds.length,
           rerouteCount: rerouteIds.length,
-          valueSourceCount: valueSourceIds.length,
-          selectorCount: selectorIds.length,
           groupCount: groupIds.length,
           netViewCount: selectedNetViews.length,
           drilled: scene.occurrence !== undefined,
@@ -3863,7 +3876,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const invocation = selectionDeleteInvocation({
         graphId: currentGraphId(tab), def: tab.store.doc.graphs[currentGraphId(tab)]!,
         scene, nodeIds, selectedLinks,
-        rerouteIds, valueSourceIds, selectorIds, groupIds, selectedNetViews,
+        rerouteIds, groupIds, selectedNetViews,
       })
       if (invocation === undefined) return
       const target = captureLifecycleTarget(tab, currentGraphId(tab))
@@ -4035,18 +4048,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           tab: m.tab, graphId: m.graphId,
         })
       },
-      renameSelector: (params, m) => {
-        if (refuseFrozenEdit()) return
-        const tab = activeTab()
-        const selectorId =
-          params && typeof params === 'object' && !Array.isArray(params)
-            ? (params as JsonObject)['selectorId']
-            : undefined
-        if (!tab || typeof selectorId !== 'string') return
-        const sel = tab.store.doc.graphs[currentGraphId(tab)]?.selectors?.[selectorId]
-        if (!sel) return
-        setSelectorPrompt({ x: m.x, y: m.y, selectorId, initial: sel.title ?? 'Select' })
-      },
       copySelection: () => { void copySelection() },
       pasteSelection: (_params, m) => { void pasteFromClipboard({ x: m.worldX, y: m.worldY }) },
     }
@@ -4138,10 +4139,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     clearPaletteGhost = () => controller.setPaletteGhost(undefined)
 
+    const fieldDropPrimitive = (tab: Tab, context: LinkDropContext): { entry: PaletteEntry; values: Record<string, Json> } | undefined => {
+      const into = context.fixedInto
+      const reg = registry()
+      if (context.seeking !== 'out' || reg === undefined || into === undefined ||
+        typeof into['node'] !== 'string' || typeof into['port'] !== 'string') return undefined
+      const graphId = currentGraphId(tab)
+      const node = tab.store.doc.graphs[graphId]?.nodes[into['node']]
+      const schema = node && documentNodeResolver(tab.store.doc, reg.resolve)(graphId, node)
+      const field = schema && node && elabInputsOf(elaborateInterface(schema, node)).find((item) => item.address.port === into['port'])
+      if (!field || field.spec.widget === undefined) return undefined
+      const primitive = primitiveForField(reg.schemas.values(), field.spec)
+      const shape = primitive && primitiveOf(primitive)
+      if (!primitive || !shape) return undefined
+      const value = node.values[valueKeyOf(field)] ?? effectiveWidgetDefault(field.spec.widget)
+      return {
+        entry: { type: primitive.type, name: primitive.displayName, category: primitive.category, kind: 'node', schema: primitive, fields: [] },
+        values: value === undefined ? {} : { [shape.value.id]: value },
+      }
+    }
+
     const commitPaletteEntry = async (
       entry: PaletteEntry,
       p: PaletteAnchor,
       owner?: { readonly tab: Tab; readonly graphId: string },
+      startValues?: Readonly<Record<string, Json>>,
     ): Promise<void> => {
       const tab = owner?.tab ?? activeTab()
       if (!tab) return
@@ -4174,7 +4196,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // Registry state can change after the palette opens. Preserve the old
       // unresolved-node fallback rather than turning that narrow race into a
       // silent no-op; only known schemas can contribute defaults or state.
-      const values = virtualKind?.defaultValues ?? (schema ? (defaultValuesOf(schema) as Record<string, Json>) : {})
+      const values = { ...(virtualKind?.defaultValues ?? (schema ? (defaultValuesOf(schema) as Record<string, Json>) : {})), ...startValues }
       const dynamic = schema ? initialDynamicStateOf(schema) : {}
       const addInvocation = {
         command: 'node.add',
@@ -4237,7 +4259,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       hostFocused,
     )
 
-    const { measure, widgetMeasure } = canvasMeasures(widgetRegistry)
+    const { measure, widgetMeasure } = canvasMeasures(widgetRegistry, () => {
+      const tab = activeTab()
+      return tab !== undefined && props.app.backendForTab(tab).protocol !== 'dinkster'
+    })
     const placementGeometryForEntry = (entry: PaletteEntry): PlacementGeometry => {
       if (entry.schema === undefined) {
         return { ...canvasPaintTokens.preview.unknownPlacement, headerHeight: defaultTokens.headerHeight }
@@ -4246,7 +4271,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       return { width: layout.width, height: layout.height, headerHeight: layout.headerHeight }
     }
 
-    let scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
+    let scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
     clientRectToWorld = (rect) => {
       const canvas = canvasEl.getBoundingClientRect()
       const start = renderer.toWorld(rect.left - canvas.left, rect.top - canvas.top)
@@ -4309,6 +4334,67 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const dismissButtonBoxes = (): void => buttonPresses.dismissBoxes()
     window.addEventListener('pointerdown', dismissButtonBoxes, { capture: true })
     onCleanup(() => window.removeEventListener('pointerdown', dismissButtonBoxes, { capture: true }))
+
+    problemBoxHost = {
+      owner: () => {
+        const tab = activeTab()
+        return tab === undefined ? undefined : JSON.stringify([tab.id, tab.store.doc.lineage, currentGraphId(tab), viewInstancePath(tab)])
+      },
+      place: (nodeId) => {
+        const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
+        return node === undefined ? undefined : problemBoxPlacement(node, renderer.getNodeBadgeLayout(node), renderer.getViewport())
+      },
+      lines: (nodeId) => {
+        const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
+        const tab = activeTab()
+        if (node === undefined || tab === undefined) return []
+        // A runtime cause belongs to the run's own Error tab, not this box.
+        const problems = (nodeProblems[nodeId] ?? []).filter((line) =>
+          !((runErrorsByNode().has(nodeId) || lastRunNodes.has(nodeId)) && line.diagnostic.origin === 'runtime'))
+        return problemBoxLines(problems, problemBoxRows(node), (row) => {
+          const port = row.startsWith(outputRowKey('')) ? row.slice(outputRowKey('').length) : row
+          return node.layout.pins.find((pin) => pin.portId === port)?.label ?? port
+        }, (line) => {
+          // Field checks name their place for Problems; the box names the row itself.
+          const place = line.row === undefined ? undefined : `${nodeId}.${line.row}: `
+          const text = line.diagnostic.message
+          return place !== undefined && text.startsWith(place) ? text.slice(place.length) : text
+        })
+      },
+      title: (nodeId) => renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)?.layout.title ?? nodeId,
+      highlightRow: (highlight) => renderer.setProblemRowHighlight(highlight),
+      editField: (nodeId, row, missingAssetDigest) => {
+        const tab = activeTab()
+        const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
+        if (!tab || !node) return
+        const graphId = currentGraphId(tab)
+        const store = tab.store
+        void (async () => {
+          // Edit field is the user asking for the row: a minimized node opens
+          // and the folded section holding the row unfolds; the value is not changed.
+          if (node.layout.minimized === true) {
+            await props.app.dispatchTo(tab, { command: 'view.setNodeCollapsed', params: { graphId, nodeIds: [nodeId], collapsed: false } })
+          }
+          const folded = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)?.layout.pins
+            .find((pin) => pin.portId === row && pin.collapsedSection !== undefined)?.collapsedSection
+          if (folded !== undefined) {
+            await props.app.dispatchTo(tab, { command: 'view.setSectionCollapsed', params: { graphId, nodeId, sectionId: folded, collapsed: false } })
+          }
+          queueMicrotask(() => {
+            if (activeTab() !== tab || tab.store !== store || currentGraphId(tab) !== graphId) return
+            const shown = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
+            const field = shown?.layout.rows.find((candidate) =>
+              candidate.kind === 'widget' && (candidate.valueKey === row || candidate.inputId === row))
+            if (!shown || field?.kind !== 'widget') return
+            controller.setSelection([nodeId])
+            openWidgetEditor({
+              kind: 'widget', node: shown, row: field, x: shown.x + field.inset, y: shown.y + field.y,
+              width: shown.layout.width - field.inset * 2, height: field.height, localX: 0, localY: 0,
+            }, missingAssetDigest)
+          })
+        })()
+      },
+    }
     let sceneKey = ''
     const transferredFrozenViews = new Set<string>()
     let sceneBuildContext: {
@@ -4395,11 +4481,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         props.app.extensionRevision.get()
         const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? reg?.resolve(type))
         const occurrenceView = occurrenceDynamicView(doc, resolve, path, path.length === 0 ? graphId : doc.root)
+        const valueRegistry = widgetRegistry()
         return buildScene({
           document: doc,
           seedControllerEnabled,
           graphId,
           resolve,
+          // A hidden row shows while its stored value has a problem, as Problems lists it.
+          storedValueProblem: (row, value) =>
+            storedValueProblems(valueRegistry, graphId, row, value).some((d) => d.severity !== 'info'),
           renderVirtualNode: (node) => props.app.virtualNodeKinds.get(node.type)?.render(node),
           tokens: defaultTokens,
           measure,
@@ -4449,8 +4539,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (tab.replacesFrozenTabId !== undefined) transferredFrozenViews.add(tab.id)
       const keptSelection = continuesFrozenView ? [
         controller.getSelection(), controller.getLinkSelection(), controller.getRerouteSelection(),
-        controller.getValueSourceSelection(), controller.getSelectorSelection(), controller.getGroupSelection(),
-        controller.getNetViewSelection(),
+        controller.getGroupSelection(), controller.getNetViewSelection(),
       ] as const : undefined
       const replaced = key !== sceneKey || (repositioned !== undefined ? scene !== built : !scenesEqual(scene, built))
       if (replaced) {
@@ -4501,7 +4590,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         editorExtensionsGeneration === extensionsGeneration
       // A subgraph's Inputs panel carries field rows too, edited like a node's.
       const fieldNodes = [...scene.nodes, ...scene.boundaryNodes.flatMap((bnode) => boundaryFieldNode(bnode) ?? [])]
-      if (widgetEditorAnchorAlive(ed, fieldNodes, tab.id, graphId, reg?.mergeableTypes, documentUnchanged, scene.valueSources) &&
+      if (widgetEditorAnchorAlive(ed, fieldNodes, tab.id, graphId, reg?.mergeableTypes, documentUnchanged) &&
         inRowValueKept(ed, tab.store.doc)) {
         // A workspace promotion replaces the Tab wrapper. Rebind in place so
         // the keyed editor keeps its draft and commits to the live store.
@@ -4554,13 +4643,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (!anchorAlive) setControllerMenu(undefined)
         else if (openController.tab !== tab) setControllerMenu({ ...openController, tab })
       }
-      // vsPopover stays: it anchors to a stable id and re-resolves its content
-      // (pin/unpin mutates the doc; closing here would eat the interaction).
 
       if (key !== sceneKey) {
         flushViewport()
-        setVsPopover(undefined) // different graph: the anchor means nothing
-        setSelExecPopover(undefined)
         sceneKey = key
         sceneViewportOwner = { tabId: tab.id, graphId }
         const saved = props.app.graphViewport(tab.id, graphId)
@@ -4598,6 +4683,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
             { width: canvasEl.clientWidth, height: canvasEl.clientHeight },
           ))
+          // Show on canvas opens the node's box with the picked problem's
+          // line highlighted, once this rebuild has projected its problems.
+          const picked = focusRequest?.diagnostic
+          if (picked !== undefined && input === undefined) {
+            queueMicrotask(() => {
+              if (activeTab() !== tab || currentGraphId(tab) !== graphId) return
+              openProblemBox(node.id, (line) => line.problem.diagnostic === picked ||
+                (line.problem.diagnostic.code === picked.code && line.problem.diagnostic.message === picked.message))
+            })
+          }
         } else if (link) {
           controller.setSelection([], [link.id])
           camera.animateTo(viewportCenteredOnNode(
@@ -4630,64 +4725,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
      * state instead of node.values, and link/net-driven rows display a
      * derived value that never executes from the stored one.
      */
-    const widgetValueDiagnostics = (): { diagnostics: Diagnostic[]; marks: RowMarkMap } => {
+    // Each diagnostic refers to its field's value key, so the shared problem
+    // projection outlines that row.
+    const widgetValueDiagnostics = (): Diagnostic[] => {
       const out: Diagnostic[] = []
-      // Row marks mirror each diagnostic at its widget row (red outline in
-      // the renderer) so the Problems entry is actionable on the canvas.
-      const marks: Record<string, Set<string>> = {}
-      const mark = (nodeId: string, valueKey: string): void => {
-        (marks[nodeId] ??= new Set()).add(valueKey)
-      }
       for (const node of scene.nodes) {
-        for (const row of node.layout.rows) {
+        for (const row of node.fieldRows ?? node.layout.rows) {
           if (row.kind !== 'widget' || row.selector !== undefined) continue
           if (companionInputs.get(node.id)?.has(row.valueKey)) continue
-          const kind = widgetRegistry().kind(row.spec.widgetType)
-          if (!kind) {
-            out.push(diag('warning', 'schema', 'widget.kindUnavailable', `${node.id}.${row.valueKey}: widget kind '${row.spec.widgetType}' is not available; using the raw-value editor`, {
-              refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
-            }))
-            mark(node.id, row.valueKey)
-            continue
-          }
-          // JSON cannot store undefined, so undefined means "not stored":
-          // the schema default applies and is the schema author's problem,
-          // not the document's. An explicit null IS stored (ASSET and
-          // MOUNT use it as "no value") and must reach the validator.
-          const value = node.node.values[row.valueKey]
-          if (value === undefined) continue
-          const where = `${node.id}.${row.valueKey}`
-          if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
-            out.push(unresolvedAssetImportDiagnostic({
-              graphId: scene.graphId,
-              nodeId: node.id,
-              inputId: row.inputId,
-              valueKey: row.valueKey,
-              requested: value,
-              ...(row.spec.kind !== undefined ? { expectedKind: row.spec.kind } : {}),
-            }))
-            mark(node.id, row.valueKey)
-            continue
-          }
-          if (!kind.valueSchema.validate(value, row.spec)) {
-            out.push(diag('warning', 'schema', `widget.${row.spec.widgetType}.badValue`, `${where}: stored value does not fit this widget's value shape`, {
-              refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
-            }))
-            mark(node.id, row.valueKey)
-            continue
-          }
-          const found = kind.validate(value as Json, row.spec)
-          if (found.length > 0) mark(node.id, row.valueKey)
-          for (const d of found) {
-            out.push({
-              ...d,
-              message: `${where}: ${d.message}`,
-              refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
-            })
-          }
+          out.push(...storedValueProblems(widgetRegistry(), scene.graphId,
+            { nodeId: node.id, inputId: row.inputId, valueKey: row.valueKey, spec: row.spec }, node.node.values[row.valueKey]))
         }
       }
-      return { diagnostics: out, marks }
+      return out
     }
 
     function refreshSceneDiagnostics(tab: Tab): void {
@@ -4699,10 +4749,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const availabilityDiags = tab.execution || !hasResidentMetadata
         ? [] : props.app.previewAvailabilityDiagnostics(tab) ?? []
       const widgetDiags = widgetValueDiagnostics()
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags.diagnostics, ...availabilityDiags]
+      // A node's declared rules are checked as the user edits, so a failed
+      // one is listed before the run is queued, under the same workflow
+      // origin compile gives it. A rule whose check reads exactly one field
+      // is that field's problem: its ref names the field, so the problem
+      // projection outlines that row.
+      const ruleDiags = scene.nodes.flatMap(({ node, elaborated }) =>
+        (elaborated?.diagnostics ?? [])
+          .filter((d) => d.code === 'node.rule.failed')
+          .map((d): Diagnostic => ({ ...d, origin: 'compile', refs: ruleProblemRefs(d, scene.graphId, node.id) })))
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
-      renderer.setRowMarks(widgetDiags.marks)
     }
 
     createEffect(on(comparisonCompilesChanged, () => {
@@ -4721,7 +4779,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     function refreshSceneOverlays(tab: Tab | undefined): void {
       if (!tab) {
         setBadgePopover(undefined)
-        renderer.setSelectorResolutions(undefined)
         renderer.setInactiveNodes(undefined)
         companionInputs = new Map()
         companionDisplays = {}
@@ -4730,10 +4787,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setPreviewA11yTargets([])
         setSemanticSource(undefined)
         setMediaPreviews([])
+        setEditorSpaces([])
+        setNodeBoxes([])
         setOutputImagePreviews([])
         setOutputPages((current) => current.size === 0 ? current : new Map())
         setOutputViewerKey(undefined)
         renderer.setCompanions({})
+        renderer.setEditorSummaries({})
         renderer.setBadges({})
         renderer.setNodeDecorations({})
         minimap.setStates({})
@@ -4772,6 +4832,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const exec = retained?.execution ?? boundExec
       if (!frozen && exec?.artifact && liveArtifact?.connection === exec.ref.connection &&
           exec.artifact.connection === exec.ref.connection) exactProducer = liveExactnessFor(liveArtifact, exec.artifact)
+      let runChanged: ((sceneNodeId: string, runtimeIds: readonly string[]) => boolean) | undefined
+      if (!frozen && exec?.artifact) {
+        const comparable = liveArtifact?.connection === exec.ref.connection && exec.artifact.connection === exec.ref.connection
+        const standing = runStandingFor({
+          live: comparable ? live : undefined,
+          ran: exec.artifact,
+          drawnAnew: liveArtifact && props.app.settings.get<boolean>('features.seedController.enabled')
+            ? drawnAnewInputs(liveArtifact, controllerAdvancementPlan(liveArtifact.snapshot, liveArtifact))
+            : new Map(),
+        })
+        const runKey = exec.key
+        const viewKey = `${gid}\u0000${JSON.stringify(viewedPath ?? [])}\u0000`
+        runChanged = (id, runtimeIds) => runStanding.changedSince(runKey, viewKey + id, standing(runtimeIds))
+      }
       // Terminal NATIVE runs can peek recorded values via GET /api/values.
       const values =
         exec && exec.status !== 'queued' && exec.status !== 'running'
@@ -4789,6 +4863,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         document: tab.store.doc,
         graphId: gid,
         instancePath: viewInstancePath(tab),
+        portSideOf: (nodeId, port) => {
+          const pins = scene.nodes.find((node) => node.id === nodeId)?.layout.pins ?? []
+          if (pins.some((pin) => pin.direction === 'in' && pin.address.port === port)) return 'input'
+          return pins.some((pin) => pin.direction === 'out' && pin.address.port === port) ? 'output' : undefined
+        },
       })
       nodeProblems = projectedProblems.nodes
 
@@ -4797,10 +4876,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         exec,
         graphId: gid,
         doc: tab.store.doc,
-        def: tab.store.doc.graphs[gid],
+        // Inside an entered subgraph node a field fed by a primitive shows
+        // the value that node's occurrence gives the primitive.
+        def: occurrenceValuesDef(tab.store.doc.graphs[gid], scene),
         instancePath: viewInstancePath(tab),
         frozen,
         exactProducer,
+        ...(runChanged === undefined ? {} : { runChanged }),
         reviewReplacements: !frozen && reviewReplacements(),
         replacementNodes: reviewReplacements()
           ? new Set(props.app.scanTabReplacements(tab).filter((item) => item.graphId === gid).map((item) => item.nodeId))
@@ -4811,7 +4893,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const dismissed = exec === undefined ? undefined : dismissedErrorNodes().get(exec.key)
           return dismissed === undefined ? {} : { dismissedErrorNodes: dismissed }
         })(),
-        portProblems: projectedProblems.ports,
+        rowProblems: projectedProblems.rows,
         resolveSchema: reg?.resolve,
         mirrorPreviews: props.app.settings.get<boolean>('execution.mirrorPreviews'),
         imageEstimator,
@@ -4826,6 +4908,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       renderer.setNodeStates(model.states)
       setRunLogsByNode(model.runLogsByNode)
       setRunErrorsByNode(model.runErrorsByNode)
+      lastRunNodes = model.lastRunNodes
       minimap.setStates(model.states)
       companionInputs = model.companionSources
       arrivingCompanions = model.companions
@@ -4847,7 +4930,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (!companion && !linked) return []
         return [{
           id: `${node.id}:${row.valueKey}`,
-          label: `${node.layout.title}, ${row.label}`,
+          label: `${node.layout.title}, ${row.name ?? row.label}`,
           target: { kind: 'widget', hit: { node, row }, ...(companion ? { companion } : {}), connected: true },
         }]
       }))
@@ -4883,7 +4966,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               ? []
               : [{
                   id: `exposure:${node.id}:${row.inputId}`,
-                  label: `${node.layout.title}, ${row.label}: ${item.label}`,
+                  label: `${node.layout.title}, ${row.name ?? row.label}: ${item.label}`,
                   pressed: item.checked === true,
                   disabled: frozen || item.disabled === true,
                   activate: () => {
@@ -4944,7 +5027,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           : {}),
       })
 
-      renderer.setSelectorResolutions(model.selectorResolutions)
       const decorations = applyNodeDecorations({
         scene,
         documentId: String(tab.store.doc.lineage),
@@ -4955,11 +5037,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       })
       renderer.setBadges(decorations.badges)
       renderer.setNodeDecorations(decorations.presentation)
-      renderer.setPortProblems(model.portProblems)
+      renderer.setRowMarks(model.rowProblems)
       const nodeOutputTexts = lens.id === 'standard' ? model.outputTexts : {}
       renderer.setNodeOutputTexts(nodeOutputTexts)
       renderer.setNodePreviews(model.previews)
       // Background overlay updates must not dismiss a still-valid user decision.
+      const openBox = problemBox()
+      if (openBox !== undefined) {
+        const lines = openBox.owner === JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath])
+          ? problemBoxHost?.lines(openBox.nodeId) ?? []
+          : []
+        // The box and its tab go together when the node's last problem goes.
+        if (lines.length === 0) closeProblemBox()
+        else setProblemBox({ ...openBox, lines, ...(lines.some((line) => line.key === openBox.highlighted) ? {} : { highlighted: undefined }) })
+      }
+      setProblemBoxTick((tick) => tick + 1)
       setBadgePopover((anchor) => {
         if (!anchor || anchor.owner !== JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath])) return undefined
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === anchor.nodeId)
@@ -4976,11 +5068,23 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           scene,
           states: model.states,
           badges: decorations.badges,
-          portProblems: model.portProblems,
+          rowProblems: model.rowProblems,
           outputTexts: nodeOutputTexts,
         },
       })
       setPreviewA11yTargets(selectedInputPreviewA11yTargets(scene, model.selectedInputPreviews))
+      // The Inputs panel's fields fold out on the panel; one wired outside the subgraph keeps its wired look.
+      const panel = renderer.getScene().boundaryNodes.find((bnode) => bnode.side === 'inputs' && bnode.fields !== undefined)
+      const panelFace = panel === undefined ? undefined : boundaryFieldNode(panel)
+      const editorWires: EditorWires = {
+        wired: (nodeId, inputId) => nodeId === panelFace?.id ? Object.hasOwn(panel!.fields!.wired, inputId)
+          : companionInputs.get(nodeId)?.has(inputId) === true || scene.links.some((link) =>
+            link.to.kind === 'port' && link.to.node === nodeId && link.to.port === inputId),
+        carried: (nodeId, valueKey) => nodeId === panelFace?.id ? panel!.fields!.wired[valueKey]?.value : companionDisplays[nodeId]?.[valueKey]?.value,
+      }
+      setEditorSpaces(editorSpaceItems([...renderer.getScene().nodes, ...(panelFace === undefined ? [] : [panelFace])], editorWires))
+      setNodeBoxes(renderer.getScene().nodes.map((node) => ({ id: node.id, box: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height } })))
+      renderer.setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown')))
       setMediaPreviews(renderer.getScene().nodes.flatMap((node) => {
         if (node.layout.minimized) return []
         const media = model.previews[node.id]
@@ -5075,22 +5179,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const occ = parseOccurrenceKey(k)
         rootIds.add(occ.instancePath[0] ?? occ.node)
       }
-      // Structural traversal of the displayed (root) graph: reroutes,
-      // selector branches, and value sources on in-closure wires. Random
-      // selectors contribute EVERY candidate ("may run" superset) - their
-      // '?' badge already tells the user the branch is rolled at queue time.
-      const structural = closure.structural.get(graphId)
-      const candidateKeys = new Set<string>()
-      for (const [sid, cands] of structural?.selectors ?? []) {
-        for (const c of cands) candidateKeys.add(selectorCandidateKey(sid, c))
-      }
-      return {
-        nodes: rootIds,
-        reroutes: structural?.reroutes ?? new Set(),
-        selectors: new Set(structural?.selectors.keys() ?? []),
-        selectorCandidates: candidateKeys,
-        valueSources: structural?.valueSources ?? new Set(),
-      }
+      // Reroutes on in-closure wires of the displayed (root) graph.
+      return { nodes: rootIds, reroutes: closure.structural.get(graphId)?.reroutes ?? new Set() }
     }
 
     // Selection toolbox: mode toggles + actions floating above the selected
@@ -5138,30 +5228,29 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (sel.length === 1) {
         const defId = subgraphDefIdOf(def.nodes[sel[0]!]!.type)
         if (defId !== undefined && tab.store.doc.graphs[defId]) {
-          modifications.push(toolboxButton({ id: 'core.openSubgraph', icon: 'folder-open', label: 'Open subgraph' }))
+          modifications.push(toolboxButton({ id: 'core.openSubgraph', icon: 'group', label: 'Open subgraph' }))
         }
       }
-      const flattenAvailable = canFlattenSubgraph()
-      const flattenRefusal = flattenAvailable
-        ? flattenShellRefusalDiagnostic(def.nodes[sel[0]!]!, currentGraphId(tab), viewInstancePath(tab) ?? [], sel[0]!)
-        : undefined
-      modifications.push(toolboxButton({
-        id: 'core.extractSubgraph',
-        icon: 'group',
-        label: 'Extract as subgraph',
-        disabled: !canExtractSubgraph(),
-      }))
-      modifications.push(toolboxButton({
-        id: 'core.flattenSubgraph',
-        icon: 'ungroup',
-        label: 'Flatten subgraph one level',
-        disabled: !flattenAvailable || flattenRefusal !== undefined,
-        ...(!flattenAvailable
-          ? { reason: 'Select exactly one subgraph occurrence.' }
-          : flattenRefusal !== undefined
-            ? { reason: flattenRefusal.message }
-            : {}),
-      }))
+      // One selected node gets no create button, so a subgraph node's
+      // toolbox never shows the subgraph icon as both its mark and an
+      // action; the menu and the shortcut still create from one node.
+      if (sel.length > 1) {
+        modifications.push(toolboxButton({
+          id: 'core.extractSubgraph',
+          icon: 'subgraph',
+          label: 'Create subgraph',
+          disabled: !canExtractSubgraph(),
+        }))
+      }
+      if (canFlattenSubgraph()) {
+        const flattenRefusal = flattenRefusalOfSelection(tab)
+        modifications.push(toolboxButton({
+          id: 'core.flattenSubgraph',
+          icon: 'ungroup',
+          label: 'Flatten subgraph',
+          ...(flattenRefusal !== undefined ? { disabled: true, reason: flattenRefusal.message } : {}),
+        }))
+      }
       rows.push([
         toolboxButton({ id: 'core.delete', icon: 'trash-2', label: 'Delete' }),
         toolboxSeparator(),
@@ -5189,15 +5278,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
      */
     function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string, caret?: { x: number; y: number }): void {
       const tab = activeTab()
-      if (!tab || refuseFrozenEdit()) return
-      // An Inputs panel field holding a value source's own value edits that
-      // source, as a click on its pill does.
-      const sourceOwner = hit.row.valueSourceOwner
-      if (sourceOwner !== undefined) {
-        const vs = renderer.getScene().valueSources.find((candidate) => candidate.id === sourceOwner.valueSourceId)
-        if (vs !== undefined) openValueSourceEditor(vs, { label: hit.row.label, rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height } })
+      if (!tab) return
+      // An editor shown in the node folds out under its row and back, as a
+      // section opens and closes, also while a run holds the workflow. A
+      // field on the Inputs panel folds out on the panel, which keeps its
+      // own folds apart from the subgraph node outside. Such an editor has
+      // no other place to open.
+      if (IN_NODE_EDITORS[hit.row.viewId] !== undefined) {
+        const graphId = currentGraphId(tab)
+        const owner = hit.bnode !== undefined ? { inputsPanel: true }
+          : tab.store.doc.graphs[graphId]?.nodes[hit.node.id] !== undefined ? { nodeId: hit.node.id } : undefined
+        if (owner !== undefined) {
+          void props.app.dispatchTo(tab, {
+            command: 'view.setEditorUnfolded',
+            params: { graphId, ...owner, valueKey: hit.row.valueKey, unfolded: hit.row.unfolded !== true },
+          })
+        }
         return
       }
+      if (refuseFrozenEdit()) return
       const graphId = currentGraphId(tab)
       const nodeId = hit.node.id
       const valueGraphId = hit.row.familyOwner?.graphId ?? graphId
@@ -5205,11 +5304,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const valueKey = hit.row.familyOwner?.valueKey ?? hit.row.valueKey
       const spec = hit.row.spec
       if (spec.widgetType === 'COMPOSITOR') return
-      const curveTarget = spec.widgetType === 'CURVE'
-        ? props.app.curveTargetForInput(
-            tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
-          )
-        : undefined
       // A link/net-driven input is read-only: the wire decides its value
       // (companion display), and editing would silently mutate the dormant
       // stored value underneath. Selector rows keep their own value channel
@@ -5240,12 +5334,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
       const schema = resolve(hit.node.node.type)
       const roleEditor = schema?.editorRole === undefined ? undefined : props.app.editors.forRole(schema.editorRole)
-      if (roleEditor?.id === CURVE_EDITOR_KIND) {
-        if (curveTarget) {
-          props.app.openCurveEditor(curveTarget)
-          return
-        }
-      }
       if (roleEditor?.id === GLSL_EDITOR_KIND && valueKey === 'fragment_shader') {
         const target = props.app.glslTargetForInput(
           tab, valueGraphId, valueNodeId, valueKey, viewInstancePath(tab) ?? [],
@@ -5285,11 +5373,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setEditor({
         tab,
         graphId,
-        label: hit.row.label,
+        // An editor row has no label of its own; its editor is titled by its node.
+        label: hit.row.editor === true ? hit.node.layout.title : hit.row.name ?? hit.row.label,
         target: {
           kind: 'input',
           nodeId,
-          valueKey: hit.row.valueKey,
+          // An editor row's value is the one row it writes, when it writes exactly one.
+          valueKey: hit.row.editor === true && hit.row.parts !== undefined && Object.keys(hit.row.parts.writes).length === 1
+            ? Object.values(hit.row.parts.writes)[0]!
+            : hit.row.valueKey,
+          ...(hit.row.parts !== undefined ? { parts: hit.row.parts } : {}),
           ...(hit.row.familyOwner !== undefined ? { familyOwner: hit.row.familyOwner } : {}),
           ...(hit.row.optionsTarget !== undefined ? { optionsTarget: hit.row.optionsTarget } : {}),
           ...(hit.row.materialize !== undefined ? { materialize: hit.row.materialize } : {}),
@@ -5492,7 +5585,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const node = rowNodeOf(focus.nodeId)?.node
         const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
         if (node === undefined || row?.kind !== 'widget') { setRowFocus(undefined); return }
-        if (row.viewId !== 'core.toggle') setRowFocus(undefined)
+        // A toggle and an editor's fold keep the focus, so Enter turns them back.
+        if (row.viewId !== 'core.toggle' && IN_NODE_EDITORS[row.viewId] === undefined) setRowFocus(undefined)
         openWidgetEditor(rowHit(node, row))
       }
     }
@@ -5523,53 +5617,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         detailLevel: renderer.getDetailLevel(),
       })
       if (hit.kind === 'widget' && hit.row.spec.widgetType === 'ASSET') openWidgetEditor(hit)
-    }
-
-    /**
-     * Click on a value source pill: the pill IS the widget, so open its
-     * editor. The effective spec decides the editor kind; without one the
-     * raw JSON fallback renders (the value is always editable - P2). An
-     * Inputs panel field holding the source's value opens it over the field.
-     */
-    function openValueSourceEditor(
-      vs: SceneValueSource,
-      at: { readonly label: string; readonly rect: { x: number; y: number; width: number; height: number } } = {
-        label: vs.title, rect: { x: vs.x, y: vs.y, width: vs.width, height: vs.height },
-      },
-    ): void {
-      const tab = activeTab()
-      if (!tab || refuseFrozenEdit()) return
-      const graphId = currentGraphId(tab)
-      const source = tab.store.doc.graphs[graphId]?.valueSources?.[vs.id]
-      if (!source) return
-      const spec = vs.effective.spec
-
-      // Booleans toggle in place; no overlay needed.
-      if (spec?.widgetType === 'BOOLEAN') {
-        props.app.dispatchTo(tab, {
-          command: 'valueSource.setValue',
-          params: { graphId, valueSourceId: vs.id, value: source.value !== true },
-        })
-        return
-      }
-
-      // Editor kind mirrors what a node input with this spec would use.
-      const viewId = spec ? widgetRegistry().kind(spec.widgetType)?.defaultView(spec) : undefined
-      canvasEl.focus()
-      editorDocumentRevision = tab.store.revision
-      editorExtensionsGeneration = props.app.extensions.changed.get()
-      setEditor({
-        tab,
-        graphId,
-        label: at.label,
-        target: { kind: 'valueSource', valueSourceId: vs.id },
-        spec,
-        ...(viewId === undefined ? {} : { viewId }),
-        // Raw fallback edits JSON text, which wants a multiline field.
-        multiline: spec ? viewId === 'core.text' : true,
-        rect: at.rect,
-        initial: spec ? source.value : JSON.stringify(source.value, null, 2),
-      })
     }
 
     // -- camera bookmarks ------------------------------------------------------
@@ -6411,10 +6458,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const group = scene.groups.find((g) => g.id === groupId)
         return group ? nodesInGroup(scene, group) : undefined
       },
-      showValueSource: (tabId, graphId, valueSourceId) => {
-        if (activeTab()?.id !== tabId || scene.graphId !== graphId) return
-        activateSemanticTarget({ kind: 'valueSource', id: valueSourceId })
-      },
       deleteSelection,
       selectAll: () => controller.selectAll(),
       setSelectedMode: (mode) => {
@@ -6559,6 +6602,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (traceWindow.__dinksterPointerTrace === pointerTraceConsole)
         delete traceWindow.__dinksterPointerTrace
       controller.dispose()
+      editorPictureHeights = undefined
       renderer.dispose()
       previewLoader.dispose()
       imageEstimator.dispose()
@@ -6567,6 +6611,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setSemanticSource(undefined)
       setSemanticFocused(false)
       setMediaPreviews([])
+      setEditorSpaces([])
+      setNodeBoxes([])
       setActiveCanvasMedia(new Set<string>())
       setOutputImagePreviews([])
       setOutputPages(new Map())
@@ -6646,10 +6692,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
   const problemMessages = (nodeId: string, kind: NodeProblemKind): readonly string[] => {
     const tab = activeTab()
-    const model = nodeProblems[nodeId]?.find((candidate) => candidate.kind === kind)
-    if (!tab || !model) return []
+    const lines = (nodeProblems[nodeId] ?? []).filter((line) => line.kind === kind)
+    if (!tab) return []
     const reg = props.app.registryForTab(tab)
-    return model.diagnostics.map((diagnostic) => problemDisplay(diagnostic, tab.store.doc, reg))
+    return lines.map((line) => problemDisplay(line.diagnostic, tab.store.doc, reg))
   }
 
   createEffect(() => {
@@ -6671,11 +6717,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         data-testid="graph-canvas"
         onPointerMove={(event) => { lastCanvasPointer = { x: event.clientX, y: event.clientY } }}
         data-lens={activeLens().id}
-        data-selection={selectionSize() + rerouteSelectionSize() + valueSourceSelectionSize() + selectorSelectionSize() + groupSelectionSize()}
+        data-selection={selectionSize() + rerouteSelectionSize() + groupSelectionSize()}
         data-link-selection={linkSelectionSize()}
         data-reroute-selection={rerouteSelectionSize()}
-        data-value-source-selection={valueSourceSelectionSize()}
-        data-selector-selection={selectorSelectionSize()}
         data-group-selection={groupSelectionSize()}
       />
       <Show when={canvasListsShown()}>
@@ -6819,6 +6863,179 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 onActiveChange={(active) => setCanvasMediaActive(`media:${id}`, active)}
               />
             </Show>
+          </Show>
+        )
+      }}</For>
+      <For each={visibleEditorSpaceKeys()}>{(key) => {
+        const item = () => editorSpaceByKey().get(key)
+        const projected = () => {
+          const current = item()
+          return current === undefined ? undefined : mediaScreenRect(dragged(current.node, current.nodeId), current.space, editorViewport(), canvasClientRect())
+        }
+        const covers = () => {
+          const current = item()
+          return current === undefined ? [] : editorCovers(current)
+        }
+        // While anything in front overlaps the editor, a live view shows its still picture.
+        const covered = () => covers().length > 0
+        /** Where the editor's value is written: a group member's goes to its family's owner. */
+        const valueTarget = () => {
+          const current = item()
+          const tab = activeTab()
+          if (current === undefined || tab === undefined) return undefined
+          const graphId = currentGraphId(tab)
+          const owner = current.field.familyOwner
+          const target = { graphId: owner?.graphId ?? graphId, nodeId: owner?.nodeId ?? current.nodeId, inputId: owner?.valueKey ?? current.valueKey }
+          const commit = (value: Json): void => void props.app.dispatchTo(tab,
+            withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
+          return { tab, graphId, current, target, commit }
+        }
+        const recorder = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.audioRecord') return undefined
+          const backend = props.app.backendForTab(at.tab)
+          const native = backend.protocol === 'dinkster' ? backend.connection : undefined
+          return audioRecorders.get(`${at.tab.id}:${at.graphId}:${at.current.key}`, {
+            upload: native === undefined ? undefined
+              : (file, signal) => native.uploadMediaAsset(file, { scope: 'local', kind: 'media/audio', name: file.name, signal }),
+            fetchBytes: native === undefined ? undefined : (clip, signal) => native.fetchAssetBytes(clip.digest, signal),
+            commit: at.commit,
+          })
+        }
+        const curve = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.curve') return undefined
+          const fallback = effectiveWidgetDefault(at.current.field.spec)
+          const value = isCurveValue(at.current.value) ? at.current.value : isCurveValue(fallback) ? fallback : undefined
+          if (value === undefined) return undefined
+          executions()
+          return {
+            value,
+            commit: (next: CurveValue) => at.commit(next as unknown as Json),
+            histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId),
+          }
+        }
+        const webcam = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.webcam') return undefined
+          const backend = props.app.backendForTab(at.tab)
+          const native = backend.protocol === 'dinkster' ? backend.connection : undefined
+          const parts = at.current.field.parts
+          const dimension = (part: 'width' | 'height'): number => {
+            const row = parts === undefined ? undefined : Object.hasOwn(parts.writes, part) ? parts.writes[part] : parts.reads[part]
+            const value = row === undefined ? undefined : at.tab.store.doc.graphs[at.target.graphId]?.nodes[at.target.nodeId]?.values[row]
+            return typeof value === 'number' ? value : 0
+          }
+          return {
+            upload: native === undefined ? undefined
+              : (file: File, signal: AbortSignal) => native.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal }),
+            fetchBytes: native === undefined ? undefined : (frame: AssetRef, signal: AbortSignal) => native.fetchAssetBytes(frame.digest, signal),
+            size: () => ({ width: dimension('width'), height: dimension('height') }),
+            commit: (value: Json) => at.commit(value),
+          }
+        }
+        const load3d = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.load3d') return undefined
+          const backend = props.app.backendForTab(at.tab)
+          const native = backend.protocol === 'dinkster' ? backend.connection : undefined
+          const parts = at.current.field.parts
+          const node = at.tab.store.doc.graphs[at.target.graphId]?.nodes[at.target.nodeId]
+          const row = (part: string): string | undefined => parts === undefined ? undefined
+            : Object.hasOwn(parts.writes, part) ? parts.writes[part] : parts.reads[part]
+          executions()
+          // The model is read again when its file changes, or when a wire's run brings another one.
+          const sourceKey = JSON.stringify([backend.id, ['model_file', 'model_3d'].map((part) => {
+            const at = row(part)
+            return at === undefined ? null : node?.values[at] ?? null
+          }), at.current.wiredParts.size > 0 ? props.app.executionForTab(at.tab)?.key ?? null : null])
+          return {
+            sourceKey,
+            captures: parts === undefined || !Object.hasOwn(parts.writes, 'state'),
+            ports: {
+              open: (signal: AbortSignal) => openLoad3dSource(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts }, signal),
+              upload: native === undefined ? undefined
+                : (file: File, signal: AbortSignal) => native.uploadMediaAsset(file, { scope: 'local', kind: 'media/video', name: file.name, signal }),
+              commit: at.commit,
+              setSection: (id: string, open: boolean) => void props.app.dispatchTo(at.tab, { command: 'view.setSectionCollapsed',
+                params: { graphId: at.graphId, nodeId: at.current.nodeId, sectionId: `${at.current.row.valueKey}.${id}`, collapsed: open ? false : null } }),
+            },
+          }
+        }
+        const compare = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.imageCompare') return undefined
+          executions()
+          return imageCompareFrames(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts: at.current.field.parts })
+        }
+        const cameraAngle = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.cameraAngle') return undefined
+          const parts = at.current.field.parts
+          const node = at.tab.store.doc.graphs[at.target.graphId]?.nodes[at.target.nodeId]
+          const schema = node === undefined ? undefined : props.app.registryForTab(at.tab)?.resolve(node.type)
+          const defaults = schema === undefined ? {} : defaultValuesOf(schema)
+          // Each angle is the row the widget writes under that part; a wired one shows what its wire brought.
+          const row = (part: string): string | undefined => parts !== undefined && Object.hasOwn(parts.writes, part) ? parts.writes[part] : undefined
+          const fields = Object.fromEntries(CAMERA_ANGLE_PARTS.map((part) => {
+            const wired = at.current.wiredParts.has(part)
+            const written = row(part)
+            const value = wired ? at.current.carriedParts[part] : written === undefined ? undefined : node?.values[written] ?? defaults[written]
+            return [part, { value: typeof value === 'number' ? value : undefined, wired }]
+          })) as Parameters<typeof CameraAngleSpace>[0]['fields']
+          return {
+            fields,
+            commit: (part: string, value: number) => {
+              const inputId = row(part)
+              if (inputId === undefined) return
+              void props.app.dispatchTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, at.current.field.materialize,
+                { command: 'node.setValue', params: { graphId: at.target.graphId, nodeId: at.target.nodeId, inputId, value } }))
+            },
+          }
+        }
+        return (
+          <Show when={item() !== undefined && projected() !== undefined}>
+            <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl} covers={covers()}
+              pictureHeight={item()!.nodeId === boundarySceneId('inputs') ? {
+                // The panel has no stored size: its picture's new height is stored when the drag ends.
+                preview: () => {},
+                commit: (height) => {
+                  const tab = activeTab()
+                  if (tab !== undefined) void props.app.dispatchTo(tab, { command: 'view.setPictureHeight',
+                    params: { graphId: currentGraphId(tab), inputsPanel: true, valueKey: item()!.row.valueKey, height } })
+                },
+              } : {
+                preview: (height) => editorPictureHeights?.previewPictureHeight(height === undefined ? undefined
+                  : { nodeId: item()!.nodeId, valueKey: item()!.row.valueKey, height }),
+                commit: (height) => editorPictureHeights?.commitPictureHeight(item()!.nodeId, item()!.row.valueKey, height),
+              }}>
+              <Show when={recorder()}>
+                {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} />}
+              </Show>
+              <Show when={webcam()}>
+                {(ports) => <WebcamSpace value={item()?.value} ports={ports()}
+                  wired={item()?.wired === true} carried={item()?.carried} covered={covered()} />}
+              </Show>
+              <Show when={curve()}>
+                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wiredLine={item()?.row.wiredLine === true}
+                  options={item()?.field.spec.options ?? {}} />}
+              </Show>
+              <Show when={load3d()}>
+                {(at) => <Load3dSpace value={item()?.value}
+                  sourceKey={at().sourceKey} ports={at().ports} captures={at().captures}
+                  live={liveModelViews().has(key) && !covered()}
+                  onWake={() => setWokenModelViews((woken) => [key, ...woken.filter((other) => other !== key)].slice(0, LIVE_MODEL_VIEWS))}
+                  openSections={item()?.row.openSections ?? []}
+                  cameraWired={item()?.wiredParts.has('camera_info') === true}
+                  placementWired={item()?.wiredParts.has('model_3d_info') === true} />}
+              </Show>
+              <Show when={cameraAngle()}>
+                {(at) => <CameraAngleSpace fields={at().fields} commit={at().commit} />}
+              </Show>
+              <Show when={compare() !== undefined}>
+                <ImageCompareSpace frames={compare() ?? { image_a: [], image_b: [] }} pictureHeight={item()?.row.picture?.height ?? 0} />
+              </Show>
+            </NodeEditorSpaceOverlay>
           </Show>
         )
       }}</For>
@@ -7202,6 +7419,50 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         )}
       </Show>
 
+      <Show when={problemBox()}>
+        {(box) => {
+          const placement = () => {
+            editorViewport()
+            problemBoxTick()
+            return problemBoxHost?.place(box().nodeId)
+          }
+          return (
+            <Show when={placement()}>
+              {(at) => (
+                <NodeProblemBox
+                  ref={(element) => { problemBoxElement = element }}
+                  x={at().x}
+                  y={at().y}
+                  nodeId={box().nodeId}
+                  nodeTitle={box().nodeTitle}
+                  lines={box().lines}
+                  highlighted={box().highlighted}
+                  onPointLine={(line) => {
+                    const open = problemBox()
+                    if (!open) return
+                    if (line?.key !== open.highlighted) setProblemBox({ ...open, highlighted: line?.key })
+                    problemBoxHost?.highlightRow(line?.row === undefined ? undefined : { nodeId: open.nodeId, row: line.row })
+                  }}
+                  onAction={(line, action) => {
+                    const open = problemBox()
+                    if (!open) return
+                    if (action === 'edit-field' && line.row !== undefined) {
+                      closeProblemBox()
+                      problemBoxHost?.editField(open.nodeId, line.row)
+                    } else if (action === 'locate-asset') {
+                      const data = line.problem.diagnostic.data
+                      closeProblemBox()
+                      problemBoxHost?.editField(open.nodeId, data!['input'] as string,
+                        typeof data?.['digest'] === 'string' ? data['digest'] : undefined)
+                    }
+                  }}
+                />
+              )}
+            </Show>
+          )
+        }}
+      </Show>
+
       <Show when={badgePopover()}>
         {(p) => (
           <BadgePopover
@@ -7232,135 +7493,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             onOpenSubgraph={openSubgraphFromPopover}
             onClose={() => setBadgePopover(undefined)}
           />
-        )}
-      </Show>
-
-      <Show when={vsPopover()}>
-        {(p) => (
-          <div
-            class="badge-popover"
-            data-testid="value-source-popover"
-            tabindex="-1"
-            ref={(el) => queueMicrotask(() => el.focus())}
-            style={{ left: `${p().x}px`, top: `${p().y}px` }}
-            onFocusOut={(e) => {
-              // Stay open while focus moves within the popover (buttons).
-              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setVsPopover(undefined)
-            }}
-          >
-            <Show
-              when={valueSourceInfoFor(p().valueSourceId)}
-              fallback={<ProductEmptyState title="Value source missing." />}
-            >
-              {(info) => (
-                <>
-                  <div class="badge-popover-title">
-                    Value Source: {info().vs.title ?? info().effective.spec?.widgetType ?? 'value'}
-                  </div>
-                  <p
-                    class="badge-popover-line"
-                    data-testid="value-source-spec-state"
-                    data-state={info().specState}
-                  >
-                    {info().specState === 'declared'
-                      ? 'spec: declared (pinned)'
-                      : info().specState === 'derived'
-                        ? 'spec: derived from consumers'
-                        : 'spec: none (raw value)'}
-                    {info().effective.spec ? ` - ${info().effective.spec!.widgetType}` : ''}
-                    {` - drives ${info().effective.consumers.length} input${
-                      info().effective.consumers.length === 1 ? '' : 's'
-                    }`}
-                  </p>
-                  <For each={info().effective.diagnostics}>
-                    {(d) => (
-                      <p class="badge-popover-line" data-testid="value-source-conflict">
-                        {d.message}
-                      </p>
-                    )}
-                  </For>
-                  <Show when={!frozen() && info().specState === 'derived' && info().effective.spec}>
-                    <ProductButton size="compact"
-                      class="banner-button"
-                      data-testid="value-source-pin-spec"
-                      // mousedown, not click: fires before the popover blurs.
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        pinValueSourceSpec(p().valueSourceId)
-                      }}
-                    >
-                      Pin Current Spec
-                    </ProductButton>
-                  </Show>
-                  <Show when={!frozen() && info().specState === 'declared'}>
-                    <ProductButton size="compact"
-                      class="banner-button"
-                      data-testid="value-source-unpin-spec"
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        unpinValueSourceSpec(p().valueSourceId)
-                      }}
-                    >
-                      Unpin Spec
-                    </ProductButton>
-                  </Show>
-                </>
-              )}
-            </Show>
-          </div>
-        )}
-      </Show>
-
-      <Show when={selExecPopover()}>
-        {(p) => (
-          <div
-            class="badge-popover"
-            data-testid="selector-exec-popover"
-            tabindex="-1"
-            ref={(el) => queueMicrotask(() => el.focus())}
-            style={{ left: `${p().x}px`, top: `${p().y}px` }}
-            onFocusOut={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setSelExecPopover(undefined)
-            }}
-          >
-            <Show
-              when={selectorExecInfoFor(p().selectorId)}
-              fallback={<ProductEmptyState title="Selector missing." />}
-            >
-              {(info) => (
-                <>
-                  <div class="badge-popover-title">Selector: {info().sel.title ?? 'Select'}</div>
-                  <Show
-                    when={info().choice}
-                    fallback={
-                      <p class="badge-popover-line" data-testid="selector-exec-no-choice">
-                        Not resolved by this execution (branch not reached).
-                      </p>
-                    }
-                  >
-                    {(choice) => (
-                      <>
-                        <p
-                          class="badge-popover-line"
-                          data-testid="selector-exec-choice"
-                          data-policy={choice().policy}
-                          data-candidate={choice().candidate}
-                        >
-                          {choice().policy === 'random' ? 'Random pick' : 'Fixed pick'}
-                          {': '}
-                          {info().candidate?.title ??
-                            (info().index >= 0 ? `candidate ${info().index + 1}` : choice().candidate)}
-                        </p>
-                        <p class="badge-popover-line">
-                          This execution used this branch; the recorded choice never changes.
-                        </p>
-                      </>
-                    )}
-                  </Show>
-                </>
-              )}
-            </Show>
-          </div>
         )}
       </Show>
 
@@ -7402,20 +7534,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             initial={p.initial}
             onCommit={nodePromptCommit}
             onCancel={() => setNodePrompt(undefined)}
-          />
-        )}
-      </Show>
-
-      <Show when={selectorPrompt()} keyed>
-        {(p) => (
-          <NamePrompt
-            x={p.x}
-            y={p.y}
-            testid="selector-prompt"
-            placeholder="Selector title..."
-            initial={p.initial}
-            onCommit={selectorPromptCommit}
-            onCancel={() => setSelectorPrompt(undefined)}
           />
         )}
       </Show>

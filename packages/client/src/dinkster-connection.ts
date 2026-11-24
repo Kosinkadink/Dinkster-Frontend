@@ -1878,6 +1878,7 @@ export class DinksterConnection {
   private readonly memoryListeners = new Set<(status: MemoryStatus) => void>()
   private readonly mountListeners = new Set<() => void>()
   private readonly libraryListeners = new Set<() => void>()
+  private readonly lookupListeners = new Set<(functions: readonly string[]) => void>()
   private readonly socket: ReconnectingSocket
   private readonly jobIdFactory: () => string
   private protocolErrors = 0
@@ -2017,6 +2018,12 @@ export class DinksterConnection {
     return () => this.libraryListeners.delete(listener)
   }
 
+  /** The declared lookups whose kept answers a host event made old, by wire name. */
+  onLookupsChanged(listener: (functions: readonly string[]) => void): () => void {
+    this.lookupListeners.add(listener)
+    return () => this.lookupListeners.delete(listener)
+  }
+
   private emit(events: readonly NormalizedEvent[]): void {
     for (const e of events) for (const l of [...this.listeners]) l(e)
   }
@@ -2025,6 +2032,11 @@ export class DinksterConnection {
     if (live && !(raw instanceof ArrayBuffer) && (raw.type === 'mounts_changed' || raw.type === 'library_changed')) {
       for (const listener of [...this.mountListeners]) listener()
       if (raw.type === 'library_changed') for (const listener of [...this.libraryListeners]) listener()
+      return
+    }
+    if (live && !(raw instanceof ArrayBuffer) && raw.type === 'lookups_changed') {
+      const functions = Array.isArray(raw['functions']) ? raw['functions'].filter((name) => typeof name === 'string') : []
+      if (functions.length > 0) for (const listener of [...this.lookupListeners]) listener(functions)
       return
     }
     if (live && !(raw instanceof ArrayBuffer)) this.noteLiveJobEvent(raw)

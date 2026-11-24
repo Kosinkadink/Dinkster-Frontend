@@ -7,10 +7,10 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, compile, documentResolver, loadDocument, type InputSpec, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
-import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, selectorBadgeRect, valueSourceBadgeRect, VS_BADGE_SIZE, type Scene, type SceneNode } from '../src/scene.js'
+import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, type Scene, type SceneNode } from '../src/scene.js'
 import { paintToolboxIcon } from '../src/icons.js'
 import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
-import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
+import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, outputRowKey, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasPaintTokens, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
 import { projectNodeLayoutHeight, TITLE_START, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
@@ -172,6 +172,10 @@ const synthetic = new Map<string, NodeSchema>([
     type: 'PLAT', displayName: 'LatSrc', category: 'test', source: 'v3', isOutputNode: false,
     body: [{ kind: 'output', id: 'out', type: typed('LATENT') }],
   }],
+  ['PFLT', {
+    type: 'PFLT', displayName: 'FloatSrc', category: 'test', source: 'v3', isOutputNode: false,
+    body: [{ kind: 'output', id: 'out', type: typed('FLOAT') }],
+  }],
   ['dinkster.string_to_combo', {
     type: 'dinkster.string_to_combo', displayName: 'Convert String to Combo', category: 'string', source: 'v3', isOutputNode: false,
     body: [
@@ -204,6 +208,15 @@ const synthetic = new Map<string, NodeSchema>([
   // A group whose member holds only a group: the spare member renders nothing, so
   // the node carries a growth affordance row instead (dynamic-scene tests
   // prove the derivation; here we pin its paint).
+  ['PSection', {
+    type: 'PSection', displayName: 'Sectioned', category: 'test', source: 'v3', isOutputNode: false,
+    body: [
+      { kind: 'input', id: 'image', type: typed('IMAGE'), optional: false },
+      { kind: 'section', id: 'sampling', displayName: 'Sampling', rows: [
+        { kind: 'input', id: 'steps', type: typed('INT'), optional: false, widget: { widgetType: 'INT', options: {}, default: 20 } },
+      ] },
+    ],
+  }],
   ['PNest', {
     type: 'PNest', displayName: 'PureNest', category: 'test', source: 'v3', isOutputNode: false,
     body: [{
@@ -294,7 +307,7 @@ const paintWith = (scene: Scene, setup?: (r: CanvasRenderer) => void): PaintCall
 const paint = (scene: Scene): PaintCall[] => paintWith(scene)
 
 const emptyScene = (parts: Partial<Scene> = {}): Scene => ({
-  graphId: 'bounds', nodes: [], links: [], reroutes: [], valueSources: [], selectors: [],
+  graphId: 'bounds', nodes: [], links: [], reroutes: [],
   netStubs: [], groups: [], boundaryNodes: [], diagnostics: [], ...parts,
 })
 
@@ -795,11 +808,9 @@ describe('graph image reuse', () => {
       renderer.setCompanions({})
       renderer.setBadges({})
       renderer.setNodeDecorations({})
-      renderer.setPortProblems({})
       renderer.setNodePreviews({})
       renderer.setNodeOutputTexts({})
       renderer.setInactiveNodes(undefined)
-      renderer.setSelectorResolutions(undefined)
       renderer.setScopeHighlight(undefined)
       renderer.setToolbox([])
       renderer.setPresence([])
@@ -888,11 +899,9 @@ describe('scene visual bounds and fitting', () => {
     })
   })
 
-  it('includes reroutes, groups, value sources, selectors, net stubs, and boundary nodes', () => {
+  it('includes reroutes, groups, net stubs, and boundary nodes', () => {
     const reroute = { id: 'r', x: -100, y: 50 }
     const group = { id: 'g', title: 'g', x: 10, y: -80, width: 900, height: 700 }
-    const valueSource = { x: 950, y: 10, width: 20, height: 20 }
-    const selector = { x: 20, y: 750, width: 30, height: 40 }
     const netStub = { x: 1000, y: 800, width: 50, height: 10 }
     const boundary = { ...base.nodes[1]!, side: 'inputs' as const }
     expect(sceneVisualBounds(emptyScene({ reroutes: [reroute] }))).toEqual({
@@ -900,10 +909,6 @@ describe('scene visual bounds and fitting', () => {
       maxX: -100 + REROUTE_RADIUS, maxY: 50 + REROUTE_RADIUS,
     })
     expect(sceneVisualBounds(emptyScene({ groups: [group] }))).toEqual({ minX: 10, minY: -80, maxX: 910, maxY: 620 })
-    expect(sceneVisualBounds(emptyScene({ valueSources: [valueSource as Scene['valueSources'][number]] })))
-      .toEqual({ minX: 950, minY: 10, maxX: 970, maxY: 30 })
-    expect(sceneVisualBounds(emptyScene({ selectors: [selector as Scene['selectors'][number]] })))
-      .toEqual({ minX: 20, minY: 750, maxX: 50, maxY: 790 })
     expect(sceneVisualBounds(emptyScene({ netStubs: [netStub as Scene['netStubs'][number]] })))
       .toEqual({ minX: 1000, minY: 800, maxX: 1050, maxY: 810 })
     expect(sceneVisualBounds(emptyScene({ boundaryNodes: [boundary] }))).toEqual({
@@ -911,8 +916,7 @@ describe('scene visual bounds and fitting', () => {
       maxX: boundary.x + boundary.layout.width, maxY: boundary.y + boundary.layout.height,
     })
     const bounds = sceneVisualBounds(emptyScene({
-      reroutes: [reroute], groups: [group], valueSources: [valueSource as Scene['valueSources'][number]],
-      selectors: [selector as Scene['selectors'][number]], netStubs: [netStub as Scene['netStubs'][number]],
+      reroutes: [reroute], groups: [group], netStubs: [netStub as Scene['netStubs'][number]],
       boundaryNodes: [boundary],
     }))!
     expect(bounds).toEqual({ minX: -100 - REROUTE_RADIUS, minY: -80, maxX: 1050, maxY: 810 })
@@ -962,7 +966,7 @@ describe('scene visual bounds and fitting', () => {
       const drop = renderer.getNodeBadgeLayout(node)
       const dropOutset = scale === 0.5 ? 3.5 : 2.75
       expect(drop[0]!.y + drop[0]!.height).toBe(node.y - dropOutset - 3)
-      renderer.setScopeHighlight({ nodes: new Set([node.id]), reroutes: new Set(), selectors: new Set(), selectorCandidates: new Set(), valueSources: new Set() })
+      renderer.setScopeHighlight({ nodes: new Set([node.id]), reroutes: new Set() })
       const scoped = renderer.getNodeBadgeLayout(node)
       const scopeOutset = scale === 0.5 ? 7 : 6.25
       expect(scoped[0]!.y + scoped[0]!.height).toBe(node.y - scopeOutset - 3)
@@ -1142,16 +1146,15 @@ describe('viewport culling regressions', () => {
 
     const scene = emptyScene({ netStubs: [{ ...source, guide: true }, { ...sink, guide: true }] })
     const shown = paintWith(scene, () => undefined)
-    // One casing pass plus one colored pass, both dashed, from the Set
+    // One casing pass plus one colored pass, both solid, from the Set
     // tag's free edge (90, 100) to the Get tag's free edge (200, 100).
     const curves = shown.filter((call) => call.method === 'bezierCurveTo')
     expect(curves).toHaveLength(2)
     for (const curve of curves) {
-      expect(curve.lineDash).toEqual([7, 5])
+      expect(curve.lineDash).toEqual([])
       expect(curve.args.slice(-2)).toEqual([200, 100])
     }
-    expect(shown.some((call) => call.method === 'moveTo' && call.args[0] === 90 && call.args[1] === 100 &&
-      call.lineDash.length === 2)).toBe(true)
+    expect(shown.some((call) => call.method === 'moveTo' && call.args[0] === 90 && call.args[1] === 100)).toBe(true)
     expect(curves.some((curve) => curve.strokeStyle === defaultTokens.colors.canvasBackground)).toBe(true)
     expect(curves.some((curve) => curve.strokeStyle === typeColor(defaultTokens, 'FLOAT'))).toBe(true)
   })
@@ -1222,62 +1225,44 @@ describe('diagnostic paint on the live renderer', () => {
     expect(calls.some((c) => c.method === 'fill' && c.fillStyle === ERR)).toBe(true)
   })
 
-  it('a warned pin draws an error ring WITHOUT dropping its normal pin fill', () => {
-    const base = fixtureScene()
-    // Scene->warn derivation is proven in dynamic-scene.test.ts; here inject
-    // the flag to test the renderer contract in isolation.
-    const scene: Scene = {
-      ...base,
-      nodes: base.nodes.map((n) =>
-        n.id === 'c2'
-          ? {
-              ...n,
-              layout: {
-                ...n.layout,
-                pins: n.layout.pins.map((p) => (p.portId === 'in' ? { ...p, warn: true as const } : p)),
-              },
-            }
-          : n,
-      ),
-    }
-    const calls = paint(scene)
-    const ringRadius = defaultTokens.pinRadius + 3.5
-    // The ring: an arc at ring radius stroked with the error color.
-    const ringArcIdx = calls.findIndex((c) => c.method === 'arc' && c.args[2] === ringRadius)
-    expect(ringArcIdx).toBeGreaterThanOrEqual(0)
-    const ringStroke = calls.slice(ringArcIdx + 1).find((c) => c.method === 'stroke')
-    expect(ringStroke?.strokeStyle).toBe(ERR)
-    // The pin body still paints at the same coordinates with its type color.
-    const [rx, ry] = calls[ringArcIdx]!.args as [number, number]
-    const bodyIdx = calls.findIndex(
-      (c) => c.method === 'arc' && c.args[0] === rx && c.args[1] === ry && c.args[2] === defaultTokens.pinRadius,
-    )
-    expect(bodyIdx).toBeGreaterThan(ringArcIdx)
-    const bodyFill = calls.slice(bodyIdx + 1).find((c) => c.method === 'fill' || c.method === 'stroke')
-    expect(bodyFill?.method).toBe('fill')
-    expect(bodyFill?.fillStyle).toBe(typeColor(defaultTokens, 'LATENT'))
-  })
-
   it.each([
     ['error', defaultTokens.colors.error],
-    ['blocking-warning', defaultTokens.colors.blockingWarning],
     ['warning', PROBLEM_WARNING_BADGE.color],
-  ] as const)('paints an exact input problem ring for %s severity', (kind, color) => {
+  ] as const)('a %s on an input without a field outlines its row and rings no pin', (kind, color) => {
     const scene = fixtureScene('clean')
     const sink = nodeOf(scene, 'c2')
+    const row = sink.layout.rows.find((candidate) => candidate.kind === 'ports' && candidate.input?.portId === 'in')!
     const pin = sink.layout.pins.find((candidate) => candidate.direction === 'in' && candidate.portId === 'in')!
     const px = sink.x + PIN_INSET
     const py = sink.y + pin.y + PIN_DROP
-    const calls = paintWith(scene, (renderer) => renderer.setPortProblems({ c2: { in: kind } }))
-    const ring = calls.findIndex((call) =>
-      call.method === 'arc' && call.args[0] === px && call.args[1] === py &&
-      call.args[2] === defaultTokens.pinRadius + 3.5)
-
-    expect(ring).toBeGreaterThanOrEqual(0)
-    expect(paintedAfter(calls, ring, 'stroke')?.strokeStyle).toBe(color)
+    const calls = paintWith(scene, (renderer) => renderer.setRowMarks({ c2: { in: kind } }))
+    const innerWidth = sink.layout.width - defaultTokens.padX * 2
+    const chrome = widgetChromeRect(sink.x + defaultTokens.padX, sink.y + row.y,
+      row.kind === 'ports' && row.output !== undefined ? innerWidth / 2 : innerWidth, row.height, defaultTokens.rowGeometry.fieldInsetY)
+    const outline = calls.findIndex((call) =>
+      call.method === 'roundRect' && call.args[0] === chrome.x && call.args[1] === chrome.y &&
+      call.args[2] === chrome.width && call.args[3] === chrome.height)
+    expect(outline).toBeGreaterThanOrEqual(0)
+    expect(paintedAfter(calls, outline, 'stroke')?.strokeStyle).toBe(color)
     expect(calls.some((call) =>
       call.method === 'arc' && call.args[0] === px && call.args[1] === py &&
-      call.args[2] === defaultTokens.pinRadius)).toBe(true)
+      call.args[2] === defaultTokens.pinRadius + 3.5)).toBe(false)
+  })
+
+  it('a problem on an output outlines the output row', () => {
+    const scene = fixtureScene('clean')
+    const source = scene.nodes.find((node) => node.layout.rows.some((candidate) => candidate.kind === 'ports' && candidate.output !== undefined))!
+    const row = source.layout.rows.find((candidate) => candidate.kind === 'ports' && candidate.output !== undefined)
+    if (row?.kind !== 'ports' || row.output === undefined) throw new Error('fixture has no output row')
+    const calls = paintWith(scene, (renderer) => renderer.setRowMarks({ [source.id]: { [outputRowKey(row.output!.portId)]: 'warning' } }))
+    const innerWidth = source.layout.width - defaultTokens.padX * 2
+    const width = row.input === undefined ? innerWidth : innerWidth / 2
+    const chrome = widgetChromeRect(source.x + defaultTokens.padX + (row.input === undefined ? 0 : width), source.y + row.y, width,
+      row.height, defaultTokens.rowGeometry.fieldInsetY)
+    const outline = calls.findIndex((call) =>
+      call.method === 'roundRect' && call.args[0] === chrome.x && call.args[1] === chrome.y && call.args[2] === chrome.width)
+    expect(outline).toBeGreaterThanOrEqual(0)
+    expect(paintedAfter(calls, outline, 'stroke')?.strokeStyle).toBe(PROBLEM_WARNING_BADGE.color)
   })
 
   it.each([66, 300, 1200])('bounds panned drawing work for %i nodes without rebuilding link lookups', (count) => {
@@ -1329,8 +1314,7 @@ describe('diagnostic paint on the live renderer', () => {
     // Empty scene: every painted arc is a grid dot, so geometry assertions
     // need no filtering.
     const empty: Scene = {
-      graphId: 'g0', nodes: [], links: [], reroutes: [], valueSources: [],
-      selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
+      graphId: 'g0', nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
     }
     const gridDot = defaultTokens.colors.gridDot
     const frame = (setup?: (r: CanvasRenderer) => void) => {
@@ -1479,9 +1463,9 @@ describe('diagnostic paint on the live renderer', () => {
 
 // ---------------------------------------------------------------------------
 // Construct fixture: one real document carrying every non-node construct
-// (reroute chain, value source, selector, collapsed net, view groups) so
+// (reroute chain, float source, collapsed net, view groups) so
 // each paint contract is proven against buildScene output, not hand-cast
-// scene objects. Variants (derived spec, random policy) clone-and-tweak.
+// scene objects. Variants clone-and-tweak.
 // ---------------------------------------------------------------------------
 
 const constructsJson = () => ({
@@ -1498,16 +1482,15 @@ const constructsJson = () => ({
         lat2: { id: 'lat2', type: 'PLAT', values: {} },
         c1: { id: 'c1', type: 'SinkLatent', values: {} },
         c2: { id: 'c2', type: 'SinkLatent', values: {} },
+        flt: { id: 'flt', type: 'PFLT', values: {} },
         fs: { id: 'fs', type: 'FSink', values: {} },
         fs2: { id: 'fs2', type: 'FSink', values: {} },
         opt: { id: 'opt', type: 'SinkOpt', values: {} },
         opt2: { id: 'opt2', type: 'SinkOpt', values: {} },
       },
       links: {
-        lv: { id: 'lv', from: { valueSource: 'vs' }, to: { node: 'fs', port: 'f' } },
-        s1: { id: 's1', from: { node: 'lat', port: 'out' }, to: { selector: 'sel', candidate: 'p1' } },
-        s2: { id: 's2', from: { node: 'lat2', port: 'out' }, to: { selector: 'sel', candidate: 'p2' } },
-        s3: { id: 's3', from: { selector: 'sel' }, to: { node: 'c1', port: 'in' } },
+        lv: { id: 'lv', from: { node: 'flt', port: 'out' }, to: { node: 'fs', port: 'f' } },
+        s3: { id: 's3', from: { node: 'lat', port: 'out' }, to: { node: 'c1', port: 'in' } },
         ra: { id: 'ra', from: { node: 'lat', port: 'out' }, to: { reroute: 'rr' } },
         rb: { id: 'rb', from: { reroute: 'rr' }, to: { node: 'c2', port: 'in' } },
       },
@@ -1515,10 +1498,6 @@ const constructsJson = () => ({
         n1: { id: 'n1', name: 'feed', source: { node: 'lat2', port: 'out' }, sinks: [{ node: 'opt', port: 'in' }] },
       },
       reroutes: { rr: { id: 'rr' } },
-      valueSources: { vs: { id: 'vs', value: 2.5, spec: { widgetType: 'FLOAT' } } },
-      selectors: {
-        sel: { id: 'sel', candidates: [{ id: 'p1' }, { id: 'p2' }], policy: { kind: 'fixed', candidate: 'p1' } },
-      },
       nextOrdinal: 100,
     },
   },
@@ -1534,13 +1513,12 @@ const constructsJson = () => ({
           fs2: { position: { x: 760, y: 640 } },
           opt: { position: { x: 460, y: 640 } },
           opt2: { position: { x: 60, y: 640 } },
+          flt: { position: { x: 460, y: 470 } },
         },
         groups: {
           ga: { id: 'ga', title: 'Stage A', bounds: { x: 20, y: 20, width: 380, height: 320 }, color: '#3fa34d' },
           gb: { id: 'gb', title: 'Stage B', bounds: { x: 20, y: 380, width: 200, height: 150 } },
         },
-        valueSources: { vs: { position: { x: 460, y: 470 } } },
-        selectors: { sel: { position: { x: 460, y: 80 } } },
         reroutes: { rr: { position: { x: 460, y: 300 } } },
         collapsedNets: ['n1'],
       },
@@ -2113,6 +2091,15 @@ describe('node chrome paint on the live renderer', () => {
     expect(nodeBorder(calls, node)?.lineWidth).toBe(2.5)
   })
 
+  it('outlines a node with an Error in solid red', () => {
+    const scene = fixtureScene('clean')
+    const node = nodeOf(scene, 'c1')
+    const border = nodeBorder(paintWithTokens(scene, defaultTokens,
+      (renderer) => renderer.setBadges({ c1: [PROBLEM_ERROR_BADGE] })), node)
+    expect(border?.strokeStyle).toBe(ERR)
+    expect(border?.lineDash).toEqual([])
+  })
+
   it('muted and bypassed dim the whole node; bypassed also gets the purple wash', () => {
     // Mode->paint is the renderer's contract; mode storage is document
     // state proven elsewhere, so inject the mode on the scene node.
@@ -2178,47 +2165,27 @@ describe('node chrome paint on the live renderer', () => {
     expect(nodeBorder(calls, node)?.strokeStyle).toBe(outline)
   })
 
-  it('a document-error badge wins over running with an emphasized red node outline', () => {
+  it('a document-error tab wins over running with an emphasized red node outline', () => {
     const scene = fixtureScene('clean')
     const node = nodeOf(scene, 'c1')
     const calls = paintWith(scene, (renderer) => {
       renderer.setNodeStates({ c1: { state: 'running', value: 0.5 } })
-      renderer.setBadges({ c1: [PROBLEM_ERROR_BADGE] })
+      renderer.setBadges({ c1: [problemBadge(PROBLEM_ERROR_BADGE, 2)] })
     })
     expect(nodeBorder(calls, node)?.strokeStyle).toBe(defaultTokens.colors.error)
     expect(nodeBorder(calls, node)?.lineWidth).toBe(2.5)
   })
 
-  it('a blocking-warning badge wins over a completed run with an emphasized orange node outline', () => {
+  it('a warning tab leaves the node outline as its run state draws it', () => {
     const scene = fixtureScene('clean')
     const node = nodeOf(scene, 'c1')
-    const tokens: DesignTokens = {
-      ...defaultTokens,
-      colors: { ...defaultTokens.colors, blockingWarning: '#d47728' },
-    }
-    const calls = paintWithTokens(scene, tokens, (renderer) => {
-      renderer.setNodeStates({ c1: { state: 'done' } })
-      renderer.setBadges({ c1: [PROBLEM_BLOCKING_WARNING_BADGE] })
-    })
-    expect(PROBLEM_BLOCKING_WARNING_BADGE.color).toBe(defaultTokens.colors.blockingWarning)
-    expect(nodeBorder(calls, node)?.strokeStyle).toBe(tokens.colors.blockingWarning)
-    expect(nodeBorder(calls, node)?.lineWidth).toBe(2.5)
-    expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Warning')?.fillStyle)
-      .toBe(mixHex(tokens.colors.title, tokens.colors.blockingWarning, 0.7))
-  })
-
-  it('running state wins over a blocking-warning outline', () => {
-    const scene = fixtureScene('clean')
-    const node = nodeOf(scene, 'c1')
-    const calls = paintWith(scene, (renderer) => {
+    const idle = paintWith(scene, (renderer) => renderer.setBadges({ c1: [PROBLEM_WARNING_BADGE] }))
+    expect(nodeBorder(idle, node)?.strokeStyle).toBe(defaultTokens.colors.nodeIdleOutline)
+    const running = paintWith(scene, (renderer) => {
       renderer.setNodeStates({ c1: { state: 'running', value: 0.5 } })
-      renderer.setBadges({ c1: [PROBLEM_BLOCKING_WARNING_BADGE] })
+      renderer.setBadges({ c1: [PROBLEM_WARNING_BADGE] })
     })
-    expect(nodeBorder(calls, node)).toMatchObject({
-      strokeStyle: defaultTokens.stateColors.running,
-      lineWidth: 2.5,
-      lineDash: [],
-    })
+    expect(nodeBorder(running, node)?.strokeStyle).toBe(defaultTokens.stateColors.running)
   })
 
   it('a fallback value row paints its stored key and value text', () => {
@@ -2244,11 +2211,11 @@ describe('node chrome paint on the live renderer', () => {
     expect(texts).toContain('20')
   })
 
-  it('a diagnosed widget row paints a red outline; undiagnosed rows never do', () => {
+  it('a field with an error paints a red outline; undiagnosed rows never do', () => {
     const scene = constructsScene()
     const free = nodeOf(scene, 'fs2')
     const row = free.layout.rows.find((candidate) => candidate.kind === 'widget')!
-    const marked = paintWith(scene, (r) => r.setRowMarks({ fs2: new Set([row.valueKey]) }))
+    const marked = paintWith(scene, (r) => r.setRowMarks({ fs2: { [row.valueKey]: 'error' } }))
     const chrome = widgetChromeRect(
       free.x + row.inset,
       free.y + row.y,
@@ -2267,7 +2234,7 @@ describe('node chrome paint on the live renderer', () => {
         c.args[4] === chrome.radius,
     )
     expect(outline).toBeDefined()
-    expect(outline?.lineWidth).toBe(1.5)
+    expect(outline?.lineWidth).toBe(canvasPaintTokens.widget.diagnosticStroke)
     // No marks installed: no widget row paints the red outline.
     const unmarked = paint(scene)
     expect(
@@ -2732,7 +2699,7 @@ describe('node chrome paint on the live renderer', () => {
     expect(next?.globalAlpha).toBeCloseTo(0.45)
   })
 
-  it('a growth row paints a dashed ghost-alpha capsule with the "+ label" text', () => {
+  it('a growth row paints an outlined Add row as wide as a member box, at full strength', () => {
     const doc: WorkflowDocument = {
       format: 'dinkster-workflow',
       formatVersion: 1,
@@ -2762,34 +2729,69 @@ describe('node chrome paint on the live renderer', () => {
     const n = nodeOf(scene, 'p')
     const row = n.layout.rows.find((r) => r.kind === 'growth')!
     expect(row).toBeDefined()
-    const t = defaultTokens
     const calls = paint(scene)
-    // Dashed capsule: setLineDash([3,3]) precedes the strokeRect at the row
-    // rect, dimmed to ghost alpha; the dash resets afterwards so nothing
-    // downstream inherits it.
-    const rectIdx = calls.findIndex(
-      (c) =>
-        c.method === 'strokeRect' &&
-        c.args[0] === n.x + t.padX &&
-        c.args[1] === n.y + row.y + 3 &&
-        c.args[2] === n.layout.width - t.padX * 2 &&
-        c.args[3] === row.height - 6,
-    )
-    expect(rectIdx).toBeGreaterThanOrEqual(0)
-    expect(calls[rectIdx]!.globalAlpha).toBeCloseTo(0.45)
-    const dashBefore = calls.slice(0, rectIdx).filter((c) => c.method === 'setLineDash')
-    expect(dashBefore.at(-1)?.args).toEqual([[3, 3]])
-    const dashAfter = calls.slice(rectIdx + 1).find((c) => c.method === 'setLineDash')
-    expect(dashAfter?.args).toEqual([[]])
-    // The affordance text: centered '+ items' at the same dimmed alpha.
+    // A solid outline inside the group's box, never the dashed ghost capsule.
+    const half = canvasPaintTokens.node.box.stroke / 2
+    const vi = defaultTokens.rowGeometry.fieldInsetY
+    const outline = calls.findIndex((c) =>
+      c.method === 'roundRect' &&
+      c.args[0] === n.x + row.inset + half &&
+      c.args[1] === n.y + row.y + vi + half &&
+      c.args[2] === n.layout.width - row.inset * 2 - half * 2)
+    expect(outline).toBeGreaterThanOrEqual(0)
+    const group = n.layout.boxes!.find((box) => box.id === 'group:items')!
+    expect(row.inset).toBeGreaterThan(group.x)
+    expect(calls.slice(0, outline).filter((c) => c.method === 'setLineDash').at(-1)?.args ?? [[]]).toEqual([[]])
     const text = calls.find((c) => c.method === 'fillText' && c.args[0] === '+ items')
     expect(text).toBeDefined()
-    expect(text!.globalAlpha).toBeCloseTo(0.45)
+    expect(text!.globalAlpha).toBeCloseTo(1)
+  })
+
+  it('a section is an outlined box with its name on a header row, and no filled bar', () => {
+    const doc: WorkflowDocument = {
+      format: 'dinkster-workflow',
+      formatVersion: 1,
+      lineage: asLineageId('lin1'),
+      root: asGraphDefId('g0'),
+      graphs: {
+        g0: {
+          id: asGraphDefId('g0'),
+          name: 'g',
+          nodes: { p: { id: asNodeId('p'), type: 'PSection', values: {} } },
+          links: {},
+          nets: {},
+          reroutes: {},
+          nextOrdinal: 100,
+        },
+      },
+      view: { graphs: { g0: { nodes: { p: { position: { x: 100, y: 100 } } } } } },
+    }
+    const scene = buildScene({
+      document: doc,
+      graphId: 'g0',
+      resolve: (t) => synthetic.get(t),
+      tokens: defaultTokens,
+      measure,
+      widgetMeasure,
+    })
+    const n = nodeOf(scene, 'p')
+    const header = n.layout.rows.find((r) => r.kind === 'section')!
+    const [box] = n.layout.boxes!
+    const calls = paint(scene)
+    const half = canvasPaintTokens.node.box.stroke / 2
+    const outline = calls.findIndex((c) =>
+      c.method === 'roundRect' && c.args[0] === n.x + box!.x + half && c.args[1] === n.y + box!.y + half)
+    expect(outline).toBeGreaterThanOrEqual(0)
+    expect(calls.slice(outline).find((c) => c.method === 'stroke')?.strokeStyle).toBe(defaultTokens.colors.boxOutline)
+    // The old bar filled the whole header row in the field color.
+    expect(calls.some((c) => c.method === 'fillRect' && c.fillStyle === defaultTokens.colors.widgetBackground &&
+      (c.args[1] as number) >= n.y + header.y && (c.args[1] as number) < n.y + header.y + header.height)).toBe(false)
+    expect(calls.some((c) => c.method === 'fillText' && c.args[0] === 'Sampling')).toBe(true)
   })
 
   it('a widget-backed pin hides until connected or the node is selected', () => {
     const scene = constructsScene()
-    // fs is driven by the value source (pin shows); fs2 is dormant (hidden).
+    // fs is driven by the float source (pin shows); fs2 is dormant (hidden).
     const hidden = nodeOf(scene, 'fs2')
     const shown = nodeOf(scene, 'fs')
     const hPin = hidden.layout.pins.find((p) => p.widgetBacked === true)!
@@ -2868,9 +2870,6 @@ describe('badge and toolbox paint on the live renderer', () => {
       [target.id]: { color: '#ff0000', titleSuffix: 'decorated', status: 'ready' },
     }))
 
-    expect(decorated.some((call) =>
-      call.method === 'fillText' && call.args[0] === 'Sink decorated...' && call.args.length === 3,
-    )).toBe(true)
     const spacious = {
       ...scene,
       nodes: scene.nodes.map((node) => node.id === target.id
@@ -2881,10 +2880,35 @@ describe('badge and toolbox paint on the live renderer', () => {
       [target.id]: { color: '#ff0000', titleSuffix: 'decorated', status: 'ready' },
     }))
     expect(fitting.some((call) =>
-      call.method === 'fillText' && call.args[0] === `${target.layout.title} decorated (ready)` && call.args.length === 3,
+      call.method === 'fillText' && call.args[0] === `${target.layout.title} (ready)` && call.args.length === 3,
     )).toBe(true)
+    const suffix = fitting.find((call) => call.method === 'fillText' && call.args[0] === 'decorated')
+    expect([suffix?.font, suffix?.fillStyle]).toEqual([`${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`, defaultTokens.colors.label])
     expect(decorated.filter((call) => call.method === 'fill').map((call) => call.fillStyle))
       .not.toEqual(baseline.filter((call) => call.method === 'fill').map((call) => call.fillStyle))
+  })
+
+  it('draws the declared title suffix before an extension\'s, gives it way before the title, and hides it while renaming', () => {
+    const base = fixtureScene('clean')
+    const target = nodeOf(base, 'c1')
+    // The recording context measures 6 px a character; the suffix starts one space after the title.
+    const withRoom = (suffixRoom: number, titleSuffix: string) => ({
+      ...base,
+      nodes: base.nodes.map((node) => node.id === target.id
+        ? { ...node, layout: { ...node.layout, titleSuffix, width: TITLE_START + defaultTokens.padX + canvasPaintTokens.node.titleBadgeGap + 6 * (target.layout.title.length + 1) + suffixRoom } }
+        : node),
+    })
+    const texts = (calls: ReturnType<typeof paint>) => calls.filter((call) => call.method === 'fillText').map((call) => call.args[0])
+    const decorate = (renderer: CanvasRenderer) => renderer.setNodeDecorations({ [target.id]: { titleSuffix: 'decorated' } })
+
+    expect(texts(paintWith(withRoom(200, '4 steps'), decorate))).toEqual(expect.arrayContaining([target.layout.title, '4 steps decorated']))
+    // Too narrow for the whole suffix: it is cut, and the title stays whole.
+    expect(texts(paint(withRoom(60, 'twelve steps more')))).toEqual(expect.arrayContaining([target.layout.title, 'twelve ...']))
+    // Fewer than three of its characters would show: dropped whole.
+    const dropped = texts(paint(withRoom(30, 'twelve steps more')))
+    expect(dropped).toContain(target.layout.title)
+    expect(dropped.filter((text) => String(text).startsWith('tw'))).toEqual([])
+    expect(texts(paintWith(withRoom(200, '4 steps'), (renderer) => renderer.setRenamingNode(target.id)))).not.toContain('4 steps')
   })
 
   it('scope preview accents included nodes and only mildly dims excluded nodes', () => {
@@ -2893,9 +2917,6 @@ describe('badge and toolbox paint on the live renderer', () => {
     const calls = paintWith(scene, (r) => r.setScopeHighlight({
       nodes: new Set(['c1']),
       reroutes: new Set(),
-      selectors: new Set(),
-      selectorCandidates: new Set(),
-      valueSources: new Set(),
     }))
     expect(calls.some((c) =>
       c.method === 'stroke' &&
@@ -2951,8 +2972,8 @@ describe('badge and toolbox paint on the live renderer', () => {
       const call = calls.find((candidate) => candidate.method === 'fillText' && candidate.args[0] === word)!
       expect(side === 'above' ? Number(call.args[2]) < header.top : Number(call.args[2]) > n.y + n.layout.height).toBe(true)
     }
-    // The mark: 3 px padding, a 14 px icon, a 3 px gap and "12" (6 px a character here), ending padX before the right edge.
-    const markX = n.x + n.layout.width - defaultTokens.padX - (3 + 14 + 3 + 12 + 3)
+    // The mark: 3 px padding, a 14 px icon, a 3 px gap and "12" (6 px a character here), ending 3 px before the right edge.
+    const markX = n.x + n.layout.width - 3 - (3 + 14 + 3 + 12 + 3)
     const count = calls.find((call) => call.method === 'fillText' && call.args[0] === '12')!
     expect(count.args[1]).toBe(markX + 3 + 14 + 3)
     expect(Number(count.args[2])).toBeGreaterThan(header.top)
@@ -2970,7 +2991,7 @@ describe('badge and toolbox paint on the live renderer', () => {
     // Lucide's 24-unit box, moved to the given corner and scaled to the given size, with nothing kept clear.
     for (const size of [7, 14, 20]) {
       const { ctx, calls } = recordingCtx()
-      paintToolboxIcon(ctx, 'boxes', 3, 5, size, '#fff')
+      paintToolboxIcon(ctx, 'subgraph', 3, 5, size, '#fff')
       const at = calls.findIndex((call) => call.method === 'translate')
       expect(calls[at]!.args).toEqual([3, 5])
       expect(calls[at + 1]).toMatchObject({ method: 'scale', args: [size / 24, size / 24] })
@@ -2993,7 +3014,7 @@ describe('badge and toolbox paint on the live renderer', () => {
     // An icon is drawn by moving to its corner, then scaling Lucide's 24-unit box.
     const scaleAfter = (x: number, y: number) =>
       calls[calls.findIndex((call) => call.method === 'translate' && call.args[0] === x && call.args[1] === y) + 1]
-    const markX = n.x + n.layout.width - defaultTokens.padX - 20
+    const markX = n.x + n.layout.width - 3 - 20
     const markY = n.y + n.layout.headerHeight / 2 - 10
     expect(scaleAfter(markX + 3, markY + 3)).toMatchObject({ method: 'scale', args: [14 / 24, 14 / 24] })
     // The tab's words follow its 14 px icon and a 4 px gap; the tab's top is 10.5 above them.
@@ -3267,114 +3288,6 @@ describe('construct paint on the live renderer', () => {
     expect(tagStroke(sink)).toMatchObject({ strokeStyle: LATENT, lineWidth: 1 })
   })
 
-  it('a declared value source pills with a FILLED spec badge, its value text, and a typed output pin', () => {
-    const scene = constructsScene()
-    const vs = scene.valueSources[0]!
-    expect(vs.specState).toBe('declared')
-    const calls = paint(scene)
-    expect(calls.some((c) => c.method === 'fillText' && c.args[0] === vs.title)).toBe(true)
-    expect(calls.some((c) => c.method === 'fillText' && c.args[0] === vs.valueText)).toBe(true)
-    // Declared spec: the badge dot fills with the selection color.
-    const badge = valueSourceBadgeRect(vs)
-    const badgeIdx = calls.findIndex(
-      (c) => c.method === 'arc' && c.args[2] === VS_BADGE_SIZE / 2 - 2 && c.args[0] === badge.x + badge.width / 2,
-    )
-    expect(badgeIdx).toBeGreaterThanOrEqual(0)
-    const dot = calls.slice(badgeIdx + 1).find((c) => c.method === 'fill' || c.method === 'stroke')
-    expect(dot?.method).toBe('fill')
-    expect(dot?.fillStyle).toBe(SEL)
-    // Output pin in the derived FLOAT color.
-    const pinIdx = calls.findIndex(
-      (c) =>
-        c.method === 'arc' &&
-        c.args[0] === vs.x + vs.width &&
-        c.args[1] === vs.y + vs.height / 2 &&
-        c.args[2] === defaultTokens.pinRadius,
-    )
-    expect(pinIdx).toBeGreaterThanOrEqual(0)
-    expect(paintedAfter(calls, pinIdx, 'fill')?.fillStyle).toBe(FLOATC)
-  })
-
-  it('a derived spec renders the badge HOLLOW; a conflict renders "!" over an error border', () => {
-    // Derived: same document, spec removed - consumers still imply FLOAT.
-    const derived = constructsScene((json) => {
-      delete (json.graphs.g0.valueSources.vs as { spec?: unknown }).spec
-    })
-    const dvs = derived.valueSources[0]!
-    expect(dvs.specState).toBe('derived')
-    const dCalls = paint(derived)
-    const dBadge = valueSourceBadgeRect(dvs)
-    const dIdx = dCalls.findIndex(
-      (c) => c.method === 'arc' && c.args[2] === VS_BADGE_SIZE / 2 - 2 && c.args[0] === dBadge.x + dBadge.width / 2,
-    )
-    expect(dIdx).toBeGreaterThanOrEqual(0)
-    const dDot = dCalls.slice(dIdx + 1).find((c) => c.method === 'fill' || c.method === 'stroke')
-    expect(dDot?.method).toBe('stroke')
-    expect(dDot?.strokeStyle).toBe(defaultTokens.colors.label)
-
-    // Conflict derivation is proven in scene tests; inject the flag to pin
-    // the renderer's warning paint.
-    const base = constructsScene()
-    const scene: Scene = { ...base, valueSources: base.valueSources.map((v) => ({ ...v, conflict: true })) }
-    const cCalls = paint(scene)
-    expect(cCalls.some((c) => c.method === 'fillText' && c.args[0] === '!')).toBe(true)
-    expect(
-      cCalls.some((c) => c.method === 'stroke' && c.strokeStyle === defaultTokens.stateColors.error && c.lineWidth === 2),
-    ).toBe(true)
-  })
-
-  it('a fixed selector badges the active ordinal and accents only the active candidate row', () => {
-    const scene = constructsScene()
-    const sel = scene.selectors[0]!
-    expect(sel.random).toBe(false)
-    expect(sel.typeName).toBe('LATENT')
-    const calls = paint(scene)
-    const badge = selectorBadgeRect(sel)
-    expect(
-      calls.some((c) => c.method === 'fillText' && c.args[0] === '1' && c.args[1] === badge.x + badge.width / 2),
-    ).toBe(true)
-    // Exactly one accent bar: the active candidate's.
-    const accents = calls.filter((c) => c.method === 'fillRect' && c.args[0] === sel.x + 1.5 && c.fillStyle === SEL)
-    expect(accents).toHaveLength(1)
-    const active = sel.candidates.find((c) => c.id === 'p1')!
-    expect(accents[0]!.args[1]).toBeCloseTo(sel.y + active.y - (defaultTokens.rowHeight / 2 - 3))
-    // Candidate and output pins carry the traced type color.
-    for (const [px, py] of [
-      [sel.x, sel.y + sel.candidates[0]!.y],
-      [sel.x + sel.width, sel.y + sel.headerHeight / 2],
-    ] as const) {
-      const pinIdx = calls.findIndex(
-        (c) => c.method === 'arc' && c.args[0] === px && c.args[1] === py && c.args[2] === defaultTokens.pinRadius,
-      )
-      expect(pinIdx).toBeGreaterThanOrEqual(0)
-      expect(paintedAfter(calls, pinIdx, 'fill')?.fillStyle).toBe(LATENT)
-    }
-  })
-
-  it('a random selector badges "?" until a recorded resolution names the branch that ran', () => {
-    const scene = constructsScene((json) => {
-      json.graphs.g0.selectors.sel.policy = { kind: 'random' } as never
-    })
-    const sel = scene.selectors[0]!
-    expect(sel.random).toBe(true)
-    const badge = selectorBadgeRect(sel)
-    const atBadge = (calls: PaintCall[], glyph: string) =>
-      calls.find((c) => c.method === 'fillText' && c.args[0] === glyph && c.args[1] === badge.x + badge.width / 2)
-
-    const unresolved = paint(scene)
-    expect(atBadge(unresolved, '?')).toBeDefined()
-    // Random badge keeps its accent tint (distinct from fixed's flat chip).
-    const chipIdx = unresolved.findIndex(
-      (c) => c.method === 'roundRect' && c.args[0] === badge.x && c.args[1] === badge.y && c.args[2] === badge.width,
-    )
-    expect(paintedAfter(unresolved, chipIdx, 'fill')?.fillStyle).toBe(SEL)
-
-    // A frozen/execution view's recorded resolution replaces '?' with the
-    // ordinal of the branch that ACTUALLY ran.
-    const resolved = paintWith(scene, (r) => r.setSelectorResolutions(new Map([['sel', 'p2']])))
-    expect(atBadge(resolved, '2')).toBeDefined()
-    expect(atBadge(resolved, '?')).toBeUndefined()
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -3474,6 +3387,100 @@ describe('boundary pseudo-node paint on the live renderer', () => {
 
 })
 
+describe('wire dashes', () => {
+  // Dashed means only "may carry nothing" or "carries nothing".
+  const maybeDash = [...canvasPaintTokens.dash.maybeAbsentLink.world]
+  const curveFrom = (calls: PaintCall[], x: number, y: number): PaintCall => {
+    const move = calls.findIndex((call) => call.method === 'moveTo' && call.args[0] === x && call.args[1] === y)
+    expect(move).toBeGreaterThanOrEqual(0)
+    return calls.slice(move).find((call) => call.method === 'bezierCurveTo')!
+  }
+  const linkTarget = (): string => {
+    const to = fixtureScene('clean').links.find((candidate) => candidate.id === 'good')!.to
+    if (to.kind !== 'port') throw new Error('fixture wire must end at a node')
+    return to.node
+  }
+  const wire = (over: Partial<Scene['links'][number]>, modes: Readonly<Record<string, 'muted' | 'bypassed'>> = {}) => {
+    const scene = fixtureScene('clean')
+    const link = scene.links.find((candidate) => candidate.id === 'good')!
+    const from = nodeOf(scene, 'lat')
+    const pin = from.layout.pins.find((candidate) => candidate.direction === 'out')!
+    const calls = paint({
+      ...scene,
+      nodes: scene.nodes.map((node) => {
+        const mode = modes[node.id]
+        return mode === undefined ? node : { ...node, node: { ...node.node, mode } }
+      }),
+      links: scene.links.map((candidate) => candidate === link ? { ...candidate, ...over } : candidate),
+    })
+    return curveFrom(calls, from.x + from.layout.width, from.y + pin.y)
+  }
+
+  it('draws an ordinary wire solid and a wire that may carry nothing dashed', () => {
+    expect(wire({}).lineDash).toEqual([])
+    expect(wire({ maybeAbsent: true }).lineDash).toEqual(maybeDash)
+  })
+
+  it('draws a wire from an inactive field solid and faded', () => {
+    const curve = wire({ dimmed: true })
+    expect(curve.lineDash).toEqual([])
+    expect(curve.globalAlpha).toBeCloseTo(canvasPaintTokens.widget.inactiveOpacity)
+  })
+
+  it('fades the input pin a muted node\'s wire enters, and no other input pin', () => {
+    const scene = fixtureScene('clean')
+    const link = scene.links.find((candidate) => candidate.id === 'good')!
+    if (link.to.kind !== 'port') throw new Error('fixture wire must end at a node')
+    const target = nodeOf(scene, link.to.node)
+    const pin = target.layout.pins.find((candidate) => candidate.direction === 'in' && candidate.portId === (link.to as { port: string }).port)!
+    const at = { x: target.x, y: target.y + pin.y }
+    const pinAlpha = (over: Partial<Scene['links'][number]>) => {
+      const calls = paint({ ...scene, links: scene.links.map((candidate) => candidate === link ? { ...candidate, ...over } : candidate) })
+      // The pin sits on the node's edge, nudged at most a pixel for crisp edges.
+      const outline = calls.findIndex((call) => call.method === 'arc' && Math.abs(Number(call.args[0]) - at.x) <= 1 && Math.abs(Number(call.args[1]) - at.y) <= 1)
+      expect(outline).toBeGreaterThanOrEqual(0)
+      return calls[outline]!.globalAlpha
+    }
+    const plain = pinAlpha({})
+    expect(pinAlpha({ sourceMuted: true })).toBeCloseTo(plain * canvasPaintTokens.node.modeOpacity)
+    expect(pinAlpha({ dimmed: true })).toBeCloseTo(plain)
+    expect(pinAlpha({ maybeAbsent: true })).toBeCloseTo(plain)
+  })
+
+  it('draws a wire out of a muted node at that node\'s opacity, in its type\'s color, with no dashes of its own', () => {
+    const plain = wire({})
+    const maybe = wire({ maybeAbsent: true })
+    const muted = wire({ sourceMuted: true })
+    expect(muted.globalAlpha).toBeCloseTo(plain.globalAlpha * canvasPaintTokens.node.modeOpacity)
+    expect(muted.strokeStyle).toBe(plain.strokeStyle)
+    expect(muted.lineDash).toEqual([])
+    const mutedMaybe = wire({ sourceMuted: true, maybeAbsent: true })
+    expect(mutedMaybe.lineDash).toEqual(maybeDash)
+    expect(mutedMaybe.globalAlpha).toBeCloseTo(maybe.globalAlpha * canvasPaintTokens.node.modeOpacity)
+  })
+
+  it('does not fade a wire into a muted or bypassed node, or out of a bypassed one', () => {
+    const plain = wire({})
+    for (const modes of [{ lat: 'bypassed' }, { [linkTarget()]: 'muted' }, { [linkTarget()]: 'bypassed' }] as const) {
+      const curve = wire({}, modes)
+      expect([curve.lineDash, curve.globalAlpha], JSON.stringify(modes)).toEqual([plain.lineDash, plain.globalAlpha])
+    }
+  })
+
+  it('draws a dragged wire solid, while a group being resized keeps its dashed outline', () => {
+    const scene = emptyScene({ groups: [{ id: 'g', title: 'g', x: 100, y: 200, width: 400, height: 100 }] })
+    const calls = paintWith(scene, (renderer) => renderer.setOverlay({
+      ghostLink: { x1: 10, y1: 20, x2: 300, y2: 60, typeName: 'IMAGE' },
+      ghostLinks: [{ x1: 10, y1: 400, x2: 300, y2: 460, typeName: 'IMAGE' }],
+      groupResizeGhost: { groupId: 'g', x: 100, y: 200, width: 450, height: 120 },
+    }))
+    expect(curveFrom(calls, 10, 20).lineDash).toEqual([])
+    expect(curveFrom(calls, 10, 400).lineDash).toEqual([])
+    const outline = calls.find((call) => call.method === 'roundRect' && call.args[0] === 100 && call.args[2] === 450)
+    expect(outline?.lineDash.length).toBeGreaterThan(0)
+  })
+})
+
 describe('presence paint (remote participants)', () => {
   const CURSOR_COLOR = 'hsl(200 70% 55%)'
   const actor = (over: Partial<PresenceActor> = {}): PresenceActor => ({
@@ -3533,8 +3540,8 @@ describe('presence paint (remote participants)', () => {
     const stroke = paintedAfter(calls, move, 'stroke')
     expect(stroke?.strokeStyle).toBe(CURSOR_COLOR)
     expect(stroke?.globalAlpha).toBeCloseTo(0.55)
-    const dash = [...calls.slice(0, move)].reverse().find((call) => call.method === 'setLineDash')
-    expect(dash?.args).toEqual([[6, 4]])
+    // Solid: a dashed wire means only that it may carry nothing.
+    expect(stroke?.lineDash).toEqual([])
   })
 
   it('an in-progress remote drag paints a dashed ghost at the offset; the real node stays put', () => {

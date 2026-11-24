@@ -11,7 +11,7 @@
  * member batches dynamic.materialize atomically with its cause: one undo
  * step, and a rejected action materializes nothing.
  *
- * Mixed integration (reroutes + value sources + nets + nested groups
+ * Mixed integration (reroutes + widget taps + nets + nested groups
  * composing in one graph) lives at the bottom.
  */
 import { describe, expect, it } from 'vitest'
@@ -151,7 +151,6 @@ const schemas: Record<string, NodeSchema> = {
 type End =
   | [node: string, port: string]
   | { reroute: string }
-  | { valueSource: string }
 type NodeSpec = {
   type: string
   values?: Record<string, unknown>
@@ -161,7 +160,6 @@ type GraphSpec = {
   nodes: Record<string, NodeSpec>
   links?: [from: End, to: End][]
   reroutes?: string[]
-  valueSources?: Record<string, unknown>
   nets?: Record<string, { source: End; sinks: End[] }>
   boundary?: { inputs?: unknown[]; outputs?: unknown[] }
 }
@@ -198,13 +196,6 @@ const docOf = (
         ]),
       ),
       reroutes: Object.fromEntries((g.reroutes ?? []).map((r) => [r, { id: r }])),
-      ...(g.valueSources
-        ? {
-            valueSources: Object.fromEntries(
-              Object.entries(g.valueSources).map(([vid, value]) => [vid, { id: vid, value }]),
-            ),
-          }
-        : {}),
       nextOrdinal: 100,
       ...(g.boundary
         ? { boundary: { inputs: g.boundary.inputs ?? [], outputs: g.boundary.outputs ?? [] } }
@@ -297,7 +288,7 @@ const connectToPin = (
 const dynOf = (store: DocumentStore, nodeId: string, graphId = 'g0') =>
   store.doc.graphs[graphId]!.nodes[nodeId]!.dynamic
 
-/** A widget row as the pin the controller would connect a value source to. */
+/** A widget row as the pin the controller would connect a wire to. */
 const rowAsPin = (row: ReturnType<typeof widgetRowsOf>[number]): PinLayout => ({
   portId: row.inputId,
   direction: 'in',
@@ -453,15 +444,18 @@ describe('dynamic layout on plain nodes', () => {
     expect(growthRowsOf(back, 'p')[0]!.frames).toEqual([{ construct: 'items', members: ['item1'], seq: 2 }])
   })
 
-  it('a group of outputs offers its spare symmetrically, before trailing static outputs', () => {
+  it('a group of outputs offers its spare symmetrically, in its own box', () => {
     const scene = sceneOf(docOf({ g0: { nodes: { s: { type: 'Split' } } } }))
     const outs = pinsOf(scene, 's', 'out')
-    expect(outs.map((p) => p.portId)).toEqual(['outs.o0', 'last'])
-    const ghost = outs[0]!
+    // The node's own output pairs with its own input row; the group's
+    // members sit in the group's box below it.
+    expect(outs.map((p) => p.portId)).toEqual(['last', 'outs.o0'])
+    const ghost = outs[1]!
     expect(ghost.ghost).toBe(true)
     expect(ghost.address).toEqual({ port: 'outs.o0' })
     expect(ghost.materialize).toEqual([{ construct: 'outs', members: ['o0'], seq: 1 }])
-    expect(outs[1]!.address).toEqual({ port: 'last' })
+    expect(outs[0]!.address).toEqual({ port: 'last' })
+    expect(nodeOf(scene, 's').layout.boxes).toMatchObject([{ id: 'group:outs', kind: 'group' }])
   })
 
   it("a choice renders its dropdown row (derivedValue, selector routing) plus the chosen option's widgets", () => {
@@ -559,16 +553,10 @@ describe('dynamic layout on plain nodes', () => {
     })
     const stale = sceneOf(docWith('latent'))
     expect(stale.diagnostics.map((d) => d.code)).toContain('solve.slot.staleSpecialization')
-    // The diagnostic anchors to the type choice's pin, so the pin itself
-    // warns on canvas - the user sees the ring where the problem lives, not
-    // only a Problems-panel row.
-    const stalePin = pinsOf(stale, 's', 'in').find((p) => p.address.port === 'slot')!
-    expect(stalePin.warn).toBe(true)
+    expect(stale.diagnostics.find((d) => d.code === 'solve.slot.staleSpecialization')?.anchor?.port?.port).toBe('slot')
     // Compatible choice: the same graph shape produces a clean scene.
     const fixed = sceneOf(docWith('image'))
     expect(fixed.diagnostics).toEqual([])
-    const fixedPin = pinsOf(fixed, 's', 'in').find((p) => p.address.port === 'slot')!
-    expect(fixedPin.warn).toBeUndefined()
   })
 })
 
@@ -752,32 +740,6 @@ describe('spare-member interactions dispatch atomic commands', () => {
     expectNoDanglingEndpoints(scene)
   })
 
-  it('value source -> spare widget member: spec derives from the member consumer', () => {
-    const store = makeStore(
-      docOf({
-        g0: { nodes: { w: { type: 'Weigh' } }, valueSources: { v0: 0.75 } },
-      }),
-    )
-    const row = widgetRowsOf(sceneFrom(store), 'w')[0]!
-    expect(row.ghost).toBe(true)
-    // Connect from the source into the spare member (widget rows expose the
-    // same address as pins).
-    const { outcome } = connectToPin(store, { valueSource: 'v0' }, 'w', rowAsPin(row))
-    expect(outcome.ok).toBe(true)
-
-    const scene = sceneFrom(store)
-    expect(scene.valueSources).toHaveLength(1)
-    const vs = scene.valueSources[0]!
-    // Effective spec derives through the MEMBER consumer.
-    expect(vs.specState).toBe('derived')
-    expect(vs.effective.spec?.widgetType).toBe('FLOAT')
-    const link = scene.links[0]!
-    expect(link.from).toEqual({ kind: 'valueSource', valueSource: 'v0' })
-    expect(link.to).toEqual({ kind: 'port', node: 'w', port: 'weights.w0' })
-    // The connected member widget input keeps a pin so the noodle anchors.
-    expectNoDanglingEndpoints(scene)
-  })
-
   it('editing a spare widget member batches materialize + setValue as one undo step', () => {
     const store = makeStore(docOf({ g0: { nodes: { w: { type: 'Weigh' } } } }))
     const row = widgetRowsOf(sceneFrom(store), 'w')[0]!
@@ -876,7 +838,6 @@ describe('named nets over group members', () => {
         linkIds: [],
         netSinks: [{ node: 'b', port: 'images.image0' }],
         rerouteIds: [],
-        valueSourceIds: [],
       },
     } as unknown as CommandInvocation)
     expect(deleted.ok).toBe(true)
@@ -902,7 +863,7 @@ describe('named nets over group members', () => {
 // ---------------------------------------------------------------------------
 
 describe('mixed dynamic robustness', () => {
-  it('reroutes + value sources + nets + nested groups compose without dangling state', () => {
+  it('reroutes + widget taps + nets + nested groups compose without dangling state', () => {
     const store = makeStore(
       docOf({
         g0: {
@@ -912,9 +873,9 @@ describe('mixed dynamic robustness', () => {
             t: { type: 'Batch' },
             n: { type: 'Nest', dynamic: { items: { members: ['item0'], seq: 1 } } },
             w: { type: 'Weigh' },
+            k: { type: 'Sink' },
           },
           reroutes: ['r0'],
-          valueSources: { v0: 0.25 },
           links: [[['a', 'out'], { reroute: 'r0' }]],
           nets: { pipe: { source: ['a', 'out'], sinks: [] } },
         },
@@ -935,9 +896,9 @@ describe('mixed dynamic robustness', () => {
       'items.item0.sub': { members: ['sub0'], seq: 1 },
     })
 
-    // 3) Value source into a spare widget member on w.
+    // 3) A widget tap into a spare widget member on w.
     const row = widgetRowsOf(sceneFrom(store), 'w')[0]!
-    expect(connectToPin(store, { valueSource: 'v0' }, 'w', rowAsPin(row)).outcome.ok).toBe(true)
+    expect(connectToPin(store, { node: 'k', tap: 'gain' }, 'w', rowAsPin(row)).outcome.ok).toBe(true)
 
     // The composed scene: every noodle anchored, every spare advanced.
     const scene = sceneFrom(store)

@@ -264,6 +264,45 @@ describe('boundary item lifecycle commands', () => {
     expect(store.canUndo).toBe(false)
   })
 
+  it('exposing a choice descendant twice is refused without changing the document', () => {
+    const FLOAT = { kind: 'concrete', name: 'FLOAT' } as const
+    const batch = {
+      type: 'Batch', displayName: 'Batch', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{
+        kind: 'choice', id: 'mode', required: true, shared: [],
+        options: [{ key: 'soft', rows: [{ kind: 'input', id: 'strength', type: FLOAT, optional: false, widget: { widgetType: 'FLOAT', options: {}, default: 0.3 } }] }],
+      }, { kind: 'input', id: 'modeless', type: FLOAT, optional: true }],
+    } as unknown as NodeSchema
+    const makeStore = (d: WorkflowDocument) => new DocumentStore(d, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => (type: string) => type === 'Batch' ? batch : undefined }))
+    // Only a construct is shown whole; a row without a field is not shown at all.
+    const plain = makeStore(subDoc([]))
+    const notConstruct = plain.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'n1', port: 'modeless' } })
+    expect(!notConstruct.ok && notConstruct.diagnostics[0]!.code).toBe('boundary.notField')
+    // The choice is shown whole: it owns every row inside it.
+    const store = makeStore(subDoc([]))
+    expect(store.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'n1', port: 'mode' } }).ok).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([{ id: 'mode', binds: { kind: 'construct', node: 'n1', port: 'mode' } }])
+    const shown = structuredClone(store.doc)
+    const child = store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'mode.strength' } })
+    expect(!child.ok && child.diagnostics[0]!.code).toBe('boundary.constructOwned')
+    expect(!child.ok && child.diagnostics[0]!.message).toContain("already shown through 'mode'")
+    expect(store.doc).toEqual(shown)
+    // And the other way round: a row already shown keeps the construct from being shown whole.
+    const other = makeStore(subDoc([{ id: 'strength', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('mode.strength') } }]))
+    const before = structuredClone(other.doc)
+    const whole = other.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'n1', port: 'mode' } })
+    expect(!whole.ok && whole.diagnostics[0]!.code).toBe('boundary.constructOwned')
+    expect(other.doc).toEqual(before)
+    expect(other.canUndo).toBe(false)
+    // A sibling whose id only starts the same way is not inside the choice.
+    expect(store.dispatch({ command: 'boundary.addItem', params: { graphId: 'sub', side: 'inputs', node: 'n1', port: 'modeless' } }).ok).toBe(true)
+    // An existing id under the construct's would read as a row inside it, so the new id moves aside.
+    const beside = makeStore(subDoc([portItem('mode.strength')]))
+    expect(beside.dispatch({ command: 'boundary.showOnSubgraphNode', params: { graphId: 'sub', node: 'n1', port: 'mode' } }).ok).toBe(true)
+    expect(beside.doc.graphs.sub!.boundary!.inputs.map((item) => item.id)).toEqual(['mode.strength', 'mode_2'])
+  })
+
   it('adds items with deterministic IDs and creates an absent boundary', () => {
     const d = subDoc([])
     const sub = d.graphs.sub!
@@ -403,8 +442,6 @@ describe('showing a field on the subgraph node', () => {
       fieldDoc({ inputs: [{ id: 'r', binds: { kind: 'port', node: asNodeId('blur'), port: asPortId('radius') }, promoted: true }], outputs: [] }),
       { node: 'blur', port: 'radius' }],
     ['a row with no stored value', 'boundary.notField', fieldDoc(), { node: 'weigh', port: 'weights.w3' }],
-    ['a group', 'boundary.notField', fieldDoc(), { node: 'weigh', port: 'weights' }],
-    ['a choice', 'boundary.notField', fieldDoc(), { node: 'modal', port: 'mode' }],
     ['a socket without a field', 'boundary.notField', fieldDoc(), { node: 'blur', port: 'image' }],
   ] as const)('refuses %s without changing the document', (_case, code, document, params) => {
     const store = schemaStore(document)
@@ -413,6 +450,23 @@ describe('showing a field on the subgraph node', () => {
     expect(outcome.ok).toBe(false)
     expect(!outcome.ok && outcome.diagnostics[0]!.code).toBe(code)
     expect(store.doc).toBe(before)
+  })
+
+  it('shows a group or a choice whole, with its wire drawn and no setting to hide it yet', () => {
+    const store = schemaStore(fieldDoc())
+    expect(show(store, { node: 'weigh', port: 'weights' }).ok).toBe(true)
+    expect(show(store, { node: 'modal', port: 'mode' }).ok).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([
+      { id: 'weights', binds: { kind: 'construct', node: 'weigh', port: 'weights' } },
+      { id: 'mode', binds: { kind: 'construct', node: 'modal', port: 'mode' } },
+    ])
+    const shown = store.doc
+    const hide = store.dispatch({ command: 'boundary.setWireHidden', params: { graphId: 'sub', itemId: 'mode', hidden: true } })
+    expect(!hide.ok && hide.diagnostics[0]!.code).toBe('boundary.notField')
+    // A field inside a construct shown whole is the construct's.
+    const member = show(store, { node: 'weigh', port: 'weights.w0' })
+    expect(!member.ok && member.diagnostics[0]!.code).toBe('boundary.constructOwned')
+    expect(store.doc).toBe(shown)
   })
 
   it('makes a field, not a pin, from an Inputs panel wire, and draws the wire of a field shown without one', () => {
@@ -450,7 +504,7 @@ describe('showing a field on the subgraph node', () => {
     const entries = (store: DocumentStore, graphId: string, nodeId: string, port: string, construct?: true) => registry.resolve({
       doc: store.doc, graphId,
       target: { kind: 'widget', nodeId, inputId: port, address: { port }, ...(construct ? { construct } : {}) },
-      selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] }, worldX: 0, worldY: 0,
+      selection: { nodes: [], links: [], reroutes: [] }, worldX: 0, worldY: 0,
     }).flatMap((group) => group.items).filter((item) => item.id.startsWith('core.widget.subgraphNode')) as MenuActionItem[]
     const run = (store: DocumentStore, item: MenuActionItem) => {
       if (item.action.kind !== 'command') throw new Error('expected a command')
@@ -475,6 +529,29 @@ describe('showing a field on the subgraph node', () => {
 
     const linked = schemaStore(fieldDoc(undefined, { l: { id: 'l', from: { node: asNodeId('source'), port: asPortId('out') }, to: { node: asNodeId('blur'), port: asPortId('radius') } } } as unknown as GraphDef['links']))
     expect(entries(linked, 'sub', 'blur', 'radius')).toEqual([])
+  })
+
+  it('offers a whole group from its add row, and takes it off again from there', () => {
+    const registry = createMenuRegistry()
+    for (const contribution of coreMenuContributions()) registry.register(contribution)
+    const store = schemaStore(fieldDoc())
+    const entries = () => registry.resolve({
+      doc: store.doc, graphId: 'sub', resolve,
+      target: { kind: 'growth', nodeId: 'weigh', construct: 'weights' },
+      selection: { nodes: [], links: [], reroutes: [] }, worldX: 0, worldY: 0,
+    }).flatMap((group) => group.items) as MenuActionItem[]
+    const run = (item: MenuActionItem) => {
+      if (item.action.kind !== 'command') throw new Error('expected a command')
+      return store.dispatch(item.action.invocation)
+    }
+    const [show] = entries()
+    expect(show!.label).toBe('Show weights on subgraph node')
+    expect(run(show!).ok).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs.map((item) => item.binds)).toEqual([{ kind: 'construct', node: 'weigh', port: 'weights' }])
+    const [remove] = entries()
+    expect(remove!.label).toBe('Remove weights from subgraph node')
+    expect(run(remove!).ok).toBe(true)
+    expect(store.doc.graphs.sub!.boundary!.inputs).toEqual([])
   })
 
   it('replays in a shared session without a schema', () => {

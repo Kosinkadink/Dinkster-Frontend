@@ -52,7 +52,8 @@ export type LookupResult =
 
 export interface LookupPartition {
   readonly backend: string
-  readonly epoch: number
+  /** The host's schema epoch the editor holds; undefined until it holds one. */
+  readonly epoch: number | undefined
   readonly principal: number
 }
 
@@ -156,7 +157,7 @@ const aborted = (): DOMException => new DOMException('lookup request aborted', '
 
 export function createLookupClient(config: LookupClientConfig): LookupClient {
   const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
-  let partition: LookupPartition = { backend: config.baseUrl, epoch: 0, principal: 0 }
+  let partition: LookupPartition = { backend: config.baseUrl, epoch: undefined, principal: 0 }
   let kept = new Map<string, Kept>()
   const nodeQueues = new Map<string, Promise<unknown>>()
   const listeners = new Set<() => void>()
@@ -180,7 +181,10 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
         method: 'POST',
         redirect: 'error',
         signal: both,
-        headers: { 'content-type': 'application/json', 'if-match': String(partition.epoch) },
+        headers: {
+          'content-type': 'application/json',
+          ...(partition.epoch === undefined ? {} : { 'if-match': String(partition.epoch) }),
+        },
         body: lookupArgsJson({
           nodeType: call.nodeType,
           function: call.function,
@@ -210,7 +214,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     return (body as { answer: unknown }).answer
   }
 
-  const start = (key: string, entry: Kept, call: LookupCall, askedBy: LookupAsker): Inflight => {
+  const start = (entry: Kept, call: LookupCall, askedBy: LookupAsker): Inflight => {
     const controller = new AbortController()
     const owner = kept
     const before = entry.answer || entry.state.state !== 'loading' ? entry.state : undefined
@@ -230,10 +234,9 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
         if (error instanceof Paused) {
           return settle(entry, entry.answer ? { state: 'paused', answer: entry.answer.value } : { state: 'paused' })
         }
-        if (error instanceof Superseded) {
-          owner.delete(key)
-          return settle(entry, { state: 'unavailable', reason: 'unknown' })
-        }
+        // The host moved to a newer catalog: wait, without asking again, for
+        // the editor to fetch it, which starts a new partition.
+        if (error instanceof Superseded) return settle(entry, { state: 'loading' })
         const reason = error instanceof LookupFault ? error.reason : 'failed'
         return settle(
           entry,
@@ -302,7 +305,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       entry = { state: { state: 'loading' }, old: false }
       kept.set(key, entry)
     }
-    if (!entry.inflight) entry.inflight = start(key, entry, call, options.askedBy ?? 'edit')
+    if (!entry.inflight) entry.inflight = start(entry, call, options.askedBy ?? 'edit')
     return join(key, entry, entry.inflight, options.signal)
   }
 

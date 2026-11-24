@@ -23,8 +23,6 @@ import ArrowUp from 'lucide/dist/esm/icons/arrow-up.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import ArrowDown from 'lucide/dist/esm/icons/arrow-down.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
-import Boxes from 'lucide/dist/esm/icons/boxes.mjs'
-// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import FolderOpen from 'lucide/dist/esm/icons/folder-open.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Group from 'lucide/dist/esm/icons/group.mjs'
@@ -53,6 +51,8 @@ import Image from 'lucide/dist/esm/icons/image.mjs'
 import Palette from 'lucide/dist/esm/icons/palette.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import ChevronRight from 'lucide/dist/esm/icons/chevron-right.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import ChevronDown from 'lucide/dist/esm/icons/chevron-down.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import List from 'lucide/dist/esm/icons/list.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
@@ -99,6 +99,17 @@ import { canvasPaintTokens } from './tokens.js'
 
 export type IconNode = readonly (readonly [string, Readonly<Record<string, string>>])[]
 
+/**
+ * The subgraph icon in Lucide's 24-unit element form, so DOM menus draw the
+ * same picture: the workflow drawing, smaller, inside a frame. Not a Lucide icon.
+ */
+export const SUBGRAPH_ICON: IconNode = [
+  ['rect', { x: '2', y: '2', width: '20', height: '20', rx: '3' }],
+  ['rect', { x: '6', y: '6', width: '5', height: '5', rx: '1' }],
+  ['path', { d: 'M8.5 11v3.5a1 1 0 0 0 1 1H13' }],
+  ['rect', { x: '13', y: '13', width: '5', height: '5', rx: '1' }],
+]
+
 export type SeedControllerMode = 'fixed' | 'increment' | 'decrement' | 'randomize'
 
 const CONTROLLER_ICONS: Record<SeedControllerMode, IconNode> = {
@@ -128,6 +139,7 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   image: Image,
   palette: Palette,
   'chevron-right': ChevronRight,
+  'chevron-down': ChevronDown,
   list: List,
   'list-checks': ListChecks,
   spline: Spline,
@@ -163,7 +175,7 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   'folder-open': FolderOpen,
   group: Group,
   ungroup: Ungroup,
-  boxes: Boxes,
+  subgraph: SUBGRAPH_ICON,
   'sliders-horizontal': SlidersHorizontal,
   'panel-top-close': PanelTopClose,
   'panel-top-open': PanelTopOpen,

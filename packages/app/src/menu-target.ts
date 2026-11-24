@@ -53,8 +53,6 @@ export function selectionLifecycleMenuGroups(
     case 'node':
     case 'group':
     case 'reroute':
-    case 'valueSource':
-    case 'selector':
       return [group]
     default:
       return []
@@ -169,6 +167,8 @@ export function canvasMenuContext(input: {
   readonly previewCapable?: (nodeType: string) => boolean
   /** Mirror-estimate capability by node type; omitted = unknown (menu hidden). */
   readonly mirrorCapable?: (nodeType: string) => boolean
+  /** Node schemas by type, for items that read a node's rows. */
+  readonly resolve?: (nodeType: string) => NodeSchema | undefined
   readonly shortcuts?: Readonly<Record<string, string>>
 }): MenuContext {
   return {
@@ -178,6 +178,7 @@ export function canvasMenuContext(input: {
     ...(input.nodeHasDocs !== undefined ? { nodeHasDocs: input.nodeHasDocs } : {}),
     ...(input.previewCapable !== undefined ? { previewCapable: input.previewCapable } : {}),
     ...(input.mirrorCapable !== undefined ? { mirrorCapable: input.mirrorCapable } : {}),
+    ...(input.resolve !== undefined ? { resolve: input.resolve } : {}),
     ...(input.shortcuts !== undefined ? { shortcuts: input.shortcuts } : {}),
     graphId: input.graphId,
     target: input.target,
@@ -232,26 +233,15 @@ export function menuTargetOf(hit: Hit): MenuTarget {
               }
             : hit.link.to.kind === 'reroute'
               ? { reroute: hit.link.to.reroute }
-              : hit.link.to.kind === 'selector' && hit.link.to.candidate !== undefined
-                ? { selector: hit.link.to.selector, candidate: hit.link.to.candidate }
-                : // 'boundary' ends are unreachable: boundary noodles are
-                  // excluded from link hit-testing.
-                  { reroute: '' },
+              : // 'boundary' ends are unreachable: boundary noodles are
+                // excluded from link hit-testing.
+                { reroute: '' },
       }
     case 'reroute':
     // Ghost sockets never reach the context menu (its hitTest does not
     // reveal them), but the junction menu is the right fallback anyway.
     case 'rerouteSocket':
       return { kind: 'reroute', rerouteId: hit.reroute.id }
-    case 'valueSource':
-    case 'valueSourceOut':
-    case 'valueSourceBadge':
-      return { kind: 'valueSource', valueSourceId: hit.valueSource.id }
-    case 'selector':
-    case 'selectorIn':
-    case 'selectorOut':
-    case 'selectorBadge':
-      return { kind: 'selector', selectorId: hit.selector.id }
     case 'pin':
       // Structural identity (address), not the elab view key: menu items
       // build command endpoints from this.
@@ -274,8 +264,12 @@ export function menuTargetOf(hit: Hit): MenuTarget {
       }
     case 'widget':
       // A field on a subgraph's Inputs panel belongs to the panel, which has
-      // no menu of its own.
-      return hit.bnode !== undefined ? { kind: 'canvas' } : widgetMenuTarget(hit.node.id, hit.row)
+      // no menu of its own. An editor row stores nothing of its own: it opens
+      // the node's menu.
+      if (hit.bnode !== undefined) return { kind: 'canvas' }
+      return hit.row.editor === true ? { kind: 'node', nodeId: hit.node.id } : widgetMenuTarget(hit.node.id, hit.row)
+    case 'growth':
+      return { kind: 'growth', nodeId: hit.node.id, construct: hit.row.construct }
     case 'section':
       return {
         kind: 'section',

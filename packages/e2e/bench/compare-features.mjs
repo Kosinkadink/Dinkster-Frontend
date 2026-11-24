@@ -6,8 +6,6 @@
  *   scenario    Dinkster                      ComfyUI (litegraph + Nodes 2.0)
  *   baseline    plain chains               plain chains
  *   reroutes    reroute junction per link  legacy `Reroute` NODE per link
- *   primitives  value source per chain     `PrimitiveNode` per chain
- *               (fan-out width+height)     (fan-out width+height)
  *   groups      group per chain            group per chain
  *   subgraphs   chains instances of one    chains instances of one shared
  *               shared #g1 definition,     native definition (workflow
@@ -25,7 +23,7 @@
  * they are not compared here; their Dinkster-only cost is in feature-cost.mjs.
  *
  * The ComfyUI side loads full workflow-format JSON via app.loadGraphData
- * (API format cannot express reroutes/primitives/groups - they are
+ * (API format cannot express reroutes/groups - they are
  * frontend-only constructs there, which is rather the point). Same
  * methodology as compare.mjs: identical camera trajectory, vsync uncapped,
  * 30 warmup + 120 measured frames, medians of N reps, fresh page per rep.
@@ -62,11 +60,9 @@ const GRID = { x0: 80, y0: 80, colX: 320, rowY: 260 }
  * synthetic topology and geometry, with per-feature equivalents. Shapes
  * follow what the stock frontend serializes (and what our importer's
  * fixtures use): Reroute nodes carry a single wildcard input and typed
- * output; primitives connect to consumer inputs converted from widgets
- * (`widget: {name}` on both ends of the link - the exact array-unbound
- * machinery Dinkster's value sources replace).
+ * output.
  */
-function comfyWorkflow({ reroutes = false, primitives = false, groups = false, subgraphs = false } = {}) {
+function comfyWorkflow({ reroutes = false, groups = false, subgraphs = false } = {}) {
   if (subgraphs) return comfySubgraphWorkflow()
   const nodes = []
   const links = [] // [id, origin_id, origin_slot, target_id, target_slot, type]
@@ -76,7 +72,6 @@ function comfyWorkflow({ reroutes = false, primitives = false, groups = false, s
 
   for (let c = 0; c < CFG.chains; c++) {
     let prev // { id, node }
-    let first
     for (let i = 0; i < CFG.chainLength; i++) {
       const id = nextNode++
       const pos = [GRID.x0 + i * GRID.colX, GRID.y0 + c * GRID.rowY]
@@ -95,7 +90,6 @@ function comfyWorkflow({ reroutes = false, primitives = false, groups = false, s
           properties: {},
           widgets_values: [64, 64, 1, (c * 7919) % 0xffffff],
         }
-        first = node
       } else if (i === CFG.chainLength - 1) {
         node = {
           id,
@@ -159,30 +153,6 @@ function comfyWorkflow({ reroutes = false, primitives = false, groups = false, s
         }
       }
       prev = { id, node }
-    }
-
-    if (primitives && first) {
-      const primId = nextNode++
-      const prim = {
-        id: primId,
-        type: 'PrimitiveNode',
-        pos: [-180, GRID.y0 + c * GRID.rowY + 20],
-        size: [210, 82],
-        flags: {},
-        order: 0,
-        mode: 0,
-        inputs: [],
-        outputs: [{ name: 'INT', type: 'INT', links: [], widget: { name: 'value' }, slot_index: 0 }],
-        properties: { 'Run widget replace on values': false },
-        widgets_values: [64 + (c % 8) * 16, 'fixed'],
-      }
-      nodes.push(prim)
-      for (const name of ['width', 'height']) {
-        const linkId = nextLink++
-        links.push([linkId, primId, 0, first.id, first.inputs.length, 'INT'])
-        prim.outputs[0].links.push(linkId)
-        first.inputs.push({ name, type: 'INT', link: linkId, widget: { name } })
-      }
     }
 
     if (groups) {
@@ -347,7 +317,6 @@ function comfySubgraphWorkflow() {
 const SCENARIOS = [
   { name: 'baseline', dinksterFlags: {}, comfyFlags: {} },
   { name: 'reroutes', dinksterFlags: { reroutes: true }, comfyFlags: { reroutes: true } },
-  { name: 'primitives', dinksterFlags: { valueSources: true }, comfyFlags: { primitives: true } },
   { name: 'groups', dinksterFlags: { groups: true }, comfyFlags: { groups: true } },
   {
     name: 'subgraphs',
@@ -402,7 +371,6 @@ async function benchDinksterFeature(page, scenario, rep) {
     throw new Error(`dinkster link count mismatch (want ${scenario.rootLinks}): ${JSON.stringify(r.counts)}`)
   for (const [flag, key] of [
     ['reroutes', 'reroutes'],
-    ['valueSources', 'valueSources'],
     ['groups', 'groups'],
   ]) {
     if (scenario.dinksterFlags[flag] && r.counts[key] === 0)

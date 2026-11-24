@@ -1,8 +1,8 @@
 import { boundaryBindingKey, suppressedDeliveryKey, type BoundaryRouteLeg, type DynamicPortState, type GraphDef, type Json, type NodeData, type ParentDeliveryIdentity, type WorkflowDocument } from '../format/document.js'
-import { asNodeId, isOccurrenceAncestorOrSelf, isPortEndpoint, occurrenceKey, type PortRef } from '../ids.js'
+import { asNodeId, asPortId, isOccurrenceAncestorOrSelf, isPortEndpoint, occurrenceKey, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
-import { boundaryOutputFanOutProblems, projectEditableOptions } from './crossing.js'
+import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, projectConstructs, projectEditableOptions } from './crossing.js'
 import { documentNodeResolver } from './compile.js'
 
 export interface ValueOwner {
@@ -21,18 +21,28 @@ export interface OccurrenceDynamicView {
   readonly controllers: ReadonlyMap<string, NonNullable<NodeData['controllers']>>
   /** Per inner-node projected value: where an edit must be written. */
   readonly valueOwners: ReadonlyMap<string, ReadonlyMap<string, ValueOwner>>
-  /**
-   * Per value source a promoted boundary input binds: where an edit of the
-   * input must be written, and the value and controller the occurrence
-   * gives the source when it sets one.
-   */
-  readonly valueSources: ReadonlyMap<string, OccurrenceValueSource>
 }
 
-export interface OccurrenceValueSource {
-  readonly owner: ValueOwner
-  readonly value?: Json
-  readonly controller?: NonNullable<NodeData['controllers']>[string]
+/**
+ * The option or variant a subgraph node of `defId` runs for a choice it shows
+ * whole at `port` while it stores none of its own: what the definition picks
+ * inside, through any number of subgraphs. Undefined when nothing is picked.
+ */
+export function definitionPick(doc: WorkflowDocument, defId: string, port: string, resolveSchema: SchemaResolver): string | undefined {
+  const child = doc.graphs[defId]
+  const match = child?.boundary === undefined ? undefined : matchBoundaryItem(child.boundary.inputs, { port })
+  if (!match?.ok) return undefined
+  const resolveNode = documentNodeResolver(doc, resolveSchema)
+  for (const binding of [match.item.binds, ...(match.item.alsoBinds ?? [])]) {
+    if (binding.kind !== 'construct') continue
+    const inner = innerConstructAddress(child!, binding, match.item.id, port, (node) => resolveNode(defId, node))
+    const node = child!.nodes[binding.node]
+    if (inner === undefined || node === undefined) continue
+    const nested = subgraphDefIdOf(node.type)
+    const picked = node.dynamic?.[inner]?.selected ?? (nested === undefined ? undefined : definitionPick(doc, nested, inner, resolveSchema))
+    if (picked !== undefined) return picked
+  }
+  return undefined
 }
 
 interface InputEvidence {
@@ -79,7 +89,7 @@ export function occurrenceDynamicView(
   instancePath: readonly string[],
   rootGraph: string = doc.root,
 ): OccurrenceDynamicView {
-  const empty = (): OccurrenceDynamicView => ({ inputPorts: new Map(), dynamic: new Map(), values: new Map(), controllers: new Map(), valueOwners: new Map(), valueSources: new Map() })
+  const empty = (): OccurrenceDynamicView => ({ inputPorts: new Map(), dynamic: new Map(), values: new Map(), controllers: new Map(), valueOwners: new Map() })
 
   const resolveNode = documentNodeResolver(doc, resolve)
   let def = doc.graphs[rootGraph]
@@ -87,7 +97,6 @@ export function occurrenceDynamicView(
   let values = new Map<string, Readonly<Record<string, Json>>>()
   let controllers = new Map<string, NonNullable<NodeData['controllers']>>()
   let valueOwners = new Map<string, ReadonlyMap<string, ValueOwner>>()
-  let valueSources: OccurrenceDynamicView['valueSources'] = new Map()
   const traversedPath: string[] = []
   let inputEvidence = authoredInputEvidence(doc, def, traversedPath)
   for (const hop of instancePath) {
@@ -103,7 +112,6 @@ export function occurrenceDynamicView(
     const childValues = new Map<string, Readonly<Record<string, Json>>>()
     const childControllers = new Map<string, NonNullable<NodeData['controllers']>>()
     const childValueOwners = new Map<string, Map<string, ValueOwner>>()
-    const childValueSources = new Map<string, OccurrenceValueSource>()
     // A recorded route ends in this body; only unrecorded deliveries may continue freely.
     const instanceEvidence = inputEvidence.filter(({ ref, route }) => ref.node === node.id && route?.length !== 0)
     if (boundaryOutputFanOutProblems(child).length > 0) return empty()
@@ -111,24 +119,24 @@ export function occurrenceDynamicView(
     const childOwner = { instancePath: traversedPath.map(asNodeId), node: asNodeId(hop) }
     const suppressed = new Set((doc.occurrenceTopologies?.[occurrenceKey(childOwner)]?.suppressedDeliveries ?? []).map(suppressedDeliveryKey))
     for (const evidence of instanceEvidence) for (const item of child.boundary.inputs) {
-      if (evidence.ref.port !== item.id) continue
+      const whole = item.binds.kind === 'construct'
+      if (evidence.ref.port !== item.id && !(whole && evidence.ref.port.startsWith(`${item.id}.`))) continue
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
-        if (binding.kind !== 'port') continue
+        if (binding.kind !== 'port' && binding.kind !== 'construct') continue
+        const port = binding.kind === 'construct'
+          ? innerConstructAddress(child, binding, item.id, evidence.ref.port, (inner) => resolveNode(child.id, inner))
+          : binding.port
+        if (port === undefined) continue
         const leg = evidence.route?.[0]
         if (leg && (leg.graph !== child.id || leg.boundaryId !== item.id || boundaryBindingKey(leg.binding) !== boundaryBindingKey(binding))) continue
         const projectedRoute = [...(evidence.projectedRoute ?? []), { graph: child.id, boundaryId: item.id, binding }]
         if (evidence.delivery && suppressed.has(suppressedDeliveryKey({ kind: 'projectedLeg', delivery: evidence.delivery, route: projectedRoute }))) continue
-        childEvidence.push({ ...evidence, ref: binding, projectedRoute, ...(evidence.route !== undefined ? { route: evidence.route.slice(1) } : {}) })
+        childEvidence.push({ ...evidence, ref: { node: binding.node, port: asPortId(port) }, projectedRoute, ...(evidence.route !== undefined ? { route: evidence.route.slice(1) } : {}) })
       }
     }
     for (const item of child.boundary.inputs) {
       if (item.promoted !== true) continue
       const owner = valueOwners.get(hop)?.get(item.id) ?? { graphId: def.id, nodeId: hop, valueKey: item.id }
-      if (item.binds.kind === 'valueSource') childValueSources.set(item.binds.valueSource, {
-        owner,
-        ...(Object.hasOwn(instanceValues, item.id) ? { value: instanceValues[item.id]! } : {}),
-        ...(Object.hasOwn(instanceControllers ?? {}, item.id) ? { controller: instanceControllers![item.id]! } : {}),
-      })
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (binding.kind !== 'port') continue
         const target = child.nodes[binding.node]
@@ -148,12 +156,23 @@ export function occurrenceDynamicView(
         })
       }
     }
+    // A construct the subgraph node shows whole: its members, picks and
+    // values reach the inner node, and an edit there is written back outside.
+    const constructs = projectConstructs(child, { values: instanceValues, ...(instanceDynamic !== undefined ? { dynamic: instanceDynamic } : {}) }, (inner) => resolveNode(child.id, inner), childOverlays)
+    for (const [target, dynamic] of constructs.dynamic) childOverlays.set(target, dynamic)
+    for (const [target, projected] of constructs.values) childValues.set(target, projected)
+    for (const [target, owners] of constructs.owners) {
+      const targetOwners = childValueOwners.get(target) ?? new Map<string, ValueOwner>()
+      childValueOwners.set(target, targetOwners)
+      for (const [valueKey, outerKey] of owners) {
+        if (!targetOwners.has(valueKey)) targetOwners.set(valueKey, valueOwners.get(hop)?.get(outerKey) ?? { graphId: def.id, nodeId: hop, valueKey: outerKey })
+      }
+    }
     def = child
     overlays = childOverlays
     values = childValues
     controllers = childControllers
     valueOwners = childValueOwners
-    valueSources = childValueSources
     inputEvidence = childEvidence
     traversedPath.push(hop)
   }
@@ -163,5 +182,5 @@ export function occurrenceDynamicView(
     if (!inputPorts.has(ref.node)) inputPorts.set(ref.node, ports)
     if (!ports.includes(ref.port)) ports.push(ref.port)
   }
-  return { inputPorts, dynamic: overlays, values, controllers, valueOwners, valueSources }
+  return { inputPorts, dynamic: overlays, values, controllers, valueOwners }
 }

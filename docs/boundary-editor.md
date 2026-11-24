@@ -80,16 +80,6 @@ has the height the subgraph node gives it and is resized there.
 A field whose input reaches the inner node through a reroute is the same
 field, and the inner field shows its value through the reroute.
 
-A value source exposed as a field is a field too. It shows the value the
-entered node (or the outer node that owns it) gives the source, and the
-source's own value when that node sets none. While a node is entered, the
-source's pill and the fields it feeds show that same value dimmed, as an
-arriving value, and the pill is not edited there: an edit on it would change
-the value every other node of the definition falls back to. Entered with no
-node, the field is the source's own value: its stepper and drag edit the
-source, and a click opens the source's own editor over the field (never an
-in-row editor), the same editor a click on the pill opens.
-
 ## Showing a field on the subgraph node
 
 Inside a subgraph, the right-click menu of a field on an inner node offers
@@ -99,9 +89,12 @@ outside shows it as a field with a pin, starting from the inner field's
 value. No wire is drawn inside: the Inputs panel row is a field without a
 pin, and the inner field has no pin and shows the entered node's value dimmed, as a wired
 one does. The entry is not offered in the top-level workflow, on a field
-a wire or another input already drives, or on a choice's or type choice's own
-row, and it is refused with a message on any other field the subgraph node
-cannot show (a group or another construct, a row with no stored value).
+a wire or another input already drives, on a choice's or type choice's own
+row, or on a row of a construct already shown whole, and it is refused with a
+message on any other field the subgraph node cannot show (a row with no
+stored value). A group, choice, type choice or described row is shown whole
+instead, by **Show <name> on subgraph node** (see Groups and choices below);
+its wire is always drawn.
 
 On a field already on the subgraph node the entry reads **Remove from
 subgraph node** and removes that input. A field whose wire is drawn also
@@ -118,21 +111,19 @@ and the subgraph node outside carry none. Hovering the icon names the input
 ("On the subgraph node as strength"); clicking it opens the Boundary panel
 with that input selected.
 
-A value source exposed as a field has no wire to its pill either (the pill
-has only an output), so its Inputs panel row has no pin and carries the icon
-too. While a node is entered, the pill carries the same icon before its
-title, so the pill and the row read as one field; hovering and clicking it
-work as on a field, and a click elsewhere on the pill works as before.
-
 ## Groups and choices
 
 A boundary item forwards one inner input or output by its flattened id, such
-as `loras.lora0.strength` (see [Node body](node-body.md)). Forwarding a whole
-group, choice or type choice is refused: the item shows the
-`boundary.familyBind` diagnostic inline, and compilation reports the bound id
-as an unknown port (`compile.port.unknownInput` or
-`compile.port.unknownOutput`). Other boundary diagnostics, such as a
-row of an option that is not chosen, also appear inline on their item.
+as `loras.lora0.strength` (see [Node body](node-body.md)), or shows a whole
+group, choice, type choice or described row. Right-click any row of one inside
+the subgraph and choose **Show <name> on subgraph node**; the item binds the
+construct and the subgraph node shows its members, pick and fields, stored on
+that node. Inside, the definition's own members come first and the entered
+node's follow with its values; editing one, or picking an option, writes the
+entered node. A row inside a construct that is already shown, or a construct
+around a row that is already shown, is not offered and is refused
+(`boundary.constructOwned`). Boundary diagnostics, such as a row of an option
+that is not chosen, appear inline on their item.
 
 ## Regions and frozen views
 

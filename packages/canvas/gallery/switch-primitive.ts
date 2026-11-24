@@ -60,13 +60,13 @@ const pin = (id: string, type: string, displayName = id): InputSpec => ({
   type: concrete(type),
   optional: false,
 })
-const out = (id: string, type: string, displayName = id): OutputSpec => ({
+export const out = (id: string, type: string, displayName = id): OutputSpec => ({
   kind: 'output',
   id,
   displayName,
   type: concrete(type),
 })
-const schema = (
+export const schema = (
   type: string,
   displayName: string,
   body: NodeSchema['body'],
@@ -136,7 +136,7 @@ const endpoint = (node: string, port: string) => ({ node, port })
  * and default are ordinary fields of its own. An empty limit is derived from
  * the fields the Primitive feeds.
  */
-const numberPrimitive = (
+export const numberPrimitive = (
   type: string,
   label: string,
   kind: 'INT' | 'FLOAT',
@@ -196,7 +196,7 @@ const samplerNode = (type: string, title: string, options: readonly string[]) =>
   ])
 
 type Endpoint = Record<string, Json>
-interface NodeEntry {
+export interface NodeEntry {
   readonly type: NodeSchema
   readonly x: number
   readonly y: number
@@ -206,8 +206,9 @@ interface NodeEntry {
   readonly width?: number
   /** A subgraph node: an instance of the named graph. */
   readonly instanceOf?: string
+  readonly mode?: 'muted' | 'bypassed'
 }
-interface Graph {
+export interface Graph {
   readonly name?: string
   readonly nodes: Record<string, NodeEntry>
   /** [from node, from port, to node, to port], or explicit endpoints. */
@@ -218,20 +219,20 @@ interface Graph {
   readonly boundary?: Json
   /** Where the boundary panels sit when the graph is entered. */
   readonly panels?: { readonly inputs: number; readonly outputs: number }
-  /** Extra graph fields, such as today's value sources and selectors. */
+  /** Extra graph fields. */
   readonly extra?: Record<string, Json>
   readonly extraView?: Record<string, Json>
 }
 
 const NODE_WIDTH = 200
-const COLUMN = 230
+export const COLUMN = 230
 
 /**
  * Builds a document of the given graphs and paints one of them the way the
  * app does: the top level with the occurrence view, a subgraph entered
  * through one of its nodes, or a subgraph opened with no node.
  */
-function sceneOf(
+export function sceneOf(
   tokens: DesignTokens,
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
@@ -265,6 +266,7 @@ function sceneOf(
                   : { ...defaultValuesOf(node.type), ...node.values },
                 ...(node.dynamic ? { dynamic: node.dynamic } : {}),
                 ...(node.title ? { title: node.title } : {}),
+                ...(node.mode ? { mode: node.mode } : {}),
               },
             ]),
           ),
@@ -352,7 +354,7 @@ function sceneOf(
 }
 
 /** Two scenes of one card together: what is outside, then what is inside. */
-const joined = (a: Scene, b: Scene): Scene => ({
+export const joined = (a: Scene, b: Scene): Scene => ({
   ...b,
   nodes: [...a.nodes, ...b.nodes],
   links: [...a.links, ...b.links],
@@ -520,65 +522,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 2. What the Switch and the Primitive replace.
-  cards.push({
-    caption:
-      'Today, for comparison: a value source pill and a separate selector box, each with its own look and its own hit area. The selector resolves once for the whole subgraph definition. Both go; the Switch and the Primitive below are ordinary nodes.',
-    scene: scene({
-      root: {
-        nodes: {
-          quick: { type: quick, x: 0, y: 20, width: 150 },
-          detailed: { type: detailed, x: 0, y: 100, width: 150 },
-          blend: { type: blend, x: 470, y: 20, width: 170 },
-        },
-        links: [
-          {
-            from: { node: 'quick', port: 'IMAGE' },
-            to: { selector: 's', candidate: 'quick' },
-          },
-          {
-            from: { node: 'detailed', port: 'IMAGE' },
-            to: { selector: 's', candidate: 'detailed' },
-          },
-          { from: { selector: 's' }, to: { node: 'blend', port: 'image' } },
-          {
-            from: { valueSource: 'grain' },
-            to: { node: 'blend', port: 'amount' },
-          },
-        ],
-        extra: {
-          valueSources: {
-            grain: {
-              id: 'grain',
-              value: 0.4,
-              title: 'Grain',
-              spec: {
-                widgetType: 'FLOAT',
-                options: { min: 0, max: 1, step: 0.05 },
-              },
-            },
-          },
-          selectors: {
-            s: {
-              id: 's',
-              title: 'Selector',
-              candidates: [
-                { id: 'quick', title: 'Quick' },
-                { id: 'detailed', title: 'Detailed' },
-              ],
-              policy: { kind: 'fixed', candidate: 'quick' },
-            },
-          },
-        },
-        extraView: {
-          selectors: { s: { position: { x: 220, y: 20 } } },
-          valueSources: { grain: { position: { x: 250, y: 190 } } },
-        },
-      },
-    }),
-  })
-
-  // 3. A pick known before the run.
+  // 2. A pick known before the run.
   cards.push({
     caption:
       'The pick is known before the run. Pick is the Switch\'s own dropdown and stores the branch\'s id; "Quick" is its name. The Detailed path is dimmed: it is left out of the submitted graph, so a missing model used only there does not block the run.',
@@ -588,7 +532,7 @@ export function switchPrimitiveGallery(
     inactive: new Set(['in1']),
   })
 
-  // 4. A pick that arrives during the run.
+  // 3. A pick that arrives during the run.
   {
     const graph = pickGraph(quickDetailed, 'Quick', ['Quick', 'Detailed'])
     cards.push({
@@ -612,7 +556,7 @@ export function switchPrimitiveGallery(
     })
   }
 
-  // 5. The picked branch has nothing plugged in.
+  // 4. The picked branch has nothing plugged in.
   cards.push({
     caption:
       'The picked branch has nothing plugged in. The Switch passes nothing on, the same for a typed and a wired pick, and Save Image does not run; Detailed is shown as "Nothing plugged in". No warning is added before the run, and it is not a missing-branch error.',
@@ -622,7 +566,7 @@ export function switchPrimitiveGallery(
     inactive: new Set(['in0', 'save']),
   })
 
-  // 6. A stored branch was removed.
+  // 5. A stored branch was removed.
   cards.push({
     caption:
       "The branch the pick stored was removed. The first branch is used, and Pick shows it dimmed until a branch is chosen again; choosing Detailed clears it. Removing or renaming a branch never reinterprets another branch's id.",
@@ -633,7 +577,7 @@ export function switchPrimitiveGallery(
     inactive: new Set(['in1']),
   })
 
-  // 7. A wired position outside the branch list.
+  // 6. A wired position outside the branch list.
   {
     const graph = pickGraph(quickDetailed, 'Quick', ['Quick', 'Detailed'])
     cards.push({
@@ -650,11 +594,34 @@ export function switchPrimitiveGallery(
         },
       }),
       states: { sw: failed },
-      rowMarks: { sw: new Set(['pick']) },
+      rowMarks: { sw: { 'pick': 'error' } },
     })
   }
 
-  // 8. A wired text picks a branch by its name.
+  // 7. A wired text picks a branch by its name.
+  {
+    const graph = pickGraph(quickDetailed, 'Quick', ['Quick', 'Detailed'])
+    const askModel = schema('Ask a Model', 'Ask a Model', [
+      field('question', 'Question', 'STRING', 'Which mode fits this photo?'),
+      out('STRING', 'STRING', 'Answer'),
+    ])
+    cards.push({
+      caption:
+        "A wired text picks the branch whose name is exactly that text; case matters and nothing is trimmed. A branch's id is accepted too, tried after the names. Here a model's answer arrives during the run, so the pick is not known before the run: every branch stays in the submitted graph with the branch names beside it, and the Switch picks when the answer arrives.",
+      scene: scene({
+        root: {
+          ...graph,
+          nodes: {
+            ask: { type: askModel, x: 0, y: -110, width: 170 },
+            ...graph.nodes,
+          },
+          links: [...graph.links!, ['ask', 'STRING', 'sw', 'pick']],
+        },
+      }),
+    })
+  }
+
+  // 8. A Custom Combo on Pick.
   {
     const graph = pickGraph(quickDetailed, 'Quick', ['Quick', 'Detailed'])
     const customCombo = schema('Custom Combo', 'Custom Combo', [
@@ -666,7 +633,7 @@ export function switchPrimitiveGallery(
     ])
     cards.push({
       caption:
-        'A wired text picks the branch whose name is exactly that text; case matters and nothing is trimmed. A branch\'s id is accepted too, tried after the names. Here Custom Combo\'s text output sends "Detailed". It runs, so the pick is not known before the run and every branch stays in the submitted graph; a Text primitive holding "Detailed" is known before the run and drops the Quick path, as for a typed pick.',
+        "A Custom Combo's text output is the choice stored on it, so it is known before the run, as a primitive's value is: wired to Pick, it drops the Quick path. Its options are the ones typed into it, and its INDEX output is the choice's position among them, counting from 0.",
       scene: scene({
         root: {
           ...graph,
@@ -677,6 +644,7 @@ export function switchPrimitiveGallery(
           links: [...graph.links!, ['combo', 'STRING', 'sw', 'pick']],
         },
       }),
+      inactive: new Set(['in0']),
     })
   }
 
@@ -731,7 +699,7 @@ export function switchPrimitiveGallery(
         },
       }),
       states: { sw: failed },
-      rowMarks: { sw: new Set(['pick']) },
+      rowMarks: { sw: { 'pick': 'error' } },
     })
   }
 
@@ -855,7 +823,7 @@ export function switchPrimitiveGallery(
         scene(graphs),
         scene(graphs, { graph: 'pass', through: 'pass' }),
       ),
-      rowMarks: { finish: new Set(['pick']) },
+      rowMarks: { finish: { 'pick': 'error' } },
     })
   }
 
@@ -904,9 +872,9 @@ export function switchPrimitiveGallery(
       'The two fields share no value: Steps A allows 0 to 3 and Steps B 8 to 12. The value and both wires stay, and a problem names both fields. Nothing is reset or removed; whether those nodes can queue is decided by their own fields as today.',
     scene: scene({ root: fanOut([0, 3], [8, 12], 6) }),
     rowMarks: {
-      p: new Set(['value']),
-      a: new Set(['steps']),
-      b: new Set(['steps']),
+      p: { 'value': 'error' },
+      a: { 'steps': 'error' },
+      b: { 'steps': 'error' },
     },
     companions: { a: { steps: { value: 6 } }, b: { steps: { value: 6 } } },
   })
@@ -1251,7 +1219,7 @@ export function switchPrimitiveGallery(
           ],
         },
       }),
-      rowMarks: { b: new Set(['steps']), conflict: new Set(['value']) },
+      rowMarks: { b: { 'steps': 'error' }, conflict: { 'value': 'error' } },
       companions: {
         b: { steps: { value: 6 } },
         s1: { sampler: { value: 'euler' } },

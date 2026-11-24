@@ -1,7 +1,7 @@
 import type { BoundaryItem, RegionContract } from '../format/document.js'
 
 export function generatedBoundaryLabel(item: BoundaryItem): string {
-  return item.binds.kind === 'unbound' || item.binds.kind === 'valueSource'
+  return item.binds.kind === 'unbound'
     ? item.id
     : item.binds.kind === 'widgetTap'
       ? item.binds.tap as string

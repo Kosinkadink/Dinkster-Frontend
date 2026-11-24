@@ -66,11 +66,18 @@ export function executionNodePresentation(
   return { states, badges }
 }
 
-/** Strongest document problem anchored to each exact input pin id. */
-export type PortProblemKind = 'error' | 'blocking-warning' | 'warning'
-export type PortProblemMap = Readonly<Record<string, Readonly<Record<string, PortProblemKind>>>>
+/** A problem that stops a run is an error; every other problem is a warning. */
+export type ProblemKind = 'error' | 'warning'
+/**
+ * Strongest problem per node per row. A row is keyed by its stored value key,
+ * by its input port id for an input drawn without a field, or by
+ * outputRowKey for an output.
+ */
+export type RowProblemMap = Readonly<Record<string, Readonly<Record<string, ProblemKind>>>>
+/** The row key of an output, kept apart from an input with the same port id. */
+export const outputRowKey = (portId: string): string => `\u0000output\u0000${portId}`
 
-export const SUBGRAPH_BADGE: NodeBadge = { id: 'core.subgraph', glyph: 'Subgraph', icon: 'boxes', placement: 'title', color: canvasPaintTokens.badge.colors.subgraph }
+export const SUBGRAPH_BADGE: NodeBadge = { id: 'core.subgraph', glyph: 'Subgraph', icon: 'subgraph', placement: 'title', color: canvasPaintTokens.badge.colors.subgraph }
 export const subgraphBadge = (occurrences: number): NodeBadge => occurrences >= 2
   ? { ...SUBGRAPH_BADGE, count: occurrences }
   : SUBGRAPH_BADGE
@@ -84,6 +91,17 @@ export const executionErrorBadge = (count: number): NodeBadge => ({
   ...ERROR_BADGE,
   glyph: count > 1 ? `Error ${count}` : 'Error',
 })
+/**
+ * The run's error tab once the node has changed since that run: drawn in the
+ * theme's label gray with no count, opening the same runtime details.
+ */
+export const LAST_RUN_BADGE: NodeBadge = {
+  id: 'core.error.lastRun',
+  glyph: 'Last run',
+  icon: 'circle-x',
+  placement: 'below',
+  color: defaultTokens.colors.label,
+}
 /** One engine explanation for the root absence that blocked this node. */
 export const executionBlockedBadge = (message: string): NodeBadge => ({
   id: 'core.execution.blocked',
@@ -142,13 +160,6 @@ export const PROBLEM_ERROR_BADGE: NodeBadge = {
 }
 /** A document error whose node cannot run here. */
 export const UNAVAILABLE_BADGE: NodeBadge = { ...PROBLEM_ERROR_BADGE, glyph: 'Unavailable', icon: 'unplug' }
-export const PROBLEM_BLOCKING_WARNING_BADGE: NodeBadge = {
-  id: 'core.problem.blocking-warning',
-  glyph: 'Warning',
-  icon: 'triangle-alert',
-  placement: 'below',
-  color: defaultTokens.colors.blockingWarning,
-}
 export const PROBLEM_WARNING_BADGE: NodeBadge = {
   id: 'core.problem.warning',
   glyph: 'Warning',
@@ -156,6 +167,11 @@ export const PROBLEM_WARNING_BADGE: NodeBadge = {
   placement: 'below',
   color: canvasPaintTokens.badge.colors.warning,
 }
+/** A problem tab that counts the separate causes behind it. */
+export const problemBadge = (base: NodeBadge, count: number): NodeBadge => ({
+  ...base,
+  glyph: count > 1 ? `${base.glyph} ${count}` : base.glyph,
+})
 /** A media conversion that lost or reinterpreted data at one pin this run. */
 export const mediaDiagnosticBadge = (id: string, glyph: string): NodeBadge => ({
   id,
@@ -217,7 +233,8 @@ export function layoutNodeBadges(
   const labelWidth = (text: string): number => Math.ceil(options.measureLabel?.(text) ?? text.length * paint.fontSize)
   const result: BadgePlacement[] = []
 
-  let markRight = node.x + node.layout.width - options.tokens.padX
+  // The mark sits as far from the node's right edge as from the bar's top and bottom.
+  let markRight = node.x + node.layout.width - (node.layout.headerHeight - mark.size) / 2
   for (const badge of badges) {
     if (badge.placement !== 'title') continue
     const width = badge.count === undefined
@@ -351,4 +368,24 @@ export function hitTestBadge(scene: Scene, badges: BadgeMap, wx: number, wy: num
     if (wx >= node.x && wx <= node.x + node.layout.width && wy >= node.y && wy <= node.y + node.layout.height) return undefined
   }
   return undefined
+}
+
+/** Gap between the node's lowest tab and the box, in screen px. */
+export const PROBLEM_BOX_GAP = canvasPaintTokens.badge.tab.problemBoxGap
+
+/**
+ * Where the box hangs, in canvas-pane px (the canvas element's own px): below the node and its tabs, left
+ * edge with the node, so it never covers the node, its pins or its wires.
+ */
+export function problemBoxPlacement(
+  node: SceneNode,
+  tabs: readonly BadgePlacement[],
+  viewport: { readonly x: number; readonly y: number; readonly scale: number },
+): { readonly x: number; readonly y: number } {
+  const below = tabs.filter((entry) => entry.badge.placement === 'below')
+  const bottom = Math.max(node.y + node.layout.height, ...below.map((entry) => entry.y + entry.height))
+  return {
+    x: node.x * viewport.scale + viewport.x,
+    y: bottom * viewport.scale + viewport.y + PROBLEM_BOX_GAP,
+  }
 }

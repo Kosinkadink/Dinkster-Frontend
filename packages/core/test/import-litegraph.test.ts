@@ -9,19 +9,20 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { compile } from '../src/compile/compile.js'
+import { compile, documentPrimitiveResolver } from '../src/compile/compile.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { JsonObject } from '../src/format/document.js'
 import { importLitegraph, resolveImportedNodePacks, type ComfyNodeUpgradeTable, type ComfyTranslation } from '../src/format/import-litegraph.js'
 import { loadDocument } from '../src/format/migrate.js'
-import { asConnectionId } from '../src/ids.js'
+import { asConnectionId, asNodeId } from '../src/ids.js'
 import { checkDocument } from '../src/invariants.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import type { ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
+import { PRIMITIVE_SCHEMAS, withPrimitives } from './fixtures/primitive-schemas.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -273,10 +274,13 @@ it('applies a same-type import value transform exactly once', () => {
   expect(checkDocument(document)).toEqual([])
 })
 
-it('imports authored combo choices and typed index separately from linked extra dependencies', () => {
+it('imports authored combo choices, drops the stored index, and keeps linked extra dependencies', () => {
   const combo = parseDinksterSchema('CustomCombo', {
     outputNode: true, additionalInputs: { kind: 'wildcard' },
-    body: [{ kind: 'input', id: 'choice', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', editableOptions: true } }],
+    body: [
+      { kind: 'input', id: 'choice', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', editableOptions: true, optionsInput: 'options' } },
+      { kind: 'input', id: 'options', type: { kind: 'list', element: { kind: 'concrete', types: ['STRING'] } }, required: false, hidden: true },
+    ],
   }).schema!
   const source = parseDinksterSchema('Source', { body: [
     { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['STRING'] } },
@@ -291,9 +295,10 @@ it('imports authored combo choices and typed index separately from linked extra 
       { id: 2, type: 'CustomCombo', inputs: [{ name: 'sparse.172', type: 'STRING', link: 1 }], widgets_values: widgets },
     ], links: [[1, 1, 0, 2, 0, 'STRING']] }, resolver)
     expect(errorsOf(imported.diagnostics)).toEqual([])
+    expect(codesOf(imported.diagnostics)).toContain('import.combo.index')
     const node = imported.document!.graphs.g0!.nodes.n2!
-    expect(node.additionalInputs).toEqual(['sparse.172', 'index'])
-    expect(node.values).toEqual({ choice: 'outside', index: { $typed: { type: 'INT', value: 7 } } })
+    expect(node.additionalInputs).toEqual(['sparse.172'])
+    expect(node.values).toEqual({ choice: 'outside' })
     expect(node.dynamic!.choice!.options).toEqual(Array.isArray(widgets) ? ['duplicate', 'duplicate', '', false, 0] : ['duplicate', 'duplicate', ''])
     if (!Array.isArray(widgets)) expect(node.ext!['importer.unknownWidgetValues']).toEqual({ other: { kept: true } })
     const reopened = loadDocument(JSON.parse(JSON.stringify(imported.document)))
@@ -301,19 +306,20 @@ it('imports authored combo choices and typed index separately from linked extra 
     expect(importLitegraph(reopened.document!.ext!['importer.comfyWorkflow'] as JsonObject, resolver).document).toEqual(imported.document)
     const compiled = compile({ document: reopened.document!, revision: 0, resolve: resolver, scope: { kind: 'full' }, connection: asConnectionId('combo'), schemaHash: 'combo', graphFeatures: ['typedLiteral'] })
     expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
-    if (compiled.ok) expect(compiled.artifact.prompt.n2!.inputs).toEqual({ choice: 'outside', index: { $typed: { type: 'INT', value: 7 } }, 'sparse.172': ['n1', 0] })
+    if (compiled.ok) expect(compiled.artifact.prompt.n2!.inputs).toEqual({ choice: 'outside', options: Array.isArray(widgets) ? ['duplicate', 'duplicate', '', 'false', '0'] : ['duplicate', 'duplicate', ''], 'sparse.172': ['n1', 0] })
   }
   const omitted = importLitegraph({ nodes: [{ id: 2, type: 'CustomCombo', widgets_values: ['outside'] }], links: [] }, resolver)
   expect(omitted.document!.graphs.g0!.nodes.n2!.values).toEqual({ choice: 'outside' })
   expect(omitted.document!.graphs.g0!.nodes.n2!.additionalInputs).toBeUndefined()
   expect(omitted.document!.graphs.g0!.nodes.n2!.dynamic!.choice!.options).toEqual([])
+  expect(codesOf(omitted.diagnostics)).not.toContain('import.combo.index')
   const many = Array.from({ length: 152 }, (_, i) => `entry${i * 3}`)
   const large = importLitegraph({ nodes: [{ id: 2, type: 'CustomCombo', widgets_values: ['outside', -1, ...many] }], links: [] }, resolver)
   expect(large.document!.graphs.g0!.nodes.n2!.dynamic!.choice!.options).toEqual(many)
-  expect(large.document!.graphs.g0!.nodes.n2!.values.index).toEqual({ $typed: { type: 'INT', value: -1 } })
-  const invalid = importLitegraph({ nodes: [{ id: 2, type: 'CustomCombo', widgets_values: ['outside', '7'] }], links: [] }, resolver)
-  expect(invalid.document).toBeUndefined()
-  expect(codesOf(invalid.diagnostics)).toContain('import.combo.index')
+  expect(large.document!.graphs.g0!.nodes.n2!.values).toEqual({ choice: 'outside' })
+  const text = importLitegraph({ nodes: [{ id: 2, type: 'CustomCombo', widgets_values: ['outside', '7'] }], links: [] }, resolver)
+  expect(text.document!.graphs.g0!.nodes.n2!.values).toEqual({ choice: 'outside' })
+  expect(codesOf(text.diagnostics)).toContain('import.combo.index')
 })
 
 // -- litegraph JSON builders --------------------------------------------------
@@ -1965,7 +1971,76 @@ describe('Autogrow endpoint reconstruction', () => {
     expect(solveGraphTypes(namesGraph, namesResult.localResolve).diagnostics.filter((d) => d.code === 'solve.portMissing')).toEqual([])
   })
 
-  it('rewrites value-source and named-net Autogrow sinks', () => {
+  it('imports frontend PrimitiveNodes as the primitive the fed field drags out', () => {
+    const consumer = sdSchema('Consumer', 'Consumer', [
+      sdInput('seed', 'INT', 'INT'), sdInput('image', 'IMAGE'), sdInput('steps', 'INT', 'INT'),
+    ], true)
+    const localResolve = withPrimitives((type) => (type === consumer.type ? consumer : undefined))
+    const result = importLitegraph(
+      workflow([
+        lgNode(1, 'PrimitiveNode', { outputs: [{ name: 'INT', links: [1] }], widgets_values: [42, 'randomize'], title: 'Seed', mode: 2 }),
+        lgNode(2, 'PrimitiveNode', { outputs: [{ name: 'IMAGE', links: [2] }], widgets_values: ['pic.png'] }),
+        lgNode(3, 'PrimitiveNode', { outputs: [{ name: 'INT', links: [3] }], widgets_values: [9] }),
+        lgNode(4, 'SetNode', { inputs: [{ name: 'value', link: 3 }], outputs: [{ name: '*' }], widgets_values: ['count'] }),
+        lgNode(5, 'GetNode', { outputs: [{ name: 'value', links: [4] }], widgets_values: ['count'] }),
+        lgNode(6, 'PrimitiveNode', { outputs: [{ name: 'INT' }] }),
+        lgNode(7, consumer.type, {
+          inputs: [{ name: 'seed', link: 1, widget: { name: 'seed' } }, { name: 'image', link: 2 }, { name: 'steps', link: 4, widget: { name: 'steps' } }],
+        }),
+      ], [lgLink(1, 1, 0, 7, 0), lgLink(2, 2, 0, 7, 1), lgLink(3, 3, 0, 4, 0), lgLink(4, 5, 0, 7, 2)]),
+      localResolve, undefined, [], PRIMITIVE_SCHEMAS,
+    )
+    const graph = result.document!.graphs.g0!
+    expect(graph.nodes['n1']).toMatchObject({
+      type: 'dinkster.utilities.primitive_int', values: { value: 42 }, controllers: { value: 'randomize' }, mode: 'muted', title: 'Seed',
+    })
+    expect(graph.nodes['n2']).toMatchObject({ type: 'dinkster.utilities.primitive', values: { value: 'pic.png' } })
+    expect(graph.nodes['n3']).toMatchObject({ type: 'dinkster.utilities.primitive_int', values: { value: 9 } })
+    expect(graph.nodes['n6']).toBeUndefined()
+    expect(Object.values(graph.links).map((link) => [link.from, link.to])).toEqual(expect.arrayContaining([
+      [{ node: 'n1', port: 'value' }, { node: 'n7', port: 'seed' }],
+      [{ node: 'n2', port: 'value' }, { node: 'n7', port: 'image' }],
+    ]))
+    expect(Object.values(graph.nets)).toEqual([expect.objectContaining({
+      source: { node: 'n3', port: 'value' }, sinks: [{ node: 'n7', port: 'steps' }],
+    })])
+    expect(result.diagnostics.map((d) => d.code)).toEqual(expect.arrayContaining(['import.primitive.converted', 'import.primitive.dropped']))
+  })
+
+  it.each([
+    ['FLOAT', 'dinkster.utilities.primitive_float', 0.75],
+    ['STRING', 'dinkster.utilities.primitive_string', 'a cat'],
+    ['BOOLEAN', 'dinkster.utilities.primitive_boolean', true],
+    ['COMBO', 'dinkster.utilities.primitive_choice', 'dpm'],
+  ] as const)('imports a PrimitiveNode feeding a %s field as %s', (widgetType, primitiveType, value) => {
+    const field: InputSpec = {
+      kind: 'input', id: 'field', type: { kind: 'concrete', name: widgetType }, optional: false,
+      widget: { widgetType, options: widgetType === 'COMBO' ? { options: ['euler', 'dpm', 'ddim'] } : {} },
+    }
+    const consumer = sdSchema('Consumer', 'Consumer', [field], true)
+    const localResolve = withPrimitives((type) => (type === consumer.type ? consumer : undefined))
+    const result = importLitegraph(
+      workflow([
+        lgNode(1, 'PrimitiveNode', { outputs: [{ name: widgetType, type: widgetType, links: [1] }], widgets_values: [value] }),
+        lgNode(2, consumer.type, { inputs: [{ name: 'field', link: 1, widget: { name: 'field' } }] }),
+      ], [lgLink(1, 1, 0, 2, 0)]),
+      localResolve, undefined, [], PRIMITIVE_SCHEMAS,
+    )
+    expect(errorsOf(result.diagnostics)).toEqual([])
+    const document = result.document!
+    const primitive = document.graphs.g0!.nodes['n1']!
+    expect(primitive).toMatchObject({ type: primitiveType, values: { value } })
+    expect(Object.values(document.graphs.g0!.links).map((link) => [link.from, link.to])).toEqual([
+      [{ node: 'n1', port: 'value' }, { node: 'n2', port: 'field' }],
+    ])
+    if (widgetType === 'COMBO') {
+      // The Choice stores only its pick; its options are the fed field's.
+      const effective = documentPrimitiveResolver(document, localResolve)('g0', primitive)
+      expect(effective?.spec).toMatchObject({ widgetType: 'COMBO', options: { options: ['euler', 'dpm', 'ddim'] } })
+    }
+  })
+
+  it('rewrites primitive and named-net Autogrow sinks', () => {
     const schema: NodeSchema = {
       type: 'RoutedBatch', displayName: 'Routed Batch', category: 'test', source: 'v3', isOutputNode: false,
       body: [{
@@ -1979,9 +2054,11 @@ describe('Autogrow endpoint reconstruction', () => {
         lgNode(1, 'PrimitiveNode', { outputs: [{ name: 'IMAGE', links: [1] }], widgets_values: ['asset'] }),
         lgNode(2, schema.type, { inputs: [{ name: 'images.image0', link: 1 }] }),
       ], [lgLink(1, 1, 0, 2, 0)]),
-      localResolve,
+      withPrimitives(localResolve), undefined, [], PRIMITIVE_SCHEMAS,
     )
-    expect(primitive.document!.graphs.g0!.links['l1']!.to).toEqual({ node: 'n2', port: 'images.image0' })
+    expect(primitive.document!.graphs.g0!.links['l1']!).toMatchObject({
+      from: { node: 'n1', port: 'value' }, to: { node: 'n2', port: 'images.image0' },
+    })
 
     const net = importLitegraph(
       workflow([
@@ -3255,4 +3332,68 @@ describe('view extras', () => {
       position: { x: 12, y: 34 }, size: { width: 420, height: 210 }, color: '#335577',
     })
   })
+})
+
+it('imports a ComfyUI FLOATS wire into Create Hook Keyframes From Floats as list<FLOAT>', () => {
+  const float = { kind: 'concrete', types: ['FLOAT'] }
+  const fromFloats = parseDinksterSchema('dinkster.models.create_hook_keyframes_from_floats', { schemaVersion: 2, body: [
+    { kind: 'input', id: 'floats_strength', type: float, required: true, default: -1,
+      widget: { type: 'NUMBER', min: -1, step: 0.001 }, pinFirst: true, acceptsList: true },
+    { kind: 'input', id: 'start_percent', type: float, required: true, default: 0, widget: { type: 'NUMBER', min: 0, max: 1, step: 0.001 } },
+    { kind: 'input', id: 'end_percent', type: float, required: true, default: 1, widget: { type: 'NUMBER', min: 0, max: 1, step: 0.001 } },
+    { kind: 'input', id: 'prev_hook_kf', type: { kind: 'concrete', types: ['HOOK_KEYFRAMES'] }, required: false },
+    { kind: 'output', id: 'HOOK_KF', type: { kind: 'concrete', types: ['HOOK_KEYFRAMES'] } },
+  ] }).schema!
+  const createList = parseDinksterSchema('dinkster.utilities.create_list', { schemaVersion: 2, body: [
+    { kind: 'group', id: 'inputs', keys: { numbered: { prefix: 'input', start: 0, pad: 0 } }, grows: 'link',
+      minMembers: 1, optionalAfterMinimum: true,
+      value: { kind: 'input', id: 'input', type: { kind: 'variable', templateId: 'T' }, required: true, acceptsList: true } },
+    { kind: 'output', id: 'list', type: { kind: 'list', element: { kind: 'variable', templateId: 'T' } } },
+  ] }).schema!
+  const source = parseDinksterSchema('FloatProducer', { body: [{ kind: 'output', id: 'FLOAT', type: float }] }).schema!
+  const translations: ComfyTranslation[] = [
+    { schema: createList, rule: { from: 'CreateList', cases: [{ to: createList.type, outputs: { list: 'list' },
+      inputFamilies: { inputs: { kind: 'copy', sourceFamily: 'inputs', inputs: { input: { kind: 'copy', input: 'input' } },
+        sourceTemplate: { inputs: ['input'] } } } }] } },
+    { schema: fromFloats, rule: { from: 'CreateHookKeyframesFromFloats', cases: [{ to: fromFloats.type, outputs: { HOOK_KF: 'HOOK_KF' },
+      inputs: Object.fromEntries(['floats_strength', 'start_percent', 'end_percent', 'prev_hook_kf']
+        .map((id) => [id, { kind: 'copy' as const, input: id }])) }] } },
+  ]
+  const localResolve = (type: string) => [source, createList, fromFloats].find((schema) => schema.type === type)
+  const imported = importLitegraph({ nodes: [
+    { id: 1, type: source.type, outputs: [{ name: 'FLOAT', type: 'FLOAT', links: [1] }] },
+    { id: 2, type: source.type, outputs: [{ name: 'FLOAT', type: 'FLOAT', links: [2] }] },
+    { id: 3, type: 'CreateList', inputs: [{ name: 'inputs.input0', type: '*', link: 1 }, { name: 'inputs.input1', type: '*', link: 2 }],
+      outputs: [{ name: 'list', type: 'FLOATS', links: [3] }] },
+    { id: 4, type: 'CreateHookKeyframesFromFloats', widgets_values: [0.2, 0.8],
+      inputs: [{ name: 'floats_strength', type: 'FLOATS', link: 3 }, { name: 'prev_hook_kf', type: 'HOOK_KEYFRAMES', link: null }],
+      outputs: [{ name: 'HOOK_KF', type: 'HOOK_KEYFRAMES', links: [] }] },
+    { id: 5, type: 'sg', inputs: [{ name: 'strengths', type: 'FLOATS' }], outputs: [] },
+  ], links: [[1, 1, 0, 3, 0, 'FLOAT'], [2, 2, 0, 3, 1, 'FLOAT'], [3, 3, 0, 4, 0, 'FLOATS']],
+  definitions: { subgraphs: [{ id: 'sg', name: 'Unused strengths', version: 1, nodes: [], links: [],
+    inputs: [{ id: 'in', name: 'strengths', type: 'FLOATS', linkIds: [] }], outputs: [] }] } },
+  localResolve, undefined, translations)
+  expect(imported.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
+  const graph = imported.document!.graphs.g0!
+  expect(graph.nodes.n4).toMatchObject({ type: fromFloats.type, values: { start_percent: 0.2, end_percent: 0.8 } })
+  expect(Object.values(graph.links).map((link) => [link.from, link.to])).toContainEqual(
+    [{ node: 'n3', port: 'list' }, { node: 'n4', port: 'floats_strength' }])
+  const solved = solveGraphTypes(graph, localResolve)
+  expect(solved.portTypeOf(asNodeId('n3'), 'output', 'list')).toEqual({ kind: 'list', element: { kind: 'concrete', name: 'FLOAT' } })
+  expect([...solved.linkVerdicts.values()]).toEqual(['ok', 'ok', 'ok'])
+  // A FLOATS slot with nothing inside to take its type from still names list<FLOAT>.
+  expect(imported.document!.graphs.sg!.boundary!.inputs[0]!.binds).toEqual(
+    { kind: 'unbound', type: { kind: 'list', element: { kind: 'concrete', name: 'FLOAT' } } })
+
+  // FLOATS outputs in the wild come from custom packs: an uninstalled producer
+  // imports as a missing node and keeps its wire into the list input.
+  const uninstalled = importLitegraph({ nodes: [
+    { id: 1, type: 'FloatsFromSomePack', widgets_values: ['0.1, 0.5'], outputs: [{ name: 'FLOATS', type: 'FLOATS', links: [1] }] },
+    { id: 2, type: 'CreateHookKeyframesFromFloats', widgets_values: [0.2, 0.8],
+      inputs: [{ name: 'floats_strength', type: 'FLOATS', link: 1 }, { name: 'prev_hook_kf', type: 'HOOK_KEYFRAMES', link: null }],
+      outputs: [{ name: 'HOOK_KF', type: 'HOOK_KEYFRAMES', links: [] }] },
+  ], links: [[1, 1, 0, 2, 0, 'FLOATS']] }, localResolve, undefined, translations)
+  expect(uninstalled.diagnostics.map((item) => item.code)).toEqual(['import.schema.missing'])
+  expect(Object.values(uninstalled.document!.graphs.g0!.links).map((link) => [link.from, link.to])).toEqual(
+    [[{ node: 'n1', port: 'FLOATS' }, { node: 'n2', port: 'floats_strength' }]])
 })

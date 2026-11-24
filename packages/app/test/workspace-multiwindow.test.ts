@@ -22,7 +22,7 @@ import {
 } from '../src/shared-worker-connection.js'
 import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
 import { SharedWorkerTabConnection, type WorkspaceWorkerPortFactory } from '../src/workspace-worker-connection.js'
-import { CURVE_EDITOR_KIND } from '../src/editors.js'
+import { GLSL_EDITOR_KIND } from '../src/editors.js'
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { preparePersistenceValue } from '../src/workflow-persistence-value.js'
 
@@ -325,7 +325,7 @@ describe('AppState multi-window workspace', () => {
     expect(first.tabs.get().map((tab) => tab.id)).toEqual(second.tabs.get().map((tab) => tab.id))
   })
 
-  it('preserves a local curve editor when another window publishes tab metadata', async () => {
+  it('preserves a local GLSL editor when another window publishes tab metadata', async () => {
     const factory = authorityFactories()
     const first = prepareWorkflowApp(new AppState())
     const second = prepareWorkflowApp(new AppState())
@@ -340,20 +340,20 @@ describe('AppState multi-window workspace', () => {
       tabId: tab.id,
       graphId: 'g0',
       nodeId: 'n1',
-      inputId: 'curve',
+      inputId: 'fragment_shader' as const,
       instancePath: [],
       openedStoredValue: undefined,
-      openedSchemaDefault: undefined,
-      openedValue: { points: [{ position: 0, value: 0 }] },
+      openedSchemaDefault: '',
+      openedValue: '',
     }
-    first.curveEditorTarget.set(target)
-    first.setTabEditorKind(tab.id, CURVE_EDITOR_KIND)
+    first.glslEditorTarget.set(target)
+    first.setTabEditorKind(tab.id, GLSL_EDITOR_KIND)
 
     second.createWorkflow()
     await drainTasks()
 
-    expect(first.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(CURVE_EDITOR_KIND)
-    expect(first.curveEditorTarget.get()).toBe(target)
+    expect(first.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(GLSL_EDITOR_KIND)
+    expect(first.glslEditorTarget.get()).toBe(target)
   })
 
 
@@ -960,7 +960,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     expect(promoted.store).not.toBe(tab.store)
 
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 14, down: 9 })
+    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 13, down: 10 })
   })
 
   it('preserves editor-role schema resolution in the promoted command registry', async () => {
@@ -1028,7 +1028,7 @@ describe('advancement plans survive workspace-authority promotion', () => {
     promoted.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'seed', inputId: 'up', value: 11 } })
     await drainTasks()
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 9 })
+    await expect.poll(() => promoted.store.doc.graphs.g0!.nodes.seed!.values).toMatchObject({ up: 11, down: 10 })
   })
 
   const comboRoute = '/remote/options'

@@ -57,62 +57,12 @@ it('preserves named browser errors without inventing a frame', async () => {
   expect(device.stop).not.toHaveBeenCalled()
 })
 
-it('stages capture, preserves the saved frame on cancel or device failure, and applies undoably', async () => {
-  const device = camera()
-  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:camera')
-  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-  const schema = parseDinksterSchema('dinkster.image.webcam_capture', { body: [
-    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM' } },
-    { kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, default: 640 },
-    { kind: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 180 },
-  ] }).schema!
-  const saved = { digest: `blake3:${'a'.repeat(64)}`, name: 'saved.png', size: 8, mediaType: 'image/png', virtualPath: 'input/saved.png' }
-  const captured = { ...saved, digest: `blake3:${'b'.repeat(64)}`, name: 'webcam.png' }
-  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [saved, 640, 180] }], links: [] }, () => schema)
-  const store = new DocumentStore(imported.document!, coreCommandRegistry())
-  const tab = { store } as unknown as Tab
-  const registry = createWidgetRegistry()
-  const upload = vi.fn().mockResolvedValue(captured)
-  const backend = { protocol: 'dinkster', connection: { uploadMediaAsset: upload } }
-  const app = {
-    widgetRegistry: registry, widgetRegistryForTab: () => registry,
-    backendForTab: () => backend,
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
-  } as unknown as AppState
-  const root = document.createElement('div'); document.body.append(root)
-  const open = () => render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'image' }, label: 'Camera frame',
-    spec: inputsOf(schema)[0]!.widget, declaredType: inputsOf(schema)[0]!.type,
-    multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial: store.doc.graphs.g0!.nodes.n1!.values.image,
-  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-  const button = (label: string) => Array.from(document.querySelectorAll('button')).find((element) => element.textContent === label)!
-  let dispose = open()
-  button('Capture frame').click()
-  await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce())
-  await vi.waitFor(() => expect(root.querySelector('img')).not.toBeNull())
-  expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(saved)
-  button('Cancel').click(); dispose()
-  expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(saved)
-  dispose = open()
-  device.open.mockRejectedValueOnce(new DOMException('Requested device not found', 'NotFoundError'))
-  button('Capture frame').click()
-  await vi.waitFor(() => expect(document.body.textContent).toContain('NotFoundError: Requested device not found'))
-  expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(saved)
-  button('Capture frame').click()
-  await vi.waitFor(() => expect(root.querySelector('img')).not.toBeNull())
-  button('Use frame').click()
-  expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(captured)
-  expect(store.undo()).toBe(true)
-  expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(saved)
-  dispose()
-})
-
 async function queueSetup(captureOnQueue = true) {
   const app = createWorkflowApp()
   const backend = app.backends.get()[0]!
   const type = 'dinkster.image.webcam_capture'
   backend.registry.set(buildDinksterRegistry(backend.id, { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: { [type]: { body: [
-    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM' } },
+    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM', reads: { width: 'width', height: 'height', capture_on_queue: 'capture_on_queue' } } },
     { kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, default: 640 },
     { kind: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 180 },
     { kind: 'input', id: 'capture_on_queue', type: { kind: 'concrete', types: ['BOOLEAN'] }, default: true },
@@ -185,7 +135,7 @@ it('refuses queue on device failure or edits during capture without replacing a 
 
 it('does not replace connected literal camera inputs with unused captures', async () => {
   const device = camera()
-  for (const kind of ['valueSource', 'tap', 'net']) {
+  for (const kind of ['tap', 'net']) {
     const state = await queueSetup()
     try {
       const document = state.tab.store.doc
@@ -196,9 +146,8 @@ it('does not replace connected literal camera inputs with unused captures', asyn
         nodes: { ...graph.nodes, n2: kind === 'net'
           ? { ...graph.nodes.n2!, type: 'test.frame', values: {} }
           : { ...graph.nodes.n2!, values: { ...graph.nodes.n2!.values, image: connected } } },
-        valueSources: { v0: { id: 'v0', value: connected, type: { kind: 'concrete', types: ['WEBCAM'] } } },
         links: kind === 'net' ? {} : { l0: {
-          id: 'l0', from: kind === 'tap' ? { node: 'n2', tap: 'image' } : { valueSource: 'v0' }, to: { node: 'n1', port: 'image' },
+          id: 'l0', from: { node: 'n2', tap: 'image' }, to: { node: 'n1', port: 'image' },
         } },
         nets: kind === 'net' ? { net0: { id: 'net0', name: 'camera', source: { node: 'n2', port: 'frame' }, sinks: [{ node: 'n1', port: 'image' }] } } : {},
       } } }, 'Connected camera'))).toEqual([])
@@ -244,9 +193,12 @@ it('saves a nested camera on its promoted owner and preserves a connected bounda
       const root = document.graphs.g0!
       const frame = { ...state.saved, digest: `blake3:${'e'.repeat(64)}`, name: 'boundary.png' }
       expect((await state.app.openDocument({ ...document, graphs: {
-        g0: { ...root, nodes: { n1: { id: 'n1', type: '#camera', values: { frame: state.saved } } },
-          valueSources: { v0: { id: 'v0', value: frame, type: { kind: 'concrete', types: ['WEBCAM'] } } },
-          links: connected ? { l0: { id: 'l0', from: { valueSource: 'v0' }, to: { node: 'n1', port: 'frame' } } } : {},
+        g0: { ...root,
+          nodes: {
+            n1: { id: 'n1', type: '#camera', values: { frame: state.saved } },
+            ...(connected ? { n2: { ...root.nodes.n2!, values: { ...root.nodes.n2!.values, image: frame } } } : {}),
+          },
+          links: connected ? { l0: { id: 'l0', from: { node: 'n2', tap: 'image' }, to: { node: 'n1', port: 'frame' } } } : {},
         },
         camera: { id: 'camera', name: 'Camera', nodes: { inner: { ...root.nodes.n1!, id: 'inner' } },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,

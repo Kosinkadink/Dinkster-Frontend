@@ -207,8 +207,8 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
   }
 
   const [authoring, setAuthoring] = createSignal(false)
-  const editable = spec.remote === undefined && ed.target.kind === 'input' &&
-    spec.editableOptions === true && ed.target.optionsTarget !== undefined
+  const editable = spec.remote === undefined &&
+    spec.editableOptions === true && ed.target.kind === 'input' && ed.target.optionsTarget !== undefined
   const refreshing = (): boolean => {
     const state = lookupState()
     return state?.kind === 'loading' || ((state?.kind === 'ready' || state?.kind === 'stale' || state?.kind === 'unavailable') && state.refreshing)

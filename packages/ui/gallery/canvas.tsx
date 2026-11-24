@@ -44,8 +44,10 @@ import {
 } from '../src/index.js'
 import { NodeLookGallery } from './node-look.js'
 import { ColorEditingGallery } from './color-editing.js'
+import { InNodeEditorsGallery } from './in-node-editors.js'
 import { RowEditingGallery } from './row-editing.js'
 import { RowListsGallery } from './row-lists.js'
+import { ProblemBoxGallery } from './problem-box.js'
 
 type Theme = 'dark' | 'light'
 
@@ -55,9 +57,11 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
       'Nodes',
       [
         'anatomy',
+        'boxes',
         'idle-outline',
         'titles',
         'titles-content',
+        'title-suffix',
         'node-look',
         'previews',
         'badges',
@@ -77,6 +81,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'color-editing',
         'collection-rows',
         'editor-rows',
+        'in-node-editors',
         'widget-driven',
         'widget-offered',
         'widget-companions',
@@ -85,9 +90,10 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'text-boxes',
       ],
     ],
-    ['Wires', ['types', 'structure']],
-    ['Subgraphs', ['boundary', 'boundary-names']],
-    ['Flow nodes', ['switch-primitive']],
+    ['Wires', ['types', 'structure', 'wire-looks']],
+    ['Subgraphs', ['boundary', 'boundary-names', 'subgraph-icon']],
+    ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
+    ['Problems with fixes', ['problem-box']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
 
@@ -138,17 +144,23 @@ export function selectCanvasPage(href: string) {
 const pageNotes: Record<CanvasGalleryPage, string> = {
   anatomy:
     'The parts of a node: title bar with its minimize arrow, pins, value rows, a section open and closed, a subgraph node with its mark, and a node whose type is missing.',
+  boxes:
+    'Sections, groups and choices drawn as boxes. A closed box shows how many rows it holds and marks a changed value with a dot. Its row carries the pins of the fields inside it, pressed together, at most three on a side with wired pins first; an unwired input is hollow, and a fourth wire ends on the last pin drawn. A wire held over a closed box names the field it would reach. Opening or closing a box moves neither its name nor any row above it. A member of a group that can be reordered has a grip: dragging it shows where the member would land and dims it in place, and its menu has Move up and Move down. The remove cross on a member of a group that grows by hand is shown here only; the editor leaves it off until pressing it removes the member.',
   'idle-outline':
     'The outline of a node at rest, hovered and selected; hovering adds dots at the ends of the rows.',
   titles:
     'A title that does not fit ends in an ellipsis instead of squeezing its letters, drawn at 75 percent zoom.',
   'titles-content': 'The same titles at 50 percent zoom.',
+  'problem-box':
+    'A problem outlines its row; the node\'s Error or Warning tab counts the causes and opens one box under the node with each problem and, where one exists, the action that leads to it. Point at a line to light its row.',
+  'title-suffix':
+    'A node\'s declared title suffix, worked out from its values ("20 steps, euler"), one space after the title in the row names\' dim regular type: beside a pack title, beside a renamed title, cut first on a narrow node ("20 steps with the euler sampler"), and on a minimized node.',
   'node-look':
     'The same nodes in the original look and in the flat-title look the owner chose.',
   previews:
     'Every node that can show a preview has a "Preview" caption row: before a picture, with one (open, and folded with the caption under the pointer), loading, failed, cached and estimated, and a text result open and folded. A minimized node keeps the caption folded while it has a picture or a text result; its caption opens the picture at its open height.',
   badges: 'Every badge on a node, and the toolbar above a selected node.',
-  tabs: 'Tabs above a node say what it is and tabs below say what happened, 3 px off the node and flush with its edges, drawn at 75 percent zoom; only the subgraph mark stays in the title bar. Icons: Queued clock, Running play, Finished check, Cached database, Skipped ban, Failed and Error circle-x, Unavailable unplug, Warning triangle-alert, Blocked lock, children list-tree, Log scroll-text, iteration repeat, Muted volume-x, Bypassed forward, Deprecated archive, subgraph boxes.',
+  tabs: 'Tabs above a node say what it is and tabs below say what happened, 3 px off the node and flush with its edges, drawn at 75 percent zoom; only the subgraph mark stays in the title bar. Icons: Queued clock, Running play, Finished check, Cached database, Skipped ban, Failed and Error circle-x, Unavailable unplug, Warning triangle-alert, Blocked lock, children list-tree, Log scroll-text, iteration repeat, Muted volume-x, Bypassed forward, Deprecated archive, subgraph framed workflow.',
   'tabs-content': 'The same tabs at 50 percent zoom.',
   states:
     'Every state a node can show: hover, selection, run states, problems, mode, color, a new title, minimized, the minimize arrow under the pointer and a bad value.',
@@ -170,6 +182,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Multi-choice, list, colors and curve rows; After raises the rows that open an editor and draws the curve in its row.',
   'editor-rows':
     'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for.',
+  'in-node-editors':
+    'The audio recorder, webcam, 3D viewer, image comparison, camera angle and curve fold out inside the node under their editor button row, and the rows below move down; clicking the row again folds them back. A folded row says what the editor holds. A palette is a group of color rows: it grows as colors are added and shows a limit only when its group declares one.',
   'widget-driven':
     'A row whose value comes from a wire is dimmed and its stored value is struck through.',
   'widget-offered':
@@ -177,7 +191,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'widget-companions':
     'A value passed down a wire shows in italics: grey when known, teal when unproven, green when estimated.',
   'widget-taps':
-    'A field feeds another node through a pin at the right end of its row: at rest, pointed at, with a wire dragged toward it and wired, beside each kind of row, and where it does not work today.',
+    'A field feeds another node through a pin at the right end of its row: at rest, pointed at, with a wire dragged toward it and wired, beside each kind of row, and a row kept dimmed for its wire when it is no longer part of the node.',
   'widget-states':
     'One widget kind in its default, hovered, offered, invalid and empty states; choose the kind above.',
   'text-boxes':
@@ -185,9 +199,9 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   types:
     'The color of each data type on its pins and wires, and the pin of an input that accepts a list before and after its type is matched.',
   structure:
-    'What is drawn between nodes: groups, reroutes, notes, value sources, selectors and net tags.',
+    'What is drawn between nodes: groups, reroutes, notes and net tags.',
   boundary:
-    "The panels at the edges of a subgraph entered through its node. The Inputs panel carries that node's fields, which it sends down their wires; strength, the edge dropdown and the grain value source are shown on the node without a wire and carry the subgraph icon, as does the grain pill.",
+    "The panels at the edges of a subgraph entered through its node. The Inputs panel carries that node's fields, which it sends down their wires; strength and the edge dropdown are shown on the node without a wire and carry the subgraph icon.",
   'boundary-names':
     "The names on a subgraph's panels and on its collapsed node; After shows ids as written.",
   zoom: 'Three nodes at 75 percent, the smallest zoom that still draws controls.',
@@ -198,7 +212,15 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   minimap:
     'The minimap: nodes colored by state, a bypassed node, groups, and the frame of the visible area.',
   'switch-primitive':
-    'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields. They replace the value source pill and the selector box shown in the second card.',
+    'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields.',
+  'subgraph-icon':
+    'Every place the canvas draws the subgraph icon, a workflow in a frame, at the 14 px it is drawn at 100 percent: the mark in a subgraph node\'s title alone and with a count, the cyan mark on a field shown on the subgraph node, and the Create subgraph button on the toolbox over two plain nodes, which one selected subgraph node does not show. The title mark sits as far from the node\'s right edge as from the top and bottom of the title bar.',
+  'small-flow-nodes':
+    'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
+  'wire-looks':
+    'Every look a wire has. A dashed wire means only that it may carry nothing; every other wire, including one being dragged, is solid. A wire whose source is switched off is faded.',
+  'type-conflict':
+    'Inputs that must share one type but are fed two different types: an error on the node, its wires and in Problems, and a refusal before the run. By hand such a wire is not accepted.',
 }
 
 /** A look an example is drawn in; a page with two or more shows them side by side. */
@@ -226,6 +248,9 @@ const rowsAfter: Variant = {
 
 function pageVariants(page: CanvasGalleryPage): readonly Variant[] {
   switch (page) {
+    case 'boxes':
+      // The page shows the remove cross the editor leaves off until it works.
+      return [{ ...current, tokens: (t) => ({ ...t, memberRemoveCross: true }) }]
     case 'idle-outline':
       return [
         {
@@ -336,12 +361,13 @@ function ExampleCard(props: {
     renderer.setGridVisible(false)
     renderer.setScene(scene)
     renderer.setNodeStates(example.states ?? fixture.states)
-    renderer.setBadges(fixture.badges)
+    renderer.setBadges(example.badges ?? fixture.badges)
     renderer.setOverlay(example.overlay ?? fixture.overlay)
     renderer.setRowMarks(example.rowMarks ?? fixture.rowMarks)
     renderer.setCompanions(example.companions ?? fixture.companions)
     renderer.setInactiveNodes(example.inactive)
-    renderer.setToolbox(fixture.toolbox)
+    renderer.setPresence(example.presence ?? [])
+    renderer.setToolbox(example.toolbox ?? fixture.toolbox)
     const image = document.createElement('canvas')
     image.width = 320
     image.height = 160
@@ -582,7 +608,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'node-look') return
+    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -686,6 +712,12 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'color-editing'}>
           <ColorEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'in-node-editors'}>
+          <InNodeEditorsGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'problem-box'}>
+          <ProblemBoxGallery theme={theme()} />
         </Show>
         <Show when={prepared()[0]}>
           {(first) => (
