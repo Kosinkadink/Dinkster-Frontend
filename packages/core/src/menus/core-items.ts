@@ -243,7 +243,7 @@ const nodeOpenSubgraph: MenuContribution = {
       {
         id: 'core.node.openSubgraph',
         label: 'Open subgraph',
-        icon: 'folder-open',
+        icon: 'group',
         action: { kind: 'host', action: 'openSubgraph', params: { nodeId: ctx.target.nodeId } },
       },
     ]
