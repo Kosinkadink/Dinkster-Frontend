@@ -11,8 +11,9 @@ import { describe, expect, it } from 'vitest'
 import type { BoundaryItem, GraphDef, WorkflowDocument } from '../src/format/document.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
-import { inputsOf, outputsOf, type NodeSchema } from '../src/schema/model.js'
+import { inputsOf, outputsOf, type GroupSpec, type NodeSchema } from '../src/schema/model.js'
 import { boundaryOf } from '../src/format/document.js'
+import { MAX_GROUP_MEMBERS, memberLimitOf } from '../src/schema/body.js'
 
 /** Build a GraphDef from a plain literal (branded ids make literals noisy). */
 const asDef = (d: unknown): GraphDef => d as GraphDef
@@ -684,6 +685,28 @@ describe('whole constructs on the subgraph node', () => {
     expect(elab.items.filter((item) => item.kind === 'note')).toEqual([])
     expect(elabInputsOf(elab).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName))
       .toEqual(['item 1 name'])
+  })
+
+  it('a group with no declared maximum gets none on the subgraph node, and its members inside still share the cap', () => {
+    const { maxMembers: _declared, ...items } = innerSchemas['Stack']!.body[0] as GroupSpec
+    const open: SchemaResolver = (type) => (type === 'Stack' ? { ...innerSchemas['Stack']!, body: [items, ...innerSchemas['Stack']!.body.slice(1)] } : resolve(type))
+    const inner = defWith(
+      { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['item0', 'item1'] } } } },
+      [{ id: 'stack', binds: { kind: 'construct', node: 'n0', port: 'items' } }],
+    )
+    const innerRow = deriveBoundarySchema(inner, open).schema!.body[0] as GroupSpec
+    // No maximum for a header to show; the add row stops where the run's cap does.
+    expect(innerRow.maxMembers).toBeUndefined()
+    expect(memberLimitOf(innerRow)).toBe(MAX_GROUP_MEMBERS - 2)
+    const outer = asDef({
+      id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { s0: { id: 's0', type: '#gW', values: {}, dynamic: { stack: { members: ['item0'] } } } },
+      boundary: { body: [{ kind: 'input', id: 'again', binds: { kind: 'construct', node: 's0', port: 'stack' } }] },
+    })
+    const innerSchema = deriveBoundarySchema(inner, open).schema!
+    const outerRow = deriveBoundarySchema(outer, (type) => (type === '#gW' ? innerSchema : open(type))).schema!.body[0] as GroupSpec
+    expect(outerRow.maxMembers).toBeUndefined()
+    expect(memberLimitOf(outerRow)).toBe(MAX_GROUP_MEMBERS - 3)
   })
 
   it('a whole choice starts on the option the definition stores and carries every option', () => {
