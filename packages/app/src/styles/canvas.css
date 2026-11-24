@@ -632,3 +632,21 @@
 .widget-editor-host-ui-content .host-ui-column { align-items: stretch; gap: var(--dinkster-space-8); }
 .widget-editor-host-ui-content .host-ui-text,
 .widget-editor-host-ui-content .host-ui-status { overflow-wrap: anywhere; }
+
+.node-editor-space-overlay {
+  position: fixed;
+  z-index: 3;
+  overflow: hidden;
+}
+
+.node-editor-space-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+/* The picture is as tall as the node's layout gives it, or as its bottom edge is being dragged. */
+.node-editor-space-world .dinkster-canvas-editor-picture {
+  height: var(--node-editor-picture-height);
+}

@@ -139,6 +139,12 @@
       "issue": 382
     },
     {
+      "kind": "inlineStyle",
+      "path": "packages/app/src/InNodeEditorSpaces.tsx",
+      "count": 2,
+      "issue": 382
+    },
+    {
       "kind": "rawControl",
       "path": "packages/app/src/LibraryPanel.tsx",
       "count": 2,
