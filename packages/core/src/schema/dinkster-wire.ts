@@ -651,13 +651,16 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       checkWidgetFields(descriptor, ['type'], where, diags)
       return
     case 'CURVE':
-      checkWidgetFields(descriptor, ['type', 'inputStrip', 'outputStrip'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'inputStrip', 'outputStrip', 'histogram'], where, diags)
       for (const key of ['inputStrip', 'outputStrip']) {
         const colors = descriptor[key]
         if (colors !== undefined && !(Array.isArray(colors) && colors.length === 2 &&
           colors.every((color) => typeof color === 'string' && /^#[0-9a-f]{6}$/.test(color)))) {
           throw new Error(`${where}.${key} must be two lower-case #rrggbb colors`)
         }
+      }
+      if (descriptor['histogram'] !== undefined && (typeof descriptor['histogram'] !== 'string' || descriptor['histogram'] === '')) {
+        throw new Error(`${where}.histogram must name an input`)
       }
       return
     case 'COMPOSITOR':
@@ -1187,13 +1190,15 @@ function widgetFor(
       }
     }
     if (descriptor.type === 'CURVE') {
-      // The color strips a curve declares along its input and output, low end first.
+      // The color strips a curve declares along its input and output, low end first,
+      // and the input beside the curve that is its histogram, by its id in the curve's scope.
       const fields = wire as Record<string, unknown>
       const strips = Object.fromEntries(['inputStrip', 'outputStrip']
         .flatMap((key) => fields[key] === undefined ? [] : [[key, [...(fields[key] as string[])]]]))
+      const histogram = fields['histogram']
       return {
         widgetType: 'CURVE',
-        options: strips,
+        options: typeof histogram === 'string' ? { ...strips, histogram } : strips,
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
