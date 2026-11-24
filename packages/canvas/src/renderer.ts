@@ -3660,7 +3660,7 @@ export class CanvasRenderer {
           ctx.roundRect(chrome.x, chrome.y + paint.stroke, chrome.width, chrome.height, radius)
           ctx.fill()
         }
-        ctx.fillStyle = pressed ? t.colors.widgetBackground : hovered ? t.colors.buttonHover : t.colors.widgetRaised
+        ctx.fillStyle = pressed ? t.colors.buttonPressed : hovered ? t.colors.buttonHover : t.colors.buttonFace
         ctx.beginPath()
         ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, radius)
         ctx.fill()

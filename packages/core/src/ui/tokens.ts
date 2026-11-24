@@ -83,6 +83,21 @@ export interface SemanticDesignTokens {
     readonly divider: string
     /** The edge around a group of controls picked from as one. */
     readonly group: string
+    /** The outline of a box or a button drawn on a node. */
+    readonly box: string
+  }
+  /**
+   * A button that stands raised on a node: its face at rest, under the
+   * pointer and held down, the lit line along its top and the dark line
+   * under it. A held button loses both lines; a disabled one fades by
+   * interaction.disabledOpacity.
+   */
+  readonly button: {
+    readonly face: string
+    readonly faceHover: string
+    readonly facePressed: string
+    readonly litEdge: string
+    readonly shade: string
   }
   readonly meaning: {
     readonly accent: MeaningToken
@@ -167,6 +182,14 @@ export const semanticTokensForTheme = (
       // Looks are decided in the dark theme; the light theme keeps its border.
       divider: colors.border.divider,
       group: colors.border.group,
+      box: theme === 'dark' ? '#343A41' : colors.border.default,
+    },
+    button: {
+      face: theme === 'dark' ? colors.bg.raised : colors.bg.surface,
+      faceHover: colors.bg.hover,
+      facePressed: colors.bg.field,
+      litEdge: theme === 'dark' ? colors.border.hover : colors.bg.surface,
+      shade: theme === 'dark' ? colors.bg.field : colors.border.hover,
     },
     meaning: {
       accent: meaning(colors.status.info),
@@ -317,6 +340,12 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-border-selected': semanticDesignTokens.border.selected,
     '--dinkster-border-divider': semanticDesignTokens.border.divider,
     '--dinkster-border-group': semanticDesignTokens.border.group,
+    '--dinkster-border-box': semanticDesignTokens.border.box,
+    '--dinkster-button-face': semanticDesignTokens.button.face,
+    '--dinkster-button-face-hover': semanticDesignTokens.button.faceHover,
+    '--dinkster-button-face-pressed': semanticDesignTokens.button.facePressed,
+    '--dinkster-button-lit-edge': semanticDesignTokens.button.litEdge,
+    '--dinkster-button-shade': semanticDesignTokens.button.shade,
     '--dinkster-accent-foreground':
       semanticDesignTokens.meaning.accent.foreground,
     '--dinkster-accent-background':

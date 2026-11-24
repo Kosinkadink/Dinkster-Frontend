@@ -790,8 +790,10 @@ export interface DesignTokens {
     readonly boxCount: string
     /** The dot on a closed box that holds a value that is not its default. */
     readonly boxChanged: string
-    /** A button's face under the pointer; at rest it has widgetRaised, pressed widgetBackground. */
+    /** A button's face at rest, under the pointer and held down. */
+    readonly buttonFace: string
     readonly buttonHover: string
+    readonly buttonPressed: string
     /** The lit top edge of a button that is not pressed. */
     readonly buttonLitEdge: string
     /** The dark line under a button that is not pressed. */
@@ -1011,14 +1013,16 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     companionEstimate: tokens.meaning.success.foreground,
     error: tokens.meaning.danger.border,
     blockingWarning: tokens.meaning.warning.border,
-    boxOutline: theme === 'dark' ? '#343A41' : tokens.border.subtle,
+    boxOutline: tokens.border.box,
     boxInnerOutline: theme === 'dark' ? '#2E3338' : '#E1E5E9',
     boxHover: theme === 'dark' ? '#22262B' : tokens.surface.raised,
     boxCount: tokens.text.muted,
     boxChanged: tokens.meaning.accent.border,
-    buttonHover: tokens.surface.selected,
-    buttonLitEdge: theme === 'dark' ? tokens.border.hover : tokens.surface.panel,
-    buttonShade: theme === 'dark' ? tokens.surface.field : tokens.border.hover,
+    buttonFace: tokens.button.face,
+    buttonHover: tokens.button.faceHover,
+    buttonPressed: tokens.button.facePressed,
+    buttonLitEdge: tokens.button.litEdge,
+    buttonShade: tokens.button.shade,
   }
 }
 
