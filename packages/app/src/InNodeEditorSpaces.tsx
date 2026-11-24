@@ -2,6 +2,7 @@ import type { AssetRef, Json, JsonObject } from '@dinkster/core'
 import { canvasPaintTokens, clampPictureHeight, defaultTokens, IN_NODE_EDITORS, type EditorSummary, type EditorSummaryMap, type LayoutRow } from '@dinkster/canvas'
 import { audioRecordKind, webcamKind } from '@dinkster/widgets'
 import {
+  CanvasAnglePicture,
   CanvasEditorButtons,
   CanvasEditorChoice,
   CanvasEditorLine,
@@ -774,6 +775,69 @@ export function WebcamSpace(props: {
         : [{ label: message('inNodeWebcam.start'), icon: canvasEditorIcons.capture,
             disabled: props.wired || camera() === 'starting' || props.ports.upload === undefined, onClick: () => void start() }]} />
       <CanvasEditorNote tone={noteTone()}>{note()}</CanvasEditorNote>
+    </>
+  )
+}
+
+export const CAMERA_ANGLE_PARTS = ['horizontal_angle', 'vertical_angle', 'zoom'] as const
+export type CameraAnglePart = typeof CAMERA_ANGLE_PARTS[number]
+
+/** One field of a camera angle: its number when known, and whether a wire decides it. */
+export interface CameraAngleField {
+  readonly value: number | undefined
+  readonly wired: boolean
+}
+
+const CAMERA_SIDES = ['front', 'frontRight', 'right', 'backRight', 'back', 'backLeft', 'left', 'frontLeft'] as const
+
+/** The camera's place in a few words: its side in steps of 45 degrees, its height, and its zoom. */
+export function cameraAngleWords(message: ReturnType<typeof useAppMessage>, horizontal: number, vertical: number, zoom: number): string {
+  const side = CAMERA_SIDES[Math.round((((horizontal % 360) + 360) % 360) / 45) % 8]!
+  // The heights are the node's own shot bands: low-angle, eye-level, elevated and high-angle.
+  const height = vertical < -15 ? 'below' : vertical < 15 ? 'level' : vertical < 45 ? 'littleAbove' : 'highAbove'
+  return message('inNodeCameraAngle.place', {
+    side: message(`inNodeCameraAngle.side.${side}`),
+    height: message(`inNodeCameraAngle.height.${height}`),
+    zoom: zoom.toFixed(1),
+  })
+}
+
+/**
+ * The camera angle's picture in the node, above the node's own three number
+ * fields: dragging the ring's dot writes horizontal_angle and the elevation's
+ * dot vertical_angle, each drag one change when it ends. A wired angle's dot
+ * is hollow at the value its wire brought and does not move, or missing
+ * before a run; the line under the picture names the camera's place.
+ */
+export function CameraAngleSpace(props: {
+  readonly fields: Readonly<Record<CameraAnglePart, CameraAngleField>>
+  readonly commit: (part: 'horizontal_angle' | 'vertical_angle', value: number) => void
+}) {
+  const message = useAppMessage()
+  const [draft, setDraft] = createSignal<{ readonly part: 'horizontal_angle' | 'vertical_angle'; readonly value: number }>()
+  const value = (part: CameraAnglePart): number | undefined => {
+    const moving = draft()
+    return moving !== undefined && moving.part === part ? moving.value : props.fields[part].value
+  }
+  const angle = (part: 'horizontal_angle' | 'vertical_angle') => ({ degrees: value(part), fixed: props.fields[part].wired })
+  const place = () => {
+    const [horizontal, vertical, zoom] = CAMERA_ANGLE_PARTS.map(value)
+    return horizontal === undefined || vertical === undefined || zoom === undefined
+      ? undefined : cameraAngleWords(message, horizontal, vertical, zoom)
+  }
+  return (
+    <>
+      <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}>
+        <CanvasAnglePicture label={message('cameraAngleWidget.preview')}
+          horizontal={angle('horizontal_angle')} vertical={angle('vertical_angle')}
+          onMove={(part, degrees) => setDraft({ part: part === 'horizontal' ? 'horizontal_angle' : 'vertical_angle', value: degrees })}
+          onMoveEnd={() => {
+            const moved = draft()
+            setDraft(undefined)
+            if (moved !== undefined && moved.value !== props.fields[moved.part].value) props.commit(moved.part, moved.value)
+          }} />
+      </CanvasEditorPicture>
+      <CanvasEditorNote tone={place() === undefined ? 'muted' : undefined}>{place() ?? message('inNodeCameraAngle.notKnown')}</CanvasEditorNote>
     </>
   )
 }

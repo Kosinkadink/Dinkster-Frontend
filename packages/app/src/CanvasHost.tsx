@@ -189,7 +189,7 @@ import {
   type CanvasSemanticSource,
   type CanvasSemanticTarget,
 } from './CanvasSemanticNavigator.js'
-import { AudioRecordSpace, createAudioRecorders, editorSpaceInteractive, editorSpaceItems, NodeEditorSpaceOverlay, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
+import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, editorSpaceInteractive, editorSpaceItems, NodeEditorSpaceOverlay, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
 import { Load3dSpace } from './InNodeLoad3dSpace.js'
 import { ImageCompareSpace } from './InNodeImageCompareSpace.js'
 import { imageCompareFrames } from './image-compare-frames.js'
@@ -1050,7 +1050,7 @@ export function reportBoundaryExposureRefusal(args: {
 }
 
 /** The editors shown in the node whose controls the app lays over their space: their rows fold out, the others open their dialogs. */
-const APP_EDITOR_VIEWS: ReadonlySet<string> = new Set(['core.audioRecord', 'core.webcam', 'core.load3d', 'core.imageCompare'])
+const APP_EDITOR_VIEWS: ReadonlySet<string> = new Set(['core.audioRecord', 'core.webcam', 'core.load3d', 'core.imageCompare', 'core.cameraAngle'])
 
 export function NodeMediaOverlay(props: {
   readonly ownerId?: string
@@ -6993,6 +6993,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           executions()
           return imageCompareFrames(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts: at.current.field.parts })
         }
+        const cameraAngle = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.cameraAngle') return undefined
+          const parts = at.current.field.parts
+          const node = at.tab.store.doc.graphs[at.target.graphId]?.nodes[at.target.nodeId]
+          const schema = node === undefined ? undefined : props.app.registryForTab(at.tab)?.resolve(node.type)
+          const defaults = schema === undefined ? {} : defaultValuesOf(schema)
+          // Each angle is the row the widget writes under that part; a wired one shows what its wire brought.
+          const row = (part: string): string | undefined => parts !== undefined && Object.hasOwn(parts.writes, part) ? parts.writes[part] : undefined
+          const fields = Object.fromEntries(CAMERA_ANGLE_PARTS.map((part) => {
+            const wired = at.current.wiredParts.has(part)
+            const written = row(part)
+            const value = wired ? at.current.carriedParts[part] : written === undefined ? undefined : node?.values[written] ?? defaults[written]
+            return [part, { value: typeof value === 'number' ? value : undefined, wired }]
+          })) as Parameters<typeof CameraAngleSpace>[0]['fields']
+          return {
+            fields,
+            commit: (part: string, value: number) => {
+              const inputId = row(part)
+              if (inputId === undefined) return
+              void props.app.dispatchTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, at.current.field.materialize,
+                { command: 'node.setValue', params: { graphId: at.target.graphId, nodeId: at.target.nodeId, inputId, value } }))
+            },
+          }
+        }
         return (
           <Show when={item() !== undefined && projected() !== undefined}>
             <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl} covers={covers()}
@@ -7016,6 +7041,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   openSections={item()?.row.openSections ?? []}
                   cameraWired={item()?.wiredParts.has('camera_info') === true}
                   placementWired={item()?.wiredParts.has('model_3d_info') === true} />}
+              </Show>
+              <Show when={cameraAngle()}>
+                {(at) => <CameraAngleSpace fields={at().fields} commit={at().commit} />}
               </Show>
               <Show when={compare() !== undefined}>
                 <ImageCompareSpace frames={compare() ?? { image_a: [], image_b: [] }} pictureHeight={item()?.row.picture?.height ?? 0} />
