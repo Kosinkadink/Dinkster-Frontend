@@ -72,7 +72,7 @@ export function withPrimitiveValue(schema: NodeSchema, shape: PrimitiveShape, ef
   const automatic = new Map<string, unknown>()
   for (const limit of effective.derived) {
     const inputId = shape.limits[limit as KnownValueLimit]
-    if (inputId !== undefined) automatic.set(inputId, effective.spec?.options[limit])
+    if (inputId !== undefined) automatic.set(inputId, limit === 'default' ? effective.spec?.default : effective.spec?.options[limit])
   }
   const patch = <T extends BodyRow | OptionRow>(rows: readonly T[]): T[] => rows.map((row): T => {
     if (row.kind === 'section' || row.kind === 'row') return { ...row, rows: patch(row.rows) }
@@ -132,7 +132,7 @@ export interface EffectivePrimitiveSpec {
   readonly spec?: WidgetSpec
   /** The fed fields' shared label, when they all have the same one. */
   readonly label?: string
-  /** Which numeric limits came from the fed fields rather than the primitive's own fields. */
+  /** Which limits (min, max, step, default) were worked out rather than held in the primitive's own fields. */
   readonly derived: ReadonlySet<string>
   readonly diagnostics: readonly Diagnostic[]
 }
@@ -211,6 +211,7 @@ export function effectivePrimitiveSpec(
     return Math.min(Math.max(value, min), max)
   }
   const resetTo = explicitDefault ?? shared ?? (fallback === undefined ? undefined : clamp(fallback))
+  if (explicitDefault === undefined && resetTo !== undefined) derived.add('default')
   const { default: _declaredDefault, ...rest } = base ?? { widgetType }
   const spec: WidgetSpec = { ...rest, widgetType, options, ...(resetTo !== undefined ? { default: resetTo } : {}) }
   return { spec, ...(label !== undefined ? { label } : {}), derived, diagnostics }

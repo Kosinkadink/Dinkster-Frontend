@@ -1446,6 +1446,19 @@ interface CanvasFileDropSurface {
   readonly location?: { readonly backend: Extract<Backend, { protocol: 'dinkster' }>; readonly digest: string; readonly project: string }
 }
 
+/** The graph with each node's values as the scene's occurrence shows them. */
+function occurrenceValuesDef(def: GraphDef | undefined, scene: Scene): GraphDef | undefined {
+  if (def === undefined) return undefined
+  let nodes: Record<string, GraphDef['nodes'][string]> | undefined
+  for (const sceneNode of scene.nodes) {
+    const node = def.nodes[sceneNode.id]
+    if (node === undefined || node.values === sceneNode.node.values) continue
+    nodes ??= { ...def.nodes }
+    nodes[sceneNode.id] = { ...node, values: sceneNode.node.values }
+  }
+  return nodes === undefined ? def : { ...def, nodes: nodes as GraphDef['nodes'] }
+}
+
 export function CanvasHost(props: { app: AppState; host?: EditorHostContext; tooltips?: TooltipController; occurrencePlanner?: OccurrenceMutationPlanner }) {
   const message = useAppMessage()
   const tooltipOwner = Symbol('canvas-host')
@@ -4589,7 +4602,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         exec,
         graphId: gid,
         doc: tab.store.doc,
-        def: tab.store.doc.graphs[gid],
+        // Inside an entered subgraph node a field fed by a primitive shows
+        // the value that node's occurrence gives the primitive.
+        def: occurrenceValuesDef(tab.store.doc.graphs[gid], scene),
         instancePath: viewInstancePath(tab),
         frozen,
         exactProducer,

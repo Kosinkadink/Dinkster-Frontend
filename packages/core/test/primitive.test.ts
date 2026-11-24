@@ -70,11 +70,13 @@ describe('a primitive works out its value widget', () => {
       [['prim', 'INT', 'a', 'steps'], ['prim', 'INT', 'b', 'count']])
     const effective = effectiveOf(doc, 'prim')!
     expect(effective.spec?.options).toMatchObject({ min: 4, max: 8, step: 2 })
-    expect([...effective.derived].sort()).toEqual(['max', 'min', 'step'])
+    expect([...effective.derived].sort()).toEqual(['default', 'max', 'min', 'step'])
     expect(effective.label).toBeUndefined()
     expect(effective.diagnostics).toEqual([])
-    // The fields share a default of 4, so Reset goes there.
+    // The fields share a default of 4, so Reset goes there, and the empty Default field shows it dimmed.
     expect(effective.spec?.default).toBe(4)
+    const drawn = documentNodeResolver(doc, resolve, undefined, documentPrimitiveResolver(doc, resolve))('g0', doc.graphs['g0']!.nodes['prim'] as NodeData, [])!
+    expect(inputsOf(drawn).find((row) => row.id === 'default')!.widget).toMatchObject({ default: 4, automatic: true })
     // The value itself is never corrected by working out the range.
     expect(doc.graphs['g0']!.nodes['prim']!.values['value']).toBe(2)
   })
@@ -103,13 +105,13 @@ describe('a primitive works out its value widget', () => {
       [['prim', 'INT', 'a', 'steps'], ['low', 'INT', 'prim', 'minimum']])
     const fromPrimitive = effectiveOf(known, 'prim')!
     expect(fromPrimitive.spec?.options).toMatchObject({ min: 5, max: 8 })
-    expect([...fromPrimitive.derived]).toEqual(['max'])
+    expect([...fromPrimitive.derived].sort()).toEqual(['default', 'max'])
     // Minimum wired from a node that produces it while running: not set, so the fed field's 0 applies.
     const runtime = docOf({ prim: { type: 'Int', values: { value: 6, minimum: 3 } }, count: { type: 'Counter' }, a: { type: 'Steps' } },
       [['prim', 'INT', 'a', 'steps'], ['count', 'INT', 'prim', 'minimum']])
     const fromRun = effectiveOf(runtime, 'prim')!
     expect(fromRun.spec?.options).toMatchObject({ min: 0, max: 8 })
-    expect([...fromRun.derived].sort()).toEqual(['max', 'min'])
+    expect([...fromRun.derived].sort()).toEqual(['default', 'max', 'min'])
   })
 
   it('reports fields that share no range and keeps the value and the wires', () => {
