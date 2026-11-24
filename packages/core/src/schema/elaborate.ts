@@ -477,14 +477,20 @@ export interface LookupSite {
   readonly accepts: (answer: unknown) => boolean
 }
 
-/** The calls the lookup fields and notes of an elaborated node are loading for, or hold an answer for. */
+/** The calls the lookup fields, automatic fields and notes of an elaborated node are loading for, or hold an answer for. */
 export function lookupSitesOf(items: readonly ElaboratedItem[]): LookupSite[] {
   const sites: LookupSite[] = []
   for (const item of items) {
     if (item.kind === 'note' && item.lookup !== undefined && 'call' in item.lookup && item.lookup.call !== undefined) {
       sites.push({ call: item.lookup.call, accepts: (answer) => typeof answer === 'string' })
     }
-    if (item.kind !== 'input' || item.looked === undefined) continue
+    if (item.kind !== 'input') continue
+    // An automatic field takes any answer: one that is not a value of the
+    // field gives its default with the warning, as the run does.
+    for (const automatic of [item.automatic, item.automaticIfEmptied]) {
+      if (automatic?.call !== undefined) sites.push({ call: automatic.call, accepts: () => true })
+    }
+    if (item.looked === undefined) continue
     const widget = item.spec.widget
     if (widget === undefined) continue
     for (const [field, state] of Object.entries(item.looked) as [LookedWidgetField, LookedState][]) {
