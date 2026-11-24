@@ -1413,6 +1413,45 @@ function decodeLibraryProject(value: unknown): LibraryProject {
   }
 }
 
+/** The engine's native account session (`GET /api/account`), not a collaboration session. */
+export interface AccountStatus {
+  /** False when hosted account services are not configured for this engine. */
+  readonly available: boolean
+  readonly canStartSignIn: boolean
+  readonly signInUnavailableReason: 'account-unavailable' | 'account-sign-in-requires-engine-machine' | null
+  readonly signedIn: boolean
+  readonly profile: { readonly displayName: string | null; readonly email: string | null } | null
+  readonly signIn: 'idle' | 'pending' | 'failed'
+}
+
+function decodeAccountStatus(value: unknown): AccountStatus {
+  const invalid = () => new Error('Malformed account status')
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw invalid()
+  const row = value as Record<string, unknown>
+  const reason = row['signInUnavailableReason']
+  const profile = row['profile']
+  const signIn = row['signIn'] as Record<string, unknown> | null | undefined
+  const text = (field: unknown): string | null => {
+    if (field !== null && typeof field !== 'string') throw invalid()
+    return field
+  }
+  if (typeof row['available'] !== 'boolean' || typeof row['canStartSignIn'] !== 'boolean' ||
+    typeof row['signedIn'] !== 'boolean' ||
+    !(reason === null || reason === 'account-unavailable' || reason === 'account-sign-in-requires-engine-machine') ||
+    !(profile === null || typeof profile === 'object' && !Array.isArray(profile)) ||
+    typeof signIn !== 'object' || signIn === null ||
+    !(signIn['state'] === 'idle' || signIn['state'] === 'pending' || signIn['state'] === 'failed')) throw invalid()
+  const person = profile as Record<string, unknown> | null
+  return {
+    available: row['available'],
+    canStartSignIn: row['canStartSignIn'],
+    signInUnavailableReason: reason,
+    signedIn: row['signedIn'],
+    profile: person === null ? null : { displayName: text(person['displayName']), email: text(person['email']) },
+    signIn: signIn['state'],
+  }
+}
+
 /**
  * One scoped library record: mutable browse metadata (name/labels/folder)
  * pointing at immutable content bytes by digest. Renames never change
@@ -4092,6 +4131,40 @@ export class DinksterConnection {
       return { scope: record['scope'], id: record['id'] }
     })
     return { packs, installed, extra: body['extra'] as string[], unknown }
+  }
+
+  async accountStatus(signal?: AbortSignal): Promise<AccountStatus> {
+    return decodeAccountStatus(await this.accountRequest('GET', '/api/account', signal))
+  }
+
+  /** Starts native sign-in; the browser on the engine's machine opens `authorizationUrl`. */
+  async startAccountSignIn(signal?: AbortSignal): Promise<AccountStatus & { readonly authorizationUrl: string }> {
+    const payload = await this.accountRequest('POST', '/api/account/sign-in', signal) as Record<string, unknown> | null
+    const url = payload?.['authorizationUrl']
+    if (typeof url !== 'string' || !/^https?:\/\//.test(url)) throw new Error('Malformed account sign-in')
+    return { ...decodeAccountStatus(payload), authorizationUrl: url }
+  }
+
+  async cancelAccountSignIn(signal?: AbortSignal): Promise<AccountStatus> {
+    return decodeAccountStatus(await this.accountRequest('DELETE', '/api/account/sign-in', signal))
+  }
+
+  async signOutAccount(signal?: AbortSignal): Promise<AccountStatus> {
+    return decodeAccountStatus(await this.accountRequest('POST', '/api/account/sign-out', signal))
+  }
+
+  private async accountRequest(method: 'GET' | 'POST' | 'DELETE', path: string, signal?: AbortSignal): Promise<unknown> {
+    const res = await this.fetchFn(`${this.baseUrl}${path}`, {
+      method, cache: 'no-store',
+      ...(method === 'POST' ? { headers: { 'Content-Type': 'application/json' }, body: '{}' } : {}),
+      ...(signal === undefined ? {} : { signal }),
+    })
+    const payload: unknown = await res.json().catch(() => undefined)
+    if (!res.ok) {
+      const code = (payload as { error?: unknown } | undefined)?.error
+      throw new Error(`${method} ${path} failed: ${typeof code === 'string' ? code : res.status}`)
+    }
+    return payload
   }
 
   renameProject(id: string, name: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
