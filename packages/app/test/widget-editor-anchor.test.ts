@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { TypeExpr, WidgetSpec } from '@dinkster/core'
+import type { TypeExpr, WidgetSpec, WorkflowDocument } from '@dinkster/core'
 import type { LayoutRow } from '@dinkster/canvas'
 import type { Tab } from '../src/app-state.js'
-import { tabDocumentUnchanged, widgetEditorAnchorAlive, type WidgetEditorAnchorNode } from '../src/widget-editor-anchor.js'
+import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive, type WidgetEditorAnchorNode } from '../src/widget-editor-anchor.js'
 import type { WidgetEditorState } from '../src/WidgetEditor.js'
 
 const assetSpec: WidgetSpec = { widgetType: 'ASSET', options: { accept: ['image/*'], kind: 'media/image' } }
@@ -26,8 +26,8 @@ function widgetRow(overrides: Partial<Extract<LayoutRow, { kind: 'widget' }>> = 
   } as LayoutRow
 }
 
-function node(rows: LayoutRow[], id = 'n0'): WidgetEditorAnchorNode {
-  return { id, layout: { rows } }
+function node(rows: LayoutRow[], id = 'n0', at = { x: 0, y: 0 }): WidgetEditorAnchorNode {
+  return { id, ...at, layout: { width: 108, rows } }
 }
 
 function editorState(overrides: Partial<WidgetEditorState> = {}): WidgetEditorState {
@@ -121,26 +121,38 @@ describe('widgetEditorAnchorAlive', () => {
     expect(widgetEditorAnchorAlive(ed, nodes, 't0', 'g0', undefined, false)).toBe(false)
   })
 
+  it('keeps a field open in its row across document changes while its row stays in place', () => {
+    const spec: WidgetSpec = { widgetType: 'INT', options: { min: 1, max: 10000 } }
+    const type = { kind: 'concrete', name: 'INT' } as unknown as TypeExpr
+    // The field box: the row's 100 px box at inset 4, 2 px in from its top and bottom.
+    const ed = editorState({ spec, declaredType: type, rect: { x: 54, y: 82, width: 100, height: 20 }, inRow: { look: 'flat-title', nodeTop: 0, nodeBottom: 200, storedAtOpen: 20 } })
+    const row = widgetRow({ spec, type, y: 30 } as never)
+    expect(widgetEditorAnchorAlive(ed, [node([row], 'n0', { x: 50, y: 50 })], 't0', 'g0', undefined, false)).toBe(true)
+    expect(widgetEditorAnchorAlive(ed, [node([row], 'n0', { x: 60, y: 50 })], 't0', 'g0', undefined, false)).toBe(false)
+    expect(widgetEditorAnchorAlive(ed, [node([widgetRow({ spec, type, y: 56 } as never)], 'n0', { x: 50, y: 50 })], 't0', 'g0', undefined, false)).toBe(false)
+  })
+
+  it('closes a selector open in its row when its choice changes elsewhere', () => {
+    const spec: WidgetSpec = { widgetType: 'COMBO', options: { options: ['scale dimensions', 'scale by multiplier'] } }
+    const type = { kind: 'concrete', name: 'COMBO' } as unknown as TypeExpr
+    const selector = { construct: 'resize_type', ancestors: [] }
+    const ed = editorState({
+      spec, declaredType: type, initial: 'scale dimensions',
+      target: { kind: 'input', nodeId: 'n0', valueKey: 'files', selector },
+      rect: { x: 54, y: 82, width: 100, height: 20 },
+      inRow: { look: 'flat-title', nodeTop: 0, nodeBottom: 200, storedAtOpen: null },
+    })
+    const row = (derivedValue: string) => widgetRow({ spec, type, y: 30, selector, derivedValue } as never)
+    expect(widgetEditorAnchorAlive(ed, [node([row('scale dimensions')], 'n0', { x: 50, y: 50 })], 't0', 'g0', undefined, false)).toBe(true)
+    expect(widgetEditorAnchorAlive(ed, [node([row('scale by multiplier')], 'n0', { x: 50, y: 50 })], 't0', 'g0', undefined, false)).toBe(false)
+  })
+
   it('keeps a multiline STRING draft across document changes while its row contract survives', () => {
     const spec: WidgetSpec = { widgetType: 'STRING', options: { multiline: true } }
     const type = { kind: 'concrete', name: 'STRING' } as unknown as TypeExpr
     const ed = editorState({ spec, declaredType: type, multiline: true })
     const nodes = [node([widgetRow({ spec, type } as never)])]
     expect(widgetEditorAnchorAlive(ed, nodes, 't0', 'g0', undefined, false)).toBe(true)
-  })
-
-  it('retains value-source drafts only with the same effective widget contract', () => {
-    const spec: WidgetSpec = { widgetType: 'VIDEO_EDIT', options: { features: ['trim'] } }
-    const ed = editorState({ target: { kind: 'valueSource', valueSourceId: 'v0' }, spec })
-    const type: TypeExpr = { kind: 'concrete', name: 'VIDEO_EDIT' }
-    const sources = [{ id: 'v0', effective: { spec, type, consumers: [], diagnostics: [] } }]
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g0', undefined, true, sources)).toBe(true)
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g0', undefined, false, sources)).toBe(false)
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g0', undefined, true, [])).toBe(false)
-    expect(widgetEditorAnchorAlive(ed, [], 't1', 'g0', undefined, true, sources)).toBe(false)
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g1', undefined, true, sources)).toBe(false)
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g0', undefined, true,
-      [{ ...sources[0]!, effective: { ...sources[0]!.effective, spec: assetSpec } }])).toBe(false)
   })
 
   it('closes when a registry change flips the multi-select decision', () => {
@@ -169,5 +181,27 @@ describe('widgetEditorAnchorAlive', () => {
     expect(widgetEditorAnchorAlive(ed, [node([widgetRow({ sourceFilename: binding } as never)])], 't0', 'g0', undefined)).toBe(true)
     expect(widgetEditorAnchorAlive(ed, [node([widgetRow()])], 't0', 'g0', undefined)).toBe(false)
     expect(widgetEditorAnchorAlive(editorState(), [node([widgetRow({ sourceFilename: binding } as never)])], 't0', 'g0', undefined)).toBe(false)
+  })
+})
+
+describe('inRowValueKept', () => {
+  const doc = (values: Record<string, unknown>) =>
+    ({ graphs: { g0: { nodes: { n0: { values } } } } }) as unknown as WorkflowDocument
+  const spec: WidgetSpec = { widgetType: 'INT', options: {} }
+
+  it('closes a field in its row only when its own stored value changes', () => {
+    const ed = editorState({ spec, target: { kind: 'input', nodeId: 'n0', valueKey: 'seed' }, inRow: { look: 'flat-title', nodeTop: 0, nodeBottom: 0, storedAtOpen: 7 } })
+    expect(inRowValueKept(ed, doc({ seed: 7, cfg: 9 }))).toBe(true)
+    expect(inRowValueKept(ed, doc({ seed: 8 }))).toBe(false)
+  })
+
+  it('treats a value that was never stored as unchanged until one is stored', () => {
+    const ed = editorState({ spec, target: { kind: 'input', nodeId: 'n0', valueKey: 'seed' }, inRow: { look: 'flat-title', nodeTop: 0, nodeBottom: 0, storedAtOpen: null } })
+    expect(inRowValueKept(ed, doc({}))).toBe(true)
+    expect(inRowValueKept(ed, doc({ seed: 3 }))).toBe(false)
+  })
+
+  it('leaves the card alone', () => {
+    expect(inRowValueKept(editorState(), doc({ files: 'changed' }))).toBe(true)
   })
 })

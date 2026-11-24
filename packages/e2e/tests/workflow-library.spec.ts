@@ -79,7 +79,8 @@ async function targetNativeBackend(page: Page): Promise<void> {
     return tab !== undefined && app.backendForTab(tab).protocol === 'dinkster'
   })
   if (!alreadyNative) {
-    await page.getByTestId('backends-toggle').click()
+    await page.getByTestId('status-connection').click()
+    await page.getByRole('button', { name: 'Add backend', exact: true }).click()
     await page.getByTestId('backend-url-input').fill(NATIVE_BACKEND)
     await page.getByTestId('backend-add').click()
     await expect(page.getByTestId('tab-target')).toBeVisible()
@@ -92,8 +93,7 @@ async function targetNativeBackend(page: Page): Promise<void> {
     const backend = app.backendForTab(tab)
     return `${backend.protocol}:${backend.schemaState.get().status}`
   }), { timeout: 15_000 }).toBe('dinkster:ready')
-  await expect(page.getByTestId('status-bar')).toContainText('connected')
-  await expect(page.getByTestId('status-bar')).not.toContainText('loading schemas')
+  await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected')
   await expect(page.getByTestId('composition-progress')).not.toBeVisible()
 }
 
@@ -143,6 +143,56 @@ test.beforeEach(async ({ page }) => {
   }
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
+})
+
+test.describe('shared native library', () => {
+  test.use({ seedWorkflows: false })
+
+  test('peer engine publications refresh an open collection without replacing a dirty tab', async ({ page }, testInfo) => {
+    const peer = process.env['DINKSTER_SHARED_LIBRARY_PEER']
+    test.skip(peer === undefined, 'requires a second real engine sharing the native library')
+    const title = uniqueName('published-by-peer')
+    await page.evaluate(() => { window.__dinksterTest!.app.createWorkflow() })
+    await targetNativeBackend(page)
+    await openNamedCopy(page, uniqueName('unsaved-local-work'))
+    await waitForDocumentToSettle(page)
+    await expect(page.locator('.tab.active .tab-dirty')).toBeVisible()
+    const original = await page.evaluate(() => {
+      const tab = window.__dinksterTest!.app.activeTab()!
+      return { id: tab.id, title: tab.title, doc: structuredClone(tab.store.doc) }
+    })
+    await openWorkflows(page)
+    await expect(workflowRow(page, title)).toHaveCount(0)
+    await page.screenshot({ path: testInfo.outputPath('shared-library-before.png') })
+
+    const upload = await page.request.post(`${peer!}/api/assets`, {
+      data: JSON.stringify(original.doc),
+    })
+    expect(upload.status()).toBe(201)
+    const { digest } = await upload.json() as { digest: string }
+    const published = await page.request.post(`${peer!}/api/library`, {
+      data: { scope: 'local', name: title, digest, mediaType: 'application/x-dinkster-workflow+json', labels: ['workflow'] },
+    })
+    expect(published.status()).toBe(201)
+    const record = await published.json() as { id: string; revision: number }
+    await expect(workflowRow(page, title)).toHaveCount(1)
+
+    const renamed = `${title}-renamed`
+    const patched = await page.request.patch(`${peer!}/api/library/${record.id}`, {
+      data: { scope: 'local', revision: record.revision, name: renamed },
+    })
+    expect(patched.status()).toBe(200)
+    await expect(workflowRow(page, renamed)).toHaveCount(1)
+    await expect(workflowRow(page, title).filter({ hasNotText: renamed })).toHaveCount(0)
+    expect(await page.evaluate(() => {
+      const tab = window.__dinksterTest!.app.activeTab()!
+      return { id: tab.id, title: tab.title, doc: structuredClone(tab.store.doc) }
+    })).toEqual(original)
+    await expect(page.locator('.tab.active .tab-dirty')).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath('shared-library-after.png') })
+    await testInfo.attach('Before peer publication', { path: testInfo.outputPath('shared-library-before.png'), contentType: 'image/png' })
+    await testInfo.attach('After peer publication and rename', { path: testInfo.outputPath('shared-library-after.png'), contentType: 'image/png' })
+  })
 })
 
 test('save new workflow, patch the same record, and reopen modified content', async ({ page }) => {

@@ -9,17 +9,14 @@ audio producers use `AUDIO`. Prefixed lookalikes are not native media aliases.
 An open App view editor remains
 open while shared-workspace tab metadata synchronizes.
 
-Linked literal value-source pills use the same editor and write only their
-literal value, without changing a consumer's sibling inputs. Apply and undo
-use the normal value-source command path.
-
 The Trim section stores `start_time` and `duration` in seconds. A duration of
 zero means through the end of the source. When source timing is available,
 frame fields, the playhead, and trim handles are constrained to the clip.
 Negative starts are relative to the source end. Frame positions use average
-fps and are approximate for variable-frame-rate media. `strict_duration`
-remains a separate sibling input; Apply commits both changes in one undo step.
-Linked strict inputs are read-only, and crop-only nodes do not gain one.
+fps and are approximate for variable-frame-rate media. Strict duration is the
+separate row the widget writes under its `strict_duration` part; Apply commits
+both changes in one undo step. A linked strict row is read-only, and a widget
+that names no `strict_duration` part, such as a crop-only node's, shows none.
 
 Preview, crop presets, handles and footer actions use `ProductButton`;
 strict duration uses `ProductCheckbox`, and playhead/trim handles use
@@ -43,9 +40,10 @@ message and blocks Apply until corrected; it never becomes a zero sentinel.
 
 Empty and partial edit objects are valid. Applying an edit preserves
 unknown top-level and section fields exactly so imported and newer documents
-round-trip without data loss. An absent native VIDEO_EDIT displays existing
-scalar settings without storing an override until they change. Linked scalar
-settings refuse that override. Cancel and unchanged Apply do not write values.
+round-trip without data loss. The editor starts from the value stored on its
+own input; an absent value opens at that input's declared default, or as an
+empty edit when it declares none, and never reads other rows of the node as a
+starting point. Cancel and unchanged Apply do not write values.
 
 The editor resolves one linked VIDEO producer in a completed native execution,
 checking occurrence identity and current upstream provenance. It reads
@@ -102,6 +100,6 @@ remain separate environment-gated evidence lanes.
 
 The command-specific video document form is parked because no served pack
 provides its nodes. Its kept branch, contracts and restoration checks are in
-[the rework queue](rework-queue.md#video-document-editor). Saved input values
+[Video document editor](https://github.com/Kosinkadink/comfy-vibe-station/issues/1214). Saved input values
 remain ordinary graph data and use the generic text/JSON editor. The video
 trim/crop widget described above remains available.

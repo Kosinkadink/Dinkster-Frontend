@@ -13,6 +13,67 @@ export interface EditorViewport {
 
 export const CANVAS_MEDIA_DOM_LIMIT = 24
 
+/**
+ * The shift that puts an element's offset parent on the device pixel grid.
+ * The canvas paints into a bitmap the browser places on whole device pixels,
+ * while DOM text over it lays out from the parent's fractional page position;
+ * an editor laid over painted text adds this shift so its text lands on the
+ * same pixels.
+ */
+export function devicePixelSnap(element: HTMLElement): { readonly x: number; readonly y: number } {
+  const parent = element.offsetParent?.getBoundingClientRect()
+  if (parent === undefined) return { x: 0, y: 0 }
+  const ratio = window.devicePixelRatio || 1
+  return {
+    x: Math.round(parent.left * ratio) / ratio - parent.left,
+    y: Math.round(parent.top * ratio) / ratio - parent.top,
+  }
+}
+
+let metricsContext: CanvasRenderingContext2D | null | undefined
+
+/**
+ * The row, in CSS pixels from the canvas origin, on which the canvas paints
+ * the baseline of a line of `px` text in `family` centered at `center`. The
+ * canvas centers the line with `textBaseline = 'middle'` at the unscaled
+ * font size, scales it, and puts the baseline on the nearest device pixel.
+ */
+export function canvasBaselineRow(px: number, family: string, scale: number, center: number): number {
+  metricsContext ??= document.createElement('canvas').getContext('2d')
+  const context = metricsContext
+  if (context === null) return center
+  context.font = `${px}px ${family}`
+  context.textBaseline = 'alphabetic'
+  const alphabetic = context.measureText('H').actualBoundingBoxAscent
+  context.textBaseline = 'middle'
+  const below = alphabetic - context.measureText('H').actualBoundingBoxAscent
+  context.textBaseline = 'alphabetic'
+  const ratio = window.devicePixelRatio || 1
+  return Math.round((center + below * scale) * ratio) / ratio
+}
+
+/**
+ * The page position, in CSS pixels, of the first baseline the browser lays
+ * out in `element`, read from a hidden copy of its box at the same place.
+ * Layout rounds font metrics and centering in ways a formula does not
+ * reproduce at every zoom, so the baseline is measured instead.
+ */
+export function domFirstBaseline(element: HTMLElement): number {
+  const style = getComputedStyle(element)
+  const box = element.getBoundingClientRect()
+  const copy = document.createElement('div')
+  copy.style.cssText = `position:fixed;visibility:hidden;margin:0;white-space:nowrap;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;box-sizing:${style.boxSizing};display:${style.display === 'flex' ? 'flex' : 'block'};align-items:${style.alignItems};font-family:${style.fontFamily};font-size:${style.fontSize};font-weight:${style.fontWeight};font-style:${style.fontStyle};line-height:${style.lineHeight};padding-top:${style.paddingTop};border-top:${style.borderTopWidth} solid transparent`
+  const line = document.createElement('div')
+  const marker = document.createElement('span')
+  marker.style.cssText = 'display:inline-block;width:0;height:0'
+  line.append('H', marker)
+  copy.append(line)
+  document.body.append(copy)
+  const baseline = marker.getBoundingClientRect().top
+  copy.remove()
+  return baseline
+}
+
 /** Project once when a popover opens; later canvas movement does not chase it. */
 export function editorScreenAnchor(rect: EditorWorldRect, viewport: EditorViewport): EditorWorldRect {
   return {
@@ -120,4 +181,22 @@ export function contrastingTextColor(background: string): '#000000' | '#ffffff' 
   })
   const luminance = 0.2126 * linear[0]! + 0.7152 * linear[1]! + 0.0722 * linear[2]!
   return luminance > 0.179 ? '#000000' : '#ffffff'
+}
+
+/** Fixed-position style for a node overlay, clipped to the canvas rect. */
+export function overlayClipStyle(rect: EditorWorldRect, canvasEl: HTMLCanvasElement, covers: readonly EditorWorldRect[] = []): Record<string, string> {
+  const canvas = canvasEl.getBoundingClientRect()
+  const top = Math.max(0, canvas.top - rect.y)
+  const right = Math.max(0, rect.x + rect.width - (canvas.left + canvas.width))
+  const bottom = Math.max(0, rect.y + rect.height - (canvas.top + canvas.height))
+  const left = Math.max(0, canvas.left - rect.x)
+  const box = { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` }
+  if (covers.length === 0) return { ...box, 'clip-path': `inset(${top}px ${right}px ${bottom}px ${left}px)` }
+  // What is drawn in front of the overlay on the canvas, given in screen
+  // pixels, is cut out of it, so the canvas shows through those holes.
+  const square = (x0: number, y0: number, x1: number, y1: number): string => `M ${x0} ${y0} H ${x1} V ${y1} H ${x0} Z`
+  const holes = covers.map((cover) => square(
+    Math.max(left, cover.x - rect.x), Math.max(top, cover.y - rect.y),
+    Math.min(rect.width - right, cover.x + cover.width - rect.x), Math.min(rect.height - bottom, cover.y + cover.height - rect.y)))
+  return { ...box, 'clip-path': `path(evenodd, "${[square(left, top, rect.width - right, rect.height - bottom), ...holes].join(' ')}")` }
 }

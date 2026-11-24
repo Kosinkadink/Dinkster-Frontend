@@ -33,14 +33,13 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { generatedBoundaryLabel, regionBoundaryLabels } from './boundary-labels.js'
-import { isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type DynamicPortState, type GraphDef, type NodeData, type PortBoundaryBinding, type RegionContract } from '../format/document.js'
+import { isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type ConstructBoundaryBinding, type DynamicPortState, type GraphDef, type NodeData, type RegionContract, type RouteBoundaryBinding } from '../format/document.js'
 import { isPortEndpoint, portAddressKey, type DynamicMemberId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
-import { effectiveValueSourceSpec, type EffectiveValueSourceSpec } from '../value-source.js'
 import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
-import { describedEntries } from './elaborate.js'
-import { applyUse, keyPosition } from './body.js'
+import { buildGraphConnectivity, describedEntries, elabInputsOf, elaborateInterface, EMPTY_CONNECTIVITY, type Connectivity } from './elaborate.js'
+import { applyUse, choiceScopeRows, framesNamesOf, keyPosition, memberKeyAt, memberLimitOf, memberRowsOf } from './body.js'
 import { canonicalTypeIdOf, inputsOf, scopeRowsOf, typeExprFromTypeId } from './model.js'
 import type {
   BodyRow,
@@ -50,6 +49,7 @@ import type {
   InputSpec,
   NodeSchema,
   OptionRow,
+  OuterName,
   OutputSpec,
   TypeChoiceSpec,
   TypeExpr,
@@ -67,18 +67,28 @@ export interface DeriveResult {
   readonly diagnostics: readonly Diagnostic[]
 }
 
-export type StaticWidgetTapResolution =
+export type WidgetTapResolution =
   | { readonly ok: true; readonly input: InputSpec }
   | { readonly ok: false; readonly code: 'boundary.tapMissing' | 'boundary.tapAmbiguous' | 'boundary.tapUnsupported' }
 
-/** Resolve one exact top-scope widget-backed input that can serve as an output tap. */
-export function resolveStaticWidgetTap(schema: NodeSchema, tap: string): StaticWidgetTapResolution {
-  const matches = inputsOf(schema).filter((candidate) => candidate.id === tap)
+/**
+ * Resolve the one field a widget tap reads on a node as the node stands:
+ * top level, in a group's member, under the chosen option, or under a
+ * plugged type-led pin, by its flattened id.
+ */
+export function resolveWidgetTap(
+  schema: NodeSchema,
+  node: Pick<NodeData, 'values' | 'dynamic' | 'additionalInputs'>,
+  tap: string,
+  connectivity: Connectivity = EMPTY_CONNECTIVITY,
+): WidgetTapResolution {
+  const matches = elabInputsOf(elaborateInterface(schema, node, connectivity, { promoteGhosts: false }))
+    .filter((candidate) => candidate.address.port === tap)
   if (matches.length !== 1) {
     return { ok: false, code: matches.length === 0 ? 'boundary.tapMissing' : 'boundary.tapAmbiguous' }
   }
-  const input = matches[0]!
-  return input.widget !== undefined
+  const input = matches[0]!.spec
+  return input.widget !== undefined && input.forceInput !== true
     ? { ok: true, input }
     : { ok: false, code: 'boundary.tapUnsupported' }
 }
@@ -227,7 +237,7 @@ export function resolveBoundaryRoute(
   values?: Readonly<Record<string, unknown>>,
   _dynamic?: NodeData['dynamic'],
 ): RouteResult {
-  if (binding.kind === 'unbound' || binding.kind === 'valueSource') return { ok: false, code: 'boundary.unboundRoute', message: 'a structural boundary has no node port route' }
+  if (binding.kind === 'unbound') return { ok: false, code: 'boundary.unboundRoute', message: 'a structural boundary has no node port route' }
   if (binding.kind === 'widgetTap') {
     return { ok: false, code: 'boundary.tapRoute', message: `widget tap '${binding.tap}' is not a port or family route` }
   }
@@ -317,7 +327,7 @@ export function resolveBoundaryRoute(
           break
         case 'typeChoice':
           if (last) {
-            found = row.variants === undefined
+            found = row.variants === undefined && binding.kind !== 'construct'
               ? { side: 'input', topItem: top, hops, terminal: { kind: 'port', slot: { kind: 'input', id: full, type: slotTypeOf(row), optional: true, ...(typeof row.displayName === 'string' ? { displayName: row.displayName } : {}) } } }
               : { side: 'input', topItem: top, hops, terminal: { kind: 'construct', row, constructPath: full } }
             break
@@ -367,6 +377,234 @@ export function familyStateAt(
 }
 
 // ---------------------------------------------------------------------------
+// Whole constructs on a subgraph node
+// ---------------------------------------------------------------------------
+
+/**
+ * The members a definition's inner node holds in a group the subgraph node
+ * shows whole, and the first position past them. Those members stay inside
+ * the definition; each subgraph node's own members come after them.
+ */
+export function interiorMembersOf(group: GroupSpec, state: DynamicPortState | undefined): { readonly members: readonly string[]; readonly next: number } {
+  if (typeof group.grows !== 'string') return { members: [], next: 0 }
+  const members = state?.members ?? []
+  if (group.keys.kind === 'named') return { members, next: 0 }
+  const keys = group.keys
+  return { members, next: Math.max(state?.seq ?? 0, 0, ...members.map((key) => (keyPosition(keys, key) ?? -1) + 1)) }
+}
+
+/**
+ * The inner node's key for a member a subgraph node owns: a numbered key
+ * moves past the definition's own members, a named key is the same name (the
+ * subgraph node is offered only the names the definition leaves free), and a
+ * counted member is its position on both.
+ */
+export function innerMemberKey(group: GroupSpec, interior: { readonly next: number }, key: string): string | undefined {
+  if (typeof group.grows !== 'string' || group.keys.kind === 'named') return key
+  const position = keyPosition(group.keys, key)
+  return position === undefined ? undefined : memberKeyAt(group.keys, interior.next + position)
+}
+
+/** The subgraph node's key for an inner member: undefined for a member the definition owns. */
+export function outerMemberKey(group: GroupSpec, interior: { readonly members: readonly string[]; readonly next: number }, key: string): string | undefined {
+  if (typeof group.grows !== 'string') return key
+  if (group.keys.kind === 'named') return interior.members.includes(key) ? undefined : key
+  const position = keyPosition(group.keys, key)
+  return position === undefined || position < interior.next ? undefined : memberKeyAt(group.keys, position - interior.next)
+}
+
+/** The row a construct route reaches. */
+export function constructRowOf(route: BoundaryRoute): GroupSpec | ChoiceSpec | TypeChoiceSpec | DescribedSpec | undefined {
+  if (route.terminal.kind === 'family') return route.terminal.declaring
+  if (route.terminal.kind === 'construct') return route.terminal.row
+  return undefined
+}
+
+/** Whether rows hold a field or an input: a construct of outputs only sits among the outputs. */
+function holdsInput(list: readonly OptionRow[]): boolean {
+  return scopeRowsOf(list).some((entry) =>
+    entry.kind === 'input' || entry.kind === 'choice' || entry.kind === 'typeChoice' || entry.kind === 'use' ||
+    (entry.kind === 'described' && entry.kinds.some((kind) => kind.kind === 'input')) ||
+    (entry.kind === 'group' && holdsInput(memberRowsOf(entry))))
+}
+
+/** A construct a row sits in, as a subgraph can show it whole. */
+export interface EnclosingConstruct {
+  readonly path: string
+  readonly kind: 'group' | 'choice' | 'typeChoice' | 'described'
+  readonly label: string
+  /** Where it sits among a subgraph node's rows: a group of outputs only is an output. */
+  readonly side: 'inputs' | 'outputs'
+}
+
+/**
+ * The constructs a row is in, outermost first, the row itself included when
+ * it is one: what "Show on subgraph node" offers to show whole from it.
+ */
+export function constructsAround(schema: NodeSchema, port: string): readonly EnclosingConstruct[] {
+  const found: EnclosingConstruct[] = []
+  const segs = port.split('.')
+  let rows: readonly OptionRow[] = schema.body
+  let prefix = ''
+  for (let index = 0; index < segs.length; index++) {
+    const row = rowById(rows, segs[index]!)
+    if (row === undefined) break
+    const full = `${prefix}${row.id}`
+    if (row.kind === 'group' || row.kind === 'choice' || row.kind === 'typeChoice' || row.kind === 'described') {
+      const label = typeof row.displayName === 'string' && row.displayName !== '' ? row.displayName : row.id
+      found.push({ path: full, kind: row.kind, label, side: holdsInput([row]) ? 'inputs' : 'outputs' })
+    }
+    if (row.kind === 'group') {
+      rows = memberRowsOf(row)
+      prefix = `${full}.${segs[++index]}.`
+    } else if (row.kind === 'choice') {
+      rows = choiceScopeRows(row)
+      prefix = `${full}.`
+    } else if (row.kind === 'typeChoice') {
+      rows = [...row.rows, ...(row.variants ?? []).flatMap((variant) => variant.rows)]
+      prefix = `${full}.`
+    } else break
+  }
+  return found
+}
+
+/** Find a row of one scope by id, looking through layout boxes. */
+const rowById = (rows: readonly OptionRow[], id: string): Exclude<BodyRow, { kind: 'row' }> | undefined =>
+  scopeRowsOf(rows).find((row): row is Exclude<BodyRow, { kind: 'row' }> => row.kind !== 'use' && row.kind !== 'row' && row.id === id)
+
+/**
+ * The scopes around a row, outermost first, with each scope's flattened
+ * prefix: what a formula inside that row reads besides the row's own scope.
+ */
+function scopesAround(body: readonly BodyRow[], path: string): readonly { readonly rows: readonly OptionRow[]; readonly prefix: string }[] {
+  const frames: { rows: readonly OptionRow[]; prefix: string }[] = [{ rows: body, prefix: '' }]
+  const segs = path.split('.')
+  let rows: readonly OptionRow[] = body
+  let prefix = ''
+  for (let index = 0; index < segs.length - 1; index++) {
+    const row = rowById(rows, segs[index]!)
+    if (row === undefined) break
+    const full = `${prefix}${row.id}`
+    if (row.kind === 'group') {
+      rows = memberRowsOf(row)
+      prefix = `${full}.${segs[++index]}.`
+    } else if (row.kind === 'choice') {
+      rows = choiceScopeRows(row)
+      prefix = `${full}.`
+    } else if (row.kind === 'typeChoice') {
+      rows = [...row.rows, ...(row.variants ?? []).flatMap((variant) => variant.rows)]
+      prefix = `${full}.`
+    } else break
+    frames.push({ rows, prefix })
+  }
+  return frames
+}
+
+/** Each row's own default value, as a formula reads it with nothing stored. */
+const ownDefaultOf = (row: Exclude<BodyRow, { kind: 'row' }> | undefined, stored: DynamicPortState | undefined): unknown => {
+  if (row === undefined) return undefined
+  if (row.kind === 'input') return row.widget?.default ?? row.ext?.['default']
+  if (row.kind === 'state') return row.default
+  if (row.kind === 'choice') return stored?.selected ?? (row.required ? row.default ?? row.options[0]?.key : null)
+  return undefined
+}
+
+/** Name every unbound type variable inside a construct by its inner node. */
+function freshenRow<T extends OptionRow>(row: T, nodeId: string, bindings: ReadonlyMap<string, TypeExpr>): T {
+  const type = (t: TypeExpr): TypeExpr => freshenType(t, nodeId, bindings)
+  const rows = <R extends OptionRow>(list: readonly R[]): R[] => list.map((item) => freshenRow(item, nodeId, bindings))
+  const r = row as OptionRow
+  switch (r.kind) {
+    case 'input':
+    case 'output':
+    case 'state':
+      return { ...r, type: type(r.type) } as unknown as T
+    case 'section':
+    case 'row':
+      return { ...r, rows: rows(r.rows) } as unknown as T
+    case 'group':
+      return {
+        ...r,
+        ...(r.value !== undefined ? { value: freshenRow(r.value, nodeId, bindings) } : {}),
+        ...(r.member !== undefined ? { member: rows(r.member) } : {}),
+      } as unknown as T
+    case 'choice':
+      return { ...r, shared: rows(r.shared), options: r.options.map((option) => ({ ...option, rows: rows(option.rows) })) } as unknown as T
+    case 'typeChoice':
+      return {
+        ...r,
+        rows: rows(r.rows),
+        ...(r.type !== undefined ? { type: type(r.type) } : {}),
+        ...(r.variants !== undefined ? { variants: r.variants.map((variant) => ({ ...variant, type: type(variant.type), rows: rows(variant.rows) })) } : {}),
+      } as unknown as T
+    case 'described':
+      return { ...r, kinds: r.kinds.map((kind) => ({ ...kind, type: type(kind.type) })) } as unknown as T
+    default:
+      return row
+  }
+}
+
+/**
+ * Start a construct's fields where the definition's inner node holds them:
+ * a stored value becomes the default of its field, and a stored option the
+ * default of its choice. Members of a group stay inside the definition.
+ */
+function withStoredDefaults<T extends OptionRow>(row: T, prefix: string, node: NodeData): T {
+  const values = node.values
+  const under = <R extends OptionRow>(list: readonly R[], at: string): R[] => list.map((item) => withStoredDefaults(item, at, node))
+  const r = row as OptionRow
+  switch (r.kind) {
+    case 'input': {
+      const path = prefix + r.id
+      if (!Object.hasOwn(values, path)) return row
+      return (r.widget !== undefined
+        ? { ...r, widget: { ...r.widget, default: values[path] } }
+        : { ...r, ext: { ...r.ext, default: values[path] } }) as unknown as T
+    }
+    case 'use': {
+      const path = prefix + r.id
+      return (Object.hasOwn(values, path) ? { ...r, default: values[path] } as unknown as T : row)
+    }
+    case 'section':
+    case 'row':
+      return { ...r, rows: under(r.rows, prefix) } as unknown as T
+    case 'choice': {
+      const path = prefix + r.id
+      const selected = node.dynamic?.[path]?.selected
+      const keyed = selected !== undefined && r.options.some((option) => option.key === selected) ? { default: selected } : {}
+      return {
+        ...r,
+        ...keyed,
+        shared: under(r.shared, `${path}.`),
+        options: r.options.map((option) => ({ ...option, rows: under(option.rows, `${path}.`) })),
+      } as unknown as T
+    }
+    case 'typeChoice': {
+      const path = prefix + r.id
+      const selected = node.dynamic?.[path]?.selected
+      return {
+        ...r,
+        ...(selected !== undefined && r.variants?.some((variant) => variant.key === selected) ? { default: selected } : {}),
+        rows: under(r.rows, `${path}.`),
+        ...(r.variants !== undefined ? { variants: r.variants.map((variant) => ({ ...variant, rows: under(variant.rows, `${path}.`) })) } : {}),
+      } as unknown as T
+    }
+    case 'described': {
+      const path = prefix + r.id
+      return (Object.hasOwn(values, path) ? { ...r, default: values[path] } as unknown as T : row)
+    }
+    default:
+      return row
+  }
+}
+
+/** A construct's shape, without its name: two constructs one row may drive must match. */
+const constructShapeKey = (row: GroupSpec | ChoiceSpec | TypeChoiceSpec | DescribedSpec): string => {
+  const { id: _id, displayName: _name, tooltip: _tooltip, ...shape } = row
+  return JSON.stringify(shape)
+}
+
+// ---------------------------------------------------------------------------
 // Boundary -> NodeSchema derivation
 // ---------------------------------------------------------------------------
 
@@ -380,12 +618,12 @@ export function deriveBoundarySchema(
   resolve: SchemaResolver,
   region?: RegionContract,
   resolveNode: (node: NodeData) => NodeSchema | undefined = (node) => resolve(node.type),
-  resolveSource?: (sourceId: string) => EffectiveValueSourceSpec | undefined,
 ): DeriveResult {
   const diags: Diagnostic[] = []
   const fail = (code: string, msg: string): void => {
     diags.push(diag('error', 'schema', code, `[${graph.id}] ${msg}`))
   }
+  let connectivityOf: ReturnType<typeof buildGraphConnectivity> | undefined
 
   if (!graph.boundary) {
     fail('boundary.missing', `graph definition has no boundary (root graphs cannot be instanced)`)
@@ -419,7 +657,7 @@ export function deriveBoundarySchema(
   const def = { ...graph, boundary: { ...graph.boundary, inputs } }
 
 
-  const items: (InputSpec | OutputSpec)[] = []
+  const items: BodyRow[] = []
   const seenIds = new Set<string>()
   const routeCache = new WeakMap<object, Partial<Record<'input' | 'output', { node: NodeData; route: BoundaryRoute }>>>()
   const slotTypeBindings = new WeakMap<NodeData, ReadonlyMap<string, TypeExpr>>()
@@ -449,7 +687,7 @@ export function deriveBoundarySchema(
   }
 
   /** Link existence on an inner node's input, by flattened id. */
-  const isInternallyConnected = (b: PortBoundaryBinding, port: string): boolean => {
+  const isInternallyConnected = (b: RouteBoundaryBinding, port: string): boolean => {
     const key = portAddressKey(port)
     for (const link of Object.values(def.links)) {
       if (isPortEndpoint(link.to) && link.to.node === b.node && portAddressKey(link.to.port) === key) return true
@@ -495,8 +733,12 @@ export function deriveBoundarySchema(
       return undefined
     }
     const route = result.route
-    if (route.terminal.kind !== 'port') {
-      fail('boundary.familyBind', `${describe} binds '${binds.port}', which is a group, a choice, a type choice or a described row, not a port`)
+    if (binds.kind === 'port' && route.terminal.kind !== 'port') {
+      fail('boundary.familyBind', `${describe} binds '${binds.port}', which is a group, a choice, a type choice or a described row; a whole construct is shown with a construct binding`)
+      return undefined
+    }
+    if (binds.kind === 'construct' && route.terminal.kind === 'port') {
+      fail('boundary.notAConstruct', `${describe} shows '${binds.port}' whole, but it is a single row; a single row is shown with a port binding`)
       return undefined
     }
     for (const hop of route.hops) {
@@ -532,7 +774,7 @@ export function deriveBoundarySchema(
     routeForBinding(item.binds, `boundary ${side} '${item.id}'`, side)
 
   /** Fan-out duplicate key: full target address (node, port). */
-  const targetKeyOf = (b: PortBoundaryBinding): string => JSON.stringify([b.node, b.port])
+  const targetKeyOf = (b: RouteBoundaryBinding): string => JSON.stringify([b.node, b.port])
 
   const displayNameOf = (
     item: BoundaryItem,
@@ -541,30 +783,110 @@ export function deriveBoundarySchema(
     displayName: item.displayName ?? inner.displayName ?? generatedBoundaryLabel(item),
   })
 
-  const valueSourceInputs = new Map<string, string>()
+  // One owner per construct: a construct shown whole owns every row in it.
+  const constructOwners: { readonly node: string; readonly path: string; readonly item: string }[] = []
+  const shownRows = new Map<string, string>()
+  const everyItem = [...def.boundary.inputs, ...def.boundary.outputs]
+  for (const item of everyItem) {
+    for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+      if (binding.kind === 'port' && !shownRows.has(JSON.stringify([binding.node, binding.port]))) shownRows.set(JSON.stringify([binding.node, binding.port]), item.id)
+      if (binding.kind !== 'construct') continue
+      const owner = constructOwners.find((other) => other.node === binding.node && other.path === binding.port)
+      if (owner !== undefined) fail('boundary.constructConflict', `boundary items '${owner.item}' and '${item.id}' both show '${binding.port}' whole`)
+      else constructOwners.push({ node: binding.node, path: binding.port, item: item.id })
+    }
+  }
+  for (const item of everyItem) {
+    for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+      if (binding.kind !== 'port' && binding.kind !== 'construct') continue
+      const owner = constructOwners.find((other) => other.node === binding.node && other.item !== item.id && binding.port.startsWith(`${other.path}.`))
+      if (owner !== undefined) fail('boundary.constructOwned', `boundary item '${item.id}' shows '${binding.port}', which is already shown through '${owner.item}'`)
+    }
+  }
+  if (region !== undefined && constructOwners.length > 0) fail('boundary.constructRegion', 'a repeated region shows single rows only, not a whole group, choice, type choice or described row')
+  if (diags.length) return { diagnostics: diags }
+
+  /**
+   * The row a subgraph node shows for a whole construct: the inner row with
+   * its types named by its inner node, its fields starting where the
+   * definition holds them, a group's members past the definition's own, and
+   * the inner node's scope for its formulas.
+   */
+  const constructRow = (item: BoundaryItem, side: 'input' | 'output'): BodyRow | undefined => {
+    const binds = item.binds as ConstructBoundaryBinding
+    const resolved = routeFor(item, side)
+    if (!resolved) return undefined
+    const { node, route } = resolved
+    const row = constructRowOf(route)!
+    if (side === 'output' && holdsInput([row])) {
+      fail('boundary.sideMismatch', `boundary output '${item.id}' shows '${binds.port}', which holds a field or an input; it belongs among the inputs`)
+      return undefined
+    }
+    const path = binds.port as string
+    const prefix = path.slice(0, path.length - row.id.length)
+    for (const [index, other] of (item.alsoBinds ?? []).entries()) {
+      const describe = `boundary input '${item.id}' fan-out target [${index}]`
+      if (other.kind !== 'construct') {
+        fail('boundary.fanoutKind', `${describe} must be a construct like the row it shares`)
+        return undefined
+      }
+      const target = routeForBinding(other, describe, side)
+      if (!target) return undefined
+      const otherRow = constructRowOf(target.route)
+      if (otherRow === undefined || constructShapeKey(otherRow) !== constructShapeKey(row)) {
+        fail('boundary.constructShapeMismatch', `${describe}: '${other.port}' does not have the same rows, options, keys and growth as '${binds.port}'`)
+        return undefined
+      }
+    }
+    let derived: BodyRow = withStoredDefaults(freshenRow(row, binds.node, typeBindingsFor(node)), prefix, node)
+    if (derived.kind === 'group' && row.kind === 'group') {
+      const interior = interiorMembersOf(row, node.dynamic?.[path])
+      const count = interior.members.length
+      const limit = memberLimitOf(row)
+      if (count > limit) {
+        fail('boundary.familyOverCap', `boundary ${side} '${item.id}': the definition holds ${count} members of '${path}' but the group holds at most ${limit}`)
+        return undefined
+      }
+      derived = {
+        ...derived,
+        minMembers: Math.max(0, derived.minMembers - count),
+        // Only a declared maximum is carried: it is the number a header shows.
+        ...(row.maxMembers !== undefined ? { maxMembers: limit - count } : {}),
+        ...(derived.keys.kind === 'named' ? { keys: { kind: 'named' as const, names: derived.keys.names.filter((name) => !interior.members.includes(name)) } } : {}),
+        // Members inside count through every level: an outer face numbers on from all of them.
+        ...(count > 0 ? { interiorMembers: (row.interiorMembers ?? 0) + count } : {}),
+      }
+    }
+    const schema = resolveNode(node)!
+    const frames = scopesAround(schema.body, path).map((frame) => {
+      const names: Record<string, OuterName> = {}
+      for (const name of framesNamesOf([frame.rows]).names.keys()) {
+        const flat = frame.prefix + name
+        const shown = flat === path ? item.id : shownRows.get(JSON.stringify([binds.node, flat]))
+        if (shown !== undefined) {
+          names[name] = { row: shown }
+          continue
+        }
+        const value = Object.hasOwn(node.values, flat)
+          ? node.values[flat]
+          : ownDefaultOf(name.includes('.') ? undefined : rowById(frame.rows, name), node.dynamic?.[flat])
+        if (value !== undefined) names[name] = { value, ...(isInternallyConnected(binds, flat) ? { linked: true as const } : {}) }
+      }
+      return { rows: frame.rows, names }
+    })
+    return {
+      ...derived,
+      id: item.id,
+      ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
+      outer: { frames },
+    } as BodyRow
+  }
+
   for (const item of def.boundary.inputs) {
     if (!checkId(item)) continue
-    if (item.binds.kind === 'valueSource') {
-      const previous = valueSourceInputs.get(item.binds.valueSource)
-      if (previous !== undefined) {
-        fail('boundary.valueSourceConflict', `boundary inputs '${previous}' and '${item.id}' both bind value source '${item.binds.valueSource}'`)
-        continue
-      }
-      valueSourceInputs.set(item.binds.valueSource, item.id)
-      const source = def.valueSources?.[item.binds.valueSource]
-      if (!source) {
-        fail('boundary.danglingValueSource', `boundary input '${item.id}' binds missing value source '${item.binds.valueSource}'`)
-        continue
-      }
-      const effective = resolveSource?.(source.id) ?? effectiveValueSourceSpec(def, source, resolve)
-      items.push({ kind: 'input', id: item.id, type: item.binds.type, optional: true,
-        ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
-        ...(item.promoted === true && effective.spec !== undefined ? { widget: {
-          ...effective.spec,
-          default: source.value,
-          ...(source.controller !== undefined ? { controllerInitial: source.controller } : {}),
-        } } : {}),
-      })
+    if (item.binds.kind === 'construct') {
+      const row = constructRow(item, 'input')
+      if (row !== undefined) items.push(row)
       continue
     }
     if (item.binds.kind === 'unbound') {
@@ -593,6 +915,9 @@ export function deriveBoundarySchema(
     // satisfiable without a connection only when EVERY target is (each
     // falls back to its own stored value or optionality).
     let satisfiable = inner.optional || inner.widget !== undefined
+    // The subgraph input takes a whole list only when every target does;
+    // one single-value target would receive the list unmapped.
+    let acceptsList = inner.acceptsList === true
     let fanoutOk = true
     if (item.alsoBinds !== undefined) {
       const seenTargets = new Set<string>([targetKeyOf(item.binds)])
@@ -626,6 +951,7 @@ export function deriveBoundarySchema(
           diags.push(diag('warning', 'schema', 'boundary.fanoutTypeMismatch', `[${def.id}] boundary input '${item.id}' fan-out target '${b.node}/${b.port}' does not accept the boundary type`))
         }
         if (!(targetSlot.optional || targetSlot.widget !== undefined)) satisfiable = false
+        if (targetSlot.acceptsList !== true) acceptsList = false
       }
     }
     if (!fanoutOk) continue
@@ -649,6 +975,7 @@ export function deriveBoundarySchema(
       // A widget-backed inner input has a stored value, so the boundary
       // input is satisfiable without a connection.
       optional: satisfiable,
+      ...(acceptsList ? { acceptsList: true as const } : {}),
       ...(promotedWidget !== undefined
         ? { widget: promotedWidget }
         : inner.widget !== undefined
@@ -660,14 +987,13 @@ export function deriveBoundarySchema(
 
   for (const item of def.boundary.outputs) {
     if (!checkId(item)) continue
-    if (item.binds.kind === 'valueSource') {
-      if (!def.valueSources?.[item.binds.valueSource]) {
-        fail('boundary.danglingValueSource', `boundary output '${item.id}' binds missing value source '${item.binds.valueSource}'`)
+    if (item.binds.kind === 'construct') {
+      if (item.alsoBinds !== undefined) {
+        fail('boundary.fanoutOnOutput', `boundary output '${item.id}': 'alsoBinds' is invalid on outputs (an output has exactly one source)`)
         continue
       }
-      items.push({ kind: 'output', id: item.id, type: item.binds.type,
-        ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
-      })
+      const row = constructRow(item, 'output')
+      if (row !== undefined) items.push(row)
       continue
     }
     if (item.binds.kind === 'unbound') {
@@ -690,13 +1016,13 @@ export function deriveBoundarySchema(
         fail('boundary.unresolvedSchema', `boundary output '${item.id}' binds node '${node.id}' of unresolvable type '${node.type}'`)
         continue
       }
-      const resolvedTap = resolveStaticWidgetTap(schema, binding.tap)
+      const resolvedTap = resolveWidgetTap(schema, node, binding.tap, (connectivityOf ??= buildGraphConnectivity(graph))(node.id))
       if (!resolvedTap.ok) {
         fail(
           resolvedTap.code,
           resolvedTap.code === 'boundary.tapUnsupported'
-            ? `boundary output '${item.id}' must bind one static widget-backed input`
-            : `boundary output '${item.id}' widget tap '${binding.tap}' resolves to ${resolvedTap.code === 'boundary.tapMissing' ? 0 : 'multiple'} static inputs`,
+            ? `boundary output '${item.id}' must bind one widget-backed input`
+            : `boundary output '${item.id}' widget tap '${binding.tap}' resolves to ${resolvedTap.code === 'boundary.tapMissing' ? 0 : 'multiple'} inputs`,
         )
         continue
       }
@@ -727,6 +1053,8 @@ export function deriveBoundarySchema(
       type: freshenType(inner.type, item.binds.node, typeBindingsFor(node)),
       ...(inner.isList !== undefined ? { isList: inner.isList } : {}),
       ...(inner.preview !== undefined ? { preview: inner.preview } : {}),
+      // An output fed by one that may give nothing may give nothing too.
+      ...(inner.optional === true ? { optional: true } : {}),
     })
   }
 
@@ -752,6 +1080,7 @@ export function deriveBoundarySchema(
 
   let derivedItems = items
   if (region !== undefined) {
+    const items = derivedItems as (InputSpec | OutputSpec)[]
     if (!def.boundary.outputs.some((output) => output.id !== region.continueOutput) && !isOutputNode) {
       fail('doc.region.outputRequired', 'region requires an exported boundary output or a declared output node')
     }

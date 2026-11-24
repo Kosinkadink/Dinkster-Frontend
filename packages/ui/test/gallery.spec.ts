@@ -18,6 +18,28 @@ const expectNoAxeViolations = async (page: Page) => {
     ),
   ).toEqual([])
 }
+test('run activity distinguishes concurrent running jobs from queued jobs and respects reduced motion', async ({ page }) => {
+  await page.goto('/#controls')
+  const one = page.getByRole('img', { name: '1 running', exact: true })
+  const many = page.getByRole('img', { name: '3 running', exact: true })
+  const queued = page.getByRole('img', { name: '2 queued', exact: true })
+  const mixed = page.getByRole('img', { name: '3 running, 1 queued', exact: true })
+  await expect(one).toBeVisible()
+  await expect(one).toHaveText('1')
+  await expect(many).toHaveText('3')
+  await expect(queued).toHaveText('2')
+  await expect(mixed).toHaveText('31')
+  const ring = one.locator('svg')
+  const clock = queued.locator('svg')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await expect.poll(() => ring.evaluate((element) => getComputedStyle(element).animationName)).toBe('dinkster-spin')
+  expect(await clock.evaluate((element) => getComputedStyle(element).animationName)).toBe('none')
+  expect(await ring.evaluate((element) => getComputedStyle(element).color))
+    .not.toBe(await clock.evaluate((element) => getComputedStyle(element).color))
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect.poll(() => ring.evaluate((element) => getComputedStyle(element).animationName)).toBe('none')
+})
+
 test('portable site geometry follows the site scale without changing app density', async ({
   page,
 }) => {
@@ -105,6 +127,20 @@ for (const width of [1280, 390]) {
       await page.goto(`/#${section}`)
       await page.evaluate(() => document.fonts.ready)
       await expect(page.getByRole('main')).toBeVisible()
+      if (section === 'lists') {
+        const heading = page.locator('.storage-folder-heading').first()
+        const name = await heading.locator('strong').boundingBox()
+        const actions = await heading.getByRole('button', { name: 'Folder actions' }).boundingBox()
+        expect(name!.x + name!.width).toBeLessThan(actions!.x)
+        expect(actions!.width).toBeLessThanOrEqual(40)
+        await expect(page.locator('.dinkster-empty img')).toHaveCount(0)
+        await expect(
+          page.getByText('No API keys yet.', { exact: true }),
+        ).toBeVisible()
+        await expect(
+          page.getByRole('button', { name: 'Create key', exact: true }),
+        ).toBeEnabled()
+      }
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -159,7 +195,7 @@ test('account values copy exactly, history expands by keyboard and signed-out sh
   await expect(
     page.getByRole('button', { name: 'Toggle navigation' }),
   ).toHaveCount(0)
-  const frame = (await page.locator('.dinkster-shell-body').boundingBox())!
+  const frame = (await page.locator('.dinkster-shell').boundingBox())!
   const content = (await page.getByRole('main').boundingBox())!
   expect(content.x).toBe(frame.x)
   expect(content.width).toBe(frame.width)
@@ -232,6 +268,9 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   page,
 }) => {
   await page.goto('/#controls')
+  await expect(
+    page.getByRole('button', { name: 'Add item', exact: true }),
+  ).toHaveAttribute('title', 'Add item')
   const samples = page.getByRole('region', {
     name: 'Button roles and fills',
     exact: true,
@@ -669,4 +708,45 @@ test('mobile navigation selects immediately and closes; desktop selection does n
   expect(
     await lists.evaluate((element) => getComputedStyle(element).fontWeight),
   ).toBe(weight)
+})
+
+test('context menus keep 12 px sides, one label column and a check column only where an item can be checked', async ({
+  page,
+}) => {
+  await page.goto('/#context-menus')
+  await page.evaluate(() => document.fonts.ready)
+  const menus = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('[data-testid^="context-menu-example-"]')].map((figure) => {
+      const panel = figure.querySelector<HTMLElement>('[data-testid="context-menu"]')!
+      const inner = panel.getBoundingClientRect()
+      const border = parseFloat(getComputedStyle(panel).borderLeftWidth)
+      const left = inner.left + border
+      const right = inner.right - border
+      const rows = [...panel.querySelectorAll<HTMLElement>('[data-testid="context-menu-item"]')]
+      return {
+        id: figure.dataset['testid']!.replace('context-menu-example-', ''),
+        starts: [...new Set(rows.map((row) => row.firstElementChild!.getBoundingClientRect().left - left))],
+        labels: [...new Set(rows.map((row) => row.querySelector('.menu-label')!.getBoundingClientRect().left - left))],
+        // Rows that end in a shortcut or a submenu arrow reach the right side.
+        ends: [...new Set(rows
+          .filter((row) => row.querySelector('.menu-shortcut, .menu-submenu-caret'))
+          .map((row) => right - row.lastElementChild!.getBoundingClientRect().right))],
+        checks: panel.querySelectorAll('.menu-check').length,
+        // Separators line up with the content on both sides.
+        separators: [...new Set([...panel.querySelectorAll<HTMLElement>('.menu-separator')].flatMap((line) => {
+          const box = line.getBoundingClientRect()
+          return [box.left - left, right - box.right]
+        }))],
+      }
+    }),
+  )
+  expect(menus).toEqual([
+    { id: 'icons', starts: [12], labels: [34], ends: [12], checks: 0, separators: [12] },
+    { id: 'no-icons', starts: [12], labels: [12], ends: [12], checks: 0, separators: [12] },
+    { id: 'mixed', starts: [12], labels: [34], ends: [12], checks: 0, separators: [12] },
+    { id: 'checkable', starts: [12], labels: [26], ends: [], checks: 5, separators: [] },
+  ])
+  await expect(
+    page.getByRole('heading', { name: 'Context menus' }).locator('xpath=ancestor::section[1]'),
+  ).toHaveScreenshot('context-menus.png')
 })

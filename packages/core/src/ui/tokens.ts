@@ -47,11 +47,20 @@ export interface SemanticDesignTokens {
     }
   }
   readonly surface: {
+    readonly frame: string
+    readonly field: string
     readonly canvas: string
     readonly panel: string
     readonly inset: string
     readonly raised: string
     readonly selected: string
+    /** A canvas row's field while it is open for editing. */
+    readonly fieldOpen: string
+  }
+  /** The two squares of the pattern drawn under a color with opacity; nothing is written on them. */
+  readonly checker: {
+    readonly dark: string
+    readonly light: string
   }
   readonly text: {
     readonly primary: string
@@ -62,12 +71,35 @@ export interface SemanticDesignTokens {
     readonly onSelected: string
   }
   readonly border: {
+    readonly pending: string
+    readonly skipped: string
     readonly subtle: string
     /** Between subtle and strong: a quiet line under the pointer, such as a scrollbar thumb. */
     readonly hover: string
     readonly strong: string
     readonly focus: string
     readonly selected: string
+    /** A quiet line between two parts of one shape, such as a title bar and its body. */
+    readonly divider: string
+    /** Quieter than divider: a line between the items of one list in a small box over the canvas. */
+    readonly faint: string
+    /** The edge around a group of controls picked from as one. */
+    readonly group: string
+    /** The outline of a box or a button drawn on a node. */
+    readonly box: string
+  }
+  /**
+   * A button that stands raised on a node: its face at rest, under the
+   * pointer and held down, the lit line along its top and the dark line
+   * under it. A held button loses both lines; a disabled one fades by
+   * interaction.disabledOpacity.
+   */
+  readonly button: {
+    readonly face: string
+    readonly faceHover: string
+    readonly facePressed: string
+    readonly litEdge: string
+    readonly shade: string
   }
   readonly meaning: {
     readonly accent: MeaningToken
@@ -96,6 +128,7 @@ export interface SemanticDesignTokens {
     readonly pressedOverlay: string
     readonly selectedOverlay: string
     readonly disabledOpacity: number
+    readonly unfocusedOpacity: number
   }
   readonly motion: {
     readonly fast: number
@@ -122,12 +155,16 @@ export const semanticTokensForTheme = (
     space: components.space,
     type: components.type as SemanticDesignTokens['type'],
     surface: {
+      frame: colors.bg.frame,
+      field: colors.bg.field,
       canvas: colors.bg.canvas,
       panel: colors.bg.surface,
       inset: colors.bg.canvas,
       raised: colors.bg.raised,
       selected: colors.bg.hover,
+      fieldOpen: colors.bg.fieldOpen,
     },
+    checker: { dark: '#8D97A1', light: '#E8E8E8' },
     text: {
       primary: colors.text.primary,
       secondary: colors.text.secondary,
@@ -137,11 +174,25 @@ export const semanticTokensForTheme = (
       onSelected: colors.text.primary,
     },
     border: {
+      pending: colors.border.pending,
+      skipped: colors.border.skipped,
       subtle: colors.border.default,
       hover: colors.border.hover,
       strong: colors.text.muted,
       focus: colors.status.info,
       selected: colors.text.primary,
+      // Looks are decided in the dark theme; the light theme keeps its border.
+      divider: colors.border.divider,
+      faint: colors.border.faint,
+      group: colors.border.group,
+      box: theme === 'dark' ? '#343A41' : colors.border.default,
+    },
+    button: {
+      face: theme === 'dark' ? colors.bg.raised : colors.bg.surface,
+      faceHover: colors.bg.hover,
+      facePressed: colors.bg.field,
+      litEdge: theme === 'dark' ? colors.border.hover : colors.bg.surface,
+      shade: theme === 'dark' ? colors.bg.field : colors.border.hover,
     },
     meaning: {
       accent: meaning(colors.status.info),
@@ -269,11 +320,16 @@ export const semanticCssVariablesForTheme = (
       semanticDesignTokens.type.weight.regular,
     ),
     '--dinkster-weight-bold': String(semanticDesignTokens.type.weight.bold),
+    '--dinkster-surface-frame': semanticDesignTokens.surface.frame,
+    '--dinkster-surface-field': semanticDesignTokens.surface.field,
     '--dinkster-surface-canvas': semanticDesignTokens.surface.canvas,
     '--dinkster-surface-panel': semanticDesignTokens.surface.panel,
     '--dinkster-surface-inset': semanticDesignTokens.surface.inset,
     '--dinkster-surface-raised': semanticDesignTokens.surface.raised,
     '--dinkster-surface-selected': semanticDesignTokens.surface.selected,
+    '--dinkster-surface-field-open': semanticDesignTokens.surface.fieldOpen,
+    '--dinkster-checker-dark': semanticDesignTokens.checker.dark,
+    '--dinkster-checker-light': semanticDesignTokens.checker.light,
     '--dinkster-text-primary': semanticDesignTokens.text.primary,
     '--dinkster-text-secondary': semanticDesignTokens.text.secondary,
     '--dinkster-text-muted': semanticDesignTokens.text.muted,
@@ -285,6 +341,15 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-border-strong': semanticDesignTokens.border.strong,
     '--dinkster-border-focus': semanticDesignTokens.border.focus,
     '--dinkster-border-selected': semanticDesignTokens.border.selected,
+    '--dinkster-border-divider': semanticDesignTokens.border.divider,
+    '--dinkster-border-faint': semanticDesignTokens.border.faint,
+    '--dinkster-border-group': semanticDesignTokens.border.group,
+    '--dinkster-border-box': semanticDesignTokens.border.box,
+    '--dinkster-button-face': semanticDesignTokens.button.face,
+    '--dinkster-button-face-hover': semanticDesignTokens.button.faceHover,
+    '--dinkster-button-face-pressed': semanticDesignTokens.button.facePressed,
+    '--dinkster-button-lit-edge': semanticDesignTokens.button.litEdge,
+    '--dinkster-button-shade': semanticDesignTokens.button.shade,
     '--dinkster-accent-foreground':
       semanticDesignTokens.meaning.accent.foreground,
     '--dinkster-accent-background':
@@ -332,6 +397,9 @@ export const semanticCssVariablesForTheme = (
       semanticDesignTokens.interaction.selectedOverlay,
     '--dinkster-interaction-disabled-opacity': String(
       semanticDesignTokens.interaction.disabledOpacity,
+    ),
+    '--dinkster-interaction-unfocused-opacity': String(
+      semanticDesignTokens.interaction.unfocusedOpacity,
     ),
     '--dinkster-motion-fast': ms(semanticDesignTokens.motion.fast),
     '--dinkster-motion-standard': ms(semanticDesignTokens.motion.standard),

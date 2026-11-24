@@ -37,7 +37,7 @@ alias-generated rules are registered. Native documents apply applicable
 migrations on open as one undo step, including lossy plans. A dismissable
 Problems notice lists upgraded nodes and warnings, with node navigation;
 it clears on save or tab close and is never persisted. Upgraded nodes look
-ordinary. The status bar's Review upgrades toggle opts out for subsequent
+ordinary. The Settings > Execution > Review upgrades switch opts out for subsequent
 opens and enables migration badges, plan diagnostics and manual apply.
 Schema-arrival diagnostics and legacy boolean normalization remain;
 deprecation pointers alone do not authorize graph edits.
@@ -98,8 +98,8 @@ ambiguity; the importer never silently shifts a following boolean input.
 The importer owns `COMFY_NODE_UPGRADES`, keyed first by the authored ComfyUI
 class name and then by the exact version saved in the node's `properties.ver`.
 SaveVideo version `0.3.68` three-value arrays retain their prefix, container
-and codec while adding explicit automatic encoding and fallback codec choices
-required by the current schema. Keyed values and already-expanded arrays stay
+and codec while adding the explicit automatic encoding and fallback codec
+choices of ComfyUI's current layout. Keyed values and already-expanded arrays stay
 unchanged. A rule upgrades only saved widget values before positional decoding;
 it cannot insert nodes, change class identities, or rewrite links. Root nodes
 and subgraph definitions use the same table. These source versions are not the
@@ -121,91 +121,36 @@ lookup. A slow or unavailable index does not block native workflow startup.
 Later metadata applies to subsequent imports only, and responses from an older
 backend generation, catalog prefix, or superseded lookup are discarded.
 
+SaveVideo's widget values fill the served node's rows by id. The served node
+must take positions with exactly a string `filename_prefix`, a `format` choice
+and, optionally, a `mount`; any other layout decodes in plain order. ComfyUI's
+stream holds the prefix, the container with its codec rows, and then a hidden
+fallback codec with its rows, which the served node does not have. Those
+fallback values are read past and stored nowhere, so an appended mount still
+takes the last position. Keyed `codec` values are likewise stored nowhere.
+
 For SaveVideo versions not listed in the table, including absent versions, the
 layout is authoritative without numeric or lexical version comparison. A node
 can carry the recognized three-widget layout: string filename prefix,
 supported container, supported codec.
-The served positional consumers must have that order, with only the canonical
-optional appended mount allowed after them. Reordered or extra consumers do not
-qualify.
-When the served schema accepts those choices, import stores the codec explicitly
-in both the container branch and fallback codec input, including automatic
-encoding choices. It records `importer.inferredWidgetLayout` with the layout and
+When the served node accepts those choices, import stores the codec in the
+container branch with an automatic encoding choice, since that layout predates
+the encoding mode. It records `importer.inferredWidgetLayout` with the layout and
 stored source version (null when absent), and emits `import.widgets.layoutInferred`
 with that version as given. The original source stays unchanged and no version
 is invented. Listed versions use their exact table entry, never layout inference.
 Other layouts or invalid choices use ordinary decoding and retain its failure
 without inferred provenance. Compilation still requires stored choices.
 
-Primitive producers inside imported subgraphs remain first-class value sources,
-not runtime helper nodes. Native `valueSource` boundary bindings retain the
-authored interface type independently of the stored literal. Proxy values and
-controller modes are retained on each instance; a missing value uses the shared
-definition's literal, while an explicit null remains null. Compilation reads
-occurrence-local overrides without modifying the definition. A connected proxy
-input takes precedence over the instance's stored literal. Each value source
-can have only one input boundary slot; duplicate targets are rejected rather
-than choosing a driver or literal by declaration order. Deleting the value
-source removes its boundary slots in the same undoable transaction.
+A frontend PrimitiveNode, including one inside an imported subgraph, becomes an
+ordinary primitive node: Int, Float, Text, Boolean or Choice when the fields it
+feeds have that widget type, otherwise the general Primitive. When it feeds a
+subgraph boundary, whose type is open, its saved output type chooses the
+primitive. Its value, controller mode, node mode and title carry over, and its
+fan-out becomes ordinary links. An unwired PrimitiveNode with no value is
+dropped with a warning.
 
-Source pills and their spec popovers resolve consumers across exported subgraph
-outputs. Shared stored literals combine constraints across instances; separately
-promoted owners remain independent in drilled views. Definition views combine
-the reachable consumers, while uninstantiated definitions retain local specs.
-This read-only presentation query also sees inactive structural-selector
-candidates and works while unrelated nodes are incomplete. It never changes
-stored values or serializes inferred widget constraints; pinning is explicit.
-
-Promoted literal inputs use the same occurrence-specific constraints as their
-source pills. Missing overrides display the source's stored value and mode;
-explicit instance values and controller modes remain local, including when
-viewing a nested instance. Editing a projected widget writes its outer owner.
-
-Extraction moves selected value sources and their outgoing fan-out into the
-new definition without a runtime producer. Existing authored output types are
-retained; a source with no authored boundary type uses wildcard, never a type
-guessed from its literal. Conflicting authored output types refuse extraction
-atomically. Enclosing boundary bindings and stale-selection fingerprints follow
-the moved source identity, and one undo restores the original graph.
-Enclosing input boundaries follow the moved source into the new definition.
-Nested instance values override the inner literal independently per occurrence;
-an outer instance value wins over an inner one, and a connected driver wins
-over either stored value. Native reopen and extraction undo/redo retain that
-precedence without rewriting the shared definition's values.
-
-Occurrence-local links can use a value-source output boundary directly or
-through enclosing forwarding boundaries. The route retains the authored source
-identity and type, terminates at the existing source, and remains scoped to its
-occurrence through save/reopen and undo/redo. Input promotion still carries
-values, not consuming links: a value source cannot be a local link target.
-
-Flattening an occurrence with literal output bindings copies each retained
-source once into the parent and remaps outgoing links and enclosing output
-bindings to that fresh identity. Source values, declared specs and controllers
-are retained, and sibling occurrences keep the shared definition unchanged.
-Named nets cannot use a literal as their source; flattening refuses that
-unrepresentable result atomically rather than inventing a runtime node.
-
-Inside a definition, literal output bindings draw from the retained source pin
-to the Outputs boundary. The Boundary panel displays the source title and ID;
-Show selects and centers that source without changing the document. Input
-promotion carries an override value, not an incoming wire to the source.
-
-After-generate advancement follows the compiled literal owner instead of
-changing its connected consumer widgets. Shared producer fan-out advances once;
-promoted instance controls own their occurrence overrides and inherit missing
-values and modes from the inner source. Declared source widget constraints take
-precedence over consumer-derived constraints. Only executed consumers contribute
-advancement. Completion preserves user edits, including edit-and-restore changes,
-and skips controls whose live route, effective mode, or widget semantics changed.
-Changing a controller mode and restoring it still invalidates pending advancement;
-explicitly storing an unchanged effective mode does not. Source advancement uses
-the ordinary undoable value-source command, without helper nodes.
-
-Forced-input FLOATS sockets can carry a NUMBER presentation with floating-point
-constraints. The decoder retains the FLOATS socket and scalar default, min and
-step; it does not replace the runtime type with FLOAT or a primitive list.
-Unforced FLOATS and list<FLOATS> do not accept this numeric presentation.
+A ComfyUI FLOATS slot type imports as list<FLOAT>.
 
 Native inputs may declare `pin: false`. It omits only the incoming socket and
 its hit target, preserving the editor, outgoing value tap, runtime type,
@@ -350,7 +295,9 @@ EndLoop list-result flattening when the required list schema is registered.
 Authored positional tuples remain ordinary scalar values.
 
 The obsolete loop-to-region converter and its structural corpus are preserved
-on the branch recorded in `docs/rework-queue.md`; they are not current importer
+on the branch recorded in
+[Obsolete loop-to-region lowering](https://github.com/Kosinkadink/comfy-vibe-station/issues/1197);
+they are not current importer
 behavior.
 
 ### Coverage report

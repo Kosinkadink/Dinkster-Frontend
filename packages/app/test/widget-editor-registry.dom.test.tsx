@@ -110,55 +110,52 @@ it('previews resolution with half-even rounding and edits descriptor-named sibli
   dispose()
 })
 
-it('edits camera siblings atomically with schema defaults, validation and undo without changing view', async () => {
-  const schema = parseDinksterSchema('CameraFixture', { body: [
-    { kind: 'input', id: 'horizontal_angle', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
-    { kind: 'input', id: 'vertical_angle', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
-    { kind: 'input', id: 'zoom', type: { kind: 'concrete', types: ['FLOAT'] }, default: 5 },
-    { kind: 'input', id: 'view', type: { kind: 'concrete', types: ['STRING'] }, default: '', widget: { type: 'CAMERA_ANGLE_VIEW' } },
-  ] }).schema!
-  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema)
-  const store = new DocumentStore(imported.document!, coreCommandRegistry())
+it.each([
+  { node: 'dinkster.video.video_trim', id: 'trim', feature: 'trim', stored: { trim: { start_time: 2, duration: 3 } },
+    shown: { 'video-trim-start-seconds': '2', 'video-trim-duration-seconds': '3' } },
+  { node: 'dinkster.video.video_crop', id: 'crop', feature: 'crop', stored: { crop: { x: 16, y: 8, width: 320, height: 240 } },
+    shown: { 'video-crop-x': '16', 'video-crop-y': '8', 'video-crop-width': '320', 'video-crop-height': '240' } },
+])('opens $node at its stored value and closing unchanged writes nothing', async ({ node, id, feature, stored, shown }) => {
+  // The rows these nodes declare: the edit is the input the widget sits on, and Trim writes a strict duration row.
+  const schema = parseDinksterSchema(node, { body: [
+    { kind: 'input', id: 'video', type: { kind: 'concrete', types: ['VIDEO'] } },
+    { kind: 'input', id, type: { kind: 'concrete', types: ['VIDEO_EDIT'] }, default: {},
+      widget: { type: 'VIDEO_EDIT', features: [feature], ...(feature === 'trim' ? { writes: { strict_duration: 'strict_duration' } } : {}) } },
+    ...(feature === 'trim' ? [{ kind: 'input', id: 'strict_duration', type: { kind: 'concrete', types: ['BOOLEAN'] }, default: false }] : []),
+  ] } as never).schema!
+  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [] }], links: [] }, () => schema).document!
+  const store = new DocumentStore(imported, coreCommandRegistry())
+  store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: id, value: stored } })
   const before = store.doc.graphs.g0!.nodes.n1!.values
+  const revision = store.revision
   const tab = { store } as unknown as Tab
   const registry = createWidgetRegistry()
   const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
-    registryForTab: () => ({ resolve: () => schema }),
+    registryForTab: () => ({ resolve: () => schema }), executionForTab: () => undefined,
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
+  const input = inputsOf(schema).find((row) => row.id === id)!
   const root = document.createElement('div'); document.body.append(root)
   const dispose = render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'view' }, label: 'View',
-    spec: inputsOf(schema)[3]!.widget, multiline: false, initial: '',
-    rect: { x: 0, y: 0, width: 180, height: 24 },
+    tab, graphId: 'g0', label: id, spec: input.widget, declaredType: input.type, multiline: false,
+    target: { kind: 'input', nodeId: 'n1', valueKey: id, parts: { reads: {}, writes: input.widget!.writes ?? {} } },
+    rect: { x: 0, y: 0, width: 180, height: 24 }, initial: stored,
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-  const input = (field: string, value: string) => {
-    const element = root.querySelector<HTMLInputElement>(`#camera-angle-${field}`)!
-    expect(element.getAttribute('aria-labelledby')).toBeTruthy()
-    element.value = value; element.dispatchEvent(new Event('input', { bubbles: true }))
-  }
-  const apply = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === 'Apply camera angle')!
-  expect(root.querySelector<HTMLInputElement>('#camera-angle-zoom')!.value).toBe('5')
-  for (const value of ['', '-1', '361', '90.5']) { input('horizontal_angle', value); expect(apply.disabled).toBe(true) }
-  input('horizontal_angle', '90')
-  input('vertical_angle', '30')
-  input('zoom', '7.5')
-  expect(apply.disabled).toBe(false)
-  expect(root.querySelector('output')!.textContent).toContain('X 5.20, Y 3.00, Z 0.00')
-  expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
-  apply.click()
-  await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ ...before, horizontal_angle: 90, vertical_angle: 30, zoom: 7.5 }))
-  expect(store.undo()).toBe(true)
+  for (const [testId, value] of Object.entries(shown))
+    expect(root.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`)?.value, testId).toBe(value)
+  root.querySelector<HTMLButtonElement>('[data-testid="video-edit-apply"]')!.click()
+  await Promise.resolve()
+  expect(store.revision).toBe(revision)
   expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual(before)
   dispose()
 })
 
-it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews and releases late results', async (kind) => {
-  const inputId = kind === 'BOUNDING_BOX' ? 'crop_region' : 'compare_view'
-  const initial = kind === 'BOUNDING_BOX' ? { x: 0, y: 0, width: 12, height: 7 } : null
+it('bounds decoded crop previews and releases late results', async () => {
+  const inputId = 'crop_region'
+  const initial = { x: 0, y: 0, width: 12, height: 7 }
   const schema = parseDinksterSchema('PreviewFixture', { body: [
     { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['IMAGE'] }, required: false },
-    { kind: 'input', id: inputId, type: { kind: 'concrete', types: [kind] }, default: initial, widget: { type: kind } },
+    { kind: 'input', id: inputId, type: { kind: 'concrete', types: ['BOUNDING_BOX'] }, default: initial, widget: { type: 'BOUNDING_BOX' } },
   ] }).schema!
   const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [initial] }], links: [] }, () => schema).document!
   const graph = imported.graphs.g0!
@@ -174,7 +171,7 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
   } as unknown as CompileArtifact
   const execution = { key: 'preview', status: 'completed', ref: { connection: 'native', prompt: 'job' },
     artifact, nodes: {}, outputs: { source: {} },
-    previews: { n1: { image_a: { channel: 'image/png', payload: new ArrayBuffer(1), timestamp: 1 } } },
+    previews: {},
   } as unknown as ExecutionState
   const registry = createWidgetRegistry()
   const backend = { id: 'native', protocol: 'dinkster', connection: { values: () => ({
@@ -200,7 +197,8 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
     vi.stubGlobal('createImageBitmap', decode)
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <WidgetEditor app={app} ed={{
-      tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: inputId }, label: 'Preview',
+      tab, graphId: 'g0', label: 'Preview', target: { kind: 'input', nodeId: 'n1', valueKey: inputId,
+        parts: { writes: {}, reads: { image: 'image' } } },
       spec: inputsOf(schema)[1]!.widget, multiline: false, initial,
       rect: { x: 0, y: 0, width: 180, height: 24 },
     }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
@@ -213,7 +211,7 @@ it.each(['BOUNDING_BOX', 'IMAGECOMPARE'] as const)('bounds decoded %s previews a
       if (accepted) {
         await vi.waitFor(() => expect(context.drawImage).toHaveBeenCalled())
         expect(bitmap.close).not.toHaveBeenCalled()
-        if (kind === 'BOUNDING_BOX') expect([canvas.width, canvas.height]).toEqual([width, height])
+        expect([canvas.width, canvas.height]).toEqual([width, height])
       } else {
         await vi.waitFor(() => expect(bitmap.close).toHaveBeenCalledOnce())
         expect(context.drawImage).not.toHaveBeenCalled()

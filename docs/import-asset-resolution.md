@@ -113,7 +113,7 @@ ordinary file literals. Their exact kind is `model/vae`, `model/diffusers`,
 `directory/input`, or `directory/dataset`; uploads are not permitted. They bind
 to COMBO, or to the COMBO/ASSET union for `model/vae` only. Imported source names
 stay unchanged and do not enter file guessing or automatic descriptor
-replacement, including when carried by a value source. Backend resolution can
+replacement. Backend resolution can
 select a file, a directory, a VAE pair, or a built-in choice such as `pixel_space`.
 
 For ordinary file literals on a native Dinkster connection, the app looks up the strings with `POST /api/assets/guess` after translation. Canonical blake3 hints from the workflow's top-level ComfyUI `models` metadata are sent as `digestHints` for their original imported names. Names that include subdirectories are also queried by basename, but those added basename queries remain unhinted. Basename candidates remain attached to the original imported string and count only as exact-name signals. The lookup does not fetch assets.
@@ -205,10 +205,14 @@ Positional widget values of reconstructed members are decoded member by
 member. A member that holds a group, choice, type choice or described row,
 or a group whose members could not be reconstructed, emits
 `import.dynamic.autogrowUnsupported`, stops decoding that node, and preserves
-the remaining positional values in the same excess-value extension. Rows
-under a type choice (ComfyUI DynamicSlot) take no positions; if ComfyUI
-serializes connected slot dependents positionally, later values may be
-misaligned.
+the remaining positional values in the same excess-value extension. Link
+cardinality alone does not establish an unambiguous foreign widget walk, so
+the importer does not guess-assign that tail. Rows under a type choice
+(ComfyUI DynamicSlot) take no positions; if ComfyUI serializes connected slot
+dependents positionally, later values may still be misaligned. Its foreign
+positional/connectivity semantics and LiteGraph subgraph definitions are
+tracked in
+[ComfyUI dynamic construct import](https://github.com/Kosinkadink/comfy-vibe-station/issues/1203).
 
 ## Backend compat-boundary porting (server-side, informational)
 

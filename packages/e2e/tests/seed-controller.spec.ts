@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, nativeTest as documentTest, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, test, nativeTest as documentTest, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const fanoutProofDir = process.env['DINKSTER_CONTROLLER_FANOUT_PROOF_DIR']
 if (fanoutProofDir) mkdirSync(fanoutProofDir, { recursive: true })
@@ -13,10 +13,11 @@ async function chipPoint(page: Page, inputId: string) {
     const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     // Mirror controllerChipRect: the square chip sits immediately before the
     // trailing edge control with one control gap.
+    const stepperZone = renderer.getDesignTokens().rowGeometry.stepperZone
     const inset = row.inset ?? 0
     const rowWidth = node.layout.width - inset * 2
     const size = row.height - 8
-    const chipX = Math.max(12, rowWidth - 12 - 6 - size)
+    const chipX = Math.max(stepperZone, rowWidth - stepperZone - 6 - size)
     return {
       x: canvas.left + node.x + inset + chipX + size / 2,
       y: canvas.top + node.y + row.y + row.height / 2,
@@ -62,15 +63,14 @@ const state = (page: Page) => page.evaluate(() => {
 test.beforeEach(async ({ page, seedWorkflows }, testInfo) => {
   const mockControllerDispatch = testInfo.annotations.some((annotation) => annotation.type === 'mock-controller-dispatch')
   if (mockControllerDispatch) {
-    await page.route('**/api/**', (route) => /^\/api\/library\/retention(?:s\/|-clients$)/.test(new URL(route.request().url()).pathname)
-      ? route.fallback() : route.fulfill({ status: 503, json: {} }))
+    await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: {} }))
     await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
       schemaVersion: 1, epoch: 1, dinkster: { version: 'controller-fixture', schemaWire: 2 }, nodes: {},
     } }))
     await page.routeWebSocket('**/api/events?*', () => {})
     await page.goto('/')
     await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
-    await waitForStartupOwnership(page)
+    await waitForWorkspaceReady(page)
     return
   }
   const mockLegacyDiscovery = testInfo.annotations.some((annotation) => annotation.type === 'mock-legacy-discovery')
@@ -82,7 +82,7 @@ test.beforeEach(async ({ page, seedWorkflows }, testInfo) => {
   }
   await page.goto('/')
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   if (!seedWorkflows) return
   await page.evaluate(() => {
     const test = window.__dinksterTest! as any
@@ -102,22 +102,20 @@ test.beforeEach(async ({ page, seedWorkflows }, testInfo) => {
   })
 })
 
-test('controller chip opens a detailed menu, selects a persistent mode, and undo restores it', async ({ page }) => {
+test('an open field\'s side part selects a persistent after-run mode, and undo restores it', async ({ page }) => {
   await expect.poll(() => state(page)).toMatchObject({ controller: 'fixed', displayed: 'fixed' })
-  const point = await chipPoint(page, 'width')
-  await page.mouse.move(point.x - 20, point.y)
-  await page.mouse.move(point.x, point.y)
-  await expect(page.getByTestId('app-tooltip')).toContainText('Fixed', { timeout: 1_500 })
-  await page.keyboard.down('Alt')
-  await expect(page.getByTestId('app-tooltip')).toContainText('Only successful runs', { timeout: 250 })
-  await page.keyboard.up('Alt')
+  const point = await widgetPoint(page, 'width')
   await page.mouse.click(point.x, point.y)
-  await expect(page.getByTestId('seed-controller-menu')).toBeVisible()
-  await expect(page.getByTestId('seed-controller-fixed')).toHaveAttribute('aria-checked', 'true')
-  await expect(page.getByTestId('seed-controller-randomize')).toContainText('Randomize after run')
-  await expect(page.getByTestId('seed-controller-randomize')).toContainText('selecting this mode does not change the current value')
-  await page.getByTestId('seed-controller-randomize').click()
+  const modes = page.getByRole('group', { name: 'After each run' })
+  await expect(modes.getByRole('button', { name: 'fixed' })).toHaveAttribute('aria-pressed', 'true')
+  const randomize = modes.getByRole('button', { name: 'randomize' })
+  await randomize.hover()
+  await expect(page.locator('.dinkster-canvas-side-mode-meaning')).toHaveText('randomize: a new seed after each run')
+  await randomize.click()
   await expect.poll(() => state(page)).toMatchObject({ controller: 'randomize', displayed: 'randomize' })
+  await expect(randomize).toHaveAttribute('aria-pressed', 'true')
+  await page.getByTestId('widget-editor').locator('input').press('Escape')
+  await expect(page.getByTestId('widget-editor')).toHaveCount(0)
   await page.keyboard.press('Control+z')
   await expect.poll(() => state(page)).toMatchObject({ controller: 'fixed', displayed: 'fixed' })
 })
@@ -397,9 +395,11 @@ documentTest('remote COMBO reuses the controller chip with refresh-specific copy
 })
 
 test('a completed backend run increments by step and leaves a fixed widget alone', async ({ page }) => {
-  const point = await chipPoint(page, 'width')
+  const point = await widgetPoint(page, 'width')
   await page.mouse.click(point.x, point.y)
-  await page.getByTestId('seed-controller-increment').click()
+  await page.getByRole('group', { name: 'After each run' }).getByRole('button', { name: 'increment' }).click()
+  await page.getByTestId('widget-editor').locator('input').press('Escape')
+  await expect(page.getByTestId('widget-editor')).toHaveCount(0)
   await page.getByTestId('queue-button').click()
   const row = page.getByTestId('execution-row').first()
   await expect(row.locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })

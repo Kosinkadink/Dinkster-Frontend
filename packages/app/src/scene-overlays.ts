@@ -16,18 +16,24 @@ import {
   executionBlockedBadge,
   executionExpandedBadge,
   executionErrorBadge,
+  isCanvasIconName,
+  LAST_RUN_BADGE,
   LOG_INFO_BADGE,
   logWarningBadge,
-  PROBLEM_BLOCKING_WARNING_BADGE,
+  mediaDiagnosticBadge,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
+  problemBadge,
+  regionIterationBadge,
   subgraphBadge,
+  UNAVAILABLE_BADGE,
   type CompanionMap,
   type NodeBadge,
   type NodeOutputText,
   type NodePreview,
   type OutputTextMap,
-  type PortProblemMap,
+  type ProblemKind,
+  type RowProblemMap,
   type Scene,
 } from '@dinkster/canvas'
 import {
@@ -52,7 +58,6 @@ import {
   type NodeProgress,
   type NodeSchema,
   type NodeDecoration,
-  type NodeDecorationBadge,
   type NodeDecorationContribution,
   type ValueDiagnostic,
   type WidgetRegistry,
@@ -82,8 +87,6 @@ const controllerSensitiveFor = (
   artifact: NonNullable<ExecutionState['artifact']>,
   resolveSchema: ((type: string) => NodeSchema | undefined) | undefined,
 ) => {
-  const valueSourceSensitive = Object.values(artifact.snapshot.graphs).some((graph) =>
-    Object.values(graph.valueSources ?? {}).some((source) => source.controller !== undefined && source.controller !== 'fixed'))
   const controlled = new Set(Object.entries(artifact.provenance.toSource).flatMap(([runtimeId, key]) => {
     try {
       const source = parseOccurrenceKey(key)
@@ -108,7 +111,6 @@ const controllerSensitiveFor = (
   }))
   const provenRuntimeIds = new Set(Object.keys(artifact.provenance.toSource))
   return (runtimeId: string): boolean => {
-    if (valueSourceSensitive) return true
     const pending = [runtimeId]
     const seen = new Set<string>()
     while (pending.length > 0) {
@@ -130,8 +132,6 @@ export interface RetainedExecutionView {
   readonly execution: ExecutionState
   /** Runtime occurrences whose data was copied from an older execution. */
   readonly retainedRuntimeIds: ReadonlySet<string>
-  /** Original stored executions, never the composite presentation state. */
-  readonly executionOwners?: ReadonlyMap<string, ExecutionState>
 }
 
 const digestOutputs = (outputs: ExecutionState['outputs'][string]) => {
@@ -192,7 +192,6 @@ export function retainProvenExecution(
     ...current.artifacts.map((artifact) => artifact.nodeId),
   ])
   const selected = new Set<string>()
-  const executionOwners = new Map([...occupied].map((runtimeId) => [runtimeId, current]))
   const candidates = executions
     .filter((candidate) => candidate.key !== current.key && candidate.queuedAt < current.queuedAt)
     .sort((a, b) => b.queuedAt - a.queuedAt)
@@ -247,12 +246,11 @@ export function retainProvenExecution(
       artifacts.push(...priorArtifacts)
       if (nodes[runtimeId] !== undefined || outputs[runtimeId] !== undefined || priorArtifacts.length > 0) {
         selected.add(runtimeId)
-        executionOwners.set(runtimeId, candidate)
       }
     }
   }
   if (selected.size === 0) return unchanged()
-  return { execution: { ...current, nodes, outputs, previews, artifacts }, retainedRuntimeIds: selected, executionOwners }
+  return { execution: { ...current, nodes, outputs, previews, artifacts }, retainedRuntimeIds: selected }
 }
 
 /** One derivation pass, ready for the host to install on the renderer. */
@@ -269,8 +267,6 @@ export interface SceneOverlayModel {
    * consumers, e.g. the lens context, must abstain rather than guess).
    */
   readonly ownRuntimeIds: ((nodeId: string) => readonly string[]) | undefined
-  /** Recorded selector choices (frozen tabs only); undefined = none. */
-  readonly selectorResolutions: Map<string, string> | undefined
   readonly badges: Readonly<Record<string, NodeBadge[]>>
   /**
    * Chronological run log records attributed to each scene node in this
@@ -287,7 +283,9 @@ export interface SceneOverlayModel {
   readonly blockedByNode: ReadonlyMap<string, string>
   /** Runtime expansion child counts projected onto their visible parent nodes. */
   readonly expandedByNode: ReadonlyMap<string, number>
-  readonly portProblems: PortProblemMap
+  readonly rowProblems: RowProblemMap
+  /** Nodes whose problems from the run have lost their color: changed since it (run-problem-standing.ts). */
+  readonly lastRunNodes: ReadonlySet<string>
   readonly previews: Readonly<Record<string, NodePreview>>
   /** Scene node -> source authority for host-owned media element failures. */
   readonly previewSources: Readonly<Record<string, PreviewSource>>
@@ -320,9 +318,9 @@ const decorationText = (value: unknown, field: string, max: number): string => {
   return value
 }
 
-const decorationBadge = (value: unknown): NodeDecorationBadge => {
+const decorationBadge = (value: unknown): NodeBadge => {
   if (!plainRecord(value)) throw new Error('badge must be a plain object')
-  const allowed = new Set(['id', 'glyph', 'fallbackGlyph', 'variant', 'appearance', 'placement', 'interactive', 'color'])
+  const allowed = new Set(['id', 'glyph', 'fallbackGlyph', 'variant', 'appearance', 'placement', 'interactive', 'color', 'icon'])
   if (Object.keys(value).some((key) => !allowed.has(key))) throw new Error('badge contains an unsupported field')
   const id = decorationText(value['id'], 'badge id', 128)
   if (!/^[a-z0-9][a-z0-9._-]*$/u.test(id)) throw new Error('badge id must be namespaced lowercase ASCII')
@@ -336,19 +334,19 @@ const decorationBadge = (value: unknown): NodeDecorationBadge => {
     throw new Error("badge placement must be 'above' or 'below'")
   }
   if (value['interactive'] !== undefined && value['interactive'] !== false) throw new Error('extension badges cannot be interactive')
+  const icon = value['icon']
+  if (icon !== undefined && (typeof icon !== 'string' || !isCanvasIconName(icon))) throw new Error('badge icon must name a canvas icon')
   return Object.freeze({
     id,
     glyph,
     color,
-    ...(value['fallbackGlyph'] === undefined ? {} : { fallbackGlyph: value['fallbackGlyph'] as string }),
-    ...(value['variant'] === undefined ? {} : { variant: 'label' as const }),
-    ...(value['appearance'] === undefined ? {} : { appearance: 'policy' as const }),
     ...(value['placement'] === undefined ? {} : { placement: value['placement'] as 'above' | 'below' }),
     ...(value['interactive'] === undefined ? {} : { interactive: false as const }),
+    ...(icon === undefined ? {} : { icon }),
   })
 }
 
-const normalizedDecoration = (value: unknown): NodeDecoration | undefined => {
+const normalizedDecoration = (value: unknown): (Omit<NodeDecoration, 'badges'> & { readonly badges?: readonly NodeBadge[] }) | undefined => {
   if (value === undefined) return undefined
   if (!plainRecord(value)) throw new Error('decoration must be a plain object')
   const allowed = new Set(['badges', 'color', 'titleSuffix', 'status'])
@@ -529,12 +527,17 @@ export function deriveSceneOverlays(args: {
   readonly exactProducer: ((runtimeId: string) => boolean) | undefined
   /** Runtime occurrences explicitly retained from older executions. */
   readonly retainedRuntimeIds?: ReadonlySet<string> | undefined
-  readonly executionOwners?: ReadonlyMap<string, ExecutionState> | undefined
   /** Current compile + widget/solver diagnostics projected onto this view. */
   readonly nodeProblems?: NodeProblemMap
   /** Nodes whose runtime error badge the user dismissed for THIS run. */
   readonly dismissedErrorNodes?: ReadonlySet<string>
-  readonly portProblems?: PortProblemMap
+  readonly rowProblems?: RowProblemMap
+  /**
+   * Live tabs: whether a node no longer runs as the run ran it, given the
+   * runtime ids in this view that failed (all of its runtime ids when none
+   * is known to have failed); run-problem-standing.ts. Absent = unchanged.
+   */
+  readonly runChanged?: (sceneNodeId: string, runtimeIds: readonly string[]) => boolean
   readonly resolveSchema: ((type: string) => NodeSchema | undefined) | undefined
   /**
    * Locally evaluate schema-declared expression mirrors and display the
@@ -675,6 +678,40 @@ export function deriveSceneOverlays(args: {
     }
   }
 
+  // A run's problems on a node lose their color once the node has changed
+  // since the run: no Failed state, a gray Last run tab, no row outlines.
+  // A node is judged by its failed runtime nodes, so a subgraph node follows
+  // the failed nodes inside it rather than every node inside it.
+  const lastRunNodes = new Set<string>()
+  if (!args.frozen && occ !== undefined && args.runChanged !== undefined && exec !== undefined) {
+    for (const n of scene.nodes) {
+      if (!runErrorsByNode.has(n.id) && states[n.id]?.state !== 'error') continue
+      const ids = runtimeIdsFor(occ, n.id)
+      const failed = new Set(ids.filter((id) => exec.nodes[id]?.state === 'error'))
+      for (const diagnostic of runErrorsByNode.get(n.id) ?? []) {
+        const id = diagnostic.data?.['runtimeId']
+        if (typeof id === 'string') failed.add(id)
+      }
+      if (args.runChanged(n.id, failed.size > 0 ? [...failed] : ids)) lastRunNodes.add(n.id)
+    }
+  }
+  const shownStates = lastRunNodes.size === 0 ? states : Object.fromEntries(
+    Object.entries(states).filter(([id, progress]) => !(lastRunNodes.has(id) && progress.state === 'error')))
+  let rowProblems = args.rowProblems ?? {}
+  if (lastRunNodes.size > 0) {
+    const rows: Record<string, Readonly<Record<string, ProblemKind>>> = { ...rowProblems }
+    for (const id of lastRunNodes) {
+      const kept: Record<string, ProblemKind> = {}
+      for (const line of args.nodeProblems?.[id] ?? []) {
+        if (line.row === undefined || line.diagnostic.origin === 'runtime') continue
+        if (kept[line.row] !== 'error') kept[line.row] = line.kind
+      }
+      if (Object.keys(kept).length > 0) rows[id] = kept
+      else delete rows[id]
+    }
+    rowProblems = rows
+  }
+
   // Resolve tap defaults from the elaborated interface, not only top-level
   // schema items: a persisted dynamic member is a real widget source too.
   // Cache one elaboration per source node for this overlay pass.
@@ -748,20 +785,6 @@ export function deriveSceneOverlays(args: {
     estimates,
   })
 
-  // Frozen views show the selector branches that ACTUALLY ran: the
-  // artifact's recorded choices are authoritative (a random policy must
-  // display its recorded roll, never a fresh one). Live tabs never get
-  // resolutions - their document is editable and the policy badge already
-  // tells the truth about the NEXT run.
-  let selectorResolutions: Map<string, string> | undefined
-  if (args.frozen && exec?.artifact) {
-    const resolutions = new Map<string, string>()
-    for (const c of exec.artifact.choices ?? []) {
-      if (c.graph === gid) resolutions.set(c.selector, c.candidate)
-    }
-    if (resolutions.size > 0) selectorResolutions = resolutions
-  }
-
   const badges: Record<string, NodeBadge[]> = {}
   for (const n of scene.nodes) {
     const list: NodeBadge[] = []
@@ -771,7 +794,7 @@ export function deriveSceneOverlays(args: {
     // never a log level); dismissal hides it for this run only.
     const runErrors = runErrorsByNode.get(n.id)
     if (runErrors !== undefined && args.dismissedErrorNodes?.has(n.id) !== true) {
-      list.push(executionErrorBadge(runErrors.length))
+      list.push(lastRunNodes.has(n.id) ? LAST_RUN_BADGE : executionErrorBadge(runErrors.length))
     }
     const blocked = blockedByNode.get(n.id)
     if (blocked !== undefined) list.push(executionBlockedBadge(blocked))
@@ -787,29 +810,22 @@ export function deriveSceneOverlays(args: {
       const port = diagnostic.code === 'alpha_dropped' ? diagnostic.outputId : diagnostic.inputId
       const id = `core.media.${diagnostic.code}.${diagnostic.nodeId}.${port}`
       if (list.some((badge) => badge.id === id)) continue
-      list.push({
-        id,
-        glyph: `${diagnostic.code === 'alpha_dropped' ? 'Alpha dropped' : 'Mask polarity'}: ${port}`,
-        variant: 'label',
-        placement: 'below',
-        interactive: false,
-        color: '#8a6d1f',
-      })
+      list.push(mediaDiagnosticBadge(id, `${diagnostic.code === 'alpha_dropped' ? 'Alpha dropped' : 'Mask polarity'}: ${port}`))
     }
-    for (const problem of args.nodeProblems?.[n.id] ?? []) {
-      // Execution errors already own the runtime error badge + its
-      // runtime-details popover. Keep mixed error groups, but do not
-      // duplicate a pure runtime group as a second document-error chip.
-      if (runErrorsByNode.has(n.id) && problem.kind === 'error' &&
-        problem.diagnostics.length > 0 && problem.diagnostics.every((d) => d.origin === 'runtime')) continue
-      list.push(problem.kind === 'error'
-        ? problem.diagnostics.some((diagnostic) => diagnostic.code === 'dinksterGraph.residentProcessBoundary' || diagnostic.code === 'dinksterGraph.nodeUnavailable')
-          ? { ...PROBLEM_ERROR_BADGE, glyph: 'Unavailable' }
-          : PROBLEM_ERROR_BADGE
-        : problem.kind === 'blocking-warning'
-          ? PROBLEM_BLOCKING_WARNING_BADGE
-          : PROBLEM_WARNING_BADGE)
+    // Execution errors already own the runtime error badge and its
+    // runtime-details popover, so a runtime cause is not counted again here.
+    const problemLines = (args.nodeProblems?.[n.id] ?? []).filter((line) =>
+      !((runErrorsByNode.has(n.id) || lastRunNodes.has(n.id)) && line.diagnostic.origin === 'runtime'))
+    const errorLines = problemLines.filter((line) => line.kind === 'error')
+    const warningLines = problemLines.filter((line) => line.kind === 'warning')
+    // A node that cannot run here says so on its tab, with no count.
+    if (errorLines.some((line) =>
+      line.diagnostic.code === 'dinksterGraph.residentProcessBoundary' || line.diagnostic.code === 'dinksterGraph.nodeUnavailable')) {
+      list.push(UNAVAILABLE_BADGE)
+    } else if (errorLines.length > 0) {
+      list.push(problemBadge(PROBLEM_ERROR_BADGE, errorLines.length))
     }
+    if (warningLines.length > 0) list.push(problemBadge(PROBLEM_WARNING_BADGE, warningLines.length))
     if (n.isSubgraph) {
       const defId = subgraphDefIdOf(n.node.type)
       const occurrences = defId === undefined || args.doc === undefined ? 1 : Object.values(args.doc.graphs).reduce((count, graph) =>
@@ -818,15 +834,7 @@ export function deriveSceneOverlays(args: {
     }
     else if (args.reviewReplacements === true && (args.replacementNodes?.has(n.id) || s !== undefined && isDeprecated(s))) list.push(DEPRECATED_BADGE)
     const iterationLabel = regionIterationLabels[n.id]
-    if (iterationLabel !== undefined) {
-      list.push({
-        id: 'core.region.iteration',
-        glyph: iterationLabel,
-        variant: 'label',
-        interactive: false,
-        color: '#315d73',
-      })
-    }
+    if (iterationLabel !== undefined) list.push(regionIterationBadge(iterationLabel))
     if (list.length > 0) badges[n.id] = list
   }
 
@@ -855,7 +863,6 @@ export function deriveSceneOverlays(args: {
       frozen: args.frozen,
       exactProducer: args.exactProducer,
       ...(args.retainedRuntimeIds === undefined ? {} : { retainedRuntimeIds: args.retainedRuntimeIds }),
-      ...(args.executionOwners === undefined ? {} : { executionOwners: args.executionOwners }),
       companionSources: derived.sources,
       values: args.values,
       selectedAsset: representedAsset ?? selectedPreviewAssetForNode(n, args.previewRendererFor),
@@ -863,7 +870,12 @@ export function deriveSceneOverlays(args: {
       outputKey: `${args.outputPreviewKeyPrefix ?? ''}\u0000${exec?.key ?? 'none'}\u0000${gid}\u0000${JSON.stringify(instancePath ?? [])}\u0000${n.id}`,
       ...(args.outputPreviewIndex === undefined ? {} : { outputIndex: args.outputPreviewIndex }),
     })
-    if (surface.preview !== undefined) previews[n.id] = surface.preview
+    // A refused output's caption row says why the preview is unavailable.
+    if (surface.preview !== undefined) {
+      previews[n.id] = surface.refusal === undefined || surface.preview.statusMessage !== undefined
+        ? surface.preview
+        : { ...surface.preview, statusMessage: surface.refusal }
+    }
     if (surface.source !== undefined) previewSources[n.id] = surface.source
     if (surface.executedOutput !== undefined) executedImages[n.id] = surface.executedOutput
     if (surface.selectedInput !== undefined) selectedInputPreviews[n.id] = surface.selectedInput
@@ -972,17 +984,17 @@ export function deriveSceneOverlays(args: {
   }
 
   return {
-    states,
+    states: shownStates,
     companions: derived.companions,
     companionSources: derived.sources,
     ownRuntimeIds,
-    selectorResolutions,
     badges,
     runLogsByNode,
     runErrorsByNode,
     blockedByNode,
     expandedByNode,
-    portProblems: args.portProblems ?? {},
+    rowProblems,
+    lastRunNodes,
     previews,
     previewSources,
     executedImages,

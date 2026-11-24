@@ -32,8 +32,6 @@ describe('selectionLifecycleMenuGroups', () => {
       { kind: 'node', nodeId: 'n1' },
       { kind: 'group', groupId: 'g1' },
       { kind: 'reroute', rerouteId: 'r1' },
-      { kind: 'valueSource', valueSourceId: 'v1' },
-      { kind: 'selector', selectorId: 's1' },
     ]
     for (const target of targets) {
       expect(selectionLifecycleMenuGroups(target, lifecycle).flatMap((entry) => entry.items.map((entry) => entry.id)))
@@ -151,24 +149,31 @@ describe('menuTargetOf', () => {
         kind: 'widget',
         node: { id: 'inst' },
         row: {
-          inputId: 'lora.m1#strength',
-          familyOwner: { graphId: 'sub', nodeId: 'owner', construct: 'b0', valueKey: 'b0.m1#strength' },
+          inputId: 'lora.m1.strength',
+          address: { port: 'lora.m1.strength' },
+          familyOwner: { graphId: 'sub', nodeId: 'owner', construct: 'b0', valueKey: 'b0.m1.strength' },
         },
       })),
     ).toEqual({
       kind: 'widget',
       nodeId: 'inst',
-      inputId: 'lora.m1#strength',
-      owner: { graphId: 'sub', nodeId: 'owner', inputId: 'b0.m1#strength' },
+      inputId: 'lora.m1.strength',
+      address: { port: 'lora.m1.strength' },
+      owner: { graphId: 'sub', nodeId: 'owner', inputId: 'b0.m1.strength' },
     })
   })
 
   it('flags unpersisted widget rows and taps synthetic (ghost, materialize)', () => {
-    const flagged = (row: unknown) =>
-      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row })) as { synthetic?: true }).synthetic
+    const flagged = (row: object) =>
+      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row: { address: { port: 'x' }, ...row } })) as { synthetic?: true }).synthetic
     expect(flagged({ inputId: 'x', ghost: true })).toBe(true)
     expect(flagged({ inputId: 'x', materialize: [{ construct: 'c', member: 'm' }] })).toBe(true)
     expect(flagged({ inputId: 'x' })).toBeUndefined()
+    const construct = (row: object) =>
+      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row: { address: { port: 'x' }, inputId: 'x', ...row } })) as { construct?: true }).construct
+    expect(construct({ selector: { construct: 'mode' } })).toBe(true)
+    expect(construct({ dynamicSlot: { construct: 'value', variants: [] } })).toBe(true)
+    expect(construct({})).toBeUndefined()
     const tapFlagged = (pin: unknown) =>
       (menuTargetOf(hit({ kind: 'widgetTap', node: { id: 'n1' }, input: 'x', pin })) as { synthetic?: true }).synthetic
     expect(tapFlagged({ ghost: true })).toBe(true)
@@ -189,8 +194,6 @@ describe('toolbox more menu parity', () => {
         item(`nodes:${ctx.selection.nodes.join(',')}`),
         item(`links:${ctx.selection.links.join(',')}`),
         item(`reroutes:${ctx.selection.reroutes.join(',')}`),
-        item(`values:${ctx.selection.valueSources.join(',')}`),
-        item(`selectors:${ctx.selection.selectors.join(',')}`),
         item('core.node.queueSelection'),
       ],
     })
@@ -214,7 +217,7 @@ describe('toolbox more menu parity', () => {
       button: { id: 'core.more', label: 'More actions' }, x: 100, y: 40, size: 28,
     }, ['n1'])!
     expect(request).toMatchObject({ worldX: 114, worldY: 54 })
-    const selection = { nodes: ['n1'], links: ['l1'], reroutes: ['r1'], valueSources: ['v1'], selectors: ['s1'] }
+    const selection = { nodes: ['n1'], links: ['l1'], reroutes: ['r1'] }
     expect(resolve(selection, request.target)).toEqual(resolve(selection, rightClickTarget))
     expect(resolve(selection, request.target)).toContainEqual({ id: 'core.node.queueSelection', disabled: true })
   })
@@ -224,8 +227,7 @@ describe('toolbox more menu parity', () => {
     const request = toolboxMenuRequest({
       button: { id: 'core.more', label: 'More actions' }, x: 100, y: 40, size: 28,
     }, ['n1', 'n2'])!
-    const selection = { nodes: ['n1', 'n2'], links: ['l1'], reroutes: ['r1'], valueSources: ['v1'], selectors: ['s1'] }
+    const selection = { nodes: ['n1', 'n2'], links: ['l1'], reroutes: ['r1'] }
     expect(resolve(selection, request.target)).toEqual(resolve(selection, rightClickTarget))
   })
-
 })

@@ -5,7 +5,7 @@
  * on the item.
  */
 
-import { createEffect, createSignal as createSolidSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal as createSolidSignal, For, Index, onCleanup, Show, untrack } from 'solid-js'
 import {
   defaultBoundaryLabels,
   deriveBoundarySchema,
@@ -41,6 +41,7 @@ export function BoundaryPanel(props: { app: AppState }) {
   const activeTabId = useSignal(props.app.activeTabId)
   const backendsTick = useSignal(props.app.backendsTick)
   const tabTargets = useSignal(props.app.tabTargets)
+  const boundaryFocus = useSignal(props.app.boundaryFocus)
 
   const activeTab = (): Tab | undefined => tabs().find((t) => t.id === activeTabId())
 
@@ -108,6 +109,16 @@ export function BoundaryPanel(props: { app: AppState }) {
   }
 
   const frozen = (): boolean => activeTab()?.execution !== undefined
+
+  // Each click on a mark scrolls once; rows re-created by a later edit do not scroll back.
+  let scrolledFocus: unknown
+  /** The input a click on a field's subgraph mark selected, when it is on this definition. */
+  const focusedItem = (): string | undefined => {
+    docTick()
+    const focus = boundaryFocus()
+    const tab = activeTab()
+    return focus !== undefined && tab?.id === focus.tabId && currentGraphId(tab) === focus.graphId ? focus.item : undefined
+  }
 
   /**
    * Boundary diagnostics for the edited definition, from the SAME derivation
@@ -259,11 +270,6 @@ export function BoundaryPanel(props: { app: AppState }) {
 
   const showOnCanvas = (item: BoundaryItem): void => {
     if (item.binds.kind === 'unbound') return
-    if (item.binds.kind === 'valueSource') {
-      const ctx = editedDef()
-      if (ctx) props.app.canvasBridge.get()?.showValueSource?.(ctx.tab.id, ctx.def.id, item.binds.valueSource)
-      return
-    }
     activateProblem(props.app, {
       severity: 'info',
       origin: 'schema',
@@ -410,6 +416,13 @@ export function BoundaryPanel(props: { app: AppState }) {
                     class="boundary-item"
                     data-testid="boundary-item"
                     data-boundary-id={item.id}
+                    data-selected={focusedItem() === item.id ? '' : undefined}
+                    ref={(element) => createEffect(() => {
+                      const focus = boundaryFocus()
+                      if (focus === scrolledFocus || untrack(focusedItem) !== item.id) return
+                      scrolledFocus = focus
+                      element.scrollIntoView({ block: 'nearest' })
+                    })}
                     data-binding-kind={item.binds.kind}
                     role="group"
                     aria-label={`${side === 'inputs' ? 'Input' : 'Output'} ${itemName(side, item)}`}
@@ -468,8 +481,6 @@ export function BoundaryPanel(props: { app: AppState }) {
                         <code class="boundary-bind">
                           {item.binds.kind === 'unbound'
                             ? message('boundaryPanel.unbound')
-                            : item.binds.kind === 'valueSource'
-                            ? [editedDef()?.def.valueSources?.[item.binds.valueSource]?.title, `(${item.binds.valueSource})`].filter(Boolean).join(' ')
                             : `${item.binds.node}.${item.binds.kind === 'widgetTap' ? item.binds.tap : item.binds.port}`}
                         </code>
                       </div>

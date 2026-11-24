@@ -11,6 +11,19 @@
   pointer-events: auto;
 }
 
+/* A field open in its row takes the pointer, so a click inside it moves the
+   cursor instead of reaching the canvas underneath. It and the outline of a
+   row the keyboard is on sit at the row's top left and scale from there. */
+.widget-in-row-field {
+  pointer-events: auto;
+}
+
+.widget-in-row-field,
+.widget-row-focus {
+  position: absolute;
+  transform-origin: 0 0;
+}
+
 .widget-editor-in-node-surface {
   position: relative;
   display: flex;
@@ -18,9 +31,18 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--dinkster-surface-inset);
+  /* The fill the canvas paints a field with, so opening the box keeps it. */
+  background: var(--dinkster-surface-field);
+  border-radius: inherit;
+}
+/* The outline is drawn over the masks and the bar inside the box. */
+.widget-editor-in-node-surface::after {
+  content: '';
+  position: absolute;
+  inset: 0;
   border-radius: inherit;
   box-shadow: inset 0 0 0 1px var(--dinkster-accent-border);
+  pointer-events: none;
 }
 
 .widget-editor-in-node-label {
@@ -53,12 +75,71 @@
   scrollbar-width: auto;
 }
 
+/* The box's own outline marks it open; the shared field focus ring would
+   show as a line under the label. */
+.widget-editor.widget-editor-in-node textarea,
+.widget-editor.widget-editor-in-node textarea:focus-visible {
+  box-shadow: none;
+}
+
 .widget-editor.widget-editor-in-node textarea::-webkit-scrollbar {
   width: var(--multiline-scrollbar-width, 6px);
   height: var(--multiline-scrollbar-width, 6px);
 }
 .widget-editor.widget-editor-in-node textarea::-webkit-scrollbar-thumb {
   min-height: calc(var(--multiline-scrollbar-width, 6px) + var(--multiline-scrollbar-width, 6px));
+}
+/* The box draws its own scrollbar as the canvas draws it; the native one
+   stays over it, unseen, so it still drags. */
+.widget-editor.widget-editor-in-node textarea::-webkit-scrollbar-track,
+.widget-editor.widget-editor-in-node textarea::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+/* The open box keeps what the canvas paints around its text: the padding
+   that clips scrolled text, the scrollbar, and the bar near the bottom edge.
+   The editor sets their geometry in screen pixels. */
+.widget-editor-in-node-mask {
+  position: absolute;
+  left: 0;
+  right: calc(var(--box-scrollbar-width) + var(--box-scrollbar-inset));
+  height: var(--box-padding);
+  background: inherit;
+  pointer-events: none;
+}
+.widget-editor-in-node-mask-top {
+  top: var(--box-label);
+}
+.widget-editor-in-node-mask-bottom {
+  bottom: 0;
+}
+.widget-editor-in-node-track,
+.widget-editor-in-node-thumb {
+  position: absolute;
+  right: var(--box-scrollbar-inset);
+  width: var(--box-scrollbar-width);
+  border-radius: calc(var(--box-scrollbar-width) / 2);
+  pointer-events: none;
+}
+.widget-editor-in-node-track {
+  top: var(--box-label);
+  height: var(--box-track-height);
+  background: var(--dinkster-surface-canvas);
+}
+.widget-editor-in-node-thumb {
+  top: calc(var(--box-label) + var(--box-thumb-top));
+  height: var(--box-thumb-height);
+  background: var(--dinkster-text-disabled);
+}
+.widget-editor-in-node-edge {
+  position: absolute;
+  left: var(--box-edge-left);
+  top: var(--box-edge-top);
+  width: var(--box-edge-width);
+  height: var(--box-edge-height);
+  border-radius: var(--box-edge-radius);
+  background: var(--dinkster-text-disabled);
+  pointer-events: none;
 }
 
 .suggestion-surface {
@@ -154,25 +235,7 @@
 .widget-editor a,
 .widget-editor [data-editor-interactive] { cursor: initial; }
 
-/* Shared chrome for bounded menus, listboxes, and expanded editors. */
-.floating-surface {
-  box-sizing: border-box;
-  color: var(--dinkster-text-primary);
-  background: var(--dinkster-surface-raised);
-  border: 1px solid var(--dinkster-border-strong);
-  border-radius: var(--dinkster-radius-card);
-  box-shadow: var(--dinkster-elevation-high);
-  font-family: var(--dinkster-font-family);
-  font-size: var(--dinkster-type-body-size);
-  line-height: var(--dinkster-type-body-line);
-}
-
 .widget-editor.floating-surface { padding: var(--dinkster-space-12); }
-
-.redock-workflow {
-  margin-left: var(--dinkster-space-8);
-  white-space: nowrap;
-}
 
 .native-panel-window {
   box-sizing: border-box;
@@ -416,17 +479,26 @@
 }
 
 .frozen-banner {
-  border-color: var(--dinkster-info-border);
+  flex-wrap: nowrap;
 }
 
-.frozen-banner[data-sync='diverged'] {
-  border-color: var(--dinkster-warning-border);
+.frozen-banner > svg,
+.frozen-banner .frozen-label,
+.frozen-banner .banner-button {
+  flex: none;
+  white-space: nowrap;
 }
 
 .frozen-label {
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--dinkster-info-foreground);
+  font-weight: var(--dinkster-weight-regular);
+  color: var(--dinkster-text-primary);
+}
+
+.frozen-banner .frozen-sync {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .frozen-schema-warning {
@@ -499,7 +571,8 @@
 .app-tooltip {
   position: fixed;
   z-index: 30;
-  max-width: min(360px, calc(100vw - 16px));
+  width: max-content;
+  max-width: min(360px, var(--tooltip-available-width, calc(100vw - 16px)));
   padding: 7px 9px;
   background: var(--dinkster-surface-panel);
   border: 1px solid var(--dinkster-border-subtle);
@@ -509,6 +582,7 @@
   pointer-events: none;
   white-space: pre-wrap;
 }
+.app-tooltip [role='tooltip'] { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
 .app-tooltip-title { color: var(--dinkster-text-primary); font-weight: 600; margin-bottom: 3px; }
 .app-tooltip-detail { color: var(--dinkster-text-secondary); margin-top: 3px; }
 
@@ -534,115 +608,9 @@
   word-break: break-word;
 }
 
-.context-menu-cascade {
-  position: absolute;
-  inset: 0;
-  z-index: 11;
-  pointer-events: none;
-  outline: none;
-}
-
 .workflow-tabs .context-menu-cascade,
 .dock-zone .context-menu-cascade,
 .floating-panel-window .context-menu-cascade { position: fixed; }
-
-.context-menu {
-  position: absolute;
-  box-sizing: border-box;
-  min-width: min(180px, calc(100% - var(--dinkster-space-16)));
-  max-height: 400px;
-  overflow: auto;
-  pointer-events: auto;
-  padding: var(--dinkster-space-4) 0;
-  outline: none;
-}
-
-.context-submenu { z-index: 1; }
-
-.menu-item {
-  display: flex;
-  align-items: center;
-  gap: var(--dinkster-space-8);
-  padding: var(--dinkster-space-4) var(--dinkster-space-12) var(--dinkster-space-4) var(--dinkster-space-8);
-  color: var(--dinkster-text-primary);
-  cursor: pointer;
-  user-select: none;
-}
-
-.menu-item.active {
-  color: var(--dinkster-text-on-selected);
-  background: var(--dinkster-surface-selected);
-}
-
-.menu-item.disabled {
-  color: var(--dinkster-text-disabled);
-  cursor: default;
-}
-
-.menu-label { min-width: 0; overflow-wrap: anywhere; }
-
-.menu-icon {
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-  flex: none;
-  color: var(--dinkster-text-secondary);
-}
-
-.menu-shortcut {
-  margin-left: auto;
-  padding: 0 var(--dinkster-space-4);
-  color: var(--dinkster-text-muted);
-  background: var(--dinkster-surface-inset);
-  border: 1px solid var(--dinkster-border-subtle);
-  border-radius: var(--dinkster-radius-small);
-  font-size: var(--dinkster-type-metadata-size);
-  line-height: var(--dinkster-type-metadata-line);
-  white-space: nowrap;
-}
-
-.menu-item.disabled .menu-icon,
-.menu-item.disabled .menu-shortcut { color: var(--dinkster-text-disabled); }
-
-.menu-hint {
-  margin-left: auto;
-  padding-left: var(--dinkster-space-16);
-  color: var(--dinkster-text-muted);
-  white-space: nowrap;
-}
-
-.menu-item.disabled .menu-hint {
-  color: var(--dinkster-text-disabled);
-}
-
-.menu-submenu-caret {
-  width: 0;
-  height: 0;
-  margin-left: auto;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  border-left: 5px solid currentColor;
-}
-
-.menu-hint + .menu-submenu-caret,
-.menu-shortcut + .menu-submenu-caret { margin-left: var(--dinkster-space-4); }
-
-.menu-check {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--dinkster-radius-capsule);
-  flex: none;
-}
-
-.menu-item.checked .menu-check {
-  background: var(--dinkster-accent-border);
-}
-
-.menu-separator {
-  height: 1px;
-  margin: var(--dinkster-space-4) var(--dinkster-space-8);
-  background: var(--dinkster-border-subtle);
-}
 
 .palette-layer {
   position: absolute;

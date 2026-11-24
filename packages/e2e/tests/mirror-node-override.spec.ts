@@ -89,7 +89,6 @@ test('the node context menu overrides mirror estimates per node', async ({ page 
           },
           nets: {},
           reroutes: {},
-          valueSources: {},
           nextOrdinal: 10,
         },
       },

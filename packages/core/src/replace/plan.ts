@@ -412,12 +412,17 @@ const sourceDynamicSelectionProblem = (
   node: Pick<NodeData, 'values' | 'dynamic'>,
 ): string | undefined => {
   const census = elaborateInterface(schema, node, EMPTY_CONNECTIVITY, { promoteGhosts: false, includeDormant: true })
+  // A shared choice is censused once per option that uses it, each place
+  // offering its own `only` subset; a key any place offers is declared.
   const declared = new Map<string, readonly string[]>()
+  const declare = (construct: string, keys: readonly string[]): void => {
+    declared.set(construct, [...new Set([...(declared.get(construct) ?? []), ...keys])])
+  }
   for (const input of elabInputsOf(census)) {
     if (input.origin.kind === 'selector' && input.spec.widget !== undefined) {
-      declared.set(input.origin.construct, normalizedComboOptions(input.spec.widget).map((option) => String(option.value)))
+      declare(input.origin.construct, normalizedComboOptions(input.spec.widget).map((option) => String(option.value)))
     } else if (input.origin.kind === 'slot' && input.origin.variants !== undefined) {
-      declared.set(input.origin.construct, input.origin.variants.map((variant) => variant.key))
+      declare(input.origin.construct, input.origin.variants.map((variant) => variant.key))
     }
   }
   for (const [path, stored] of Object.entries(node.dynamic ?? {})) {
@@ -501,7 +506,8 @@ const outputFamilyOf = (schema: NodeSchema, id: string): GroupSpec | undefined =
   return group?.value?.kind === 'output' ? group : undefined
 }
 
-const staticWidgetTap = (
+/** The field a widget tap reads, wherever it sits: top level, in a member, under an option. */
+const widgetTapInput = (
   schema: NodeSchema,
   state: Pick<NodeData, 'values' | 'dynamic'>,
   id: string,
@@ -510,7 +516,6 @@ const staticWidgetTap = (
     elaborateInterface(schema, state, EMPTY_CONNECTIVITY, { promoteGhosts: false }),
   ).filter((input) =>
     input.address.port === id &&
-    input.origin.kind === 'static' &&
     input.spec.widget !== undefined &&
     input.spec.forceInput !== true,
   )
@@ -782,9 +787,7 @@ function planReplacementForCase(
     def.nodes[id] !== undefined ||
     def.links[id] !== undefined ||
     def.nets[id] !== undefined ||
-    def.reroutes[id] !== undefined ||
-    def.valueSources?.[id] !== undefined ||
-    def.selectors?.[id] !== undefined
+    def.reroutes[id] !== undefined
   for (const [localId, helper] of Object.entries(matched.nodes ?? {})) {
     if (helper.type.startsWith('#')) {
       errors.push(diag('error', 'replace.target.subgraph', `replace: helper '${localId}' cannot target a subgraph instance`))
@@ -919,6 +922,7 @@ function planReplacementForCase(
     members: readonly string[]
     sourceMembers?: readonly string[]
     sourceFamily?: { readonly id: string; readonly inputs: readonly string[] }
+    spread?: { readonly items: readonly Json[]; readonly input: string }
   }>()
   for (const [targetFamilyId, mapping] of Object.entries(matched.inputFamilies ?? {})) {
     const familyAddress = targetAddress(targetFamilyId)
@@ -939,6 +943,7 @@ function planReplacementForCase(
     let members: readonly string[]
     let sourceFamily: { readonly id: string; readonly inputs: readonly string[] } | undefined
     let sourceFamilyState: DynamicPortState | undefined
+    let spread: { readonly items: readonly Json[]; readonly input: string } | undefined
     if (mapping.kind === 'copy') {
       const declaredFamily = sourceSchema === undefined
         ? undefined
@@ -973,6 +978,42 @@ function planReplacementForCase(
       }
       sourceFamilyState = node.dynamic?.[mapping.sourceFamily]
       members = historicalFamilyMembers.get(mapping) ?? sourceFamilyState?.members ?? []
+    } else if (mapping.kind === 'spread') {
+      const records = targetFamily.template.length > 1
+      const takes = records
+        ? targetFamily.template.find((input) => input.id === mapping.member)
+        : mapping.member === undefined ? targetFamily.template[0] : undefined
+      if (takes === undefined) {
+        errors.push(diag(
+          'error',
+          'replace.target.inputMissing',
+          records
+            ? `replace: a spread into family '${targetFamilyId}' names no template input of its members to take each item`
+            : `replace: family '${targetFamilyId}' is a group of values; a spread into it names no member input`,
+        ))
+        continue
+      }
+      const stored = node.values[mapping.input]
+      if (stored !== undefined && !Array.isArray(stored)) {
+        errors.push(diag(
+          'error',
+          'replace.spread.notList',
+          `replace: stored value of '${mapping.input}' is not a list; cannot spread`,
+        ))
+        continue
+      }
+      const items = stored ?? []
+      const limit = memberLimitOf(targetFamily.group)
+      if (items.length > limit) {
+        const dropped = items.slice(limit).map((item) => typeof item === 'string' ? item : JSON.stringify(item))
+        warnings.push(diag(
+          'warning',
+          'replace.spread.dropped',
+          `replace: kept the first ${limit} of ${items.length} items of '${mapping.input}'; dropped ${dropped.join(', ')}`,
+        ))
+      }
+      spread = { items: items.slice(0, limit), input: takes.id }
+      members = Array.from({ length: Math.max(spread.items.length, targetFamily.group.minMembers) }, (_, index) => memberKeyAt(targetFamily.group.keys, index) ?? '')
     } else {
       members = mapping.members.map((member) => member.suffix)
     }
@@ -1020,6 +1061,7 @@ function planReplacementForCase(
       members,
       ...(mapping.kind === 'copy' ? { sourceMembers } : {}),
       ...(sourceFamily !== undefined ? { sourceFamily } : {}),
+      ...(spread !== undefined ? { spread } : {}),
     })
   }
 
@@ -1332,6 +1374,7 @@ function planReplacementForCase(
       }
       const source = sourceInput(mapping)
       if (source === undefined) continue
+      if (mapping.kind === 'value' || mapping.kind === 'copy') recordWidgetMove(source, address, spec)
       if (mapping.kind === 'value') {
         if (spec.widget === undefined) {
           errors.push(
@@ -1363,7 +1406,7 @@ function planReplacementForCase(
   for (const [targetFamilyId, mapping] of Object.entries(matched.inputFamilies ?? {})) {
     const prepared = preparedInputFamilies.get(targetFamilyId)
     if (prepared === undefined) continue
-    const { targetAddress: familyAddress, targetFamily, members, sourceMembers, sourceFamily } = prepared
+    const { targetAddress: familyAddress, targetFamily, members, sourceMembers, sourceFamily, spread } = prepared
 
     if (mapping.kind === 'copy') {
       const copied = mapping as Extract<InputFamilyMapping, { kind: 'copy' }>
@@ -1410,6 +1453,13 @@ function planReplacementForCase(
             }
           }
         }
+      }
+    } else if (mapping.kind === 'spread') {
+      const targetValues = familyAddress.localId === undefined ? values : helperValues.get(familyAddress.localId)!
+      for (const [index, member] of members.entries()) {
+        applyFamilyMember(familyAddress, targetFamily, member, {}, () => undefined)
+        const item = spread!.items[index]
+        if (item !== undefined) targetValues[familyInputPath(targetFamily, member, spread!.input)] = item
       }
     } else {
       for (const member of mapping.members)
@@ -1859,12 +1909,12 @@ function planReplacementForCase(
       }
       continue
     }
-    const sourceInput = sourceSchema === undefined ? undefined : staticWidgetTap(sourceSchema, node, tap)
+    const sourceInput = sourceSchema === undefined ? undefined : widgetTapInput(sourceSchema, node, tap)
     const mappedTargets = widgetMoves.get(tap) ?? []
     const mappedTarget = mappedTargets.length === 1 ? mappedTargets[0] : undefined
     const mappedTargetSpec = mappedTarget === undefined ? undefined : activeTargetInput(mappedTarget)
     const targetInput = mappedTargets.length === 0
-      ? staticWidgetTap(target, { values }, tap)
+      ? widgetTapInput(target, { values }, tap)
       : mappedTargetSpec === undefined ? undefined : { spec: mappedTargetSpec }
     if (sourceInput !== undefined && targetInput !== undefined &&
         sameTapType(sourceInput.spec.type, targetInput.spec.type)) {

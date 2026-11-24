@@ -11,7 +11,8 @@ import { describe, expect, it } from 'vitest'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
-import { inputsOf, outputsOf, type NodeSchema } from '../src/schema/model.js'
+import { inputsOf, outputsOf, type GroupSpec, type NodeSchema } from '../src/schema/model.js'
+import { MAX_GROUP_MEMBERS, memberLimitOf } from '../src/schema/body.js'
 
 /** Build a GraphDef from a plain literal (branded ids make literals noisy). */
 const asDef = (d: unknown): GraphDef => d as GraphDef
@@ -191,7 +192,7 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
     expect(outs[0]!.type).toEqual({ kind: 'concrete', name: 'IMAGE' })
   })
 
-  it('derives a widget output from one exact static widget-backed input and fails closed otherwise', () => {
+  it('derives a widget output from one exact widget-backed input and fails closed otherwise', () => {
     const tapped = asDef({
       ...def,
       boundary: {
@@ -219,17 +220,12 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
     const seed = innerSchemas.KSampler!.body[0]!
     const malformed = [
       {
-        code: 'boundary.tapAmbiguous',
-        tap: 'seed',
-        schema: { ...innerSchemas.KSampler!, body: [...innerSchemas.KSampler!.body, seed] },
-      },
-      {
         code: 'boundary.tapUnsupported',
         tap: 'latent_image',
         schema: innerSchemas.KSampler!,
       },
       {
-        // A group is not an input, so a tap naming it finds no static input.
+        // A group is not an input, so a tap naming it finds no input.
         code: 'boundary.tapMissing',
         tap: 'seed',
         schema: {
@@ -257,6 +253,23 @@ describe('deriveBoundarySchema on the subgraph fixture', () => {
       expect(result.schema).toBeUndefined()
       expect(result.diagnostics).toContainEqual(expect.objectContaining({ code }))
     }
+  })
+
+  it("derives a widget output from a member field's output while the member is stored", () => {
+    const seed = innerSchemas.KSampler!.body[0]!
+    const grouped = { ...innerSchemas.KSampler!, body: [{
+      kind: 'group', id: 'seeds', value: seed, keys: { kind: 'numbered', prefix: 'seed', start: 0, pad: 0 }, grows: 'hand', minMembers: 0,
+    }] } as unknown as NodeSchema
+    const withMembers = (members: string[]) => asDef({
+      ...def,
+      nodes: { ...def.nodes, n0: { ...def.nodes.n0!, dynamic: { seeds: { members } } } },
+      boundary: { inputs: [], outputs: [{ id: 'second', binds: { kind: 'widgetTap', node: 'n0', tap: 'seeds.seed1' } }] },
+    })
+    const valid = deriveBoundarySchema(withMembers(['seed0', 'seed1']), () => grouped)
+    expect(valid.diagnostics).toEqual([])
+    expect(outputsOf(valid.schema!)).toEqual([expect.objectContaining({ id: 'second', type: { kind: 'concrete', name: 'INT' } })])
+    const removed = deriveBoundarySchema(withMembers(['seed0']), () => grouped)
+    expect(removed.diagnostics).toContainEqual(expect.objectContaining({ code: 'boundary.tapMissing' }))
   })
 
   it('aggregates emitsPreviews from any inner node, nested instances included', () => {
@@ -622,6 +635,130 @@ describe('type choice boundary bindings', () => {
     expect(inputsOf(result.schema!)[0]).toMatchObject({ id: 'a', type: { kind: 'variable', templateId: 'a:V' }, optional: false })
   })
 
+})
+
+describe('whole constructs on the subgraph node', () => {
+  const defWith = (nodes: Record<string, unknown>, inputs: readonly unknown[], outputs: readonly unknown[] = []): GraphDef =>
+    asDef({ id: 'gW', name: 'whole', nodes, links: {}, nets: {}, boundary: { inputs, outputs }, nextOrdinal: 1 })
+  const errors = (def: GraphDef) => deriveBoundarySchema(def, resolve).diagnostics.filter((d) => d.severity === 'error').map((d) => d.code)
+
+  it('a whole group keeps its template, growth and the definition members inside, and nested members stay per member', () => {
+    const def = defWith(
+      { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['item0', 'item1'] } } } },
+      [{ id: 'stack', displayName: 'Stack rows', binds: { kind: 'construct', node: 'n0', port: 'items' } }],
+    )
+    const { schema, diagnostics } = deriveBoundarySchema(def, resolve)
+    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    const row = schema!.body[0]!
+    // Five members at most and one at least: two stay in the definition.
+    expect(row).toMatchObject({ kind: 'group', id: 'stack', displayName: 'Stack rows', grows: 'button', minMembers: 0, maxMembers: 3, interiorMembers: 2 })
+    // A subgraph node with two members of its own, the first holding nested members.
+    const elab = elaborateInterface(schema!, {
+      values: { 'stack.item0.name': 'a' },
+      dynamic: { stack: { members: ['item0', 'item1'] }, 'stack.item0.sub': { members: ['sub0', 'sub1'] } },
+    })
+    expect(elabInputsOf(elab).filter((input) => input.apiName !== undefined).map((input) => input.spec.id)).toEqual([
+      'stack.item0.name', 'stack.item0.sub.sub0', 'stack.item0.sub.sub1', 'stack.item1.name',
+    ])
+    // Type variables in the template stay the inner node's own.
+    expect(elabInputsOf(elab).find((input) => input.spec.id === 'stack.item0.sub.sub0')!.spec.type)
+      .toEqual({ kind: 'variable', templateId: 'n0:T' })
+    // The face numbers its own members from 1 and says nothing about the two inside.
+    const names = (e: typeof elab) => elabInputsOf(e).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName)
+    expect(elab.items.filter((item) => item.kind === 'note')).toEqual([])
+    expect(names(elab)).toEqual(['item 1 name', 'item 2 name'])
+    // A label worked out by a formula reads the same numbering.
+    const byFormula = elaborateInterface({ ...schema!, body: [{ ...row, memberLabel: { formula: 'str(index())' } } as typeof row, ...schema!.body.slice(1)] }, {
+      values: {}, dynamic: { stack: { members: ['item0', 'item1'] } },
+    })
+    expect(names(byFormula)).toEqual(['0 name', '1 name'])
+    // The header counts this node's members, and the add row stops at what it
+    // may hold: the limit of five less the two inside.
+    const header = (e: typeof elab) => e.items.find((item) => item.kind === 'box' && item.construct === 'stack')
+    expect(header(elab)).toMatchObject({ members: 2 })
+    expect(elab.items.some((item) => item.kind === 'growth')).toBe(true)
+    const full = elaborateInterface(schema!, { values: {}, dynamic: { stack: { members: ['item0', 'item1', 'item2'] } } })
+    expect(header(full)).toMatchObject({ members: 3 })
+    expect(full.items.some((item) => item.kind === 'growth')).toBe(false)
+  })
+
+  it('a group shown again on an outer subgraph node keeps the limit through every level and numbers its own from 1', () => {
+    const inner = defWith(
+      { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['item0', 'item1'] } } } },
+      [{ id: 'stack', binds: { kind: 'construct', node: 'n0', port: 'items' } }],
+    )
+    const innerSchema = deriveBoundarySchema(inner, resolve).schema!
+    const outer = asDef({
+      id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { s0: { id: 's0', type: '#gW', values: {}, dynamic: { stack: { members: ['item0'] } } } },
+      boundary: { inputs: [{ id: 'again', binds: { kind: 'construct', node: 's0', port: 'stack' } }], outputs: [] },
+    })
+    const { schema, diagnostics } = deriveBoundarySchema(outer, (type) => (type === '#gW' ? innerSchema : resolve(type)))
+    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    // Five at most: two in the definition and one on the inner subgraph node leave two.
+    expect(schema!.body[0]).toMatchObject({ kind: 'group', maxMembers: 2, interiorMembers: 3 })
+    const elab = elaborateInterface(schema!, { values: {}, dynamic: { again: { members: ['item0'] } } })
+    // Each level counts its own members from 1.
+    expect(elab.items.filter((item) => item.kind === 'note')).toEqual([])
+    expect(elabInputsOf(elab).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName))
+      .toEqual(['item 1 name'])
+  })
+
+  it('a group with no declared maximum gets none on the subgraph node, and its members inside still share the cap', () => {
+    const { maxMembers: _declared, ...items } = innerSchemas['Stack']!.body[0] as GroupSpec
+    const open: SchemaResolver = (type) => (type === 'Stack' ? { ...innerSchemas['Stack']!, body: [items, ...innerSchemas['Stack']!.body.slice(1)] } : resolve(type))
+    const inner = defWith(
+      { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['item0', 'item1'] } } } },
+      [{ id: 'stack', binds: { kind: 'construct', node: 'n0', port: 'items' } }],
+    )
+    const innerRow = deriveBoundarySchema(inner, open).schema!.body[0] as GroupSpec
+    // No maximum for a header to show; the add row stops where the run's cap does.
+    expect(innerRow.maxMembers).toBeUndefined()
+    expect(memberLimitOf(innerRow)).toBe(MAX_GROUP_MEMBERS - 2)
+    const outer = asDef({
+      id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { s0: { id: 's0', type: '#gW', values: {}, dynamic: { stack: { members: ['item0'] } } } },
+      boundary: { inputs: [{ id: 'again', binds: { kind: 'construct', node: 's0', port: 'stack' } }], outputs: [] },
+    })
+    const innerSchema = deriveBoundarySchema(inner, open).schema!
+    const outerRow = deriveBoundarySchema(outer, (type) => (type === '#gW' ? innerSchema : open(type))).schema!.body[0] as GroupSpec
+    expect(outerRow.maxMembers).toBeUndefined()
+    expect(memberLimitOf(outerRow)).toBe(MAX_GROUP_MEMBERS - 3)
+  })
+
+  it('a whole choice starts on the option the definition stores and carries every option', () => {
+    const def = defWith(
+      { n0: { id: 'n0', type: 'ComboNode', values: { 'mode.x': 4 }, dynamic: { mode: { selected: 'a' } } } },
+      [{ id: 'look', binds: { kind: 'construct', node: 'n0', port: 'mode' } }],
+    )
+    const { schema } = deriveBoundarySchema(def, resolve)
+    expect(schema!.body[0]).toMatchObject({ kind: 'choice', id: 'look', default: 'a', options: [{ key: 'a', rows: [{ id: 'x', ext: { default: 4 } }] }] })
+  })
+
+  it('refuses two owners of one construct, a row inside a construct shown whole, and a port binding to a construct', () => {
+    const node = { n0: { id: 'n0', type: 'ComboNode', values: {}, dynamic: { mode: { selected: 'a' } } } }
+    expect(errors(defWith(node, [
+      { id: 'one', binds: { kind: 'construct', node: 'n0', port: 'mode' } },
+      { id: 'two', binds: { kind: 'construct', node: 'n0', port: 'mode' } },
+    ]))).toContain('boundary.constructConflict')
+    expect(errors(defWith(node, [
+      { id: 'look', binds: { kind: 'construct', node: 'n0', port: 'mode' } },
+      { id: 'x', binds: { kind: 'port', node: 'n0', port: 'mode.x' } },
+    ]))).toEqual(['boundary.constructOwned'])
+    expect(errors(defWith(node, [{ id: 'look', binds: { kind: 'port', node: 'n0', port: 'mode' } }]))).toEqual(['boundary.familyBind'])
+    expect(errors(defWith(node, [{ id: 'x', binds: { kind: 'construct', node: 'n0', port: 'mode.x' } }]))).toEqual(['boundary.notAConstruct'])
+  })
+
+  it('one row drives two constructs only when their shapes match', () => {
+    const nodes = {
+      n0: { id: 'n0', type: 'ComboNode', values: {}, dynamic: { mode: { selected: 'a' } } },
+      n1: { id: 'n1', type: 'ComboNode', values: {}, dynamic: { mode: { selected: 'a' } } },
+      n2: { id: 'n2', type: 'Stack', values: {} },
+    }
+    expect(errors(defWith(nodes, [{ id: 'look', binds: { kind: 'construct', node: 'n0', port: 'mode' }, alsoBinds: [{ kind: 'construct', node: 'n1', port: 'mode' }] }]))).toEqual([])
+    expect(errors(defWith(nodes, [{ id: 'look', binds: { kind: 'construct', node: 'n0', port: 'mode' }, alsoBinds: [{ kind: 'construct', node: 'n2', port: 'items' }] }])))
+      .toEqual(['boundary.constructShapeMismatch'])
+  })
 })
 
 describe('derivation failures produce diagnostics, never partial schemas', () => {

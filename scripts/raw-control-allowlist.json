@@ -98,12 +98,6 @@
     },
     {
       "kind": "rawControl",
-      "path": "packages/app/src/CurveEditor.tsx",
-      "count": 4,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
       "path": "packages/app/src/CustomizeLayoutDialog.tsx",
       "count": 1,
       "issue": 382
@@ -123,7 +117,7 @@
     {
       "kind": "rawControl",
       "path": "packages/app/src/ExecutionActivityCard.tsx",
-      "count": 2,
+      "count": 1,
       "issue": 382
     },
     {
@@ -139,21 +133,15 @@
       "issue": 382
     },
     {
-      "kind": "rawControl",
-      "path": "packages/app/src/LibraryPanel.tsx",
+      "kind": "inlineStyle",
+      "path": "packages/app/src/InNodeEditorSpaces.tsx",
       "count": 2,
       "issue": 382
     },
     {
       "kind": "rawControl",
-      "path": "packages/app/src/MemoryPanel.tsx",
-      "count": 1,
-      "issue": 382
-    },
-    {
-      "kind": "inlineStyle",
-      "path": "packages/app/src/MemoryPanel.tsx",
-      "count": 1,
+      "path": "packages/app/src/LibraryPanel.tsx",
+      "count": 2,
       "issue": 382
     },
     {

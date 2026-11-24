@@ -11,7 +11,7 @@ import { useAppMessage } from '../locale.js'
 import { activeProjectId } from '../projects.js'
 import { UploadDestination } from '../UploadDestination.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
-import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
+import { partRow, WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import './painter-widget-editor.css'
 
 const PainterImplementation: Component<WidgetEditorImplementationProps> = (props) => {
@@ -27,8 +27,11 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
   const node = target.kind === 'input'
     ? graph?.nodes[target.familyOwner?.nodeId ?? target.nodeId]
     : undefined
-  const dimension = (name: string): number => {
-    const value = node?.values[name] ?? canvasPaintTokens.editor.painter.defaultDimension
+  // The rows the painter reads, by the part names its widget declares.
+  const rowOf = (part: string): string | undefined => partRow(target, part)
+  const dimension = (part: string): number => {
+    const row = rowOf(part)
+    const value = (row === undefined ? undefined : node?.values[row]) ?? canvasPaintTokens.editor.painter.defaultDimension
     return typeof value === 'number' && Number.isSafeInteger(value) && 64 <= value && 4096 >= value ? value : canvasPaintTokens.editor.painter.defaultDimension
   }
   let width = dimension('width')
@@ -73,11 +76,14 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
       if (backend.protocol !== 'dinkster' || !canvas.getContext('2d')) throw new Error(message('painterWidget.unavailable'))
       const sources = graph && node && companionSourcesOf(graph, undefined, undefined,
         props.editor.app.registryForTab?.(ed.tab)?.resolve).get(node.id)
-      const imageSource = sources?.get('image')
-      const colorSource = sources?.get('bg_color')
+      const imageRow = rowOf('image')
+      const colorRow = rowOf('bg_color')
+      const imageSource = imageRow === undefined ? undefined : sources?.get(imageRow)
+      const colorSource = colorRow === undefined ? undefined : sources?.get(colorRow)
       if (graph && node) {
         const index = buildRerouteIndex(graph)
-        for (const input of ['image', 'bg_color']) {
+        for (const input of [imageRow, colorRow]) {
+          if (input === undefined) continue
           const key = portRefKey({ node: node.id, port: asPortId(input) })
           if ((index.inputDriverOf.has(key) || index.netSourceOf.has(key)) && !sources?.has(input)) {
             throw new Error(message('painterWidget.sourceUnavailable'))
@@ -85,7 +91,8 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
         }
       }
       const source = imageSource ?? (colorSource?.kind === 'producer' ? colorSource : undefined)
-      let background = colorSource?.kind === 'literal' ? colorSource.value : node?.values.bg_color ?? canvasPaintTokens.editor.painter.backgroundColor
+      let background = colorSource?.kind === 'literal' ? colorSource.value
+        : (colorRow === undefined ? undefined : node?.values[colorRow]) ?? canvasPaintTokens.editor.painter.backgroundColor
       if (source !== undefined) {
         const unavailable = (): Error => { return new Error(message('painterWidget.sourceUnavailable')) }
         if (source.kind !== 'producer') throw unavailable()
@@ -101,15 +108,15 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
           toSource: execution.artifact.provenance.toSource }).own.get(asNodeId(source.node)) ?? []
         const runtimeId = runtimeIds.length === 1 ? runtimeIds[0] : undefined
         if (!runtimeId || liveExactnessFor(compiled.artifact, execution.artifact)?.(runtimeId) !== true) throw unavailable()
+        const values = backend.connection.values()
         sourceCurrent = () => {
           const navigation = viewInstancePath(ed.tab)
           const fresh = props.editor.app.compileTabCached(ed.tab)
-          return props.editor.app.executionForTab(ed.tab)?.key === execution.key && fresh?.ok === true
+          return backend.connection.values() === values && props.editor.app.executionForTab(ed.tab)?.key === execution.key && fresh?.ok === true
             && fresh.artifact.schemaHash === compiled.artifact.schemaHash && navigation?.length === path.length
             && navigation.every((id, index) => id === path[index])
         }
         const outputId = execution.artifact.provenance.outputAliases?.[runtimeId]?.[source.output] ?? source.output
-        const values = backend.connection.values()
         const query = { jobId: execution.ref.prompt, nodeId: runtimeId, outputId }
         const peek = await values.peek(query, { signal: abort.signal })
         if (!peek.available) throw unavailable()
@@ -130,7 +137,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
           if (!result?.available || result.mime !== 'image/png' || result.bytes.byteLength > 64 * 1024 * 1024) throw unavailable()
           const bitmap = await createImageBitmap(new Blob([result.bytes], { type: result.mime }))
           try {
-            // Native decode may outlive the connection; re-enter admission before drawing.
+            // Native decode may outlive the connection; check its lifetime before drawing.
             await values.read(query, peek.descriptor, async () => {
               requireCurrent()
               if (bitmap.width < 1 || bitmap.height < 1 || bitmap.width > 4096 || bitmap.height > 4096) throw unavailable()
@@ -164,14 +171,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
           if (!bytes) throw new Error(message('painterWidget.unavailable'))
           await drawImage(new Blob([bytes], { type: ref.mediaType as string }))
         }
-        if (local) await load()
-        else {
-          const reader = props.editor.app.workflowAssetReader(ed.tab, ref.digest as string, abort.signal)
-          if (!reader) throw new Error(message('painterWidget.unavailable'))
-          const connectedCurrent = sourceCurrent
-          sourceCurrent = () => connectedCurrent() && reader.current()
-          await reader.read(load)
-        }
+        await load()
       }
       ready = true
     })().catch((reason: unknown) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })

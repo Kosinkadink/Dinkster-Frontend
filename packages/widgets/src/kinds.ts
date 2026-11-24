@@ -21,7 +21,7 @@ import type {
   WidgetView,
   IntegerWidgetValue,
 } from '@dinkster/core'
-import { diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isComboValue, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision, t } from '@dinkster/core'
+import { diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isComboValue, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision, specialValueLabel, t } from '@dinkster/core'
 
 // ---------------------------------------------------------------------------
 // Kind helpers
@@ -63,6 +63,8 @@ const num = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback
 
 function rangeDiags(value: number, spec: WidgetSpec, type: string): Diagnostic[] {
+  // A declared special value is allowed outside the limits.
+  if (specialValueLabel(value, spec) !== undefined) return []
   const out: Diagnostic[] = []
   const min = spec.options['min']
   const max = spec.options['max']
@@ -84,6 +86,7 @@ function integerRangeDiags(value: IntegerWidgetValue, spec: WidgetSpec): Diagnos
   }
   const out: Diagnostic[] = []
   const numeric = BigInt(value)
+  if (specialValueLabel(numeric, spec) !== undefined) return out
   const min = spec.options['min']
   const max = spec.options['max']
   if ((Number.isSafeInteger(min) || isCanonicalUnsafeInteger(min)) && numeric < BigInt(min as number | string)) {
@@ -149,6 +152,15 @@ export const imageCompareKind: WidgetKind<null> = {
   defaultValue: () => null,
   validate: () => [],
   defaultView: () => 'core.imageCompare',
+}
+
+/** The painter: an editor row that writes a mask file; it has no value of its own. */
+export const painterKind: WidgetKind<Json> = {
+  type: 'PAINTER',
+  valueSchema: { version: 1, validate: (value): value is Json => value === null || isAssetRef(value) },
+  defaultValue: () => null,
+  validate: () => [],
+  defaultView: () => 'core.painter',
 }
 
 export const cameraAngleKind: WidgetKind<string> = {
@@ -696,13 +708,17 @@ function drawCompactNumber(
     ctx.rect(0, 0, fraction, 1, { role: 'numericRangeFill', fraction })
   }
   const label = (spec.options['display_name'] as string | undefined) ?? ''
-  compactRow(ctx, label, formatted, state, 'widget.edit')
+  // An empty number shows its hint when it declares one, otherwise nothing.
+  const empty = value === null || value === undefined
+  const hint = spec.options['placeholder']
+  compactRow(ctx, label, empty ? (typeof hint === 'string' ? hint : '') : formatted, state, 'widget.edit',
+    empty && typeof hint === 'string')
 }
 
 export const numberView: WidgetView<IntegerWidgetValue> = {
   ...makeCompactView<IntegerWidgetValue>('core.number', 'INT'),
   drawCompact(ctx, value, spec, state) {
-    drawCompactNumber(ctx, value, spec, state, String(value))
+    drawCompactNumber(ctx, value, spec, state, formatWidgetValue(value, spec))
   },
 }
 export const floatNumberView: WidgetView<number> = {
@@ -813,22 +829,27 @@ export const listView: WidgetView<Json[]> = {
   ...makeCompactView<Json[]>('core.list', 'LIST'),
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
-    compactRow(ctx, label, JSON.stringify(value), state, 'widget.edit')
+    if (!Array.isArray(value) || value.length === 0) {
+      compactRow(ctx, label, Array.isArray(value) ? 'Empty' : JSON.stringify(value), state, 'widget.edit', Array.isArray(value))
+      return
+    }
+    // A number is written as stored, in the shortest text that reads back as
+    // the same number, never rounded to the element's step. `items` lets the
+    // painter show as many values as fit and count the rest.
+    const items = value.map((item) => typeof item === 'number'
+      ? String(item)
+      : typeof item === 'string' ? item : JSON.stringify(item))
+    compactRow(ctx, label, items.join(', '), state, 'widget.edit', false, { items })
   },
 }
 export const colorView: WidgetView<string> = {
   ...makeCompactView<string>('core.color', 'COLOR'),
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
-    ctx.rect(0, 0, 1, 1, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
-    ctx.text(0, 0, label, { role: 'widgetLabel', width: 0.42 })
-    // A compact square leaves the remaining row for the exact stored text;
-    // alpha remains visible even though canvas fill colors also consume it.
-    ctx.rect(0, 0.2, 0.12, 0.6, { fill: value, fixedAspect: 'square' })
-    ctx.text(1, 0, value, {
-      role: 'widgetValue', align: 'right', width: 1, reserveLeft: 16, truncated: state.truncated ?? false,
-    })
-    if (!state.readonly) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
+    // `swatch` asks the painter for a square of the color directly before its
+    // code; text that is not a color code gets no square.
+    compactRow(ctx, label, value, state, 'widget.edit', false,
+      /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i.test(value) ? { swatch: value } : {})
   },
 }
 export function integerColorHex(value: unknown): string | undefined {
@@ -850,10 +871,11 @@ export const colorsView: WidgetView<string[]> = {
   ...makeCompactView<string[]>('core.colors', 'COLORS'),
   drawCompact(ctx, value, _spec, state) {
     ctx.rect(0, 0, 1, 1, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
-    for (const [index, color] of value.slice(0, 4).entries()) {
-      ctx.rect(index * 0.14, 0.2, 0.12, 0.6, { fill: color, fixedAspect: 'square' })
-    }
-    ctx.text(1, 0, `${value.length} colors`, { role: 'widgetValue', align: 'right', width: 1, reserveLeft: 64, truncated: state.truncated ?? false })
+    // `swatches` asks the painter for as many color squares as fit, then a count of the rest.
+    ctx.text(1, 0, value.length === 0 ? 'No colors' : `${value.length} colors`, {
+      role: 'widgetValue', align: 'right', width: 1, truncated: state.truncated ?? false,
+      ...(value.length === 0 ? { placeholder: true } : { swatches: value }),
+    })
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
   },
 }
@@ -863,20 +885,27 @@ export const curveView: WidgetView<Json> = {
   isCompatible: () => true,
   measure: () => ({ rows: 2 }),
   drawCompact(ctx, value, spec, state) {
-    const curve = isCurveValue(value) ? value : curveKind.defaultValue(spec) as unknown as CurveValue
     ctx.rect(0, 0, 1, 2, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
-    const points = curve.points
-    const minX = points[0]?.position ?? 0
-    const maxX = points.at(-1)?.position ?? 1
-    const spanX = maxX - minX || 1
-    const interpolate = curveInterpolator(curve)
-    for (let index = 0; index < 64; index += 1) {
-      const fraction = index / 63
-      const sample = interpolate(minX + fraction * spanX)
-      ctx.rect(fraction, 1.8 - Math.max(0, Math.min(1, sample)) * 1.6, 0.02, 0.08,
-        { role: 'curveSample' })
+    // A wire decides a connected curve: what it brought is drawn, and nothing before a run.
+    const curve = isCurveValue(value) ? value
+      : state.connected ? undefined : curveKind.defaultValue(spec) as unknown as CurveValue
+    const points = curve?.points ?? []
+    const interpolate = curve === undefined ? undefined : curveInterpolator(curve)
+    const samples = interpolate === undefined ? []
+      : Array.from({ length: 64 }, (_, index) => Math.max(0, Math.min(1, interpolate(index / 63))))
+    // The sketch spans the plot's range, 0 to 1, so the held ends show.
+    samples.forEach((sample, index) => ctx.rect(index / 63, 1.8 - sample * 1.6, 0.02, 0.08, { role: 'curveSample' }))
+    // The folded square of the raised look: the plot in small, with its points.
+    ctx.rect(0, 0, 1, 2, {
+      role: 'curveSketch',
+      samples,
+      points: points.map((point) => [point.position, point.value]),
+      held: points.length === 0 ? [] : [points[0]!.position, points[points.length - 1]!.position],
+    })
+    ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'}`, { role: 'widgetValue', align: 'right', width: 1 })
+    if (curve !== undefined) {
+      ctx.text(0, 1, t((curve.interpolation ?? 'linear') === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic'), { role: 'curveJoin' })
     }
-    ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'} - ${curve.interpolation ?? 'linear'}`, { role: 'widgetValue', align: 'right', width: 1 })
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 2, 'widget.edit')
   },
 }
@@ -894,6 +923,20 @@ export const compositorView: WidgetView<Json> = {
       : 'Run to load layers', { role: 'widgetValue', align: 'right', width: 1 })
   },
 }
+/** What an empty asset row asks for, from the asset's declared kind or accepted media. */
+function emptyAssetText(spec: WidgetSpec): string {
+  const accept = Array.isArray(spec.options['accept']) ? spec.options['accept'].filter((item): item is string => typeof item === 'string') : []
+  const family = spec.kind?.startsWith('model/') === true ? 'model'
+    : spec.kind?.startsWith('media/') === true ? spec.kind.slice('media/'.length)
+    : accept.length > 0 && accept.every((item) => item.startsWith(`${accept[0]!.split('/', 1)[0]}/`)) ? accept[0]!.split('/', 1)[0]
+    : undefined
+  return family === 'image' || family === 'mask' ? 'Choose image'
+    : family === 'audio' ? 'Choose audio'
+    : family === 'video' ? 'Choose video'
+    : family === 'model' ? 'Choose model'
+    : 'Choose file'
+}
+
 export const assetView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.asset', 'ASSET'),
   drawCompact(ctx, value, spec, state) {
@@ -903,7 +946,7 @@ export const assetView: WidgetView<Json> = {
       ? value.name
       : isAssetRefList(value) && value.length > 0
         ? value.length === 1 ? value[0]!.name : `${value.length} assets`
-        : 'no asset'
+        : emptyAssetText(spec)
     const populated = sourceName || isAssetRef(value) || (isAssetRefList(value) && value.length > 0)
     compactRow(ctx, label, text, state, 'widget.edit', !populated)
   },
@@ -912,19 +955,21 @@ export const audioRecordView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.audioRecord', 'AUDIO_RECORD'),
   drawCompact(ctx, value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      isAssetRef(value) ? value.name : 'no recording', state, 'widget.edit', !isAssetRef(value))
+      isAssetRef(value) ? value.name : 'No clip', state, 'widget.edit', !isAssetRef(value))
   },
 }
 export const webcamView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.webcam', 'WEBCAM'),
   drawCompact(ctx, value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      isAssetRef(value) ? value.name : 'no camera frame', state, 'widget.edit', !isAssetRef(value))
+      isAssetRef(value) ? value.name : 'No frame', state, 'widget.edit', !isAssetRef(value))
   },
 }
 export const mountView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.mount', 'MOUNT'),
   drawCompact(ctx, value, spec, state) {
+    // A mount is a choice among mounts, so it is drawn as a choice row.
+    ctx.rect(1, 0, 0, 1, { role: 'comboChevron' })
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
       typeof value === 'string' ? value : t('mountWidget.default'), state, 'widget.edit')
   },
@@ -952,6 +997,13 @@ export const imageCompareView: WidgetView<null> = {
       t('imageCompareWidget.open'), state, 'widget.edit')
   },
 }
+export const painterView: WidgetView<Json> = {
+  ...makeCompactView<Json>('core.painter', 'PAINTER'),
+  drawCompact(ctx, _value, spec, state) {
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
+      t('painterWidget.open'), state, 'widget.edit')
+  },
+}
 export const cameraAngleView: WidgetView<string> = {
   ...makeCompactView<string>('core.cameraAngle', 'CAMERA_ANGLE_VIEW'),
   drawCompact(ctx, _value, spec, state) {
@@ -970,7 +1022,7 @@ export const saveTargetView: WidgetView<SaveTarget | null> = {
   ...makeCompactView<SaveTarget | null>('core.saveTarget', 'SAVE_TARGET'),
   drawCompact(ctx, value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      value === null ? t('saveTargetWidget.title') : `${value.mount}/${value.prefix}`, state, 'widget.edit')
+      value === null ? t('saveTargetWidget.default') : `${value.mount}/${value.prefix}`, state, 'widget.edit', value === null)
   },
 }
 export const videoEditView: WidgetView<Json> = {
@@ -981,7 +1033,7 @@ export const videoEditView: WidgetView<Json> = {
     compactRow(
       ctx,
       (spec.options['display_name'] as string | undefined) ?? '',
-      sections.length === 0 ? 'no edits' : sections.join(' + '),
+      sections.length === 0 ? 'No edits' : sections.join(' + '),
       state,
       'widget.edit',
       sections.length === 0,
@@ -1028,11 +1080,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, cameraAngleKind, resolutionKind, saveTargetKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, painterKind, cameraAngleKind, resolutionKind, saveTargetKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView, cameraAngleView, resolutionView, saveTargetView]) {
+    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView, painterView, cameraAngleView, resolutionView, saveTargetView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

@@ -61,7 +61,7 @@ projection replaces CanvasHost.
 The Views menu also holds a **Named nets** section with three set-all
 actions (`net-display-all-noodle`, `net-display-all-tags`,
 `net-display-all-guide`) that put every net in the current definition into
-one display mode: full noodles, endpoint tags only, or tags plus a dashed
+one display mode: full noodles, endpoint tags only, or tags plus a solid
 Set-to-Get guide curve. Each net also has its own mutually exclusive mode in
 its context menu (`core.net.display` submenu, backed by `view.setNetDisplay`;
 set-all dispatches `view.setAllNetsDisplay`). The mode is document view state
@@ -85,5 +85,4 @@ again to return to Standard. There are no other lens shortcuts.
 3. If the lens has a shortcut, call `AppState.setLens()` or `toggleLens()` so
    the registry-backed per-tab signal remains the only activation state.
 4. Add focused registry/rendering tests and browser coverage for the switcher
-   or shortcut, then update this active document in the same change. Archived
-   coverage audits are historical and are not update targets.
+   or shortcut, then update this active document in the same change.

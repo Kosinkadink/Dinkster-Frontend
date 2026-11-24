@@ -1,6 +1,7 @@
 # Subgraph lifecycle actions
 
-Dinkster exposes create, extract, and one-level flatten actions on the canvas.
+Dinkster exposes actions on the canvas to create an empty subgraph, create a
+subgraph from a selection, and flatten a subgraph.
 They use the same serializable lifecycle commands as undo, redo, and shared
 sessions.
 
@@ -17,19 +18,18 @@ pending. Switching tabs and returning also preserves the user's navigation.
 Creation uses ordinary application dispatch, which selects retained admission
 when its candidate requires it.
 
-## Extract a selection
+## Create a subgraph from a selection
 
-Use **Extract as Subgraph** in the selection toolbox or a node, group,
-reroute, value-source, or selector context menu, find **Extract selection as
-subgraph** in universal search, or press **Ctrl+Shift+E**. Element-row menus
-such as widgets, pins, sections, nets, and links stay scoped to that element.
+Use **Create subgraph** in the selection toolbox when two or more nodes are
+selected, or in a node, group, or reroute context menu, find **Create
+subgraph from selection** in universal search, or press **Ctrl+Shift+E**.
+Element-row menus such as widgets, pins, sections, nets, and links stay scoped to that element.
 Extraction submits without a naming prompt. The definition uses
 the shared collision-safe default (`New Subgraph`, then `New Subgraph 2`, and
 so on). The created occurrence remains renameable later through the normal
 node **Rename** action.
 
-The gesture snapshots selected nodes, reroutes, value sources, selectors,
-and groups. A selected group includes every supported item spatially inside
+The gesture snapshots selected nodes, reroutes, and groups. A selected group includes every supported item spatially inside
 the group at gesture time. Selecting the contents without selecting the
 group does not move the group.
 
@@ -58,11 +58,11 @@ An input may fan out to both direct ports and retained junctions through
 authority; suppressing one occurrence delivery does not suppress the other
 bindings or other occurrences.
 
-## Flatten one level
+## Flatten a subgraph
 
-Select exactly one subgraph occurrence. Use **Flatten Subgraph One Level**
-in the toolbox or a node, group, reroute, value-source, or selector context
-menu, find **Flatten selected subgraph one level** in universal search, or
+Select exactly one subgraph occurrence. Use **Flatten subgraph** in its
+selection toolbox or context menu, which show it only for one selected
+subgraph node, find **Flatten selected subgraph** in universal search, or
 press **Ctrl+Shift+F**. Element-row menus such as widgets, pins, sections,
 nets, and links stay scoped to that element. Dinkster removes that occurrence
 and splices one copy of its body into the parent as one undoable operation.
@@ -72,7 +72,10 @@ original current canvas, tab, session and navigation, using the same
 ownership checks as extraction. Refusal leaves the selection unchanged.
 
 A promoted literal input transfers this occurrence's stored
-value and controller mode to the fresh source, preserving explicit null.
+value and controller mode to the fresh source, preserving explicit null. A
+group, choice or type choice the occurrence shows whole moves onto the inner
+node: the definition's members, then the occurrence's own, its pick and its
+values, with wires following each member.
 Missing overrides retain the definition's source state. Shared definitions
 and sibling occurrences are unchanged. A connected input forwards its driver
 to the source's consumers and output passthroughs; the copied literal remains
@@ -80,8 +83,8 @@ as dormant state, never as the target of an incoming link. Enclosing outputs
 and named nets retain the driver where their endpoint model can represent it;
 an unrepresentable structural producer refuses atomically.
 
-Extract and flatten are unavailable while execution owns the tab. Extract is
-unavailable for an empty semantic selection. Flatten is unavailable unless
+Creating a subgraph and flattening are unavailable while execution owns the
+tab. Creating a subgraph is unavailable for an empty semantic selection. Flatten is unavailable unless
 the selection is exactly one resolvable subgraph occurrence.
 
 ## Refusals
@@ -93,7 +96,9 @@ not translated or renamed. Select the anchored Problems entry to navigate to
 the affected node.
 
 Region occurrences intentionally refuse one-level flatten because ordinary
-nodes cannot preserve map, fold, or while semantics.
+nodes cannot preserve map, fold, or while semantics, and bypassed occurrences
+refuse it because ordinary nodes have no equivalent passthrough. A muted
+occurrence flattens to muted nodes.
 
 ## Remove unused definitions
 
@@ -126,8 +131,8 @@ undo/redo, and boundary editing. The Boundary panel labels these endpoints as
 **Widget output**.
 
 Only static widget-backed inputs can supply this endpoint. Missing, ambiguous,
-dynamic, or non-widget tap targets fail closed. Value-source, selector, and
-reroute output cuts remain unsupported rather than being encoded as fake
+dynamic, or non-widget tap targets fail closed. Reroute output cuts remain
+unsupported rather than being encoded as fake
 ports.
 
 ## Browser proof status

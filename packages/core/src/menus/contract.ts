@@ -22,6 +22,7 @@
 
 import type { CommandInvocation } from '../commands/contract.js'
 import type { Json, WorkflowDocument } from '../format/document.js'
+import type { NodeSchema } from '../schema/model.js'
 
 // ---------------------------------------------------------------------------
 // Targets and context
@@ -41,15 +42,12 @@ export type MenuTarget =
       readonly linkId: string
       /** Set when the noodle renders a named-net fan-out (synthetic link id). */
       readonly netId?: string
-      /** Consumer end: a real input, a reroute junction, or a selector branch (nets are port-only). */
+      /** Consumer end: a real input or a reroute junction (nets are port-only). */
       readonly to:
         | { readonly node: string; readonly port: string }
         | { readonly reroute: string }
-        | { readonly selector: string; readonly candidate: string }
     }
   | { readonly kind: 'reroute'; readonly rerouteId: string }
-  | { readonly kind: 'valueSource'; readonly valueSourceId: string }
-  | { readonly kind: 'selector'; readonly selectorId: string }
   | {
       readonly kind: 'pin'
       readonly nodeId: string
@@ -75,14 +73,27 @@ export type MenuTarget =
        * must use this triple; nodeId/inputId stay the displayed identity.
        */
       readonly owner?: { readonly graphId: string; readonly nodeId: string; readonly inputId: string }
+      /** The field's structural input address, for items that bind the input itself. */
+      readonly address?: { readonly port: string; readonly members?: readonly string[] }
       /**
        * Unpersisted presentation row (ghost/materialize affordance): there
        * is no document value to address, so identity-recording items must
        * not offer themselves.
        */
       readonly synthetic?: true
+      /**
+       * The row picks a choice's option or a type choice's variant: it
+       * controls a construct rather than holding a stored field.
+       */
+      readonly construct?: true
     }
   | { readonly kind: 'group'; readonly groupId: string }
+  | {
+      /** A group's add row, by the group's flattened id. */
+      readonly kind: 'growth'
+      readonly nodeId: string
+      readonly construct: string
+    }
   | {
       readonly kind: 'section'
       readonly nodeId: string
@@ -113,6 +124,11 @@ export interface MenuContext {
    * that can never estimate would be dead state).
    */
   readonly mirrorCapable?: (nodeType: string) => boolean
+  /**
+   * Node schemas by type, subgraph types included. Omitted for headless
+   * consumers; items that need a node's rows then offer nothing.
+   */
+  readonly resolve?: (nodeType: string) => NodeSchema | undefined
   /** Graph definition being edited (root or a drilled-in subgraph). */
   readonly graphId: string
   readonly target: MenuTarget
@@ -121,8 +137,6 @@ export interface MenuContext {
     readonly nodes: readonly string[]
     readonly links: readonly string[]
     readonly reroutes: readonly string[]
-    readonly valueSources: readonly string[]
-    readonly selectors: readonly string[]
   }
   /** Menu anchor in world coordinates (e.g. where 'Add Node' places a node). */
   readonly worldX: number

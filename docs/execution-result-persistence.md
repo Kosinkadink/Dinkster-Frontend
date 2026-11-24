@@ -22,7 +22,7 @@ client identity, server version, and schema wire. Reload accepts it only when:
 - durable history and the live job agree on job, source-document, and
   authenticated principal identity;
 - the source-document asset can be loaded and deterministically recompiled to
-  the saved prompt, scope, selector choices, and provenance; and
+  the saved prompt, scope, random Switch picks, and provenance; and
 - each reusable value is still available from the job-scoped value API.
 
 Restoration follows the current schema load, including a connection refresh
@@ -30,35 +30,13 @@ that supersedes startup. A superseded request, disconnected backend or changed
 project cannot publish restored results. Locale-only labels do not invalidate
 schema authority or interrupt restoration.
 
-A complete historical receipt can be replaced after its exact next-revision
-release tombstone is confirmed. Restoration still requires fresh acknowledgments
-for the original sealed result and its verified producing document. Those complete
-inventories must cover every old root; a source-bound receipt also requires its
-original source token. Missing owners, newer owner revisions, incomplete receipts,
-uncovered roots and refused source claims remain unavailable without deleting the
-saved retry record. Restoration never overwrites or reuses the released owner.
+Restoration reads available results directly. It does not record cleanup file
+lists, claim result roots, consult a browser census or wait for cleanup receipts.
+Missing bytes make the affected result unavailable; a saved browser record does
+not guarantee that the engine still has temporary output.
 
-Superseded historical ownership journals can be removed without a browser census:
-release records an empty owner tombstone, not deletion of result data. Exact
-sealed sources can be re-admitted until the engine's normal cleanup removes the
-required data. New result journals record census participation and still require
-both no persisted reference and a synchronized live-holder census before release.
-An unavailable census leaves those journals protected. Complete replacement-root
-coverage may come from another client's persisted receipt, but only after an exact
-engine acknowledgment; this does not authorize releasing that client's owners.
-
-A tab running pre-update code may reject a released receipt once after returning
-from the browser's back/forward cache. The error does not delete its saved result
-or data. Reloading the tab loads current code and restores the same result while
-its data remains available. There is no forced reload or update prompt.
-
-If a refresh interrupts terminal output admission, source claims already
-acknowledged by this client remain tracked by ordinary result lifetime checks.
-They are not published as current output, and retire only when no current
-execution or replacement still needs them.
-
-Workflow edits invalidate only affected upstream recipe cones. A random
-selector invalidates values in its own downstream cone on every roll; unrelated
+Workflow edits invalidate only affected upstream recipe cones. A random Switch
+pick that changes invalidates values in its own downstream cone; unrelated
 cones remain reusable. Runs without complete compile and source-document proof
 are not adopted, including unproven foreign or reconciled runs.
 

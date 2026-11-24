@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEPRECATED_BADGE, executionErrorBadge, LOG_INFO_BADGE, logWarningBadge, PROBLEM_BLOCKING_WARNING_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, SUBGRAPH_BADGE, type Scene } from '@dinkster/canvas'
-import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
+import { DEPRECATED_BADGE, executionErrorBadge, LAST_RUN_BADGE, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, UNAVAILABLE_BADGE, type Scene } from '@dinkster/canvas'
+import { asGraphDefId, asLinkId, asNodeId, asPortId, occurrenceKey, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { applyNodeDecorations, deriveSceneOverlays, representedPreviewAssetForNode, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
@@ -355,7 +355,6 @@ describe('executed image paging overlay', () => {
       exactProducer: () => true,
     })
 
-    expect(sourceFor).toHaveBeenCalledWith(expect.anything(), ['saved'], false, undefined, undefined)
     expect(model.previews.saved).toEqual(decoded)
     expect(model.previewSources.saved).toBe(source)
   })
@@ -383,7 +382,6 @@ describe('executed image paging overlay', () => {
     expect(model.executedImages.n1).toMatchObject({ images, index: 1, count: 2 })
     expect(model.executedImages.n1?.key).toContain('document\u0000run\u0000g0\u0000[]\u0000n1')
     expect(model.previews.n1).toEqual({ status: 'loading', count: 2, index: 1 })
-    expect(sourceFor).toHaveBeenCalledWith(expect.anything(), ['n1'], false, 1, undefined)
 
     const live = deriveSceneOverlays({
       ...base,
@@ -400,7 +398,7 @@ describe('executed image paging overlay', () => {
 })
 
 describe('region execution feedback overlay', () => {
-  it('renders the projected iteration counter as a non-interactive header badge', () => {
+  it('renders the projected iteration counter as a non-interactive bottom tab', () => {
     const model = deriveSceneOverlays({
       ...base,
       scene: scene([{ id: 'r', isSubgraph: true, regionKind: 'map' }]),
@@ -414,7 +412,8 @@ describe('region execution feedback overlay', () => {
       expect.objectContaining({
         id: 'core.region.iteration',
         glyph: 'iteration 2 of 3',
-        variant: 'label',
+        placement: 'below',
+        icon: 'repeat',
         interactive: false,
       }),
     ]))
@@ -655,14 +654,11 @@ describe('retainProvenExecution', () => {
     expect(retained.execution.nodes.b).toBe(current.nodes.b)
     expect(retained.execution.outputs.b).toBe(current.outputs.b)
     expect(retained.retainedRuntimeIds).toEqual(new Set(['a']))
-    expect(retained.executionOwners?.get('a')).toBe(newer)
-    expect(retained.executionOwners?.get('b')).toBe(current)
   })
 
   it.each([
     ['different backend', { connection: 'backend-b' }],
     ['schema change', { schemaHash: 'schema-b' }],
-    ['random selector', { choices: [{ graph: 'root', selector: 's', policy: 'random', candidate: 'x' }] }],
     ['missing provenance', { provenance: { toSource: {}, fromSource: {} } }],
   ])('rejects retention for %s', (_name, change) => {
     const live = artifact()
@@ -691,28 +687,6 @@ describe('retainProvenExecution', () => {
     expect(retained.execution.nodes.a).toBeUndefined()
     expect(retained.execution.nodes.b?.state).toBe('cached')
     expect(retained.retainedRuntimeIds).toEqual(new Set(['b']))
-  })
-
-  it('retains an independent branch while rejecting a random selector cone', () => {
-    const random = {
-      choices: [{ graph: 'root', selector: 's', policy: 'random', candidate: 'x' }],
-      provenance: {
-        toSource: { a: 'a', b: 'b' },
-        fromSource: { a: ['a'], b: ['b'] },
-        randomSelectorInputs: { b: ['value'] },
-      },
-    } as Partial<CompileArtifact>
-    const live = artifact(random)
-    const current = execution('n+1', 20, artifact({ ...random, scope: { kind: 'partial', targets: [] }, prompt: {} }))
-    const prior = execution('n', 10, artifact(random), {
-      nodes: {
-        a: { state: 'done', outputs: { out: { typeId: 'INT', value: 1 } } },
-        b: { state: 'done', outputs: { out: { typeId: 'INT', value: 2 } } },
-      },
-    })
-    const retained = retainProvenExecution(current, [prior, current], live, [], resolveSchema)
-    expect(retained.execution.nodes.a).toMatchObject({ state: 'cached' })
-    expect(retained.execution.nodes.b).toBeUndefined()
   })
 
   it('rejects recyclable V1 filenames while retaining digest assets and in-memory frames', () => {
@@ -958,7 +932,7 @@ describe('deriveSceneOverlays', () => {
         {
           id: 'z.valid',
           decorate: (node) => node.id === 'proof' ? {
-            badges: [{ id: 'pack.proof', glyph: 'Pack', variant: 'label', interactive: false, color: '#7b3fb2' }],
+            badges: [{ id: 'pack.proof', glyph: 'Pack', variant: 'label', interactive: false, color: '#7b3fb2', icon: 'info' }],
             color: '#123456', titleSuffix: 'decorated', status: 'ready',
           } : undefined,
         },
@@ -967,6 +941,10 @@ describe('deriveSceneOverlays', () => {
           decorate: (node) => node.id === 'other'
             ? { badges: [{ id: 'pack.invalid', glyph: 'Bad', color: 'purple' }] }
             : { badges: [{ id: 'pack.partial', glyph: 'Partial', color: '#112233' }] },
+        },
+        {
+          id: 'c.unknown-icon',
+          decorate: () => ({ badges: [{ id: 'pack.icon', glyph: 'Icon', color: '#112233', icon: 'not-a-canvas-icon' }] }),
         },
         {
           id: 'b.accessor',
@@ -983,7 +961,7 @@ describe('deriveSceneOverlays', () => {
 
     expect(decorated.badges.proof).toEqual([
       executionErrorBadge(1),
-      { id: 'pack.proof', glyph: 'Pack', variant: 'label', interactive: false, color: '#7b3fb2' },
+      { id: 'pack.proof', glyph: 'Pack', interactive: false, color: '#7b3fb2', icon: 'info' },
     ])
     expect(decorated.badges.other).toBeUndefined()
     expect(decorated.presentation.proof).toEqual({ color: '#123456', titleSuffix: 'decorated', status: 'ready' })
@@ -991,6 +969,7 @@ describe('deriveSceneOverlays', () => {
     expect(results.map(([id, error]) => [id, error === undefined])).toEqual([
       ['a.invalid', false],
       ['b.accessor', false],
+      ['c.unknown-icon', false],
       ['z.valid', true],
     ])
   })
@@ -1023,26 +1002,34 @@ describe('deriveSceneOverlays', () => {
     expect(m.companions).toEqual({ sink: { number: { value: 0 }, text: { value: '' } } })
   })
 
-  it('adds document problem badges without replacing the runtime error badge', () => {
+  it('adds counted document problem tabs without replacing the runtime error badge', () => {
+    const cause = (kind: 'error' | 'warning', code: string) => ({
+      kind, diagnostic: { severity: kind, origin: 'compile' as const, code, message: code },
+    })
     const m = deriveSceneOverlays({
       ...base,
       scene: scene([{ id: 'n1' }]),
       exec: exec({ nodes: { n1: { state: 'error' } }, errors: [runError('n1')] }),
-      nodeProblems: {
-        n1: [
-          { kind: 'error', diagnostics: [] },
-          { kind: 'blocking-warning', diagnostics: [] },
-          { kind: 'warning', diagnostics: [] },
-        ],
-      },
+      nodeProblems: { n1: [cause('error', 'a'), cause('error', 'b'), cause('warning', 'c')] },
     })
     expect(m.badges['n1']).toEqual([
       executionErrorBadge(1),
-      PROBLEM_ERROR_BADGE,
-      PROBLEM_BLOCKING_WARNING_BADGE,
+      problemBadge(PROBLEM_ERROR_BADGE, 2),
       PROBLEM_WARNING_BADGE,
     ])
-    expect(PROBLEM_ERROR_BADGE.glyph).toBe('Error')
+    expect(m.badges['n1']?.map((badge) => badge.glyph)).toEqual(['Error', 'Error 2', 'Warning'])
+  })
+
+  it('labels the error tab Unavailable with no count while the node cannot run here', () => {
+    const m = deriveSceneOverlays({
+      ...base,
+      scene: scene([{ id: 'n1' }]),
+      nodeProblems: { n1: [
+        { kind: 'error', diagnostic: { severity: 'error', origin: 'compile', code: 'dinksterGraph.nodeUnavailable', message: 'not here' } },
+        { kind: 'error', diagnostic: { severity: 'error', origin: 'compile', code: 'other', message: 'other' } },
+      ] },
+    })
+    expect(m.badges['n1']).toEqual([UNAVAILABLE_BADGE])
   })
 
   it('does not duplicate a pure runtime diagnostic as a document-error badge', () => {
@@ -1053,12 +1040,71 @@ describe('deriveSceneOverlays', () => {
       nodeProblems: {
         n1: [{
           kind: 'error',
-          diagnostics: [{ severity: 'error', origin: 'runtime', code: 'runtime.X', message: 'failed' }],
+          diagnostic: { severity: 'error', origin: 'runtime', code: 'runtime.X', message: 'failed' },
         }],
       },
     })
 
     expect(m.badges['n1']).toEqual([executionErrorBadge(1)])
+  })
+
+  it('draws a run problem without color once its node has changed since the run', () => {
+    const runtimeRow = { kind: 'error' as const, row: 'seed', diagnostic: { severity: 'error' as const, origin: 'runtime' as const, code: 'runtime.X', message: 'failed' } }
+    const compileRow = { kind: 'warning' as const, row: 'steps', diagnostic: { severity: 'warning' as const, origin: 'compile' as const, code: 'c', message: 'c' } }
+    const asked: [string, readonly string[]][] = []
+    const derive = (changed: boolean, frozen = false) => deriveSceneOverlays({
+      ...base,
+      frozen,
+      scene: scene([{ id: 'n1' }, { id: 'n2' }]),
+      exec: exec({ nodes: { n1: { state: 'error' }, n2: { state: 'error' } }, errors: [runError('n1'), runError('n2')] }),
+      nodeProblems: { n1: [runtimeRow, compileRow], n2: [runtimeRow] },
+      rowProblems: { n1: { seed: 'error', steps: 'warning' }, n2: { seed: 'error' } },
+      runChanged: (id, runtimeIds) => { asked.push([id, runtimeIds]); return changed && id === 'n1' },
+    })
+
+    const changed = derive(true)
+    expect(asked).toContainEqual(['n1', ['n1']])
+    expect(changed.states['n1']).toBeUndefined()
+    expect(changed.badges['n1']).toEqual([LAST_RUN_BADGE, PROBLEM_WARNING_BADGE])
+    expect(changed.rowProblems['n1']).toEqual({ steps: 'warning' })
+    expect([...changed.lastRunNodes]).toEqual(['n1'])
+    // The run's details stay readable from the gray tab.
+    expect(changed.runErrorsByNode.get('n1')).toHaveLength(1)
+    // An unchanged node keeps its color.
+    expect(changed.states['n2']?.state).toBe('error')
+    expect(changed.badges['n2']).toEqual([executionErrorBadge(1)])
+    expect(changed.rowProblems['n2']).toEqual({ seed: 'error' })
+
+    const same = derive(false)
+    expect(same.states['n1']?.state).toBe('error')
+    expect(same.badges['n1']).toEqual([executionErrorBadge(1), PROBLEM_WARNING_BADGE])
+    expect(same.rowProblems['n1']).toEqual({ seed: 'error', steps: 'warning' })
+
+    // A frozen tab shows the run as it ran.
+    expect(derive(true, true).badges['n1']).toEqual([executionErrorBadge(1), PROBLEM_WARNING_BADGE])
+  })
+
+  it('judges a subgraph node by the failed nodes inside it', () => {
+    const failedA = occurrenceKey({ instancePath: [asNodeId('sub1')], node: asNodeId('a') })
+    const failedB = occurrenceKey({ instancePath: [asNodeId('sub1')], node: asNodeId('b') })
+    const fine = occurrenceKey({ instancePath: [asNodeId('sub1')], node: asNodeId('c') })
+    const asked: (readonly string[])[] = []
+    const derive = (changed: (ids: readonly string[]) => boolean) => deriveSceneOverlays({
+      ...base,
+      scene: scene([{ id: 'sub1', isSubgraph: true, type: '#def' }]),
+      exec: exec({
+        nodes: { [failedA]: { state: 'error' }, [fine]: { state: 'done' } },
+        errors: [
+          runError('a', ['sub1'], { data: { runtimeId: failedA } }),
+          runError('b', ['sub1'], { data: { runtimeId: failedB } }),
+        ],
+      }),
+      runChanged: (_id, runtimeIds) => { asked.push(runtimeIds); return changed(runtimeIds) },
+    })
+    // An edit to the node that did not fail is not asked about.
+    expect(derive(() => false).badges['sub1']).toContainEqual(executionErrorBadge(2))
+    expect([...asked[0]!].sort()).toEqual([failedA, failedB].sort())
+    expect(derive(() => true).badges['sub1']).toContainEqual(LAST_RUN_BADGE)
   })
 
   it('derives bottom warning and info badges from node-attributed log records', () => {
@@ -1279,31 +1325,8 @@ describe('deriveSceneOverlays', () => {
       scene: scene([{ id: 'first', isSubgraph: true, type: '#shared' }]),
     })
     expect(model.badges.first).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'core.subgraph', glyph: '2', icon: 'boxes', variant: 'label' }),
+      expect.objectContaining({ id: 'core.subgraph', count: 2, icon: 'subgraph', placement: 'title' }),
     ]))
-  })
-
-  it('resolves recorded selector choices on frozen tabs only, filtered to the current graph', () => {
-    const artifact = {
-      choices: [
-        { graph: 'g0', selector: 'sel', candidate: 'c1' },
-        { graph: 'other', selector: 'x', candidate: 'y' },
-      ],
-      provenance: {},
-    }
-    const frozen = deriveSceneOverlays({ ...base, frozen: true, exec: exec({ artifact }) })
-    expect(frozen.selectorResolutions).toEqual(new Map([['sel', 'c1']]))
-    // Live tabs never get resolutions - the document is editable.
-    const live = deriveSceneOverlays({ ...base, frozen: false, exec: exec({ artifact }) })
-    expect(live.selectorResolutions).toBeUndefined()
-    // No choice in this graph: undefined, not an empty map.
-    const elsewhere = deriveSceneOverlays({
-      ...base,
-      frozen: true,
-      graphId: 'g9',
-      exec: exec({ artifact }),
-    })
-    expect(elsewhere.selectorResolutions).toBeUndefined()
   })
 
   it('wraps a decoded retained preview as cached without mutating the shared decode', () => {

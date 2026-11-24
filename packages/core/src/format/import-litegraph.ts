@@ -14,10 +14,11 @@
  * - Reroute nodes: preserved as first-class reroutes (topology + position);
  *   chains fed by GetNodes collapse into net sinks since nets are port-only
  * - KJNodes SetNode/GetNode pairs: converted to named nets (first-class here)
- * - frontend PrimitiveNode: converted to a value source (value + controller
- *   from widgets_values; the effective spec derives from consumers, exactly
- *   how the legacy node adopted its widget - architecture 5b). Backend
- *   PrimitiveInt/Float/... are ordinary compute nodes and import as nodes.
+ * - frontend PrimitiveNode: converted to the primitive node a wire dragged
+ *   off its first consumer's field makes (Int, Float, Text, Boolean, Choice,
+ *   or the general Primitive), with value and controller from
+ *   widgets_values. Backend PrimitiveInt/Float/... are ordinary compute
+ *   nodes and import as nodes.
  * - Note/MarkdownNote nodes: translated to frontend virtual nodes
  * - groups: imported as view groups
  * - node sizes are not imported for executable nodes; note geometry is
@@ -25,7 +26,6 @@
  */
 
 import { canonicalJson } from '../compile/hash.js'
-import { typedLiteralWire } from '../compile/dinkster-graph.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
   allRowsOf,
@@ -58,6 +58,7 @@ import { validateDocumentShape } from './validate.js'
 import { checkDocument } from '../invariants.js'
 import { isPortEndpoint } from '../ids.js'
 import { isAssetRefValue } from '../schema/widget-defaults.js'
+import { primitiveForField, primitiveOf } from '../primitive.js'
 import { importLitegraphSubgraphs } from './import-litegraph-subgraphs.js'
 import { convertLitegraphListConsumers } from './import-litegraph-loops.js'
 import { createTransactionBuilder } from '../commands/contract.js'
@@ -586,6 +587,56 @@ function decodePositionalWidgets(
   }
 }
 
+/** Save Video's rows that ComfyUI's widget stream fills, found by id. */
+interface SaveVideoRows {
+  readonly prefix: PlacedRow
+  readonly format: ChoiceSpec
+  readonly mount?: PlacedRow
+}
+
+/**
+ * Save Video's rows when the served node has exactly the filename prefix,
+ * the format choice and an optional save mount taking positions; any other
+ * layout decodes in plain order.
+ */
+const saveVideoRowsOf = (schema: NodeSchema): SaveVideoRows | undefined => {
+  const rows = positionalRowsOf(schema).filter(takesPositions)
+  const prefix = rows.find((row) => row.id === 'filename_prefix')
+  const format = rows.find((row) => row.id === 'format')
+  const mount = rows.find((row) => row.id === 'mount')
+  if (prefix?.kind !== 'input' || prefix.type.kind !== 'concrete' || prefix.type.name !== 'STRING' ||
+    prefix.widget?.widgetType !== 'STRING' || prefix.widget.controller !== undefined) return undefined
+  if (format?.kind !== 'choice' || format.leader !== undefined) return undefined
+  if (mount !== undefined && (mount.kind !== 'input' || !mount.optional || mount.widget?.controller !== undefined)) return undefined
+  if (rows.length !== (mount === undefined ? 2 : 3)) return undefined
+  return { prefix, format, ...(mount !== undefined ? { mount } : {}) }
+}
+
+/**
+ * ComfyUI's Save Video stream holds the filename prefix, the format with its
+ * rows, and then a hidden top-level codec with its rows, which this node does
+ * not have. The hidden codec's values are read past and stored nowhere, so a
+ * save mount appended after them still takes the last position.
+ */
+function decodeSaveVideoWidgets(
+  rows: SaveVideoRows,
+  raw: readonly Json[],
+  state: PositionalWidgetDecode,
+  nodeLabel: string,
+  diags: Diagnostic[],
+): void {
+  decodePositionalWidgets([rows.prefix, rows.format], raw, state, '', nodeLabel, diags)
+  const codec = sharedRowsOf(rows.format).get('codec')
+  if (!state.stopped && codec?.kind === 'choice' && codec.options.some((option) => option.key === raw[state.index])) {
+    const skipped: PositionalWidgetDecode = { values: {}, controllers: {}, dynamic: {}, index: state.index, stopped: false }
+    decodePositionalWidgets([codec], raw, skipped, '', nodeLabel, [])
+    state.index = skipped.index
+  }
+  if (!state.stopped && rows.mount !== undefined && state.index < raw.length) {
+    decodePositionalWidgets([rows.mount], raw, state, '', nodeLabel, diags)
+  }
+}
+
 const inputPortForSchema = (node: LgNode, slot: number, schema: NodeSchema): string | undefined => {
   const foreignInput = node.inputs?.[slot]
   if (foreignInput === undefined) return undefined
@@ -646,7 +697,7 @@ const fnv1a = (s: string): string => {
 function freshImportHelpers(rule: ReplacementRule, graph: GraphDef, nodeId: string): ReplacementRule {
   if (!rule.cases.some((branch) => Object.keys(branch.nodes ?? {}).length > 0)) return rule
   const occupied = new Set([
-    graph.nodes, graph.links, graph.nets, graph.reroutes, graph.valueSources ?? {}, graph.selectors ?? {},
+    graph.nodes, graph.links, graph.nets, graph.reroutes,
   ].flatMap((entities) => Object.keys(entities)))
   return { ...rule, cases: rule.cases.map((branch) => {
     if (branch.nodes === undefined) return branch
@@ -693,7 +744,10 @@ export function importLitegraph(
   resolve: (type: string) => NodeSchema | undefined,
   upgrades: ComfyNodeUpgradeTable = COMFY_NODE_UPGRADES,
   translations: readonly ComfyTranslation[] = [],
+  /** Installed schemas; a frontend PrimitiveNode becomes one of their primitives. */
+  schemas: Iterable<NodeSchema> = [],
 ): ImportLitegraphResult {
+  const primitives = [...schemas].filter((schema) => primitiveOf(schema) !== undefined)
   const ingress = ownJson(input)
   if (!ingress.ok) return { diagnostics: [imp('error', 'import.notJson', `workflow rejected: ${ingress.reason}`)] }
   const ambiguous = new Set<string>()
@@ -716,7 +770,7 @@ export function importLitegraph(
     const schema = resolveForImport(type)
     return schema?.type === type ? schema : undefined
   }, (graph, localResolve, definitions) =>
-    importLitegraphGraph(graph, localResolve, definitions, upgrades))
+    importLitegraphGraph(graph, localResolve, definitions, upgrades, primitives))
   if (!result.document) return result
   let document = result.document
   const diagnostics = [...result.diagnostics]
@@ -810,31 +864,34 @@ export function resolveImportedAssetLiterals(
         values[item.id] = asset as Json
       }
       return [nodeId, values === undefined ? node : { ...node, values }]
-    })) as GraphDef['nodes']
-    let valueSources = graph.valueSources
-    for (const [sourceId, source] of Object.entries(graph.valueSources ?? {})) {
-      if (typeof source.value !== 'string') continue
-      const targets = Object.values(graph.links).flatMap((link) => {
-        if (!('valueSource' in link.from) || link.from.valueSource !== sourceId || !isPortEndpoint(link.to)) return []
+    })) as Record<string, GraphDef['nodes'][string]>
+    // A primitive's value names an asset when every wire it drives ends on an asset field.
+    for (const [nodeId, node] of Object.entries(nodes)) {
+      const schema = resolve(node.type)
+      const shape = schema && primitiveOf(schema)
+      const value = shape && node.values[shape.value.id]
+      if (shape === undefined || isAssetWidgetInput(shape.value) || typeof value !== 'string') continue
+      const outgoing = Object.values(graph.links).filter((link) =>
+        isPortEndpoint(link.from) && link.from.node === nodeId && link.from.port === shape.output.id)
+      const targets = outgoing.flatMap((link) => {
+        if (!isPortEndpoint(link.to)) return []
         const target = link.to
-        const node = nodes[target.node]
-        const schema = node === undefined ? undefined : resolve(node.type)
-        const input = schema === undefined ? undefined : inputsOf(schema).find((item) => item.id === target.port)
+        const consumer = nodes[target.node]
+        const consumerSchema = consumer === undefined ? undefined : resolve(consumer.type)
+        const input = consumerSchema === undefined ? undefined : inputsOf(consumerSchema).find((item) => item.id === target.port)
         return input !== undefined && isAssetWidgetInput(input) && input.widget?.selection !== true
           ? [{ nodeId: target.node, inputId: target.port }]
           : []
       })
-      const outgoing = Object.values(graph.links).filter((link) =>
-        'valueSource' in link.from && link.from.valueSource === sourceId)
       if (targets.length === 0 || targets.length !== outgoing.length) continue
-      const asset = assetForName(source.value)
+      const asset = assetForName(value)
       if (!isAssetRefValue(asset)) {
-        unresolved.push(...targets.map((target) => ({ graphId, ...target, name: source.value as string })))
+        unresolved.push(...targets.map((target) => ({ graphId, ...target, name: value })))
         continue
       }
-      valueSources = { ...valueSources, [sourceId]: { ...source, value: asset as Json } }
+      nodes[nodeId] = { ...node, values: { ...node.values, [shape.value.id]: asset as Json } }
     }
-    return [graphId, { ...graph, nodes, ...(valueSources === undefined ? {} : { valueSources }) }]
+    return [graphId, { ...graph, nodes }]
   })) as WorkflowDocument['graphs']
   return { document: { ...document, graphs }, unresolved }
 }
@@ -844,6 +901,7 @@ function importLitegraphGraph(
   resolve: (type: string) => NodeSchema | undefined,
   definitions: WorkflowDocument['graphs'],
   upgrades: ComfyNodeUpgradeTable,
+  primitives: readonly NodeSchema[],
 ): ImportLitegraphResult {
   // Ownership boundary (CO1/CO9): the workflow is foreign input. Owning it
   // up front rejects accessors/proxies/cycles/non-finite numbers (e.g. an
@@ -1189,8 +1247,11 @@ function importLitegraphGraph(
     }
     ueTargets.set(key, entry)
   }
+  // A frontend PrimitiveNode becomes the primitive chosen below, before the nodes are built.
+  const primitiveSchemas = new Map<number, NodeSchema>()
   const importedNodeType = (node: LgNode): string =>
-    node.type === UE_SEED_CONTROLLER_TYPE && ueControllerIds.has(node.id) ? 'PrimitiveInt' : node.type
+    node.type === UE_SEED_CONTROLLER_TYPE && ueControllerIds.has(node.id) ? 'PrimitiveInt'
+      : primitiveSchemas.get(node.id)?.type ?? node.type
   const resolveImported = (node: LgNode): NodeSchema | undefined =>
     resolve(importedNodeType(node))
 
@@ -1203,7 +1264,6 @@ function importLitegraphGraph(
   type Upstream =
     | { kind: 'origin'; node: number; slot: number }
     | { kind: 'net'; name: string }
-    | { kind: 'valueSource'; id: number }
 
   const netName = (n: LgNode): string | undefined => {
     const v = Array.isArray(n.widgets_values) ? n.widgets_values[0] : undefined
@@ -1219,9 +1279,6 @@ function importLitegraphGraph(
       const name = getNames.get(src.id)
       if (name === undefined) return undefined
       return { kind: 'net', name }
-    }
-    if (PRIMITIVE_TYPES.has(src.type)) {
-      return { kind: 'valueSource', id: src.id }
     }
     if (!REROUTE_TYPES.has(src.type) && !SET_TYPES.has(src.type)) {
       return { kind: 'origin', node: wire.fromNode, slot: wire.fromSlot }
@@ -1322,13 +1379,9 @@ function importLitegraphGraph(
   }
 
   const setSources = new Map<string, { node: number; slot: number }>()
-  // Nets are port-only: a net fed by a PrimitiveNode instead collapses into
-  // direct value-source links to every sink (same delivered value).
-  const netPrimitiveSources = new Map<string, number>() // name -> lg primitive id
   const resolveNetSource = (name: string, chain: Set<string>): { node: number; slot: number } | undefined => {
     const cached = setSources.get(name)
     if (cached) return cached
-    if (netPrimitiveSources.has(name)) return undefined
     const inLink = setInputs.get(name)
     if (inLink === undefined) return undefined
     const up = resolveUpstream(inLink)
@@ -1341,12 +1394,7 @@ function importLitegraphGraph(
       chain.add(name)
       const src = resolveNetSource(up.name, chain)
       if (src) setSources.set(name, src)
-      else if (netPrimitiveSources.has(up.name)) netPrimitiveSources.set(name, netPrimitiveSources.get(up.name)!)
       return src
-    }
-    if (up.kind === 'valueSource') {
-      netPrimitiveSources.set(name, up.id)
-      return undefined
     }
     const src = { node: up.node, slot: up.slot }
     setSources.set(name, src)
@@ -1408,8 +1456,6 @@ function importLitegraphGraph(
     }
     const source = setSources.get(name)
     if (source !== undefined) addType(byId.get(source.node)?.outputs?.[source.slot]?.type)
-    const primitive = netPrimitiveSources.get(name)
-    if (primitive !== undefined) addType(byId.get(primitive)?.outputs?.[0]?.type)
     if (malformedType) {
       diags.push(imp('error', 'import.net.typeMismatch', `Set/Get net '${name}' has a malformed serialized type`))
     } else if (types.size > 1) {
@@ -1427,7 +1473,6 @@ function importLitegraphGraph(
     | { kind: 'port'; node: number; slot: number }
     | { kind: 'reroute'; id: number }
     | { kind: 'net'; name: string }
-    | { kind: 'valueSource'; id: number }
 
   const droppedCycleLinks = new Set<number>()
   const rerouteFeed = new Map<number, Feed | undefined>()
@@ -1444,9 +1489,6 @@ function importLitegraphGraph(
       const name = getNames.get(src.id)
       if (name === undefined) return undefined
       return { kind: 'net', name }
-    }
-    if (PRIMITIVE_TYPES.has(src.type)) {
-      return { kind: 'valueSource', id: src.id }
     }
     if (REROUTE_TYPES.has(src.type)) {
       const feed = classifyReroute(src.id)
@@ -1557,10 +1599,85 @@ function importLitegraphGraph(
     return { x: 0, y: 0 }
   }
 
+  // A PrimitiveNode takes the widget of the first field it feeds, through
+  // reroutes and Set/Get nets, so it becomes the primitive a wire dragged off
+  // that field makes.
+  const originOf = (linkId: number): number | undefined => {
+    const seen = new Set<number>()
+    for (let current: number | null | undefined = linkId; current !== null && current !== undefined;) {
+      const src = byId.get(wires.get(current)?.fromNode ?? -1)
+      if (src === undefined) return undefined
+      if (GET_TYPES.has(src.type)) {
+        const name = getNames.get(src.id)
+        return name === undefined ? undefined : setSources.get(name)?.node
+      }
+      if (!REROUTE_TYPES.has(src.type) && !SET_TYPES.has(src.type)) return src.id
+      if (seen.has(src.id)) return undefined
+      seen.add(src.id)
+      current = src.inputs?.[0]?.link
+    }
+    return undefined
+  }
+  const fedField = new Map<number, InputSpec | undefined>()
+  for (const [lgId, wire] of [...wires].sort(([a], [b]) => a - b)) {
+    const consumer = byId.get(wire.toNode)
+    if (consumer === undefined || REROUTE_TYPES.has(consumer.type) || SET_TYPES.has(consumer.type) ||
+      GET_TYPES.has(consumer.type) || NOTE_TYPES.has(consumer.type) || PRIMITIVE_TYPES.has(consumer.type)) continue
+    const origin = originOf(lgId)
+    if (origin === undefined || !PRIMITIVE_TYPES.has(byId.get(origin)?.type ?? '') || fedField.has(origin)) continue
+    const schema = resolveImported(consumer)
+    const port = schema === undefined ? undefined : inputPortForSchema(consumer, wire.toSlot, schema)
+    fedField.set(origin, port === undefined ? undefined : inputsOf(schema!).find((item) => item.id === port))
+  }
+  const generalPrimitive = primitives.find((schema) => primitiveOf(schema)!.value.type.kind === 'variable')
+  for (const n of byId.values()) {
+    if (!PRIMITIVE_TYPES.has(n.type)) continue
+    // When the fed field names no type, as a subgraph boundary does, the
+    // output type the adopted widget gave the PrimitiveNode chooses instead.
+    const fed = fedField.get(n.id)
+    const outputType = n.outputs?.[0]?.type
+    const field = fed?.widget !== undefined || fed?.type.kind === 'concrete' || typeof outputType !== 'string' || outputType === '*'
+      ? fed
+      : { kind: 'input', id: 'value', type: { kind: 'concrete', name: outputType }, optional: false } satisfies InputSpec
+    const schema = field === undefined ? generalPrimitive : primitiveForField(primitives, field)
+    if (schema !== undefined) primitiveSchemas.set(n.id, schema)
+  }
+  const wiredSources = new Set<number>()
+  for (const w of wires.values()) wiredSources.add(w.fromNode)
+  let convertedPrimitives = 0
+  let droppedPrimitives = 0
+
   for (const n of byId.values()) {
     maxOrdinal = Math.max(maxOrdinal, n.id)
     if (REROUTE_TYPES.has(n.type) || SET_TYPES.has(n.type) || GET_TYPES.has(n.type) || droppedUeControllerIds.has(n.id)) continue
-    if (PRIMITIVE_TYPES.has(n.type)) continue // materialized as value sources below
+    if (PRIMITIVE_TYPES.has(n.type)) {
+      // widgets_values = [value, controllerMode?] once a widget was adopted.
+      const raw = Array.isArray(n.widgets_values) ? n.widgets_values : []
+      const schema = primitiveSchemas.get(n.id)
+      const shape = schema && primitiveOf(schema)
+      if (shape === undefined || (raw.length === 0 && !wiredSources.has(n.id))) {
+        // Never adopted a widget and drives nothing, or no primitive node is installed.
+        droppedPrimitives++
+        continue
+      }
+      const id = `n${n.id}`
+      const mode = raw[1]
+      const controller = typeof mode === 'string' && CONTROLLER_MODES.has(mode) ? (mode as ControllerMode) : undefined
+      const nodeMode = n.mode === 2 ? 'muted' : n.mode === 4 ? 'bypassed' : undefined
+      const title = typeof n.title === 'string' && n.title !== n.type && n.title !== 'Primitive' && n.title !== schema!.displayName ? n.title : undefined
+      nodes[id] = {
+        id,
+        type: schema!.type,
+        values: raw.length > 0 ? { [shape.value.id]: raw[0] as Json } : {},
+        ...(controller ? { controllers: { [shape.value.id]: controller } } : {}),
+        ...(nodeMode ? { mode: nodeMode } : {}),
+        ...(title !== undefined ? { title } : {}),
+      }
+      viewNodes[id] = { position: posOf(n), ...(n.flags?.collapsed === true ? { collapsed: true } : {}) }
+      importedOutputEndpoints.set(n.id, new Map([[0, { node: id, port: shape.output.id }]]))
+      convertedPrimitives++
+      continue
+    }
     if (NOTE_TYPES.has(n.type)) {
       const text = Array.isArray(n.widgets_values) ? n.widgets_values[0] : undefined
       const id = `n${n.id}`
@@ -1632,13 +1749,9 @@ function importLitegraphGraph(
         : Object.entries(raw ?? {}).filter(([name]) => name.startsWith('option')).map(([, value]) => value)
       dynamic['choice'] = { options: authored.filter((value) =>
         typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)) }
+      // INDEX is the choice's position among the authored options, so a stored index is not kept.
       if (index !== undefined) {
-        if (typeof index === 'number' && Number.isSafeInteger(index)) {
-          values['index'] = typedLiteralWire('INT', index) as Json
-          additionalInputs.push('index')
-        } else {
-          diags.push(imp('error', 'import.combo.index', `node ${n.id} ('${n.type}'): authored index must be an integer`))
-        }
+        diags.push(imp('info', 'import.combo.index', `node ${n.id} ('${n.type}'): its stored index is not kept; INDEX is the choice's position among its options`))
       }
       if (raw !== undefined) {
         if (Array.isArray(raw)) ext['importer.rawWidgetValues'] = raw
@@ -1653,32 +1766,27 @@ function importLitegraphGraph(
       let raw = n.widgets_values
       const sourceVersion = n.properties?.['ver']
       const hasExactUpgrade = typeof sourceVersion === 'string' && upgrades.get(n.type)?.has(sourceVersion) === true
-      if (n.type === 'SaveVideo' && !hasExactUpgrade && raw.length === 3 &&
+      const saveVideo = n.type === 'SaveVideo' ? saveVideoRowsOf(schema) : undefined
+      if (saveVideo !== undefined && !hasExactUpgrade && raw.length === 3 &&
         typeof raw[0] === 'string' && typeof raw[1] === 'string' && typeof raw[2] === 'string') {
-        const [prefix, format, codec, mount, ...rest] = positionalRowsOf(schema).filter(takesPositions)
-        const layoutMatches = prefix?.kind === 'input' && prefix.id === 'filename_prefix' && prefix.type.kind === 'concrete' && prefix.type.name === 'STRING' &&
-          prefix.widget?.widgetType === 'STRING' && prefix.widget.controller === undefined &&
-          format?.kind === 'choice' && format.id === 'format' && codec?.id === 'codec' && rest.length === 0 &&
-          (mount === undefined || mount.kind === 'input' && mount.id === 'mount' && mount.optional && mount.widget?.controller === undefined)
-        const branch = layoutMatches && format?.kind === 'choice' && format.leader === undefined
-          ? format.options.find((option) => option.key === raw[1]) : undefined
-        const nestedCodec = branch === undefined || format?.kind !== 'choice'
+        const branch = saveVideo.format.options.find((option) => option.key === raw[1])
+        const codec = branch === undefined
           ? undefined
-          : placedRows(branch.rows, sharedRowsOf(format)).find((item) => item.id === 'codec')
-        if (codec?.kind === 'choice' && codec.leader === undefined &&
-          codec.options.some((option) => option.key === raw[2]) &&
-          nestedCodec?.kind === 'choice' && nestedCodec.leader === undefined &&
-          nestedCodec.options.some((option) => option.key === raw[2])) {
-          // The served layout, not an unlisted version, establishes the two
-          // codec choices. Preserve the authored version in the import record.
-          const encoding = raw[2] === 'auto' ? [] : ['auto']
-          raw = [...raw, ...encoding, raw[2], ...encoding]
+          : placedRows(branch.rows, sharedRowsOf(saveVideo.format)).find((item) => item.id === 'codec')
+        if (codec?.kind === 'choice' && codec.leader === undefined && codec.options.some((option) => option.key === raw[2])) {
+          // The served layout, not an unlisted version, establishes the
+          // three-widget stream, which predates the encoding mode: a codec
+          // other than auto then encoded automatically. Preserve the authored
+          // version in the import record.
+          raw = [...raw, ...(raw[2] === 'auto' ? [] : ['auto'])]
           ext['importer.inferredWidgetLayout'] = { layout: 'SaveVideo:filename_prefix,format,codec', sourceVersion: sourceVersion ?? null }
           diags.push(imp('info', 'import.widgets.layoutInferred', `node ${n.id} ('SaveVideo'): recognized the three-widget layout; stored version ${sourceVersion === undefined ? 'absent' : JSON.stringify(sourceVersion)}`))
         }
       }
       const state: PositionalWidgetDecode = { values, controllers, dynamic, index: 0, stopped: false }
-      decodePositionalWidgets(positionalRowsOf(schema), raw, state, '', `node ${n.id} ('${n.type}')`, diags)
+      const nodeLabel = `node ${n.id} ('${n.type}')`
+      if (saveVideo !== undefined) decodeSaveVideoWidgets(saveVideo, raw, state, nodeLabel, diags)
+      else decodePositionalWidgets(positionalRowsOf(schema), raw, state, '', nodeLabel, diags)
       if (state.index < raw.length) {
         diags.push(imp('warning', 'import.widgets.excess', `node ${n.id} ('${n.type}'): ${raw.length - state.index} positional widget value(s) beyond the current schema; kept raw for review`))
         ext['importer.excessWidgetValues'] = raw.slice(state.index) as Json
@@ -1691,6 +1799,10 @@ function importLitegraphGraph(
       const state: PositionalWidgetDecode = { values, controllers, dynamic, index: 0, stopped: false }
       const keyed = n.widgets_values as Readonly<Record<string, Json>>
       decodeKeyedWidgets(placedRows(schema.body), keyed, state, '', known)
+      if (n.type === 'SaveVideo' && saveVideoRowsOf(schema) !== undefined) {
+        // ComfyUI's hidden top-level codec has no row here; its values are stored nowhere.
+        for (const key of Object.keys(keyed)) if (key === 'codec' || key.startsWith('codec.')) known.add(key)
+      }
       const unknown: Record<string, Json> = {}
       for (const [k, v] of Object.entries(keyed)) {
         if (!known.has(k)) unknown[k] = v as Json
@@ -1886,40 +1998,11 @@ function importLitegraphGraph(
     diags.push(imp('warning', 'import.reroute.absorbed', `${absorbedReroutes.size} Reroute node(s) feeding only SetNodes absorbed into their nets (nets deliver straight from the producing output)`))
   }
 
-  // -- Value sources (legacy frontend PrimitiveNode) ------------------------------
-  // widgets_values = [value, controllerMode?] once a widget was adopted. The
-  // declared spec stays empty: the effective spec derives from consumers,
-  // which is exactly the legacy adoption semantics - minus the mutation.
-  const valueSources: Record<string, Json> = {}
-  const viewValueSources: Record<string, Json> = {}
-  const wiredSources = new Set<number>()
-  for (const w of wires.values()) wiredSources.add(w.fromNode)
-  let droppedPrimitives = 0
-  for (const n of byId.values()) {
-    if (!PRIMITIVE_TYPES.has(n.type)) continue
-    const raw = Array.isArray(n.widgets_values) ? n.widgets_values : []
-    if (raw.length === 0 && !wiredSources.has(n.id)) {
-      // Never adopted a widget and drives nothing: there is no value to keep.
-      droppedPrimitives++
-      continue
-    }
-    const id = `v${n.id}`
-    const mode = raw[1]
-    const controller = typeof mode === 'string' && CONTROLLER_MODES.has(mode) ? (mode as ControllerMode) : undefined
-    const title = typeof n.title === 'string' && n.title !== n.type && n.title !== 'Primitive' ? n.title : undefined
-    valueSources[id] = {
-      id,
-      value: (raw.length > 0 ? raw[0] : null) as Json,
-      ...(controller ? { controller } : {}),
-      ...(title !== undefined ? { title } : {}),
-    }
-    viewValueSources[id] = { position: posOf(n) }
-  }
-  if (Object.keys(valueSources).length > 0) {
-    diags.push(imp('info', 'import.primitive.converted', `${Object.keys(valueSources).length} PrimitiveNode(s) imported as value sources`))
+  if (convertedPrimitives > 0) {
+    diags.push(imp('info', 'import.primitive.converted', `${convertedPrimitives} PrimitiveNode(s) imported as primitive nodes`))
   }
   if (droppedPrimitives > 0) {
-    diags.push(imp('warning', 'import.primitive.dropped', `${droppedPrimitives} never-connected PrimitiveNode(s) had no value to keep; dropped`))
+    diags.push(imp('warning', 'import.primitive.dropped', `${droppedPrimitives} PrimitiveNode(s) had no value to keep or no installed primitive to become; dropped`))
   }
 
   // -- Links --------------------------------------------------------------------
@@ -1937,9 +2020,7 @@ function importLitegraphGraph(
   const fromEndpoint = (feed: Exclude<Feed, { kind: 'net' }>): JsonObject | undefined =>
     feed.kind === 'reroute'
       ? { reroute: `r${feed.id}` }
-      : feed.kind === 'valueSource'
-        ? { valueSource: `v${feed.id}` }
-        : importedOutputEndpoints.get(feed.node)?.get(feed.slot)
+      : importedOutputEndpoints.get(feed.node)?.get(feed.slot)
 
   const links: Record<string, Json> = {}
   const netSinks = new Map<string, JsonObject[]>()
@@ -1986,14 +2067,6 @@ function importLitegraphGraph(
     if (feed === undefined) continue // dangling sugar chain: nothing to connect
 
     if (feed.kind === 'net') {
-      // Primitive-sourced nets collapse into direct value-source links
-      // (nets are port-only; the delivered value is identical).
-      const prim = netPrimitiveSources.get(feed.name)
-      if (prim !== undefined) {
-        const id = `l${lgId}`
-        links[id] = { id, from: { valueSource: `v${prim}` }, to: toEndpoint }
-        continue
-      }
       // A sink of the named net (if its Set half resolved).
       if (!setSources.has(feed.name)) {
         continue
@@ -2014,12 +2087,9 @@ function importLitegraphGraph(
   const nets: Record<string, Json> = {}
   let netCount = 0
   for (const name of setInputs.keys()) {
-    if (!setSources.has(name) && !netPrimitiveSources.has(name)) {
+    if (!setSources.has(name)) {
       diags.push(imp('error', 'import.net.unresolved', `net '${name}' has no resolvable source`))
     }
-  }
-  if (netPrimitiveSources.size > 0) {
-    diags.push(imp('info', 'import.net.primitiveSource', `${netPrimitiveSources.size} PrimitiveNode-fed Set/Get net(s) collapsed into direct value-source connections (nets are port-only)`))
   }
   for (const [name, src] of setSources) {
     const source = importedOutputEndpoints.get(src.node)?.get(src.slot)
@@ -2117,7 +2187,6 @@ function importLitegraphGraph(
         links,
         nets,
         reroutes,
-        ...(Object.keys(valueSources).length > 0 ? { valueSources } : {}),
         nextOrdinal: maxOrdinal + 1,
       },
     },
@@ -2127,9 +2196,6 @@ function importLitegraphGraph(
           nodes: viewNodes,
           ...(Object.keys(viewReroutes).length > 0
             ? { reroutes: viewReroutes }
-            : {}),
-          ...(Object.keys(viewValueSources).length > 0
-            ? { valueSources: viewValueSources }
             : {}),
           ...(Object.keys(groups).length > 0 ? { groups } : {}),
         },

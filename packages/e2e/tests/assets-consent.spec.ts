@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { expect, nativeTest as test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 
 const digest = (character: string) => `blake3:${character.repeat(64)}`
@@ -24,7 +24,7 @@ async function prepare(page: Page): Promise<void> {
     return backend?.registry.get() !== undefined && backend.connection.status.get() === 'connected' &&
       backend.schemaState.get().status === 'ready'
   })).toBe(true)
-  await waitForStartupOwnership(page)
+  await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AssetConsentOutput', displayName: 'Asset consent output', category: 'test', source: 'v3', isOutputNode: true, body: [],

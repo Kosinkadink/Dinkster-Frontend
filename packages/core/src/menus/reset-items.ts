@@ -19,7 +19,8 @@
  *   disabled when none of them are modified.
  */
 
-import { documentNodeResolver } from '../compile/compile.js'
+import { documentNodeResolver, documentPrimitiveResolver } from '../compile/compile.js'
+import { primitiveOf } from '../primitive.js'
 import type { Json } from '../format/document.js'
 import { elaborateInterface } from '../schema/elaborate.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
@@ -38,7 +39,7 @@ function resettableOf(
   if (!base) return undefined
   const node = ctx.doc.graphs[ctx.graphId]?.nodes[nodeId]
   if (!node) return undefined
-  const schema = documentNodeResolver(ctx.doc, base)(ctx.graphId, node)
+  const schema = documentNodeResolver(ctx.doc, base, documentPrimitiveResolver(ctx.doc, base))(ctx.graphId, node)
   if (!schema) return undefined
   return resettableWidgetsOf(elaborateInterface(schema, node), node.values)
 }
@@ -115,5 +116,45 @@ export function resetMenuContributions(
     },
   }
 
-  return [widgetReset, sectionReset, nodeReset]
+  // A primitive's own limit fields: Pin the range writes the worked-out
+  // minimum, maximum and step into them; Use connected fields empties them,
+  // so the range follows the fields the primitive feeds again.
+  const primitiveRange: MenuContribution = {
+    id: 'core.primitive.range',
+    targets: ['node', 'widget'],
+    group: GROUP,
+    resolve(ctx) {
+      const t = ctx.target
+      if (t.kind !== 'node' && t.kind !== 'widget') return []
+      const base = getResolver()
+      const node = ctx.doc.graphs[ctx.graphId]?.nodes[t.nodeId]
+      const schema = base && node ? base(node.type) : undefined
+      const shape = schema && primitiveOf(schema)
+      if (!base || !node || !shape || (t.kind === 'widget' && t.inputId !== shape.value.id)) return []
+      const numeric = (['min', 'max', 'step'] as const).flatMap((limit) => {
+        const inputId = shape.limits[limit]
+        return inputId === undefined ? [] : [[limit, inputId] as const]
+      })
+      if (numeric.length === 0) return []
+      const effective = documentPrimitiveResolver(ctx.doc, base)(ctx.graphId, node)
+      const pinned: Record<string, Json> = {}
+      for (const [limit, inputId] of numeric) {
+        const value = effective?.spec?.options[limit]
+        if (effective?.derived.has(limit) && typeof value === 'number') pinned[inputId] = value
+      }
+      const explicit = numeric.filter(([, inputId]) => node.values[inputId] !== undefined).map(([, inputId]) => inputId)
+      const setValues = (values: Record<string, Json>, unset: readonly string[]) => ({
+        kind: 'command' as const,
+        invocation: { command: 'node.setValues', params: { graphId: ctx.graphId, nodeId: t.nodeId, values, unset: [...unset] } },
+      })
+      return [
+        { id: 'core.primitive.pinRange', label: 'Pin the range', action: setValues(pinned, []),
+          ...(Object.keys(pinned).length === 0 ? { disabled: true } : {}) },
+        { id: 'core.primitive.useConnected', label: 'Use connected fields', action: setValues({}, explicit),
+          ...(explicit.length === 0 ? { disabled: true } : {}) },
+      ]
+    },
+  }
+
+  return [widgetReset, sectionReset, nodeReset, primitiveRange]
 }

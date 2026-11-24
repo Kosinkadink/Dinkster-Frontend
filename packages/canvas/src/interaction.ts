@@ -31,8 +31,12 @@
  * - node border: drag any corner/edge = ghost preview, ONE atomic
  *   view.setNodeSize (position + size) on release
  * - double-click on a link: ask the host for reroute vs node-splice menu
- * - double-click on a subgraph node: host.onOpenSubgraph
- * - double-click on an ordinary node: toggle minimized state for its selection
+ * - title-bar minimize arrow: click toggles minimized state (the whole
+ *   selection when the node is selected, else that node alone); a drag from
+ *   it moves the node like the rest of the title bar
+ * - subgraph mark: click = host.onBadgeClick, double-click =
+ *   host.onOpenSubgraph; a drag from it moves the node
+ * - double-click on a node's title: toggle minimized state for its selection
  * - double-click on empty canvas: host.onOpenPalette
  * - right-click: select the item under the cursor (preserving an existing
  *   multi-selection that contains it), then host.onContextMenu
@@ -41,10 +45,14 @@
 
 import {
   canonicalTypeIdOf,
+  groupBoxKey,
   hasKnownLinkDropAnchorType,
+  dragNumericValue,
   isIntegerWidgetValue,
   numericStepConstraints,
+  numericStepPrecision,
   stepNumericValue,
+  type IntegerWidgetValue,
   typesCompatible,
   type CommandInvocation,
   type Json,
@@ -56,12 +64,13 @@ import {
   type TypeExpr,
   type WidgetSpec,
 } from '@dinkster/core'
-import { hitTestBadge, type BadgeHit, type BadgeRect, type NodeBadge } from './badges.js'
-import { controllerChipContains, WIDGET_EDGE_CONTROL_WIDTH } from './controller-chip.js'
+import { hitTestBadge, SUBGRAPH_BADGE, type BadgeHit, type BadgeRect, type NodeBadge } from './badges.js'
+import { controllerChipContains } from './controller-chip.js'
+import { subgraphMarkRect } from './registry-painter.js'
 import { hitTestToolbox, insideToolbox, type ToolboxButtonRect } from './toolbox.js'
-import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, pinPosition, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
-import { canvasPaintTokens } from './tokens.js'
-import { BOUNDARY_ADD_SLOT, type PinLayout } from './layout.js'
+import { hitTest, hitTestRerouteRevealZone, hoveredNodeAt, minimizeArrowRect, pinPosition, previewEdgeShown, PIN_HIT_RADIUS, type Hit, type HitOptions, type ResizeHandle } from './hit.js'
+import { canvasPaintTokens, type DesignTokens } from './tokens.js'
+import { BOUNDARY_ADD_SLOT, clampTextBoxLines, memberSpans, multilineWidgetHeight, projectPictureHeight, projectTextBoxLines, type LayoutRow, type MemberGrip, type PinLayout } from './layout.js'
 import { PointerTrace, type PointerTraceEntry, type PointerTraceReason } from './pointer-trace.js'
 import { touchNavViewport } from './touch-nav.js'
 import { wheelNavigationViewport, type WheelNavigationMode } from './zoom.js'
@@ -69,27 +78,21 @@ import {
   boundaryTargetKey,
   dropTargetKey,
   rerouteTargetKey,
-  selectorInTargetKey,
-  selectorOutTargetKey,
-  valueSourceTargetKey,
   type CanvasRenderer,
   type GhostLink,
+  type OverlayState,
   type PlacementGhost,
   previewSurfaceAffordanceRect,
   widgetRowAffordanceRect,
 } from './renderer.js'
 import {
+  boundaryFieldNode,
   boundarySceneId,
   boundaryNodesInGroup,
   nodesInGroup,
   reroutesInGroup,
   sceneEndId,
-  valueSourcesInGroup,
-  selectorsInGroup,
-  selectorBadgeRect,
-  selectorOutPinPosition,
-  valueSourceBadgeRect,
-  valueSourcePinPosition,
+  previewFoldedOf,
   type Scene,
   type SceneBoundaryNode,
   type SceneLink,
@@ -97,8 +100,6 @@ import {
   type SceneNode,
   type OccurrenceLinkIntention,
   type SceneReroute,
-  type SceneSelector,
-  type SceneValueSource,
 } from './scene.js'
 
 /** Screen-space distance before a press becomes a drag. */
@@ -118,12 +119,23 @@ const buttonsBit = (button: number): number =>
 const isMoveFamilyKind = (kind: Gesture['kind']): boolean =>
   kind === 'node' ||
   kind === 'reroute-move' ||
-  kind === 'value-source-move' ||
-  kind === 'selector-move' ||
   kind === 'boundary-move' ||
   kind === 'group' ||
   kind === 'group-resize' ||
   kind === 'resize'
+
+/** The command that stores a widget row's new value where the row's value lives. */
+const rowValueCommand = (row: Extract<LayoutRow, { kind: 'widget' }>, graphId: string, nodeId: string, value: Json): CommandInvocation =>
+  ({ command: 'node.setValue', params: {
+    graphId: row.familyOwner?.graphId ?? graphId,
+    nodeId: row.familyOwner?.nodeId ?? nodeId,
+    inputId: row.familyOwner?.valueKey ?? row.valueKey,
+    value,
+  } })
+
+/** Whole lines a text box shows now, counting any resize surplus it was given. */
+const visibleTextBoxLines = (row: Extract<LayoutRow, { kind: 'widget' }>, tokens: DesignTokens): number =>
+  Math.max(row.rows, Math.floor((row.height - multilineWidgetHeight(0, tokens)) / tokens.multilineText.lineHeight))
 
 export interface ResizeBounds {
   readonly x: number
@@ -298,9 +310,7 @@ function linkMenuContext(link: SceneLink, position: { x: number; y: number }): L
     switch (end.kind) {
       case 'port': return { node: end.node, port: end.port }
       case 'reroute': return { reroute: end.reroute }
-      case 'valueSource': return { valueSource: end.valueSource }
       case 'widgetTap': return { node: end.node, tap: end.input }
-      case 'selector': return { selector: end.selector, ...(end.candidate ? { candidate: end.candidate } : {}) }
       case 'boundary': return { boundary: end.side, item: end.item }
     }
   }
@@ -395,6 +405,8 @@ export interface InteractionHost {
   /** Current wheel policy; omitted hosts retain cursor-anchored zoom. */
   wheelNavigationMode?(): WheelNavigationMode
   smoothWheelZoom?(): boolean
+  /** Frozen inspection keeps navigation and layout gestures, without edit hover highlights. */
+  frozen?(): boolean
   /** Plan and dispatch one drilled occurrence mutation through the injected capability. */
   dispatchOccurrenceMutation?(intention: OccurrenceLinkIntention): { readonly ok: boolean } | Promise<{ readonly ok: boolean }>
   /** Report an occurrence gesture that cannot be represented atomically. */
@@ -411,18 +423,20 @@ export interface InteractionHost {
     nodes: ReadonlySet<string>,
     links: ReadonlySet<string>,
     reroutes: ReadonlySet<string>,
-    valueSources: ReadonlySet<string>,
-    selectors: ReadonlySet<string>,
     groups: ReadonlySet<string>,
   ): void
   /** Click on a widget row; screen coords anchor an editor overlay. */
   onWidgetActivate?(hit: Extract<Hit, { kind: 'widget' }>, screenX: number, screenY: number): void
+  /** Click on a widget row a wire drives; nothing opens, but the host may explain the row. */
+  onWiredWidgetActivate?(hit: Extract<Hit, { kind: 'widget' }>): void
   /** Click on the active lens's registered widget-row affordance. */
   onWidgetRowAffordanceActivate?(hit: Extract<Hit, { kind: 'widget' }>): void
   /** Click on the active lens's preview-surface affordance. */
   onPreviewSurfaceAffordanceActivate?(node: SceneNode): void
   /** Click on an after-generate icon chip; the host owns its DOM menu. */
   onControllerActivate?(hit: Extract<Hit, { kind: 'widget' }>, screenX: number, screenY: number): void
+  /** Click on the subgraph mark before a field's name (row.subgraphMark): `item` is its boundary input. */
+  onSubgraphMarkActivate?(item: string): void
   /** Double-click on a subgraph instance node. */
   onOpenSubgraph?(node: SceneNode): void
   /** Double-click on empty canvas: open the add-node palette here. */
@@ -471,31 +485,13 @@ export interface InteractionHost {
    * onHoverTarget this is the plain node identity - presence egress rides it.
    */
   onNodeHover?(nodeId: string | undefined): void
-  /** Click (no drag) on a value source pill: open its value editor. */
-  onValueSourceActivate?(valueSource: SceneValueSource, screenX: number, screenY: number): void
   /** Double-click a boundary pseudo-node pin/row: host opens a rename prompt. */
   onBoundaryRenameRequest?(side: 'inputs' | 'outputs', itemId: string, screenX: number, screenY: number): void
-  /**
-   * Click on a value source's spec badge (declared/derived/conflict details).
-   * Claims the pointerdown like node badges do; `rect` anchors a popover.
-   */
-  onValueSourceBadgeClick?(
-    valueSource: SceneValueSource,
-    rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number },
-  ): void
-  /**
-   * Click on a selector's policy badge (fixed/random details + actions).
-   * Claims the pointerdown like node badges do; `rect` anchors a popover.
-   */
-  onSelectorBadgeClick?(
-    selector: SceneSelector,
-    rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number },
-  ): void
 }
 
 export type BoundaryExposureSource =
   | { readonly kind: 'widgetTap'; readonly node: string; readonly tap: string }
-  | { readonly kind: 'valueSource' | 'selector' | 'reroute'; readonly id: string }
+  | { readonly kind: 'reroute'; readonly id: string }
 
 export type LinkDragPresenceOrigin =
   | { readonly kind: 'port'; readonly node: string; readonly port: string; readonly side: 'in' | 'out' }
@@ -508,10 +504,21 @@ export type CanvasHoverTarget =
   | { readonly kind: 'widgetTap'; readonly hit: Extract<Hit, { kind: 'widgetTap' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'widget'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'controller'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
+  | { readonly kind: 'subgraphMark'; readonly mark: { readonly item: string; readonly label: string }; readonly x: number; readonly y: number }
   | { readonly kind: 'header'; readonly hit: Extract<Hit, { kind: 'header' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'reroute'; readonly hit: Extract<Hit, { kind: 'reroute' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'link'; readonly hit: Extract<Hit, { kind: 'link' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'toolbox'; readonly button: ToolboxButtonRect; readonly x: number; readonly y: number }
+
+type WidgetRow = Extract<LayoutRow, { kind: 'widget' }>
+/** Where a link dropped on a node body lands: an input or output pin, or a field's value tap. */
+type BodyDropHit = Extract<Hit, { kind: 'pin' | 'widgetTap' }>
+type PinHit = Extract<Hit, { kind: 'pin' | 'widgetTap' }>
+
+/** True when a body drop resolved to the field row's own input or value tap. */
+const landsOnRow = (candidate: BodyDropHit, row: WidgetRow | undefined): row is WidgetRow =>
+  row !== undefined && candidate.pin.portId === row.inputId &&
+  (candidate.kind === 'widgetTap' || candidate.direction === 'in')
 
 type Gesture =
   | { readonly kind: 'idle' }
@@ -547,12 +554,9 @@ type Gesture =
       readonly kind: 'node'
       readonly nodeIds: readonly string[]
       readonly rerouteIds: readonly string[]
-      readonly valueSourceIds: readonly string[]
-      readonly selectorIds: readonly string[]
       readonly boundarySides: readonly ('inputs' | 'outputs')[]
       readonly groupIds: readonly string[]
       readonly netViewIds: readonly string[]
-      readonly pressedValueSourceId?: string
       readonly startWX: number
       readonly startWY: number
       moved: boolean
@@ -584,19 +588,13 @@ type Gesture =
       /** Fresh drag from a reroute's ghost input socket: connect INTO it on
        * drop (link.connect replaces any existing driver, core semantics). */
       readonly intoReroute?: string
-      /** Fresh drag from a value source's output pin: connect FROM it on drop. */
-      readonly fromValueSource?: string
-      /** Fresh drag from a selector's output pin: connect FROM it on drop. */
-      readonly fromSelector?: string
-      /** Fresh drag from a free candidate input: connect INTO this branch on drop. */
-      readonly intoSelector?: { readonly selector: string; readonly candidate: string }
       /** Rewire of an existing link (grabbed at its input end). */
       readonly rewireLinkId?: string
       /**
        * Rewire of a net delivery grabbed at its sink end (collapsed or
        * expanded). Net scene links carry synthetic ids that link.rewire and
        * link.disconnect reject, so drops dispatch net commands instead: a
-       * port drop moves the sink membership, a reroute/selector drop detaches
+       * port drop moves the sink membership, a reroute drop detaches
        * the sink and connects an ordinary link from the net's source, and a
        * moved space drop just detaches the sink.
        */
@@ -673,9 +671,10 @@ type Gesture =
         readonly prev: PortEndpointJson
       }
       readonly dropTargets: ReadonlySet<string>
-      /** Per-layout auto-slot cache. Recomputed when the hovered SceneNode is replaced. */
+      /** Per-layout auto-slot cache. Recomputed when the hovered SceneNode or field row changes. */
       bodyCandidateNode?: SceneNode | undefined
-      bodyCandidate?: Extract<Hit, { kind: 'pin' }> | undefined
+      bodyCandidateRow?: WidgetRow | undefined
+      bodyCandidate?: BodyDropHit | undefined
       moved: boolean
     }
   | {
@@ -686,26 +685,39 @@ type Gesture =
       moved: boolean
     }
   | {
-      readonly kind: 'value-source-move'
-      readonly valueSourceIds: readonly string[]
-      /** The pressed pill: a click (no drag) activates its editor. */
-      readonly pressedId: string
-      readonly startWX: number
-      readonly startWY: number
+      readonly kind: 'widget'
+      readonly hit: Extract<Hit, { kind: 'widget' }>
       moved: boolean
+      /** A pin whose hit circle also covers the press: a drag starts its wire instead. */
+      readonly pin?: { readonly hit: PinHit; readonly shiftKey: boolean; readonly altKey: boolean }
     }
   | {
-      readonly kind: 'selector-move'
-      readonly selectorIds: readonly string[]
-      readonly startWX: number
-      readonly startWY: number
-      moved: boolean
+      readonly kind: 'number-drag'
+      readonly hit: Extract<Hit, { kind: 'widget' }>
+      readonly start: IntegerWidgetValue
+      /** World x of the row's left edge, for a slider whose value follows the pointer. */
+      readonly rowLeft: number
+      value: IntegerWidgetValue
     }
-  | { readonly kind: 'widget'; readonly hit: Extract<Hit, { kind: 'widget' }>; moved: boolean }
   | { readonly kind: 'widget-affordance'; readonly hit: Extract<Hit, { kind: 'widget' }>; moved: boolean }
   | { readonly kind: 'preview-affordance'; readonly node: SceneNode; moved: boolean }
+  /** A press on a title-bar control: the minimize arrow, or the title mark when `badge` is set. */
+  | { readonly kind: 'title-press'; readonly node: SceneNode; readonly badge?: BadgeHit; readonly startWX: number; readonly startWY: number }
   | { readonly kind: 'section'; readonly hit: Extract<Hit, { kind: 'section' }>; moved: boolean }
+  | { readonly kind: 'preview-caption'; readonly node: SceneNode; moved: boolean }
   | { readonly kind: 'growth'; readonly hit: Extract<Hit, { kind: 'growth' }>; moved: boolean }
+  /** A member dragged by its grip; `index` is where a release puts it in the stored order. */
+  | { readonly kind: 'grip'; readonly hit: Extract<Hit, { kind: 'grip' }>; moved: boolean; index?: number | undefined }
+  | {
+      /** Dragging a text box's bottom edge: its height follows in whole lines. */
+      readonly kind: 'text-box-lines'
+      readonly nodeId: string
+      readonly valueKey: string
+      readonly startWY: number
+      readonly startLines: number
+      lines: number
+      moved: boolean
+    }
   | {
       readonly kind: 'resize'
       readonly nodeId: string
@@ -729,8 +741,6 @@ type Gesture =
       /** Spatial membership captured at drag START; the drag carries these. */
       readonly memberIds: readonly string[]
       readonly rerouteIds: readonly string[]
-      readonly valueSourceIds: readonly string[]
-      readonly selectorIds: readonly string[]
       readonly boundarySides: readonly ('inputs' | 'outputs')[]
       readonly startWX: number
       readonly startWY: number
@@ -756,12 +766,14 @@ type Gesture =
       moved: boolean
     }
 
+/** A row drawn and stepped as a number; an integer color is drawn as a color. */
+const isNumberRow = (row: Extract<LayoutRow, { kind: 'widget' }>): boolean =>
+  (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
+
 export class InteractionController {
   private selection = new Set<string>()
   private linkSelection = new Set<string>()
   private rerouteSelection = new Set<string>()
-  private valueSourceSelection = new Set<string>()
-  private selectorSelection = new Set<string>()
   private groupSelection = new Set<string>()
   private netViewSelection = new Set<string>()
   private selectionOwner: string | undefined
@@ -836,6 +848,22 @@ export class InteractionController {
   private focusedPinWidgetTap: true | undefined
   private hoveredWidgetNode: string | undefined
   private hoveredWidgetValue: string | undefined
+  /** Text box edge under the idle pointer, and the one arrow keys size. */
+  private hoveredTextEdge: { readonly nodeId: string; readonly valueKey: string } | undefined
+  private hoveredPreviewCaption: string | undefined
+  /** Node whose preview bar (its bottom edge) is under the idle pointer. */
+  private hoveredPreviewEdge: string | undefined
+  private focusedTextEdge: { readonly nodeId: string; readonly valueKey: string } | undefined
+  /** The node whose preview bar was pressed last; arrow keys step its height. */
+  private focusedPreviewEdge: string | undefined
+  /** A box a double-click fitted to its text, with the height it had before. */
+  private textBoxFit: { readonly nodeId: string; readonly valueKey: string; readonly fitted: number; readonly before: number } | undefined
+  private hoveredMinimize: string | undefined
+  private hoveredBadge: { readonly nodeId: string; readonly badgeId: string } | undefined
+  private hoveredBoxNode: string | undefined
+  private hoveredBoxId: string | undefined
+  private hoveredGrip: { readonly nodeId: string; readonly construct: string; readonly member: string } | undefined
+  private hoveredButton: { readonly nodeId: string; readonly key: string } | undefined
   private hoveredToolboxButton: string | undefined
   /** A toolbox press can synchronously remove/move the toolbox before the
    * browser emits dblclick. Remember that press briefly so its dblclick can
@@ -912,6 +940,9 @@ export class InteractionController {
       this.setHover(undefined, undefined, undefined)
       this.setAffordanceHover(undefined)
       this.setLinkMidpointHover(undefined)
+      this.setHoveredTextEdge(undefined)
+      this.setHoveredPreviewCaption(undefined)
+      this.setHoveredPreviewEdge(undefined)
     }
     // Space is tracked at the window so it works without canvas focus, but
     // never while typing in a field (space must stay a space there).
@@ -921,7 +952,23 @@ export class InteractionController {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !isEditable(e.target)) this.spaceDown = true
       // Escape aborts the gesture in place: no dispatch, ghosts dropped.
-      if (e.code === 'Escape') this.cancelGesture('escape')
+      if (e.code === 'Escape') {
+        this.cancelGesture('escape')
+        this.setFocusedTextEdge(undefined)
+        this.setFocusedPreviewEdge(undefined)
+      }
+      // A focused text box edge steps the box one line per arrow press, unless
+      // keyboard focus has since moved to another control.
+      const otherControl = e.target instanceof HTMLElement && e.target !== canvas && e.target !== e.target.ownerDocument.body
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && this.focusedTextEdge !== undefined &&
+          this.gesture.kind === 'idle' && !otherControl) {
+        e.preventDefault()
+        this.stepTextBox(this.focusedTextEdge, e.key === 'ArrowDown')
+      } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && this.focusedPreviewEdge !== undefined &&
+          this.gesture.kind === 'idle' && !otherControl) {
+        e.preventDefault()
+        this.stepPreviewEdge(this.focusedPreviewEdge, e.key === 'ArrowDown')
+      }
     }
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') this.spaceDown = false
@@ -1103,7 +1150,9 @@ export class InteractionController {
         (crossGraph || !scene.links.some((link) => link.id === this.hoveredLinkMidpoint))
       // Rows and pin layouts belong to the exact scene instance. Clear their
       // hover on every replacement, even when an identity happens to recur.
-      const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined
+      const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined ||
+        this.hoveredMinimize !== undefined || this.hoveredBadge !== undefined ||
+        this.hoveredBoxNode !== undefined || this.hoveredGrip !== undefined || this.hoveredButton !== undefined
       if (staleNode) {
         this.hoveredNode = undefined
         this.host.onNodeHover?.(undefined)
@@ -1117,8 +1166,6 @@ export class InteractionController {
         g.kind === 'link-press' ||
         g.kind === 'node' ||
         g.kind === 'reroute-move' ||
-        g.kind === 'value-source-move' ||
-        g.kind === 'selector-move' ||
         g.kind === 'boundary-move' ||
         g.kind === 'group' ||
         g.kind === 'group-resize' ||
@@ -1238,6 +1285,7 @@ export class InteractionController {
     this.lastGesturePoint = undefined
     this.releasePointer(pointerId)
     if (kind === 'idle') return
+    if (kind === 'number-drag') this.renderer.setRowDrag(undefined)
     this.pointerTrace.recordGesture(kind, 'cancel', reason)
     this.gesture = { kind: 'idle' }
     this.pushOverlay()
@@ -1465,14 +1513,6 @@ export class InteractionController {
     return this.rerouteSelection
   }
 
-  getValueSourceSelection(): ReadonlySet<string> {
-    return this.valueSourceSelection
-  }
-
-  getSelectorSelection(): ReadonlySet<string> {
-    return this.selectorSelection
-  }
-
   getGroupSelection(): ReadonlySet<string> {
     return this.groupSelection
   }
@@ -1496,16 +1536,12 @@ export class InteractionController {
     nodeIds: Iterable<string>,
     linkIds: Iterable<string> = [],
     rerouteIds: Iterable<string> = [],
-    valueSourceIds: Iterable<string> = [],
-    selectorIds: Iterable<string> = [],
     groupIds: Iterable<string> = [],
     netViewIds: Iterable<string> = [],
   ): void {
     this.selection = new Set(nodeIds)
     this.linkSelection = new Set(linkIds)
     this.rerouteSelection = new Set(rerouteIds)
-    this.valueSourceSelection = new Set(valueSourceIds)
-    this.selectorSelection = new Set(selectorIds)
     this.groupSelection = new Set(groupIds)
     this.netViewSelection = new Set(netViewIds)
     this.notifySelection()
@@ -1521,27 +1557,21 @@ export class InteractionController {
     // Delete would disconnect an invisible link.
     const aliveLinks = new Set(scene.links.filter((l) => l.hidden !== true).map((l) => l.id))
     const aliveReroutes = new Set(scene.reroutes.map((r) => r.id))
-    const aliveValueSources = new Set(scene.valueSources.map((v) => v.id))
-    const aliveSelectors = new Set(scene.selectors.map((s) => s.id))
     const aliveGroups = new Set(scene.groups.map((g) => g.id))
     const aliveNetViews = new Set(scene.netStubs.map((stub) => stub.id))
     const nodes = [...this.selection].filter((id) => aliveNodes.has(id))
     const links = [...this.linkSelection].filter((id) => aliveLinks.has(id))
     const reroutes = [...this.rerouteSelection].filter((id) => aliveReroutes.has(id))
-    const valueSources = [...this.valueSourceSelection].filter((id) => aliveValueSources.has(id))
-    const selectors = [...this.selectorSelection].filter((id) => aliveSelectors.has(id))
     const groups = [...this.groupSelection].filter((id) => aliveGroups.has(id))
     const netViews = [...this.netViewSelection].filter((id) => aliveNetViews.has(id))
     if (
       nodes.length !== this.selection.size ||
       links.length !== this.linkSelection.size ||
       reroutes.length !== this.rerouteSelection.size ||
-      valueSources.length !== this.valueSourceSelection.size ||
-      selectors.length !== this.selectorSelection.size ||
       groups.length !== this.groupSelection.size ||
       netViews.length !== this.netViewSelection.size
     ) {
-      this.setSelection(nodes, links, reroutes, valueSources, selectors, groups, netViews)
+      this.setSelection(nodes, links, reroutes, groups, netViews)
     } else this.pushOverlay()
   }
 
@@ -1550,8 +1580,6 @@ export class InteractionController {
       this.selection,
       this.linkSelection,
       this.rerouteSelection,
-      this.valueSourceSelection,
-      this.selectorSelection,
       this.groupSelection,
     )
   }
@@ -1560,29 +1588,23 @@ export class InteractionController {
     scene: Scene,
     startWX: number,
     startWY: number,
-    pressedValueSourceId?: string,
   ): Extract<Gesture, { kind: 'node' }> {
     return {
       kind: 'node',
       nodeIds: scene.nodes.filter((node) => this.selection.has(node.id)).map((node) => node.id),
       rerouteIds: [...this.rerouteSelection],
-      valueSourceIds: [...this.valueSourceSelection],
-      selectorIds: [...this.selectorSelection],
       boundarySides: scene.boundaryNodes.filter((node) => this.selection.has(boundarySceneId(node.side))).map((node) => node.side),
       groupIds: [...this.groupSelection],
       netViewIds: [...this.netViewSelection],
-      ...(pressedValueSourceId !== undefined ? { pressedValueSourceId } : {}),
       startWX,
       startWY,
       moved: false,
     }
   }
 
-  private hasOtherMovableSelection(kind: 'reroute' | 'valueSource' | 'selector'): boolean {
-    return this.selection.size > 0 || this.groupSelection.size > 0 || this.netViewSelection.size > 0 ||
-      (kind !== 'reroute' && this.rerouteSelection.size > 0) ||
-      (kind !== 'valueSource' && this.valueSourceSelection.size > 0) ||
-      (kind !== 'selector' && this.selectorSelection.size > 0)
+  /** Whether a pressed reroute moves with other selected items. */
+  private hasOtherMovableSelection(): boolean {
+    return this.selection.size > 0 || this.groupSelection.size > 0 || this.netViewSelection.size > 0
   }
 
   /** Select every citizen projected by the current graph scene. */
@@ -1592,8 +1614,6 @@ export class InteractionController {
       [...scene.nodes.map((node) => node.id), ...scene.boundaryNodes.map((node) => boundarySceneId(node.side))],
       [],
       scene.reroutes.map((reroute) => reroute.id),
-      scene.valueSources.map((source) => source.id),
-      scene.selectors.map((selector) => selector.id),
       scene.groups.map((group) => group.id),
       scene.netStubs.map((stub) => stub.id),
     )
@@ -1691,7 +1711,14 @@ export class InteractionController {
     // a selection/drag on the node underneath.
     const badgeHit = this.renderer.getDetailLevel() === 'overview'
       ? undefined
-      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y)
+      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y, (node) => this.renderer.getNodeBadgeLayout(node))
+    if (badgeHit?.badge.placement === 'title') {
+      // The title mark opens its panel on release, so a drag can move the node.
+      e.preventDefault()
+      this.capturePointer(e)
+      this.gesture = { kind: 'title-press', node: badgeHit.node, badge: badgeHit, startWX: w.x, startWY: w.y }
+      return
+    }
     if (badgeHit) {
       // Cancel the pointerdown so the follow-up mousedown's default action
       // (focus change) can't blur a popover the host just opened and focused.
@@ -1702,7 +1729,7 @@ export class InteractionController {
     }
 
     // Ghost sockets are grabbable only while revealed (hovered reroute).
-    const hit = hitTest(
+    const rawHit = hitTest(
       scene,
       w.x,
       w.y,
@@ -1712,13 +1739,33 @@ export class InteractionController {
         pinRevealed: this.pinRevealed(scene),
       }),
     )
+    // A kept row cannot be edited, opened or dragged: a press on it is a press on the node.
+    const hit: Hit = rawHit.kind === 'widget' && rawHit.row.kept !== undefined && rawHit.bnode === undefined
+      ? { kind: 'body', node: rawHit.node }
+      : rawHit
     this.capturePointer(e)
+    if (hit.kind !== 'text-box-edge') this.setFocusedTextEdge(undefined)
+    this.setFocusedPreviewEdge(hit.kind === 'resize' && hit.handle === 's' ? hit.node.id : undefined)
 
     if (hit.kind === 'widget' && this.widgetRowAffordanceContains(hit)) {
       this.gesture = { kind: 'widget-affordance', hit, moved: false }
       return
     }
-    if ((hit.kind === 'body' || hit.kind === 'header') && this.previewSurfaceAffordanceContains(hit.node, w.x, w.y)) {
+    // A pin's hit circle reaches over the end of its node's field rows. There
+    // a click belongs to the field's control and a drag to the pin.
+    if (hit.kind === 'pin' || hit.kind === 'widgetTap') {
+      const under = hitTest(scene, w.x, w.y, this.hitOptions({ widgetTaps: new Set(), pinRevealed: () => false }))
+      if (under.kind === 'widget' && under.node.id === hit.node.id) {
+        this.gesture = { kind: 'widget', hit: under, moved: false, pin: { hit, shiftKey: e.shiftKey, altKey: e.altKey } }
+        return
+      }
+    }
+    if (hit.kind === 'header' && !e.shiftKey && !e.ctrlKey && !e.metaKey && this.minimizeArrowContains(hit, w.x, w.y)) {
+      this.gesture = { kind: 'title-press', node: hit.node, startWX: w.x, startWY: w.y }
+      return
+    }
+    if ((hit.kind === 'body' || hit.kind === 'header' || hit.kind === 'preview-caption') &&
+        this.previewSurfaceAffordanceContains(hit.node, w.x, w.y)) {
       this.gesture = { kind: 'preview-affordance', node: hit.node, moved: false }
       return
     }
@@ -1736,42 +1783,32 @@ export class InteractionController {
       case 'widget':
         this.gesture = { kind: 'widget', hit, moved: false }
         return
+      case 'text-box-edge': {
+        const lines = visibleTextBoxLines(hit.row, this.renderer.getDesignTokens())
+        this.gesture = {
+          kind: 'text-box-lines', nodeId: hit.node.id, valueKey: hit.row.valueKey,
+          startWY: w.y, startLines: lines, lines, moved: false,
+        }
+        this.focusedTextEdge = { nodeId: hit.node.id, valueKey: hit.row.valueKey }
+        this.pushOverlay()
+        return
+      }
       case 'section':
         this.gesture = { kind: 'section', hit, moved: false }
         return
+      case 'preview-caption':
+        this.gesture = { kind: 'preview-caption', node: hit.node, moved: false }
+        return
       case 'growth':
         this.gesture = { kind: 'growth', hit, moved: false }
+        this.pushOverlay({ pressedButton: { nodeId: hit.node.id, key: `growth:${hit.row.construct}` } })
+        return
+      case 'grip':
+        this.gesture = { kind: 'grip', hit, moved: false }
         return
       case 'pin':
-        {
-          const gesture = this.beginLinkGesture(scene, hit, e.shiftKey, e.altKey)
-          if (gesture === undefined) return
-          this.gesture = gesture
-        }
-        this.pushOverlay()
-        return
       case 'widgetTap':
-        const fanOut = scene.links.filter((link) =>
-          link.from.kind === 'widgetTap' && link.from.node === hit.node.id && link.from.input === hit.input,
-        )
-        const move = endpointDragMode('out', fanOut.length > 0, e.shiftKey) === 'move-source'
-          ? this.beginMoveSourceGesture(scene, { x: hit.x, y: hit.y }, hit.type, fanOut, hit.node.id)
-          : undefined
-        this.gesture = move ?? {
-          kind: 'link', anchor: { x: hit.x, y: hit.y }, seeking: 'in',
-          presenceOrigin: { kind: 'widgetTap', node: hit.node.id, input: hit.input },
-          anchorType: hit.type,
-          ...(canonicalTypeIdOf(hit.type) !== undefined ? { anchorTypeName: canonicalTypeIdOf(hit.type)! } : {}),
-          fromTap: { node: hit.node.id, tap: hit.input },
-          dropTargets: this.withBoundaryTargets(
-            scene,
-            this.compatibleTargets(scene, hit.type, 'in', hit.node.id),
-            hit.type,
-            'in',
-          ),
-          moved: false,
-        }
-        this.pushOverlay()
+        this.beginPinGesture(scene, hit, e.shiftKey, e.altKey)
         return
       case 'netStub':
         if (e.shiftKey || e.ctrlKey || e.metaKey) {
@@ -1781,8 +1818,6 @@ export class InteractionController {
           this.selection = new Set()
           this.linkSelection = new Set()
           this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set()
           this.groupSelection = new Set()
           this.netViewSelection = new Set([hit.stub.id])
         }
@@ -1804,6 +1839,11 @@ export class InteractionController {
         return
       case 'boundary-header':
       case 'boundary-body': {
+        const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
+        if (wiredPanelMark !== undefined) {
+          this.host.onSubgraphMarkActivate?.(wiredPanelMark.row.subgraphMark!.item)
+          return
+        }
         const id = boundarySceneId(hit.bnode.side)
         if (e.shiftKey) {
           if (this.selection.has(id)) this.selection.delete(id)
@@ -1812,8 +1852,6 @@ export class InteractionController {
           this.selection = new Set([id])
           this.linkSelection = new Set()
           this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set()
           this.groupSelection = new Set()
           this.netViewSelection = new Set()
         }
@@ -1821,15 +1859,13 @@ export class InteractionController {
         const selectedBoundarySides = scene.boundaryNodes.filter((node) => this.selection.has(boundarySceneId(node.side))).map((node) => node.side)
         const selectedRealNodes = [...this.selection].filter((selected) => scene.nodes.some((node) => node.id === selected))
         this.gesture = selectedRealNodes.length === 0 && selectedBoundarySides.length === 1 &&
-          this.rerouteSelection.size === 0 && this.valueSourceSelection.size === 0 && this.selectorSelection.size === 0 &&
+          this.rerouteSelection.size === 0 &&
           this.groupSelection.size === 0 && this.netViewSelection.size === 0
           ? { kind: 'boundary-move', side: hit.bnode.side, startWX: w.x, startWY: w.y, moved: false }
           : {
           kind: 'node',
           nodeIds: selectedRealNodes,
           rerouteIds: [...this.rerouteSelection],
-          valueSourceIds: [...this.valueSourceSelection],
-          selectorIds: [...this.selectorSelection],
           boundarySides: selectedBoundarySides,
           groupIds: [...this.groupSelection],
           netViewIds: [...this.netViewSelection],
@@ -1850,8 +1886,6 @@ export class InteractionController {
           this.selection = new Set()
           this.linkSelection = new Set([id])
           this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set()
           this.groupSelection = new Set()
           this.netViewSelection = new Set()
         }
@@ -1881,13 +1915,11 @@ export class InteractionController {
           this.selection = new Set()
           this.linkSelection = new Set()
           this.rerouteSelection = new Set([id])
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set()
           this.groupSelection = new Set()
           this.netViewSelection = new Set()
         }
         this.notifySelection()
-        if (this.rerouteSelection.has(id) && this.hasOtherMovableSelection('reroute')) {
+        if (this.rerouteSelection.has(id) && this.hasOtherMovableSelection()) {
           this.gesture = this.selectionMoveGesture(scene, w.x, w.y)
           this.pushOverlay()
           return
@@ -1905,92 +1937,6 @@ export class InteractionController {
           hit.side === 'out'
             ? this.beginRerouteLinkGesture(scene, hit.reroute, { x: hit.x, y: hit.y }, e.shiftKey)
             : this.beginRerouteInLinkGesture(scene, hit.reroute, { x: hit.x, y: hit.y }, e.shiftKey)
-        this.pushOverlay()
-        return
-      }
-      case 'valueSourceOut': {
-        this.gesture = this.beginValueSourceLinkGesture(scene, hit)
-        this.pushOverlay()
-        return
-      }
-      case 'valueSourceBadge': {
-        // Like node badges: the click opens details, never selects or drags.
-        e.preventDefault()
-        this.gesture = { kind: 'idle' }
-        this.host.onValueSourceBadgeClick?.(hit.valueSource, valueSourceBadgeRect(hit.valueSource))
-        return
-      }
-      case 'valueSource': {
-        const id = hit.valueSource.id
-        if (e.shiftKey) {
-          if (this.valueSourceSelection.has(id)) this.valueSourceSelection.delete(id)
-          else this.valueSourceSelection.add(id)
-        } else if (!this.valueSourceSelection.has(id)) {
-          this.selection = new Set()
-          this.linkSelection = new Set()
-          this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set([id])
-          this.selectorSelection = new Set()
-          this.groupSelection = new Set()
-          this.netViewSelection = new Set()
-        }
-        this.notifySelection()
-        if (this.valueSourceSelection.has(id) && this.hasOtherMovableSelection('valueSource')) {
-          this.gesture = this.selectionMoveGesture(scene, w.x, w.y, id)
-          this.pushOverlay()
-          return
-        }
-        const dragIds = this.valueSourceSelection.has(id) ? [...this.valueSourceSelection] : []
-        this.gesture = {
-          kind: 'value-source-move',
-          valueSourceIds: dragIds,
-          pressedId: id,
-          startWX: w.x,
-          startWY: w.y,
-          moved: false,
-        }
-        this.pushOverlay()
-        return
-      }
-      case 'selectorOut': {
-        this.gesture = this.beginSelectorOutLinkGesture(scene, hit)
-        this.pushOverlay()
-        return
-      }
-      case 'selectorIn': {
-        this.gesture = this.beginSelectorInLinkGesture(scene, hit)
-        this.pushOverlay()
-        return
-      }
-      case 'selectorBadge': {
-        // Like node badges: the click opens policy details, never selects or drags.
-        e.preventDefault()
-        this.gesture = { kind: 'idle' }
-        this.host.onSelectorBadgeClick?.(hit.selector, selectorBadgeRect(hit.selector))
-        return
-      }
-      case 'selector': {
-        const id = hit.selector.id
-        if (e.shiftKey) {
-          if (this.selectorSelection.has(id)) this.selectorSelection.delete(id)
-          else this.selectorSelection.add(id)
-        } else if (!this.selectorSelection.has(id)) {
-          this.selection = new Set()
-          this.linkSelection = new Set()
-          this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set([id])
-          this.groupSelection = new Set()
-          this.netViewSelection = new Set()
-        }
-        this.notifySelection()
-        if (this.selectorSelection.has(id) && this.hasOtherMovableSelection('selector')) {
-          this.gesture = this.selectionMoveGesture(scene, w.x, w.y)
-          this.pushOverlay()
-          return
-        }
-        const dragIds = this.selectorSelection.has(id) ? [...this.selectorSelection] : []
-        this.gesture = { kind: 'selector-move', selectorIds: dragIds, startWX: w.x, startWY: w.y, moved: false }
         this.pushOverlay()
         return
       }
@@ -2027,15 +1973,12 @@ export class InteractionController {
           this.selection = new Set()
           this.linkSelection = new Set()
           this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set()
           this.groupSelection = new Set([id])
           this.netViewSelection = new Set()
         }
         this.notifySelection()
         const selectedCitizens =
-          this.selection.size + this.rerouteSelection.size + this.valueSourceSelection.size +
-          this.selectorSelection.size + this.netViewSelection.size
+          this.selection.size + this.rerouteSelection.size + this.netViewSelection.size
         if (selectedCitizens > 0 || this.groupSelection.size > 1) {
           this.gesture = this.selectionMoveGesture(scene, w.x, w.y)
           this.pushOverlay()
@@ -2048,8 +1991,6 @@ export class InteractionController {
           groupId: hit.group.id,
           memberIds: nodesInGroup(scene, hit.group),
           rerouteIds: reroutesInGroup(scene, hit.group),
-          valueSourceIds: valueSourcesInGroup(scene, hit.group),
-          selectorIds: selectorsInGroup(scene, hit.group),
           boundarySides: boundaryNodesInGroup(scene, hit.group),
           startWX: w.x,
           startWY: w.y,
@@ -2076,38 +2017,77 @@ export class InteractionController {
         return
       }
       case 'header':
-      case 'body': {
-        const id = hit.node.id
-        if (e.shiftKey) {
-          const range = connectivityRangeSelection(scene, this.selection, id)
-          if (range !== undefined) {
-            this.selection = range.nodes
-            this.rerouteSelection = new Set([...this.rerouteSelection, ...range.reroutes])
-          }
-          else if (this.selection.has(id)) this.selection.delete(id)
-          else this.selection.add(id)
-        } else if (e.ctrlKey || e.metaKey) {
-          // Toggle immediately; a modifier-drag moves the resulting selection.
-          if (this.selection.has(id)) this.selection.delete(id)
-          else this.selection.add(id)
-        } else if (!this.selection.has(id)) {
-          this.selection = new Set([id])
-          this.linkSelection = new Set()
-          this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set()
-          this.groupSelection = new Set()
-          this.netViewSelection = new Set()
-        }
-        this.notifySelection()
-        const dragIds = this.selection.has(id) ? [...this.selection] : []
-        this.gesture = this.selection.has(id)
-          ? this.selectionMoveGesture(scene, w.x, w.y)
-          : { kind: 'node', nodeIds: dragIds, rerouteIds: [], valueSourceIds: [], selectorIds: [], boundarySides: [], groupIds: [], netViewIds: [], startWX: w.x, startWY: w.y, moved: false }
-        this.pushOverlay()
+      case 'body':
+        this.pressNode(scene, hit.node.id, e, w.x, w.y)
         return
-      }
     }
+  }
+
+  /** Starts the wire gesture a press on a node pin or a field's output pin begins; a pin that starts none leaves the gesture as it was. */
+  private beginPinGesture(scene: Scene, hit: PinHit, shiftKey: boolean, altKey: boolean): void {
+    if (hit.kind === 'pin') {
+      const gesture = this.beginLinkGesture(scene, hit, shiftKey, altKey)
+      if (gesture === undefined) return
+      this.gesture = gesture
+      this.pushOverlay()
+      return
+    }
+    const fanOut = scene.links.filter((link) =>
+      link.from.kind === 'widgetTap' && link.from.node === hit.node.id && link.from.input === hit.input,
+    )
+    const move = endpointDragMode('out', fanOut.length > 0, shiftKey) === 'move-source'
+      ? this.beginMoveSourceGesture(scene, { x: hit.x, y: hit.y }, hit.type, fanOut, hit.node.id)
+      : undefined
+    this.gesture = move ?? {
+      kind: 'link', anchor: { x: hit.x, y: hit.y }, seeking: 'in',
+      presenceOrigin: { kind: 'widgetTap', node: hit.node.id, input: hit.input },
+      anchorType: hit.type,
+      ...(canonicalTypeIdOf(hit.type) !== undefined ? { anchorTypeName: canonicalTypeIdOf(hit.type)! } : {}),
+      fromTap: { node: hit.node.id, tap: hit.input },
+      dropTargets: this.withBoundaryTargets(
+        scene,
+        this.compatibleTargets(scene, hit.type, 'in', hit.node.id),
+        hit.type,
+        'in',
+      ),
+      moved: false,
+    }
+    this.pushOverlay()
+  }
+
+  /** Select a pressed node by the modifier rules and arm a move of what is selected. */
+  private pressNode(
+    scene: Scene,
+    id: string,
+    e: { readonly shiftKey: boolean; readonly ctrlKey: boolean; readonly metaKey: boolean },
+    wx: number,
+    wy: number,
+  ): void {
+    if (e.shiftKey) {
+      const range = connectivityRangeSelection(scene, this.selection, id)
+      if (range !== undefined) {
+        this.selection = range.nodes
+        this.rerouteSelection = new Set([...this.rerouteSelection, ...range.reroutes])
+      }
+      else if (this.selection.has(id)) this.selection.delete(id)
+      else this.selection.add(id)
+    } else if (e.ctrlKey || e.metaKey) {
+      // Toggle immediately; a modifier-drag moves the resulting selection.
+      if (this.selection.has(id)) this.selection.delete(id)
+      else this.selection.add(id)
+    } else if (!this.selection.has(id)) {
+      this.selection = new Set([id])
+      this.linkSelection = new Set()
+      this.rerouteSelection = new Set()
+      this.groupSelection = new Set()
+      this.netViewSelection = new Set()
+    }
+    this.notifySelection()
+    const dragIds = this.selection.has(id) ? [...this.selection] : []
+    this.gesture = this.selection.has(id)
+      ? this.selectionMoveGesture(scene, wx, wy)
+      : { kind: 'node', nodeIds: dragIds, rerouteIds: [], boundarySides: [], groupIds: [], netViewIds: [], startWX: wx, startWY: wy, moved: false }
+    this.pushOverlay()
   }
 
   private beginLinkGesture(
@@ -2227,7 +2207,7 @@ export class InteractionController {
    * blank slot = boundary.addItem); Outputs-side pins consume inner outputs
    * (existing item = re-point via boundary.setBinding, blank slot =
    * boundary.addItem). Inputs bind to real input ports; outputs bind to real
-   * output ports or widget-output taps, never reroutes/selectors/value sources.
+   * output ports or widget-output taps, never reroutes.
    */
   private beginBoundaryLinkGesture(scene: Scene, hit: Extract<Hit, { kind: 'boundary-pin' }>, shift = false): Gesture {
     if (hit.regionIndex) {
@@ -2435,8 +2415,8 @@ export class InteractionController {
       if (sinkNodes.has(key.slice(0, key.indexOf(':')))) targets.delete(key)
     }
     // A net's source must be a real node output port: when the fan-out
-    // carries net membership, reroutes, value sources, selectors, and widget
-    // taps cannot receive the drop.
+    // carries net membership, reroutes and widget taps cannot receive the
+    // drop.
     if (netIds.length > 0) {
       const portKeys = new Set<string>()
       for (const node of scene.nodes) {
@@ -2527,55 +2507,6 @@ export class InteractionController {
     }
   }
 
-  /** Drag from a value source's output pin: pull a new noodle out of it. */
-  private beginValueSourceLinkGesture(scene: Scene, hit: Extract<Hit, { kind: 'valueSourceOut' }>): Gesture {
-    return {
-      kind: 'link',
-      anchor: { x: hit.x, y: hit.y },
-      seeking: 'in',
-      anchorType: hit.type,
-      ...(canonicalTypeIdOf(hit.type) !== undefined ? { anchorTypeName: canonicalTypeIdOf(hit.type)! } : {}),
-      fromValueSource: hit.valueSource.id,
-      dropTargets: this.compatibleTargets(scene, hit.type, 'in', ''),
-      moved: false,
-    }
-  }
-
-  /** Drag from a selector's output pin: pull a new noodle out of it (fan-out). */
-  private beginSelectorOutLinkGesture(scene: Scene, hit: Extract<Hit, { kind: 'selectorOut' }>): Gesture {
-    return {
-      kind: 'link',
-      anchor: { x: hit.x, y: hit.y },
-      seeking: 'in',
-      anchorType: hit.type,
-      ...(canonicalTypeIdOf(hit.type) !== undefined ? { anchorTypeName: canonicalTypeIdOf(hit.type)! } : {}),
-      fromSelector: hit.selector.id,
-      dropTargets: this.compatibleTargets(scene, hit.type, 'in', '', undefined, hit.selector.id),
-      moved: false,
-    }
-  }
-
-  /**
-   * Drag from a candidate's branch input pin: grab the existing driver
-   * (rewire), else seek an output for a fresh connect into the branch.
-   */
-  private beginSelectorInLinkGesture(scene: Scene, hit: Extract<Hit, { kind: 'selectorIn' }>): Gesture {
-    const existing = scene.links.find(
-      (l) => l.to.kind === 'selector' && l.to.selector === hit.selector.id && l.to.candidate === hit.candidate,
-    )
-    if (existing) return this.beginRewire(scene, existing)
-    return {
-      kind: 'link',
-      anchor: { x: hit.x, y: hit.y },
-      seeking: 'out',
-      anchorType: hit.type,
-      ...(canonicalTypeIdOf(hit.type) !== undefined ? { anchorTypeName: canonicalTypeIdOf(hit.type)! } : {}),
-      intoSelector: { selector: hit.selector.id, candidate: hit.candidate },
-      dropTargets: this.compatibleTargets(scene, hit.type, 'out', '', undefined, hit.selector.id),
-      moved: false,
-    }
-  }
-
   /**
    * Grab an existing link at its input end; the ghost hangs off its source
    * end. `fanOut` keeps the grabbed link INTACT and drags a fresh noodle
@@ -2586,7 +2517,6 @@ export class InteractionController {
     let anchorType: TypeExpr = link.typeName ? { kind: 'concrete', name: link.typeName } : { kind: 'wildcard' }
     let excludeNode = ''
     let excludeReroute: string | undefined
-    let excludeSelector: string | undefined
     const from = link.from // const binding: narrowing survives the closures below
     const presenceOrigin: LinkDragPresenceOrigin | undefined =
       from.kind === 'port'
@@ -2610,12 +2540,6 @@ export class InteractionController {
       const fromReroute = scene.reroutes.find((r) => r.id === from.reroute)
       if (fromReroute) anchor = { x: fromReroute.x, y: fromReroute.y }
       excludeReroute = from.reroute
-    } else if (from.kind === 'valueSource') {
-      const fromSource = scene.valueSources.find((s) => s.id === from.valueSource)
-      if (fromSource) {
-        anchor = valueSourcePinPosition(fromSource)
-        anchorType = fromSource.effective.type
-      }
     } else if (from.kind === 'widgetTap') {
       const fromNode = scene.nodes.find((n) => n.id === from.node)
       const fromPin = fromNode?.layout.pins.find((p) => p.widgetTap === true && p.address.port === from.input)
@@ -2624,18 +2548,10 @@ export class InteractionController {
         anchorType = fromPin.type
       }
       excludeNode = from.node
-    } else if (from.kind === 'selector') {
-      // A from-end selector ref is always the output (candidates only consume).
-      const fromSel = scene.selectors.find((s) => s.id === from.selector)
-      if (fromSel) {
-        anchor = selectorOutPinPosition(fromSel)
-        if (fromSel.typeName) anchorType = { kind: 'concrete', name: fromSel.typeName }
-      }
-      excludeSelector = from.selector
     }
     // 'boundary' ends never reach here: boundary noodles are excluded from
     // link hit-testing, so a rewire gesture cannot grab one.
-    const targets = this.compatibleTargets(scene, anchorType, 'in', excludeNode, excludeReroute, excludeSelector)
+    const targets = this.compatibleTargets(scene, anchorType, 'in', excludeNode, excludeReroute)
     if (fanOut) {
       // Fresh drag FROM the driver: the grabbed link stays; a drop creates
       // a NEW link via the same completion path as an output-pin drag.
@@ -2644,13 +2560,9 @@ export class InteractionController {
           ? { fromPort: { node: from.node, port: from.port } }
           : from.kind === 'reroute'
             ? { fromReroute: from.reroute }
-            : from.kind === 'valueSource'
-              ? { fromValueSource: from.valueSource }
-              : from.kind === 'widgetTap'
-                ? { fromTap: { node: from.node, tap: from.input } }
-              : from.kind === 'selector'
-                ? { fromSelector: from.selector }
-                : {}
+            : from.kind === 'widgetTap'
+              ? { fromTap: { node: from.node, tap: from.input } }
+              : {}
       return {
         kind: 'link',
         ...(presenceOrigin !== undefined ? { presenceOrigin } : {}),
@@ -2719,7 +2631,6 @@ export class InteractionController {
     direction: 'in' | 'out',
     excludeNode: string,
     excludeReroute?: string,
-    excludeSelector?: string,
   ): Set<string> {
     const keys = new Set<string>()
     for (const node of scene.nodes) {
@@ -2729,6 +2640,15 @@ export class InteractionController {
         const ok = direction === 'in' ? typesCompatible(type, pin.type) : typesCompatible(pin.type, type)
         if (ok) keys.add(dropTargetKey(node.id, pin.portId, direction, pin.widgetTap === true))
       }
+      // A closed box takes a wire for a port it hides.
+      for (const row of node.layout.rows) {
+        if (row.kind !== 'section') continue
+        for (const port of row.hiddenPorts ?? []) {
+          if (port.direction !== direction) continue
+          const ok = direction === 'in' ? typesCompatible(type, port.type) : typesCompatible(port.type, type)
+          if (ok) keys.add(dropTargetKey(node.id, port.portId, direction))
+        }
+      }
     }
     for (const r of scene.reroutes) {
       if (r.id === excludeReroute) continue
@@ -2736,54 +2656,53 @@ export class InteractionController {
       const ok = direction === 'in' ? typesCompatible(type, rType) : typesCompatible(rType, type)
       if (ok) keys.add(rerouteTargetKey(r.id))
     }
-    // Value sources only PRODUCE (invariant I10): they are drop targets only
-    // when the drag seeks an output.
-    if (direction === 'out') {
-      for (const vs of scene.valueSources) {
-        if (typesCompatible(vs.effective.type, type)) keys.add(valueSourceTargetKey(vs.id))
-      }
-    }
-    // Selectors: candidate pins consume (seeking 'in'), the output produces
-    // (seeking 'out'). Traced types are advisory - an undriven branch or an
-    // unresolved output is a wildcard passthrough. Cycle-forming drops are
-    // rejected by the core command, not predicted here.
-    for (const sel of scene.selectors) {
-      if (sel.id === excludeSelector) continue
-      if (direction === 'in') {
-        for (const c of sel.candidates) {
-          const cType: TypeExpr = c.typeName ? { kind: 'concrete', name: c.typeName } : { kind: 'wildcard' }
-          if (typesCompatible(type, cType)) keys.add(selectorInTargetKey(sel.id, c.id))
-        }
-      } else {
-        const outType: TypeExpr = sel.typeName ? { kind: 'concrete', name: sel.typeName } : { kind: 'wildcard' }
-        if (typesCompatible(outType, type)) keys.add(selectorOutTargetKey(sel.id))
-      }
-    }
     return keys
   }
 
   /**
-   * Deterministically choose a node-body drop slot. Inputs with no driver
+   * Deterministically choose a node-body drop slot. A field row under the
+   * pointer takes the link itself when it fits, occupied or not, exactly as
+   * a drop on its pin would: its input when the drag seeks an input, its
+   * value tap when the drag seeks an output. Otherwise inputs with no driver
    * rank before driven inputs; outputs fan out, so every output is free.
-   * Within a rank, layout pin order is the declared/elaborated order. The
-   * legal-target set is the same structural compatibility decision used by
-   * explicit pin drops. Iterating all ranked pins avoids stopping at an
-   * early slot that fails that full drag-specific validation.
+   * Within a rank, the fields on the pointer's line come first, then layout
+   * pin order, which is the declared/elaborated order. The legal-target set
+   * is the same structural compatibility decision used by explicit pin
+   * drops. Iterating all ranked pins avoids stopping at an early slot that
+   * fails that full drag-specific validation.
    */
   private bodyDropCandidate(
     g: Extract<Gesture, { kind: 'link' }>,
     scene: Scene,
     node: SceneNode,
-  ): Extract<Hit, { kind: 'pin' }> | undefined {
-    if (g.bodyCandidateNode === node) return g.bodyCandidate
+    row?: WidgetRow,
+  ): BodyDropHit | undefined {
+    if (g.bodyCandidateNode === node && g.bodyCandidateRow === row) return g.bodyCandidate
     g.bodyCandidateNode = node
+    g.bodyCandidateRow = row
     g.bodyCandidate = undefined
-    // Widget taps are excluded: a body drop lands on real ports only (a tap
-    // ranked here would commit as a bogus PORT endpoint via pinEndpoint);
-    // explicit tap-pin hits keep their own 'widgetTap' hit path.
-    const pins = node.layout.pins.filter((pin) =>
-      pin.direction === g.seeking && pin.widgetTap !== true,
-    )
+    const legal = (pin: PinLayout): boolean =>
+      g.dropTargets.has(dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true))
+    const hitOf = (pin: PinLayout): BodyDropHit | undefined => {
+      const position = pinPosition(node, pin.portId, pin.direction, pin.widgetTap === true)
+      if (!position) return undefined
+      return pin.widgetTap === true
+        ? { kind: 'widgetTap', node, input: pin.address.port as string, x: position.x, y: position.y, type: pin.type, pin }
+        : { kind: 'pin', node, pin, portId: pin.portId, direction: pin.direction, x: position.x, y: position.y, type: pin.type }
+    }
+    if (row !== undefined) {
+      // Seeking an output, a field offers its value tap; seeking an input, its input pin.
+      const own = node.layout.pins.find((pin) =>
+        pin.portId === row.inputId && pin.direction === g.seeking &&
+        (pin.widgetTap === true) === (g.seeking === 'out') &&
+        pin.collapsedSection === undefined && legal(pin),
+      )
+      g.bodyCandidate = own && hitOf(own)
+      if (g.bodyCandidate) return g.bodyCandidate
+    }
+    // Widget taps are excluded from the ranking: a body drop away from a
+    // field lands on real ports only.
+    const pins = node.layout.pins.filter((pin) => pin.direction === g.seeking && pin.widgetTap !== true)
     // Links hidden by the gesture (the grabbed rewire or net delivery) do
     // not occupy their sink: the drag is moving them off it.
     const isOccupied = (pin: PinLayout): boolean =>
@@ -2791,18 +2710,57 @@ export class InteractionController {
         link.id !== g.rewireLinkId && g.hideLinkIds?.has(link.id) !== true &&
         link.to.kind === 'port' && link.to.node === node.id && link.to.port === pin.portId,
       )
-    const ranked = [...pins.filter((pin) => !isOccupied(pin)), ...pins.filter(isOccupied)]
+    const line = new Set(row === undefined ? [] : node.layout.rows.flatMap((other) =>
+      other.kind === 'widget' && other.y === row.y ? [other.inputId] : []))
+    const lineFirst = (group: PinLayout[]): PinLayout[] =>
+      [...group.filter((pin) => line.has(pin.portId)), ...group.filter((pin) => !line.has(pin.portId))]
+    const ranked = [...lineFirst(pins.filter((pin) => !isOccupied(pin))), ...lineFirst(pins.filter(isOccupied))]
     for (const pin of ranked) {
-      if (!g.dropTargets.has(dropTargetKey(node.id, pin.portId, pin.direction))) continue
-      const position = pinPosition(node, pin.portId, pin.direction, pin.widgetTap === true)
-      if (!position) continue
-      g.bodyCandidate = {
-        kind: 'pin', node, pin, portId: pin.portId, direction: pin.direction,
-        x: position.x, y: position.y, type: pin.type,
-      }
-      break
+      if (!legal(pin)) continue
+      g.bodyCandidate = hitOf(pin)
+      if (g.bodyCandidate) break
     }
     return g.bodyCandidate
+  }
+
+  /**
+   * Links hidden by the gesture (the grabbed rewire or net delivery) do not
+   * occupy their sink: the drag is moving them off it. Outputs fan out, so
+   * an output is never occupied.
+   */
+  private dropOccupied(
+    g: Extract<Gesture, { kind: 'link' }>,
+    scene: Scene,
+    nodeId: string,
+    port: { readonly portId: string; readonly direction: 'in' | 'out' },
+  ): boolean {
+    return port.direction === 'in' && scene.links.some((link) =>
+      link.id !== g.rewireLinkId && g.hideLinkIds?.has(link.id) !== true &&
+      link.to.kind === 'port' && link.to.node === nodeId && link.to.port === port.portId,
+    )
+  }
+
+  /**
+   * A wire held over a closed box takes the first port inside that fits, in
+   * declared order, a free input before an occupied one; the box stays
+   * closed and the wire meets the node's edge at its row.
+   */
+  private closedBoxDropCandidate(
+    g: Extract<Gesture, { kind: 'link' }>,
+    scene: Scene,
+    hit: Hit,
+  ): Extract<Hit, { kind: 'pin' }> | undefined {
+    if (hit.kind !== 'section' || !hit.row.collapsed) return undefined
+    const { node, row } = hit
+    const fits = (row.hiddenPorts ?? []).filter((port) =>
+      port.direction === g.seeking && g.dropTargets.has(dropTargetKey(node.id, port.portId, port.direction)))
+    const port = fits.find((candidate) => !this.dropOccupied(g, scene, node.id, candidate)) ?? fits[0]
+    if (port === undefined) return undefined
+    const y = (row.top + row.y + row.height) / 2
+    return {
+      kind: 'pin', node, pin: { ...port, y }, portId: port.portId, direction: port.direction,
+      x: node.x + (port.direction === 'in' ? 0 : node.layout.width), y: node.y + y, type: port.type,
+    }
   }
 
   /**
@@ -2849,10 +2807,17 @@ export class InteractionController {
   }
 
   private nodeOfBodyHit(hit: Hit): SceneNode | undefined {
+    if (hit.kind === 'widget' && hit.bnode !== undefined) return undefined
     return hit.kind === 'body' || hit.kind === 'header' || hit.kind === 'widget' ||
-      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'resize'
+      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'resize' || hit.kind === 'text-box-edge' ||
+      hit.kind === 'preview-caption'
       ? hit.node
       : undefined
+  }
+
+  /** The boundary panel under a body-like hit; a field on the Inputs panel counts as its body. */
+  private boundaryOfBodyHit(hit: Hit): SceneBoundaryNode | undefined {
+    return hit.kind === 'boundary-body' || hit.kind === 'boundary-header' || hit.kind === 'widget' ? hit.bnode : undefined
   }
 
   /** Boundary-panel counterpart of bodyDropCandidate. Existing rows keep
@@ -2887,16 +2852,110 @@ export class InteractionController {
     return undefined
   }
 
+  /** The value a number row's stepper or drag starts from: stored, else declared, else intrinsic default. */
+  private numberRowValue(hit: Extract<Hit, { kind: 'widget' }>): IntegerWidgetValue | undefined {
+    const row = hit.row
+    const stored = hit.node.node.values[row.valueKey]
+    const intrinsic = this.host.resolveWidgetDefault?.(row.spec)
+    return row.spec.widgetType === 'INT'
+      ? isIntegerWidgetValue(stored)
+        ? stored
+        : isIntegerWidgetValue(row.spec.default)
+          ? row.spec.default
+          : isIntegerWidgetValue(intrinsic) ? intrinsic : undefined
+      : typeof stored === 'number'
+        ? stored
+        : typeof row.spec.default === 'number'
+          ? row.spec.default
+          : typeof intrinsic === 'number' ? intrinsic : undefined
+  }
+
+  /**
+   * A sideways drag on a closed number row under in-row editing changes its
+   * value; nothing opens. Not on touch, where a drag moves the canvas, and
+   * not on a row a wire drives or that shows a derived value.
+   */
+  private numberDragStart(hit: Extract<Hit, { kind: 'widget' }>, pointerType: string): Extract<Gesture, { kind: 'number-drag' }> | undefined {
+    if (this.renderer.getDesignTokens().widgetEditing !== 'in-row' || pointerType === 'touch') return undefined
+    const row = hit.row
+    if (row.viewId !== 'core.number' && row.viewId !== 'core.slider') return undefined
+    if (row.derivedValue !== undefined || row.ghost) return undefined
+    const scene = this.renderer.getScene()
+    if (scene.links.some((link) => link.to.kind === 'port' && link.to.node === hit.node.id && link.to.port === row.inputId)) return undefined
+    const start = this.numberRowValue(hit)
+    if (start === undefined) return undefined
+    return { kind: 'number-drag', hit, start, rowLeft: hit.node.x + row.inset, value: start }
+  }
+
+  /** A slider's value follows the pointer along the row; a plain number moves by the drag distance. */
+  private updateNumberDrag(g: Extract<Gesture, { kind: 'number-drag' }>, sx: number, fast: boolean): void {
+    const row = g.hit.row
+    const constraints = numericStepConstraints({ widgetType: row.spec.widgetType, options: row.spec.options ?? {} })
+    const min = row.spec.options['min']
+    const max = row.spec.options['max']
+    const slider = row.spec.options['display'] === 'slider' && typeof min === 'number' && typeof max === 'number' &&
+      Number.isFinite(min) && Number.isFinite(max) && max > min
+    if (slider) {
+      const worldX = this.renderer.toWorld(sx, this.downY).x
+      const fraction = Math.min(1, Math.max(0, (worldX - g.rowLeft) / Math.max(1, g.hit.width)))
+      const step = constraints.integer ? Number(constraints.step) : constraints.step
+      const raw = min + Math.round((fraction * (max - min)) / step) * step
+      const clamped = Math.min(max, Math.max(min, raw))
+      g.value = constraints.integer
+        ? Math.round(clamped)
+        : Number(clamped.toFixed(numericStepPrecision(step)))
+    } else {
+      g.value = dragNumericValue(g.start, sx - this.downX, constraints, fast)
+    }
+    this.renderer.setRowDrag({ nodeId: g.hit.node.id, valueKey: row.valueKey, value: g.value })
+  }
+
   private controllerChipContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
     const { row } = hit
-    return controllerChipContains(hit.localX, hit.localY, hit.width, row.height)
+    // In-row editing draws a number's mode as an icon before its value and no
+    // chip, so the whole row opens the field and its side part sets the mode.
+    if (this.renderer.getDesignTokens().widgetEditing === 'in-row' && isNumberRow(row)) return false
+    return controllerChipContains(hit.localX, hit.localY, hit.width, row.height, this.renderer.getDesignTokens().rowGeometry)
+  }
+
+  /** Same square the painter draws the mark in (subgraphMarkRect). */
+  private subgraphMarkContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
+    if (hit.row.subgraphMark === undefined) return false
+    const tokens = this.renderer.getDesignTokens()
+    const rect = subgraphMarkRect(hit.row, hit.width, tokens.rowHeight, tokens, this.renderer.showsArrivingValue(hit.node.id, hit.row), isNumberRow(hit.row))
+    return hit.localX >= rect.x && hit.localX <= rect.x + rect.size && hit.localY >= rect.y && hit.localY <= rect.y + rect.size
+  }
+
+  /**
+   * An Inputs panel field wired outside the subgraph hits as panel body, but
+   * its subgraph mark still names and selects its input: the mark's row as a
+   * widget hit when the point is on the mark.
+   */
+  private wiredPanelMarkAt(hit: Hit | undefined, wx: number, wy: number): Extract<Hit, { kind: 'widget' }> | undefined {
+    if (hit?.kind !== 'boundary-body' || hit.bnode.fields === undefined) return undefined
+    const { bnode } = hit
+    const face = boundaryFieldNode(bnode)
+    if (face === undefined) return undefined
+    const tokens = this.renderer.getDesignTokens()
+    for (const row of bnode.layout.rows) {
+      const driven = row.kind === 'widget' && Object.hasOwn(bnode.fields!.wired, row.valueKey) ? bnode.fields!.wired[row.valueKey] : undefined
+      if (row.kind !== 'widget' || row.subgraphMark === undefined || driven === undefined) continue
+      const width = row.width ?? bnode.layout.width - row.inset * 2
+      const localX = wx - bnode.x - row.inset
+      const localY = wy - bnode.y - row.y
+      const rect = subgraphMarkRect(row, width, tokens.rowHeight, tokens, driven.value !== undefined, isNumberRow(row))
+      if (localX >= rect.x && localX <= rect.x + rect.size && localY >= rect.y && localY <= rect.y + rect.size)
+        return { kind: 'widget', node: face, row, bnode, x: bnode.x + row.inset, y: bnode.y + row.y, width, height: row.height, localX, localY }
+    }
+    return undefined
   }
 
   private widgetRowAffordanceContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
     const capabilities = this.renderer.getLensCapabilities?.()
     const affordance = capabilities?.widgetRowAffordance?.(hit.node, hit.row)
     if (affordance === undefined || affordance.disabled === true) return false
-    const rect = widgetRowAffordanceRect(hit.width, this.renderer.getDesignTokens().rowHeight, hit.row)
+    const tokens = this.renderer.getDesignTokens()
+    const rect = widgetRowAffordanceRect(hit.width, tokens.rowHeight, hit.row, tokens.rowGeometry)
     return hit.localX >= rect.x && hit.localX <= rect.x + rect.width &&
       hit.localY >= rect.y && hit.localY <= rect.y + rect.height
   }
@@ -2978,27 +3037,41 @@ export class InteractionController {
     )
     const badge = toolboxInside || overview
       ? undefined
-      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y)
+      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y, (node) => this.renderer.getNodeBadgeLayout(node))
     const hit = toolboxInside || badge ? undefined : hitTest(scene, w.x, w.y, this.hitOptions({
       ...(this.hoveredReroute ? { rerouteSockets: this.hoveredReroute } : {}),
       widgetTaps: this.widgetTapHits(scene),
       pinRevealed: this.pinRevealed(scene),
     }))
-    this.setAffordanceHover(hit)
+    this.setAffordanceHover(hit, {
+      ...(hit?.kind === 'header' && this.minimizeArrowContains(hit, w.x, w.y) ? { minimize: hit.node.id } : {}),
+      ...(badge !== undefined ? { badge: { nodeId: badge.node.id, badgeId: badge.badge.id } } : {}),
+    })
     this.setLinkMidpointHover(hit?.kind === 'link' && hit.midpoint ? hit.link.id : undefined)
-    this.canvas.style.cursor = hit?.kind === 'resize' || hit?.kind === 'group-resize'
+    this.setHoveredTextEdge(hit?.kind === 'text-box-edge' ? { nodeId: hit.node.id, valueKey: hit.row.valueKey } : undefined)
+    this.setHoveredPreviewCaption(hit?.kind === 'preview-caption' ? hit.node.id : undefined)
+    this.setHoveredPreviewEdge(hit?.kind === 'resize' && hit.handle === 's' ? hit.node.id : undefined)
+    this.canvas.style.cursor = hit?.kind === 'resize' && hit.handle === 's'
+      ? 'ns-resize'
+      : hit?.kind === 'resize' || hit?.kind === 'group-resize'
       ? hit.handle === 'nw' || hit.handle === 'se'
         ? 'nwse-resize'
         : 'nesw-resize'
-      : ''
+      : hit?.kind === 'text-box-edge' ? 'ns-resize'
+      : hit?.kind === 'grip' && hit.grip.alone !== true ? 'grab' : ''
     const controllerChip = hit?.kind === 'widget' && hit.row.controllerMode !== undefined
       && this.controllerChipContains(hit)
+    const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
+    const subgraphMark = hit?.kind === 'widget' && this.subgraphMarkContains(hit) ? hit.row.subgraphMark
+      : wiredPanelMark?.row.subgraphMark
     this.host.onHoverTarget?.(toolboxButton
       ? { kind: 'toolbox', button: toolboxButton, x: clientX, y: clientY }
       : badge
         ? { kind: 'badge', hit: badge, x: clientX, y: clientY }
       : controllerChip
         ? { kind: 'controller', hit, x: clientX, y: clientY }
+      : subgraphMark
+        ? { kind: 'subgraphMark', mark: subgraphMark, x: clientX, y: clientY }
       : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'header' || hit.kind === 'reroute' ||
         hit.kind === 'link' && hit.link.mismatch === true)
         ? { kind: hit.kind, hit, x: clientX, y: clientY } as CanvasHoverTarget
@@ -3021,6 +3094,13 @@ export class InteractionController {
       this.lastGesturePoint = { wx: lw.x, wy: lw.y, cx: e.clientX, cy: e.clientY }
     }
     const passed = Math.hypot(sx - this.downX, sy - this.downY) >= DRAG_THRESHOLD
+    if (g.kind === 'widget' && g.pin !== undefined && passed) {
+      // A pin that starts no wire leaves the row's own drag.
+      this.gesture = { kind: 'widget', hit: g.hit, moved: false }
+      this.beginPinGesture(this.renderer.getScene(), g.pin.hit, g.pin.shiftKey, g.pin.altKey)
+      this.processPointerMove(e)
+      return
+    }
 
     switch (g.kind) {
       case 'pan': {
@@ -3054,7 +3134,7 @@ export class InteractionController {
         const w = this.renderer.toWorld(sx, sy)
         const dx = w.x - g.startWX
         const dy = w.y - g.startWY
-        const ids = [...g.nodeIds, ...g.rerouteIds, ...g.valueSourceIds, ...g.selectorIds, ...g.boundarySides.map(boundarySceneId), ...g.groupIds, ...g.netViewIds]
+        const ids = [...g.nodeIds, ...g.rerouteIds, ...g.boundarySides.map(boundarySceneId), ...g.groupIds, ...g.netViewIds]
         const offsets = new Map(ids.map((id) => [id, { dx, dy }]))
         this.pushOverlay({ dragOffsets: offsets })
         return
@@ -3075,24 +3155,6 @@ export class InteractionController {
         const dx = w.x - g.startWX
         const dy = w.y - g.startWY
         this.pushOverlay({ dragOffsets: new Map([[boundarySceneId(g.side), { dx, dy }]]) })
-        return
-      }
-      case 'value-source-move': {
-        if (!passed && !g.moved) return
-        g.moved = true
-        const w = this.renderer.toWorld(sx, sy)
-        const dx = w.x - g.startWX
-        const dy = w.y - g.startWY
-        this.pushOverlay({ dragOffsets: new Map(g.valueSourceIds.map((id) => [id, { dx, dy }])) })
-        return
-      }
-      case 'selector-move': {
-        if (!passed && !g.moved) return
-        g.moved = true
-        const w = this.renderer.toWorld(sx, sy)
-        const dx = w.x - g.startWX
-        const dy = w.y - g.startWY
-        this.pushOverlay({ dragOffsets: new Map(g.selectorIds.map((id) => [id, { dx, dy }])) })
         return
       }
       case 'link': {
@@ -3116,19 +3178,31 @@ export class InteractionController {
           })
           return
         }
-        const hit = hitTest(scene, w.x, w.y, this.hitOptions({ pinRevealed: this.pinRevealed(scene, g.dropTargets) }))
+        // The same hit test as the drop, so a field's output pin under the
+        // pointer takes the wire's end at its center like any output pin.
+        const hit = hitTest(scene, w.x, w.y, this.hitOptions({
+          widgetTaps: this.widgetTapHits(scene, g.dropTargets),
+          pinRevealed: this.pinRevealed(scene, g.dropTargets),
+        }))
         const explicitPin = hit.kind === 'pin' && hit.direction === g.seeking &&
           g.dropTargets.has(dropTargetKey(hit.node.id, hit.portId, hit.direction))
           ? hit
-          : undefined
+          : hit.kind === 'widgetTap' && g.seeking === 'out' &&
+            g.dropTargets.has(dropTargetKey(hit.node.id, hit.pin.portId, 'out', true))
+            ? hit
+            : undefined
         const rawBodyNode = explicitPin ? undefined : this.nodeOfBodyHit(hit)
         const bodyNode = rawBodyNode && this.bodyDropEligible(g, scene, rawBodyNode, w) ? rawBodyNode : undefined
-        const boundaryBody = !explicitPin && (hit.kind === 'boundary-body' || hit.kind === 'boundary-header') ? hit.bnode : undefined
+        const boundaryBody = explicitPin ? undefined : this.boundaryOfBodyHit(hit)
         const boundaryCandidate = boundaryBody ? this.boundaryBodyDropCandidate(g, scene, boundaryBody) : undefined
-        const nodeCandidate = explicitPin ?? (bodyNode ? this.bodyDropCandidate(g, scene, bodyNode) : undefined)
+        const fieldRow = bodyNode && hit.kind === 'widget' && hit.row.kept === undefined ? hit.row : undefined
+        const closedBox = explicitPin ? undefined : this.closedBoxDropCandidate(g, scene, hit)
+        const nodeCandidate = explicitPin ?? closedBox ?? (bodyNode ? this.bodyDropCandidate(g, scene, bodyNode, fieldRow) : undefined)
         const candidate = nodeCandidate ?? boundaryCandidate
+        const dropRow = nodeCandidate && !explicitPin && landsOnRow(nodeCandidate, fieldRow) ? fieldRow : undefined
         if (!bodyNode) {
           g.bodyCandidateNode = undefined
+          g.bodyCandidateRow = undefined
           g.bodyCandidate = undefined
         }
         const end = candidate ?? w
@@ -3145,20 +3219,77 @@ export class InteractionController {
         this.pushOverlay({
           ghostLink: ghost,
           dropTargets: nodeCandidate
-            ? new Set([dropTargetKey(nodeCandidate.node.id, nodeCandidate.portId, nodeCandidate.direction)])
+            ? new Set([dropTargetKey(nodeCandidate.node.id, nodeCandidate.pin.portId, nodeCandidate.pin.direction, nodeCandidate.pin.widgetTap === true)])
             : boundaryCandidate ? new Set([boundaryTargetKey(boundaryCandidate.bnode.side, boundaryCandidate.item)]) : g.dropTargets,
-          ...(bodyNode && nodeCandidate ? { bodyDropNode: bodyNode.id } : {}),
+          // The field under the pointer shows that it takes the wire; any
+          // other body drop outlines the node whose ranked slot it takes.
+          ...(bodyNode && dropRow ? { dropRow: { nodeId: bodyNode.id, valueKey: dropRow.valueKey } } : {}),
+          ...(bodyNode && nodeCandidate && !dropRow ? { bodyDropNode: bodyNode.id } : {}),
           ...(boundaryBody && boundaryCandidate ? { bodyDropNode: boundarySceneId(boundaryBody.side) } : {}),
+          // The closed row names the field the wire would reach.
+          ...(closedBox && hit.kind === 'section'
+            ? { hoveredBox: { nodeId: hit.node.id, boxId: hit.row.sectionId, target: closedBox.pin.label ?? closedBox.portId } }
+            : {}),
           ...(g.hideLinkIds !== undefined ? { hiddenLinkIds: g.hideLinkIds } : {}),
         })
         return
       }
       case 'widget':
+        if (passed && !g.moved) {
+          g.moved = true
+          const drag = this.numberDragStart(g.hit, e.pointerType)
+          if (drag !== undefined) {
+            this.gesture = drag
+            this.updateNumberDrag(drag, sx, e.shiftKey)
+          }
+        }
+        return
+      case 'number-drag':
+        this.updateNumberDrag(g, sx, e.shiftKey)
+        return
       case 'widget-affordance':
       case 'preview-affordance':
       case 'section':
-      case 'growth':
+      case 'preview-caption':
         if (passed) g.moved = true
+        return
+      case 'growth':
+        // A press that moves away does not add: the button stops looking pressed.
+        if (passed && !g.moved) {
+          g.moved = true
+          this.pushOverlay()
+        }
+        return
+      case 'grip': {
+        if (!passed && !g.moved) return
+        g.moved = true
+        if (g.hit.grip.alone === true) return
+        this.canvas.style.cursor = 'grabbing'
+        const w = this.renderer.toWorld(sx, sy)
+        const drop = memberDropAt(g.hit.node, g.hit.grip, w.x, w.y)
+        g.index = drop?.index
+        this.pushOverlay({
+          memberDrag: {
+            nodeId: g.hit.node.id, construct: g.hit.grip.construct, member: g.hit.grip.member,
+            ...(drop !== undefined ? { line: drop.line } : {}),
+          },
+        })
+        return
+      }
+      case 'text-box-lines': {
+        if (!passed && !g.moved) return
+        g.moved = true
+        const w = this.renderer.toWorld(sx, sy)
+        const step = this.renderer.getDesignTokens().multilineText.lineHeight
+        g.lines = clampTextBoxLines(g.startLines + Math.round((w.y - g.startWY) / step))
+        this.pushOverlay({ textBoxLines: { nodeId: g.nodeId, valueKey: g.valueKey, lines: g.lines } })
+        return
+      }
+      case 'title-press':
+        // Dragging a title-bar control moves the node like the rest of the title bar.
+        if (!passed) return
+        this.pressNode(this.renderer.getScene(), g.node.id, { shiftKey: false, ctrlKey: false, metaKey: false }, g.startWX, g.startWY)
+        this.processPointerMove(e)
         return
       case 'resize': {
         if (!passed && !g.moved) return
@@ -3182,8 +3313,6 @@ export class InteractionController {
           dragOffsets: new Map([
             ...g.memberIds.map((id) => [id, { dx, dy }] as const),
             ...g.rerouteIds.map((id) => [id, { dx, dy }] as const),
-            ...g.valueSourceIds.map((id) => [id, { dx, dy }] as const),
-            ...g.selectorIds.map((id) => [id, { dx, dy }] as const),
             ...g.boundarySides.map((side) => [boundarySceneId(side), { dx, dy }] as const),
           ]),
           groupDragOffset: { groupId: g.groupId, dx, dy },
@@ -3291,8 +3420,6 @@ export class InteractionController {
           return cx >= x1 && cx <= x2 && cy >= y1 && cy <= y2
         }).map((n) => boundarySceneId(n.side))
         const reroutes = scene.reroutes.filter((r) => r.x >= x1 && r.x <= x2 && r.y >= y1 && r.y <= y2).map((r) => r.id)
-        const valueSources = scene.valueSources.filter((v) => overlaps(v.x, v.y, v.width, v.height)).map((v) => v.id)
-        const selectors = scene.selectors.filter((s) => overlaps(s.x, s.y, s.width, s.height)).map((s) => s.id)
         const netViews = scene.netStubs.filter((stub) => overlaps(stub.x, stub.y, stub.width, stub.height)).map((stub) => stub.id)
         const groups = scene.groups.filter((group) => {
           const cx = group.x + group.width / 2
@@ -3304,28 +3431,33 @@ export class InteractionController {
             [...this.selection, ...nodes, ...boundaries],
             this.linkSelection,
             [...this.rerouteSelection, ...reroutes],
-            [...this.valueSourceSelection, ...valueSources],
-            [...this.selectorSelection, ...selectors],
             [...this.groupSelection, ...groups],
             [...this.netViewSelection, ...netViews],
           )
         } else {
-          this.setSelection([...nodes, ...boundaries], [], reroutes, valueSources, selectors, groups, netViews)
+          this.setSelection([...nodes, ...boundaries], [], reroutes, groups, netViews)
         }
         return
       }
       case 'widget':
         this.pushOverlay()
         if (!g.moved) {
-          // Boundary bindings on a SELECTOR row forward the construct, not a
+          // Boundary bindings on a DynamicCombo row forward the construct, not a
           // value: the row stays the occurrence-local editor (edits route to
           // the owning instance), so only real links make it inert.
+          if (this.subgraphMarkContains(g.hit)) {
+            this.host.onSubgraphMarkActivate?.(g.hit.row.subgraphMark!.item)
+            return
+          }
           const bindingOk = (link: SceneLink) => g.hit.row.selector === undefined || link.boundary !== true
           const connected = scene.links.some(
             (link) => bindingOk(link) && link.to.kind === 'port' && link.to.node === g.hit.node.id && link.to.port === g.hit.row.inputId,
           )
           // The connected value wins; editing the dormant value invites confusion.
-          if (connected) return
+          if (connected) {
+            this.host.onWiredWidgetActivate?.(g.hit)
+            return
+          }
           const row = g.hit.row
           // Paint and interaction share the same row-local chip rectangle;
           // the rightmost numeric stepper remains outside it.
@@ -3333,38 +3465,18 @@ export class InteractionController {
             this.host.onControllerActivate?.(g.hit, clientX, clientY)
             return
           }
-          const numeric = row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT'
-          const direction = g.hit.localX <= WIDGET_EDGE_CONTROL_WIDTH
+          const numeric = isNumberRow(row)
+          const stepperZone = this.renderer.getDesignTokens().rowGeometry.stepperZone
+          const direction = g.hit.localX <= stepperZone
             ? -1
-            : g.hit.localX >= g.hit.width - WIDGET_EDGE_CONTROL_WIDTH ? 1 : 0
+            : g.hit.localX >= g.hit.width - stepperZone ? 1 : 0
           if (numeric && row.derivedValue === undefined && !row.ghost && direction !== 0) {
-            const stored = g.hit.node.node.values[row.valueKey]
-            const intrinsic = this.host.resolveWidgetDefault?.(row.spec)
-            const current = row.spec.widgetType === 'INT'
-              ? isIntegerWidgetValue(stored)
-                ? stored
-                : isIntegerWidgetValue(row.spec.default)
-                  ? row.spec.default
-                  : isIntegerWidgetValue(intrinsic) ? intrinsic : undefined
-              : typeof stored === 'number'
-                ? stored
-                : typeof row.spec.default === 'number'
-                  ? row.spec.default
-                  : typeof intrinsic === 'number' ? intrinsic : undefined
+            const current = this.numberRowValue(g.hit)
             if (current !== undefined) {
               // Shared with controller advancement (core numeric-step): the
               // stepper and queue-time advancement must not drift.
               const constraints = numericStepConstraints({ widgetType: row.spec.widgetType, options: row.spec.options ?? {} })
-              const value = stepNumericValue(current, direction, constraints)
-              this.host.dispatch({
-                command: 'node.setValue',
-                params: {
-                  graphId: row.familyOwner?.graphId ?? scene.graphId,
-                  nodeId: row.familyOwner?.nodeId ?? g.hit.node.id,
-                  inputId: row.familyOwner?.valueKey ?? row.valueKey,
-                  value,
-                },
-              })
+              this.host.dispatch(rowValueCommand(row, scene.graphId, g.hit.node.id, stepNumericValue(current, direction, constraints)))
             }
             // A numeric edge zone is an independent control even if an
             // unknown extension kind cannot resolve a starting value. It
@@ -3374,12 +3486,25 @@ export class InteractionController {
           this.host.onWidgetActivate?.(g.hit, clientX, clientY)
         }
         return
+      case 'number-drag': {
+        this.renderer.setRowDrag(undefined)
+        this.pushOverlay()
+        // A drag that ends where it began stores nothing and leaves no undo step.
+        if (String(g.value) === String(g.start)) return
+        this.host.dispatch(rowValueCommand(g.hit.row, scene.graphId, g.hit.node.id, g.value))
+        return
+      }
       case 'widget-affordance':
         this.pushOverlay()
         const affordance = this.renderer.getLensCapabilities().widgetRowAffordance?.(g.hit.node, g.hit.row)
         if (!g.moved && affordance !== undefined && affordance.disabled !== true) {
           this.host.onWidgetRowAffordanceActivate?.(g.hit)
         }
+        return
+      case 'title-press':
+        this.pushOverlay()
+        if (g.badge !== undefined) this.host.onBadgeClick?.(g.badge.node, g.badge.badge, g.badge.rect)
+        else this.toggleMinimized(scene, g.node)
         return
       case 'preview-affordance': {
         this.pushOverlay()
@@ -3389,6 +3514,15 @@ export class InteractionController {
         }
         return
       }
+      case 'preview-caption':
+        this.pushOverlay()
+        if (!g.moved) {
+          this.host.dispatch({
+            command: 'view.setPreviewFolded',
+            params: { graphId: scene.graphId, nodeId: g.node.id, folded: !previewFoldedOf(g.node) },
+          })
+        }
+        return
       case 'section':
         this.pushOverlay()
         if (!g.moved) {
@@ -3399,6 +3533,21 @@ export class InteractionController {
               nodeId: g.hit.node.id,
               sectionId: g.hit.row.sectionId,
               collapsed: !g.hit.row.collapsed,
+            },
+          })
+        }
+        return
+      case 'grip':
+        this.pushOverlay()
+        if (g.index !== undefined) {
+          this.host.dispatch({
+            command: 'dynamic.moveMember',
+            params: {
+              graphId: scene.graphId,
+              nodeId: g.hit.node.id,
+              construct: g.hit.grip.construct,
+              member: g.hit.grip.member,
+              index: g.index,
             },
           })
         }
@@ -3422,15 +3571,11 @@ export class InteractionController {
       case 'node': {
         if (!g.moved) {
           this.pushOverlay()
-          const valueSource = g.pressedValueSourceId === undefined
-            ? undefined
-            : scene.valueSources.find((candidate) => candidate.id === g.pressedValueSourceId)
-          if (valueSource) this.host.onValueSourceActivate?.(valueSource, clientX, clientY)
           return
         }
         if (
-          g.nodeIds.length > 0 || g.rerouteIds.length > 0 || g.valueSourceIds.length > 0 ||
-          g.selectorIds.length > 0 || g.boundarySides.length > 0 || g.groupIds.length > 0 || g.netViewIds.length > 0
+          g.nodeIds.length > 0 || g.rerouteIds.length > 0 ||
+          g.boundarySides.length > 0 || g.groupIds.length > 0 || g.netViewIds.length > 0
         ) {
           const dx = w.x - g.startWX
           const dy = w.y - g.startWY
@@ -3451,8 +3596,6 @@ export class InteractionController {
             return out
           }
           const reroutes = moved(scene.reroutes, g.rerouteIds)
-          const valueSources = moved(scene.valueSources, g.valueSourceIds)
-          const selectors = moved(scene.selectors, g.selectorIds)
           const netViews = g.netViewIds.flatMap((id) => {
             const stub = scene.netStubs.find((candidate) => candidate.id === id)
             if (stub === undefined) return []
@@ -3475,11 +3618,11 @@ export class InteractionController {
             const node = scene.boundaryNodes.find((candidate) => candidate.side === side)
             if (node) boundary[side] = { x: snap(node.x + dx), y: snap(node.y + dy) }
           }
-          const kindCount = [positions, reroutes, valueSources, selectors, boundary, groups].filter((map) => Object.keys(map).length > 0).length + (netViews.length > 0 ? 1 : 0)
+          const kindCount = [positions, reroutes, boundary, groups].filter((map) => Object.keys(map).length > 0).length + (netViews.length > 0 ? 1 : 0)
           const boundaryEntries = Object.entries(boundary) as ['inputs' | 'outputs', { x: number; y: number }][]
           const soloBoundary = boundaryEntries.length === 1 ? boundaryEntries[0] : undefined
           const onlyNodes = Object.keys(positions).length > 0 &&
-            [reroutes, valueSources, selectors, boundary, groups].every((map) => Object.keys(map).length === 0) && netViews.length === 0
+            [reroutes, boundary, groups].every((map) => Object.keys(map).length === 0) && netViews.length === 0
           if (kindCount === 0) {
             // Every captured id vanished during the drag (same-graph rebuild
             // deleted them): there is nothing to move, so dispatch nothing.
@@ -3499,8 +3642,6 @@ export class InteractionController {
                     graphId: scene.graphId,
                     nodes: positions,
                     ...(Object.keys(reroutes).length ? { reroutes } : {}),
-                    ...(Object.keys(valueSources).length ? { valueSources } : {}),
-                    ...(Object.keys(selectors).length ? { selectors } : {}),
                     ...(Object.keys(boundary).length ? { boundary } : {}),
                     ...(Object.keys(groups).length ? { groups } : {}),
                     ...(netViews.length ? { netViews } : {}),
@@ -3551,53 +3692,6 @@ export class InteractionController {
         this.pushOverlay() // drop transient offsets; scene rebuild follows commit
         return
       }
-      case 'value-source-move': {
-        if (g.moved && g.valueSourceIds.length > 0) {
-          const dx = w.x - g.startWX
-          const dy = w.y - g.startWY
-          const snap = (v: number) => Math.round(v * 100) / 100
-          const positions: Record<string, { x: number; y: number }> = {}
-          for (const id of g.valueSourceIds) {
-            const vs = scene.valueSources.find((sv) => sv.id === id)
-            if (vs) positions[id] = { x: snap(vs.x + dx), y: snap(vs.y + dy) }
-          }
-          // ONE undoable command for the whole drag, however many pills moved.
-          // Nothing survived a mid-drag rebuild: nothing to move, no dispatch.
-          if (Object.keys(positions).length > 0)
-            this.host.dispatch({
-              command: 'valueSource.move',
-              params: { graphId: scene.graphId, positions },
-            })
-        }
-        this.pushOverlay() // drop transient offsets; scene rebuild follows commit
-        if (!g.moved) {
-          // Click without drag: open the value editor (the pill IS the widget).
-          const vs = scene.valueSources.find((sv) => sv.id === g.pressedId)
-          if (vs) this.host.onValueSourceActivate?.(vs, clientX, clientY)
-        }
-        return
-      }
-      case 'selector-move': {
-        if (g.moved && g.selectorIds.length > 0) {
-          const dx = w.x - g.startWX
-          const dy = w.y - g.startWY
-          const snap = (v: number) => Math.round(v * 100) / 100
-          const positions: Record<string, { x: number; y: number }> = {}
-          for (const id of g.selectorIds) {
-            const sel = scene.selectors.find((ss) => ss.id === id)
-            if (sel) positions[id] = { x: snap(sel.x + dx), y: snap(sel.y + dy) }
-          }
-          // ONE undoable command for the whole drag, however many boxes moved.
-          // Nothing survived a mid-drag rebuild: nothing to move, no dispatch.
-          if (Object.keys(positions).length > 0)
-            this.host.dispatch({
-              command: 'selector.move',
-              params: { graphId: scene.graphId, positions },
-            })
-        }
-        this.pushOverlay() // drop transient offsets; scene rebuild follows commit
-        return
-      }
       case 'link': {
         const allowEmptyMoveSourceDisconnect =
           reason === 'pointerup' || reason === 'synthetic-buttons0' || reason === 'mouseup-fallback'
@@ -3614,6 +3708,13 @@ export class InteractionController {
         this.pushOverlay()
         return
       }
+      case 'text-box-lines':
+        if (g.moved) {
+          this.textBoxFit = undefined
+          this.commitTextBoxLines(scene, g.nodeId, g.valueKey, g.lines)
+        }
+        this.pushOverlay() // drop the preview; scene rebuild follows commit
+        return
       case 'resize': {
         // Same-graph rebuilds mid-drag keep the gesture alive, so the node
         // may have been deleted underneath it: commit only if it survived
@@ -3652,8 +3753,6 @@ export class InteractionController {
             const snap = (v: number) => Math.round(v * 100) / 100
             const positions: Record<string, { x: number; y: number }> = {}
             const reroutes: Record<string, { x: number; y: number }> = {}
-            const valueSources: Record<string, { x: number; y: number }> = {}
-            const selectors: Record<string, { x: number; y: number }> = {}
             const boundary: Partial<Record<'inputs' | 'outputs', { x: number; y: number }>> = {}
             for (const id of g.memberIds) {
               const node = scene.nodes.find((n) => n.id === id)
@@ -3662,14 +3761,6 @@ export class InteractionController {
             for (const id of g.rerouteIds) {
               const reroute = scene.reroutes.find((r) => r.id === id)
               if (reroute) reroutes[id] = { x: snap(reroute.x + dx), y: snap(reroute.y + dy) }
-            }
-            for (const id of g.valueSourceIds) {
-              const vs = scene.valueSources.find((v) => v.id === id)
-              if (vs) valueSources[id] = { x: snap(vs.x + dx), y: snap(vs.y + dy) }
-            }
-            for (const id of g.selectorIds) {
-              const sel = scene.selectors.find((s) => s.id === id)
-              if (sel) selectors[id] = { x: snap(sel.x + dx), y: snap(sel.y + dy) }
             }
             for (const side of g.boundarySides) {
               const node = scene.boundaryNodes.find((b) => b.side === side)
@@ -3684,8 +3775,6 @@ export class InteractionController {
                 bounds: { x: snap(group.x + dx), y: snap(group.y + dy) },
                 positions,
                 ...(Object.keys(reroutes).length ? { reroutes } : {}),
-                ...(Object.keys(valueSources).length ? { valueSources } : {}),
-                ...(Object.keys(selectors).length ? { selectors } : {}),
                 ...(Object.keys(boundary).length ? { boundary } : {}),
               },
             })
@@ -3744,12 +3833,15 @@ export class InteractionController {
     const bodyNode = rawBodyNode && this.bodyDropEligible(g, scene, rawBodyNode, w) ? rawBodyNode : undefined
     if (!bodyNode) {
       g.bodyCandidateNode = undefined
+      g.bodyCandidateRow = undefined
       g.bodyCandidate = undefined
     }
-    const boundaryBody = rawHit.kind === 'boundary-body' || rawHit.kind === 'boundary-header' ? rawHit.bnode : undefined
+    const boundaryBody = this.boundaryOfBodyHit(rawHit)
+    const fieldRow = bodyNode && rawHit.kind === 'widget' && rawHit.row.kept === undefined ? rawHit.row : undefined
     const hit: Hit = boundaryBody
       ? (this.boundaryBodyDropCandidate(g, scene, boundaryBody) ?? rawHit)
-      : bodyNode ? (this.bodyDropCandidate(g, scene, bodyNode) ?? rawHit) : rawHit
+      : this.closedBoxDropCandidate(g, scene, rawHit) ??
+        (bodyNode ? (this.bodyDropCandidate(g, scene, bodyNode, fieldRow) ?? rawHit) : rawHit)
     const rerouteLegal = hit.kind === 'reroute' && g.dropTargets.has(rerouteTargetKey(hit.reroute.id))
     const pinLegal =
       hit.kind === 'pin' &&
@@ -3757,17 +3849,6 @@ export class InteractionController {
       g.dropTargets.has(dropTargetKey(hit.node.id, hit.portId, hit.direction))
     const tapLegal = hit.kind === 'widgetTap' && g.seeking === 'out' &&
       g.dropTargets.has(dropTargetKey(hit.node.id, hit.pin.portId, 'out', true))
-    // Value sources only produce: a drop on their pin is legal only when the
-    // drag seeks an output (started from a free input).
-    const valueSourceLegal =
-      hit.kind === 'valueSourceOut' && g.seeking === 'out' && g.dropTargets.has(valueSourceTargetKey(hit.valueSource.id))
-    // Selector candidate pins consume; the output pin produces.
-    const selectorInLegal =
-      hit.kind === 'selectorIn' &&
-      g.seeking === 'in' &&
-      g.dropTargets.has(selectorInTargetKey(hit.selector.id, hit.candidate))
-    const selectorOutLegal =
-      hit.kind === 'selectorOut' && g.seeking === 'out' && g.dropTargets.has(selectorOutTargetKey(hit.selector.id))
 
     /** Where the dragged end landed, as a STRUCTURAL link endpoint (or nowhere legal). */
     const regionIndexLegal = hit.kind === 'boundary-pin' && hit.regionIndex === true &&
@@ -3780,13 +3861,7 @@ export class InteractionController {
         ? pinEndpoint(hit.node.id, hit.pin)
         : tapLegal
           ? { node: hit.node.id, tap: hit.input }
-        : valueSourceLegal
-          ? { valueSource: hit.valueSource.id }
-          : selectorInLegal
-            ? { selector: hit.selector.id, candidate: hit.candidate }
-            : selectorOutLegal
-              ? { selector: hit.selector.id }
-              : undefined
+          : undefined
     // A drop on a synthetic (ghost/min-fill) pin materializes in the same batch.
     const dropMaterialize = pinLegal ? pinMaterialize(hit.node.id, hit.pin) : undefined
     const boundaryLegal =
@@ -4048,8 +4123,7 @@ export class InteractionController {
 
     // A net delivery grabbed at its sink end. A port drop moves the sink
     // membership (net.connectInput replaces the target's driver, then the
-    // old sink detaches - one batch, one undo step). A reroute or selector
-    // drop cannot stay a net delivery, so the sink detaches and an ordinary
+    // old sink detaches - one batch, one undo step). A reroute drop cannot stay a net delivery, so the sink detaches and an ordinary
     // link connects the net's source to the drop. A moved space drop just
     // detaches the sink. The freed node compacts in the same transaction.
     if (g.netRewire !== undefined) {
@@ -4174,34 +4248,18 @@ export class InteractionController {
     const fixedFrom =
       g.fromPort ??
       g.fromTap ??
-      (g.fromReroute !== undefined
-        ? { reroute: g.fromReroute }
-        : g.fromValueSource !== undefined
-          ? { valueSource: g.fromValueSource }
-          : g.fromSelector !== undefined
-            ? { selector: g.fromSelector }
-            : undefined)
+      (g.fromReroute !== undefined ? { reroute: g.fromReroute } : undefined)
     const fixedInto =
       g.intoPort ??
-      (g.intoReroute !== undefined
-        ? { reroute: g.intoReroute }
-        : g.intoSelector !== undefined
-          ? { selector: g.intoSelector.selector, candidate: g.intoSelector.candidate }
-          : undefined)
+      (g.intoReroute !== undefined ? { reroute: g.intoReroute } : undefined)
     if (!dropEnd) {
-      const boundarySide = hit.kind === 'boundary-pin' || hit.kind === 'boundary-body' || hit.kind === 'boundary-header'
-        ? hit.bnode.side
-        : undefined
+      const boundarySide = hit.kind === 'boundary-pin' ? hit.bnode.side : this.boundaryOfBodyHit(hit)?.side
       const unsupportedBoundarySource: BoundaryExposureSource | undefined =
         g.fromTap !== undefined && boundarySide === 'inputs'
           ? { kind: 'widgetTap', node: g.fromTap.node, tap: g.fromTap.tap }
-          : boundarySide === 'outputs' && g.fromValueSource !== undefined
-            ? { kind: 'valueSource', id: g.fromValueSource }
-            : boundarySide === 'outputs' && g.fromSelector !== undefined
-              ? { kind: 'selector', id: g.fromSelector }
-              : boundarySide === 'outputs' && g.fromReroute !== undefined
-                ? { kind: 'reroute', id: g.fromReroute }
-                : undefined
+          : boundarySide === 'outputs' && g.fromReroute !== undefined
+            ? { kind: 'reroute', id: g.fromReroute }
+            : undefined
       if (g.moved && unsupportedBoundarySource !== undefined && boundarySide !== undefined) {
         this.host.onBoundaryExposureRefused?.(
           'boundary.structuralProducerUnsupported',
@@ -4290,13 +4348,17 @@ export class InteractionController {
       case 'widgetTap':
         return j('widgetTap', hit.node.id, hit.input)
       case 'widget':
+      case 'text-box-edge':
         return j('widget', hit.node.id, hit.row.inputId)
       case 'section':
         return j('section', hit.node.id, hit.row.sectionId)
       case 'growth':
         return j('growth', hit.node.id, hit.row.construct)
+      case 'grip':
+        return j('grip', hit.node.id, hit.grip.construct, hit.grip.member)
       case 'header':
       case 'body':
+      case 'preview-caption':
         return j('node', hit.node.id)
       case 'resize':
         return j('resize', hit.node.id, hit.handle)
@@ -4306,16 +4368,6 @@ export class InteractionController {
         return j('reroute', hit.reroute.id)
       case 'rerouteSocket':
         return j('rerouteSocket', hit.reroute.id, hit.side)
-      case 'valueSource':
-      case 'valueSourceBadge':
-      case 'valueSourceOut':
-        return j('valueSource', hit.valueSource.id)
-      case 'selector':
-      case 'selectorBadge':
-      case 'selectorOut':
-        return j('selector', hit.selector.id)
-      case 'selectorIn':
-        return j('selectorIn', hit.selector.id, hit.candidate)
       case 'netStub':
         return j('net', hit.stub.netId, hit.stub.role, hit.stub.nodeId, hit.stub.portId)
       case 'group-header':
@@ -4363,6 +4415,8 @@ export class InteractionController {
       case 'body':
       case 'resize':
       case 'widget':
+      case 'text-box-edge':
+      case 'preview-caption':
       case 'section':
       case 'growth':
       case 'pin':
@@ -4370,8 +4424,6 @@ export class InteractionController {
           this.selection = new Set([hit.node.id])
           this.linkSelection = new Set()
           this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set()
           this.groupSelection = new Set()
           this.netViewSelection = new Set()
           this.notifySelection()
@@ -4383,8 +4435,6 @@ export class InteractionController {
           this.selection = new Set()
           this.linkSelection = new Set([hit.link.id])
           this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set()
           this.groupSelection = new Set()
           this.netViewSelection = new Set()
           this.notifySelection()
@@ -4396,39 +4446,6 @@ export class InteractionController {
           this.selection = new Set()
           this.linkSelection = new Set()
           this.rerouteSelection = new Set([hit.reroute.id])
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set()
-          this.groupSelection = new Set()
-          this.netViewSelection = new Set()
-          this.notifySelection()
-          this.pushOverlay()
-        }
-        break
-      case 'valueSource':
-      case 'valueSourceOut':
-      case 'valueSourceBadge':
-        if (!this.valueSourceSelection.has(hit.valueSource.id)) {
-          this.selection = new Set()
-          this.linkSelection = new Set()
-          this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set([hit.valueSource.id])
-          this.selectorSelection = new Set()
-          this.groupSelection = new Set()
-          this.netViewSelection = new Set()
-          this.notifySelection()
-          this.pushOverlay()
-        }
-        break
-      case 'selector':
-      case 'selectorIn':
-      case 'selectorOut':
-      case 'selectorBadge':
-        if (!this.selectorSelection.has(hit.selector.id)) {
-          this.selection = new Set()
-          this.linkSelection = new Set()
-          this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set([hit.selector.id])
           this.groupSelection = new Set()
           this.netViewSelection = new Set()
           this.notifySelection()
@@ -4441,8 +4458,6 @@ export class InteractionController {
           this.selection = new Set()
           this.linkSelection = new Set()
           this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set()
           this.groupSelection = new Set([hit.group.id])
           this.netViewSelection = new Set()
           this.notifySelection()
@@ -4454,8 +4469,6 @@ export class InteractionController {
           this.selection = new Set()
           this.linkSelection = new Set()
           this.rerouteSelection = new Set()
-          this.valueSourceSelection = new Set()
-          this.selectorSelection = new Set()
           this.groupSelection = new Set()
           this.netViewSelection = new Set([hit.stub.id])
           this.notifySelection()
@@ -4529,22 +4542,22 @@ export class InteractionController {
       return
     }
     const scene = this.renderer.getScene()
+    // Badges are their own targets: a double-click on the subgraph mark
+    // enters the subgraph, and one on any other badge does nothing.
+    const badgeHit = this.renderer.getDetailLevel() === 'overview'
+      ? undefined
+      : hitTestBadge(scene, this.renderer.getBadges(), w.x, w.y, (node) => this.renderer.getNodeBadgeLayout(node))
+    if (badgeHit) {
+      if (badgeHit.badge.id === SUBGRAPH_BADGE.id) this.host.onOpenSubgraph?.(badgeHit.node)
+      return
+    }
     const hit = hitTest(scene, w.x, w.y, this.hitOptions({ pinRevealed: this.pinRevealed(scene) }))
-    if ((hit.kind === 'header' || hit.kind === 'body') && hit.node.isSubgraph) {
-      this.host.onOpenSubgraph?.(hit.node)
-    } else if (hit.kind === 'header') {
-      const selectedNodes = scene.nodes.filter((node) => this.selection.has(node.id))
-      const nodes = selectedNodes.some((node) => node.id === hit.node.id)
-        ? selectedNodes
-        : [hit.node]
-      this.host.dispatch({
-        command: 'view.setNodeCollapsed',
-        params: {
-          graphId: scene.graphId,
-          nodeIds: nodes.map((node) => node.id),
-          collapsed: nodes.some((node) => node.layout.minimized !== true),
-        },
-      })
+    // Each click on the minimize arrow already toggled.
+    if (this.minimizeArrowContains(hit, w.x, w.y)) return
+    if (hit.kind === 'header') {
+      this.toggleMinimized(scene, hit.node)
+    } else if (hit.kind === 'text-box-edge') {
+      this.fitTextBox(scene, hit.node, hit.row)
     } else if (hit.kind === 'boundary-pin' && hit.item !== BOUNDARY_ADD_SLOT && !hit.regionIndex) {
       // Double-click a boundary slot: rename its exposed port.
       this.host.onBoundaryRenameRequest?.(hit.bnode.side, hit.item, e.clientX, e.clientY)
@@ -4600,9 +4613,13 @@ export class InteractionController {
       dropTargets?: ReadonlySet<string>
       marquee?: { x1: number; y1: number; x2: number; y2: number }
       resizePreview?: { nodeId: string; x: number; y: number; width: number; height: number }
+      textBoxLines?: { nodeId: string; valueKey: string; lines: number }
       groupDragOffset?: { groupId: string; dx: number; dy: number }
       groupResizeGhost?: { groupId: string; x: number; y: number; width: number; height: number }
       bodyDropNode?: string
+      dropRow?: { nodeId: string; valueKey: string }
+      memberDrag?: NonNullable<OverlayState['memberDrag']>
+      pressedButton?: NonNullable<OverlayState['pressedButton']>
     } = {},
   ): void {
     const ghost = extra.ghostLink ?? this.paletteGhost
@@ -4610,8 +4627,6 @@ export class InteractionController {
       selection: new Set(this.selection),
       linkSelection: new Set(this.linkSelection),
       rerouteSelection: new Set(this.rerouteSelection),
-      valueSourceSelection: new Set(this.valueSourceSelection),
-      selectorSelection: new Set(this.selectorSelection),
       groupSelection: new Set(this.groupSelection),
       netViewSelection: new Set(this.netViewSelection),
       ...(this.hoveredReroute !== undefined ? { hoveredReroute: this.hoveredReroute } : {}),
@@ -4636,6 +4651,17 @@ export class InteractionController {
       ...(this.hoveredWidgetNode !== undefined ? {
         hoveredWidget: { nodeId: this.hoveredWidgetNode, valueKey: this.hoveredWidgetValue! },
       } : {}),
+      ...(this.activeTextEdge() !== undefined ? { textBoxEdge: this.activeTextEdge()! } : {}),
+      ...(this.pictureHeightPreview !== undefined ? { pictureHeight: this.pictureHeightPreview } : {}),
+      ...(this.hoveredPreviewCaption !== undefined ? { hoveredPreviewCaption: this.hoveredPreviewCaption } : {}),
+      ...(this.activePreviewEdge() !== undefined ? { previewEdge: this.activePreviewEdge()! } : {}),
+      ...(this.hoveredMinimize !== undefined ? { hoveredMinimize: this.hoveredMinimize } : {}),
+      ...(this.hoveredBadge !== undefined ? { hoveredBadge: this.hoveredBadge } : {}),
+      ...(this.hoveredBoxNode !== undefined ? {
+        hoveredBox: { nodeId: this.hoveredBoxNode, boxId: this.hoveredBoxId! },
+      } : {}),
+      ...(this.hoveredGrip !== undefined ? { hoveredGrip: this.hoveredGrip } : {}),
+      ...(this.hoveredButton !== undefined ? { hoveredButton: this.hoveredButton } : {}),
       ...extra,
       ...(ghost !== undefined ? { ghostLink: ghost } : {}),
       ...(this.placementGhost !== undefined ? { placementGhost: this.placementGhost } : {}),
@@ -4682,10 +4708,21 @@ export class InteractionController {
     dropTargets?: ReadonlySet<string>,
   ): (node: SceneNode, pin: PinLayout) => boolean {
     let connected: Set<string> | undefined
+    let wireless: Set<string> | undefined
     return (node, pin) => {
       if (pin.widgetBacked !== true || pin.direction !== 'in') return true
-      if (this.selection.has(node.id) || this.hoveredNode === node.id) return true
       if (dropTargets?.has(dropTargetKey(node.id, pin.portId, pin.direction)) === true) return true
+      // A field driven by an input drawn without its wire has no pin to grab.
+      wireless ??= new Set(
+        scene.links
+          .filter((link) => link.boundary === true && link.hidden === true && link.to.kind === 'port')
+          .map((link) => {
+            const to = link.to as Extract<SceneLink['to'], { kind: 'port' }>
+            return `${to.node}\u0000${to.port}`
+          }),
+      )
+      if (wireless.has(`${node.id}\u0000${pin.portId}`)) return false
+      if (this.selection.has(node.id) || this.hoveredNode === node.id) return true
       // Lazily derive connectivity the way the renderer does each paint.
       connected ??= new Set(
         scene.links
@@ -4740,10 +4777,205 @@ export class InteractionController {
     this.pushOverlay()
   }
 
-  /** Track one pin OR widget row; repeated moves on it are repaint-free. */
-  private setAffordanceHover(hit: Hit | undefined): void {
+  /** The edge drawn hot: the one being dragged, else the focused one, else the hovered one. */
+  private activeTextEdge(): { readonly nodeId: string; readonly valueKey: string } | undefined {
+    const g = this.gesture
+    if (g.kind === 'text-box-lines') return { nodeId: g.nodeId, valueKey: g.valueKey }
+    return this.focusedTextEdge ?? this.hoveredTextEdge
+  }
+
+  private setHoveredTextEdge(edge: { readonly nodeId: string; readonly valueKey: string } | undefined): void {
+    if (edge?.nodeId === this.hoveredTextEdge?.nodeId && edge?.valueKey === this.hoveredTextEdge?.valueKey) return
+    this.hoveredTextEdge = edge
+    this.pushOverlay()
+  }
+
+  /** The node whose preview bar is drawn hot: the one being dragged, else the hovered one. */
+  private activePreviewEdge(): string | undefined {
+    const g = this.gesture
+    if (g.kind === 'resize' && g.handle === 's') return g.nodeId
+    return this.focusedPreviewEdge ?? this.hoveredPreviewEdge
+  }
+
+  private setFocusedPreviewEdge(nodeId: string | undefined): void {
+    if (nodeId === this.focusedPreviewEdge) return
+    this.focusedPreviewEdge = nodeId
+    this.pushOverlay()
+  }
+
+  /** Step the height of a node's open preview from its bar: a picture by `keyStep`, a text result by one row. */
+  private stepPreviewEdge(nodeId: string, down: boolean): void {
+    const scene = this.renderer.getScene()
+    const node = scene.nodes.find((candidate) => candidate.id === nodeId)
+    if (node === undefined || !previewEdgeShown(node)) {
+      this.setFocusedPreviewEdge(undefined)
+      return
+    }
+    const l = node.layout
+    const step = l.textOutput !== undefined ? this.renderer.getDesignTokens().rowHeight : canvasPaintTokens.node.previewEdge.keyStep
+    const height = Math.max(l.minHeight, l.height + (down ? step : -step))
+    if (height === l.height) return
+    this.host.dispatch({
+      command: 'view.setNodeSize',
+      params: {
+        graphId: scene.graphId,
+        nodeId,
+        size: { width: Math.round(l.width), height: Math.round(height - (l.resizeHeightOffset ?? 0)) },
+      },
+    })
+  }
+
+  private setHoveredPreviewEdge(nodeId: string | undefined): void {
+    if (nodeId === this.hoveredPreviewEdge) return
+    this.hoveredPreviewEdge = nodeId
+    this.pushOverlay()
+  }
+
+  private setHoveredPreviewCaption(nodeId: string | undefined): void {
+    if (nodeId === this.hoveredPreviewCaption) return
+    this.hoveredPreviewCaption = nodeId
+    this.pushOverlay()
+  }
+
+  private pictureHeightPreview: { readonly nodeId: string; readonly valueKey: string; readonly height: number } | undefined
+
+  /**
+   * Paint an unfolded editor's picture at `height` while its bottom edge is
+   * dragged, without storing it; `undefined` drops the preview.
+   */
+  previewPictureHeight(preview: { readonly nodeId: string; readonly valueKey: string; readonly height: number } | undefined): void {
+    this.pictureHeightPreview = preview
+    this.pushOverlay()
+  }
+
+  /**
+   * Store one unfolded editor's picture height. Every other row keeps its
+   * height: a node with a manual size moves its stored height by the same
+   * amount in the same undo step.
+   */
+  commitPictureHeight(nodeId: string, valueKey: string, height: number): void {
+    this.pictureHeightPreview = undefined
+    this.pushOverlay()
+    const scene = this.renderer.getScene()
+    const node = scene.nodes.find((candidate) => candidate.id === nodeId)
+    if (node === undefined) return
+    const projected = projectPictureHeight(node.layout, valueKey, height)
+    if (projected === node.layout) return
+    const space = projected.rows.find((row) => row.kind === 'editorSpace' && row.valueKey === valueKey)
+    const setHeight: CommandInvocation = {
+      command: 'view.setPictureHeight',
+      params: { graphId: scene.graphId, nodeId, valueKey, height: space?.kind === 'editorSpace' ? space.picture?.height ?? null : null },
+    }
+    const size = node.layout.sizeOverride
+    this.host.dispatch(composeBatch(scene.graphId, [], size === undefined ? [setHeight] : [setHeight, {
+      command: 'view.setNodeSize',
+      params: {
+        graphId: scene.graphId,
+        nodeId,
+        size: { width: size.width, height: Math.max(0, Math.round(size.height + projected.height - node.layout.height)) },
+      },
+    }]))
+  }
+
+  private setFocusedTextEdge(edge: { readonly nodeId: string; readonly valueKey: string } | undefined): void {
+    if (edge?.nodeId === this.focusedTextEdge?.nodeId && edge?.valueKey === this.focusedTextEdge?.valueKey) return
+    this.focusedTextEdge = edge
+    this.pushOverlay()
+  }
+
+  /**
+   * Store one text box's height in lines. Every other row, the preview, and
+   * the text output keep their heights: a node with a manual size moves its
+   * stored height by the same amount in the same undo step, and the node's
+   * resize surplus on this box gives way to the whole lines it now has.
+   */
+  private commitTextBoxLines(scene: Scene, nodeId: string, valueKey: string, lines: number): void {
+    const node = scene.nodes.find((candidate) => candidate.id === nodeId)
+    if (node === undefined) return
+    const projected = projectTextBoxLines(node.layout, valueKey, lines, this.renderer.getDesignTokens())
+    if (projected === node.layout) return
+    const setLines: CommandInvocation = {
+      command: 'view.setTextBoxLines',
+      params: { graphId: scene.graphId, nodeId, inputId: valueKey, lines },
+    }
+    const size = node.layout.sizeOverride
+    this.host.dispatch(composeBatch(scene.graphId, [], size === undefined ? [setLines] : [setLines, {
+      command: 'view.setNodeSize',
+      params: {
+        graphId: scene.graphId,
+        nodeId,
+        size: { width: size.width, height: Math.max(0, Math.round(size.height + projected.height - node.layout.height)) },
+      },
+    }]))
+  }
+
+  private stepTextBox(edge: { readonly nodeId: string; readonly valueKey: string }, down: boolean): void {
+    const scene = this.renderer.getScene()
+    const row = scene.nodes.find((node) => node.id === edge.nodeId)?.layout.rows.find((candidate) =>
+      candidate.kind === 'widget' && candidate.viewId === 'core.text' && candidate.valueKey === edge.valueKey)
+    if (row?.kind !== 'widget') {
+      this.setFocusedTextEdge(undefined)
+      return
+    }
+    this.textBoxFit = undefined
+    const step = canvasPaintTokens.widget.textBoxEdge.keyStepLines
+    this.commitTextBoxLines(scene, edge.nodeId, edge.valueKey,
+      clampTextBoxLines(visibleTextBoxLines(row, this.renderer.getDesignTokens()) + (down ? step : -step)))
+  }
+
+  /** Fit a box to its wrapped text; the same double-click again restores the height before. */
+  private fitTextBox(scene: Scene, node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>): void {
+    const current = visibleTextBoxLines(row, this.renderer.getDesignTokens())
+    const fit = this.textBoxFit
+    if (fit !== undefined && fit.nodeId === node.id && fit.valueKey === row.valueKey && fit.fitted === current) {
+      this.textBoxFit = undefined
+      this.commitTextBoxLines(scene, node.id, row.valueKey, fit.before)
+      return
+    }
+    const fitted = clampTextBoxLines(this.renderer.textBoxContentLines(node, row))
+    this.textBoxFit = { nodeId: node.id, valueKey: row.valueKey, fitted, before: current }
+    this.commitTextBoxLines(scene, node.id, row.valueKey, fitted)
+  }
+
+
+  /** Whether a header hit lands on the minimize arrow, at a zoom where the title bar takes clicks. */
+  private minimizeArrowContains(hit: Hit | undefined, wx: number, wy: number): boolean {
+    if (hit?.kind !== 'header' || this.renderer.getDetailLevel() === 'overview') return false
+    const rect = minimizeArrowRect(hit.node)
+    return wx >= rect.x && wx <= rect.x + rect.width && wy >= rect.y && wy <= rect.y + rect.height
+  }
+
+  /**
+   * Minimize or restore from a node's title bar. A selected node acts for the
+   * whole selection (any open node minimizes all); otherwise the node alone.
+   */
+  private toggleMinimized(scene: Scene, node: SceneNode): void {
+    const selectedNodes = scene.nodes.filter((candidate) => this.selection.has(candidate.id))
+    const nodes = selectedNodes.some((candidate) => candidate.id === node.id) ? selectedNodes : [node]
+    this.host.dispatch({
+      command: 'view.setNodeCollapsed',
+      params: {
+        graphId: scene.graphId,
+        nodeIds: nodes.map((candidate) => candidate.id),
+        collapsed: nodes.some((candidate) => candidate.layout.minimized !== true),
+      },
+    })
+  }
+
+  /** Track one pin or widget row, the minimize arrow and a badge; repeated moves on them are repaint-free. */
+  private setAffordanceHover(
+    hit: Hit | undefined,
+    titleControl: { readonly minimize?: string; readonly badge?: { readonly nodeId: string; readonly badgeId: string } } = {},
+  ): void {
+    if (this.host.frozen?.()) hit = undefined
     const pin = hit?.kind === 'pin' || hit?.kind === 'widgetTap' ? hit : undefined
     const widget = hit?.kind === 'widget' ? hit : undefined
+    const boxNode = hit?.kind === 'section' ? hit.node.id : undefined
+    const boxId = hit?.kind === 'section' ? hit.row.sectionId : undefined
+    const grip = hit?.kind === 'grip' && hit.grip.alone !== true
+      ? { nodeId: hit.node.id, construct: hit.grip.construct, member: hit.grip.member }
+      : undefined
+    const button = hit?.kind === 'growth' ? { nodeId: hit.node.id, key: `growth:${hit.row.construct}` } : undefined
     const pinNode = pin?.node.id
     const pinPort = pin?.kind === 'widgetTap' ? pin.pin.portId : pin?.portId
     const pinDirection = pin?.kind === 'widgetTap' ? 'out' : pin?.direction
@@ -4756,7 +4988,17 @@ export class InteractionController {
       pinDirection === this.hoveredPinDirection &&
       pinWidgetTap === this.hoveredPinWidgetTap &&
       widgetNode === this.hoveredWidgetNode &&
-      widgetValue === this.hoveredWidgetValue
+      widgetValue === this.hoveredWidgetValue &&
+      titleControl.minimize === this.hoveredMinimize &&
+      titleControl.badge?.nodeId === this.hoveredBadge?.nodeId &&
+      titleControl.badge?.badgeId === this.hoveredBadge?.badgeId &&
+      boxNode === this.hoveredBoxNode &&
+      boxId === this.hoveredBoxId &&
+      grip?.nodeId === this.hoveredGrip?.nodeId &&
+      grip?.construct === this.hoveredGrip?.construct &&
+      grip?.member === this.hoveredGrip?.member &&
+      button?.nodeId === this.hoveredButton?.nodeId &&
+      button?.key === this.hoveredButton?.key
     ) return
     this.hoveredPinNode = pinNode
     this.hoveredPinPort = pinPort
@@ -4764,6 +5006,12 @@ export class InteractionController {
     this.hoveredPinWidgetTap = pinWidgetTap
     this.hoveredWidgetNode = widgetNode
     this.hoveredWidgetValue = widgetValue
+    this.hoveredMinimize = titleControl.minimize
+    this.hoveredBadge = titleControl.badge
+    this.hoveredBoxNode = boxNode
+    this.hoveredBoxId = boxId
+    this.hoveredGrip = grip
+    this.hoveredButton = button
     this.pushOverlay()
   }
 
@@ -4774,5 +5022,45 @@ export class InteractionController {
     this.hoveredPinWidgetTap = undefined
     this.hoveredWidgetNode = undefined
     this.hoveredWidgetValue = undefined
+    this.hoveredMinimize = undefined
+    this.hoveredBadge = undefined
+    this.hoveredBoxNode = undefined
+    this.hoveredBoxId = undefined
+    this.hoveredGrip = undefined
+    this.hoveredButton = undefined
   }
+}
+
+/**
+ * Where releasing a dragged member at world (`wx`, `wy`) puts it: the gap
+ * between members nearest the pointer while it is over the group, as the
+ * member's new index in the stored order and the node-local line that marks
+ * it. The two gaps beside the member itself would leave it in place, so they
+ * give none.
+ */
+export function memberDropAt(
+  node: SceneNode,
+  grip: MemberGrip,
+  wx: number,
+  wy: number,
+): { readonly index: number; readonly line: { readonly x: number; readonly y: number; readonly width: number } } | undefined {
+  const spans = memberSpans(node.layout, grip.construct)
+  const from = spans.findIndex((span) => span.member === grip.member)
+  if (from < 0) return undefined
+  const x = wx - node.x
+  const y = wy - node.y
+  const group = node.layout.boxes?.find((candidate) => candidate.id === groupBoxKey(grip.construct))
+  const top = group?.y ?? spans[0]!.top
+  const bottom = group === undefined ? spans.at(-1)!.bottom : group.y + group.height
+  const left = group?.x ?? 0
+  const right = group === undefined ? node.layout.width : group.x + group.width
+  if (x < left || x > right || y < top || y > bottom) return undefined
+  const half = spans.length > 1 ? (spans[1]!.top - spans[0]!.bottom) / 2 : 0
+  const gaps = spans.map((span, index) => index === 0 ? span.top - half : (spans[index - 1]!.bottom + span.top) / 2)
+  gaps.push(spans.at(-1)!.bottom + half)
+  let gap = 0
+  for (const [index, gy] of gaps.entries()) if (Math.abs(gy - y) < Math.abs(gaps[gap]! - y)) gap = index
+  if (gap === from || gap === from + 1) return undefined
+  const dragged = spans[from]!
+  return { index: gap > from ? gap - 1 : gap, line: { x: dragged.x, y: gaps[gap]!, width: dragged.width } }
 }

@@ -494,6 +494,16 @@ describe('dynamic.compact', () => {
     expect(store.revision).toBe(revision)
   })
 
+  it("retains a member whose only wire leaves a field's output", () => {
+    const store = makeStore(doc({ g0: graph({
+      id: 'g0',
+      nodes: { n1: node('n1', { dynamic: state }), sink: node('sink') },
+      links: { l1: { id: asLinkId('l1'), from: { node: asNodeId('n1'), tap: asPortId('images.m2') }, to: port('sink', 'in') } },
+    }) }))
+    expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
+    expect(dynOf(store, 'n1')).toEqual({ images: { members: ['m2'], seq: 3 } })
+  })
+
   it('retains a member whose only state is a chosen key or an authored menu at a flattened id', () => {
     const store = makeStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', { dynamic: {
       items: { members: ['m0', 'm1', 'm2'], seq: 3 },
@@ -667,6 +677,62 @@ describe('dynamic.compact', () => {
     expect(dynOf(store, 'n1')).toEqual({ images: { members: ['m1'], seq: 3 } })
   })
 
+})
+
+describe('dynamic.moveMember', () => {
+  const ordered = (extra: Partial<GroupSpec> = {}) => schemaOf([{ ...group('items', { max: 8, prefix: 'item' }), reorderable: true, ...extra } as GroupSpec])
+  const storeWith = (schema: NodeSchema, dynamic: Record<string, unknown>, values: Record<string, unknown> = {}) =>
+    new DocumentStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', { dynamic, values }) } }) }), coreCommandRegistry(),
+      200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => () => schema }))
+  const move = (store: DocumentStore, member: string, index: number, construct = 'items') =>
+    store.dispatch({ command: 'dynamic.moveMember', params: { graphId: 'g0', nodeId: 'n1', construct, member, index } })
+  const codes = (out: ReturnType<DocumentStore['dispatch']>) => out.diagnostics.map((diagnostic) => diagnostic.code)
+
+  it('moves a member to a position and keeps every key, value, label and seq', () => {
+    const dynamic = { items: { members: ['item0', 'item1', 'item2', 'item3'], seq: 6, memberLabels: { item3: 'Last' } } }
+    const store = storeWith(ordered(), dynamic, { 'items.item3': 4 })
+    expect(move(store, 'item3', 1).ok).toBe(true)
+    expect(dynOf(store, 'n1')).toEqual({ items: { members: ['item0', 'item3', 'item1', 'item2'], seq: 6, memberLabels: { item3: 'Last' } } })
+    expect(move(store, 'item0', 3).ok).toBe(true)
+    expect(dynOf(store, 'n1')!['items']!.members).toEqual(['item3', 'item1', 'item2', 'item0'])
+    expect(store.doc.graphs['g0']!.nodes['n1']!.values).toEqual({ 'items.item3': 4 })
+    // The shown number follows position; the key does not change.
+    const inputs = elabInputsOf(elaborateInterface(ordered(), store.doc.graphs['g0']!.nodes['n1']!))
+      .filter((input) => input.origin.kind === 'member' && input.origin.ghost !== true)
+    expect(inputs.map((input) => [input.spec.id, input.spec.displayName])).toEqual([
+      ['items.item3', 'Last'], ['items.item1', 'item 2'], ['items.item2', 'item 3'], ['items.item0', 'item 4'],
+    ])
+    // Each move is one undo step.
+    store.undo()
+    expect(dynOf(store, 'n1')!['items']!.members).toEqual(['item0', 'item3', 'item1', 'item2'])
+  })
+
+  it('records nothing when the member stays where it is', () => {
+    const store = storeWith(ordered(), { items: { members: ['item0', 'item1'], seq: 2 } })
+    const revision = store.revision
+    expect(move(store, 'item1', 1).ok).toBe(true)
+    expect(store.revision).toBe(revision)
+  })
+
+  it('refuses a group that is not reorderable, a count group, a missing member and a position outside the list', () => {
+    const stored = { items: { members: ['item0', 'item1'], seq: 2 } }
+    expect(codes(move(storeWith(schemaOf([group('items', { prefix: 'item' })]), stored), 'item1', 0))).toEqual(['dynamic.notReorderable'])
+    expect(codes(move(storeWith(ordered({ grows: { count: '2' } }), stored), 'item1', 0))).toEqual(['dynamic.notReorderable'])
+    expect(codes(move(storeWith(ordered(), stored), 'item1', 0, 'missing'))).toEqual(['dynamic.notReorderable'])
+    expect(codes(move(storeWith(ordered(), stored), 'item7', 0))).toEqual(['dynamic.memberMissing'])
+    expect(codes(move(storeWith(ordered(), stored), 'item1', 2))).toEqual(['params.invalid'])
+    expect(codes(move(storeWith(ordered(), stored), 'item1', -1))).toEqual(['params.invalid'])
+    // Without the node's schema the command cannot tell, so it refuses.
+    const blind = new DocumentStore(doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1', { dynamic: stored }) } }) }), coreCommandRegistry())
+    expect(codes(move(blind, 'item1', 0))).toEqual(['dynamic.notReorderable'])
+  })
+
+  it('moves a member of a group nested in a member, by the nested group\'s flattened id', () => {
+    const schema = schemaOf([{ ...group('outer', { prefix: 'o', member: [{ ...group('inner', { prefix: 'i' }), reorderable: true } as GroupSpec] }) }])
+    const store = storeWith(schema, { outer: { members: ['o0'], seq: 1 }, 'outer.o0.inner': { members: ['i0', 'i1'], seq: 2 } })
+    expect(move(store, 'i1', 0, 'outer.o0.inner').ok).toBe(true)
+    expect(dynOf(store, 'n1')!['outer.o0.inner']!.members).toEqual(['i1', 'i0'])
+  })
 })
 
 describe('stored state that follows the schema', () => {
@@ -916,5 +982,44 @@ describe('materializeFramesOf', () => {
       'outer.row0.inner.sub0',
       'outer.row0.inner.sub0',
     ])
+  })
+})
+
+describe('a count that shrinks', () => {
+  it('removes the wires, nets and forwards on the outputs of the members past it, in the same undo step', () => {
+    const field = (id: string): InputSpec => ({
+      ...socketInput(id, 'INT'), widget: { widgetType: 'INT', options: {}, default: 1 },
+    })
+    const schema = schemaOf([field('count'), {
+      kind: 'group', id: 'items', keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+      grows: { count: 'count' }, minMembers: 0, maxMembers: 4,
+      member: [field('amount'), { kind: 'output', id: 'image', type: { kind: 'concrete', name: 'IMAGE' } }],
+    } as GroupSpec])
+    const link = (id: string, from: object, to: string) => [id, { id: asLinkId(id), from, to: port('n2', to) }]
+    const initial = doc({ g0: graph({
+      id: 'g0',
+      nodes: { n1: node('n1', { values: { count: 3 } }), n2: node('n2', { type: 'Sink' }) },
+      links: Object.fromEntries([
+        link('kept', { node: asNodeId('n1'), tap: asPortId('items.item0.amount') }, 'a'),
+        link('tap', { node: asNodeId('n1'), tap: asPortId('items.item2.amount') }, 'b'),
+        link('out', port('n1', 'items.item2.image'), 'c'),
+      ]),
+      nets: { net: { id: asNetId('net'), name: 'second', source: port('n1', 'items.item1.image'), sinks: [port('n2', 'd')] } },
+      boundary: { inputs: [], outputs: [
+        { id: 'first', binds: { kind: 'widgetTap', node: asNodeId('n1'), tap: asPortId('items.item0.amount') } },
+        { id: 'third', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('items.item2.image') } },
+      ] },
+    }) })
+    const store = new DocumentStore(initial, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => (type) => type === 'Batch' ? schema : undefined }))
+    expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'count', value: 1 } }).ok).toBe(true)
+    expect(Object.keys(store.doc.graphs['g0']!.links)).toEqual(['kept'])
+    expect(store.doc.graphs['g0']!.nets).toEqual({})
+    expect(store.doc.graphs['g0']!.boundary!.outputs.map((item) => item.id)).toEqual(['first'])
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(initial)
+    // A count that grows removes nothing.
+    expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { count: 4 } } }).ok).toBe(true)
+    expect(Object.keys(store.doc.graphs['g0']!.links).sort()).toEqual(['kept', 'out', 'tap'])
   })
 })

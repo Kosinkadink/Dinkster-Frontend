@@ -13,8 +13,10 @@ import {
   type MenuTarget,
 } from '../src/menus/contract.js'
 import { coreMenuContributions } from '../src/menus/core-items.js'
+import { coreCommandRegistry } from '../src/commands/core-commands.js'
+import { DocumentStore } from '../src/commands/store.js'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
-import { asGraphDefId, asLineageId, asNodeId, asSelectorCandidateId, asSelectorId, asValueSourceId } from '../src/ids.js'
+import { asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 import { registerCatalog } from '../src/i18n/index.js'
 
 registerCatalog('en', { 'nodeHelp.action.help': 'Help' })
@@ -62,7 +64,7 @@ function ctx(target: MenuTarget, extra?: Partial<MenuContext>): MenuContext {
     doc: docWith(),
     graphId: 'g0',
     target,
-    selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] },
+    selection: { nodes: [], links: [], reroutes: [] },
     worldX: 10,
     worldY: 20,
     ...extra,
@@ -74,6 +76,12 @@ function coreRegistry() {
   for (const c of coreMenuContributions()) registry.register(c)
   return registry
 }
+
+/** A disconnect from an input of `nodeId`, batched with compacting that node. */
+const compacting = (nodeId: string, disconnect: { command: string; params: Record<string, unknown> }) => ({
+  command: 'batch',
+  params: { invocations: [disconnect, { command: 'dynamic.compact', params: { graphId: 'g0', nodeId } }] },
+})
 
 function menuDescendants(items: readonly MenuItem[]): MenuItem[] {
   return items.flatMap((item) => [item, ...menuDescendants(item.children ?? [])])
@@ -180,7 +188,7 @@ describe('core contributions', () => {
   })
 
   it('mode acts on the whole selection when the target rides it', () => {
-    const c = ctx({ kind: 'node', nodeId: 'n1' }, { selection: { nodes: ['n1', 'n2'], links: [], reroutes: [], valueSources: [], selectors: [] } })
+    const c = ctx({ kind: 'node', nodeId: 'n1' }, { selection: { nodes: ['n1', 'n2'], links: [], reroutes: [] } })
     const groups = coreRegistry().resolve(c)
     const mode = groups.find((g) => g.group === '20-mode')!.items[0]!
     const active = requireAction(mode.children![0]!)
@@ -196,7 +204,7 @@ describe('core contributions', () => {
   })
 
   it('minimizes or restores the whole selected node set with one command', () => {
-    const selection = { nodes: ['n1', 'n2'], links: [], reroutes: [], valueSources: [], selectors: [] }
+    const selection = { nodes: ['n1', 'n2'], links: [], reroutes: [] }
     const initial = coreRegistry().resolve(ctx({ kind: 'node', nodeId: 'n1' }, { selection }))
       .flatMap((group) => group.items)
       .find((item) => item.id === 'core.node.minimize')!
@@ -220,6 +228,7 @@ describe('core contributions', () => {
       .find((item) => item.id === 'core.node.minimize')!
     expect(restore).toMatchObject({
       label: 'Restore',
+      icon: 'maximize-2',
       action: {
         kind: 'command',
         invocation: {
@@ -249,7 +258,7 @@ describe('core contributions', () => {
         },
       },
     })
-    const selection = { nodes: ['n1', 'n2'], links: [], reroutes: [], valueSources: [], selectors: [] }
+    const selection = { nodes: ['n1', 'n2'], links: [], reroutes: [] }
     const groups = coreRegistry().resolve(ctx({ kind: 'node', nodeId: 'n1' }, { doc: document, selection }))
     const compact = requireAction(groups.flatMap((group) => group.items)
       .find((entry) => entry.id === 'core.node.compactDynamic')!)
@@ -307,7 +316,7 @@ describe('core contributions', () => {
   })
 
   it('node color batches every selected node when the target rides the selection', () => {
-    const selection = { nodes: ['n1', 'n2'], links: [], reroutes: [], valueSources: [], selectors: [] }
+    const selection = { nodes: ['n1', 'n2'], links: [], reroutes: [] }
     const groups = coreRegistry().resolve(ctx({ kind: 'node', nodeId: 'n1' }, { selection }))
     const blue = menuDescendants(groups.flatMap((group) => group.items))
       .find((item) => item.id === 'core.node.color.blue')!
@@ -425,9 +434,9 @@ describe('core contributions', () => {
     })
 
     // Node target offers grouping the selection as a host action.
-    const nodeMenu = reg.resolve(ctx({ kind: 'node', nodeId: 'n1' }, { selection: { nodes: ['n1', 'n2'], links: [], reroutes: [], valueSources: [], selectors: [] } }))
+    const nodeMenu = reg.resolve(ctx({ kind: 'node', nodeId: 'n1' }, { selection: { nodes: ['n1', 'n2'], links: [], reroutes: [] } }))
     const groupSel = nodeMenu.flatMap((g) => g.items).find((i) => i.id === 'core.node.groupSelection')!
-    expect(groupSel.label).toBe('Group 2 nodes')
+    expect(groupSel.label).toBe('Group')
     expect(groupSel.action).toEqual({ kind: 'host', action: 'groupSelection' })
 
     // Group target: rename (host), color presets (checked on current), delete.
@@ -471,6 +480,52 @@ describe('core contributions', () => {
     expect(ghost.flatMap((g) => g.items)).toEqual([])
   })
 
+  describe('a member of a group freed from the menu', () => {
+    // b stores members image0 and image1 of a group that grows by plugging in;
+    // s1 feeds image0 by a wire, s2 feeds image1 by a wire or a named net.
+    const memberDoc = (byNet: boolean) => ({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'm', root: 'g0', view: { graphs: {} },
+      graphs: { g0: {
+        id: 'g0', name: 'g0', reroutes: {}, nextOrdinal: 100,
+        nodes: {
+          s1: { id: 's1', type: 'Src', values: {} },
+          s2: { id: 's2', type: 'Src', values: {} },
+          b: { id: 'b', type: 'Batch', values: {}, dynamic: { images: { members: ['image0', 'image1'], seq: 2 } } },
+        },
+        links: {
+          l1: { id: 'l1', from: { node: 's1', port: 'out' }, to: { node: 'b', port: 'images.image0' } },
+          ...(byNet ? {} : { l2: { id: 'l2', from: { node: 's2', port: 'out' }, to: { node: 'b', port: 'images.image1' } } }),
+        },
+        nets: byNet
+          ? { n1: { id: 'n1', name: 'pic', source: { node: 's2', port: 'out' }, sinks: [{ node: 'b', port: 'images.image1' }] } }
+          : {},
+      } },
+    }) as unknown as WorkflowDocument
+    const freed = { node: 'b', port: 'images.image1' }
+
+    it.each([
+      { name: 'Delete link on a wire', byNet: false, target: { kind: 'link', linkId: 'l2', to: freed }, item: 'core.link.delete' },
+      { name: 'Delete link on a net wire', byNet: true, target: { kind: 'link', linkId: 'n1:b', netId: 'n1', to: freed }, item: 'core.link.delete' },
+      { name: 'turning Connect to net off', byNet: true, target: { kind: 'pin', nodeId: 'b', portId: freed.port, direction: 'in' }, item: 'core.pin.connectToNet.n1' },
+      { name: 'Disconnect this input on a net tag', byNet: true, target: { kind: 'net', netId: 'n1', role: 'sink', nodeId: 'b', portId: freed.port }, item: 'core.net.stubDisconnect' },
+    ] as const)('$name removes the member, and one undo brings it and its wire back', ({ byNet, target, item }) => {
+      const store = new DocumentStore(memberDoc(byNet), coreCommandRegistry())
+      const action = coreRegistry()
+        .resolve(ctx(target as MenuTarget, { doc: store.doc }))
+        .flatMap((group) => group.items)
+        .find((candidate) => candidate.id === item) as MenuActionItem
+      expect(action.action.kind).toBe('command')
+      if (action.action.kind !== 'command') return
+      expect(store.dispatch(action.action.invocation).ok).toBe(true)
+      const graph = () => store.doc.graphs['g0']!
+      expect(graph().nodes['b']!.dynamic?.['images']?.members).toEqual(['image0'])
+      store.undo()
+      expect(graph().nodes['b']!.dynamic?.['images']?.members).toEqual(['image0', 'image1'])
+      if (byNet) expect(graph().nets['n1']!.sinks).toEqual([freed])
+      else expect(graph().links['l2']).toBeDefined()
+    })
+  })
+
   it('link delete uses link.disconnect for ordinary links and net.disconnectInput for nets', () => {
     const reg = coreRegistry()
     const ordinary = reg.resolve(
@@ -478,14 +533,14 @@ describe('core contributions', () => {
     )
     expect(ordinary[0]!.items[0]!.action).toEqual({
       kind: 'command',
-      invocation: { command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l4' } },
+      invocation: compacting('n2', { command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l4' } }),
     })
     const net = reg.resolve(
       ctx({ kind: 'link', linkId: 'net:t5:0', netId: 't5', to: { node: 'n2', port: 'ctx' } }),
     )
     expect(net[0]!.items[0]!.action).toEqual({
       kind: 'command',
-      invocation: { command: 'net.disconnectInput', params: { graphId: 'g0', to: { node: 'n2', port: 'ctx' } } },
+      invocation: compacting('n2', { command: 'net.disconnectInput', params: { graphId: 'g0', to: { node: 'n2', port: 'ctx' } } }),
     })
   })
 
@@ -509,7 +564,7 @@ describe('core contributions', () => {
   it('queue-selection rides the selection and drops unknown nodes', () => {
     const reg = coreRegistry()
     const groups = reg.resolve(
-      ctx({ kind: 'node', nodeId: 'n1' }, { selection: { nodes: ['n1', 'n2', 'ghost'], links: [], reroutes: [], valueSources: [], selectors: [] } }),
+      ctx({ kind: 'node', nodeId: 'n1' }, { selection: { nodes: ['n1', 'n2', 'ghost'], links: [], reroutes: [] } }),
     )
     const item = groups.flatMap((g) => g.items).find((i) => i.id === 'core.node.queueSelection')
     expect(item).toMatchObject({
@@ -598,7 +653,7 @@ describe('named net contributions', () => {
     // Connected input: the item disconnects instead of re-connecting.
     expect(items[0]!.action).toEqual({
       kind: 'command',
-      invocation: { command: 'net.disconnectInput', params: { graphId: 'g0', to: { node: 'n2', port: 'ctx' } } },
+      invocation: compacting('n2', { command: 'net.disconnectInput', params: { graphId: 'g0', to: { node: 'n2', port: 'ctx' } } }),
     })
     // Unconnected input on another node: same net, connect action.
     const other = reg
@@ -655,7 +710,7 @@ describe('named net contributions', () => {
     expect(sink.find((i) => i.id === 'core.net.stubDisconnect')).toMatchObject({
       action: {
         kind: 'command',
-        invocation: { command: 'net.disconnectInput', params: { graphId: 'g0', to: { node: 'n2', port: 'ctx' } } },
+        invocation: compacting('n2', { command: 'net.disconnectInput', params: { graphId: 'g0', to: { node: 'n2', port: 'ctx' } } }),
       },
     })
     const source = reg
@@ -712,127 +767,4 @@ describe('named net contributions', () => {
       .flatMap((g) => g.items)
     expect(gated.some((i) => i.id === 'core.net.stubResetPosition')).toBe(false)
   })
-})
-
-describe('value source contributions', () => {
-  const vsDoc = (): WorkflowDocument =>
-    docWith({
-      graphs: {
-        g0: graph({
-          id: 'g0',
-          nodes: { n1: node('n1') },
-          valueSources: {
-            v1: { id: asValueSourceId('v1'), value: 128 },
-            v2: { id: asValueSourceId('v2'), value: 'hello' },
-          },
-        }),
-      },
-    })
-
-  it('delete rides the selection and drops unknown sources', () => {
-    const reg = coreRegistry()
-    const items = reg
-      .resolve(
-        ctx(
-          { kind: 'valueSource', valueSourceId: 'v1' },
-          { doc: vsDoc(), selection: { nodes: [], links: [], reroutes: [], valueSources: ['v1', 'v2', 'ghost'], selectors: [] } },
-        ),
-      )
-      .flatMap((g) => g.items)
-    expect(items.find((i) => i.id === 'core.valueSource.delete')!.label).toBe('Delete 2 value sources')
-  })
-
-})
-
-describe('selector contributions', () => {
-  const selDoc = (): WorkflowDocument =>
-    docWith({
-      graphs: {
-        g0: graph({
-          id: 'g0',
-          nodes: { n1: node('n1') },
-          selectors: {
-            s1: {
-              id: asSelectorId('s1'),
-              candidates: [{ id: asSelectorCandidateId('c1') }, { id: asSelectorCandidateId('c2'), title: 'Draft CASE' }],
-              policy: { kind: 'fixed', candidate: asSelectorCandidateId('c1') },
-            },
-            s2: {
-              id: asSelectorId('s2'),
-              candidates: [{ id: asSelectorCandidateId('c3') }],
-              policy: { kind: 'random' },
-            },
-          },
-        }),
-      },
-    })
-
-  const selItems = (selectorId: string, extra?: Partial<MenuContext>) =>
-    coreRegistry()
-      .resolve(ctx({ kind: 'selector', selectorId }, { doc: selDoc(), ...extra }))
-      .flatMap((g) => g.items)
-
-  it('offers one choice per candidate plus random, current policy checked', () => {
-    const items = selItems('s1')
-    const fixed1 = items.find((i) => i.id === 'core.selector.policy.fixed.c1')
-    const fixed2 = items.find((i) => i.id === 'core.selector.policy.fixed.c2')
-    const random = items.find((i) => i.id === 'core.selector.policy.random')
-    expect(fixed1).toMatchObject({
-      label: 'Select: 1',
-      checked: true,
-      action: {
-        kind: 'command',
-        invocation: {
-          command: 'selector.setPolicy',
-          params: { graphId: 'g0', selectorId: 's1', policy: { kind: 'fixed', candidate: 'c1' } },
-        },
-      },
-    })
-    // Titled candidates label by title; untitled by 1-based ordinal.
-    expect(fixed2).toMatchObject({ label: 'Select: Draft CASE', checked: false })
-    expect(random).toMatchObject({
-      label: 'Select: random',
-      checked: false,
-      action: {
-        kind: 'command',
-        invocation: { command: 'selector.setPolicy', params: { graphId: 'g0', selectorId: 's1', policy: { kind: 'random' } } },
-      },
-    })
-  })
-
-  it('random policy is checked when active', () => {
-    const items = selItems('s2')
-    expect(items.find((i) => i.id === 'core.selector.policy.random')).toMatchObject({ checked: true })
-  })
-
-  it('offers Remove Branch per candidate, but never for the last candidate', () => {
-    const items = selItems('s1')
-    expect(items.find((i) => i.id === 'core.selector.removeCandidate.c1')).toMatchObject({
-      label: 'Remove branch 1',
-      action: {
-        kind: 'command',
-        invocation: {
-          command: 'selector.removeCandidate',
-          params: { graphId: 'g0', selectorId: 's1', candidateId: 'c1' },
-        },
-      },
-    })
-    expect(items.find((i) => i.id === 'core.selector.removeCandidate.c2')).toMatchObject({ label: 'Remove branch Draft CASE' })
-    // s2 has one candidate: no removal offered at all.
-    const single = selItems('s2')
-    expect(single.some((i) => i.id.startsWith('core.selector.removeCandidate'))).toBe(false)
-  })
-
-  it('delete rides the selection and drops unknown selectors', () => {
-    const alone = selItems('s1')
-    expect(alone.find((i) => i.id === 'core.selector.delete')).toMatchObject({
-      label: 'Delete selector',
-      action: { kind: 'host', action: 'deleteSelection' },
-    })
-    const riding = selItems('s1', {
-      selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: ['s1', 's2', 'ghost'] },
-    })
-    expect(riding.find((i) => i.id === 'core.selector.delete')!.label).toBe('Delete 2 selectors')
-  })
-
 })

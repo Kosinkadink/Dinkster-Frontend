@@ -10,18 +10,25 @@ import {
   type JSX,
 } from 'solid-js'
 import { render } from 'solid-js/web'
+import components from '@dinkster/branding/components' with { type: 'json' }
 import {
   Bell,
+  ChevronDown,
   CircleAlert,
+  Ellipsis,
   LayoutList,
+  FolderOpen,
+  PanelLeft,
+  PanelBottom,
+  PanelRight,
   MousePointer,
-  Menu,
   Search,
   Square,
   Plus,
   Settings,
   Trash2,
   User,
+  Users,
 } from 'lucide-solid'
 import {
   ProductAbout,
@@ -29,11 +36,14 @@ import {
   ProductWindowToolbar,
   ProductWindowAction,
   ProductAccountMenu,
+  ProductSignInControl,
+  ProductBrandMark,
   ProductCodeBlock,
   ProductCopyValue,
   ProductDisclosure,
   ProductFacts,
   ProductQrCode,
+  ProductResourceUsage,
   ProductButton,
   ProductCheckbox,
   ProductConfirmation,
@@ -43,6 +53,8 @@ import {
   ProductField,
   ProductForm,
   ProductIcon,
+  ProductRunIcon,
+  ProductRunActivity,
   ProductIconButton,
   ProductLink,
   ProductList,
@@ -65,7 +77,14 @@ import {
   type ProductRole,
 } from '../src/index.js'
 import '../dist/dinkster.css'
-import { CanvasGallery } from './canvas.js'
+import {
+  CanvasGallery,
+  canvasNavigationGroups,
+  canvasPage,
+  canvasPageHref,
+  selectCanvasPage,
+} from './canvas.js'
+import { ContextMenuGallery } from './context-menus.js'
 import { SiteGallery } from './site.js'
 
 const navigation = [
@@ -75,7 +94,12 @@ const navigation = [
   { label: 'Menus and messages', href: '#messages', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
-  { label: 'Canvas', href: '#canvas', icon: LayoutList },
+  {
+    label: 'Canvas',
+    href: '#canvas',
+    icon: LayoutList,
+    groups: canvasNavigationGroups,
+  },
   { label: 'Desktop information', href: '#desktop-about', icon: User },
 ]
 
@@ -107,6 +131,11 @@ function Gallery() {
   let navigationTimer: number | undefined
   onCleanup(() => window.clearTimeout(navigationTimer))
   const navigate = (href: string) => {
+    if (href.startsWith('?page=')) {
+      selectCanvasPage(href)
+      if (route() === '#canvas') return
+      href = '#canvas'
+    }
     window.clearTimeout(navigationTimer)
     window.location.hash = href
     setRoute(href)
@@ -127,8 +156,11 @@ function Gallery() {
     <ProductShell
       title="Component gallery"
       navigation={route() === '#signed-out' ? [] : navigation}
-      currentHref={route()}
+      currentHref={
+        route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
+      }
       onNavigate={navigate}
+      contentDensity={route() === '#canvas' ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -144,9 +176,13 @@ function Gallery() {
           route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              'Buttons and fields')
+              (route() === '#resource-usage' ? 'Resource usage' : 'Buttons and fields'))
         }
-        description="The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states."
+        description={
+          route() === '#canvas'
+            ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
+            : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
+        }
         table={route() === '#lists' || route() === '#canvas'}
       >
         <Show
@@ -156,6 +192,50 @@ function Gallery() {
           <Switch
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
+            <Match when={route() === '#resource-usage'}>
+              <Section title="Card memory" components="ProductResourceUsage">
+                <For each={[false, true]}>
+                  {(compact) => (
+                    <ProductResourceUsage
+                      label={compact ? 'Compact card memory' : 'Card memory'}
+                      total={24}
+                      segments={[
+                        { label: 'Models', value: 9, tone: 'models' },
+                        { label: 'Held, unused', value: 1, tone: 'held' },
+                        { label: 'Other memory', value: 2, tone: 'other' },
+                      ]}
+                      samples={[
+                        { timestamp: 10_000, used: 2 },
+                        { timestamp: 35_000, used: 8 },
+                        { timestamp: 70_000, used: 14 },
+                        { timestamp: 120_000, used: 12 },
+                      ]}
+                      now={120_000}
+                      limit={22}
+                      format={(value) => `${value.toFixed(1)} GB`}
+                      historyLabel="Last 2 minutes"
+                      limitLabel="Limit"
+                      compact={compact}
+                    />
+                  )}
+                </For>
+              </Section>
+              <Section
+                title="Partial telemetry"
+                components="ProductResourceUsage"
+              >
+                <ProductResourceUsage
+                  label="Card reporting usage only"
+                  total={16}
+                  segments={[{ label: 'Used', value: 5, tone: 'other' }]}
+                  samples={[]}
+                  now={120_000}
+                  format={(value) => `${value.toFixed(1)} GB`}
+                  historyLabel="Last 2 minutes"
+                  limitLabel="Limit"
+                />
+              </Section>
+            </Match>
             <Match when={route() === '#desktop-about'}>
               <Section
                 title="Native window chrome"
@@ -229,6 +309,11 @@ function Gallery() {
             </Match>
             <Match when={route() === '#canvas'}>
               <CanvasGallery />
+            </Match>
+            <Match when={route() === '#context-menus'}>
+              <Section title="Context menus" components="ContextMenu">
+                <ContextMenuGallery />
+              </Section>
             </Match>
             <Match when={route() === '#controls'}>
               <Section
@@ -304,6 +389,55 @@ function Gallery() {
                   A sentence can carry a{' '}
                   <ProductLink href="#lists">link to another page</ProductLink>.
                 </p>
+              </Section>
+              <Section title="Run activity" components="ProductRunActivity">
+                <div class="dinkster-actions">
+                  <ProductRunActivity
+                    running={1}
+                    waiting={0}
+                    label="1 running"
+                  />
+                  <ProductRunActivity
+                    running={3}
+                    waiting={0}
+                    label="3 running"
+                  />
+                  <ProductRunActivity
+                    running={0}
+                    waiting={2}
+                    label="2 queued"
+                  />
+                  <ProductRunActivity
+                    running={1}
+                    waiting={2}
+                    label="1 running, 2 queued"
+                  />
+                  <ProductRunActivity
+                    running={3}
+                    waiting={1}
+                    label="3 running, 1 queued"
+                  />
+                </div>
+              </Section>
+              <Section title="Run icons" components="ProductRunIcon">
+                <div class="dinkster-actions">
+                  <span>
+                    Idle <ProductRunIcon icon={Settings} />
+                  </span>
+                  <span>
+                    Queued <ProductRunIcon icon={Settings} queued />
+                  </span>
+                  <span>
+                    Running <ProductRunIcon icon={Settings} running />
+                  </span>
+                  <span>
+                    Finished{' '}
+                    <ProductRunIcon icon={Settings} result="finished" />
+                  </span>
+                  <span>
+                    Failed <ProductRunIcon icon={Settings} result="failed" />
+                  </span>
+                </div>
               </Section>
               <Section
                 title="Text fields"
@@ -542,6 +676,24 @@ function Gallery() {
               </ProductForm>
             </Match>
             <Match when={route() === '#lists'}>
+              <Section title="Storage folders" components="ProductDisclosure, ProductMenu">
+                <div class="storage-folders">
+                  <div class="storage-group-heading"><h3>Models</h3><ProductButton intent="add" onClick={() => complete('Add models folder chosen')}>Add</ProductButton></div>
+                  <article class="storage-folder">
+                    <div class="storage-folder-heading">
+                      <div class="storage-folder-copy"><strong>Studio models folder with a long descriptive name</strong><code>/home/name/Dinkster/Models</code></div>
+                      <ProductMenu label="Folder actions" icon={Ellipsis} iconOnly items={[{ label: 'Edit', onSelect: () => complete('Edit folder chosen') }]} />
+                    </div>
+                    <ProductDisclosure title="Model kinds"><ProductFacts label="Model kinds" items={[{ label: 'Checkpoints', value: '12 files' }, { label: 'LoRAs', value: '48 files' }]} /></ProductDisclosure>
+                    <span class="storage-folder-mark">Downloads land here</span>
+                  </article>
+                  <article class="storage-folder">
+                    <div class="storage-folder-heading"><div class="storage-folder-copy"><strong>Renders</strong><code>/home/name/Portraits/renders</code></div></div>
+                    <div class="storage-folder-summary"><span>Images</span><span>24 files</span><ProductButton onClick={() => complete('Assets chosen')}>Open in Assets</ProductButton></div>
+                    <span class="storage-folder-mark">New saves go here</span>
+                  </article>
+                </div>
+              </Section>
               <Section
                 title="Bordered list"
                 components="ProductList, ProductListRow"
@@ -854,9 +1006,11 @@ function Gallery() {
             </Match>
           </Switch>
         </Show>
-        <p class="dinkster-metadata" role="status">
-          {activity()}
-        </p>
+        <Show when={route() !== '#canvas'}>
+          <p class="dinkster-metadata" role="status">
+            {activity()}
+          </p>
+        </Show>
       </ProductPage>
       <ProductToast
         notification={toast()}
@@ -888,9 +1042,41 @@ function Gallery() {
   )
 }
 
+// The same width at which the stylesheet switches to the narrow layout.
+const narrowQuery = matchMedia(
+  `(max-width: ${components.layout.sidebarBreakpoint}px)`,
+)
+
 function WindowToolbarGallery() {
   const [state, setState] = createSignal('idle')
   const [shortcut, setShortcut] = createSignal('Ctrl+K')
+  const [runActivity, setRunActivity] = createSignal('idle')
+  const runCounts = () => ({
+    running:
+      runActivity() === 'multiple' ? 3 : runActivity() === 'running' ? 1 : 0,
+    waiting: runActivity() === 'idle' ? 0 : 2,
+  })
+  const runSummary = () =>
+    `${runCounts().running} running, ${runCounts().waiting} queued`
+  const [brand, setBrand] = createSignal('menu')
+  const [projectName, setProjectName] = createSignal('Sample project')
+  const [account, setAccount] = createSignal('none')
+  const [visible, setVisible] = createSignal<Record<string, boolean>>({
+    'Left panel': true,
+    'Bottom panel': false,
+    'Right panel': true,
+    'Left bar': true,
+    'Status bar': true,
+  })
+  const panels = [
+    ['Left panel', PanelLeft],
+    ['Bottom panel', PanelBottom],
+    ['Right panel', PanelRight],
+  ] as const
+  const toggle = (label: string) => {
+    setVisible((value) => ({ ...value, [label]: !value[label] }))
+    setActivity(`${label} ${visible()[label] ? 'shown' : 'hidden'}`)
+  }
   const [activity, setActivity] = createSignal('No action yet')
   return (
     <main class="dinkster-stack">
@@ -911,6 +1097,63 @@ function WindowToolbarGallery() {
               <For each={['idle', 'running', 'pending']}>
                 {(value) => <option value={value}>{value}</option>}
               </For>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <ProductField label="All-workflow activity">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={runActivity()}
+              onChange={(event) => setRunActivity(event.currentTarget.value)}
+            >
+              <option value="idle">Idle</option>
+              <option value="waiting">Queued only</option>
+              <option value="running">One running, two queued</option>
+              <option value="multiple">Three running, two queued</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <ProductField label="Brand presentation">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={brand()}
+              onChange={(event) => setBrand(event.currentTarget.value)}
+            >
+              <option value="menu">Plain menu</option>
+              <option value="wordmark">D symbol action</option>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <ProductField label="Project name">
+          {(attributes) => (
+            <ProductTextInput
+              {...attributes}
+              value={projectName()}
+              onInput={(event) => setProjectName(event.currentTarget.value)}
+            />
+          )}
+        </ProductField>
+        <ProductField label="Account state">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={account()}
+              onChange={(event) => setAccount(event.currentTarget.value)}
+            >
+              <option value="none">No account control</option>
+              <option value="signed-out">Signed out</option>
+              <option value="signing-in">Signing in</option>
+              <option value="signing-in-no-url">
+                Signing in without local URL
+              </option>
+              <option value="sign-in-unavailable">
+                Sign in from engine machine
+              </option>
+              <option value="signed-in">Signed in</option>
+              <option value="signed-in-email">Email only</option>
+              <option value="signed-in-empty">No profile</option>
             </ProductSelect>
           )}
         </ProductField>
@@ -953,19 +1196,84 @@ function WindowToolbarGallery() {
                             ? 'QA services'
                             : 'Custom services'
                       }
+                      serviceKind={
+                        service === 'production' ? undefined : service
+                      }
                       qa={service === 'qa'}
                       development={service !== 'production'}
+                      account={
+                        <Show when={account() !== 'none'}>
+                          <Show
+                            when={account().startsWith('signed-in')}
+                            fallback={
+                              <ProductSignInControl
+                                pending={account().startsWith('signing-in')}
+                                unavailableReason={
+                                  account() === 'sign-in-unavailable'
+                                    ? 'Sign in from the computer that runs Dinkster.'
+                                    : ''
+                                }
+                                onSignIn={() => {
+                                  setActivity('Sign in opened')
+                                  setAccount('signing-in')
+                                }}
+                                onCancel={() => {
+                                  setAccount('signed-out')
+                                  setActivity('Sign-in cancelled')
+                                }}
+                                onOpenSignInPage={
+                                  account() === 'signing-in'
+                                    ? () => setActivity('Sign-in page opened')
+                                    : undefined
+                                }
+                              />
+                            }
+                          >
+                            <ProductAccountMenu
+                              name={
+                                account() === 'signed-in' ? 'Alex Rivers' : null
+                              }
+                              email={
+                                account() === 'signed-in-empty'
+                                  ? null
+                                  : 'alex@example.test'
+                              }
+                              onSignOut={() => setActivity('Signed out')}
+                            />
+                          </Show>
+                        </Show>
+                      }
                       brand={
-                        <ProductMenu
-                          label="Dinkster"
-                          icon={Menu}
-                          items={[
-                            {
-                              label: 'Projects',
-                              onSelect: () => setActivity('Projects opened'),
-                            },
-                          ]}
-                        />
+                        <Show
+                          when={brand() === 'wordmark'}
+                          fallback={
+                            <ProductMenu
+                              label="Dinkster"
+                              triggerName="Dinkster menu"
+                              icon={() => <ProductBrandMark />}
+                              items={[
+                                {
+                                  label: 'Projects',
+                                  onSelect: () =>
+                                    setActivity('Projects opened'),
+                                },
+                              ]}
+                            />
+                          }
+                        >
+                          <ProductWindowAction
+                            label="Dinkster menu"
+                            labelContent={
+                              <>
+                                <ProductBrandMark />
+                                <ProductIcon icon={ChevronDown} />
+                              </>
+                            }
+                            icon={() => <ProductBrandMark />}
+                            pending={state() === 'pending'}
+                            onClick={() => setActivity('Dinkster opened')}
+                          />
+                        </Show>
                       }
                       search={
                         <ProductWindowAction
@@ -975,8 +1283,56 @@ function WindowToolbarGallery() {
                           onClick={() => setActivity('Search opened')}
                         />
                       }
-                      actions={
+                      actions={(narrow) => (
                         <>
+                          <Show when={runCounts().running > 0}>
+                            <ProductRunActivity
+                              {...runCounts()}
+                              label={runSummary()}
+                            />
+                          </Show>
+                          <ProductMenu
+                            label="Customize layout"
+                            icon={Settings}
+                            items={[
+                              ...[
+                                ...(narrow()
+                                  ? panels.map(([label]) => label)
+                                  : []),
+                                'Left bar',
+                                'Status bar',
+                              ].map((label) => ({
+                                label,
+                                checked: visible()[label]!,
+                                onSelect: () => toggle(label),
+                              })),
+                              {
+                                label: 'Reset layout',
+                                onSelect: () => {
+                                  setVisible({
+                                    'Left panel': true,
+                                    'Bottom panel': false,
+                                    'Right panel': true,
+                                    'Left bar': true,
+                                    'Status bar': true,
+                                  })
+                                  setActivity('Layout reset')
+                                },
+                              },
+                            ]}
+                          />
+                          <Show when={!narrow()}>
+                            <For each={panels}>
+                              {([label, icon]) => (
+                                <ProductIconButton
+                                  label={label}
+                                  icon={icon}
+                                  aria-pressed={visible()[label]}
+                                  onClick={() => toggle(label)}
+                                />
+                              )}
+                            </For>
+                          </Show>
                           <Show when={state() !== 'idle'}>
                             <ProductWindowAction
                               label="Cancel run"
@@ -986,26 +1342,26 @@ function WindowToolbarGallery() {
                               onClick={() => setActivity('Run cancelled')}
                             />
                           </Show>
-                          <For
-                            each={
-                              [
-                                ['Projects', LayoutList],
-                                ['Images', Plus],
-                                ['Collaboration', User],
-                                ['Toggle panels', Settings],
-                              ] as const
+                          <ProductWindowAction
+                            label={projectName()}
+                            labelContent={
+                              <span class="dinkster-window-project-label">
+                                <ProductIcon icon={FolderOpen} />
+                                <span class="dinkster-window-project-name">
+                                  {projectName()}
+                                </span>
+                              </span>
                             }
-                          >
-                            {([label, icon]) => (
-                              <ProductIconButton
-                                label={label}
-                                icon={icon}
-                                onClick={() => setActivity(`${label} opened`)}
-                              />
-                            )}
-                          </For>
+                            icon={FolderOpen}
+                            onClick={() => setActivity('Projects opened')}
+                          />
+                          <ProductIconButton
+                            label="Collaboration"
+                            icon={Users}
+                            onClick={() => setActivity('Collaboration opened')}
+                          />
                         </>
-                      }
+                      )}
                     />
                   </section>
                 )}
@@ -1020,9 +1376,21 @@ function WindowToolbarGallery() {
 
 function GalleryRoot() {
   const [route, setRoute] = createSignal(window.location.hash)
+  const [narrow, setNarrow] = createSignal(narrowQuery.matches)
+  // The site pages use the site form throughout. The gallery uses the Canvas
+  // page's frame, except that below the breakpoint its other pages keep the
+  // site form's narrow frame; their content always uses the site form.
   createEffect(() => {
-    document.documentElement.dataset.density =
-      route() === '#canvas' || route() === '#window-toolbar' ? 'app' : 'site'
+    document.documentElement.dataset.density = route().startsWith('#site-')
+      ? 'site'
+      : route() !== '#canvas' && route() !== '#window-toolbar' && narrow()
+        ? 'site'
+        : 'app'
+  })
+  onMount(() => {
+    const change = () => setNarrow(narrowQuery.matches)
+    narrowQuery.addEventListener('change', change)
+    onCleanup(() => narrowQuery.removeEventListener('change', change))
   })
   onMount(() => {
     const update = () => setRoute(window.location.hash)

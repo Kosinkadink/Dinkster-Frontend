@@ -1,3 +1,4 @@
+import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { ProductWindowChrome, ProductWindowIdentity } from '@dinkster/ui'
 
@@ -17,10 +18,13 @@ export function install(options: DesktopChromeOptions): void {
   let bar: HTMLElement | undefined
   let mounted: HTMLDivElement | undefined
   let clear: (() => void) | undefined
+  const [service, setService] = createSignal<'qa' | 'custom'>()
   function reconcile(): void {
     const existing = document.querySelector<HTMLElement>(
       '.dinkster-window-toolbar-host, .topbar, .dinkster-topbar, body > header',
     )
+    const kind = existing?.dataset.serviceKind
+    setService(kind === 'qa' || kind === 'custom' ? kind : undefined)
     if (
       bar?.isConnected &&
       mounted?.isConnected &&
@@ -40,6 +44,7 @@ export function install(options: DesktopChromeOptions): void {
           <ProductWindowIdentity
             qa={options.qa ?? false}
             development={options.development ?? false}
+            service={service()}
           />
         ),
         mount,
@@ -70,7 +75,12 @@ export function install(options: DesktopChromeOptions): void {
   }
   reconcile()
   const observer = new MutationObserver(reconcile)
-  observer.observe(document.body, { childList: true, subtree: true })
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['data-service-kind'],
+  })
   dispose = () => {
     observer.disconnect()
     clear?.()

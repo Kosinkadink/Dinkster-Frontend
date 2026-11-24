@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Json, WidgetKind, WidgetSpec } from '@dinkster/core'
 import { assetKind, intKind, listKind } from '@dinkster/widgets'
-import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, widgetCommitError } from '../src/widget-commit.js'
+import { parseNumericCommit, parsePrimitiveListCommit, resolveTextCommit, resolveTypedNumber, stepTypedNumber, storedNumberNote, widgetCommitError } from '../src/widget-commit.js'
 
 const spec = (widgetType: string, options: Record<string, unknown> = {}): WidgetSpec => ({ widgetType, options })
 
@@ -128,4 +128,76 @@ describe('widgetCommitError', () => {
     expect(widgetCommitError(undefined, { anything: true }, spec('MYSTERY'))).toBeUndefined()
   })
 
+})
+
+describe('resolveTypedNumber', () => {
+  const steps: WidgetSpec = { widgetType: 'INT', options: { min: 1, max: 10000 } }
+  const width: WidgetSpec = { widgetType: 'INT', options: { min: 64, max: 4096, step: 64 } }
+  const seed: WidgetSpec = { widgetType: 'INT', options: { min: 0, max: '18446744073709551615' } }
+  const cfg: WidgetSpec = { widgetType: 'FLOAT', options: { min: 0, max: 100, step: 0.01 } }
+
+  it('stores typed arithmetic and plain numbers, saying the result of arithmetic only', () => {
+    expect(resolveTypedNumber('6*8', steps, 20)).toEqual({ kind: 'store', value: 48, result: '= 48' })
+    expect(resolveTypedNumber('2**3', steps, 20)).toEqual({ kind: 'store', value: 8, result: '= 8' })
+    expect(resolveTypedNumber(' 48 ', steps, 20)).toEqual({ kind: 'store', value: 48 })
+    expect(resolveTypedNumber('1/3', cfg, 7)).toEqual({ kind: 'store', value: 1 / 3, result: `= ${1 / 3}` })
+  })
+
+  it('corrects a number past a limit or off a whole-number step instead of refusing it', () => {
+    expect(resolveTypedNumber('20000', steps, 20)).toEqual({ kind: 'store', value: 10000, problem: 'Above 10000. Enter uses 10000.' })
+    expect(resolveTypedNumber('6*8000', steps, 20)).toEqual({ kind: 'store', value: 10000, result: '= 48000', problem: 'Above 10000. Enter uses 10000.' })
+    expect(resolveTypedNumber('0', steps, 20)).toEqual({ kind: 'store', value: 1, problem: 'Below 1. Enter uses 1.' })
+    expect(resolveTypedNumber('10/4', steps, 20)).toEqual({ kind: 'store', value: 3, result: '= 2.5', problem: 'Whole numbers only. Enter uses 3.' })
+    expect(resolveTypedNumber('300', width, 512)).toEqual({ kind: 'store', value: 320, problem: 'Not a multiple of 64. Enter uses 320.' })
+    expect(resolveTypedNumber('330', width, 512)).toEqual({ kind: 'store', value: 320, problem: 'Not a multiple of 64. Enter uses 320.' })
+    expect(resolveTypedNumber('150', cfg, 7)).toEqual({ kind: 'store', value: 100, problem: 'Above 100.00. Enter uses 100.00.' })
+    expect(resolveTypedNumber('7.555', cfg, 7)).toEqual({ kind: 'store', value: 7.555 })
+  })
+
+  it('keeps 64-bit whole numbers exact', () => {
+    expect(resolveTypedNumber('18446744073709551615', seed, 1)).toEqual({ kind: 'store', value: '18446744073709551615' })
+    expect(resolveTypedNumber('18446744073709551616', seed, 1)).toEqual({
+      kind: 'store', value: '18446744073709551615', result: '= 18446744073709551616', problem: 'Above 18446744073709551615. Enter uses 18446744073709551615.',
+    })
+  })
+
+  it('keeps the stored value for text that is not a number, and refuses ^ as a power', () => {
+    expect(resolveTypedNumber('abc', steps, 20)).toEqual({ kind: 'keep', problem: 'Not a number. Enter keeps 20.' })
+    expect(resolveTypedNumber('', steps, 20)).toEqual({ kind: 'keep', problem: 'Not a number. Enter keeps 20.' })
+    expect(resolveTypedNumber('steps/2', steps, 20)).toEqual({ kind: 'keep', problem: 'Not a number. Enter keeps 20.' })
+    expect(resolveTypedNumber('2^3', steps, 20)).toEqual({ kind: 'keep', problem: 'Use ** for a power. Enter keeps 20.' })
+  })
+
+  it('notes a stored value past a limit or step that moved later, and steps from the limit', () => {
+    expect(storedNumberNote(steps, 12000)).toBe('Above 10000. Kept until you change it.')
+    expect(storedNumberNote(steps, 0)).toBe('Below 1. Kept until you change it.')
+    expect(storedNumberNote(width, 300)).toBe('Not a multiple of 64. Kept until you change it.')
+    expect(storedNumberNote(steps, 20)).toBeUndefined()
+    expect(storedNumberNote(cfg, 7.555)).toBeUndefined()
+    expect(stepTypedNumber('12000', steps, 12000, -1, false)).toBe('9999')
+    expect(stepTypedNumber('12000', steps, 12000, 1, false)).toBe('10000')
+  })
+
+  it('stores a special value as typed, notes nothing for it, and counts the step from the offset', () => {
+    const frames: WidgetSpec = { widgetType: 'INT', options: { min: 1, step: 4, special: [{ value: 0, label: 'off' }] } }
+    expect(resolveTypedNumber('0', frames, 5)).toEqual({ kind: 'store', value: 0 })
+    expect(resolveTypedNumber('-1', frames, 5)).toEqual({ kind: 'store', value: 1, problem: 'Below 1. Enter uses 1.' })
+    expect(storedNumberNote(frames, 0)).toBeUndefined()
+    const auto: WidgetSpec = { widgetType: 'FLOAT', options: { min: 0, max: 100, special: [{ value: -1, label: 'auto' }] } }
+    expect(resolveTypedNumber('-1', auto, 7)).toEqual({ kind: 'store', value: -1 })
+    expect(resolveTypedNumber('-1.5', auto, 7)).toEqual({ kind: 'store', value: 0, problem: 'Below 0.0. Enter uses 0.0.' })
+    // Allowed values are 1, 5, 9, ...: 6 is nearer 5 than 9.
+    const shifted: WidgetSpec = { widgetType: 'INT', options: { step: 4, offset: 1 } }
+    expect(resolveTypedNumber('6', shifted, 5)).toEqual({ kind: 'store', value: 5, problem: 'Not a multiple of 4. Enter uses 5.' })
+    // Counted from 0 the nearest is 0, below the limit, so the next value up is used.
+    const lifted: WidgetSpec = { widgetType: 'INT', options: { min: 1, step: 4, offset: 0 } }
+    expect(resolveTypedNumber('1', lifted, 4)).toEqual({ kind: 'store', value: 4, problem: 'Not a multiple of 4. Enter uses 4.' })
+  })
+
+  it('steps an open field from what Enter would store', () => {
+    expect(stepTypedNumber('6*8', steps, 20, 1, false)).toBe('49')
+    expect(stepTypedNumber('abc', steps, 20, 1, false)).toBe('21')
+    expect(stepTypedNumber('20000', steps, 20, -1, false)).toBe('9999')
+    expect(stepTypedNumber('20', steps, 20, 1, true)).toBe('30')
+  })
 })

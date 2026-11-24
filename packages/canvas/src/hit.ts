@@ -5,18 +5,14 @@
  */
 
 import type { TypeExpr } from '@dinkster/core'
-import type { LayoutRow, PinLayout } from './layout.js'
-import { canvasPaintTokens, type CanvasDetailLevel } from './tokens.js'
+import type { LayoutRow, MemberGrip, PinLayout } from './layout.js'
+import { canvasPaintTokens, defaultTokens, type CanvasDetailLevel } from './tokens.js'
 import {
+  boundaryFieldNode,
   GROUP_HEADER_HEIGHT,
   REROUTE_RADIUS,
   REROUTE_SOCKET_OFFSET,
   REROUTE_SOCKET_RADIUS,
-  selectorBadgeRect,
-  selectorCandidatePinPosition,
-  selectorOutPinPosition,
-  valueSourceBadgeRect,
-  valueSourcePinPosition,
   type Scene,
   type SceneBoundaryNode,
   type SceneGroup,
@@ -24,8 +20,6 @@ import {
   type SceneNetStub,
   type SceneNode,
   type SceneReroute,
-  type SceneSelector,
-  type SceneValueSource,
 } from './scene.js'
 
 /** World-space pin grab radius (generous: pins are small targets). */
@@ -34,7 +28,8 @@ export const PIN_HIT_RADIUS: number = canvasPaintTokens.hit.pinRadius
 /** Screen-space extent of each corner resize target. */
 export const RESIZE_HIT_SIZE = canvasPaintTokens.hit.resizeSize
 
-export type ResizeHandle = 'nw' | 'ne' | 'se' | 'sw'
+/** A node corner, or `s`: the bottom edge of a node whose preview is open, which sizes only its height. */
+export type ResizeHandle = 'nw' | 'ne' | 'se' | 'sw' | 's'
 
 /** World-space distance from a link's curve that still counts as a hit. */
 export const LINK_HIT_RADIUS: number = canvasPaintTokens.hit.linkRadius
@@ -86,6 +81,8 @@ export type Hit =
       /** Pointer offset from the row origin, used by compact controls. */
       readonly localX: number
       readonly localY: number
+      /** Set for a field on a subgraph's Inputs panel; `node` is the panel's face (boundaryFieldNode). */
+      readonly bnode?: SceneBoundaryNode
     }
   | {
       readonly kind: 'section'
@@ -98,6 +95,20 @@ export type Hit =
       readonly node: SceneNode
       readonly row: Extract<LayoutRow, { kind: 'growth' }>
     }
+  /** A member's grip: dragging it moves the member within its group. */
+  | {
+      readonly kind: 'grip'
+      readonly node: SceneNode
+      readonly grip: MemberGrip
+    }
+  /** The bottom edge of a multiline text box: dragging it sets the box's height in lines. */
+  | {
+      readonly kind: 'text-box-edge'
+      readonly node: SceneNode
+      readonly row: Extract<LayoutRow, { kind: 'widget' }>
+    }
+  /** The caption row of a preview or text result that folds it. */
+  | { readonly kind: 'preview-caption'; readonly node: SceneNode }
   | { readonly kind: 'header'; readonly node: SceneNode }
   | { readonly kind: 'body'; readonly node: SceneNode }
   | { readonly kind: 'resize'; readonly node: SceneNode; readonly handle: ResizeHandle }
@@ -122,42 +133,6 @@ export type Hit =
       readonly x: number
       readonly y: number
     }
-  /** A value source's single output pin (link-drag start). */
-  | {
-      readonly kind: 'valueSourceOut'
-      readonly valueSource: SceneValueSource
-      /** Pin center, world coords. */
-      readonly x: number
-      readonly y: number
-      readonly type: TypeExpr
-    }
-  /** A value source's spec badge (declared/derived/conflict details). */
-  | { readonly kind: 'valueSourceBadge'; readonly valueSource: SceneValueSource }
-  /** A value source's pill body (select/drag/edit). */
-  | { readonly kind: 'valueSource'; readonly valueSource: SceneValueSource }
-  /** One candidate's branch input pin (link-drag target/source). */
-  | {
-      readonly kind: 'selectorIn'
-      readonly selector: SceneSelector
-      readonly candidate: string
-      /** Pin center, world coords. */
-      readonly x: number
-      readonly y: number
-      readonly type: TypeExpr
-    }
-  /** A selector's single output pin (link-drag start). */
-  | {
-      readonly kind: 'selectorOut'
-      readonly selector: SceneSelector
-      /** Pin center, world coords. */
-      readonly x: number
-      readonly y: number
-      readonly type: TypeExpr
-    }
-  /** A selector's policy badge (fixed/random details + menu). */
-  | { readonly kind: 'selectorBadge'; readonly selector: SceneSelector }
-  /** A selector's box body (select/drag/menu). */
-  | { readonly kind: 'selector'; readonly selector: SceneSelector }
   | { readonly kind: 'netStub'; readonly stub: SceneNetStub }
   /** A group's title band: drag handle + menu surface. */
   | { readonly kind: 'group-header'; readonly group: SceneGroup }
@@ -236,7 +211,77 @@ export function nodeResizeHandle(
   if (Math.abs(wx - right) <= corner && Math.abs(wy - top) <= corner) return 'ne'
   if (Math.abs(wx - right) <= corner && Math.abs(wy - bottom) <= corner) return 'se'
   if (Math.abs(wx - left) <= corner && Math.abs(wy - bottom) <= corner) return 'sw'
+  if (previewEdgeShown(node) && wx >= left && wx <= right) {
+    const edge = canvasPaintTokens.node.previewEdge
+    if (wy >= bottom - edge.hitAbove && wy <= bottom + edge.hitBelow) return 's'
+  }
   return undefined
+}
+
+/**
+ * True when a node's bottom edge carries the bar that sizes its open preview:
+ * the preview has its picture area, or its text result is open, and the node
+ * is not minimized.
+ */
+export function previewEdgeShown(node: SceneNode): boolean {
+  const l = node.layout
+  if (l.minimized === true) return false
+  return l.preview !== undefined ? l.preview.compact !== true : l.textOutput !== undefined && l.textOutput.folded !== true
+}
+
+/** The text box whose bottom-edge band holds the point, if any. */
+export function textBoxEdgeAt(
+  node: SceneNode,
+  wx: number,
+  wy: number,
+): Extract<LayoutRow, { kind: 'widget' }> | undefined {
+  const edge = canvasPaintTokens.widget.textBoxEdge
+  for (const row of node.layout.rows) {
+    if (row.kind !== 'widget' || row.viewId !== 'core.text' || row.inactive === true || row.ghost === true) continue
+    const width = row.width ?? node.layout.width - row.inset * 2
+    if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
+    const bottom = node.y + row.y + row.height
+    if (wy >= bottom - edge.hitAbove && wy <= bottom + edge.hitBelow) return row
+  }
+  return undefined
+}
+
+/** The member grip whose box, across its row's full height, holds the point. */
+export function gripAt(node: SceneNode, wx: number, wy: number): MemberGrip | undefined {
+  const half = canvasPaintTokens.node.box.grip.hit / 2
+  for (const row of node.layout.rows) {
+    if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports') || row.reorder === undefined) continue
+    const ry = node.y + row.y
+    if (wy < ry || wy > ry + row.height) continue
+    // The target stops at a field's edge, so the field keeps its own end.
+    if (row.kind === 'widget' && wx >= node.x + row.inset) continue
+    if (Math.abs(wx - node.x - row.reorder.gripX) <= half) return row.reorder
+  }
+  return undefined
+}
+
+/** The minimize arrow's square target at the left end of a node's title bar. */
+export function minimizeArrowRect(node: SceneNode): { x: number; y: number; width: number; height: number } {
+  const { left, target } = canvasPaintTokens.node.minimizeArrow
+  const size = Math.min(target, node.layout.headerHeight)
+  return { x: node.x + left, y: node.y + (node.layout.headerHeight - size) / 2, width: size, height: size }
+}
+
+/**
+ * True when the point is on the caption row that folds a node's preview or
+ * text result. A caption with nothing to open (no picture yet, loading,
+ * failed) is ordinary node body.
+ */
+export function previewCaptionAt(node: SceneNode, wx: number, wy: number): boolean {
+  const l = node.layout
+  const region = l.preview !== undefined
+    ? l.preview.compact !== true || l.preview.folded === true ? l.preview : undefined
+    : l.textOutput
+  if (region === undefined) return false
+  const x = node.x + region.x
+  const y = node.y + region.y
+  return wx >= x && wx <= x + region.width &&
+    wy >= y && wy <= y + Math.min(region.height, defaultTokens.previewCaptionHeight)
 }
 
 /**
@@ -249,65 +294,35 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
   const pinHitRadius = overviewHitRadius(PIN_HIT_RADIUS, canvasPaintTokens.hit.overviewPinRadius, opts)
   const linkHitRadius = overviewHitRadius(LINK_HIT_RADIUS, canvasPaintTokens.hit.overviewLinkRadius, opts)
   const rerouteHitRadius = overviewHitRadius(REROUTE_HIT_RADIUS, canvasPaintTokens.hit.overviewRerouteRadius, opts)
-  // Pin passes run in reverse paint order (selectors paint above value
-  // sources, which paint above boundary nodes, which paint above nodes), so
-  // where pins overlap across layers the topmost painted pin wins.
-
-  // Selector pins overhang their box edges like node pins do.
-  const selPin = hitTestSelectorPin(scene, wx, wy, pinHitRadius)
-  if (selPin) return selPin
-
-  // Value source output pins overhang their pill edge like node pins do.
-  const vsPin = hitTestValueSourcePin(scene, wx, wy, pinHitRadius)
-  if (vsPin) return vsPin
+  // Pin passes run in reverse paint order (boundary nodes paint above
+  // nodes), so where pins overlap across layers the topmost painted pin wins.
 
   // Boundary pseudo-node pins overhang like node pins do.
   const bPin = hitTestBoundaryPin(scene, wx, wy, pinHitRadius)
   if (bPin) return bPin
 
-  for (let i = scene.nodes.length - 1; i >= 0; i--) {
+  // Pins pressed together on a closed box's row overlap: the nearest center
+  // wins, and a field's output pin wins a tie.
+  let tap: Extract<Hit, { kind: 'widgetTap' }> | undefined
+  let tapDistance = pinHitRadius
+  for (let i = scene.nodes.length - 1; i >= 0 && tap === undefined; i--) {
     const node = scene.nodes[i]!
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {
-      if (pin.widgetTap !== true || !opts?.widgetTaps?.has(`${node.id}:${pin.portId}:out:tap`)) continue
+      // A kept row's pin keeps its wire; no wire starts or ends on it.
+      if (pin.widgetTap !== true || pin.stacked === true || pin.kept !== undefined || !opts?.widgetTaps?.has(`${node.id}:${pin.portId}:out:tap`)) continue
       const x = node.x + node.layout.width
       const y = node.y + pin.y
-      if (Math.hypot(wx - x, wy - y) <= pinHitRadius)
-        return { kind: 'widgetTap', node, input: pin.address.port as string, x, y, type: pin.type, pin }
+      const distance = Math.hypot(wx - x, wy - y)
+      if (distance <= tapDistance) {
+        tapDistance = distance
+        tap = { kind: 'widgetTap', node, input: pin.address.port as string, x, y, type: pin.type, pin }
+      }
     }
   }
   const pin = hitTestPin(scene, wx, wy, opts?.pinRevealed, pinHitRadius)
-  if (pin) return pin
-
-  // Body passes also run in reverse paint order: selector boxes and value
-  // source pills paint ABOVE boundary and regular nodes, so they must win
-  // clicks where they overlap.
-
-  // Selector boxes: badge wins over body (policy click before drag).
-  for (let i = scene.selectors.length - 1; i >= 0; i--) {
-    const sel = scene.selectors[i]!
-    if (wx < sel.x || wx > sel.x + sel.width || wy < sel.y || wy > sel.y + sel.height) continue
-    if (contentDetail) {
-      const badge = selectorBadgeRect(sel)
-      if (wx >= badge.x && wx <= badge.x + badge.width && wy >= badge.y && wy <= badge.y + badge.height) {
-        return { kind: 'selectorBadge', selector: sel }
-      }
-    }
-    return { kind: 'selector', selector: sel }
-  }
-
-  // Value source pills: badge wins over body (details click before drag).
-  for (let i = scene.valueSources.length - 1; i >= 0; i--) {
-    const vs = scene.valueSources[i]!
-    if (wx < vs.x || wx > vs.x + vs.width || wy < vs.y || wy > vs.y + vs.height) continue
-    if (contentDetail) {
-      const badge = valueSourceBadgeRect(vs)
-      if (wx >= badge.x && wx <= badge.x + badge.width && wy >= badge.y && wy <= badge.y + badge.height) {
-        return { kind: 'valueSourceBadge', valueSource: vs }
-      }
-    }
-    return { kind: 'valueSource', valueSource: vs }
-  }
+  if (pin && (tap === undefined || Math.hypot(wx - pin.x, wy - pin.y) < tapDistance)) return pin
+  if (tap) return tap
 
   // Boundary pseudo-nodes draw ABOVE regular nodes, so they hit first.
   for (let i = scene.boundaryNodes.length - 1; i >= 0; i--) {
@@ -316,7 +331,19 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     if (wx < bnode.x || wx > bnode.x + l.width || wy < bnode.y || wy > bnode.y + l.height) continue
     if (wy <= bnode.y + l.headerHeight) return { kind: 'boundary-header', bnode }
     if (contentDetail) {
+      const face = boundaryFieldNode(bnode)
       for (const row of l.rows) {
+        // A field wired outside the subgraph is not edited here: it is body.
+        if (row.kind === 'widget' && face !== undefined && !Object.hasOwn(bnode.fields!.wired, row.valueKey)) {
+          const ry = bnode.y + row.y
+          const width = row.width ?? l.width - row.inset * 2
+          if (wy < ry || wy > ry + row.height || wx < bnode.x + row.inset || wx > bnode.x + row.inset + width) continue
+          return {
+            kind: 'widget', node: face, row, bnode,
+            x: bnode.x + row.inset, y: ry, width,
+            height: row.height, localX: wx - bnode.x - row.inset, localY: wy - ry,
+          }
+        }
         if (row.kind !== 'ports') continue
         const slot = row.input ?? row.output
         if (slot && slot.portId !== '__add__' && wy >= bnode.y + row.y && wy <= bnode.y + row.y + row.height) {
@@ -354,12 +381,28 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     // Row controls are boundary affordances too: edge steppers and sockets
     // must remain usable where they meet the resize band.
     if (inside && contentDetail) {
+      // The node's corners stay resizable where a text box edge meets them.
+      const edge = textBoxEdgeAt(node, wx, wy)
+      if (edge !== undefined && nodeResizeHandle(node, wx, wy, opts?.scale) === undefined) {
+        return { kind: 'text-box-edge', node, row: edge }
+      }
+      if (previewCaptionAt(node, wx, wy) && nodeResizeHandle(node, wx, wy, opts?.scale) === undefined) {
+        return { kind: 'preview-caption', node }
+      }
+      const grip = gripAt(node, wx, wy)
+      if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const row of l.rows) {
-        if (row.kind === 'ports' || row.kind === 'fallback') continue
+        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button' || row.kind === 'member') continue
         const ry = node.y + row.y
         if (wy < ry || wy > ry + row.height) continue
-        if (row.kind === 'section') return { kind: 'section', node, row }
+        if (row.kind === 'section') {
+          // The header, closed row or tab spans the box, not the node's margin.
+          if (wx < node.x + row.inset || wx > node.x + l.width - row.inset) continue
+          return { kind: 'section', node, row }
+        }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
+        // An unfolded editor's own controls lie over its space; the rest of it is the node's body.
+        if (row.kind === 'editorSpace') continue
         const width = row.width ?? l.width - row.inset * 2
         if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
         return {
@@ -376,12 +419,20 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     if (!inside && !minimizedProxy) continue
     if (wy <= node.y + l.headerHeight) return { kind: 'header', node }
     if (contentDetail) {
+      const grip = gripAt(node, wx, wy)
+      if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const row of l.rows) {
-        if (row.kind === 'ports' || row.kind === 'fallback') continue
+        if (row.kind === 'ports' || row.kind === 'fallback' || row.kind === 'note' || row.kind === 'button' || row.kind === 'member') continue
         const ry = node.y + row.y
         if (wy < ry || wy > ry + row.height) continue
-        if (row.kind === 'section') return { kind: 'section', node, row }
+        if (row.kind === 'section') {
+          // The header, closed row or tab spans the box, not the node's margin.
+          if (wx < node.x + row.inset || wx > node.x + l.width - row.inset) continue
+          return { kind: 'section', node, row }
+        }
         if (row.kind === 'growth') return { kind: 'growth', node, row }
+        // An unfolded editor's own controls lie over its space; the rest of it is the node's body.
+        if (row.kind === 'editorSpace') continue
         const width = row.width ?? l.width - row.inset * 2
         if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
         return {
@@ -809,7 +860,7 @@ export function hitTestPin(
     const node = scene.nodes[i]!
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {
-      if (pin.widgetTap === true) continue
+      if (pin.widgetTap === true || pin.stacked === true) continue
       if (pinRevealed && !pinRevealed(node, pin)) continue
       const px = pin.direction === 'in' ? node.x : node.x + node.layout.width
       const py = node.y + pin.y
@@ -841,63 +892,6 @@ export function hitTestBoundaryPin(
       if (d <= bestDist) {
         bestDist = d
         best = { kind: 'boundary-pin', bnode, item: pin.portId, direction: pin.direction, x: px, y: py, type: pin.type, ...(pin.regionIndex ? { regionIndex: true } : {}) }
-      }
-    }
-  }
-  return best
-}
-
-/** Nearest value-source output pin within PIN_HIT_RADIUS of the point. */
-export function hitTestValueSourcePin(
-  scene: Scene,
-  wx: number,
-  wy: number,
-  hitRadius = PIN_HIT_RADIUS,
-): Extract<Hit, { kind: 'valueSourceOut' }> | undefined {
-  let best: Extract<Hit, { kind: 'valueSourceOut' }> | undefined
-  let bestDist = hitRadius
-  for (let i = scene.valueSources.length - 1; i >= 0; i--) {
-    const vs = scene.valueSources[i]!
-    const pin = valueSourcePinPosition(vs)
-    const d = Math.hypot(wx - pin.x, wy - pin.y)
-    if (d <= bestDist) {
-      bestDist = d
-      best = { kind: 'valueSourceOut', valueSource: vs, x: pin.x, y: pin.y, type: vs.effective.type }
-    }
-  }
-  return best
-}
-
-/**
- * Nearest selector pin (candidate input or the output) within PIN_HIT_RADIUS.
- * Pin types are advisory: the traced concrete type when known, else wildcard
- * (a selector is a type-agnostic passthrough).
- */
-export function hitTestSelectorPin(
-  scene: Scene,
-  wx: number,
-  wy: number,
-  hitRadius = PIN_HIT_RADIUS,
-): Extract<Hit, { kind: 'selectorIn' | 'selectorOut' }> | undefined {
-  let best: Extract<Hit, { kind: 'selectorIn' | 'selectorOut' }> | undefined
-  let bestDist = hitRadius
-  for (let i = scene.selectors.length - 1; i >= 0; i--) {
-    const sel = scene.selectors[i]!
-    const out = selectorOutPinPosition(sel)
-    const dOut = Math.hypot(wx - out.x, wy - out.y)
-    if (dOut <= bestDist) {
-      bestDist = dOut
-      const type: TypeExpr = sel.typeName ? { kind: 'concrete', name: sel.typeName } : { kind: 'wildcard' }
-      best = { kind: 'selectorOut', selector: sel, x: out.x, y: out.y, type }
-    }
-    for (const c of sel.candidates) {
-      const pin = selectorCandidatePinPosition(sel, c.id)
-      if (!pin) continue
-      const d = Math.hypot(wx - pin.x, wy - pin.y)
-      if (d <= bestDist) {
-        bestDist = d
-        const type: TypeExpr = c.typeName ? { kind: 'concrete', name: c.typeName } : { kind: 'wildcard' }
-        best = { kind: 'selectorIn', selector: sel, candidate: c.id, x: pin.x, y: pin.y, type }
       }
     }
   }

@@ -57,63 +57,12 @@ it('preserves named browser errors without inventing a frame', async () => {
   expect(device.stop).not.toHaveBeenCalled()
 })
 
-it('stages capture, preserves the saved frame on cancel or device failure, and applies undoably', async () => {
-  const device = camera()
-  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:camera')
-  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-  const schema = parseDinksterSchema('dinkster.image.webcam_capture', { body: [
-    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM' } },
-    { kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, default: 640 },
-    { kind: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 180 },
-  ] }).schema!
-  const saved = { digest: `blake3:${'a'.repeat(64)}`, name: 'saved.png', size: 8, mediaType: 'image/png', virtualPath: 'input/saved.png' }
-  const captured = { ...saved, digest: `blake3:${'b'.repeat(64)}`, name: 'webcam.png' }
-  const imported = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [saved, 640, 180] }], links: [] }, () => schema)
-  const store = new DocumentStore(imported.document!, coreCommandRegistry())
-  const tab = { store } as unknown as Tab
-  const registry = createWidgetRegistry()
-  const upload = vi.fn().mockResolvedValue(captured)
-  const backend = { protocol: 'dinkster', connection: { uploadMediaAsset: upload } }
-  const app = {
-    widgetRegistry: registry, widgetRegistryForTab: () => registry,
-    backendForTab: () => backend,
-    retainPickerAssets: async () => ({ current: () => true }),
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
-  } as unknown as AppState
-  const root = document.createElement('div'); document.body.append(root)
-  const open = () => render(() => <WidgetEditor app={app} ed={{
-    tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'image' }, label: 'Camera frame',
-    spec: inputsOf(schema)[0]!.widget, declaredType: inputsOf(schema)[0]!.type,
-    multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial: store.doc.graphs.g0!.nodes.n1!.values.image,
-  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-  const button = (label: string) => Array.from(document.querySelectorAll('button')).find((element) => element.textContent === label)!
-  let dispose = open()
-  button('Capture frame').click()
-  await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce())
-  await vi.waitFor(() => expect(root.querySelector('img')).not.toBeNull())
-  expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(saved)
-  button('Cancel').click(); dispose()
-  expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(saved)
-  dispose = open()
-  device.open.mockRejectedValueOnce(new DOMException('Requested device not found', 'NotFoundError'))
-  button('Capture frame').click()
-  await vi.waitFor(() => expect(document.body.textContent).toContain('NotFoundError: Requested device not found'))
-  expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(saved)
-  button('Capture frame').click()
-  await vi.waitFor(() => expect(root.querySelector('img')).not.toBeNull())
-  button('Use frame').click()
-  expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(captured)
-  expect(store.undo()).toBe(true)
-  expect(store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(saved)
-  dispose()
-})
-
 async function queueSetup(captureOnQueue = true) {
   const app = createWorkflowApp()
   const backend = app.backends.get()[0]!
   const type = 'dinkster.image.webcam_capture'
   backend.registry.set(buildDinksterRegistry(backend.id, { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: { [type]: { body: [
-    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM' } },
+    { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['WEBCAM'] }, widget: { type: 'WEBCAM', reads: { width: 'width', height: 'height', capture_on_queue: 'capture_on_queue' } } },
     { kind: 'input', id: 'width', type: { kind: 'concrete', types: ['INT'] }, default: 640 },
     { kind: 'input', id: 'height', type: { kind: 'concrete', types: ['INT'] }, default: 180 },
     { kind: 'input', id: 'capture_on_queue', type: { kind: 'concrete', types: ['BOOLEAN'] }, default: true },
@@ -136,126 +85,6 @@ async function queueSetup(captureOnQueue = true) {
   const queue = () => app.queue(tab, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('n1') }] })
   return { app, backend, tab, saved, captured, upload, sourceUpload, submit, queue }
 }
-
-it.each(['accepted', 'refused', 'reused', 'lost', 'closed', 'removed', 'disconnected'] as const)(
-  'admits webcam drafts before preview publication and preserves the saved frame: %s', async (action) => {
-    camera()
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:camera')
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    const state = await queueSetup(false)
-    let accept!: () => void
-    const acknowledgment = new Promise<void>((resolve) => { accept = resolve })
-    let receipt: Awaited<ReturnType<typeof state.backend.connection.retainAssets>> | undefined
-    vi.mocked(state.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
-      const held = { ...owner, ...declaration, revision: declaration.revision + 1 }
-      if (declaration.digests.includes(state.captured.digest)) {
-        receipt = held
-        await acknowledgment
-        if (action === 'refused' || action === 'lost') throw new Error('Camera admission unavailable')
-        if (action === 'reused') return { ...held, revision: held.revision + 1 }
-      }
-      return held
-    })
-    vi.spyOn(state.backend.connection, 'fetchRetainedAssets').mockImplementation(async () => action === 'lost' ? receipt : undefined)
-    const schema = state.backend.registry.get()!.resolve('dinkster.image.webcam_capture')!
-    const root = document.createElement('div'); document.body.append(root)
-    const dispose = render(() => <WidgetEditor app={state.app} ed={{
-      tab: state.tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'image' }, label: 'Camera frame',
-      spec: inputsOf(schema)[0]!.widget, declaredType: inputsOf(schema)[0]!.type,
-      multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial: state.saved,
-    }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-    const button = (label: string) => Array.from(root.querySelectorAll('button')).find((element) => element.textContent === label)!
-    try {
-      button('Capture frame').click()
-      await vi.waitFor(() => expect(receipt).toBeDefined())
-      expect(root.querySelector('img')).toBeNull()
-      expect(root.textContent).toContain('saved.png')
-      expect(button('Use frame').disabled).toBe(true)
-      expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.saved)
-      if (action === 'closed') dispose()
-      if (action === 'removed') state.app.closeTab(state.tab.id)
-      if (action === 'disconnected') {
-        ;(state.backend.connection.status as unknown as { set(value: string): void }).set('connecting')
-      }
-      accept()
-      if (action === 'accepted' || action === 'lost') {
-        await vi.waitFor(() => expect(root.querySelector('img')?.getAttribute('src')).toBe('blob:camera'))
-        expect(root.textContent).toContain('webcam.png')
-        expect(button('Use frame').disabled).toBe(false)
-        expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.saved)
-        button('Use frame').click()
-        await vi.waitFor(() => expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.captured))
-      } else {
-        if (action !== 'closed') await vi.waitFor(() => expect(button('Capture frame').disabled).toBe(false))
-        expect(root.querySelector('img')).toBeNull()
-        expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.saved)
-      }
-    } finally { accept(); dispose(); state.app.dispose() }
-  },
-)
-
-it.each(['accepted', 'refused', 'same-digest'] as const)('keeps a published webcam draft through replacement admission: %s', async (action) => {
-  camera()
-  vi.spyOn(URL, 'createObjectURL').mockReturnValueOnce('blob:first').mockReturnValueOnce('blob:replacement')
-  const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-  const state = await queueSetup(false)
-  const replacement = { ...state.captured, name: 'replacement.png',
-    digest: action === 'same-digest' ? state.captured.digest : `blake3:${'c'.repeat(64)}` }
-  state.upload.mockResolvedValueOnce(state.captured).mockResolvedValueOnce(replacement)
-  const release = vi.spyOn(state.backend.connection, 'releaseRetainedAssets').mockImplementation(async (owner, revision) =>
-    ({ ...owner, revision: revision + 1, complete: true, digests: [] }))
-  const retained: Awaited<ReturnType<typeof state.backend.connection.retainAssets>>[] = []
-  vi.mocked(state.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
-    const receipt = { ...owner, ...declaration, revision: declaration.revision + 1 }
-    retained.push(receipt)
-    return receipt
-  })
-  const schema = state.backend.registry.get()!.resolve('dinkster.image.webcam_capture')!
-  const root = document.createElement('div'); document.body.append(root)
-  const dispose = render(() => <WidgetEditor app={state.app} ed={{
-    tab: state.tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'image' }, label: 'Camera frame',
-    spec: inputsOf(schema)[0]!.widget, declaredType: inputsOf(schema)[0]!.type,
-    multiline: false, rect: { x: 0, y: 0, width: 180, height: 24 }, initial: state.saved,
-  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-  const button = (label: string) => Array.from(root.querySelectorAll('button')).find((element) => element.textContent === label)!
-  let accept!: () => void
-  try {
-    button('Capture frame').click()
-    await vi.waitFor(() => expect(root.querySelector('img')?.getAttribute('src')).toBe('blob:first'))
-    const first = retained.find((receipt) => receipt.digests.includes(state.captured.digest))!
-    const acknowledgment = new Promise<void>((resolve) => { accept = resolve })
-    let next: typeof first | undefined
-    vi.mocked(state.backend.connection.retainAssets).mockImplementation(async (owner, declaration) => {
-      next = { ...owner, ...declaration, revision: declaration.revision + 1 }
-      await acknowledgment
-      if (action === 'refused') throw new Error('Camera admission refused')
-      return next
-    })
-    vi.spyOn(state.backend.connection, 'fetchRetainedAssets').mockResolvedValue(undefined)
-    const releasedBefore = release.mock.calls.length
-    button('Capture frame').click()
-    await vi.waitFor(() => expect(next).toBeDefined())
-    expect(next!.ownerId).not.toBe(first.ownerId)
-    expect(next!.digests).toEqual([replacement.digest])
-    expect(root.querySelector('img')?.getAttribute('src')).toBe('blob:first')
-    expect(root.textContent).toContain('webcam.png')
-    expect(release.mock.calls).toHaveLength(releasedBefore)
-    expect(revoke).not.toHaveBeenCalledWith('blob:first')
-    accept()
-    await vi.waitFor(() => expect(button('Capture frame').disabled).toBe(false))
-    expect(root.querySelector('img')?.getAttribute('src')).toBe(action === 'refused' ? 'blob:first' : 'blob:replacement')
-    if (action === 'refused') {
-      expect(root.textContent).toContain('webcam.png')
-      expect(release.mock.calls).toHaveLength(releasedBefore)
-      expect(revoke).not.toHaveBeenCalledWith('blob:first')
-    } else {
-      expect(root.textContent).toContain('replacement.png')
-      expect(release.mock.calls.slice(releasedBefore)).toEqual([[first, first.revision]])
-      expect(revoke).toHaveBeenCalledWith('blob:first')
-    }
-    expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.saved)
-  } finally { accept?.(); dispose(); state.app.dispose() }
-})
 
 it('queues a fresh scoped frame and a matching snapshot, while disabled capture reuses the saved asset', async () => {
   const device = camera()
@@ -306,7 +135,7 @@ it('refuses queue on device failure or edits during capture without replacing a 
 
 it('does not replace connected literal camera inputs with unused captures', async () => {
   const device = camera()
-  for (const kind of ['valueSource', 'tap', 'net']) {
+  for (const kind of ['tap', 'net']) {
     const state = await queueSetup()
     try {
       const document = state.tab.store.doc
@@ -317,9 +146,8 @@ it('does not replace connected literal camera inputs with unused captures', asyn
         nodes: { ...graph.nodes, n2: kind === 'net'
           ? { ...graph.nodes.n2!, type: 'test.frame', values: {} }
           : { ...graph.nodes.n2!, values: { ...graph.nodes.n2!.values, image: connected } } },
-        valueSources: { v0: { id: 'v0', value: connected, type: { kind: 'concrete', types: ['WEBCAM'] } } },
         links: kind === 'net' ? {} : { l0: {
-          id: 'l0', from: kind === 'tap' ? { node: 'n2', tap: 'image' } : { valueSource: 'v0' }, to: { node: 'n1', port: 'image' },
+          id: 'l0', from: { node: 'n2', tap: 'image' }, to: { node: 'n1', port: 'image' },
         } },
         nets: kind === 'net' ? { net0: { id: 'net0', name: 'camera', source: { node: 'n2', port: 'frame' }, sinks: [{ node: 'n1', port: 'image' }] } } : {},
       } } }, 'Connected camera'))).toEqual([])
@@ -365,9 +193,12 @@ it('saves a nested camera on its promoted owner and preserves a connected bounda
       const root = document.graphs.g0!
       const frame = { ...state.saved, digest: `blake3:${'e'.repeat(64)}`, name: 'boundary.png' }
       expect((await state.app.openDocument({ ...document, graphs: {
-        g0: { ...root, nodes: { n1: { id: 'n1', type: '#camera', values: { frame: state.saved } } },
-          valueSources: { v0: { id: 'v0', value: frame, type: { kind: 'concrete', types: ['WEBCAM'] } } },
-          links: connected ? { l0: { id: 'l0', from: { valueSource: 'v0' }, to: { node: 'n1', port: 'frame' } } } : {},
+        g0: { ...root,
+          nodes: {
+            n1: { id: 'n1', type: '#camera', values: { frame: state.saved } },
+            ...(connected ? { n2: { ...root.nodes.n2!, values: { ...root.nodes.n2!.values, image: frame } } } : {}),
+          },
+          links: connected ? { l0: { id: 'l0', from: { node: 'n2', tap: 'image' }, to: { node: 'n1', port: 'frame' } } } : {},
         },
         camera: { id: 'camera', name: 'Camera', nodes: { inner: { ...root.nodes.n1!, id: 'inner' } },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,

@@ -1,5 +1,5 @@
 
-import { expect, openRailPanel, test, waitForStartupOwnership, type Page } from './fixtures.js'
+import { expect, openRailPanel, test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 async function ready(page: Page, mockLegacyDiscovery = false): Promise<void> {
   if (mockLegacyDiscovery) {
@@ -9,7 +9,7 @@ async function ready(page: Page, mockLegacyDiscovery = false): Promise<void> {
     await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   }
   await page.goto('/')
-  await expect(page.getByTestId('status-bar')).toContainText(/\d+ node schemas/, { timeout: 15_000 })
+  await waitForWorkspaceReady(page)
 }
 
 async function nodePoint(page: Page, index = 0): Promise<{ id: string; x: number; y: number }> {
@@ -111,7 +111,6 @@ test('creates an empty subgraph from universal search and drills into it', async
 
 test('previews and removes root-unreachable subgraph definitions', async ({ page }, testInfo) => {
   await ready(page, true)
-  await waitForStartupOwnership(page)
   await page.evaluate(async () => {
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'subgraph-cleanup-e2e', root: 'root',
@@ -516,7 +515,8 @@ test('supports nested drill-in after extraction', async ({ page }) => {
     const tab = window.__dinksterTest!.app.activeTab()!
     return tab.store.doc.graphs[tab.store.doc.root]!.nodes[node.id]!.type.startsWith('#')
   })))
-  await page.mouse.dblclick(outer.x, outer.y)
+  const outerMark = await subgraphMarkPoint(page, outer.id)
+  await page.mouse.dblclick(outerMark.x, outerMark.y)
   await selectNode(page)
   await extractSelected(page)
   const nested = await nodePoint(page, await page.evaluate(() => {
@@ -524,8 +524,89 @@ test('supports nested drill-in after extraction', async ({ page }) => {
     const graphId = tab.graphStack.get().at(-1)!
     return window.__dinksterTest!.renderer!.getScene().nodes.findIndex((node) => tab.store.doc.graphs[graphId]!.nodes[node.id]!.type.startsWith('#'))
   }))
-  await page.mouse.dblclick(nested.x, nested.y)
+  const nestedMark = await subgraphMarkPoint(page, nested.id)
+  await page.mouse.dblclick(nestedMark.x, nestedMark.y)
   await expect(page.getByTestId('graph-breadcrumb').getByRole('button')).toHaveCount(3)
+})
+
+test('opens a subgraph from the selection toolbar and from the node menu', async ({ page }) => {
+  await ready(page)
+  await selectNode(page)
+  await extractSelected(page)
+  const subgraphIndex = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.findIndex((node) => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    return tab.store.doc.graphs[tab.store.doc.root]!.nodes[node.id]!.type.startsWith('#')
+  }))
+  const breadcrumbButtons = page.getByTestId('graph-breadcrumb').getByRole('button')
+
+  const subgraph = await nodePoint(page, subgraphIndex)
+  await page.mouse.click(subgraph.x, subgraph.y)
+  const openButton = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const button = renderer.getToolboxLayout()!.buttons.find((candidate) => candidate.button.id === 'core.openSubgraph')!
+    const viewport = renderer.getViewport()
+    const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    return {
+      x: canvas.left + (button.x + button.size / 2) * viewport.scale + viewport.x,
+      y: canvas.top + (button.y + button.size / 2) * viewport.scale + viewport.y,
+    }
+  })
+  await page.mouse.click(openButton.x, openButton.y)
+  await expect(breadcrumbButtons).toHaveCount(2)
+
+  await breadcrumbButtons.first().click()
+  await expect(page.getByTestId('graph-breadcrumb')).toHaveCount(0)
+  const returned = await nodePoint(page, subgraphIndex)
+  await page.mouse.click(returned.x, returned.y, { button: 'right' })
+  await page.locator('[data-item-id="core.node.openSubgraph"]').click()
+  await expect(breadcrumbButtons).toHaveCount(2)
+})
+
+const subgraphToolboxButtons = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.getToolboxLayout()!.buttons
+  .filter((entry) => ['core.openSubgraph', 'core.extractSubgraph', 'core.flattenSubgraph'].includes(entry.button.id))
+  .map((entry) => ({ id: entry.button.id, icon: entry.button.icon, label: entry.button.label, disabled: entry.button.disabled === true })))
+
+const graphCount = (page: Page) => page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs).length)
+
+test('the toolbox draws create for several nodes and open and flatten for one subgraph node, the menu offers flatten only for one subgraph node, and the menu and shortcut create from one node', async ({ page }) => {
+  await ready(page)
+  const before = await graphCount(page)
+  await selectNode(page, 0)
+  await expect.poll(() => subgraphToolboxButtons(page)).toEqual([])
+
+  const point = await nodePoint(page, 0)
+  await page.mouse.click(point.x, point.y, { button: 'right' })
+  const create = page.locator('[data-item-id="core.subgraph.extract"]')
+  await expect(create).toContainText('Create subgraph')
+  await expect(create.locator('[data-testid="menu-icon"] svg')).toBeVisible()
+  await expect(page.locator('[data-item-id="core.subgraph.flatten"]')).toHaveCount(0)
+  await create.click()
+  await expect.poll(() => graphCount(page)).toBe(before + 1)
+  await expect.poll(() => subgraphToolboxButtons(page)).toEqual([
+    { id: 'core.openSubgraph', icon: 'group', label: 'Open subgraph', disabled: false },
+    { id: 'core.flattenSubgraph', icon: 'ungroup', label: 'Flatten subgraph', disabled: false },
+  ])
+  const occurrence = await page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.findIndex((node) => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    return tab.store.doc.graphs[tab.store.doc.root]!.nodes[node.id]!.type.startsWith('#')
+  }))
+  const occurrencePoint = await nodePoint(page, occurrence)
+  await page.mouse.click(occurrencePoint.x, occurrencePoint.y, { button: 'right' })
+  await expect(page.locator('[data-item-id="core.subgraph.flatten"]')).toHaveAttribute('aria-disabled', 'false')
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Control+Z')
+  await expect.poll(() => graphCount(page)).toBe(before)
+
+  await selectNode(page, 0)
+  await extractSelected(page)
+  await page.keyboard.press('Control+Z')
+  await expect.poll(() => graphCount(page)).toBe(before)
+
+  await selectNode(page, 0)
+  await selectNode(page, 1, ['Control'])
+  await expect.poll(() => subgraphToolboxButtons(page)).toEqual([
+    { id: 'core.extractSubgraph', icon: 'subgraph', label: 'Create subgraph', disabled: false },
+  ])
 })
 
 test('flatten is one undoable and redoable operation', async ({ page }) => {
@@ -576,7 +657,7 @@ test('region occurrence flatten refusal is displayed with its code and anchor', 
             id: 'regionBody',
             name: 'Region Body',
             nodes: { n0: { id: 'n0', type: template.type, values: {} } },
-            links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {},
+            links: {}, nets: {}, reroutes: {},
             boundary: {
               inputs: [{ id: 'item', binds: { kind: 'port', node: 'n0', port: 'item' } }],
               outputs: [{ id: 'result', binds: { kind: 'port', node: 'n0', port: 'result' } }],
