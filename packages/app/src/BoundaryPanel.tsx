@@ -270,11 +270,6 @@ export function BoundaryPanel(props: { app: AppState }) {
 
   const showOnCanvas = (item: BoundaryItem): void => {
     if (item.binds.kind === 'unbound') return
-    if (item.binds.kind === 'valueSource') {
-      const ctx = editedDef()
-      if (ctx) props.app.canvasBridge.get()?.showValueSource?.(ctx.tab.id, ctx.def.id, item.binds.valueSource)
-      return
-    }
     activateProblem(props.app, {
       severity: 'info',
       origin: 'schema',
@@ -486,8 +481,6 @@ export function BoundaryPanel(props: { app: AppState }) {
                         <code class="boundary-bind">
                           {item.binds.kind === 'unbound'
                             ? message('boundaryPanel.unbound')
-                            : item.binds.kind === 'valueSource'
-                            ? [editedDef()?.def.valueSources?.[item.binds.valueSource]?.title, `(${item.binds.valueSource})`].filter(Boolean).join(' ')
                             : `${item.binds.node}.${item.binds.kind === 'widgetTap' ? item.binds.tap : item.binds.port}`}
                         </code>
                       </div>

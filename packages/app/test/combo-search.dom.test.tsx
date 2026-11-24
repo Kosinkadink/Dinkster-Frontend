@@ -887,7 +887,7 @@ describe('combo search', () => {
       ['[1,{"name":"two"},[3]]', [1, { name: 'two' }, [3]]],
     ] as const) {
       const state = { ...editorState(undefined, null), multiline: true }
-      const mounted = mountEditor({ ...state, target: { kind: 'valueSource', valueSourceId: 'v0' } })
+      const mounted = mountEditor(state)
       await flushMicrotasks()
       const textarea = mounted.root.querySelector<HTMLTextAreaElement>('.widget-editor textarea')!
       textarea.value = raw

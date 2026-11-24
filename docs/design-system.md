@@ -89,7 +89,7 @@ portable distribution includes it in the SHA-256 manifest.
 App action labels, settings categories and panel headings use sentence case.
 Canvas context-menu actions set their labels at the registry source, including
 reset actions and plural counts. Proper names, acronyms and user-authored node,
-net and selector branch names retain their original capitalization.
+net and Switch branch names retain their original capitalization.
 
 `@dinkster/ui` exports the script-enabled components from `packages/ui/src`.
 They use only the shared stylesheet, not app-specific CSS. Import the stylesheet
@@ -356,9 +356,7 @@ definitions and no retained definitions without private success-border styling.
 The Settings result-count announcement and Escape-to-clear behavior remain
 independent of the empty presentation.
 
-Canvas value-source and execution-selector popovers use ProductEmptyState when
-their target is unavailable. The popover keeps its focus and anchor until focus
-leaves it. Problems uses the shared empty card without a private color override.
+Problems uses the shared empty card without a private color override.
 
 Collaboration discovery uses ProductEmptyState for unavailable, loading, empty
 and error results, and for a workflow that is not shared. Loading announces
@@ -658,7 +656,7 @@ shape, label, line style, icon, or other non-color cue.
 The document and core model own graph/product semantics. `scene.ts` owns the
 immutable document-to-scene projection and `layout.ts` owns world geometry.
 The app host owns runtime-derived presentation state: progress, diagnostics,
-mode, companions, previews, badges, selector resolutions, remote presence,
+mode, companions, previews, badges, remote presence,
 and focused/transient controls. Command and undo ownership do not move into
 the renderer.
 
@@ -677,7 +675,7 @@ not re-derive semantic truth. In particular:
   committed scene after dispatch.
 
 The main renderer's fixed paint phases are groups, links, reroutes/net views,
-nodes and boundary nodes, value sources/selectors, selection/gesture
+nodes and boundary nodes, selection/gesture
 adornments, and screen-sized toolbox chrome. Host-owned bookmark state is
 painted as minimap marker descriptors, outside the main renderer. Changes may
 insert only into a named phase and must preserve occlusion and matching hit
@@ -820,8 +818,8 @@ field under a choice's option is lost on copy and paste and on replacing the
 node, and a subgraph's face cannot offer it. A card may carry its own pointer
 state, the same overlay the interaction controller sets for that gesture.
 
-Switch and Primitive, under Flow nodes, draws the proposed Switch and Primitive
-nodes that replace the value source pill and the selector box, one card per
+Switch and Primitive, under Flow nodes, draws the Switch and Primitive nodes,
+one card per
 state, each painted from its own document at the top level or inside a subgraph
 entered through one subgraph node. The Switch cards show a pick known before the
 run with the branch not picked dimmed, a pick arriving on a wire, a picked
@@ -833,8 +831,7 @@ Primitive cards show a range worked out from the fields it feeds, fields that
 share no value, typed and pinned limits, the typed Int, Float, Text, Boolean and
 Choice primitives beside the general one, the Inputs panel with and without a
 subgraph node, a value arriving on a wire, refused edits and plugging in that
-narrows the range. The first card shows today's pill and selector box for
-comparison. A card may carry its own scene, run states, companions, row marks
+narrows the range. A card may carry its own scene, run states, companions, row marks
 and dimmed nodes. Captions name what the canvas does not draw yet: "Not run" and
 "Nothing plugged in" text, and "Not known yet" in place of a wired field's
 struck-through stored value.

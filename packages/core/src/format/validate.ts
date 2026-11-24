@@ -126,8 +126,7 @@ function checkBoundaryBinding(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   const binding = v as Record<string, unknown>
   const kind = binding['kind']
-  if (kind === 'unbound' || kind === 'valueSource') {
-    if (kind === 'valueSource') c.str(binding['valueSource'], `${path}.valueSource`, { nonEmpty: true })
+  if (kind === 'unbound') {
     checkTypeExpr(c, binding['type'], `${path}.type`)
     for (const field of ['node', 'port', 'tap', 'viaReroute']) {
       if (binding[field] !== undefined) c.fail(`${path}.${field}`, `invalid on kind '${kind}'`)
@@ -147,7 +146,7 @@ function checkBoundaryBinding(c: ShapeChecker, v: unknown, path: string): void {
   checkPortRef(c, v, path)
   if (binding['tap'] !== undefined) c.fail(`${path}.tap`, `invalid on kind '${String(kind)}'`)
   if (kind !== 'port' && kind !== 'construct') {
-    c.fail(`${path}.kind`, "must be 'port', 'construct', 'widgetTap', 'unbound', or 'valueSource'")
+    c.fail(`${path}.kind`, "must be 'port', 'construct', 'widgetTap', or 'unbound'")
   }
 }
 
@@ -162,10 +161,6 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
   if (primaryBinding?.['kind'] === 'unbound') {
     if (v['alsoBinds'] !== undefined) c.fail(`${path}.alsoBinds`, 'an unattached boundary cannot fan out')
     if (v['promoted'] !== undefined) c.fail(`${path}.promoted`, 'an unattached boundary has no widget to promote')
-  }
-  if (primaryBinding?.['kind'] === 'valueSource') {
-    if (v['alsoBinds'] !== undefined) c.fail(`${path}.alsoBinds`, 'a value source boundary cannot fan out')
-    if (side === 'outputs' && v['promoted'] !== undefined) c.fail(`${path}.promoted`, 'a value source output cannot promote a widget')
   }
   if (primaryBinding?.['kind'] === 'widgetTap' && side === 'inputs') {
     c.fail(`${path}.binds.kind`, "kind 'widgetTap' is output-side only")
@@ -215,10 +210,9 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
     v['promoted'] !== undefined &&
     typeof binds === 'object' &&
     binds !== null &&
-    (binds as Record<string, unknown>)['kind'] !== 'port' &&
-    (binds as Record<string, unknown>)['kind'] !== 'valueSource'
+    (binds as Record<string, unknown>)['kind'] !== 'port'
   ) {
-    c.fail(`${path}.promoted`, 'invalid unless the boundary binds a concrete input port or value source; a forwarded construct always carries its fields')
+    c.fail(`${path}.promoted`, 'invalid unless the boundary binds a concrete input port; a forwarded construct always carries its fields')
   }
   c.optExt(v['ext'], `${path}.ext`)
 }
@@ -297,20 +291,11 @@ function checkNode(c: ShapeChecker, v: unknown, path: string): void {
   c.optExt(v['ext'], `${path}.ext`)
 }
 
-/** A link endpoint: a PortRef, a `{reroute}`, a `{valueSource}`, or a `{selector, candidate?}` reference. */
+/** A link endpoint: a PortRef, a `{reroute}`, or a `{node, tap}` widget tap. */
 function checkLinkEndpoint(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   if ('reroute' in v) {
     c.str(v['reroute'], `${path}.reroute`, { nonEmpty: true })
-    return
-  }
-  if ('valueSource' in v) {
-    c.str(v['valueSource'], `${path}.valueSource`, { nonEmpty: true })
-    return
-  }
-  if ('selector' in v) {
-    c.str(v['selector'], `${path}.selector`, { nonEmpty: true })
-    if (v['candidate'] !== undefined) c.str(v['candidate'], `${path}.candidate`, { nonEmpty: true })
     return
   }
   if ('tap' in v) {
@@ -466,54 +451,6 @@ function checkReroute(c: ShapeChecker, v: unknown, path: string): void {
   c.optExt(v['ext'], `${path}.ext`)
 }
 
-const VS_CONTROLLER_SLOTS = new Set(['after_generate', 'after_refresh'])
-
-/** Declared partial widget spec on a value source (all fields optional). */
-function checkDeclaredSpec(c: ShapeChecker, v: unknown, path: string): void {
-  if (!c.obj(v, path)) return
-  c.optStr(v['widgetType'], `${path}.widgetType`)
-  if (v['options'] !== undefined) c.obj(v['options'], `${path}.options`)
-  if (v['controller'] !== undefined && (typeof v['controller'] !== 'string' || !VS_CONTROLLER_SLOTS.has(v['controller']))) {
-    c.fail(`${path}.controller`, `expected one of ${[...VS_CONTROLLER_SLOTS].join('|')}`)
-  }
-}
-
-function checkValueSource(c: ShapeChecker, v: unknown, path: string): void {
-  if (!c.obj(v, path)) return
-  c.str(v['id'], `${path}.id`, { nonEmpty: true })
-  if (!('value' in v)) c.fail(`${path}.value`, 'expected a JSON value (may be null, never absent)')
-  if (v['spec'] !== undefined) checkDeclaredSpec(c, v['spec'], `${path}.spec`)
-  if (v['controller'] !== undefined && (typeof v['controller'] !== 'string' || !CONTROLLER_MODES.has(v['controller']))) {
-    c.fail(`${path}.controller`, `expected one of ${[...CONTROLLER_MODES].join('|')}`)
-  }
-  c.optStr(v['title'], `${path}.title`)
-  c.optExt(v['ext'], `${path}.ext`)
-}
-
-function checkSelector(c: ShapeChecker, v: unknown, path: string): void {
-  if (!c.obj(v, path)) return
-  c.str(v['id'], `${path}.id`, { nonEmpty: true })
-  if (c.arr(v['candidates'], `${path}.candidates`)) {
-    v['candidates'].forEach((cand, i) => {
-      const p = `${path}.candidates[${i}]`
-      if (!c.obj(cand, p)) return
-      c.str(cand['id'], `${p}.id`, { nonEmpty: true })
-      c.optStr(cand['title'], `${p}.title`)
-    })
-  }
-  const policy = v['policy']
-  if (c.obj(policy, `${path}.policy`)) {
-    const kind = policy['kind']
-    if (kind === 'fixed') {
-      c.str(policy['candidate'], `${path}.policy.candidate`, { nonEmpty: true })
-    } else if (kind !== 'random') {
-      c.fail(`${path}.policy.kind`, `expected 'fixed' or 'random', got '${String(kind)}'`)
-    }
-  }
-  c.optStr(v['title'], `${path}.title`)
-  c.optExt(v['ext'], `${path}.ext`)
-}
-
 function checkNet(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   c.str(v['id'], `${path}.id`, { nonEmpty: true })
@@ -541,12 +478,8 @@ function checkGraphDef(c: ShapeChecker, v: unknown, path: string): void {
   if (c.obj(v['reroutes'], `${path}.reroutes`)) {
     for (const [k, r] of Object.entries(v['reroutes'])) checkReroute(c, r, `${path}.reroutes.${k}`)
   }
-  if (v['valueSources'] !== undefined && c.obj(v['valueSources'], `${path}.valueSources`)) {
-    for (const [k, s] of Object.entries(v['valueSources'])) checkValueSource(c, s, `${path}.valueSources.${k}`)
-  }
-  if (v['selectors'] !== undefined && c.obj(v['selectors'], `${path}.selectors`)) {
-    for (const [k, s] of Object.entries(v['selectors'])) checkSelector(c, s, `${path}.selectors.${k}`)
-  }
+  if (v['valueSources'] !== undefined) c.fail(`${path}.valueSources`, 'value sources are no longer supported; use primitive nodes')
+  if (v['selectors'] !== undefined) c.fail(`${path}.selectors`, 'selectors are no longer supported; use a Switch node')
   if (v['boundary'] !== undefined && c.obj(v['boundary'], `${path}.boundary`)) {
     for (const side of ['inputs', 'outputs'] as const) {
       const items = v['boundary'][side]
@@ -636,19 +569,6 @@ function checkRerouteView(c: ShapeChecker, v: unknown, path: string): void {
   c.optExt(v['ext'], `${path}.ext`)
 }
 
-function checkValueSourceView(c: ShapeChecker, v: unknown, path: string): void {
-  if (!c.obj(v, path)) return
-  checkVec2(c, v['position'], `${path}.position`)
-  c.optStr(v['view'], `${path}.view`)
-  c.optExt(v['ext'], `${path}.ext`)
-}
-
-function checkSelectorView(c: ShapeChecker, v: unknown, path: string): void {
-  if (!c.obj(v, path)) return
-  checkVec2(c, v['position'], `${path}.position`)
-  c.optExt(v['ext'], `${path}.ext`)
-}
-
 function checkGraphView(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   if (c.obj(v['nodes'], `${path}.nodes`)) {
@@ -656,12 +576,6 @@ function checkGraphView(c: ShapeChecker, v: unknown, path: string): void {
   }
   if (v['reroutes'] !== undefined && c.obj(v['reroutes'], `${path}.reroutes`)) {
     for (const [k, r] of Object.entries(v['reroutes'])) checkRerouteView(c, r, `${path}.reroutes.${k}`)
-  }
-  if (v['valueSources'] !== undefined && c.obj(v['valueSources'], `${path}.valueSources`)) {
-    for (const [k, s] of Object.entries(v['valueSources'])) checkValueSourceView(c, s, `${path}.valueSources.${k}`)
-  }
-  if (v['selectors'] !== undefined && c.obj(v['selectors'], `${path}.selectors`)) {
-    for (const [k, s] of Object.entries(v['selectors'])) checkSelectorView(c, s, `${path}.selectors.${k}`)
   }
   if (v['groups'] !== undefined && c.obj(v['groups'], `${path}.groups`)) {
     for (const [k, g] of Object.entries(v['groups'])) checkGroupView(c, k, g, `${path}.groups.${k}`)

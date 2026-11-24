@@ -160,15 +160,11 @@ test('Ctrl+A selects every selectable citizen in the current scene', async ({ pa
       selected: {
         nodes: [...controller.getSelection()].sort(),
         reroutes: [...controller.getRerouteSelection()].sort(),
-        valueSources: [...controller.getValueSourceSelection()].sort(),
-        selectors: [...controller.getSelectorSelection()].sort(),
         groups: [...controller.getGroupSelection()].sort(),
       },
       scene: {
         nodes: [...scene.nodes.map((node: { id: string }) => node.id), ...scene.boundaryNodes.map((node: { side: string }) => `@boundary:${node.side}`)].sort(),
         reroutes: scene.reroutes.map((item: { id: string }) => item.id).sort(),
-        valueSources: scene.valueSources.map((item: { id: string }) => item.id).sort(),
-        selectors: scene.selectors.map((item: { id: string }) => item.id).sort(),
         groups: scene.groups.map((item: { id: string }) => item.id).sort(),
       },
     }

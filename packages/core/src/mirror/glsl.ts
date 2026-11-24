@@ -235,9 +235,7 @@ export function deriveGlslMirrorBindings(
       let value: Json | undefined
       if (driver) {
         const trace = traceEndpoint(def, driver.from, index)
-        if (trace.kind === 'valueSource') {
-          value = def.valueSources?.[trace.id]?.value
-        } else if (trace.kind === 'tapValue') {
+        if (trace.kind === 'tapValue') {
           const upstream = inputsOfNode(trace.node)
           const tapped = upstream?.find((i) => i.address.port === trace.input)
           const upstreamNode = def.nodes[trace.node]

@@ -739,13 +739,8 @@ export function solveGraphTypes(
 
   const rerouteIndex = buildRerouteIndex(def)
   for (const link of Object.values(def.links) as LinkData[]) {
-    if (!isPortEndpoint(link.to)) continue // structural feed into a reroute/selector
-    // A consumer fed by a selector OUTPUT constrains against EVERY candidate
-    // branch's producer - policy can change at any moment, so editing-time
-    // compatibility must hold for all of them (a selector is a type-agnostic
-    // passthrough, never a type variable). Non-selector chains yield exactly
-    // one trace, preserving prior behavior. Value sources carry values, not
-    // types; undriven/cyclic branches constrain nothing.
+    if (!isPortEndpoint(link.to)) continue // structural feed into a reroute
+    // Undriven and cyclic chains constrain nothing.
     const traces = [...traceEndpointAll(def, link.from, rerouteIndex)]
     if (traces.length > 1) branchingLinks.add(link.id)
     for (const trace of traces) {
