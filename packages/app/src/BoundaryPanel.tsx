@@ -109,7 +109,7 @@ const formulaLiteral = (value: string | number | boolean): string =>
 /** The unbind parameters of one binding, or undefined when no unbind can remove it. */
 const unbindParams = (binding: BoundaryBinding): JsonObject | undefined => {
   if (binding.kind === 'widgetTap') return { node: binding.node, tap: binding.tap }
-  if (binding.kind !== 'port' && binding.kind !== 'construct') return undefined
+  if (binding.kind !== 'port') return undefined
   return {
     node: binding.node,
     port: binding.port,

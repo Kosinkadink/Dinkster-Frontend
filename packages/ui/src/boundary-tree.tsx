@@ -187,6 +187,13 @@ export function BoundaryTree(props: {
       ? undefined
       : findEntry(props.entries, props.drag.id)
   const isDragged = (id: string) => props.drag?.id === id
+  // The selected entry takes Tab; with none selected, the first one does.
+  const firstStop = () => {
+    const first = props.entries[0]
+    return first?.kind === 'line' ? first.rows[0]?.id : first?.id
+  }
+  const tabStop = (id: string) =>
+    props.selected === undefined ? firstStop() === id : props.selected === id
 
   const Grip = () => (
     <span class="boundary-tree-grip" title={strings.move}>
@@ -230,7 +237,7 @@ export function BoundaryTree(props: {
       role="treeitem"
       aria-level={rowProps.level}
       aria-selected={props.selected === rowProps.row.id}
-      tabindex={props.selected === rowProps.row.id ? 0 : -1}
+      tabindex={tabStop(rowProps.row.id) ? 0 : -1}
       data-entry-id={rowProps.lifted ? undefined : rowProps.row.id}
       data-side={rowProps.row.side}
       data-inert={rowProps.row.problem ? '' : undefined}
@@ -296,7 +303,7 @@ export function BoundaryTree(props: {
               role="treeitem"
               aria-level={lineProps.level + 1}
               aria-selected={props.selected === row.id}
-              tabindex={props.selected === row.id ? 0 : -1}
+              tabindex={tabStop(row.id) ? 0 : -1}
               data-entry-id={row.id}
               data-inert={row.problem ? '' : undefined}
               onPointerDown={press(row.id)}
@@ -352,7 +359,7 @@ export function BoundaryTree(props: {
         class="boundary-tree-row boundary-tree-header"
         data-side={constructProps.construct.side}
         aria-selected={props.selected === constructProps.construct.id}
-        tabindex={props.selected === constructProps.construct.id ? 0 : -1}
+        tabindex={tabStop(constructProps.construct.id) ? 0 : -1}
       >
         <Grip />
         <span class="boundary-tree-label boundary-tree-name">
@@ -413,7 +420,7 @@ export function BoundaryTree(props: {
             class="boundary-tree-row boundary-tree-header"
             data-side="input"
             aria-selected={props.selected === sectionProps.section.id}
-            tabindex={props.selected === sectionProps.section.id ? 0 : -1}
+            tabindex={tabStop(sectionProps.section.id) ? 0 : -1}
             onPointerDown={press(sectionProps.section.id)}
             onClick={select(sectionProps.section.id)}
           >
