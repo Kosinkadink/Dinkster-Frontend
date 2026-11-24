@@ -701,7 +701,8 @@ const ANGLE_SIDE = { x: 172, y: 92, radius: 86 }
 /**
  * A camera angle seen two ways: the orbit from above, whose dot on the ring
  * is the horizontal angle (0 nearest the viewer, 90 at the right), and the
- * elevation from the side, whose dot on the arc is the vertical angle.
+ * elevation from the side, whose dot on the arc is the vertical angle; the
+ * side view's line is level with the subject's middle, so 0 sits on it.
  * Pressing either half moves its dot to the pointer and dragging follows it,
  * in whole degrees; `onMoveEnd` follows when the drag ends. A fixed angle is
  * drawn hollow and does not move; an angle that is not known has no dot.
@@ -771,14 +772,14 @@ export function CanvasAnglePicture(props: {
       <rect class="dinkster-canvas-angle-subject" x={ANGLE_ORBIT.x - 7} y={ANGLE_ORBIT.y - 7} width="14" height="14" />
       <line class="dinkster-canvas-angle-line" x1={ANGLE_SIDE.x} y1={ANGLE_SIDE.y} x2={ANGLE_SIDE.x + ANGLE_SIDE.radius + 12} y2={ANGLE_SIDE.y} />
       <path class="dinkster-canvas-angle-line" d={`M ${low.x} ${low.y} A ${ANGLE_SIDE.radius} ${ANGLE_SIDE.radius} 0 0 0 ${high.x} ${high.y}`} />
-      <rect class="dinkster-canvas-angle-subject" x={ANGLE_SIDE.x - 7} y={ANGLE_SIDE.y - 14} width="14" height="14" />
+      <rect class="dinkster-canvas-angle-subject" x={ANGLE_SIDE.x - 7} y={ANGLE_SIDE.y - 7} width="14" height="14" />
       <Show when={props.horizontal.degrees !== undefined}>
         <line class="dinkster-canvas-angle-sight" x1={ANGLE_ORBIT.x} y1={ANGLE_ORBIT.y} x2={orbitDot().x} y2={orbitDot().y} />
         <circle class="dinkster-canvas-angle-dot" data-part="horizontal" data-fixed={props.horizontal.fixed ? 'true' : 'false'}
           cx={orbitDot().x} cy={orbitDot().y} r="6" />
       </Show>
       <Show when={props.vertical.degrees !== undefined}>
-        <line class="dinkster-canvas-angle-sight" x1={ANGLE_SIDE.x} y1={ANGLE_SIDE.y - 7} x2={sideDot().x} y2={sideDot().y} />
+        <line class="dinkster-canvas-angle-sight" x1={ANGLE_SIDE.x} y1={ANGLE_SIDE.y} x2={sideDot().x} y2={sideDot().y} />
         <circle class="dinkster-canvas-angle-dot" data-part="vertical" data-fixed={props.vertical.fixed ? 'true' : 'false'}
           cx={sideDot().x} cy={sideDot().y} r="6" />
       </Show>
