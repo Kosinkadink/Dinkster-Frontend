@@ -573,8 +573,11 @@
 .dinkster-canvas-editor-buttons .dinkster-button { box-sizing: border-box; min-height: 0; height: var(--dinkster-input-canvas-height); padding-block: 0; }
 /* The canvas overlays sit outside the page root, so an editor dims its own disabled buttons. */
 .dinkster-canvas-editor-buttons .dinkster-button:disabled { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
-/* A row of an editor's buttons: each as the node's row button, the row split evenly between them. */
-.dinkster-canvas-editor > .dinkster-canvas-editor-buttons > .dinkster-button, .dinkster-canvas-editor-section-rows > .dinkster-canvas-editor-buttons > .dinkster-button { flex: 1 1 0; justify-content: center; border: var(--dinkster-border-width) solid var(--dinkster-text-secondary); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-field); }
+/* A row of an editor's buttons: each raised as the node's own buttons are drawn (a face with a lit top edge and a
+   line of shade under it), the row split evenly between them. Pressed, the face sinks: no lit edge, no shade. */
+:is(.dinkster-canvas-editor, .dinkster-canvas-editor-section-rows) > .dinkster-canvas-editor-buttons > .dinkster-button { flex: 1 1 0; justify-content: center; border: var(--dinkster-border-width) solid var(--dinkster-border-box); border-top-color: var(--dinkster-button-lit-edge); border-radius: var(--dinkster-radius-small); background: var(--dinkster-button-face); box-shadow: 0 var(--dinkster-border-width) 0 var(--dinkster-button-shade); }
+:is(.dinkster-canvas-editor, .dinkster-canvas-editor-section-rows) > .dinkster-canvas-editor-buttons > .dinkster-button:not(:disabled, [aria-disabled='true']):hover { background: var(--dinkster-button-face-hover); }
+:is(.dinkster-canvas-editor, .dinkster-canvas-editor-section-rows) > .dinkster-canvas-editor-buttons > .dinkster-button:not(:disabled, [aria-disabled='true']):active { border-top-color: var(--dinkster-border-box); background: var(--dinkster-button-face-pressed); box-shadow: none; color: var(--dinkster-text-secondary); }
 .dinkster-canvas-editor-section > summary { gap: calc(var(--dinkster-space-4) * 1.5); padding: 0 var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); color: var(--dinkster-text-secondary); list-style: none; cursor: pointer; user-select: none; }
 .dinkster-canvas-editor-section > summary:hover { color: var(--dinkster-text-primary); }
 .dinkster-canvas-editor-section > summary::-webkit-details-marker { display: none; }
@@ -632,3 +635,18 @@
 .dinkster-canvas-curve-line[data-held='true'] { stroke: var(--dinkster-text-muted); }
 .dinkster-canvas-curve-point { fill: var(--dinkster-surface-raised); stroke: var(--dinkster-accent-border); stroke-width: 2; }
 .dinkster-canvas-curve-point[data-selected='true'] { fill: var(--dinkster-accent-border); }
+/* The node's problem box hangs below the node at one screen size and is drawn as a part of the node: the node's small radius, its resting 1 px edge, the panel fill and the canvas row type. A problem's color is only on its icon and message. A line is one row high, with its action at the right end drawn as a list status line's action. */
+.problem-box { position: absolute; z-index: 11; box-sizing: border-box; min-width: var(--dinkster-problem-box-min-width); max-width: var(--dinkster-problem-box-max-width); max-height: var(--dinkster-problem-box-max-height); overflow-y: auto; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-panel); color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
+.problem-box-line { display: flex; align-items: flex-start; gap: var(--dinkster-space-4); box-sizing: border-box; min-height: calc(var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)); padding: calc(var(--dinkster-space-4) / 2) calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2 + var(--dinkster-border-width)); }
+.problem-box-line + .problem-box-line { border-top: var(--dinkster-border-width) solid var(--dinkster-border-faint); }
+.problem-box-line[data-highlighted='true'] { background: var(--dinkster-surface-selected); }
+.problem-box-icon { flex: none; width: var(--dinkster-space-12); height: var(--dinkster-space-12); margin-top: calc((var(--dinkster-input-canvas-height) - var(--dinkster-space-12)) / 2); stroke-width: 2; }
+.problem-box-line[data-kind='error'] .problem-box-icon { color: var(--dinkster-danger-foreground); }
+.problem-box-line[data-kind='warning'] .problem-box-icon { color: var(--dinkster-warning-foreground); }
+.problem-box-text { flex: 1 1 auto; min-width: 0; margin: 0; padding: calc((var(--dinkster-input-canvas-height) - var(--dinkster-type-canvas-line)) / 2) 0; }
+.problem-box-row { color: var(--dinkster-text-primary); }
+.problem-box-line[data-kind='error'] .problem-box-message { color: var(--dinkster-danger-foreground); }
+.problem-box-line[data-kind='warning'] .problem-box-message { color: var(--dinkster-warning-foreground); }
+.problem-box-action { flex: none; margin-left: var(--dinkster-space-4); padding: calc((var(--dinkster-input-canvas-height) - var(--dinkster-type-canvas-line)) / 2) 0; border: 0; border-radius: var(--dinkster-radius-small); background: transparent; color: var(--dinkster-text-primary); font: inherit; white-space: nowrap; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
+.problem-box-action:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
+.dinkster-problem-box-frame { position: relative; }

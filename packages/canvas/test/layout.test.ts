@@ -1372,18 +1372,17 @@ describe('v14 COMBO layout', () => {
   it('preserves COMBO identity on widget pins, taps, and output slots', () => {
     const l = doLayout([comboWidget('forced', { forceInput: true }), comboWidget('backed'), comboOutput('choice')])
     expect(l.pins.filter((p) => ['forced', 'backed', 'choice'].includes(p.portId)).every((pin) => JSON.stringify(pin.type).includes('COMBO'))).toBe(true)
-    expect(l.pins.find((p) => p.portId === 'backed' && p.direction === 'out')).toMatchObject({ widgetTap: true, staticWidgetTap: true, type: { name: 'COMBO' } })
+    expect(l.pins.find((p) => p.portId === 'backed' && p.direction === 'out')).toMatchObject({ widgetTap: true, type: { name: 'COMBO' } })
     expect(l.rows.find((r) => r.kind === 'ports' && r.output?.portId === 'choice')).toMatchObject({ output: { type: { name: 'COMBO' } } })
   })
 
-  it("does not mark a choice's dropdown or chosen-option widget taps as static", () => {
+  it("draws a field's output on a choice's dropdown and on its chosen option's field", () => {
     const leaf = comboWidget('leaf')
     const schema = schemaOf([{ kind: 'choice', id: 'combo', required: true, shared: [], options: [{ key: 'a', rows: [leaf] }] }])
     const elaborated = elaborateInterface(schema, nodeData)
     const layout = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, { elaborated })
     const taps = layout.pins.filter((pin) => pin.widgetTap === true)
     expect(taps.map((pin) => pin.portId)).toEqual(['combo', 'combo.leaf'])
-    expect(taps.every((pin) => pin.staticWidgetTap !== true)).toBe(true)
   })
 })
 

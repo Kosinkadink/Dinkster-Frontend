@@ -255,6 +255,12 @@ export interface SceneNode {
   readonly virtual?: VirtualNodeRenderModel
   /** Full effective interface, including inputs hidden by presentation state. */
   readonly elaborated?: ElaboratedInterface
+  /**
+   * Every field row of a minimized node or of a node with a folded section,
+   * laid out open with its sections unfolded, so a problem on a field the
+   * node does not show still reaches its tab. Absent when layout shows them all.
+   */
+  readonly fieldRows?: readonly LayoutRow[]
   /** Schema declares live previews or an output intended for preview. */
   readonly previewCapable?: true
   /** The open node's preview is folded to its caption row. */
@@ -372,6 +378,8 @@ export interface SceneLink {
    * DISTINCT from error/conflict styling - maybe-absent is normal.
    */
   readonly maybeAbsent?: true
+  /** The wire leaves a kept row (a field no longer part of its node): drawn dimmed, it gives nothing. */
+  readonly dimmed?: true
   /**
    * Set when this noodle renders a named-net fan-out rather than a document
    * link. Its `id` is synthetic (`netId:index`); deletion must go through
@@ -868,6 +876,7 @@ function projectedTypeConstraints(
         isOutputConnected: (port: string) =>
           projectedOutputKeys.get(nodeId)?.has(port) || base.isOutputConnected(port),
         inputPorts: () => [...new Set([...(base.inputPorts?.() ?? []), ...(projectedInputPortKeys.get(nodeId) ?? [])])],
+        outputPorts: () => [...new Set([...(base.outputPorts?.() ?? []), ...(projectedOutputKeys.get(nodeId) ?? [])])],
       }
     }
     const result = solveGraphTypes(solveGraph, resolve, {
@@ -1269,6 +1278,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       isOutputConnected: (port: string) =>
         projectedOutputs.get(nodeId)?.has(port) || base.isOutputConnected(port),
       inputPorts: () => [...new Set([...(base.inputPorts?.() ?? []), ...(projectedInputPorts.get(nodeId) ?? [])])],
+      outputPorts: () => [...new Set([...(base.outputPorts?.() ?? []), ...(projectedOutputs.get(nodeId) ?? [])])],
     }
   }
 
@@ -1325,17 +1335,11 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
   })
 
-  // Port-anchored solver diagnostics (e.g. a stale DynamicSlot
-  // specialization) mark their pin: the warning must be visible where the
-  // user will act on it, not only in the Problems panel. Keys use the
-  // elaborated port key so dynamic member pins match exactly.
-  const warnedPins = new Set<string>()
   /** Ports with a solver error or warning, by node: rows with a problem show even when hidden. */
   const problemPorts = new Map<string, Set<string>>()
   for (const d of solverDiagnostics) {
     const ref = d.anchor?.port
     if (ref === undefined) continue
-    warnedPins.add(`${ref.node}\u0000${ref.port}`)
     if (d.severity === 'info') continue
     let ports = problemPorts.get(ref.node)
     if (!ports) problemPorts.set(ref.node, (ports = new Set()))
@@ -1444,12 +1448,10 @@ export function buildScene(input: BuildSceneInput): Scene {
                 ? matchVariableOf(pin.type)
                 : undefined
             const matchConstraint = matchConstraintOf(pin.type)
-            const warn = warnedPins.has(`${node.id}\u0000${pin.address.port}`)
             if (matchVariable === undefined) {
               return {
                 ...pin,
                 type,
-                ...(warn ? { warn: true as const } : {}),
               }
             }
             return {
@@ -1460,20 +1462,22 @@ export function buildScene(input: BuildSceneInput): Scene {
                 ? { matchConstraint }
                 : {}),
               ...(!sameTypeExpr(type, pin.type) ? { inferred: true as const } : {}),
-              ...(warn ? { warn: true as const } : {}),
             }
           }),
         }
-      : {
-          // Missing schema: no solver substitution, but anchored diagnostics
-          // still mark their pin so the red ring appears where the user acts.
-          ...rawLayout,
-          pins: rawLayout.pins.map((pin) =>
-            warnedPins.has(`${node.id}\u0000${pin.address.port}`) ? { ...pin, warn: true as const } : pin,
-          ),
-        }
+      : rawLayout
     const virtual = node.virtual === true ? input.renderVirtualNode?.(occurrenceNode) : undefined
     const layout = virtual === undefined ? layoutWithPorts : { ...layoutWithPorts, pins: [] }
+    const foldedSections = elaborated?.items.filter((item) => item.kind === 'section').map((item) => item.spec.id) ?? []
+    const hidesFields = view?.collapsed === true || baseLayout.rows.some((row) => row.kind === 'section' && row.collapsed)
+    const fieldRows = schema && hidesFields
+      ? layoutNode(schema, occurrenceNode, input.tokens, measure, input.widgetMeasure, {
+          ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
+          sectionOverrides: Object.fromEntries(foldedSections.map((id) => [id, false])),
+          ...(view?.views ? { widgetRepresentations: view.views } : {}),
+          ...(elaborated !== undefined ? { elaborated } : {}),
+        }).rows.filter((row) => row.kind === 'widget')
+      : undefined
     const sceneNode: SceneNode = {
       id: node.id,
       x: pos.x,
@@ -1482,6 +1486,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       node: occurrenceNode,
       ...(virtual !== undefined ? { virtual } : {}),
       ...(elaborated !== undefined ? { elaborated } : {}),
+      ...(fieldRows !== undefined ? { fieldRows } : {}),
       ...(schema !== undefined && hasPreviewSurface(schema)
         ? { previewCapable: true as const }
         : {}),
@@ -1701,7 +1706,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   }
 
   // A link end's anchor point: pin center for ports, dot center for reroutes.
-  const endPoint = (end: LinkEndpoint, direction: 'in' | 'out'): { x: number; y: number; end: SceneLinkEnd; type?: TypeExpr } | undefined => {
+  const endPoint = (end: LinkEndpoint, direction: 'in' | 'out'): { x: number; y: number; end: SceneLinkEnd; type?: TypeExpr; kept?: true } | undefined => {
     if (isRerouteRef(end)) {
       const r = rerouteById.get(end.reroute)
       return r ? { x: r.x, y: r.y, end: { kind: 'reroute', reroute: r.id }, ...(r.typeName ? { type: typeExprFromTypeId(r.typeName) } : {}) } : undefined
@@ -1735,6 +1740,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         y: node.y + pin.y,
         end: { kind: 'widgetTap', node: end.node, input: end.tap },
         type: pin.type,
+        ...(pin.kept !== undefined ? { kept: true as const } : {}),
       } : undefined
     }
     const node = byId.get(end.node)
@@ -1837,6 +1843,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(to.type !== undefined ? { toType: to.type } : typeName !== undefined ? { toType: typeExprFromTypeId(typeName) } : {}),
       ...(typeName !== undefined ? { typeName } : {}),
       ...(tracedMaybeAbsent(c.from) ? { maybeAbsent: true as const } : {}),
+      ...(from.kept === true ? { dimmed: true as const } : {}),
       ...(c.mismatch === true ? { mismatch: true as const } : {}),
       ...(c.diagnostics !== undefined && c.diagnostics.length > 0 ? { diagnostics: c.diagnostics } : {}),
       ...(c.netId !== undefined ? { netId: c.netId } : {}),

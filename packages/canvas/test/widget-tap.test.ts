@@ -7,10 +7,11 @@ import { defaultTokens, typeColor } from '../src/tokens.js'
 
 const concrete = (name: string) => ({ kind: 'concrete' as const, name })
 
-function tapScene(options: { linked?: boolean; targetType?: string } = {}): Scene {
+function tapScene(options: { linked?: boolean; targetType?: string; kept?: string } = {}): Scene {
   const tap = {
     portId: 'amount', address: { port: 'amount' }, direction: 'out' as const,
     y: 32, type: concrete('FLOAT'), widgetTap: true as const,
+    ...(options.kept !== undefined ? { kept: options.kept, inactive: true as const } : {}),
   }
   const input = {
     portId: 'value', address: { port: 'value' }, direction: 'in' as const,
@@ -149,6 +150,21 @@ describe('widget tap interaction', () => {
         from: { node: 'source', tap: 'amount' }, to: { node: 'sink', port: 'value' },
       }),
     }))
+  })
+
+  it("starts no wire from a kept row's pin and ends none on it", () => {
+    const kept = 'Not used while mode is ramp. Its wire gives nothing.'
+    const from = interactionHarness(tapScene({ kept }))
+    from.fire('pointermove', 50, 30)
+    from.fire('pointerdown', 110, 42)
+    from.fire('pointermove', 200, 42)
+    from.fire('pointerup', 200, 42)
+    expect(from.dispatched.filter((value) => value.command === 'link.connect')).toEqual([])
+    const into = interactionHarness(tapScene({ kept }))
+    into.fire('pointerdown', 200, 42)
+    into.fire('pointermove', 110, 42)
+    into.fire('pointerup', 110, 42)
+    expect(into.dispatched.filter((value) => value.command === 'link.connect')).toEqual([])
   })
 
   it('holds a wire dragged from an input at the center of the field pin under the pointer', () => {

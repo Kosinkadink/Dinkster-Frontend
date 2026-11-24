@@ -8,7 +8,7 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import { isReplacementRule, type ReplacementRule } from '../replace/model.js'
-import { allRowsOf, inputsOf, outputsOf, scopeRowsOf } from './model.js'
+import { allRowsOf, inputsOf, KNOWN_VALUE_LIMITS, outputsOf, scopeRowsOf } from './model.js'
 import { checkBody, formulaTablesOf, isLayoutId, isMemberKey, isOptionKey, isRowId, isVariantKey, MAX_GROUP_MEMBERS } from './body.js'
 import { isCanonicalUnsafeInteger } from './numeric-step.js'
 import { isComboValue } from './combo-options.js'
@@ -34,6 +34,7 @@ import type {
   NodeSelectorSpec,
   NodeSchema,
   OutputKnownValue,
+  KnownValueLimit,
   OutputRepresents,
   OptionRow,
   OutputSpec,
@@ -94,7 +95,6 @@ interface WireEntry {
   readonly memberPrefix?: unknown
   readonly memberNames?: unknown
   readonly optionalAfterMinimum?: unknown
-  readonly forceInput?: unknown
   readonly socketless?: unknown
   /** Computation-semantic demand marker. */
   readonly lazy?: unknown
@@ -650,7 +650,14 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
       checkWidgetFields(descriptor, ['type'], where, diags)
       return
     case 'CURVE':
-      checkWidgetFields(descriptor, ['type', 'histogram'], where, diags)
+      checkWidgetFields(descriptor, ['type', 'inputStrip', 'outputStrip', 'histogram'], where, diags)
+      for (const key of ['inputStrip', 'outputStrip']) {
+        const colors = descriptor[key]
+        if (colors !== undefined && !(Array.isArray(colors) && colors.length === 2 &&
+          colors.every((color) => typeof color === 'string' && /^#[0-9a-f]{6}$/.test(color)))) {
+          throw new Error(`${where}.${key} must be two lower-case #rrggbb colors`)
+        }
+      }
       if (descriptor['histogram'] !== undefined && (typeof descriptor['histogram'] !== 'string' || descriptor['histogram'] === '')) {
         throw new Error(`${where}.histogram must name an input`)
       }
@@ -702,14 +709,13 @@ function cloneJsonValue(value: unknown, where: string): unknown {
   throw new Error(`${where} must be JSON-safe`)
 }
 
-function numericWidgetType(type: TypeExpr, forceInput = false): 'INT' | 'FLOAT' | undefined {
+function numericWidgetType(type: TypeExpr): 'INT' | 'FLOAT' | undefined {
   if (type.kind === 'concrete' && (type.name === 'INT' || type.name === 'FLOAT')) return type.name
-  if (forceInput && type.kind === 'concrete' && type.name === 'FLOATS') return 'FLOAT'
   if (type.kind === 'union' && type.names.length === 2 && type.names.includes('INT') && type.names.includes('FLOAT')) return 'FLOAT'
   return undefined
 }
 
-function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: TypeExpr, where: string, forceInput = false): void {
+function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: TypeExpr, where: string): void {
   const socket = type.kind === 'concrete' ? type.name : undefined
   switch (descriptor['type']) {
     case 'STRING':
@@ -737,9 +743,9 @@ function validateStrictWidgetBinding(descriptor: Record<string, unknown>, type: 
       }
       return
     case 'NUMBER': {
-      const numericKind = numericWidgetType(type, forceInput)
+      const numericKind = numericWidgetType(type)
       if (numericKind === undefined) {
-        throw new Error(`${where} requires INT, FLOAT, their numeric-only union, or forced FLOATS`)
+        throw new Error(`${where} requires INT, FLOAT, or their numeric-only union`)
       }
       if (descriptor['round'] !== undefined && numericKind !== 'FLOAT') {
         throw new Error(`${where}.round requires FLOAT`)
@@ -810,7 +816,6 @@ function widgetFor(
   wire: unknown,
   diags: Diagnostic[],
   representationsAllowed = true,
-  forceInput = false,
 ): WidgetSpec | undefined {
   if (typeof wire === 'object' && wire !== null) {
     const descriptor = wire as {
@@ -869,7 +874,7 @@ function widgetFor(
         if (typeof representation['widget'] !== 'object' || representation['widget'] === null || Array.isArray(representation['widget'])) {
           throw new Error(`${nodeType}.${id}: representation ${index} widget must be an object`)
         }
-        const nested = widgetFor(nodeType, id, type, dflt, representation['widget'], diags, false, forceInput)
+        const nested = widgetFor(nodeType, id, type, dflt, representation['widget'], diags, false)
         if (nested === undefined || nested.representations !== undefined) {
           throw new Error(`${nodeType}.${id}: representation ${index} must contain one widget descriptor`)
         }
@@ -910,7 +915,7 @@ function widgetFor(
       }
     }
     validateStrictWidgetDescriptor(wire as Record<string, unknown>, `${nodeType}.${id} widget`, diags)
-    validateStrictWidgetBinding(wire as Record<string, unknown>, type, `${nodeType}.${id} widget`, forceInput)
+    validateStrictWidgetBinding(wire as Record<string, unknown>, type, `${nodeType}.${id} widget`)
     if (descriptor.type === 'ASSET' && Array.isArray(descriptor.accept) && descriptor.accept.every((v) => typeof v === 'string')) {
       let kind: string | undefined
       if (descriptor.kind !== undefined) {
@@ -1065,7 +1070,7 @@ function widgetFor(
     // metadata never hides an editor. Integer sockets retain unsafe
     // constraints as canonical decimal strings; float sockets remain numbers.
     if (descriptor.type === 'NUMBER') {
-      const numericKind = numericWidgetType(type, forceInput)
+      const numericKind = numericWidgetType(type)
       if (numericKind !== 'INT' && numericKind !== 'FLOAT') {
         diags.push(
           diag('warning', 'schema', 'schema.dinkster.badNumberSocket', `${nodeType}.${id}: NUMBER descriptor requires a numeric input`),
@@ -1182,11 +1187,15 @@ function widgetFor(
       }
     }
     if (descriptor.type === 'CURVE') {
-      // The input beside the curve that is its histogram, by its id in the curve's scope.
-      const histogram = (wire as Record<string, unknown>)['histogram']
+      // The color strips a curve declares along its input and output, low end first,
+      // and the input beside the curve that is its histogram, by its id in the curve's scope.
+      const fields = wire as Record<string, unknown>
+      const strips = Object.fromEntries(['inputStrip', 'outputStrip']
+        .flatMap((key) => fields[key] === undefined ? [] : [[key, [...(fields[key] as string[])]]]))
+      const histogram = fields['histogram']
       return {
         widgetType: 'CURVE',
-        options: typeof histogram === 'string' ? { histogram } : {},
+        options: typeof histogram === 'string' ? { ...strips, histogram } : strips,
         ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
@@ -1261,7 +1270,7 @@ function decodeInput(nodeType: string, entry: WireEntry, diags: Diagnostic[], no
       )
     }
   }
-  const widget = widgetFor(nodeType, id, type, entry.default, entry.widget, diags, true, entry.forceInput === true)
+  const widget = widgetFor(nodeType, id, type, entry.default, entry.widget, diags, true)
   const representedUpload = widget?.representations?.representations.some((representation) => representation.widget.allowUpload === true) === true
   let sourceFilename: SourceFilenameSpec | undefined
   if (entry.sourceFilename !== undefined) {
@@ -1590,7 +1599,6 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
       default: entry['default'],
       onAbsent: entry['onAbsent'],
       widget: entry['widget'],
-      forceInput: pinFirst,
       sourceFilename: entry['sourceFilename'],
       ...(tooltip !== undefined ? { doc: tooltip } : {}),
     },
@@ -2128,6 +2136,18 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       if (!samePrimitive && !fromChoice && !sameVariable) {
         throw new Error(`output '${output.id}' knownValue must name an input of the node with the same concrete primitive type or type variable, or a COMBO input for a COMBO or STRING output`)
       }
+      const named = new Set<string>()
+      for (const [limit, target] of Object.entries(knownValue.limits ?? {})) {
+        const holder = decodedInputs.get(target)
+        if (limit !== 'default' && inputType !== 'INT' && inputType !== 'FLOAT') {
+          throw new Error(`output '${output.id}' knownValue limit '${limit}' needs an INT or FLOAT value`)
+        }
+        if (holder === undefined || target === knownValue.input || !holder.optional || named.has(target) ||
+          JSON.stringify(holder.type) !== JSON.stringify(input?.type)) {
+          throw new Error(`output '${output.id}' knownValue limit '${limit}' must name another optional input of the value's type, once`)
+        }
+        named.add(target)
+      }
     }
     for (const row of allRowsOf(baseSchema.body)) {
       if (row.kind !== 'input' || row.widget === undefined) continue
@@ -2269,13 +2289,22 @@ function decodeOutputKnownValue(raw: unknown): OutputKnownValue | undefined {
   if (raw === undefined) return undefined
   const knownValue = wireObject(raw, 'output.knownValue')
   for (const key of Object.keys(knownValue)) {
-    if (key !== 'input') throw new Error(`output.knownValue has unknown field '${key}'`)
+    if (key !== 'input' && key !== 'limits') throw new Error(`output.knownValue has unknown field '${key}'`)
   }
   const input = knownValue['input']
   if (typeof input !== 'string' || input === '') {
     throw new Error('output.knownValue.input must be a non-empty string')
   }
-  return { input }
+  if (knownValue['limits'] === undefined) return { input }
+  const rawLimits = wireObject(knownValue['limits'], 'output.knownValue.limits')
+  if (Object.keys(rawLimits).length === 0) throw new Error('output.knownValue.limits must name at least one limit')
+  const limits: Partial<Record<KnownValueLimit, string>> = {}
+  for (const [key, target] of Object.entries(rawLimits)) {
+    if (!(KNOWN_VALUE_LIMITS as readonly string[]).includes(key)) throw new Error(`output.knownValue.limits has unknown limit '${key}'`)
+    if (typeof target !== 'string' || target === '') throw new Error(`output.knownValue.limits.${key} must be a non-empty string`)
+    limits[key as KnownValueLimit] = target
+  }
+  return { input, limits }
 }
 
 function decodeMirror(raw: unknown): MirrorSpec | undefined {

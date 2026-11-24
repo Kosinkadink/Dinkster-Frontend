@@ -99,6 +99,12 @@ export interface DynamicAnnotations {
   }
   /** Inactive branch of a document-time selector; display-only. */
   readonly inactive?: true
+  /**
+   * A row no longer part of the node, kept only for the wire on its output
+   * (ElaboratedInput.kept): drawn inactive, not editable, no new wire starts
+   * or ends on it. The text says why.
+   */
+  readonly kept?: string
   /** Input that takes one value or a whole list (InputSpec.acceptsList), whatever its matched type. */
   readonly acceptsList?: true
   /** Derived source for the immediate enclosing region's iteration index. */
@@ -291,6 +297,8 @@ export type LayoutRow =
       readonly text: string
       /** The text is the note's "while unknown" answer. */
       readonly unknown?: true
+      /** Drawn dimmed: a remark about the rows, such as the members inside a subgraph. */
+      readonly quiet?: true
     }
   | {
       /** A button (ElaboratedButton): drawn and inert; its steps never run here. */
@@ -301,6 +309,8 @@ export type LayoutRow =
       readonly width?: number
       readonly buttonId: string
       readonly label: string
+      /** The button's `enabled` worked out to false: drawn faded. */
+      readonly enabled?: false
     }
   | {
       /**
@@ -398,10 +408,8 @@ export interface PinLayout extends DynamicAnnotations {
   readonly inferred?: true
   /** Input belongs to a widget row rather than a forced socket row. */
   readonly widgetBacked?: true
-  /** Producer affordance for a static memberless widget input. */
+  /** A field's output: the value the field's node runs with. */
   readonly widgetTap?: true
-  /** Proven by elaboration to originate from a static schema input. */
-  readonly staticWidgetTap?: true
   /** Optional input (InputSpec.optional): renders as a donut, not a filled dot. */
   readonly optional?: true
   /** Output pin whose producer may deliberately emit no value (OutputSpec.optional). */
@@ -415,12 +423,6 @@ export interface PinLayout extends DynamicAnnotations {
   readonly stacked?: true
   /** Pin belongs to a minimized node and is represented by an aggregate side proxy. */
   readonly minimized?: true
-  /**
-   * A port-anchored solver diagnostic points here (e.g. a stale DynamicSlot
-   * specialization). Set during scene build, never by layout itself; the
-   * renderer paints a warning ring so the advisory is actionable at the pin.
-   */
-  readonly warn?: true
 }
 
 /** One box's outline, node-local. */
@@ -1021,6 +1023,7 @@ const annotationsOf = (a: DynamicAnnotations): DynamicAnnotations => ({
   ...(a.materialize !== undefined ? { materialize: a.materialize } : {}),
   ...(a.dynamicSlot !== undefined ? { dynamicSlot: a.dynamicSlot } : {}),
   ...(a.inactive ? { inactive: true } : {}),
+  ...(a.kept !== undefined ? { kept: a.kept } : {}),
   ...(a.acceptsList ? { acceptsList: true } : {}),
 })
 
@@ -1076,8 +1079,8 @@ export function layoutNode(
       : never
     header?: BoxDecl
     growth?: { construct: string; label: string; frames: readonly MaterializeFrame[] }
-    note?: { noteId: string; text: string; unknown?: true }
-    button?: { buttonId: string; label: string }
+    note?: { noteId: string; text: string; unknown?: true; quiet?: true }
+    button?: { buttonId: string; label: string; enabled?: false }
     editorSpace?: Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset' | 'width' | 'rowAbove'>
   }
   /** A `Row` cell's text, which sets its share of the line's width. */
@@ -1226,15 +1229,15 @@ export function layoutNode(
       ...(item.origin.kind === 'member' || (item.ancestry?.length ?? 0) > 0 ? { familyMember: true } : {}),
       ...(frames !== undefined ? { materialize: frames } : {}),
       ...(dynamicSlot !== undefined ? { dynamicSlot } : {}),
-      ...(selectorDisplay?.[item.address.port] === 'inactive' ? { inactive: true } : {}),
+      ...(selectorDisplay?.[item.address.port] === 'inactive' || (item.kind === 'input' && item.kept !== undefined) ? { inactive: true } : {}),
+      ...(item.kind === 'input' && item.kept !== undefined ? { kept: item.kept } : {}),
       ...(item.kind === 'input' && item.spec.acceptsList ? { acceptsList: true } : {}),
     }
   }
 
   // Ports hidden by a closed box whose pins the open box shows at rest:
   // they gather on its closed row.
-  const collapsedPins: ({ sectionId: string; portId: string; label: string; direction: 'in' | 'out'; type: TypeExpr; connected: boolean; optional?: true; maybeAbsent?: true; widgetTap?: true; staticWidgetTap?: true } & DynamicAnnotations)[] = []
-  const staticWidgetInputs = new Set<string>()
+  const collapsedPins: ({ sectionId: string; portId: string; label: string; direction: 'in' | 'out'; type: TypeExpr; connected: boolean; optional?: true; maybeAbsent?: true; widgetTap?: true } & DynamicAnnotations)[] = []
   const hiddenPorts = new Map<string, HiddenPort[]>()
   const hidePort = (at: string, port: HiddenPort): void => {
     hiddenPorts.set(at, [...(hiddenPorts.get(at) ?? []), port])
@@ -1342,8 +1345,8 @@ export function layoutNode(
         kind: item.kind,
         boxes: chain,
         ...(item.kind === 'note'
-          ? { note: { noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}) } }
-          : { button: { buttonId: item.id, label: item.label } }),
+          ? { note: { noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}), ...(item.quiet ? { quiet: true as const } : {}) } }
+          : { button: { buttonId: item.id, label: item.label, ...(item.enabled === false ? { enabled: false as const } : {}) } }),
       })
       continue
     }
@@ -1382,7 +1385,6 @@ export function layoutNode(
     const asSocket = !widget || spec.forceInput
     if (asSocket) holdPort(chain, 'inputs')
     else if (spec.adjacentTo === undefined) hold(chain)
-    if (spec.widget && item.origin.kind === 'static') staticWidgetInputs.add(spec.id)
     if (isHidden(chain)) {
       const at = closedAt(chain)!
       if (!spec.socketless) {
@@ -1406,7 +1408,7 @@ export function layoutNode(
       if (widget && !spec.forceInput && isConnected('out', spec.id)) {
         collapsedPins.push({
           sectionId: at, portId: spec.id, label: displayLabel(spec), direction: 'out', type: spec.type, connected: true, widgetTap: true,
-          ...(item.origin.kind === 'static' ? { staticWidgetTap: true as const } : {}), ...annotate(item),
+          ...annotate(item),
         })
       }
       continue
@@ -1823,9 +1825,9 @@ export function layoutNode(
         // editor row has no pin.
         // A folded curve shows its histogram's pin while it has a wire,
         // pressed together with the curve's own as on a closed box's row.
-        const pressed = w.histogram !== undefined && w.histogram.connected && w.unfolded !== true
+        const pressed = w.histogram !== undefined && w.histogram.connected && w.unfolded !== true && w.kept === undefined
         const pitch = pressed ? box.clusterPitch.two / 2 : 0
-        if (!w.socketless && w.editor !== true) pins.push({
+        if (!w.socketless && w.editor !== true && w.kept === undefined) pins.push({
           ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2 - pitch, type: w.type,
           ...(w.optional ? { optional: true as const } : {}),
           widgetBacked: true as const,
@@ -1835,7 +1837,6 @@ export function layoutNode(
         // right-edge anchor deliberately shares the input's flattened id.
         if (w.editor !== true) pins.push({
           ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
-          ...(staticWidgetInputs.has(w.inputId) ? { staticWidgetTap: true as const } : {}),
         })
         lineBottoms.set(line, Math.max(lineBottoms.get(line) ?? y, y + height))
         if (line.at(-1) === row) y = lineBottoms.get(line)!
@@ -1883,7 +1884,6 @@ export function layoutNode(
         ...(stacked ? { stacked: true as const } : {}),
         ...(p.optional ? { optional: true as const } : {}), ...(p.maybeAbsent ? { maybeAbsent: true as const } : {}),
         ...(p.widgetTap ? { widgetTap: true as const } : {}),
-        ...(p.staticWidgetTap ? { staticWidgetTap: true as const } : {}),
       })
     }
   }
@@ -1924,12 +1924,12 @@ export function layoutNode(
       // expanded editor, so rows never force extreme widths.
       content = measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + extra
       if (row.kind === 'widget' && row.viewId === 'core.curve' && !row.unfolded && tokens.widgetRowLook === 'raised-editors') {
-        // A folded curve's square and its opener icon come before its name,
-        // and the column under the name holds how the points are joined.
+        // A folded curve's square comes before its opener icon and name, and
+        // how the points are joined sits under both.
         const curve = canvasPaintTokens.widget.curve
+        const label = measure(row.label, 'label')
         content += widgetChromeRect(0, 0, 0, row.height, tokens.rowGeometry.fieldInsetY).height - curve.inset + curve.gap +
-          canvasPaintTokens.widget.opener.iconReserve +
-          Math.max(0, canvasPaintTokens.node.widgetValueMinWidth - measure(row.label, 'label'))
+          Math.max(canvasPaintTokens.widget.opener.iconReserve + label, canvasPaintTokens.node.widgetValueMinWidth) - label
       }
     }
     if (row.kind === 'widget' || row.kind === 'note' || row.kind === 'button') fieldDepth = Math.max(fieldDepth, depth)

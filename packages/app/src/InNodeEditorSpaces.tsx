@@ -925,9 +925,8 @@ const CAMERA_SIDES = ['front', 'frontRight', 'right', 'backRight', 'back', 'back
 /** The camera's place in a few words: its side in steps of 45 degrees, its height, and its zoom. */
 export function cameraAngleWords(message: ReturnType<typeof useAppMessage>, horizontal: number, vertical: number, zoom: number): string {
   const side = CAMERA_SIDES[Math.round((((horizontal % 360) + 360) % 360) / 45) % 8]!
-  // The heights repeat the node's own shot bands in dinkster-nodes camera_angle.py
-  // (low-angle, eye-level, elevated, high-angle), so the line agrees with its prompt.
-  const height = vertical < -15 ? 'below' : vertical < 15 ? 'level' : vertical < 45 ? 'above' : 'highAbove'
+  // The heights are the node's own shot bands: low-angle, eye-level, elevated and high-angle.
+  const height = vertical < -15 ? 'below' : vertical < 15 ? 'level' : vertical < 45 ? 'littleAbove' : 'highAbove'
   return message('inNodeCameraAngle.place', {
     side: message(`inNodeCameraAngle.side.${side}`),
     height: message(`inNodeCameraAngle.height.${height}`),
