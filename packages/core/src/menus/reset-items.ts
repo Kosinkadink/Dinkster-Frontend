@@ -39,7 +39,7 @@ function resettableOf(
   if (!base) return undefined
   const node = ctx.doc.graphs[ctx.graphId]?.nodes[nodeId]
   if (!node) return undefined
-  const schema = documentNodeResolver(ctx.doc, base, undefined, documentPrimitiveResolver(ctx.doc, base))(ctx.graphId, node)
+  const schema = documentNodeResolver(ctx.doc, base, documentPrimitiveResolver(ctx.doc, base))(ctx.graphId, node)
   if (!schema) return undefined
   return resettableWidgetsOf(elaborateInterface(schema, node), node.values)
 }

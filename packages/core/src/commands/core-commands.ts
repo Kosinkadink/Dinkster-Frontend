@@ -27,10 +27,10 @@ import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { buildGraphConnectivity, elabInputsOf, elaborateInterface, inGoneMember, valueKeyOf } from '../schema/elaborate.js'
 import type { Json, JsonObject } from '../format/document.js'
 import { groupAllocationFloor } from '../group-alloc.js'
-import { asNodeId, asPortId, asSelectorId, isPortEndpoint, isRerouteRef, isSelectorRef, isValueSourceRef, isWidgetTapRef, sameEndpoint, samePortRef, type LinkEndpoint, type PortRef } from '../ids.js'
+import { asNodeId, asPortId, isPortEndpoint, isRerouteRef, isWidgetTapRef, sameEndpoint, samePortRef, type LinkEndpoint, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { allocateOne, graphAllocator } from './alloc.js'
-import { buildRerouteIndex, rerouteDriverOf, wouldCreateRerouteCycle, wouldCreateSelectorCycle, wouldCreateTapCycle } from '../reroute.js'
+import { buildRerouteIndex, rerouteDriverOf, wouldCreateRerouteCycle, wouldCreateTapCycle } from '../reroute.js'
 import { createTransactionBuilder, executeCommand, type CommandDefinition, type CommandExecutionContext, type TransactionBuilder } from './contract.js'
 import { BOUNDARY_COMMANDS } from './boundary-commands.js'
 import { SUBGRAPH_COMMANDS } from './subgraph-commands.js'
@@ -75,32 +75,18 @@ interface RerouteRefJson extends JsonObject {
 const isRerouteRefJson = (v: Json | undefined): v is RerouteRefJson =>
   isObj(v) && typeof v.reroute === 'string'
 
-interface ValueSourceRefJson extends JsonObject {
-  readonly valueSource: string
-}
-const isValueSourceRefJson = (v: Json | undefined): v is ValueSourceRefJson =>
-  isObj(v) && typeof v.valueSource === 'string'
-
-interface SelectorRefJson extends JsonObject {
-  readonly selector: string
-  readonly candidate?: string
-}
 interface WidgetTapRefJson extends JsonObject {
   readonly node: string
   readonly tap: string
 }
 const isWidgetTapRefJson = (v: Json | undefined): v is WidgetTapRefJson =>
   isObj(v) && typeof v.node === 'string' && typeof v.tap === 'string'
-const isSelectorRefJson = (v: Json | undefined): v is SelectorRefJson =>
-  isObj(v) &&
-  typeof v.selector === 'string' &&
-  (v.candidate === undefined || typeof v.candidate === 'string')
 
-type EndpointJson = PortRefJson | RerouteRefJson | ValueSourceRefJson | SelectorRefJson | WidgetTapRefJson
+type EndpointJson = PortRefJson | RerouteRefJson | WidgetTapRefJson
 
-/** A link endpoint in params: a PortRef, `{reroute}`, `{valueSource}`, or `{selector}` reference. */
+/** A link endpoint in params: a PortRef, `{reroute}`, or `{node, tap}` reference. */
 const isEndpoint = (v: Json | undefined): v is EndpointJson =>
-  isRerouteRefJson(v) || isValueSourceRefJson(v) || isSelectorRefJson(v) || isWidgetTapRefJson(v) || isPortRef(v)
+  isRerouteRefJson(v) || isWidgetTapRefJson(v) || isPortRef(v)
 
 const endpointRefs = (
   graphId: string,
@@ -128,18 +114,6 @@ function endpointError(
     if (!def.reroutes[e.reroute]) return err('reroute.missing', `${what}: unknown reroute '${e.reroute}'`)
     return undefined
   }
-  if (isValueSourceRefJson(e)) {
-    if (!def.valueSources?.[e.valueSource])
-      return err('valueSource.missing', `${what}: unknown value source '${e.valueSource}'`)
-    return undefined
-  }
-  if (isSelectorRefJson(e)) {
-    const selector = def.selectors?.[e.selector]
-    if (!selector) return err('selector.missing', `${what}: unknown selector '${e.selector}'`)
-    if (e.candidate !== undefined && !selector.candidates.some((c) => c.id === e.candidate))
-      return err('selector.candidateMissing', `${what}: selector '${e.selector}' has no candidate '${e.candidate}'`)
-    return undefined
-  }
   if (isWidgetTapRefJson(e)) {
     if (!def.nodes[e.node]) return err('node.missing', `${what}: unknown node '${e.node}'`, endpointRefs(graphId, e, 'output'))
     return undefined
@@ -157,12 +131,6 @@ const toPortRef = (e: PortRefJson): PortRef => ({
 /** Normalize a params endpoint to the document shape (drops stray fields). */
 function toEndpoint(e: EndpointJson): LinkEndpoint {
   if (isRerouteRefJson(e)) return { reroute: e.reroute } as LinkEndpoint
-  if (isValueSourceRefJson(e)) return { valueSource: e.valueSource } as LinkEndpoint
-  if (isSelectorRefJson(e))
-    return {
-      selector: e.selector,
-      ...(e.candidate !== undefined ? { candidate: e.candidate } : {}),
-    } as LinkEndpoint
   if (isWidgetTapRefJson(e)) return { node: asNodeId(e.node), tap: asPortId(e.tap) }
   return toPortRef(e)
 }
@@ -386,21 +354,15 @@ function deleteCascade(
   linkIds: readonly string[],
   netSinks: readonly PortRefJson[],
   rerouteIds: readonly string[],
-  valueSourceIds: readonly string[],
-  selectorIds: readonly string[],
   tx: TransactionBuilder,
 ): void {
   const removed = new Set(nodeIds)
   const removedReroutes = new Set(rerouteIds)
-  const removedValueSources = new Set(valueSourceIds)
-  const removedSelectors = new Set(selectorIds)
 
   // Links: explicitly requested + any with an endpoint on a removed
-  // node/reroute/value source/selector.
+  // node/reroute.
   const touchesRemoved = (e: LinkEndpoint): boolean => {
     if (isRerouteRef(e)) return removedReroutes.has(e.reroute)
-    if (isValueSourceRef(e)) return removedValueSources.has(e.valueSource)
-    if (isSelectorRef(e)) return removedSelectors.has(e.selector)
     return removed.has(e.node)
   }
   const dropLinks = new Set(linkIds)
@@ -414,22 +376,6 @@ function deleteCascade(
     tx.remove(['graphs', graphId, 'reroutes', id])
     if (doc.view.graphs[graphId]?.reroutes?.[id]) {
       tx.remove(['view', 'graphs', graphId, 'reroutes', id])
-    }
-  }
-
-  // The value sources themselves + their view state.
-  for (const id of valueSourceIds) {
-    tx.remove(['graphs', graphId, 'valueSources', id])
-    if (doc.view.graphs[graphId]?.valueSources?.[id]) {
-      tx.remove(['view', 'graphs', graphId, 'valueSources', id])
-    }
-  }
-
-  // The selectors themselves + their view state.
-  for (const id of selectorIds) {
-    tx.remove(['graphs', graphId, 'selectors', id])
-    if (doc.view.graphs[graphId]?.selectors?.[id]) {
-      tx.remove(['view', 'graphs', graphId, 'selectors', id])
     }
   }
 
@@ -465,8 +411,7 @@ function deleteCascade(
       let changed = false
       const kept: BoundaryItem[] = []
       for (const item of items) {
-        if (isNodeBoundaryBinding(item.binds) && removed.has(item.binds.node) ||
-            item.binds.kind === 'valueSource' && removedValueSources.has(item.binds.valueSource)) {
+        if (isNodeBoundaryBinding(item.binds) && removed.has(item.binds.node)) {
           changed = true
           continue
         }
@@ -500,8 +445,6 @@ function occurrenceDeletionConflict(
   graphId: string,
   nodeIds: ReadonlySet<string>,
   rerouteIds: ReadonlySet<string> = new Set(),
-  valueSourceIds: ReadonlySet<string> = new Set(),
-  selectorIds: ReadonlySet<string> = new Set(),
 ): boolean {
   return Object.values(doc.occurrenceTopologies ?? {}).some((topology) => {
     let parent = doc.graphs[doc.root]
@@ -517,8 +460,6 @@ function occurrenceDeletionConflict(
         return [...nodeIds].some((nodeId) => occurrenceEndpointReferencesDefinition(endpoint, graphId, nodeId))
       if (topology.bodyGraph !== graphId) return false
       if (isRerouteRef(endpoint.endpoint)) return rerouteIds.has(endpoint.endpoint.reroute)
-      if (isValueSourceRef(endpoint.endpoint)) return valueSourceIds.has(endpoint.endpoint.valueSource)
-      if (isSelectorRef(endpoint.endpoint)) return selectorIds.has(endpoint.endpoint.selector)
       return nodeIds.has(endpoint.endpoint.node)
     }))
   })
@@ -538,16 +479,16 @@ const nodeRemove: CommandDefinition = {
       return [err('node.missing', `node.remove: unknown node(s) ${missing.join(', ')}`)]
     if (occurrenceDeletionConflict(doc, graphId, new Set(ids)))
       return [err('occurrence.topology.definitionReferenced', 'node.remove: an occurrence-local link references a selected node')]
-    deleteCascade(doc, def, graphId, ids, [], [], [], [], [], tx)
+    deleteCascade(doc, def, graphId, ids, [], [], [], tx)
     return []
   },
 }
 
 // ---------------------------------------------------------------------------
 // graph.deleteItems {graphId, nodeIds?, linkIds?, netSinks?: PortRef[],
-//                    rerouteIds?, valueSourceIds?, selectorIds?}
-// Atomic mixed deletion: one undo step for a node+link+net-noodle+reroute+
-// value-source selection. Reroute deletion here is plain (attached links
+//                    rerouteIds?}
+// Atomic mixed deletion: one undo step for a node+link+net-noodle+reroute
+// selection. Reroute deletion here is plain (attached links
 // drop with it); reroute.remove is the reconnecting "dissolve" gesture.
 // ---------------------------------------------------------------------------
 
@@ -555,7 +496,7 @@ const graphDeleteItems: CommandDefinition = {
   id: 'graph.deleteItems',
   run(doc, params, tx) {
     if (!isObj(params))
-      return [err('params.invalid', 'graph.deleteItems: params must be {graphId, nodeIds?, linkIds?, netSinks?, rerouteIds?, valueSourceIds?}')]
+      return [err('params.invalid', 'graph.deleteItems: params must be {graphId, nodeIds?, linkIds?, netSinks?, rerouteIds?}')]
     const def = graphOf(doc, params.graphId)
     if (!def) return [err('graph.missing', `graph.deleteItems: unknown graph '${String(params.graphId)}'`)]
     const graphId = params.graphId as string
@@ -570,22 +511,10 @@ const graphDeleteItems: CommandDefinition = {
     const rerouteIds = Array.isArray(params.rerouteIds)
       ? params.rerouteIds.filter((r): r is string => typeof r === 'string')
       : []
-    const valueSourceIds = Array.isArray(params.valueSourceIds)
-      ? params.valueSourceIds.filter((v): v is string => typeof v === 'string')
-      : []
-    const selectorIds = Array.isArray(params.selectorIds)
-      ? params.selectorIds.filter((s): s is string => typeof s === 'string')
-      : []
 
     const missingReroutes = rerouteIds.filter((id) => !def.reroutes[id])
     if (missingReroutes.length > 0)
       return [err('reroute.missing', `graph.deleteItems: unknown reroute(s) ${missingReroutes.join(', ')}`)]
-    const missingValueSources = valueSourceIds.filter((id) => !def.valueSources?.[id])
-    if (missingValueSources.length > 0)
-      return [err('valueSource.missing', `graph.deleteItems: unknown value source(s) ${missingValueSources.join(', ')}`)]
-    const missingSelectors = selectorIds.filter((id) => !def.selectors?.[id])
-    if (missingSelectors.length > 0)
-      return [err('selector.missing', `graph.deleteItems: unknown selector(s) ${missingSelectors.join(', ')}`)]
     const missingNodes = nodeIds.filter((id) => !def.nodes[id])
     if (missingNodes.length > 0)
       return [err('node.missing', `graph.deleteItems: unknown node(s) ${missingNodes.join(', ')}`)]
@@ -609,11 +538,9 @@ const graphDeleteItems: CommandDefinition = {
       graphId,
       new Set(nodeIds),
       new Set(rerouteIds),
-      new Set(valueSourceIds),
-      new Set(selectorIds),
     )) return [err('occurrence.topology.definitionReferenced', 'graph.deleteItems: occurrence-local topology references a selected entity')]
 
-    deleteCascade(doc, def, graphId, nodeIds, linkIds, netSinks, rerouteIds, valueSourceIds, selectorIds, tx)
+    deleteCascade(doc, def, graphId, nodeIds, linkIds, netSinks, rerouteIds, tx)
     return []
   },
 }
@@ -646,7 +573,7 @@ const nodeMove: CommandDefinition = {
 }
 
 // ---------------------------------------------------------------------------
-// selection.move {graphId, nodes?, reroutes?, valueSources?, selectors?, groups?, netViews?}
+// selection.move {graphId, nodes?, reroutes?, groups?, netViews?}
 // ---------------------------------------------------------------------------
 
 const selectionMove: CommandDefinition = {
@@ -656,7 +583,7 @@ const selectionMove: CommandDefinition = {
     const def = graphOf(doc, params.graphId)
     if (!def) return [err('graph.missing', `selection.move: unknown graph '${String(params.graphId)}'`)]
     const graphId = params.graphId as string
-    const kinds = ['nodes', 'reroutes', 'valueSources', 'selectors'] as const
+    const kinds = ['nodes', 'reroutes'] as const
     if (kinds.every((kind) => params[kind] === undefined) && params.boundary === undefined &&
         params.groups === undefined && params.netViews === undefined)
       return [err('params.invalid', 'selection.move: at least one positions map is required')]
@@ -665,13 +592,7 @@ const selectionMove: CommandDefinition = {
       if (positions === undefined) continue
       if (!isObj(positions)) return [err('params.invalid', `selection.move: ${kind} must be a positions map`)]
       for (const [id, pos] of Object.entries(positions)) {
-        const exists = kind === 'nodes'
-            ? def.nodes[id]
-            : kind === 'reroutes'
-              ? def.reroutes[id]
-              : kind === 'valueSources'
-                ? def.valueSources?.[id]
-                : def.selectors?.[id]
+        const exists = kind === 'nodes' ? def.nodes[id] : def.reroutes[id]
         if (!exists) return [err(`${kind.slice(0, -1)}.missing`, `selection.move: unknown ${kind.slice(0, -1)} '${id}'`)]
         if (!isVec2(pos)) return [err('params.invalid', `selection.move: position for '${id}' must be {x,y}`)]
       }
@@ -725,8 +646,6 @@ const selectionMove: CommandDefinition = {
     }
     if (params.nodes !== undefined) ensureViewGraph(tx, graphId)
     if (params.reroutes !== undefined) ensureViewReroutes(tx, graphId)
-    if (params.valueSources !== undefined) ensureViewValueSources(tx, graphId)
-    if (params.selectors !== undefined) ensureViewSelectors(tx, graphId)
     if (params.boundary !== undefined) ensureViewGraph(tx, graphId)
     if (params.groups !== undefined) ensureViewGraph(tx, graphId)
     if (netViews.length > 0) {
@@ -736,8 +655,6 @@ const selectionMove: CommandDefinition = {
     const paths = {
       nodes: 'nodes',
       reroutes: 'reroutes',
-      valueSources: 'valueSources',
-      selectors: 'selectors',
     } as const
     for (const kind of kinds) {
       const positions = params[kind] as Record<string, { x: number; y: number }> | undefined
@@ -1218,7 +1135,7 @@ function removeDriver(def: GraphDef, graphId: string, to: LinkEndpoint, tx: Tran
       removeDefinitionLink(graphId, linkId, tx)
     }
   }
-  if (!isPortEndpoint(to)) return // reroutes: no net sinks; value sources: never targets
+  if (!isPortEndpoint(to)) return // reroutes and taps: no net sinks
   for (const [netId, net] of Object.entries(def.nets)) {
     const kept = net.sinks.filter((s) => !samePortRef(s, to))
     if (kept.length !== net.sinks.length) {
@@ -1252,12 +1169,6 @@ function connectError(def: GraphDef, graphId: string, from: LinkEndpoint, to: Li
   const refs = [...endpointRefs(graphId, from, 'output'), ...endpointRefs(graphId, to, 'input')]
   if (isWidgetTapRef(to))
     return err('link.tapTarget', `${what}: widget taps produce, never consume (cannot be a link target)`, refs)
-  if (isValueSourceRef(to))
-    return err('link.valueSourceTarget', `${what}: value sources produce, never consume (cannot be a link target)`, refs)
-  if (isSelectorRef(from) && from.candidate !== undefined)
-    return err('link.selectorCandidateSource', `${what}: selector candidates consume, never produce (source must be the selector output)`, refs)
-  if (isSelectorRef(to) && to.candidate === undefined)
-    return err('link.selectorOutputTarget', `${what}: selector outputs produce, never consume (target must name a candidate)`, refs)
   if (isPortEndpoint(from) && isPortEndpoint(to) && from.node === to.node)
     return err('link.selfLoop', `${what}: cannot connect a node to itself`, refs)
   if (isWidgetTapRef(from) && isPortEndpoint(to) && from.node === to.node && from.tap === to.port)
@@ -1269,12 +1180,6 @@ function connectError(def: GraphDef, graphId: string, from: LinkEndpoint, to: Li
       return err('link.selfLoop', `${what}: cannot connect a reroute to itself`, refs)
     if (wouldCreateRerouteCycle(def, from, to.reroute))
       return err('reroute.cycle', `${what}: connection would create a reroute cycle`, refs)
-  }
-  if (isSelectorRef(to)) {
-    if (isSelectorRef(from) && from.selector === to.selector)
-      return err('link.selfLoop', `${what}: cannot connect a selector to itself`, refs)
-    if (wouldCreateSelectorCycle(def, from, asSelectorId(to.selector)))
-      return err('selector.cycle', `${what}: connection would create a selector cycle`, refs)
   }
   return undefined
 }
@@ -2245,8 +2150,7 @@ const viewCreateGroup: CommandDefinition = {
 }
 
 // ---------------------------------------------------------------------------
-// view.moveGroup {graphId, groupId, bounds, positions, reroutes?, boundary?,
-//                 valueSources?, selectors?}
+// view.moveGroup {graphId, groupId, bounds, positions, reroutes?, boundary?}
 //
 // One undo step per group drag: the group's new origin plus the final
 // positions of the nodes it carried (membership was derived at drag start).
@@ -2293,34 +2197,6 @@ const viewMoveGroup: CommandDefinition = {
         if ((side !== 'inputs' && side !== 'outputs') || !isVec2(pos))
           return [err('params.invalid', 'view.moveGroup: boundary positions must be inputs/outputs {x,y}')]
         tx.set(['view', 'graphs', graphId, 'boundary', side, 'position'], { x: pos.x, y: pos.y })
-      }
-    }
-    if (params.valueSources !== undefined) {
-      if (!isObj(params.valueSources)) return [err('params.invalid', 'view.moveGroup: valueSources must be a positions map')]
-      ensureViewValueSources(tx, graphId)
-      for (const [id, pos] of Object.entries(params.valueSources)) {
-        if (!def.valueSources?.[id]) return [err('valueSource.missing', `view.moveGroup: unknown value source '${id}'`)]
-        if (!isVec2(pos)) return [err('params.invalid', `view.moveGroup: position for value source '${id}' must be {x,y}`)]
-        const existing = tx.current.view.graphs[graphId]?.valueSources?.[id]
-        if (existing) {
-          tx.set(['view', 'graphs', graphId, 'valueSources', id, 'position'], { x: pos.x, y: pos.y })
-        } else {
-          tx.set(['view', 'graphs', graphId, 'valueSources', id], { position: { x: pos.x, y: pos.y } })
-        }
-      }
-    }
-    if (params.selectors !== undefined) {
-      if (!isObj(params.selectors)) return [err('params.invalid', 'view.moveGroup: selectors must be a positions map')]
-      ensureViewSelectors(tx, graphId)
-      for (const [id, pos] of Object.entries(params.selectors)) {
-        if (!def.selectors?.[id]) return [err('selector.missing', `view.moveGroup: unknown selector '${id}'`)]
-        if (!isVec2(pos)) return [err('params.invalid', `view.moveGroup: position for selector '${id}' must be {x,y}`)]
-        const existing = tx.current.view.graphs[graphId]?.selectors?.[id]
-        if (existing) {
-          tx.set(['view', 'graphs', graphId, 'selectors', id, 'position'], { x: pos.x, y: pos.y })
-        } else {
-          tx.set(['view', 'graphs', graphId, 'selectors', id], { position: { x: pos.x, y: pos.y } })
-        }
       }
     }
     return []
@@ -2709,516 +2585,6 @@ const rerouteRemove: CommandDefinition = {
 }
 
 // ---------------------------------------------------------------------------
-// Value sources (architecture 5b, hazards P1-P5). Semantics: value + optional
-// DECLARED partial spec + controller state live in the def; geometry in view
-// state. The effective spec is always derived (value-source.ts), never stored
-// or written by any command here (P1). No command ever resets the stored
-// value as a consequence of spec/connection changes (P2).
-// ---------------------------------------------------------------------------
-
-function ensureViewValueSources(tx: TransactionBuilder, graphId: string): void {
-  const view = tx.current.view.graphs[graphId]
-  if (!view) tx.set(['view', 'graphs', graphId], { nodes: {}, valueSources: {} })
-  else if (!view.valueSources) tx.set(['view', 'graphs', graphId, 'valueSources'], {})
-}
-
-/** GraphDef.valueSources is optional; materialize the container before setting into it. */
-function ensureDefValueSources(tx: TransactionBuilder, graphId: string): void {
-  if (!tx.current.graphs[graphId]?.valueSources) tx.set(['graphs', graphId, 'valueSources'], {})
-}
-
-const VS_CONTROLLER_MODES = new Set(['fixed', 'increment', 'decrement', 'randomize'])
-const VS_CONTROLLER_SLOTS = new Set(['after_generate', 'after_refresh'])
-
-/** Validate a DeclaredSpec params object; returns an error diagnostic or undefined. */
-function declaredSpecError(v: JsonObject, what: string): Diagnostic | undefined {
-  if (v.widgetType !== undefined && typeof v.widgetType !== 'string')
-    return err('params.invalid', `${what}: spec.widgetType must be a string`)
-  if (v.options !== undefined && !isObj(v.options))
-    return err('params.invalid', `${what}: spec.options must be an object`)
-  if (v.controller !== undefined && (typeof v.controller !== 'string' || !VS_CONTROLLER_SLOTS.has(v.controller)))
-    return err('params.invalid', `${what}: spec.controller must be one of ${[...VS_CONTROLLER_SLOTS].join('|')}`)
-  return undefined
-}
-
-/** The DeclaredSpec subset of a params object (drops stray fields). */
-function toDeclaredSpec(v: JsonObject): JsonObject {
-  return {
-    ...(typeof v.widgetType === 'string' ? { widgetType: v.widgetType } : {}),
-    ...(isObj(v.options) ? { options: v.options } : {}),
-    ...(typeof v.controller === 'string' ? { controller: v.controller } : {}),
-  }
-}
-
-// ---------------------------------------------------------------------------
-// valueSource.add {graphId, position, value, spec?, title?}
-// (`value` is required but may be null; connect by dragging, like reroutes)
-// ---------------------------------------------------------------------------
-
-const valueSourceAdd: CommandDefinition = {
-  id: 'valueSource.add',
-  run(doc, params, tx) {
-    if (!isObj(params) || !isVec2(params.position) || params.value === undefined)
-      return [err('params.invalid', 'valueSource.add: params must be {graphId, position, value, spec?, title?}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `valueSource.add: unknown graph '${String(params.graphId)}'`)]
-    const graphId = params.graphId as string
-    if (params.spec !== undefined) {
-      if (!isObj(params.spec)) return [err('params.invalid', 'valueSource.add: spec must be an object')]
-      const specErr = declaredSpecError(params.spec, 'valueSource.add')
-      if (specErr) return [specErr]
-    }
-    if (params.title !== undefined && typeof params.title !== 'string')
-      return [err('params.invalid', 'valueSource.add: title must be a string')]
-    const id = allocateOne(tx, graphId, def, 'v')
-    ensureDefValueSources(tx, graphId)
-    tx.set(['graphs', graphId, 'valueSources', id], {
-      id,
-      value: params.value,
-      ...(isObj(params.spec) ? { spec: toDeclaredSpec(params.spec) } : {}),
-      ...(typeof params.title === 'string' ? { title: params.title } : {}),
-    })
-    ensureViewValueSources(tx, graphId)
-    tx.set(['view', 'graphs', graphId, 'valueSources', id], {
-      position: { x: params.position.x, y: params.position.y },
-    })
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// valueSource.remove {graphId, valueSourceIds[]}
-// Plain deletion: outgoing links drop with the source (reroute chains they
-// fed simply become undriven - legal, like disconnecting any driver).
-// ---------------------------------------------------------------------------
-
-const valueSourceRemove: CommandDefinition = {
-  id: 'valueSource.remove',
-  run(doc, params, tx) {
-    if (!isObj(params) || !Array.isArray(params.valueSourceIds))
-      return [err('params.invalid', 'valueSource.remove: params must be {graphId, valueSourceIds[]}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `valueSource.remove: unknown graph '${String(params.graphId)}'`)]
-    const graphId = params.graphId as string
-    const ids = params.valueSourceIds.filter((v): v is string => typeof v === 'string')
-    const missing = ids.filter((id) => !def.valueSources?.[id])
-    if (missing.length > 0)
-      return [err('valueSource.missing', `valueSource.remove: unknown value source(s) ${missing.join(', ')}`)]
-    if (occurrenceDeletionConflict(doc, graphId, new Set(), new Set(), new Set(ids)))
-      return [err('occurrence.topology.definitionReferenced', 'valueSource.remove: an occurrence-local link references a selected value source')]
-    deleteCascade(doc, def, graphId, [], [], [], [], ids, [], tx)
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// valueSource.move {graphId, positions: {valueSourceId: {x,y}}}
-// ---------------------------------------------------------------------------
-
-const valueSourceMove: CommandDefinition = {
-  id: 'valueSource.move',
-  run(doc, params, tx) {
-    if (!isObj(params) || !isObj(params.positions))
-      return [err('params.invalid', 'valueSource.move: params must be {graphId, positions}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `valueSource.move: unknown graph '${String(params.graphId)}'`)]
-    const graphId = params.graphId as string
-    ensureViewValueSources(tx, graphId)
-    for (const [vsId, pos] of Object.entries(params.positions)) {
-      if (!def.valueSources?.[vsId])
-        return [err('valueSource.missing', `valueSource.move: unknown value source '${vsId}'`)]
-      if (!isVec2(pos)) return [err('params.invalid', `valueSource.move: position for '${vsId}' must be {x,y}`)]
-      const existing = tx.current.view.graphs[graphId]?.valueSources?.[vsId]
-      if (existing) {
-        tx.set(['view', 'graphs', graphId, 'valueSources', vsId, 'position'], { x: pos.x, y: pos.y })
-      } else {
-        tx.set(['view', 'graphs', graphId, 'valueSources', vsId], { position: { x: pos.x, y: pos.y } })
-      }
-    }
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// valueSource.setValue {graphId, valueSourceId, value}
-// ---------------------------------------------------------------------------
-
-const valueSourceSetValue: CommandDefinition = {
-  id: 'valueSource.setValue',
-  run(doc, params, tx) {
-    if (!isObj(params) || typeof params.valueSourceId !== 'string' || params.value === undefined)
-      return [err('params.invalid', 'valueSource.setValue: params must be {graphId, valueSourceId, value}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `valueSource.setValue: unknown graph '${String(params.graphId)}'`)]
-    if (!def.valueSources?.[params.valueSourceId])
-      return [err('valueSource.missing', `valueSource.setValue: unknown value source '${params.valueSourceId}'`)]
-    tx.set(['graphs', params.graphId as string, 'valueSources', params.valueSourceId, 'value'], params.value)
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// valueSource.setSpec {graphId, valueSourceId, spec: DeclaredSpec | null}
-// Replaces the declared spec wholesale (null clears it back to fully
-// derived). "Pin current spec" is this command fed with pinnedSpecOf(...).
-// Never touches the stored value (P2).
-// ---------------------------------------------------------------------------
-
-const valueSourceSetSpec: CommandDefinition = {
-  id: 'valueSource.setSpec',
-  run(doc, params, tx) {
-    if (!isObj(params) || typeof params.valueSourceId !== 'string' || params.spec === undefined)
-      return [err('params.invalid', 'valueSource.setSpec: params must be {graphId, valueSourceId, spec|null}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `valueSource.setSpec: unknown graph '${String(params.graphId)}'`)]
-    if (!def.valueSources?.[params.valueSourceId])
-      return [err('valueSource.missing', `valueSource.setSpec: unknown value source '${params.valueSourceId}'`)]
-    const path = ['graphs', params.graphId as string, 'valueSources', params.valueSourceId, 'spec']
-    if (params.spec === null) {
-      tx.remove(path)
-      return []
-    }
-    if (!isObj(params.spec)) return [err('params.invalid', 'valueSource.setSpec: spec must be an object or null')]
-    const specErr = declaredSpecError(params.spec, 'valueSource.setSpec')
-    if (specErr) return [specErr]
-    tx.set(path, toDeclaredSpec(params.spec))
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// valueSource.setController {graphId, valueSourceId, mode: ControllerMode | null}
-// ---------------------------------------------------------------------------
-
-const valueSourceSetController: CommandDefinition = {
-  id: 'valueSource.setController',
-  run(doc, params, tx) {
-    if (!isObj(params) || typeof params.valueSourceId !== 'string' || params.mode === undefined)
-      return [err('params.invalid', 'valueSource.setController: params must be {graphId, valueSourceId, mode|null}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `valueSource.setController: unknown graph '${String(params.graphId)}'`)]
-    if (!def.valueSources?.[params.valueSourceId])
-      return [err('valueSource.missing', `valueSource.setController: unknown value source '${params.valueSourceId}'`)]
-    const path = ['graphs', params.graphId as string, 'valueSources', params.valueSourceId, 'controller']
-    if (params.mode === null) {
-      tx.remove(path)
-      return []
-    }
-    if (typeof params.mode !== 'string' || !VS_CONTROLLER_MODES.has(params.mode))
-      return [err('params.invalid', `valueSource.setController: mode must be one of ${[...VS_CONTROLLER_MODES].join('|')} or null`)]
-    tx.set(path, params.mode)
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// valueSource.setTitle {graphId, valueSourceId, title}
-// ---------------------------------------------------------------------------
-
-const valueSourceSetTitle: CommandDefinition = {
-  id: 'valueSource.setTitle',
-  run(doc, params, tx) {
-    if (!isObj(params) || typeof params.valueSourceId !== 'string' || typeof params.title !== 'string')
-      return [err('params.invalid', 'valueSource.setTitle: params must be {graphId, valueSourceId, title}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `valueSource.setTitle: unknown graph '${String(params.graphId)}'`)]
-    if (!def.valueSources?.[params.valueSourceId])
-      return [err('valueSource.missing', `valueSource.setTitle: unknown value source '${params.valueSourceId}'`)]
-    tx.set(['graphs', params.graphId as string, 'valueSources', params.valueSourceId, 'title'], params.title)
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// Selectors (architecture: structural N-to-1 branch junctions). Semantics
-// (candidates, policy, titles) live in the def; geometry in view state. IDs
-// come from the graph's monotonic cursor: selectors are 's<n>', candidates
-// 'c<n>' - globally unique within the def, never reused, stable across
-// reorder. All invariants (I11) hold atomically per command.
-// ---------------------------------------------------------------------------
-
-function ensureViewSelectors(tx: TransactionBuilder, graphId: string): void {
-  const view = tx.current.view.graphs[graphId]
-  if (!view) tx.set(['view', 'graphs', graphId], { nodes: {}, selectors: {} })
-  else if (!view.selectors) tx.set(['view', 'graphs', graphId, 'selectors'], {})
-}
-
-/** GraphDef.selectors is optional; materialize the container before setting into it. */
-function ensureDefSelectors(tx: TransactionBuilder, graphId: string): void {
-  if (!tx.current.graphs[graphId]?.selectors) tx.set(['graphs', graphId, 'selectors'], {})
-}
-
-/** Validate a selector policy params object against a candidate list. */
-function selectorPolicyError(
-  policy: Json | undefined,
-  candidates: readonly { readonly id: string }[],
-  what: string,
-): Diagnostic | undefined {
-  if (!isObj(policy)) return err('params.invalid', `${what}: policy must be {kind:'fixed', candidate} or {kind:'random'}`)
-  if (policy.kind === 'random') return undefined
-  if (policy.kind === 'fixed') {
-    if (typeof policy.candidate !== 'string')
-      return err('params.invalid', `${what}: fixed policy must name a candidate`)
-    if (!candidates.some((c) => c.id === policy.candidate))
-      return err('selector.candidateMissing', `${what}: no candidate '${policy.candidate}'`)
-    return undefined
-  }
-  return err('params.invalid', `${what}: policy kind must be 'fixed' or 'random'`)
-}
-
-// ---------------------------------------------------------------------------
-// selector.add {graphId, position, candidates?: count, title?}
-// Creates with `candidates` empty branches (default 2, min 1) and a fixed
-// policy on the first - a selector is never candidate-less. Connect branches
-// by dragging, like reroutes.
-// ---------------------------------------------------------------------------
-
-const MAX_SELECTOR_CANDIDATES = 64
-
-const selectorAdd: CommandDefinition = {
-  id: 'selector.add',
-  run(doc, params, tx) {
-    if (!isObj(params) || !isVec2(params.position))
-      return [err('params.invalid', 'selector.add: params must be {graphId, position, candidates?, title?}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `selector.add: unknown graph '${String(params.graphId)}'`)]
-    const graphId = params.graphId as string
-    const count = params.candidates === undefined ? 2 : params.candidates
-    if (typeof count !== 'number' || !Number.isInteger(count) || count < 1 || count > MAX_SELECTOR_CANDIDATES)
-      return [err('params.invalid', `selector.add: candidates must be an integer in [1, ${MAX_SELECTOR_CANDIDATES}]`)]
-    if (params.title !== undefined && typeof params.title !== 'string')
-      return [err('params.invalid', 'selector.add: title must be a string')]
-    const alloc = graphAllocator(tx, graphId, def)
-    const id = alloc.mint('s')
-    const candidates = Array.from({ length: count }, () => ({ id: alloc.mint('c') }))
-    alloc.commit()
-    ensureDefSelectors(tx, graphId)
-    tx.set(['graphs', graphId, 'selectors', id], {
-      id,
-      candidates,
-      policy: { kind: 'fixed', candidate: candidates[0]!.id },
-      ...(typeof params.title === 'string' ? { title: params.title } : {}),
-    } as unknown as Json)
-    ensureViewSelectors(tx, graphId)
-    tx.set(['view', 'graphs', graphId, 'selectors', id], {
-      position: { x: params.position.x, y: params.position.y },
-    })
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// selector.remove {graphId, selectorIds[]}
-// Cascades every link touching the selector (candidate feeds AND output
-// fan-out) plus its view state, exactly like graph.deleteItems.
-// ---------------------------------------------------------------------------
-
-const selectorRemove: CommandDefinition = {
-  id: 'selector.remove',
-  run(doc, params, tx) {
-    if (!isObj(params) || !Array.isArray(params.selectorIds))
-      return [err('params.invalid', 'selector.remove: params must be {graphId, selectorIds[]}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `selector.remove: unknown graph '${String(params.graphId)}'`)]
-    const graphId = params.graphId as string
-    const ids = params.selectorIds.filter((v): v is string => typeof v === 'string')
-    const missing = ids.filter((id) => !def.selectors?.[id])
-    if (missing.length > 0)
-      return [err('selector.missing', `selector.remove: unknown selector(s) ${missing.join(', ')}`)]
-    if (occurrenceDeletionConflict(doc, graphId, new Set(), new Set(), new Set(), new Set(ids)))
-      return [err('occurrence.topology.definitionReferenced', 'selector.remove: an occurrence-local link references a selected selector')]
-    deleteCascade(doc, def, graphId, [], [], [], [], [], ids, tx)
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// selector.setPolicy {graphId, selectorId, policy}
-// ---------------------------------------------------------------------------
-
-const selectorSetPolicy: CommandDefinition = {
-  id: 'selector.setPolicy',
-  run(doc, params, tx) {
-    if (!isObj(params) || typeof params.selectorId !== 'string')
-      return [err('params.invalid', 'selector.setPolicy: params must be {graphId, selectorId, policy}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `selector.setPolicy: unknown graph '${String(params.graphId)}'`)]
-    const sel = def.selectors?.[params.selectorId]
-    if (!sel) return [err('selector.missing', `selector.setPolicy: unknown selector '${params.selectorId}'`)]
-    const policyErr = selectorPolicyError(params.policy, sel.candidates, 'selector.setPolicy')
-    if (policyErr) return [policyErr]
-    const policy = params.policy as JsonObject
-    tx.set(
-      ['graphs', params.graphId as string, 'selectors', params.selectorId, 'policy'],
-      policy.kind === 'random' ? { kind: 'random' } : { kind: 'fixed', candidate: policy.candidate as string },
-    )
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// selector.addCandidate {graphId, selectorId, title?}
-// Appends one empty branch (id from the graph cursor - stable forever).
-// ---------------------------------------------------------------------------
-
-const selectorAddCandidate: CommandDefinition = {
-  id: 'selector.addCandidate',
-  run(doc, params, tx) {
-    if (!isObj(params) || typeof params.selectorId !== 'string')
-      return [err('params.invalid', 'selector.addCandidate: params must be {graphId, selectorId, title?}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `selector.addCandidate: unknown graph '${String(params.graphId)}'`)]
-    const sel = def.selectors?.[params.selectorId]
-    if (!sel) return [err('selector.missing', `selector.addCandidate: unknown selector '${params.selectorId}'`)]
-    if (sel.candidates.length >= MAX_SELECTOR_CANDIDATES)
-      return [err('selector.candidateLimit', `selector.addCandidate: selector already has ${MAX_SELECTOR_CANDIDATES} candidates`)]
-    if (params.title !== undefined && typeof params.title !== 'string')
-      return [err('params.invalid', 'selector.addCandidate: title must be a string')]
-    const graphId = params.graphId as string
-    const id = allocateOne(tx, graphId, def, 'c')
-    tx.set(
-      ['graphs', graphId, 'selectors', params.selectorId, 'candidates'],
-      [...sel.candidates, { id, ...(typeof params.title === 'string' ? { title: params.title } : {}) }] as unknown as Json,
-    )
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// selector.removeCandidate {graphId, selectorId, candidateId}
-// One transaction: drops the candidate, cascades its incoming link, and
-// repairs a fixed policy pointing at it (repoint to the first remaining
-// candidate - deterministic, never silent-random). The LAST candidate cannot
-// be removed: a selector is never candidate-less (delete the selector).
-// ---------------------------------------------------------------------------
-
-const selectorRemoveCandidate: CommandDefinition = {
-  id: 'selector.removeCandidate',
-  run(doc, params, tx) {
-    if (!isObj(params) || typeof params.selectorId !== 'string' || typeof params.candidateId !== 'string')
-      return [err('params.invalid', 'selector.removeCandidate: params must be {graphId, selectorId, candidateId}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `selector.removeCandidate: unknown graph '${String(params.graphId)}'`)]
-    const sel = def.selectors?.[params.selectorId]
-    if (!sel) return [err('selector.missing', `selector.removeCandidate: unknown selector '${params.selectorId}'`)]
-    if (!sel.candidates.some((c) => c.id === params.candidateId))
-      return [err('selector.candidateMissing', `selector.removeCandidate: no candidate '${params.candidateId}'`)]
-    if (sel.candidates.length === 1)
-      return [err('selector.lastCandidate', 'selector.removeCandidate: cannot remove the last candidate (remove the selector instead)')]
-    const graphId = params.graphId as string
-    const kept = sel.candidates.filter((c) => c.id !== params.candidateId)
-    tx.set(['graphs', graphId, 'selectors', params.selectorId, 'candidates'], kept as unknown as Json)
-    if (sel.policy.kind === 'fixed' && sel.policy.candidate === params.candidateId) {
-      tx.set(['graphs', graphId, 'selectors', params.selectorId, 'policy'], { kind: 'fixed', candidate: kept[0]!.id })
-    }
-    for (const [linkId, link] of Object.entries(def.links)) {
-      if (isSelectorRef(link.to) && link.to.selector === params.selectorId && link.to.candidate === params.candidateId) {
-        removeDefinitionLink(graphId, linkId, tx)
-      }
-    }
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// selector.reorderCandidates {graphId, selectorId, order: candidateIds[]}
-// `order` must be a permutation of the current ids. Order is semantic (it is
-// the random-resolution domain and the display order); ids stay stable.
-// ---------------------------------------------------------------------------
-
-const selectorReorderCandidates: CommandDefinition = {
-  id: 'selector.reorderCandidates',
-  run(doc, params, tx) {
-    if (!isObj(params) || typeof params.selectorId !== 'string' || !Array.isArray(params.order))
-      return [err('params.invalid', 'selector.reorderCandidates: params must be {graphId, selectorId, order[]}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `selector.reorderCandidates: unknown graph '${String(params.graphId)}'`)]
-    const sel = def.selectors?.[params.selectorId]
-    if (!sel) return [err('selector.missing', `selector.reorderCandidates: unknown selector '${params.selectorId}'`)]
-    const order = params.order.filter((v): v is string => typeof v === 'string')
-    const current = new Set<string>(sel.candidates.map((c) => c.id))
-    if (order.length !== sel.candidates.length || new Set(order).size !== order.length || !order.every((id) => current.has(id)))
-      return [err('params.invalid', 'selector.reorderCandidates: order must be a permutation of the current candidate ids')]
-    const byId = new Map<string, (typeof sel.candidates)[number]>(sel.candidates.map((c) => [c.id, c]))
-    tx.set(
-      ['graphs', params.graphId as string, 'selectors', params.selectorId, 'candidates'],
-      order.map((id) => byId.get(id)!) as unknown as Json,
-    )
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// selector.setCandidateTitle {graphId, selectorId, candidateId, title}
-// ---------------------------------------------------------------------------
-
-const selectorSetCandidateTitle: CommandDefinition = {
-  id: 'selector.setCandidateTitle',
-  run(doc, params, tx) {
-    if (!isObj(params) || typeof params.selectorId !== 'string' || typeof params.candidateId !== 'string' || typeof params.title !== 'string')
-      return [err('params.invalid', 'selector.setCandidateTitle: params must be {graphId, selectorId, candidateId, title}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `selector.setCandidateTitle: unknown graph '${String(params.graphId)}'`)]
-    const sel = def.selectors?.[params.selectorId]
-    if (!sel) return [err('selector.missing', `selector.setCandidateTitle: unknown selector '${params.selectorId}'`)]
-    const idx = sel.candidates.findIndex((c) => c.id === params.candidateId)
-    if (idx < 0)
-      return [err('selector.candidateMissing', `selector.setCandidateTitle: no candidate '${params.candidateId}'`)]
-    tx.set(
-      ['graphs', params.graphId as string, 'selectors', params.selectorId, 'candidates'],
-      sel.candidates.map((c) => (c.id === params.candidateId ? { ...c, title: params.title as string } : c)) as unknown as Json,
-    )
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// selector.setTitle {graphId, selectorId, title}
-// ---------------------------------------------------------------------------
-
-const selectorSetTitle: CommandDefinition = {
-  id: 'selector.setTitle',
-  run(doc, params, tx) {
-    if (!isObj(params) || typeof params.selectorId !== 'string' || typeof params.title !== 'string')
-      return [err('params.invalid', 'selector.setTitle: params must be {graphId, selectorId, title}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `selector.setTitle: unknown graph '${String(params.graphId)}'`)]
-    if (!def.selectors?.[params.selectorId])
-      return [err('selector.missing', `selector.setTitle: unknown selector '${params.selectorId}'`)]
-    tx.set(['graphs', params.graphId as string, 'selectors', params.selectorId, 'title'], params.title)
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
-// selector.move {graphId, positions: {selectorId: {x,y}}}
-// ---------------------------------------------------------------------------
-
-const selectorMove: CommandDefinition = {
-  id: 'selector.move',
-  run(doc, params, tx) {
-    if (!isObj(params) || !isObj(params.positions))
-      return [err('params.invalid', 'selector.move: params must be {graphId, positions}')]
-    const def = graphOf(doc, params.graphId)
-    if (!def) return [err('graph.missing', `selector.move: unknown graph '${String(params.graphId)}'`)]
-    const graphId = params.graphId as string
-    ensureViewSelectors(tx, graphId)
-    for (const [selId, pos] of Object.entries(params.positions)) {
-      if (!def.selectors?.[selId])
-        return [err('selector.missing', `selector.move: unknown selector '${selId}'`)]
-      if (!isVec2(pos)) return [err('params.invalid', `selector.move: position for '${selId}' must be {x,y}`)]
-      const existing = tx.current.view.graphs[graphId]?.selectors?.[selId]
-      if (existing) {
-        tx.set(['view', 'graphs', graphId, 'selectors', selId, 'position'], { x: pos.x, y: pos.y })
-      } else {
-        tx.set(['view', 'graphs', graphId, 'selectors', selId], { position: { x: pos.x, y: pos.y } })
-      }
-    }
-    return []
-  },
-}
-
-// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -3252,22 +2618,6 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   rerouteInsert,
   rerouteMove,
   rerouteRemove,
-  valueSourceAdd,
-  valueSourceRemove,
-  valueSourceMove,
-  valueSourceSetValue,
-  valueSourceSetSpec,
-  valueSourceSetController,
-  valueSourceSetTitle,
-  selectorAdd,
-  selectorRemove,
-  selectorSetPolicy,
-  selectorAddCandidate,
-  selectorRemoveCandidate,
-  selectorReorderCandidates,
-  selectorSetCandidateTitle,
-  selectorSetTitle,
-  selectorMove,
   netCreate,
   netConnectInput,
   netSetSource,
