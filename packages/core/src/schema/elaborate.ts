@@ -69,7 +69,7 @@ import type {
 } from './model.js'
 import { isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
 import { normalizeComboOption } from './combo-options.js'
-import { isCanonicalUnsafeInteger, OFFSET_UNKNOWN } from './numeric-step.js'
+import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
 
 // ---------------------------------------------------------------------------
 // Connectivity facts (structural link presence - built once per graph)
@@ -428,12 +428,12 @@ const isAnswerOption = (item: unknown): boolean => !Array.isArray(item) && norma
  * when it has the wrong shape. A limit of null means no limit; a step must be
  * above zero, and a whole-number field's limits and step whole.
  */
-export function lookedAnswerValue(widgetType: string, field: LookedWidgetField, answer: unknown): unknown {
+export function lookedAnswerValue(widget: Pick<WidgetSpec, 'widgetType' | 'options'>, field: LookedWidgetField, answer: unknown): unknown {
   if (field === 'options' || field === 'completions') {
     return Array.isArray(answer) && answer.every(isAnswerOption) ? answer : undefined
   }
   if (answer === null) return field === 'step' ? undefined : null
-  const integer = widgetType === 'INT'
+  const integer = numericStepConstraints(widget).integer
   const fits = typeof answer === 'number' && Number.isFinite(answer) && (!integer || Number.isSafeInteger(answer))
   if (!fits && !(integer && isCanonicalUnsafeInteger(answer))) return undefined
   if (field === 'step' && (typeof answer === 'number' ? answer <= 0 : BigInt(answer as string) <= 0n)) return undefined
@@ -454,10 +454,11 @@ export function lookupSitesOf(items: readonly ElaboratedItem[]): LookupSite[] {
       sites.push({ call: item.lookup.call, accepts: (answer) => typeof answer === 'string' })
     }
     if (item.kind !== 'input' || item.looked === undefined) continue
-    const widgetType = item.spec.widget?.widgetType ?? ''
+    const widget = item.spec.widget
+    if (widget === undefined) continue
     for (const [field, state] of Object.entries(item.looked) as [LookedWidgetField, LookedState][]) {
       if (!('call' in state) || state.call === undefined) continue
-      sites.push({ call: state.call, accepts: (answer) => lookedAnswerValue(widgetType, field, answer) !== undefined })
+      sites.push({ call: state.call, accepts: (answer) => lookedAnswerValue(widget, field, answer) !== undefined })
     }
   }
   return sites
@@ -1209,7 +1210,7 @@ function elaboratePass(
         const outcome = evaluate(declared.formula, scope)
         if (outcome.kind === 'value') found = jsonOf(outcome.value)
       }
-      const value = found === undefined ? undefined : lookedAnswerValue(widget.widgetType, field, found)
+      const value = found === undefined ? undefined : lookedAnswerValue(widget, field, found)
       if (found !== undefined && value === undefined && states[field] !== undefined) states[field] = wrongShape(states[field])
       if (value === undefined) {
         if (field === 'offset') fields[OFFSET_UNKNOWN] = true
