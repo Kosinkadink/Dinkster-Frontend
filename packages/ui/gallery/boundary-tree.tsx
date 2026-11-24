@@ -1,5 +1,5 @@
 import { Show, createSignal, type JSX } from 'solid-js'
-import { Plus, TriangleAlert } from 'lucide-solid'
+import { Plus, Trash2, TriangleAlert } from 'lucide-solid'
 import { defaultTokens, typeColor } from '@dinkster/canvas'
 import {
   BoundaryTree,
@@ -266,8 +266,13 @@ const sectionSettings = () => (
     </Setting>
     <ProductCheckbox label="Show the name while open" checked />
     <ProductCheckbox label="Start closed on new nodes" />
-    <ProductButton density="panel" intent="remove">Remove section</ProductButton>
-    <span class="boundary-tree-quiet">Keeps its rows.</span>
+    <div class="dinkster-actions boundary-tree-actions">
+      <span class="boundary-tree-quiet">Keeps its rows.</span>
+      <ProductButton density="panel" intent="remove">
+        <ProductIcon icon={Trash2} />
+        Remove section
+      </ProductButton>
+    </div>
   </>
 )
 
@@ -296,7 +301,12 @@ const problemSettings = () => (
       <ProductIcon icon={TriangleAlert} />
       <span>Removed from "Detail pass".</span>
     </div>
-    <ProductButton density="panel" intent="remove">Remove row</ProductButton>
+    <div class="dinkster-actions boundary-tree-actions">
+      <ProductButton density="panel" intent="remove">
+        <ProductIcon icon={Trash2} />
+        Remove row
+      </ProductButton>
+    </div>
   </>
 )
 
@@ -549,10 +559,12 @@ export function BoundaryTreeGallery() {
               No rows yet. Right-click a field inside and choose Show on
               subgraph node.
             </span>
-            <ProductButton density="panel" intent="add">
-              <ProductIcon icon={Plus} />
-              Add section
-            </ProductButton>
+            <div class="dinkster-actions boundary-tree-actions">
+              <ProductButton density="panel" intent="add">
+                <ProductIcon icon={Plus} />
+                Add section
+              </ProductButton>
+            </div>
           </div>
         </Panel>
       </Example>

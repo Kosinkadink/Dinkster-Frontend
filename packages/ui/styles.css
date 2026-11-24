@@ -625,7 +625,7 @@
 .boundary-tree-settings { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--dinkster-space-8); margin-top: auto; padding-top: var(--dinkster-space-8); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
 /* Every setting shares one name column as wide as the longest name, so names stay on one line and values start at one edge. */
 .boundary-tree-settings > * { grid-column: 1 / -1; }
-.boundary-tree-settings > .dinkster-button, .boundary-tree-settings > .dinkster-choice { justify-self: start; }
+.boundary-tree-settings > .dinkster-choice { justify-self: start; }
 .boundary-tree-settings > .dinkster-choice > .dinkster-check { margin-left: 0; }
 /* A name is level with the first line of its value: the row aligns to the top and the name fills one line as high as the canvas-density controls beside it. */
 .boundary-tree-setting { display: grid; grid-template-columns: subgrid; align-items: start; min-width: 0; }
@@ -639,6 +639,9 @@
 /* The icon is centred on the first line of the text, however many lines it wraps to. */
 .boundary-tree-problem > .dinkster-icon { margin-block: calc((var(--dinkster-type-body-line) - var(--dinkster-icon-size)) / 2); }
 .boundary-tree-empty { display: grid; justify-items: start; gap: var(--dinkster-space-12); padding: var(--dinkster-space-8) 0; color: var(--dinkster-text-secondary); }
+/* The panel's buttons sit at the right edge, as the site's actions do; a note about a button sits at the left of its line. */
+.boundary-tree-actions { justify-content: flex-end; justify-self: stretch; }
+.boundary-tree-actions > .boundary-tree-quiet { margin-right: auto; }
 .boundary-tree-examples { display: flex; flex-wrap: wrap; align-items: start; gap: var(--dinkster-space-24); }
 .boundary-tree-example { display: grid; gap: var(--dinkster-space-8); width: 320px; margin: 0; }
 .boundary-tree-example figcaption { display: grid; gap: var(--dinkster-space-4); color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
