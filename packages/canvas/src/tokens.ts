@@ -66,6 +66,8 @@ export const canvasPaintTokens = {
       /** Drawn size of a tab's icon. */
       iconSize: 14,
       iconGap: 4,
+      /** Gap in screen px between the node's lowest tab and its open problem box. */
+      problemBoxGap: 4,
       maxLabelWidth: 120,
       stroke: 1,
       /** Shares of the tab's color: its fill over the canvas, its line over the canvas, its words over the title color. */
@@ -101,7 +103,6 @@ export const canvasPaintTokens = {
     selectionUnion: { world: [5, 4], screen: [4, 3] },
     marquee: { world: [4, 3], screen: [3, 2] },
     remote: [6, 4],
-    blockingWarning: { world: [1, 3], screen: [1, 3] },
     companionUnderline: [1, 2],
     running: { world: [13, 9], screen: [9, 6] },
     boundary: { world: [5, 3], screen: [4, 3] },
@@ -569,7 +570,10 @@ export const canvasPaintTokens = {
     inactiveOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     connectedOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     hoverOpacity: 0.12,
-    diagnosticStroke: 1.5,
+    diagnosticStroke: 1,
+    /** Outline and wash of the row whose line is pointed at in the node's problem box. */
+    problemHighlightStroke: 2,
+    problemHighlightOpacity: 0.18,
     /** Outline of the field a held wire would take. */
     dropStroke: 2,
     connectedControllerOpacity: 0.5,
@@ -832,8 +836,6 @@ export interface DesignTokens {
      * document-level problems the solver proved, independent of execution.
      */
     readonly error: string
-    /** Execution-blocking document warning, shared by its badge and outline. */
-    readonly blockingWarning: string
   }
   /** Data-type -> pin/link color. Unknown types get a stable hashed hue. */
   readonly typeColors: Readonly<Record<string, string>>
@@ -1011,7 +1013,6 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     companionUnproven: tokens.meaning.info.foreground,
     companionEstimate: tokens.meaning.success.foreground,
     error: tokens.meaning.danger.border,
-    blockingWarning: tokens.meaning.warning.border,
     boxOutline: tokens.border.box,
     boxInnerOutline: theme === 'dark' ? '#2E3338' : '#E1E5E9',
     boxHover: theme === 'dark' ? '#22262B' : tokens.surface.raised,

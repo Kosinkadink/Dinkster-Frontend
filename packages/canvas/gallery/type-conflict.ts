@@ -8,7 +8,7 @@ import {
   type NodeBadge,
   type DesignTokens,
   type OverlayState,
-  type PortProblemMap,
+  type RowMarkMap,
   type Scene,
   type TextMeasurer,
   type WidgetMeasure,
@@ -20,7 +20,7 @@ export interface TypeConflictCard {
   readonly caption: string
   readonly scene: Scene
   readonly badges: BadgeMap
-  readonly portProblems: PortProblemMap
+  readonly rowMarks: RowMarkMap
   readonly overlay?: OverlayState
 }
 
@@ -95,10 +95,10 @@ const switchGraph = (both: boolean, wiredPick: boolean): Graph => ({
 })
 
 /**
- * The marks the app derives from the solver's problems: a badge and outline
- * on the node and a ring on the input the problem is anchored to.
+ * The marks the app derives from the solver's problems: a tab on the node and
+ * an outline on the row of the input the problem is anchored to.
  */
-function problemMarks(scene: Scene): Pick<TypeConflictCard, 'badges' | 'portProblems'> {
+function problemMarks(scene: Scene): Pick<TypeConflictCard, 'badges' | 'rowMarks'> {
   const badges: Record<string, NodeBadge[]> = {}
   const ports: Record<string, Record<string, 'error' | 'warning'>> = {}
   for (const diagnostic of scene.diagnostics) {
@@ -110,7 +110,7 @@ function problemMarks(scene: Scene): Pick<TypeConflictCard, 'badges' | 'portProb
     if (!list.includes(badge)) list.push(badge)
     ;(ports[port.node] ??= {})[port.port] = kind
   }
-  return { badges, portProblems: ports }
+  return { badges, rowMarks: ports }
 }
 
 /**
@@ -138,7 +138,7 @@ export function typeConflictGallery(
   }
   return [
     card(
-      'Blend takes one type on image 1, image 2 and its result. Wiring a STRING to image 2 beside an IMAGE on image 1 is an error: the node and its ring on image 2 turn red, both wires into Blend are drawn red, and Problems reads "These inputs must be the same type: image 1 is IMAGE, image 2 is STRING." Run is refused with the same words, and the engine refuses the same workflow before anything runs.',
+      'Blend takes one type on image 1, image 2 and its result. Wiring a STRING to image 2 beside an IMAGE on image 1 is an error: the outline of the node and of its image 2 row turn red, both wires into Blend are drawn red, and Problems reads "These inputs must be the same type: image 1 is IMAGE, image 2 is STRING." Run is refused with the same words, and the engine refuses the same workflow before anything runs.',
       blendGraph(true),
     ),
     card(
