@@ -612,9 +612,10 @@
 /* Every setting shares one name column as wide as the longest name, so names stay on one line and values start at one edge. */
 .boundary-tree-settings > * { grid-column: 1 / -1; }
 .boundary-tree-settings > .dinkster-button { justify-self: start; }
-/* A name is level with the first line of its value: the row aligns to the top and the name fills one control-high line. */
+/* A name is level with the first line of its value: the row aligns to the top and the name fills one line as high as the control it sits beside. */
 .boundary-tree-setting { display: grid; grid-template-columns: subgrid; align-items: start; min-width: 0; }
 .boundary-tree-setting-label { color: var(--dinkster-text-muted); line-height: var(--dinkster-control-compact-height); white-space: nowrap; }
+.boundary-tree-setting:has(> .boundary-tree-setting-value > .dinkster-input:first-child) > .boundary-tree-setting-label { line-height: var(--dinkster-input-primary-height); }
 .boundary-tree-setting-value { display: flex; flex-wrap: wrap; align-items: center; min-height: var(--dinkster-control-compact-height); gap: var(--dinkster-space-4) var(--dinkster-space-8); min-width: 0; color: var(--dinkster-text-secondary); }
 .boundary-tree-setting-value > .dinkster-input { flex: 1 1 140px; min-width: 0; }
 .boundary-tree-problem { display: flex; align-items: flex-start; gap: var(--dinkster-space-8); padding: var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-warning-border); border-radius: var(--dinkster-radius-control); background: var(--dinkster-warning-background); color: var(--dinkster-warning-foreground); }
