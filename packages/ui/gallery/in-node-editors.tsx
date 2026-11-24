@@ -301,7 +301,7 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
           )}
           <CanvasEditorNote tone={wired() !== undefined && !known() ? 'muted' : undefined}>
             {wired() !== undefined && !known() ? 'Not known yet'
-              : wired() === 'horizontal_angle' ? 'Back right, above, zoom 5.0' : 'Front right, above, zoom 5.0'}
+              : wired() === 'horizontal_angle' ? 'Back right, a little above, zoom 5.0' : 'Front right, a little above, zoom 5.0'}
           </CanvasEditorNote>
         </>
       )

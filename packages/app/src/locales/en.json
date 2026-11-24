@@ -579,7 +579,7 @@
   "inNodeCameraAngle.side.left": "Left",
   "inNodeCameraAngle.side.frontLeft": "Front left",
   "inNodeCameraAngle.height.level": "level",
-  "inNodeCameraAngle.height.above": "above",
+  "inNodeCameraAngle.height.littleAbove": "a little above",
   "inNodeCameraAngle.height.highAbove": "high above",
   "inNodeCameraAngle.height.below": "below",
   "curveEditor.targetUnavailable": "This curve input is no longer available.",
