@@ -29,7 +29,6 @@ import {
   isSelectorRef,
   isValueSourceRef,
   isWidgetTapRef,
-  matchBypassInput,
   netSinkKey,
   netViewPositions,
   occurrenceDynamicView,
@@ -48,7 +47,6 @@ import {
   typeExprFromTypeId,
   valueKeyOf,
   type BoundaryItem,
-  type BypassCandidate,
   type BoundaryPositionResolver,
   type CommandInvocation,
   type Connectivity,
@@ -1638,40 +1636,20 @@ export function buildScene(input: BuildSceneInput): Scene {
    * maybe-absent (policy can switch to that branch at any moment).
    */
   /**
-   * The real producers behind `from`, routed as the compiler routes a
-   * value: past a bypassed node to the input its passthrough matcher picks,
-   * and past an output that passes on one of its node's inputs (knownValue)
-   * to that input's wire. A muted node stops the walk: it is the producer.
+   * Where an output passes on one of its node's inputs (knownValue, such as
+   * a Primitive), the wire into that input: the real producer is upstream.
+   * A muted node, or an input with no wire, stops the walk there.
    */
   const passedOn = (ref: PortRef): LinkEndpoint | undefined => {
     const node = byId.get(ref.node)
     const elab = node?.elaborated
     if (node === undefined || elab === undefined || node.node.mode === 'muted') return undefined
     const address = portAddressKey(ref.port)
-    const outputs = elabOutputsOf(elab)
-    const output = outputs.find((candidate) => portAddressKey(candidate.address.port) === address)
-    if (output === undefined) return undefined
-    const driverOf = (port: string): LinkEndpoint | undefined => {
-      const key = portRefKey({ node: ref.node, port: asPortId(port) })
-      return rerouteIndex.inputDriverOf.get(key)?.from ?? rerouteIndex.netSourceOf.get(key)
-    }
-    if (node.node.mode === 'bypassed') {
-      const index = outputs.filter((candidate) => candidate.wireable !== false).indexOf(output)
-      if (index < 0) return undefined
-      const candidates: BypassCandidate<LinkEndpoint>[] = []
-      let wireIndex = 0
-      for (const input of elabInputsOf(elab)) {
-        if (input.apiName === undefined || input.ancestry?.some((entry) => entry.synthetic) === true) continue
-        const candidateIndex = wireIndex++
-        const driver = driverOf(input.address.port)
-        if (driver !== undefined) candidates.push({ index: candidateIndex, type: input.spec.type, driver })
-      }
-      return matchBypassInput({ index, type: output.spec.type }, candidates)?.driver
-    }
-    const known = output.spec.knownValue
-    if (known === undefined) return undefined
-    const input = elabInputsOf(elab).find((candidate) => candidate.spec.id === known.input)
-    return input === undefined ? undefined : driverOf(input.address.port)
+    const known = elabOutputsOf(elab).find((candidate) => portAddressKey(candidate.address.port) === address)?.spec.knownValue
+    const input = known === undefined ? undefined : elabInputsOf(elab).find((candidate) => candidate.spec.id === known.input)
+    if (input === undefined) return undefined
+    const key = portRefKey({ node: ref.node, port: asPortId(input.address.port) })
+    return rerouteIndex.inputDriverOf.get(key)?.from ?? rerouteIndex.netSourceOf.get(key)
   }
   const tracedProducers = (from: LinkEndpoint, seen = new Set<string>()): RerouteTrace[] =>
     traceEndpointAll(def, from, rerouteIndex).flatMap((t) => {
