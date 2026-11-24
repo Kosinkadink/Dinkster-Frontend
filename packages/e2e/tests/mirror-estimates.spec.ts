@@ -168,9 +168,6 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
           id: 'g0',
           name: 'root',
           nodes: {
-            va: { id: 'va', type: 'e2e.identity.int', values: { source: 3 } },
-            vb: { id: 'vb', type: 'e2e.identity.float', values: { source: 0.5 } },
-            vc: { id: 'vc', type: 'e2e.identity.boolean', values: { source: true } },
             math: {
               id: 'math',
               type: 'dinkster.math.expression',
@@ -181,6 +178,10 @@ test('expression mirrors paint local estimates gated by execution.mirrorPreviews
             },
             sink: { id: 'sink', type: 'e2e.mirror.sink', values: { value: 0 } },
             socket: { id: 'socket', type: 'e2e.mirror.socket-sink', values: {} },
+            // The scene navigator starts at the first node, so the operands follow the math node.
+            va: { id: 'va', type: 'e2e.identity.int', values: { source: 3 } },
+            vb: { id: 'vb', type: 'e2e.identity.float', values: { source: 0.5 } },
+            vc: { id: 'vc', type: 'e2e.identity.boolean', values: { source: true } },
           },
           links: {
             la: { id: 'la', from: { node: 'va', port: 'result' }, to: { node: 'math', port: 'values.a' } },
