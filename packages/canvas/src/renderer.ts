@@ -9,6 +9,7 @@
 import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, effectiveWidgetDefault, formatWidgetValue, selectorCandidateKey, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeDecoration, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
 import {
   BYPASSED_BADGE,
+  LAST_RUN_BADGE,
   layoutNodeBadges,
   MUTED_BADGE,
   nodeBadgeBounds,
@@ -3343,7 +3344,8 @@ export class CanvasRenderer {
   private badgeColor(badge: NodeBadge): string {
     const t = this.tokens
     return badge.id === MUTED_BADGE.id ? t.colors.mutedBadge
-      : badge.id === BYPASSED_BADGE.id ? t.colors.bypassedBadge : badge.color
+      : badge.id === BYPASSED_BADGE.id ? t.colors.bypassedBadge
+        : badge.id === LAST_RUN_BADGE.id ? t.colors.label : badge.color
   }
 
   /** The title bar's minimize arrow: down on an open node, right on a minimized one. */

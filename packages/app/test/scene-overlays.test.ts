@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEPRECATED_BADGE, executionErrorBadge, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, UNAVAILABLE_BADGE, type Scene } from '@dinkster/canvas'
+import { DEPRECATED_BADGE, executionErrorBadge, LAST_RUN_BADGE, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, UNAVAILABLE_BADGE, type Scene } from '@dinkster/canvas'
 import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
@@ -1069,6 +1069,42 @@ describe('deriveSceneOverlays', () => {
     })
 
     expect(m.badges['n1']).toEqual([executionErrorBadge(1)])
+  })
+
+  it('draws a run problem without color once its node has changed since the run', () => {
+    const runtimeRow = { kind: 'error' as const, row: 'seed', diagnostic: { severity: 'error' as const, origin: 'runtime' as const, code: 'runtime.X', message: 'failed' } }
+    const compileRow = { kind: 'warning' as const, row: 'steps', diagnostic: { severity: 'warning' as const, origin: 'compile' as const, code: 'c', message: 'c' } }
+    const asked: [string, readonly string[]][] = []
+    const derive = (changed: boolean, frozen = false) => deriveSceneOverlays({
+      ...base,
+      frozen,
+      scene: scene([{ id: 'n1' }, { id: 'n2' }]),
+      exec: exec({ nodes: { n1: { state: 'error' }, n2: { state: 'error' } }, errors: [runError('n1'), runError('n2')] }),
+      nodeProblems: { n1: [runtimeRow, compileRow], n2: [runtimeRow] },
+      rowProblems: { n1: { seed: 'error', steps: 'warning' }, n2: { seed: 'error' } },
+      runChanged: (id, runtimeIds) => { asked.push([id, runtimeIds]); return changed && id === 'n1' },
+    })
+
+    const changed = derive(true)
+    expect(asked).toContainEqual(['n1', ['n1']])
+    expect(changed.states['n1']).toBeUndefined()
+    expect(changed.badges['n1']).toEqual([LAST_RUN_BADGE, PROBLEM_WARNING_BADGE])
+    expect(changed.rowProblems['n1']).toEqual({ steps: 'warning' })
+    expect([...changed.lastRunNodes]).toEqual(['n1'])
+    // The run's details stay readable from the gray tab.
+    expect(changed.runErrorsByNode.get('n1')).toHaveLength(1)
+    // An unchanged node keeps its color.
+    expect(changed.states['n2']?.state).toBe('error')
+    expect(changed.badges['n2']).toEqual([executionErrorBadge(1)])
+    expect(changed.rowProblems['n2']).toEqual({ seed: 'error' })
+
+    const same = derive(false)
+    expect(same.states['n1']?.state).toBe('error')
+    expect(same.badges['n1']).toEqual([executionErrorBadge(1), PROBLEM_WARNING_BADGE])
+    expect(same.rowProblems['n1']).toEqual({ seed: 'error', steps: 'warning' })
+
+    // A frozen tab shows the run as it ran.
+    expect(derive(true, true).badges['n1']).toEqual([executionErrorBadge(1), PROBLEM_WARNING_BADGE])
   })
 
   it('derives bottom warning and info badges from node-attributed log records', () => {

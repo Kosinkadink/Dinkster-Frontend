@@ -91,6 +91,17 @@ export const executionErrorBadge = (count: number): NodeBadge => ({
   ...ERROR_BADGE,
   glyph: count > 1 ? `Error ${count}` : 'Error',
 })
+/**
+ * The run's error tab once the node has changed since that run: drawn in the
+ * theme's label gray with no count, opening the same runtime details.
+ */
+export const LAST_RUN_BADGE: NodeBadge = {
+  id: 'core.error.lastRun',
+  glyph: 'Last run',
+  icon: 'circle-x',
+  placement: 'below',
+  color: defaultTokens.colors.label,
+}
 /** One engine explanation for the root absence that blocked this node. */
 export const executionBlockedBadge = (message: string): NodeBadge => ({
   id: 'core.execution.blocked',
