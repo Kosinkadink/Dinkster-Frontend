@@ -1487,13 +1487,17 @@ export function layoutNode(
     // as much as at a box's sides, so a field's inset under a field and a
     // box's step under an outline (an inner box or an add row).
     let under: number = box.bottomGap
+    // A member box just closed, so a member box after it keeps `memberGap` away.
+    let afterMember = false
     const push = (row: LayoutRow, depth: number): void => {
       rows.push(row)
       rowDepth.push(depth)
+      afterMember = false
     }
     const close = (depth: number): void => {
       while (open.length > depth) {
         const done = open.pop()!
+        afterMember = done.decl.kind === 'member'
         const bottom = y + under - slack + box.stroke
         boxes.push({
           id: done.decl.id,
@@ -1536,7 +1540,7 @@ export function layoutNode(
         const depth = open.length + 1
         const index = rows.length
         if (decl.kind === 'member') {
-          const top = y + verticalInset - slack
+          const top = afterMember ? y + box.memberGap : y + verticalInset - slack
           const height = top + box.stroke + headerHeight - y
           const grip = decl.member !== undefined && !decl.ghost ? gripOf(decl.construct!, decl.member) : undefined
           push({
@@ -1595,6 +1599,12 @@ export function layoutNode(
       if (row.kind === 'growth') {
         const g = row.growth!
         const height = tokens.rowHeight
+        // As much room above the add row as the outline closing below leaves
+        // under it, from whatever ends above it: an outline, a field, a
+        // header, or the outline of a group drawn without its name.
+        const previous = rows.at(-1)
+        const above = previous?.kind === 'section' && previous.tab ? box.tabPad : slack
+        y += box.step - verticalInset * 2 - above
         push({ kind: 'growth', y, height, inset: outlineX(depth + 1), construct: g.construct, label: g.label, frames: g.frames }, depth)
         y += height
       } else if (row.kind === 'note' || row.kind === 'button') {

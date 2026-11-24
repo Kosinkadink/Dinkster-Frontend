@@ -179,6 +179,8 @@ export const canvasPaintTokens = {
       headerShrink: 2,
       /** From the last field in a box to its outline. */
       bottomGap: 3,
+      /** Between two member boxes, so their outlines do not read as one thick line. */
+      memberGap: 3,
       /** An open box with no name: room above its outline for the tab, and below it. */
       tabGap: 6,
       tabPad: 4,

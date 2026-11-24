@@ -1126,6 +1126,38 @@ describe('sections', () => {
     expect(ending.height - (last.y + last.height)).toBe(last.x)
   })
 
+  it('gives a group add row as much room above as below, and keeps member boxes apart', () => {
+    const box = canvasPaintTokens.node.box
+    const inset = defaultTokens.rowGeometry.fieldInsetY
+    const group = (member: Partial<NodeSchema['body'][number]>, minMembers: number) => ({
+      kind: 'group' as const, id: 'p', displayName: 'P', keys: { kind: 'numbered' as const, prefix: 'p', start: 0, pad: 0 },
+      grows: 'button' as const, minMembers, maxMembers: 4, addLabel: 'Add', ...member,
+    }) as NodeSchema['body'][number]
+    const lay = (body: NodeSchema['body'], members: string[]) =>
+      layoutNode(schemaOf(body), { ...nodeData, dynamic: { p: { members } } }, defaultTokens, measure, widgetMeasure)
+    /** From what ends above the add row to its lit top edge, and from the line under it to the group's outline. */
+    const room = (l: ReturnType<typeof lay>, endAbove: number) => {
+      const add = l.rows.find((row) => row.kind === 'growth')!
+      const outline = l.boxes!.find((b) => b.id === 'group:p')!
+      return { above: add.y + inset - endAbove, below: outline.y + outline.height - box.stroke - (add.y + add.height) }
+    }
+    const boxes = lay([group({ member: [widget('text'), widget('weight')] }, 1), widget('after')], ['p0', 'p1'])
+    const [first, second] = ['member:p.p0', 'member:p.p1'].map((id) => boxes.boxes!.find((b) => b.id === id)!)
+    expect(second!.y - (first!.y + first!.height)).toBe(box.memberGap)
+    const rows = lay([group({ value: widget('text') }, 1), widget('after')], ['p0'])
+    const field = rows.rows.find((row) => row.kind === 'widget' && row.inputId === 'p.p0')!
+    const empty = lay([group({ value: widget('text') }, 0), widget('after')], [])
+    const header = empty.rows.find((row) => row.kind === 'section')!
+    for (const r of [
+      room(boxes, second!.y + second!.height),
+      room(rows, field.y + field.height - inset),
+      room(empty, header.y + header.height),
+    ]) {
+      expect(r.below).toBe(box.step - inset)
+      expect(r.above).toBe(r.below)
+    }
+  })
+
   it('keeps declared Advanced members continuous without enclosing primary rows or outputs', () => {
     const l = layoutNode(
       schemaOf([
