@@ -191,22 +191,6 @@
     "text:agent",
     "text:here now"
   ],
-  "CurveEditor.tsx": [
-    "attribute:aria-label:Interpolation",
-    "attribute:title:No curve target is active.",
-    "text:Apply",
-    "text:Cancel",
-    "text:Curve editor",
-    "text:Delete point",
-    "text:Double-click the graph to add a point. Drag points to adjust them.",
-    "text:Histogram from the selected run",
-    "text:Interpolation",
-    "text:Linear",
-    "text:Monotone cubic",
-    "text:Position",
-    "text:Position and value range from 0 to 1.",
-    "text:Value"
-  ],
   "CustomizeLayoutDialog.tsx": [
     "text:Choose which supported shell regions are visible.",
     "text:Reset visibility",

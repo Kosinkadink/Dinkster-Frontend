@@ -1,5 +1,6 @@
 import {
   defaultValuesOf,
+  documentResolver,
   loadDocument,
   type BodyRow,
   type InputSpec,
@@ -152,6 +153,13 @@ export interface InNodeEditorExample {
   /** Per editor value key: the small picture its row shows before the text. */
   readonly thumbnails?: Readonly<Record<string, 'frame' | 'view'>>
   readonly width?: number
+  /**
+   * Where the editor is shown when it is not the node's own: on the Inputs
+   * panel of the subgraph the node is in, as the field of an input that
+   * promotes it, entered from no subgraph node so the panel shows the
+   * defaults a new one starts with.
+   */
+  readonly place?: 'inputsPanel'
 }
 
 const asset = (name: string, mediaType: string, extra: Record<string, Json> = {}): Json =>
@@ -279,6 +287,9 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
   { id: 'curve-histogram', card: 36, caption: "A histogram wired in: after a run, behind the line", type: 'Curve editor',
     values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } },
     wired: { histogram: 'HISTOGRAM' }, view: unfold('curve'), states: { curve: { histogram: true } } },
+  { id: 'panel-curve', card: 37, caption: "On a subgraph's Inputs panel: the curve folded out under its field, and the panel grown downward", type: 'Curve editor',
+    place: 'inputsPanel', values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] } },
+    view: unfold('curve') },
 ]
 
 const SOURCE = 'Wire source'
@@ -292,6 +303,7 @@ export function createInNodeEditorScene(
   position: { x: number; y: number },
 ): Scene {
   const target = inNodeEditorSchemas.find((item) => item.type === example.type)!
+  if (example.place === 'inputsPanel') return createInputsPanelScene(tokens, measure, widgetMeasure, example, target, position)
   const wired = Object.entries(example.wired ?? {})
   const source: NodeSchema = schema(SOURCE, wired.map(([id, type]) => output(id.replaceAll('.', '_'), type)))
   const id = example.id
@@ -341,6 +353,62 @@ export function createInNodeEditorScene(
     document: loaded.document,
     graphId: 'gallery',
     resolve: (type) => type === SOURCE ? source : type === target.type ? target : undefined,
+    tokens,
+    measure,
+    widgetMeasure,
+  })
+}
+
+/**
+ * The example's node inside a subgraph whose Inputs panel promotes each of
+ * its editors, laid out by the production scene builder for that subgraph.
+ * The panel stands at `position`. The subgraph is entered from no node, so
+ * the panel's fields show the example's values as the defaults inside.
+ */
+function createInputsPanelScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  example: InNodeEditorExample,
+  target: NodeSchema,
+  position: { x: number; y: number },
+): Scene {
+  const editors = target.body.flatMap((row) => row.kind === 'input' && row.widget !== undefined ? [row.id] : [])
+  const loaded = loadDocument({
+    format: 'dinkster-workflow',
+    formatVersion: 1,
+    lineage: 'canvas-gallery',
+    root: 'gallery',
+    graphs: {
+      gallery: {
+        id: 'gallery', name: 'Gallery', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+        nodes: { outer: { id: 'outer', type: '#inside', values: {} } },
+      },
+      inside: {
+        id: 'inside', name: 'Inside', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+        nodes: { [example.id]: { id: example.id, type: target.type, values: { ...defaultValuesOf(target), ...(example.values ?? {}) } } },
+        boundary: {
+          inputs: editors.map((id) => ({ id, promoted: true, binds: { kind: 'port', node: example.id, port: id } })),
+          outputs: [],
+        },
+      },
+    },
+    view: {
+      graphs: {
+        gallery: { nodes: { outer: { position: { x: 0, y: 0 } } } },
+        inside: {
+          nodes: { [example.id]: { position: { x: position.x + 2000, y: position.y } } },
+          boundary: { inputs: { position }, outputs: { position: { x: position.x + 4000, y: position.y } } },
+          ...(example.view?.editors !== undefined ? { inputsPanel: { editors: example.view.editors } } : {}),
+        },
+      },
+    },
+  } as never)
+  if (!loaded.document) throw new Error(`Invalid gallery document: ${JSON.stringify(loaded)}`)
+  return buildScene({
+    document: loaded.document,
+    graphId: 'inside',
+    resolve: documentResolver(loaded.document, (type) => type === target.type ? target : undefined),
     tokens,
     measure,
     widgetMeasure,

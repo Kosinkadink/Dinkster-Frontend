@@ -2082,11 +2082,12 @@ const viewSetSectionCollapsed: CommandDefinition = {
 }
 
 /**
- * Set, or with null clear, one per-node view record entry keyed by value
- * key, removing the record when its last entry goes. Value keys live in
+ * Set, or with null clear, one editor's fold or picture height. The editor
+ * is a node's, by value key, or the Inputs panel's (`inputsPanel: true`), by
+ * field value key. Per-key records are removed when their last entry goes. Value keys live in
  * schemas, which commands cannot resolve, so any non-empty key is accepted.
  */
-function setNodeViewEntry(
+function setEditorViewEntry(
   doc: WorkflowDocument,
   tx: Parameters<CommandDefinition['run']>[2],
   id: string,
@@ -2096,50 +2097,65 @@ function setNodeViewEntry(
 ): readonly Diagnostic[] {
   const def = graphOf(doc, params.graphId)
   if (!def) return [err('graph.missing', `${id}: unknown graph '${String(params.graphId)}'`)]
-  const nodeId = params.nodeId as string
-  const valueKey = params.valueKey as string
-  if (!def.nodes[nodeId]) return [err('node.missing', `${id}: unknown node '${nodeId}'`)]
   const graphId = params.graphId as string
-  const viewNode = doc.view.graphs[graphId]?.nodes[nodeId]
-  const path = ['view', 'graphs', graphId, 'nodes', nodeId, record]
+  const valueKey = params.valueKey as string
+  let owner: Readonly<Partial<Record<'editors' | 'pictureHeights', Readonly<Record<string, Json>>>>> | undefined
+  let ownerPath: string[]
+  if (params.inputsPanel === true) {
+    if (!def.boundary) return [err('graph.notSubgraph', `${id}: graph '${graphId}' has no Inputs panel`)]
+    owner = doc.view.graphs[graphId]?.inputsPanel
+    ownerPath = ['view', 'graphs', graphId, 'inputsPanel']
+  } else {
+    const nodeId = params.nodeId as string
+    if (!def.nodes[nodeId]) return [err('node.missing', `${id}: unknown node '${nodeId}'`)]
+    owner = doc.view.graphs[graphId]?.nodes[nodeId]
+    ownerPath = ['view', 'graphs', graphId, 'nodes', nodeId]
+  }
+  const path = [...ownerPath, record]
   if (entry === null) {
-    const entries = viewNode?.[record]
+    const entries = owner?.[record]
     if (!entries || !(valueKey in entries)) return []
     tx.remove(Object.keys(entries).length === 1 ? path : [...path, valueKey])
     return []
   }
   ensureViewGraph(tx, graphId)
-  if (!viewNode) tx.set(['view', 'graphs', graphId, 'nodes', nodeId], { [record]: { [valueKey]: entry } })
+  if (!owner) tx.set(ownerPath, { [record]: { [valueKey]: entry } })
   else {
-    if (!viewNode[record]) tx.set(path, {})
+    if (!owner[record]) tx.set(path, {})
     tx.set([...path, valueKey], entry)
   }
   return []
 }
 
-const hasEditorKey = (params: Json | undefined): params is JsonObject =>
-  isObj(params) && typeof params.nodeId === 'string' && typeof params.valueKey === 'string' && params.valueKey.length > 0
+const EDITOR_TARGET = '{graphId, nodeId, valueKey} | {graphId, inputsPanel: true, valueKey}'
+
+const hasEditorTarget = (params: Json | undefined): params is JsonObject =>
+  isObj(params) && (typeof params.nodeId === 'string' || params.inputsPanel === true) &&
+    typeof params.valueKey === 'string' && params.valueKey.length > 0
 
 // ---------------------------------------------------------------------------
 // view.setEditorUnfolded {graphId, nodeId, valueKey, unfolded: boolean | null}
+//   or {graphId, inputsPanel: true, valueKey, unfolded}
 //
-// Folds or unfolds an editor shown in the node, by its row's value key, as a
-// per-node OVERRIDE of the declaration's starting state; null clears it.
+// Folds or unfolds an editor shown in a node or on the Inputs panel. A node's
+// is a per-node OVERRIDE of the declaration's starting state; null clears it,
+// which on the Inputs panel means folded.
 // ---------------------------------------------------------------------------
 
 const viewSetEditorUnfolded: CommandDefinition = {
   id: 'view.setEditorUnfolded',
   run(doc, params, tx) {
-    if (!hasEditorKey(params) || (typeof params.unfolded !== 'boolean' && params.unfolded !== null)) {
-      return [err('params.invalid', 'view.setEditorUnfolded: params must be {graphId, nodeId, valueKey, unfolded: boolean|null}')]
+    if (!hasEditorTarget(params) || (typeof params.unfolded !== 'boolean' && params.unfolded !== null)) {
+      return [err('params.invalid', `view.setEditorUnfolded: params must be ${EDITOR_TARGET} with unfolded: boolean|null`)]
     }
-    return setNodeViewEntry(doc, tx, 'view.setEditorUnfolded', params, 'editors',
+    return setEditorViewEntry(doc, tx, 'view.setEditorUnfolded', params, 'editors',
       params.unfolded === null ? null : { unfolded: params.unfolded })
   },
 }
 
 // ---------------------------------------------------------------------------
 // view.setPictureHeight {graphId, nodeId, valueKey, height: positive integer | null}
+//   or {graphId, inputsPanel: true, valueKey, height}
 //
 // Keeps the height an unfolded editor's picture was dragged to; null returns
 // it to the editor's own height. Layout clamps the stored number.
@@ -2148,11 +2164,11 @@ const viewSetEditorUnfolded: CommandDefinition = {
 const viewSetPictureHeight: CommandDefinition = {
   id: 'view.setPictureHeight',
   run(doc, params, tx) {
-    if (!hasEditorKey(params) || (params.height !== null &&
+    if (!hasEditorTarget(params) || (params.height !== null &&
       (typeof params.height !== 'number' || !Number.isInteger(params.height) || params.height < 1))) {
-      return [err('params.invalid', 'view.setPictureHeight: params must be {graphId, nodeId, valueKey, height: positive integer|null}')]
+      return [err('params.invalid', `view.setPictureHeight: params must be ${EDITOR_TARGET} with height: positive integer|null`)]
     }
-    return setNodeViewEntry(doc, tx, 'view.setPictureHeight', params, 'pictureHeights', params.height)
+    return setEditorViewEntry(doc, tx, 'view.setPictureHeight', params, 'pictureHeights', params.height)
   },
 }
 
