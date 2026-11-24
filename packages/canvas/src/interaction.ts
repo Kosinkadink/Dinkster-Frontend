@@ -838,7 +838,7 @@ type Gesture =
 
 /** A row drawn and stepped as a number; an integer color is drawn as a color. */
 const isNumberRow = (row: Extract<LayoutRow, { kind: 'widget' }>): boolean =>
-  (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
+  isNumberWidget(row.spec) && row.viewId !== 'core.integerColor'
 
 export class InteractionController {
   private selection = new Set<string>()
