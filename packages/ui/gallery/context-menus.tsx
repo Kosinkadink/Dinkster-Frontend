@@ -35,11 +35,20 @@ const examples: readonly MenuExample[] = [
   },
   {
     id: 'mixed',
-    caption: 'Some items have an icon: every label starts in one column after the icons.',
+    caption: 'A node menu: Group, Minimize and Rename have icons; Reset name has none, and its label starts in the same column.',
     groups: [
-      { group: 'a', items: [item('up-to', 'Execute up to selection', { disabled: true })] },
+      { group: 'a', items: [item('up-to', 'Execute up to selection', { icon: 'circle-play', disabled: true })] },
       { group: 'b', items: [submenu('mode', 'Mode', 'sliders-horizontal')] },
-      { group: 'c', items: [item('group-node', 'Group node'), item('minimize', 'Minimize', { shortcut: 'alt+c' }), item('rename', 'Rename...'), submenu('color', 'Color', 'palette')] },
+      {
+        group: 'c',
+        items: [
+          item('group', 'Group', { icon: 'square-dashed' }),
+          item('minimize', 'Minimize', { icon: 'minimize-2', shortcut: 'alt+c' }),
+          item('rename', 'Rename...', { icon: 'pencil' }),
+          item('reset-name', 'Reset name'),
+          submenu('color', 'Color', 'palette'),
+        ],
+      },
       { group: 'd', items: [item('copy', 'Copy', { icon: 'copy' }), item('delete', 'Delete', { icon: 'trash-2', shortcut: 'delete' })] },
     ],
   },

@@ -200,7 +200,7 @@ const nodeMinimize: MenuContribution = {
     return [{
       id: 'core.node.minimize',
       label: collapsed ? 'Restore' : 'Minimize',
-      icon: 'minimize-2',
+      icon: collapsed ? 'maximize-2' : 'minimize-2',
       ...(ctx.shortcuts?.['node.minimize'] === undefined
         ? {}
         : { shortcut: ctx.shortcuts['node.minimize'] }),
@@ -313,6 +313,7 @@ const nodeRename: MenuContribution = {
     return [{
       id: 'core.node.rename',
       label: 'Rename...',
+      icon: 'pencil',
       action: { kind: 'host', action: 'renameNode', params: { nodeId: ctx.target.nodeId } },
     }]
   },
@@ -419,6 +420,7 @@ const nodeQueueSelection: MenuContribution = {
       {
         id: 'core.node.queueSelection',
         label: 'Execute up to selection',
+        icon: 'circle-play',
         action: { kind: 'host', action: 'queueSelection', params: { nodeIds: [...nodeIds] } },
       },
     ]
@@ -1027,11 +1029,11 @@ const nodeGroupSelection: MenuContribution = {
   group: '30-layout',
   resolve(ctx) {
     if (ctx.target.kind !== 'node') return []
-    const count = targetNodeIds(ctx, ctx.target.nodeId).length
     return [
       {
         id: 'core.node.groupSelection',
-        label: count > 1 ? `Group ${count} nodes` : 'Group node',
+        label: 'Group',
+        icon: 'square-dashed',
         action: { kind: 'host', action: 'groupSelection' },
       },
     ]
