@@ -104,6 +104,8 @@ import {
   parseTypedLiteralWire,
   typeExprToDinksterWire,
   typedLiteralWire,
+  absentInputWire,
+  isAbsentInputWire,
   validateDinksterGraph,
   type DinksterGraphEntryWire,
   type DinksterGraphValidationNode,
@@ -2233,7 +2235,7 @@ function compileImpl(
         diags.push(diag('warning', 'compile', 'compile.link.dropped', `${what} in graph '${defId}': connected node is muted`))
         return
       }
-      receiver.inputs[dst.inputId] = { $absent: { reason: `'${muted}' is muted` } }
+      receiver.inputs[dst.inputId] = absentInputWire(`'${muted}' is muted`)
       receiver.linkedInputs.delete(dst.inputId)
       recordSuccessfulDelivery(dst)
     }
@@ -2329,7 +2331,7 @@ function compileImpl(
             diags.push(...routeDiagnostics)
             const receiver = trace.absent === true && emitAbsentInputs ? flat.get(dst.runtimeId) : undefined
             if (receiver) {
-              receiver.inputs[dst.inputId] = { $absent: { reason: trace.reason } }
+              receiver.inputs[dst.inputId] = absentInputWire(trace.reason)
               receiver.linkedInputs.delete(dst.inputId)
               recordSuccessfulDelivery(dst)
             }
@@ -2894,7 +2896,7 @@ function compileImpl(
       }
       const v = fn.inputs[input.spec.id]
       if (v !== undefined && fn.node.additionalInputs?.includes(input.address.port) &&
-        canonicalTypeIdOf(input.spec.type) === undefined && !fn.linkedInputs.has(input.spec.id) &&
+        canonicalTypeIdOf(input.spec.type) === undefined && !fn.linkedInputs.has(input.spec.id) && !isAbsentInputWire(v) &&
         (parseTypedLiteralWire(v) === undefined || !emitTypedLiterals)) {
         diags.push(diag('error', 'compile', 'compile.value.additionalInputType', `${fn.node.type}.${input.spec.id}: additional input literals require an explicit type and backend typed-literal support`, { anchor: { occurrence: fn.occ } }))
         continue

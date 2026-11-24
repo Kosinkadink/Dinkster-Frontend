@@ -15,7 +15,7 @@ import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
-import { DINKSTER_GRAPH_FEATURE_ABSENT_INPUT, DINKSTER_GRAPH_FEATURE_DECIMAL_INT } from '../src/compile/dinkster-graph.js'
+import { DINKSTER_GRAPH_FEATURE_ABSENT_INPUT, DINKSTER_GRAPH_FEATURE_DECIMAL_INT, DINKSTER_GRAPH_FEATURE_REGIONS } from '../src/compile/dinkster-graph.js'
 import { coreVirtualNodeKind } from '../src/virtual-node.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
@@ -753,6 +753,7 @@ const dynSchemas: Record<string, NodeSchema> = {
   },
   SamplerSink: dynSchemaOf('SamplerSink', [dynInput('sampler', { type: { kind: 'concrete', name: 'COMBO' }, widget: { widgetType: 'COMBO', options: { options: ['euler', 'dpm'] } } })]),
   IntSrc: { ...dynSchemaOf('IntSrc', [{ kind: 'output', id: 'out', type: INT }]), isOutputNode: false },
+  AnyValue: dynSchemaOf('AnyValue', [dynInput('value', { type: { kind: 'variable', templateId: 'T' }, optional: true })]),
   IntSink: dynSchemaOf('IntSink', [dynInput('steps', { type: INT, widget: { widgetType: 'INT', options: {}, default: 20 } })]),
   Switch: {
     ...dynSchemaOf('Switch', [
@@ -2000,8 +2001,8 @@ describe('muted endpoints skip port validation', () => {
 
 describe("a muted node's outputs give nothing", () => {
   const target = { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } }
-  const marked = (doc: WorkflowDocument) => {
-    const result = compile({ ...compileInput(doc), resolve: dynResolve, graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+  const marked = (doc: WorkflowDocument, features: string[] = []) => {
+    const result = compile({ ...compileInput(doc), resolve: dynResolve, graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT, ...features] })
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return undefined
     expect(result.artifact.diagnostics.map((d) => d.code)).not.toContain('compile.link.dropped')
@@ -2042,6 +2043,11 @@ describe("a muted node's outputs give nothing", () => {
     }))
     expect(mutedSubgraph?.['target']!.inputs).toEqual(absent("'Image stage' is muted"))
     expect(Object.keys(mutedSubgraph ?? {})).toEqual(['target'])
+
+    // An input whose type is a variable takes the marker too: it is not a literal needing a type.
+    const anyValue = dynDoc({ nodes: { source, has: { type: 'AnyValue' } }, links: [[['source', 'out'], ['has', 'value']]] })
+    expect(marked(anyValue, [DINKSTER_GRAPH_FEATURE_REGIONS])?.['has']!.inputs)
+      .toEqual({ value: { $absent: { reason: "'Loader' is muted" } } })
   })
 
   it("sends $absent for a field's output on a muted node", () => {
