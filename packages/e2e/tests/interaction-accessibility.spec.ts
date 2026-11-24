@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TestInfo } from '@playwright/test'
-import { expect, test, waitForWorkspaceReady, type Locator, type Page } from './fixtures.js'
+import { expect, setShellRegion, test, waitForWorkspaceReady, type Locator, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_INTERACTION_ACCESSIBILITY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -154,8 +154,7 @@ test.beforeEach(async ({ page }) => {
 test('touch reaches widget actions and semantic menu targets on a narrow viewport', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 640 })
   await installProofSurfaces(page)
-  const railToggle = page.getByRole('button', { name: 'Toggle right rail' })
-  if (await railToggle.getAttribute('aria-pressed') === 'true') await touch(railToggle, page)
+  await setShellRegion(page, 'right', false)
 
   const widget = await widgetPoint(page)
   await page.touchscreen.tap(widget.x, widget.y)
@@ -191,8 +190,7 @@ test('touch reaches widget actions and semantic menu targets on a narrow viewpor
 test('seed controller menu follows a short canvas resize and keeps its tail reachable', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 400 })
   await installProofSurfaces(page)
-  const railToggle = page.getByRole('button', { name: 'Toggle right rail' })
-  if (await railToggle.getAttribute('aria-pressed') === 'true') await touch(railToggle, page)
+  await setShellRegion(page, 'right', false)
   await page.getByTestId('minimap-toggle').click()
 
   const controller = await controllerPoint(page)
