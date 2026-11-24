@@ -232,6 +232,8 @@ export type LayoutRow =
       readonly spec: WidgetSpec
       /** Keep the editor and outgoing value tap without an incoming socket. */
       readonly socketless?: true
+      /** Declared `sent=False`: stored and edited, never sent, so no outgoing value tap. */
+      readonly unsent?: true
       /** Wire-22 execution binding retained from the elaborated input. */
       readonly sourceFilename?: SourceFilenameSpec
       /** Effective named representation selected for this row (wire 17). */
@@ -1491,6 +1493,7 @@ export function layoutNode(
         rows: w.rows,
         spec: representation.spec,
         ...(spec.socketless ? { socketless: true as const } : {}),
+        ...(spec.sent === false ? { unsent: true as const } : {}),
         ...(spec.sourceFilename !== undefined ? { sourceFilename: spec.sourceFilename } : {}),
         ...(representation.id !== undefined ? { representationId: representation.id } : {}),
         ...(options.seedControllerEnabled !== false && representation.spec.controller !== undefined
@@ -1875,7 +1878,7 @@ export function layoutNode(
         })
         // A widget can also produce its effective value. The duplicate
         // right-edge anchor deliberately shares the input's flattened id.
-        if (w.editor !== true) pins.push({
+        if (w.editor !== true && w.unsent !== true) pins.push({
           ...annotationsOf(w), portId: w.inputId, label: w.name ?? w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
         })
         lineBottoms.set(line, Math.max(lineBottoms.get(line) ?? y, y + height))
