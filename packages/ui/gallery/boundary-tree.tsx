@@ -1,5 +1,5 @@
 import { Show, createSignal, type JSX } from 'solid-js'
-import { TriangleAlert } from 'lucide-solid'
+import { Plus, TriangleAlert } from 'lucide-solid'
 import { defaultTokens, typeColor } from '@dinkster/canvas'
 import {
   BoundaryTree,
@@ -549,7 +549,10 @@ export function BoundaryTreeGallery() {
               No rows yet. Right-click a field inside and choose Show on
               subgraph node.
             </span>
-            <ProductButton density="panel" intent="add">Add section</ProductButton>
+            <ProductButton density="panel" intent="add">
+              <ProductIcon icon={Plus} />
+              Add section
+            </ProductButton>
           </div>
         </Panel>
       </Example>

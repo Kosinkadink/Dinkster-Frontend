@@ -136,7 +136,8 @@
 .dinkster-button[data-role='remove'][data-fill='solid'] { color: var(--dinkster-action-remove-text); background: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); }
 .dinkster-button[data-fill='quiet'] { border-color: transparent; }
 .dinkster-button[data-icon-only] { width: var(--dinkster-control-compact-height); padding: 0; }
-.dinkster-button[data-density='panel'] { height: var(--dinkster-input-canvas-height); min-height: 0; padding: 0 var(--dinkster-space-8); }
+.dinkster-button[data-density='panel'] { gap: var(--dinkster-space-4); height: var(--dinkster-input-canvas-height); min-height: 0; padding: 0 var(--dinkster-space-8); }
+.dinkster-button[data-density='panel'] > .dinkster-icon { width: 14px; height: 14px; }
 .dinkster-button:not(:disabled, [aria-disabled='true']):hover { background: var(--dinkster-interaction-hover); }
 .dinkster-button:not(:disabled, [aria-disabled='true']):active { background: var(--dinkster-interaction-pressed); }
 .dinkster-button[data-fill='solid']:not(:disabled, [aria-disabled='true']):hover { background: var(--dinkster-action-primary-bg); filter: brightness(0.9); }
@@ -634,7 +635,9 @@
 /* A link to what a row reads or feeds, drawn as a node's open-field panel draws its links: secondary text over a dotted line. */
 .boundary-tree-setting-value > .dinkster-link { color: var(--dinkster-text-secondary); text-decoration: none; border-bottom: var(--dinkster-border-width) dotted var(--dinkster-text-muted); }
 .boundary-tree-setting-value > .dinkster-link:hover { color: var(--dinkster-text-primary); }
-.boundary-tree-problem { display: flex; align-items: flex-start; gap: var(--dinkster-space-8); padding: var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-warning-border); border-radius: var(--dinkster-radius-control); background: var(--dinkster-warning-background); color: var(--dinkster-warning-foreground); }
+.boundary-tree-problem { display: flex; align-items: flex-start; gap: var(--dinkster-space-8); padding: var(--dinkster-space-4) var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-warning-border); border-radius: var(--dinkster-radius-control); background: var(--dinkster-warning-background); color: var(--dinkster-warning-foreground); }
+/* The icon is centred on the first line of the text, however many lines it wraps to. */
+.boundary-tree-problem > .dinkster-icon { margin-block: calc((var(--dinkster-type-body-line) - var(--dinkster-icon-size)) / 2); }
 .boundary-tree-empty { display: grid; justify-items: start; gap: var(--dinkster-space-12); padding: var(--dinkster-space-8) 0; color: var(--dinkster-text-secondary); }
 .boundary-tree-examples { display: flex; flex-wrap: wrap; align-items: start; gap: var(--dinkster-space-24); }
 .boundary-tree-example { display: grid; gap: var(--dinkster-space-8); width: 320px; margin: 0; }
