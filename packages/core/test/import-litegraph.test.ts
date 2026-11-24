@@ -3312,4 +3312,16 @@ it('imports a ComfyUI FLOATS wire into Create Hook Keyframes From Floats as list
   // A FLOATS slot with nothing inside to take its type from still names list<FLOAT>.
   expect(imported.document!.graphs.sg!.boundary!.inputs[0]!.binds).toEqual(
     { kind: 'unbound', type: { kind: 'list', element: { kind: 'concrete', name: 'FLOAT' } } })
+
+  // FLOATS outputs in the wild come from custom packs: an uninstalled producer
+  // imports as a missing node and keeps its wire into the list input.
+  const uninstalled = importLitegraph({ nodes: [
+    { id: 1, type: 'FloatsFromSomePack', widgets_values: ['0.1, 0.5'], outputs: [{ name: 'FLOATS', type: 'FLOATS', links: [1] }] },
+    { id: 2, type: 'CreateHookKeyframesFromFloats', widgets_values: [0.2, 0.8],
+      inputs: [{ name: 'floats_strength', type: 'FLOATS', link: 1 }, { name: 'prev_hook_kf', type: 'HOOK_KEYFRAMES', link: null }],
+      outputs: [{ name: 'HOOK_KF', type: 'HOOK_KEYFRAMES', links: [] }] },
+  ], links: [[1, 1, 0, 2, 0, 'FLOATS']] }, localResolve, undefined, translations)
+  expect(uninstalled.diagnostics.map((item) => item.code)).toEqual(['import.schema.missing'])
+  expect(Object.values(uninstalled.document!.graphs.g0!.links).map((link) => [link.from, link.to])).toEqual(
+    [[{ node: 'n1', port: 'FLOATS' }, { node: 'n2', port: 'floats_strength' }]])
 })
