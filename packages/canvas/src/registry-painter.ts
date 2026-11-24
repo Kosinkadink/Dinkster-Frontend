@@ -228,7 +228,10 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         (sketch === undefined ? y + rowHeight / 2 : chrome.y + chrome.height / 2) - paint.opener.iconSize / 2, paint.opener.iconSize, tokens.colors.label)
     }
     const geometry = tokens.rowGeometry
-    const leftControl = openerIcon !== undefined ? paint.opener.iconReserve + sketchShift : numeric ? geometry.stepperZone : 0
+    // Beside the square the name sits as far from the icon as a row's mode icon from its label.
+    const leftControl = openerIcon === undefined ? (numeric ? geometry.stepperZone : 0)
+      : sketch !== undefined ? sketchShift + paint.opener.iconInset + paint.opener.iconSize + paint.modeIconGap - paint.labelInset
+      : paint.opener.iconReserve
     const combo = (row.viewId === 'core.select' && row.spec.widgetType === 'COMBO')
       || (rowsRaisedForEditors && row.viewId === 'core.mount')
     const rightControl = openerIcon !== undefined ? paint.opener.trailingReserve : numeric || combo ? geometry.stepperZone : geometry.textEndInset
