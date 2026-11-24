@@ -182,6 +182,8 @@ import {
   type CanvasSemanticTarget,
 } from './CanvasSemanticNavigator.js'
 import { AudioRecordSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, type EditorSpaceItem } from './InNodeEditorSpaces.js'
+import { Load3dSpace } from './InNodeLoad3dSpace.js'
+import { openLoad3dSource } from './load3d-source.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
 
@@ -1081,6 +1083,12 @@ export function NodeMediaOverlay(props: {
 }
 
 /**
+ * Unfolded 3D views in nodes that run a live WebGL view at once. The browser
+ * keeps few WebGL contexts (16 in Chromium), so the rest show a still picture.
+ */
+const LIVE_MODEL_VIEWS = 8
+
+/**
  * Orbit viewport for a model3d node preview. The canvas paints the poster;
  * this overlay owns download and orbit actions. Opening the viewer mounts
  * three.js lazily over the poster. Camera state stays local to the viewer.
@@ -1600,12 +1608,33 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const canvas = canvasClientRect()
     return boundedVisibleOverlayKeys(
       // The editors whose controls the app lays over their space.
-      editorSpaces().filter((item) => ['core.audioRecord', 'core.curve', 'core.webcam'].includes(item.row.viewId)),
+      editorSpaces().filter((item) => ['core.audioRecord', 'core.curve', 'core.webcam', 'core.load3d'].includes(item.row.viewId)),
       (item) => item.key,
       (item) => mediaScreenRect(item.node, item.space, viewport, canvas) !== undefined,
       (item) => selectedNodeIds().has(item.nodeId),
     )
   }
+  // 3D views pressed while still, most recent first: each takes a live place ahead of the views by distance.
+  const [wokenModelViews, setWokenModelViews] = createSolidSignal<readonly string[]>([])
+  /**
+   * The 3D views that run a live WebGL view: those on screen nearest the
+   * view's centre, at most LIVE_MODEL_VIEWS; the others show a still picture.
+   */
+  const liveModelViews = createMemo((): ReadonlySet<string> => {
+    const viewport = editorViewport()
+    const canvas = canvasClientRect()
+    const centre = { x: (canvas.width / 2 - viewport.x) / viewport.scale, y: (canvas.height / 2 - viewport.y) / viewport.scale }
+    const woken = wokenModelViews()
+    const distance = (item: EditorSpaceItem): number => Math.hypot(
+      item.node.x + item.space.x + item.space.width / 2 - centre.x, item.node.y + item.space.y + item.space.height / 2 - centre.y)
+    const views = visibleEditorSpaceKeys().flatMap((key) => {
+      const item = editorSpaceByKey().get(key)
+      return item?.row.viewId === 'core.load3d' ? [item] : []
+    })
+    const rank = (item: EditorSpaceItem): number => { const at = woken.indexOf(item.key); return at < 0 ? woken.length : at }
+    return new Set(views.sort((left, right) => rank(left) - rank(right) || distance(left) - distance(right))
+      .slice(0, LIVE_MODEL_VIEWS).map((item) => item.key))
+  })
   const [selectedNodeIds, setSelectedNodeIds] = createSolidSignal<ReadonlySet<string>>(new Set())
   const setCanvasMediaActive = (id: string, active: boolean): void => {
     setActiveCanvasMedia((current) => {
@@ -6641,7 +6670,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           if (current === undefined || tab === undefined) return undefined
           const graphId = currentGraphId(tab)
           const owner = current.field.familyOwner
-          const target = { graphId: owner?.graphId ?? graphId, nodeId: owner?.nodeId ?? current.nodeId, inputId: owner?.valueKey ?? current.row.valueKey }
+          const target = { graphId: owner?.graphId ?? graphId, nodeId: owner?.nodeId ?? current.nodeId, inputId: owner?.valueKey ?? current.valueKey }
           const commit = (value: Json): void => void props.app.dispatchTo(tab, withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize,
             { command: 'node.setValue', params: { ...target, value } }))
           return { tab, graphId, current, target, commit }
@@ -6690,6 +6719,34 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             commit: (value: Json) => at.commit(value),
           }
         }
+        const load3d = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.load3d') return undefined
+          const backend = props.app.backendForTab(at.tab)
+          const native = backend.protocol === 'dinkster' ? backend.connection : undefined
+          const parts = at.current.field.parts
+          const node = at.tab.store.doc.graphs[at.target.graphId]?.nodes[at.target.nodeId]
+          const row = (part: string): string | undefined => parts === undefined ? undefined
+            : Object.hasOwn(parts.writes, part) ? parts.writes[part] : parts.reads[part]
+          executions()
+          // The model is read again when its file changes, or when a wire's run brings another one.
+          const sourceKey = JSON.stringify([backend.id, ['model_file', 'model_3d'].map((part) => {
+            const at = row(part)
+            return at === undefined ? null : node?.values[at] ?? null
+          }), at.current.wiredParts.size > 0 ? props.app.executionForTab(at.tab)?.key ?? null : null])
+          return {
+            sourceKey,
+            captures: parts === undefined || !Object.hasOwn(parts.writes, 'state'),
+            ports: {
+              open: (signal: AbortSignal) => openLoad3dSource(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts }, signal),
+              upload: native === undefined ? undefined
+                : (file: File, signal: AbortSignal) => native.uploadMediaAsset(file, { scope: 'local', kind: 'media/video', name: file.name, signal }),
+              commit: at.commit,
+              setSection: (id: string, open: boolean) => void props.app.dispatchTo(at.tab, { command: 'view.setSectionCollapsed',
+                params: { graphId: at.graphId, nodeId: at.current.nodeId, sectionId: `${at.current.row.valueKey}.${id}`, collapsed: open ? false : null } }),
+            },
+          }
+        }
         return (
           <Show when={item() !== undefined && projected() !== undefined}>
             <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl}>
@@ -6703,6 +6760,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               <Show when={curve()}>
                 {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wiredLine={item()?.row.wiredLine === true}
                   pictureHeight={item()?.row.picture?.height ?? 0} options={item()?.field.spec.options ?? {}} />}
+              </Show>
+              <Show when={load3d()}>
+                {(at) => <Load3dSpace value={item()?.value} pictureHeight={item()?.row.picture?.height ?? 0}
+                  sourceKey={at().sourceKey} ports={at().ports} captures={at().captures}
+                  live={liveModelViews().has(key)}
+                  onWake={() => setWokenModelViews((woken) => [key, ...woken.filter((other) => other !== key)].slice(0, LIVE_MODEL_VIEWS))}
+                  openSections={item()?.row.openSections ?? []}
+                  cameraWired={item()?.wiredParts.has('camera_info') === true}
+                  placementWired={item()?.wiredParts.has('model_3d_info') === true} />}
               </Show>
             </NodeEditorSpaceOverlay>
           </Show>

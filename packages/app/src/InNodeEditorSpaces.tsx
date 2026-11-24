@@ -33,9 +33,13 @@ export interface EditorSpaceItem {
   readonly node: EditorWorldRect
   /** The space within the node. */
   readonly space: EditorWorldRect
+  /** Where the editor's value is kept: its own row, or for an editor row the one row it writes. */
+  readonly valueKey: string
   readonly value: Json | undefined
   /** The editor's input has a wire, so the wire decides its value. */
   readonly wired: boolean
+  /** The parts of the widget whose rows have a wire, such as a 3D view's camera. */
+  readonly wiredParts: ReadonlySet<string>
   /** What the wire brought in the last run, when it is known. */
   readonly carried: Json | undefined
 }
@@ -60,6 +64,9 @@ export function editorSpaceItems(nodes: readonly {
       if (row.kind !== 'editorSpace') return []
       const field = node.layout.rows.find((item): item is FieldRow => item.kind === 'widget' && item.valueKey === row.valueKey)
       if (field === undefined) return []
+      const written = field.editor === true && field.parts !== undefined ? Object.values(field.parts.writes) : []
+      const valueKey = written.length === 1 ? written[0]! : row.valueKey
+      const parts = field.parts === undefined ? [] : [...Object.entries(field.parts.reads), ...Object.entries(field.parts.writes)]
       return [{
         key: `${node.id}:${row.valueKey}`,
         nodeId: node.id,
@@ -68,8 +75,10 @@ export function editorSpaceItems(nodes: readonly {
         node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
         // The controls stop at the editor's outline, above the row's bottom band.
         space: { x: row.inset, y: row.y, width: row.width ?? node.layout.width - row.inset * 2, height: row.height - defaultTokens.rowGeometry.fieldInsetY },
-        value: node.node.values?.[row.valueKey],
+        valueKey,
+        value: node.node.values?.[valueKey],
         wired: wires.wired(node.id, row.inputId),
+        wiredParts: new Set(parts.flatMap(([part, partRow]) => wires.wired(node.id, partRow) ? [part] : [])),
         carried: wires.carried(node.id, row.valueKey),
       }]
     })
@@ -78,8 +87,9 @@ export function editorSpaceItems(nodes: readonly {
 
 /**
  * The controls of one unfolded editor, laid over its space at the canvas's
- * normal size and scaled with the canvas. Wheel turns go to the canvas, so
- * the canvas zooms and pans over an editor as over the rest of the node.
+ * normal size and scaled with the canvas. Wheel turns go to the canvas and
+ * never to the controls (a 3D view does not zoom on them), so the canvas
+ * zooms and pans over an editor as over the rest of the node.
  */
 export function NodeEditorSpaceOverlay(props: {
   readonly item: EditorSpaceItem
@@ -90,6 +100,7 @@ export function NodeEditorSpaceOverlay(props: {
 }) {
   const forwardWheel = (event: WheelEvent): void => {
     event.preventDefault()
+    event.stopPropagation()
     props.canvas.dispatchEvent(new WheelEvent('wheel', {
       bubbles: true,
       cancelable: true,
@@ -104,7 +115,8 @@ export function NodeEditorSpaceOverlay(props: {
   }
   return (
     <div class="node-editor-space-overlay" data-node-id={props.item.nodeId} data-value-key={props.item.row.valueKey}
-      data-view-id={props.item.row.viewId} style={overlayClipStyle(props.rect, props.canvas)} onWheel={forwardWheel}>
+      data-view-id={props.item.row.viewId} style={overlayClipStyle(props.rect, props.canvas)}
+      ref={(element) => element.addEventListener('wheel', forwardWheel, { capture: true, passive: false })}>
       <div class="node-editor-space-world" style={{
         width: `${props.item.space.width}px`,
         height: `${props.item.space.height}px`,

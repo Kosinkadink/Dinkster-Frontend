@@ -645,3 +645,25 @@
   top: 0;
   transform-origin: 0 0;
 }
+
+/* The 3D view's editor: one box for pressing a still view anywhere to make it live. */
+.node-load3d-editor {
+  display: contents;
+}
+
+.node-load3d-view {
+  width: 100%;
+  height: 100%;
+}
+
+/* A camera that comes by wire does not turn. */
+.node-load3d-view[data-wired='true'] {
+  pointer-events: none;
+}
+
+.node-load3d-view > canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}

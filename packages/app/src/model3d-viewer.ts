@@ -481,10 +481,12 @@ export interface Model3dViewerHandle {
   recordingStream(width: number, height: number): { stream: MediaStream; stop(): void }
   capture(width: number, height: number): Promise<{ image: Blob; mask: Blob; normal: Blob }>
   /**
-   * Calls `listener` each time the user has moved the camera and it has come
-   * to rest, after the drag's easing; returns the function that stops it.
+   * Calls `listener` each time the user lets go of the camera after moving
+   * it; returns the function that stops it. While a listener is set the
+   * camera follows the pointer without easing, so the view at the release is
+   * the view that stays.
    */
-  onViewSettled(listener: () => void): () => void
+  onViewReleased(listener: () => void): () => void
 }
 
 type Vector3State = { x: number; y: number; z: number }
@@ -528,12 +530,10 @@ export async function mountModel3dViewer(
   let useCustomUp = false
   let cancelCapture: ((reason: Error) => void) | undefined
   let activeCamera: import('three').PerspectiveCamera | import('three').OrthographicCamera = framed.camera
-  const settledListeners = new Set<() => void>()
-  // A drag that ended, while its easing still moves the camera.
-  let settling = false
+  const releaseListeners = new Set<() => void>()
   const watchControls = (orbit: InstanceType<ThreeModules['OrbitControls']>): void => {
-    orbit.addEventListener('start', () => { settling = false })
-    orbit.addEventListener('end', () => { settling = true })
+    orbit.enableDamping = releaseListeners.size === 0
+    orbit.addEventListener('end', () => { for (const listener of releaseListeners) listener() })
   }
   const updateProjection = (width: number, height: number): void => {
     fitCameraAspect(modules.THREE, activeCamera, width / height)
@@ -613,9 +613,8 @@ export async function mountModel3dViewer(
 
     const orbit = new modules.OrbitControls(framed.camera, gl.domElement)
     controls = orbit
-    watchControls(orbit)
     orbit.target.copy(framed.center)
-    orbit.enableDamping = true
+    watchControls(orbit)
     orbit.update()
 
     const renderLoop = (): void => {
@@ -623,10 +622,7 @@ export async function mountModel3dViewer(
       const now = performance.now()
       if (!capturing) {
         if (playing) mixer?.update((now - lastFrame) / 1000 * animationSpeed)
-        if (!controls!.update() && settling) {
-          settling = false
-          for (const listener of settledListeners) listener()
-        }
+        controls!.update()
         gl.render(framed.scene, activeCamera)
       }
       lastFrame = now
@@ -671,8 +667,6 @@ export async function mountModel3dViewer(
       // OrbitControls caches the camera-up basis when it is constructed.
       controls!.dispose()
       controls = new modules.OrbitControls(activeCamera, renderer!.domElement)
-      controls.enableDamping = true
-      settling = false
       watchControls(controls)
       controls!.target.copy(state.target)
       activeCamera.lookAt(controls!.target)
@@ -801,9 +795,13 @@ export async function mountModel3dViewer(
         capturing = false
       }
     },
-    onViewSettled(listener) {
-      settledListeners.add(listener)
-      return () => { settledListeners.delete(listener) }
+    onViewReleased(listener) {
+      releaseListeners.add(listener)
+      controls!.enableDamping = false
+      return () => {
+        releaseListeners.delete(listener)
+        controls!.enableDamping = releaseListeners.size === 0
+      }
     },
   }
   try {
