@@ -80,7 +80,7 @@ describe('a primitive works out its value widget', () => {
     expect(effective.diagnostics).toEqual([])
     // The fields share a default of 4, so Reset goes there, and the empty Default field shows it dimmed.
     expect(effective.spec?.default).toBe(4)
-    const drawn = documentNodeResolver(doc, resolve, undefined, documentPrimitiveResolver(doc, resolve))('g0', doc.graphs['g0']!.nodes['prim'] as NodeData, [])!
+    const drawn = documentNodeResolver(doc, resolve, documentPrimitiveResolver(doc, resolve))('g0', doc.graphs['g0']!.nodes['prim'] as NodeData, [])!
     expect(inputsOf(drawn).find((row) => row.id === 'default')!.widget).toMatchObject({ default: 4, automatic: true })
     // The value itself is never corrected by working out the range.
     expect(doc.graphs['g0']!.nodes['prim']!.values['value']).toBe(2)
@@ -94,7 +94,7 @@ describe('a primitive works out its value widget', () => {
     expect([...effective.derived]).toEqual(['max'])
     expect(effective.spec?.default).toBe(7)
     const node = doc.graphs['g0']!.nodes['prim'] as NodeData
-    const drawn = documentNodeResolver(doc, resolve, undefined, documentPrimitiveResolver(doc, resolve))('g0', node, [])!
+    const drawn = documentNodeResolver(doc, resolve, documentPrimitiveResolver(doc, resolve))('g0', node, [])!
     const value = inputsOf(drawn).find((row) => row.id === 'value')!
     expect(value.widget?.options).toMatchObject({ min: 5, max: 8 })
     expect(value.displayName).toBe('Steps')
