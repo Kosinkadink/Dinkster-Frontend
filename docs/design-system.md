@@ -1023,7 +1023,11 @@ An optional `labelContent` replaces the expanded visible label. The required
 string `label` still owns the accessible name and title; rich content must be
 non-interactive. Compact mode clips action content and shows the action's icon
 without changing activation or menu ownership, except for the app-menu brand
-slot, which retains its D symbol and chevron at every width. Pending toolbar
+slot, which retains its D symbol and chevron at every width, and the project
+action (a `labelContent` holding `.dinkster-window-project-label`), which keeps
+its folder and name in the full row. Its name shortens with an ellipsis from
+`toolbarProjectNameMaxWidth` to `toolbarProjectNameMinWidth` before any other
+control gives up width, and only the narrow row reduces it to the folder. Pending toolbar
 actions retain their exact non-pending width and shared disabled/focus behavior.
 The spinner replaces the compact icon, the leading icon in an expanded rich
 label, or the app-menu D symbol while keeping its chevron.
@@ -1031,9 +1035,10 @@ For a text-only expanded label, it replaces the drawn text at the center while
 the label continues to supply the accessible name. No other control moves when
 an action becomes pending. Ordinary ProductButton presentation is unchanged.
 The actions slot also accepts a render function receiving a reactive `narrow`
-accessor. It switches below the fixed 460px available-content token
+accessor. It switches below the fixed 546px available-content token
 `toolbarFullRowWidth`, after native reservations, independently of account or
-execution state. The layout menu then holds the left, bottom and right panel
+execution state; 546px is the widest gallery row with the project name at its
+minimum. The layout menu then holds the left, bottom and right panel
 switches together, followed by left bar, status bar and Reset layout. In the full
 row the three panel switches stay in the bar and are not repeated in the menu.
 `ProductMenuItem.checked` draws the shared checkmark and exposes

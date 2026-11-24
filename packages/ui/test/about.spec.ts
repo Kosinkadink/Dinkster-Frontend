@@ -1,5 +1,9 @@
 import { expect, test } from '../../e2e/visual.js'
 import axe from 'axe-core'
+import components from '@dinkster/branding/components' with { type: 'json' }
+
+// The narrowest Linux gallery viewport whose bar shows the full row: the bar pads 12px each side.
+const fullRowViewport = components.layout.toolbarFullRowWidth + 24
 
 for (const width of [1280, 390]) {
   test(`About identity and bundled wordmarks at ${width}px`, async ({
@@ -291,7 +295,7 @@ test('narrow toolbar keeps region switches in the checked layout menu', async ({
     .locator('header')
   for (const state of ['idle', 'running', 'pending']) {
     await page.getByLabel('Execution state').selectOption(state)
-    await page.setViewportSize({ width: 484, height: 900 })
+    await page.setViewportSize({ width: fullRowViewport, height: 900 })
     for (const name of ['Left panel', 'Bottom panel', 'Right panel'])
       await expect(bar.getByRole('button', { name, exact: true })).toBeVisible()
     const layout = bar.getByRole('button', {
@@ -309,7 +313,7 @@ test('narrow toolbar keeps region switches in the checked layout menu', async ({
       'Status bar',
     ])
     await page.keyboard.press('Escape')
-    await page.setViewportSize({ width: 483, height: 900 })
+    await page.setViewportSize({ width: fullRowViewport - 1, height: 900 })
     for (const name of ['Left panel', 'Bottom panel', 'Right panel'])
       await expect(bar.getByRole('button', { name, exact: true })).toHaveCount(
         0,
@@ -351,7 +355,7 @@ test('narrow toolbar keeps region switches in the checked layout menu', async ({
   await trigger.click()
   await expect(bottom).toBeChecked()
   await page.keyboard.press('Escape')
-  await page.setViewportSize({ width: 484, height: 900 })
+  await page.setViewportSize({ width: fullRowViewport, height: 900 })
   await expect(
     bar.getByRole('button', { name: 'Bottom panel', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true')
@@ -381,7 +385,7 @@ test('narrow layout menu carries the right panel attention on its trigger and it
   const bar = page
     .getByRole('region', { name: 'production dark linux', exact: true })
     .locator('header')
-  await page.setViewportSize({ width: 484, height: 900 })
+  await page.setViewportSize({ width: fullRowViewport, height: 900 })
   const full = bar.getByRole('button', { name: 'Customize layout', exact: true })
   await expect(full).toBeVisible()
   await expect(full.locator('.dinkster-attention')).toHaveCount(0)
@@ -606,7 +610,7 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
       const left = platform === 'darwin' ? 92 : 12
       const right = width - (platform === 'win32' ? 148 : 12)
       await expect(bar.locator('button[aria-pressed]')).toHaveCount(
-        right - left < 460 ? 0 : 3,
+        right - left < components.layout.toolbarFullRowWidth ? 0 : 3,
       )
       const action = bar.getByRole('button', {
         name: 'Dinkster menu',
@@ -787,7 +791,18 @@ for (const state of ['running', 'pending'])
           expect(layoutBounds.x - searchBounds.x - searchBounds.width).toBe(4)
         } else {
           await expect(search.locator('kbd')).toBeHidden()
-          expect((await project.boundingBox())!.width).toBe(32)
+          // Below 940px the project action alone keeps its folder and name in the full row.
+          await expect(
+            project.locator('.dinkster-window-project-label > svg'),
+          ).toBeVisible()
+          await expect(text).toHaveCSS('text-overflow', 'ellipsis')
+          const textWidth = (await text.boundingBox())!.width
+          expect(textWidth).toBeGreaterThanOrEqual(
+            components.layout.toolbarProjectNameMinWidth,
+          )
+          expect(textWidth).toBeLessThanOrEqual(
+            components.layout.toolbarProjectNameMaxWidth,
+          )
         }
         const bounds = await bar.evaluate((node) => {
           const rect = node.getBoundingClientRect()
@@ -862,7 +877,7 @@ for (const state of ['idle', 'running', 'pending'])
         const left = platform === 'darwin' ? 92 : 12
         const right = width - (platform === 'win32' ? 148 : 12)
         await expect(bar.locator('button[aria-pressed]')).toHaveCount(
-          right - left < 460 ? 0 : 3,
+          right - left < components.layout.toolbarFullRowWidth ? 0 : 3,
         )
         const search = bar.getByRole('button', { name: 'Search', exact: true })
         const compact = right - left < 940

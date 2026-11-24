@@ -224,8 +224,9 @@
 .dinkster-window-action-icon { display: none; }
 .dinkster-window-action-shortcut { padding-inline: var(--dinkster-space-4); border: var(--dinkster-border-width) solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-raised); color: var(--dinkster-text-secondary); font: inherit; font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 @container (width < DINKSTER_TOOLBAR_EXPANDED_WIDTH) {
-  .dinkster-window-toolbar { grid-template-columns: auto minmax(var(--dinkster-control-compact-height), 1fr) minmax(0, max-content) auto auto; }
-  .dinkster-window-toolbar-actions { min-width: 0; }
+  .dinkster-window-toolbar { grid-template-columns: auto minmax(var(--dinkster-control-compact-height), 1fr) auto auto auto; }
+  .dinkster-window-toolbar-host:not([data-narrow]) .dinkster-window-toolbar { grid-template-columns: auto minmax(var(--dinkster-control-compact-height), 1fr) minmax(0, max-content) auto auto; }
+  .dinkster-window-toolbar-host:not([data-narrow]) .dinkster-window-toolbar-actions { min-width: 0; }
   .dinkster-window-toolbar-actions > * { flex-shrink: 0; }
   .dinkster-window-toolbar-search > .dinkster-window-action { width: var(--dinkster-control-compact-height); }
   .dinkster-window-toolbar .dinkster-run-activity { flex-direction: column; align-items: flex-start; gap: 0; font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
