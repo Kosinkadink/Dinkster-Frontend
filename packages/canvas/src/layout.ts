@@ -270,6 +270,8 @@ export type LayoutRow =
       readonly width?: number
       readonly buttonId: string
       readonly label: string
+      /** The button's `enabled` worked out to false: drawn faded. */
+      readonly enabled?: false
     }
   | {
       /**
@@ -989,7 +991,7 @@ export function layoutNode(
     header?: BoxDecl
     growth?: { construct: string; label: string; frames: readonly MaterializeFrame[] }
     note?: { noteId: string; text: string; unknown?: true; quiet?: true }
-    button?: { buttonId: string; label: string }
+    button?: { buttonId: string; label: string; enabled?: false }
   }
   /** A `Row` cell's text, which sets its share of the line's width. */
   const cellLabel = (row: PendingRow): string =>
@@ -1231,7 +1233,7 @@ export function layoutNode(
         boxes: chain,
         ...(item.kind === 'note'
           ? { note: { noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}), ...(item.quiet ? { quiet: true as const } : {}) } }
-          : { button: { buttonId: item.id, label: item.label } }),
+          : { button: { buttonId: item.id, label: item.label, ...(item.enabled === false ? { enabled: false as const } : {}) } }),
       })
       continue
     }

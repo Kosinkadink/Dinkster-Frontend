@@ -103,7 +103,6 @@ export const canvasPaintTokens = {
     selectionUnion: { world: [5, 4], screen: [4, 3] },
     marquee: { world: [4, 3], screen: [3, 2] },
     remote: [6, 4],
-    growth: [3, 3],
     companionUnderline: [1, 2],
     running: { world: [13, 9], screen: [9, 6] },
     boundary: { world: [5, 3], screen: [4, 3] },
@@ -592,7 +591,11 @@ export const canvasPaintTokens = {
     companion: { stroke: 1, underlineOffset: canvasSemanticTokens.space[4] },
     fallbackValueWidthPadding: canvasSemanticTokens.space[8],
     fallback: { opacity: 0.75, textInset: 4, labelRatio: 0.45, valueRatio: 0.5 },
-    growth: { stroke: 1, verticalInset: 3, textPadding: canvasSemanticTokens.space[8] },
+    /**
+     * A button on a node (a group's add row, a declared button): its outline,
+     * the room kept beside its words, and how far a disabled one fades.
+     */
+    button: { stroke: 1, textPadding: canvasSemanticTokens.space[8], disabledOpacity: canvasSemanticTokens.interaction.disabledOpacity },
   },
   minimap: {
     fallbackWidth: 160,
@@ -790,6 +793,14 @@ export interface DesignTokens {
     readonly boxCount: string
     /** The dot on a closed box that holds a value that is not its default. */
     readonly boxChanged: string
+    /** A button's face at rest, under the pointer and held down. */
+    readonly buttonFace: string
+    readonly buttonHover: string
+    readonly buttonPressed: string
+    /** The lit top edge of a button that is not pressed. */
+    readonly buttonLitEdge: string
+    /** The dark line under a button that is not pressed. */
+    readonly buttonShade: string
     /**
      * Companion (propagated) value text: what a link-driven input WOULD
      * execute with, rendered read-only in neutral italic text in place of
@@ -1002,11 +1013,16 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     companionUnproven: tokens.meaning.info.foreground,
     companionEstimate: tokens.meaning.success.foreground,
     error: tokens.meaning.danger.border,
-    boxOutline: theme === 'dark' ? '#343A41' : tokens.border.subtle,
+    boxOutline: tokens.border.box,
     boxInnerOutline: theme === 'dark' ? '#2E3338' : '#E1E5E9',
     boxHover: theme === 'dark' ? '#22262B' : tokens.surface.raised,
     boxCount: tokens.text.muted,
     boxChanged: tokens.meaning.accent.border,
+    buttonFace: tokens.button.face,
+    buttonHover: tokens.button.faceHover,
+    buttonPressed: tokens.button.facePressed,
+    buttonLitEdge: tokens.button.litEdge,
+    buttonShade: tokens.button.shade,
   }
 }
 
