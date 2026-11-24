@@ -97,7 +97,6 @@ export const canvasPaintTokens = {
     groupSelection: { world: [6, 4], screen: [4, 3] },
     ghost: { world: [6, 4], screen: [4, 3] },
     maybeAbsentLink: { world: [9, 5], screen: [5, 3] },
-    netGuide: { world: [7, 5], screen: [7, 5] },
     selectionUnion: { world: [5, 4], screen: [4, 3] },
     marquee: { world: [4, 3], screen: [3, 2] },
     remote: [6, 4],

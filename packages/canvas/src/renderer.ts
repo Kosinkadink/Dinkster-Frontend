@@ -2373,10 +2373,11 @@ export class CanvasRenderer {
           minScreenWidth: canvasPaintTokens.link.selectedMinScreenStroke,
         })
       }
-      // Maybe-absent (optional producer) links dash long-and-slow: a calm
-      // "this value might legitimately not exist" cue, deliberately distinct
-      // from the short [6,4] ghost-drag dash and from any error styling.
-      if (link.maybeAbsent === true) ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.maybeAbsentLink.world, canvasPaintTokens.dash.maybeAbsentLink.screen, scale))
+      // A dashed wire means only that it may carry nothing (an optional
+      // producer) or carries nothing (a dimmed wire from a kept row); every
+      // other wire, including one being dragged, is solid.
+      const dashed = link.maybeAbsent === true || link.dimmed === true
+      if (dashed) ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.maybeAbsentLink.world, canvasPaintTokens.dash.maybeAbsentLink.screen, scale))
       // A PROVEN type conflict paints the noodle in error red, overriding
       // the type color: the break must be visible where it is, not hunted
       // down from a Problems entry. Slightly wider so red never hides
@@ -2390,7 +2391,7 @@ export class CanvasRenderer {
       } else {
         this.drawLink(ctx, x1, y1, x2, y2, link.typeName)
       }
-      if (link.maybeAbsent === true) ctx.setLineDash([])
+      if (dashed) ctx.setLineDash([])
       // Midpoint grab dot: a visible handle for clicking the noodle (and
       // double-click reroute insertion). Boundary noodles carry it too -
       // they select and delete like any noodle (delete lowers to
@@ -2613,7 +2614,6 @@ export class CanvasRenderer {
         })
       }
       ctx.save()
-      ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.netGuide.world, canvasPaintTokens.dash.netGuide.screen, scale))
       for (const stub of guideStubs) {
         if (stub.role !== 'sink') continue
         const source = sources.get(stub.netId)
@@ -2721,14 +2721,12 @@ export class CanvasRenderer {
     if (this.overlay.ghostLink) {
       const g = this.overlay.ghostLink
       ctx.save()
-      ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.ghost.world, canvasPaintTokens.dash.ghost.screen, scale))
       this.drawLink(ctx, g.x1, g.y1, g.x2, g.y2, g.typeName)
       ctx.restore()
     }
 
     if (this.overlay.ghostLinks) {
       ctx.save()
-      ctx.setLineDash(screenAwareDash(canvasPaintTokens.dash.ghost.world, canvasPaintTokens.dash.ghost.screen, scale))
       for (const g of this.overlay.ghostLinks) {
         this.drawLink(ctx, g.x1, g.y1, g.x2, g.y2, g.typeName)
       }
@@ -2929,7 +2927,6 @@ export class CanvasRenderer {
           ctx.strokeStyle = actor.color
           ctx.lineWidth = paint.linkStroke
           ctx.globalAlpha = paint.ghostOpacity
-          ctx.setLineDash([...canvasPaintTokens.dash.remote])
           const inputOrigin = origin.kind !== 'widgetTap' && origin.side === 'in'
           this.drawLink(
             ctx,
