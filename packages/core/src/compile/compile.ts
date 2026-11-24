@@ -1431,11 +1431,8 @@ function compileImpl(
      * non-concrete destinations.
      */
     | { readonly kind: 'value'; readonly value: Json; readonly typeId?: string; readonly controllerSources?: readonly ControllerInputSource[]; readonly controllerWidget?: WidgetSpec }
-    /**
-     * `node` names the muted node the route reached, for the reason sent with
-     * $absent; `viaBypass` marks a route that passed through a bypassed node.
-     */
-    | { readonly kind: 'muted'; readonly reason: string; readonly node?: string; readonly viaBypass?: true }
+    /** `node` names the muted node the route reached, for the reason sent with $absent. */
+    | { readonly kind: 'muted'; readonly reason: string; readonly node?: string }
     /** `absent`: the wire gives nothing (its field is no longer part of its node), sent as $absent when the server takes it. */
     | { readonly kind: 'dropped'; readonly reason: string; readonly absent?: true }
 
@@ -1614,12 +1611,9 @@ function compileImpl(
           // otherwise the input's occurrence-effective value is baked into
           // the consumer, and an after-run control on it stays the node's own.
           const { path: knownPath, defId: knownDefId, node: knownNode, input } = at.known
-          // A link from a muted producer is dropped, as it would be if the
-          // node ran, and the node's own value is used.
+          // A link from a muted producer passes nothing on, not the node's own value.
           const driver = driverOfInput(knownPath, knownDefId, knownNode, input.address)
-          const deadDriver = driver !== undefined && isPortEndpoint(driver.endpoint) &&
-            resolveOutputPort(driver.path, driver.defId, driver.endpoint, []) === 'muted'
-          if (driver && !deadDriver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: driver.path, defId: driver.defId, endpoint: driver.endpoint } }] }
+          if (driver) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: driver.path, defId: driver.defId, endpoint: driver.endpoint } }] }
           const tapped = tapValue(knownPath, knownDefId, knownNode, input.spec.id, sink)
           if (tapped === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `'${knownNode}' is muted`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
           if (tapped === undefined) {
@@ -1670,9 +1664,7 @@ function compileImpl(
         data: { reason: dead.reason, inputIndex: first.inputIndex, output: first.output.spec.id, route: result.hops.map((hop) => hop.occurrenceKey) },
       }))
     }
-    return result.hops.length === 0
-      ? result.terminals
-      : result.terminals.map((terminal) => terminal.kind === 'muted' ? { ...terminal, viaBypass: true as const } : terminal)
+    return result.terminals
   }
 
   // -- Pass 1: discover occurrences, derive overlays, collect ---------------
@@ -2266,12 +2258,14 @@ function compileImpl(
         for (const dst of dsts) if (isNodeInput(dst)) givesNothingFromMuted(dst, mutedSource!, c.what, defId)
         continue
       }
+      // Bypassed consumer: consumed by passthrough (or dormant) - silent. What
+      // it hands on, nothing when the producer is muted, reaches its
+      // consumers along the route from its output.
+      if (dsts === 'bypassed') continue
       if (structuralSrc === 'muted' || dsts === 'muted') {
         diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is muted`))
         continue
       }
-      // Bypassed consumer: consumed by passthrough (or dormant) - silent.
-      if (dsts === 'bypassed') continue
       // An unresolved producer is fatal only if one of these consumers
       // executes; record them before the scratch diagnostics surface.
       if (Array.isArray(dsts)) attachUnknownSchemaDependents(scratch, dsts.filter(isNodeInput).map((destination) => destination.runtimeId))
@@ -2323,7 +2317,7 @@ function compileImpl(
           attachUnknownSchemaDependents(routeDiagnostics, [dst.runtimeId])
           if (trace.kind === 'muted') {
             diags.push(...routeDiagnostics)
-            if (trace.node !== undefined && trace.viaBypass !== true) givesNothingFromMuted(dst, trace.node, c.what, defId)
+            if (trace.node !== undefined) givesNothingFromMuted(dst, trace.node, c.what, defId)
             else diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is muted`))
             continue
           }
