@@ -50,6 +50,7 @@ import {
   type PortAddress,
   type SourceFilenameSpec,
   type TypeExpr,
+  type WidgetParts,
   type WidgetSpec,
 } from '@dinkster/core'
 import { canvasPaintTokens, type DesignTokens } from './tokens.js'
@@ -92,6 +93,12 @@ export interface DynamicAnnotations {
   }
   /** Inactive branch of a document-time selector; display-only. */
   readonly inactive?: true
+  /**
+   * A row no longer part of the node, kept only for the wire on its output
+   * (ElaboratedInput.kept): drawn inactive, not editable, no new wire starts
+   * or ends on it. The text says why.
+   */
+  readonly kept?: string
   /** Input that takes one value or a whole list (InputSpec.acceptsList), whatever its matched type. */
   readonly acceptsList?: true
   /** Derived source for the immediate enclosing region's iteration index. */
@@ -208,6 +215,13 @@ export type LayoutRow =
         readonly construct: string
         readonly valueKey: string
       }
+      /** The rows its widget's `writes` and `reads` name (flattened ids). */
+      readonly parts?: WidgetParts
+      /**
+       * An editor row: a widget with no value of its own. It has no label and
+       * no pin; `inputId` and `valueKey` are its layout id, which stores nothing.
+       */
+      readonly editor?: true
       /**
        * Set for an Inputs panel field whose value is a value source's own
        * value: edits dispatch valueSource.setValue and
@@ -244,6 +258,8 @@ export type LayoutRow =
       readonly text: string
       /** The text is the note's "while unknown" answer. */
       readonly unknown?: true
+      /** Drawn dimmed: a remark about the rows, such as the members inside a subgraph. */
+      readonly quiet?: true
     }
   | {
       /** A button (ElaboratedButton): drawn and inert; its steps never run here. */
@@ -360,10 +376,8 @@ export interface PinLayout extends DynamicAnnotations {
   readonly inferred?: true
   /** Input belongs to a widget row rather than a forced socket row. */
   readonly widgetBacked?: true
-  /** Producer affordance for a static memberless widget input. */
+  /** A field's output: the value the field's node runs with. */
   readonly widgetTap?: true
-  /** Proven by elaboration to originate from a static schema input. */
-  readonly staticWidgetTap?: true
   /** Optional input (InputSpec.optional): renders as a donut, not a filled dot. */
   readonly optional?: true
   /** Output pin whose producer may deliberately emit no value (OutputSpec.optional). */
@@ -379,12 +393,6 @@ export interface PinLayout extends DynamicAnnotations {
   readonly stacked?: true
   /** Pin belongs to a minimized node and is represented by an aggregate side proxy. */
   readonly minimized?: true
-  /**
-   * A port-anchored solver diagnostic points here (e.g. a stale DynamicSlot
-   * specialization). Set during scene build, never by layout itself; the
-   * renderer paints a warning ring so the advisory is actionable at the pin.
-   */
-  readonly warn?: true
 }
 
 /** One box's outline, node-local. */
@@ -423,6 +431,8 @@ export interface NodeLayout {
   readonly subtitle?: string
   /** True only when an override differs from the schema/fallback display name. */
   readonly titleRenamed?: boolean
+  /** The declared title suffix, drawn dim after the title; never counted in the width. */
+  readonly titleSuffix?: string
   readonly rows: readonly LayoutRow[]
   readonly pins: readonly PinLayout[]
   /** Body rows are hidden while title, compact preview, and endpoint anchors remain visible. */
@@ -946,6 +956,7 @@ const annotationsOf = (a: DynamicAnnotations): DynamicAnnotations => ({
   ...(a.materialize !== undefined ? { materialize: a.materialize } : {}),
   ...(a.dynamicSlot !== undefined ? { dynamicSlot: a.dynamicSlot } : {}),
   ...(a.inactive ? { inactive: true } : {}),
+  ...(a.kept !== undefined ? { kept: a.kept } : {}),
   ...(a.acceptsList ? { acceptsList: true } : {}),
 })
 
@@ -995,12 +1006,14 @@ export function layoutNode(
     output?: PortSlot & { index: number }
     removable?: true
     reorder?: PendingGrip
+    /** The spare member of a group that can be reordered: room where a grip would stand, none drawn. */
+    gripSpace?: true
     widget?: Extract<LayoutRow, { kind: 'widget' }> extends infer R
       ? Omit<R, 'kind' | 'y' | 'height' | 'inset'>
       : never
     header?: BoxDecl
     growth?: { construct: string; label: string; frames: readonly MaterializeFrame[] }
-    note?: { noteId: string; text: string; unknown?: true }
+    note?: { noteId: string; text: string; unknown?: true; quiet?: true }
     button?: { buttonId: string; label: string }
   }
   /** A `Row` cell's text, which sets its share of the line's width. */
@@ -1036,6 +1049,11 @@ export function layoutNode(
   /** Left edge of a field inside `depth` boxes. */
   const fieldInset = (depth: number): number =>
     depth === 0 ? tokens.rowGeometry.fieldInsetX : outlineX(depth) + box.stroke + box.fieldGap
+  /**
+   * A one-row member's remove cross stands as far inside its group's outline
+   * as it stands from the field: its right edge's distance from the node's.
+   */
+  const crossInset = (depth: number): number => fieldInset(depth) - box.fieldGap + box.cross.fieldGap
   /** How far a pin row's names move in inside `depth` boxes. */
   const nameInset = (depth: number): number => depth * (box.stroke + box.step)
 
@@ -1076,7 +1094,7 @@ export function layoutNode(
     if (item.kind === 'input' || item.kind === 'output') {
       return declared(item.boxes ?? (item.spec.section !== undefined ? [item.spec.section] : []))
     }
-    if (item.kind === 'note' || item.kind === 'button' || item.kind === 'growth') {
+    if (item.kind === 'note' || item.kind === 'button' || item.kind === 'growth' || item.kind === 'editor') {
       return declared(item.boxes ?? (item.section !== undefined ? [item.section] : []))
     }
     return []
@@ -1103,6 +1121,11 @@ export function layoutNode(
       ? gripOf(item.origin.construct, item.origin.key)
       : undefined
   const withGrip = (grip: PendingGrip | undefined): { reorder?: PendingGrip } => grip === undefined ? {} : { reorder: grip }
+  const spareGrip = (item: ElaboratedInput, chain: readonly string[]): { gripSpace?: true } =>
+    item.origin.kind === 'member' && item.origin.ghost === true && chain.at(-1) === groupBoxKey(item.origin.construct) &&
+      decls.get(groupBoxKey(item.origin.construct))?.reorderable === true
+      ? { gripSpace: true }
+      : {}
   const chainKey = (chain: readonly string[]): string => chain.join('\n')
 
   // Modified widget values hidden by each closed box (derived, never
@@ -1139,15 +1162,15 @@ export function layoutNode(
       ...(item.origin.kind === 'member' || (item.ancestry?.length ?? 0) > 0 ? { familyMember: true } : {}),
       ...(frames !== undefined ? { materialize: frames } : {}),
       ...(dynamicSlot !== undefined ? { dynamicSlot } : {}),
-      ...(selectorDisplay?.[item.address.port] === 'inactive' ? { inactive: true } : {}),
+      ...(selectorDisplay?.[item.address.port] === 'inactive' || (item.kind === 'input' && item.kept !== undefined) ? { inactive: true } : {}),
+      ...(item.kind === 'input' && item.kept !== undefined ? { kept: item.kept } : {}),
       ...(item.kind === 'input' && item.spec.acceptsList ? { acceptsList: true } : {}),
     }
   }
 
   // Ports hidden by a closed box whose pins the open box shows at rest:
   // they gather on its closed row.
-  const collapsedPins: ({ sectionId: string; portId: string; label: string; direction: 'in' | 'out'; type: TypeExpr; connected: boolean; optional?: true; maybeAbsent?: true; widgetTap?: true; staticWidgetTap?: true } & DynamicAnnotations)[] = []
-  const staticWidgetInputs = new Set<string>()
+  const collapsedPins: ({ sectionId: string; portId: string; label: string; direction: 'in' | 'out'; type: TypeExpr; connected: boolean; optional?: true; maybeAbsent?: true; widgetTap?: true } & DynamicAnnotations)[] = []
   const hiddenPorts = new Map<string, HiddenPort[]>()
   const hidePort = (at: string, port: HiddenPort): void => {
     hiddenPorts.set(at, [...(hiddenPorts.get(at) ?? []), port])
@@ -1168,6 +1191,8 @@ export function layoutNode(
   }
 
   let outputIndex = 0
+  /** Top-level boxes that hold a row other than an output. */
+  const holdsMoreThanOutputs = new Set<string>()
   for (const item of items) {
     if (item.kind === 'section' || item.kind === 'box') {
       const decl = decls.get(item.kind === 'section' ? item.spec.id : item.id)!
@@ -1187,6 +1212,8 @@ export function layoutNode(
       continue
     }
     const chain = chainOf(item)
+    if (chain.length > 0 && item.kind !== 'output' && !(item.kind === 'input' && item.spec.hidden === true))
+      holdsMoreThanOutputs.add(chain[0]!)
     if (item.kind === 'growth') {
       // Grow-family affordance: hides with its box like the family's own
       // rows would; no pin, so a closed box needs no anchor.
@@ -1199,6 +1226,37 @@ export function layoutNode(
       })
       continue
     }
+    if (item.kind === 'editor') {
+      hold(chain)
+      if (isHidden(chain)) continue
+      const measured = widgetMeasure(item.widget) ?? { viewId: 'core.unknown', rows: 1 }
+      // The compact view shows the one row the editor writes, when it writes exactly one.
+      const written = Object.values(item.parts.writes)
+      const shown = written.length === 1 ? node.values[written[0]!] : undefined
+      const ghost = (item.origin.kind === 'member' && item.origin.ghost === true) || item.ancestry?.some((a) => a.ghost) === true
+      pending.push({
+        kind: 'widget',
+        boxes: chain,
+        widget: {
+          inputId: item.id,
+          valueKey: item.id,
+          label: '',
+          type: { kind: 'wildcard' },
+          viewId: measured.viewId,
+          rows: Number.isFinite(measured.rows) ? Math.max(1, Math.floor(measured.rows)) : 1,
+          spec: item.widget,
+          socketless: true,
+          ...(shown !== undefined ? { derivedValue: shown } : {}),
+          parts: item.parts,
+          editor: true,
+          address: { port: item.id },
+          ...(ghost ? { ghost: true } : {}),
+          ...(item.origin.kind === 'member' || (item.ancestry?.length ?? 0) > 0 ? { familyMember: true } : {}),
+          ...(item.materialize !== undefined ? { materialize: item.materialize } : {}),
+        },
+        })
+        continue
+      }
     if (item.kind === 'note' || item.kind === 'button') {
       if (item.adjacentTo === undefined) hold(chain)
       if (isHidden(chain)) continue
@@ -1206,13 +1264,14 @@ export function layoutNode(
         kind: item.kind,
         boxes: chain,
         ...(item.kind === 'note'
-          ? { note: { noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}) } }
+          ? { note: { noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}), ...(item.quiet ? { quiet: true as const } : {}) } }
           : { button: { buttonId: item.id, label: item.label } }),
       })
       continue
     }
     if (item.kind === 'output') {
       const spec = item.spec
+      if (spec.hidden === true) continue
       holdPort(chain, 'outputs')
       if (isHidden(chain)) {
         hidePort(closedAt(chain)!, {
@@ -1254,7 +1313,6 @@ export function layoutNode(
     const asSocket = !widget || spec.forceInput
     if (asSocket) holdPort(chain, 'inputs')
     else if (spec.adjacentTo === undefined) hold(chain)
-    if (spec.widget && item.origin.kind === 'static') staticWidgetInputs.add(spec.id)
     if (isHidden(chain)) {
       const at = closedAt(chain)!
       if (!spec.socketless) {
@@ -1278,7 +1336,7 @@ export function layoutNode(
       if (widget && !spec.forceInput && isConnected('out', spec.id)) {
         collapsedPins.push({
           sectionId: at, portId: spec.id, label: displayLabel(spec), direction: 'out', type: spec.type, connected: true, widgetTap: true,
-          ...(item.origin.kind === 'static' ? { staticWidgetTap: true as const } : {}), ...annotate(item),
+          ...annotate(item),
         })
       }
       continue
@@ -1297,6 +1355,7 @@ export function layoutNode(
         },
         ...(removable(item, chain) ? { removable: true as const } : {}),
         ...withGrip(rowGrip(item, chain)),
+        ...spareGrip(item, chain),
       })
       continue
     }
@@ -1323,6 +1382,7 @@ export function layoutNode(
       boxes: chain,
       ...(removable(item, chain) ? { removable: true as const } : {}),
       ...withGrip(rowGrip(item, chain)),
+      ...spareGrip(item, chain),
       widget: {
         inputId: spec.id,
         valueKey,
@@ -1342,6 +1402,7 @@ export function layoutNode(
         // A menu's state lives under its flattened id, members included.
         ...(representation.spec.editableOptions === true ? { optionsTarget: { construct: item.address.port } } : {}),
         ...(selector !== undefined ? { selector, lead: true as const } : {}),
+        ...(item.parts !== undefined ? { parts: item.parts } : {}),
         ...annotate(item),
       },
     })
@@ -1367,8 +1428,15 @@ export function layoutNode(
     const chain = rest[0]!.boxes
     const extra = rest.map((output): PendingRow => ({ kind: 'ports', boxes: chain, output: output.slot }))
     if (chain.length === 0) {
-      // A node's own outputs beyond its pin rows get rows of their own last.
-      pending.push(...extra)
+      // A node's own outputs beyond its pin rows get rows of their own after
+      // every row, but before the boxes ending the node that hold only outputs.
+      const outputsOnly = (row: PendingRow): boolean => {
+        const top = row.boxes[0] ?? (row.header !== undefined ? row.header.id : undefined)
+        return top !== undefined && !holdsMoreThanOutputs.has(top)
+      }
+      let at = pending.length
+      while (at > 0 && outputsOnly(pending[at - 1]!)) at -= 1
+      pending.splice(at, 0, ...extra)
     } else {
       // Inside a box: after the last row the box holds.
       let at = -1
@@ -1469,6 +1537,10 @@ export function layoutNode(
     let flexibleIndex = 0
     let y = tokens.headerHeight + stackInsets.top
     let slack = 0
+    // Room under the last thing placed before the outline closing below it:
+    // as much as at a box's sides, so a field's inset under a field and a
+    // box's step under an outline (an inner box or an add row).
+    let under: number = box.bottomGap
     const push = (row: LayoutRow, depth: number): void => {
       rows.push(row)
       rowDepth.push(depth)
@@ -1476,7 +1548,7 @@ export function layoutNode(
     const close = (depth: number): void => {
       while (open.length > depth) {
         const done = open.pop()!
-        const bottom = y + box.bottomGap - slack + box.stroke
+        const bottom = y + under - slack + box.stroke
         boxes.push({
           id: done.decl.id,
           kind: done.decl.kind,
@@ -1491,6 +1563,7 @@ export function layoutNode(
         })
         y = bottom
         slack = 0
+        under = box.step
       }
     }
     /** Close the boxes the row is not in and open the option boxes it is in. */
@@ -1523,10 +1596,11 @@ export function layoutNode(
           push({
             kind: 'member', y, height, construct: decl.construct!, memberId: decl.id, label: decl.label,
             ordinal: decl.ordinal ?? 0, ...(decl.ghost ? { ghost: true as const } : {}), inset: outlineX(depth), top,
-            ...(grip ? { reorder: { ...grip, gripX: outlineX(depth) + box.textInset + box.gripWidth / 2 } } : {}),
+            ...(grip ? { reorder: { ...grip, gripX: outlineX(depth) + box.stroke + box.labelGap + box.gripWidth / 2 } } : {}),
           }, depth)
           open.push({ decl, top, first: index })
           y += height
+          under = box.bottomGap
           slack = 0
           continue
         }
@@ -1552,6 +1626,9 @@ export function layoutNode(
           })
           anchorY.set(decl.id, top + closedHeight / 2)
           y = top + closedHeight
+          under = box.step
+          slack = 0
+          continue
         } else if (decl.tab) {
           const top = y + box.tabGap - slack
           push({ ...header, y, height: top + box.stroke + box.tabPad - y, top, tab: true }, depth)
@@ -1563,6 +1640,7 @@ export function layoutNode(
           open.push({ decl, top, first: index })
           y = top + box.stroke + headerHeight
         }
+        under = box.bottomGap
         slack = 0
         continue
       }
@@ -1585,6 +1663,7 @@ export function layoutNode(
         if (line.at(-1) === row) y = lineBottoms.get(line)!
       } else if (row.kind === 'ports') {
         const height = tokens.rowGeometry.portRowHeight
+        rowIndex.set(row, rows.length)
         push({
           kind: 'ports',
           y,
@@ -1592,7 +1671,7 @@ export function layoutNode(
           ...(depth > 0 ? { nameInset: nameInset(depth) } : {}),
           ...(row.input ? { input: row.input } : {}),
           ...(row.output ? { output: row.output } : {}),
-          ...(row.removable && !row.output ? { crossInset: fieldInset(depth) } : {}),
+          ...(row.removable && !row.output ? { crossInset: crossInset(depth) } : {}),
           // The grip's place on the row is set once the node's width is known.
           ...(row.reorder && !row.output ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
         }, depth)
@@ -1613,36 +1692,38 @@ export function layoutNode(
         const inset = w.lead ? outlineX(depth + 1)
           : fieldInset(depth) + (unfolded.has(row) ? canvasPaintTokens.node.line.railReserve : 0)
         rowIndex.set(row, rows.length)
-        // A member drawn as one line of fields has its cross and grip once, at the line's end.
-        const lineEnd = lines.get(row)!.at(-1) === row
+        // A member drawn as one line of fields has its grip once, before the
+        // line, and its cross once, after it.
+        const line = lines.get(row)!
         push({
-          kind: 'widget', y, height, inset, ...w, ...(row.removable && lineEnd ? { crossInset: inset } : {}),
-          ...(row.reorder && lineEnd ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
+          kind: 'widget', y, height, inset, ...w, ...(row.removable && line.at(-1) === row ? { crossInset: crossInset(depth) } : {}),
+          ...(row.reorder && line[0] === row ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
         }, depth)
-        // Socketless controls keep their editor and outgoing value tap.
-        if (!w.socketless) pins.push({
+        // Socketless controls keep their editor and outgoing value tap; an
+        // editor row has no pin.
+        if (!w.socketless && w.editor !== true && w.kept === undefined) pins.push({
           ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'in', y: y + tokens.rowHeight / 2, type: w.type,
           ...(w.optional ? { optional: true as const } : {}),
           widgetBacked: true as const,
         })
         // A widget can also produce its effective value. The duplicate
         // right-edge anchor deliberately shares the input's flattened id.
-        pins.push({
+        if (w.editor !== true) pins.push({
           ...annotationsOf(w), portId: w.inputId, label: w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
-          ...(staticWidgetInputs.has(w.inputId) ? { staticWidgetTap: true as const } : {}),
         })
-        const line = lines.get(row)!
         lineBottoms.set(line, Math.max(lineBottoms.get(line) ?? y, y + height))
         if (line.at(-1) === row) y = lineBottoms.get(line)!
       }
       slack = verticalInset
+      under = row.kind === 'growth' ? box.step : box.bottomGap
     }
+    const endsInBox = open.length > 0
     close(0)
-    return { rows, pins, boxes, rowDepth, anchorY, rowIndex, bottom: y }
+    return { rows, pins, boxes, rowDepth, anchorY, rowIndex, bottom: y, endsInBox }
   }
 
   const natural = place(0, 0)
-  const naturalHeight = natural.bottom + stackInsets.bottom
+  const naturalHeight = natural.bottom + (natural.endsInBox ? boxEndInset(tokens) : stackInsets.bottom)
   const requestedExtra = options.size === undefined
     ? 0
     : Math.max(0, options.size.height - naturalHeight)
@@ -1682,7 +1763,6 @@ export function layoutNode(
         ...(stacked ? { stacked: true as const } : {}),
         ...(p.optional ? { optional: true as const } : {}), ...(p.maybeAbsent ? { maybeAbsent: true as const } : {}),
         ...(p.widgetTap ? { widgetTap: true as const } : {}),
-        ...(p.staticWidgetTap ? { staticWidgetTap: true as const } : {}),
       })
     }
   }
@@ -1773,20 +1853,28 @@ export function layoutNode(
       }))
     }
   }
-  // A field that is a whole member ends before its remove cross, whose right
-  // edge sits where the field's would. A member that can be moved has its
-  // grip there instead, or just before the cross, and the field ends before
-  // the grip.
+  // A member that can be moved has its grip at the left end, and its field
+  // or name starts after it; a field that is a whole member ends before its
+  // remove cross. Each stands as far from the group's outline as from the
+  // field. A spare member starts where the members' fields do.
+  const gripSpaces = new Set(pending.flatMap((row) =>
+    row.gripSpace && lines.get(row)![0] === row ? [rowIndex.get(row)] : []))
+  const gap = box.cross.fieldGap
   for (const [index, row] of rows.entries()) {
     if (row.kind !== 'widget' && row.kind !== 'ports') continue
-    const crossRoom = row.crossInset === undefined ? 0 : box.cross.size + box.cross.fieldGap
-    const gripRoom = row.reorder === undefined ? 0 : box.gripWidth + box.cross.fieldGap
-    const right = width - (row.crossInset ?? fieldInset(rowDepth[index]!)) - crossRoom
-    const reorder = row.reorder === undefined ? {} : { reorder: { ...row.reorder, gripX: right - box.gripWidth / 2 } }
-    if (row.kind === 'widget' && crossRoom + gripRoom > 0)
-      rows[index] = { ...row, width: (row.width ?? width - row.inset * 2) - crossRoom - gripRoom, ...reorder }
-    else if (row.reorder !== undefined)
-      rows[index] = { ...row, ...reorder }
+    const gripRoom = row.reorder === undefined && !gripSpaces.has(index) ? 0 : gap + box.gripWidth + gap - box.fieldGap
+    if (row.crossInset === undefined && gripRoom === 0) continue
+    // The inner side of the group's outline.
+    const outline = (row.kind === 'widget' ? row.inset : fieldInset(rowDepth[index]!)) - box.fieldGap
+    const reorder = row.reorder === undefined ? {} : { reorder: { ...row.reorder, gripX: outline + gap + box.gripWidth / 2 } }
+    if (row.kind === 'ports') {
+      rows[index] = { ...row, nameInset: (row.nameInset ?? 0) + gripRoom, ...reorder }
+      continue
+    }
+    const right = row.crossInset === undefined
+      ? row.inset + (row.width ?? width - row.inset * 2)
+      : width - row.crossInset - box.cross.size - gap
+    rows[index] = { ...row, inset: row.inset + gripRoom, width: right - row.inset - gripRoom, ...reorder }
   }
   // An unfolded line's fields move right for its rail; their right edge stays.
   const railReserve = canvasPaintTokens.node.line.railReserve
@@ -1814,6 +1902,7 @@ export function layoutNode(
       headerHeight: tokens.headerHeight,
       title,
       titleRenamed,
+      ...(elaborated.titleSuffix !== undefined ? { titleSuffix: elaborated.titleSuffix } : {}),
       rows: [],
       pins: pins.map((pin) => ({
         ...pin,
@@ -1853,6 +1942,7 @@ export function layoutNode(
     headerHeight: tokens.headerHeight,
     title,
     titleRenamed,
+    ...(elaborated.titleSuffix !== undefined ? { titleSuffix: elaborated.titleSuffix } : {}),
     rows,
     pins,
     ...(boxes.length > 0 ? { boxes } : {}),
@@ -1899,7 +1989,14 @@ export function insetRowStack(
  * preview or text output placed after the rows keeps the boxed bottom inset.
  */
 function boxedMinHeight(layout: NodeLayout, tokens: DesignTokens): number {
-  return layout.minHeight - rowStackInsets(undefined, layout.rows.at(-1)?.kind, tokens).bottom + tokens.padBottom
+  const endsInBox = layout.boxes?.some((b) => b.depth === 1 && b.last === layout.rows.length - 1) === true
+  const bottom = endsInBox ? boxEndInset(tokens) : rowStackInsets(undefined, layout.rows.at(-1)?.kind, tokens).bottom
+  return layout.minHeight - bottom + tokens.padBottom
+}
+
+/** A box that ends a node stands as far above its bottom edge as from its side edges. */
+function boxEndInset(tokens: DesignTokens): number {
+  return tokens.rowGeometry.fieldInsetX - canvasPaintTokens.node.box.stroke
 }
 
 /** One boundary item rendered as a pseudo-node row (scene supplies these). */

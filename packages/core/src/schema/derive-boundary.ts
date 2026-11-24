@@ -39,7 +39,7 @@ import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
 import { effectiveValueSourceSpec, type EffectiveValueSourceSpec } from '../value-source.js'
 import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
-import { describedEntries } from './elaborate.js'
+import { buildGraphConnectivity, describedEntries, elabInputsOf, elaborateInterface, EMPTY_CONNECTIVITY, type Connectivity } from './elaborate.js'
 import { applyUse, choiceScopeRows, framesNamesOf, keyPosition, memberKeyAt, memberLimitOf, memberRowsOf } from './body.js'
 import { canonicalTypeIdOf, inputsOf, scopeRowsOf, typeExprFromTypeId } from './model.js'
 import type {
@@ -69,18 +69,28 @@ export interface DeriveResult {
   readonly diagnostics: readonly Diagnostic[]
 }
 
-export type StaticWidgetTapResolution =
+export type WidgetTapResolution =
   | { readonly ok: true; readonly input: InputSpec }
   | { readonly ok: false; readonly code: 'boundary.tapMissing' | 'boundary.tapAmbiguous' | 'boundary.tapUnsupported' }
 
-/** Resolve one exact top-scope widget-backed input that can serve as an output tap. */
-export function resolveStaticWidgetTap(schema: NodeSchema, tap: string): StaticWidgetTapResolution {
-  const matches = inputsOf(schema).filter((candidate) => candidate.id === tap)
+/**
+ * Resolve the one field a widget tap reads on a node as the node stands:
+ * top level, in a group's member, under the chosen option, or under a
+ * plugged type-led pin, by its flattened id.
+ */
+export function resolveWidgetTap(
+  schema: NodeSchema,
+  node: Pick<NodeData, 'values' | 'dynamic' | 'additionalInputs'>,
+  tap: string,
+  connectivity: Connectivity = EMPTY_CONNECTIVITY,
+): WidgetTapResolution {
+  const matches = elabInputsOf(elaborateInterface(schema, node, connectivity, { promoteGhosts: false }))
+    .filter((candidate) => candidate.address.port === tap)
   if (matches.length !== 1) {
     return { ok: false, code: matches.length === 0 ? 'boundary.tapMissing' : 'boundary.tapAmbiguous' }
   }
-  const input = matches[0]!
-  return input.widget !== undefined
+  const input = matches[0]!.spec
+  return input.widget !== undefined && input.forceInput !== true
     ? { ok: true, input }
     : { ok: false, code: 'boundary.tapUnsupported' }
 }
@@ -646,6 +656,7 @@ export function deriveBoundarySchema(
   const fail = (code: string, msg: string): void => {
     diags.push(diag('error', 'schema', code, `[${graph.id}] ${msg}`))
   }
+  let connectivityOf: ReturnType<typeof buildGraphConnectivity> | undefined
 
   if (!graph.boundary) {
     fail('boundary.missing', `graph definition has no boundary (root graphs cannot be instanced)`)
@@ -874,7 +885,8 @@ export function deriveBoundarySchema(
         minMembers: Math.max(0, derived.minMembers - count),
         maxMembers: limit - count,
         ...(derived.keys.kind === 'named' ? { keys: { kind: 'named' as const, names: derived.keys.names.filter((name) => !interior.members.includes(name)) } } : {}),
-        ...(count > 0 ? { interiorMembers: count } : {}),
+        // Members inside count through every level: an outer face numbers on from all of them.
+        ...(count > 0 ? { interiorMembers: (row.interiorMembers ?? 0) + count } : {}),
       }
     }
     const schema = resolveNode(node)!
@@ -1070,13 +1082,13 @@ export function deriveBoundarySchema(
         fail('boundary.unresolvedSchema', `boundary output '${item.id}' binds node '${node.id}' of unresolvable type '${node.type}'`)
         continue
       }
-      const resolvedTap = resolveStaticWidgetTap(schema, binding.tap)
+      const resolvedTap = resolveWidgetTap(schema, node, binding.tap, (connectivityOf ??= buildGraphConnectivity(graph))(node.id))
       if (!resolvedTap.ok) {
         fail(
           resolvedTap.code,
           resolvedTap.code === 'boundary.tapUnsupported'
-            ? `boundary output '${item.id}' must bind one static widget-backed input`
-            : `boundary output '${item.id}' widget tap '${binding.tap}' resolves to ${resolvedTap.code === 'boundary.tapMissing' ? 0 : 'multiple'} static inputs`,
+            ? `boundary output '${item.id}' must bind one widget-backed input`
+            : `boundary output '${item.id}' widget tap '${binding.tap}' resolves to ${resolvedTap.code === 'boundary.tapMissing' ? 0 : 'multiple'} inputs`,
         )
         continue
       }

@@ -382,3 +382,62 @@ test('drilled group-member MatchType resolves each occurrence independently and 
     kind: 'list', element: { kind: 'variable', templateId: 'T' },
   })
 })
+
+test('a wire of another type is not accepted beside a matched input, on an ordinary node and a Switch', async ({ page }) => {
+  await page.evaluate(async () => {
+    const variable = { kind: 'variable', templateId: 'T' }
+    window.__dinksterTest!.app.registerSchemas([
+      {
+        type: 'StringProducerE2E', displayName: 'Text Producer', category: 'test', source: 'v3', isOutputNode: false,
+        body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'STRING' } }],
+      },
+      {
+        type: 'SwitchE2E', displayName: 'Switch', category: 'test', source: 'v3', isOutputNode: false,
+        selector: { input: 'pick', group: 'branch' },
+        body: [
+          { kind: 'input', id: 'pick', type: { kind: 'union', names: ['INT', 'BOOLEAN'] }, optional: true },
+          {
+            kind: 'group', id: 'branch',
+            value: { kind: 'input', id: 'branch', type: variable, optional: true, lazy: true },
+            keys: { kind: 'numbered', prefix: 'branch', start: 1, pad: 0 },
+            grows: 'button', minMembers: 1, maxMembers: 8,
+          },
+          { kind: 'output', id: 'value', type: variable },
+        ],
+      },
+    ] as never)
+    await window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'match-type-refusal-e2e', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        image: { id: 'image', type: 'ImageProducerE2E', values: {} },
+        text: { id: 'text', type: 'StringProducerE2E', values: {} },
+        match: { id: 'match', type: 'MatchNodeE2E', values: {} },
+        sw: { id: 'sw', type: 'SwitchE2E', values: {}, dynamic: { branch: { members: ['branch1', 'branch2'] } } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10 } },
+      view: { graphs: { g0: { nodes: {
+        image: { position: { x: 80, y: 100 } },
+        text: { position: { x: 80, y: 360 } },
+        match: { position: { x: 500, y: 100 } },
+        sw: { position: { x: 500, y: 360 } },
+      } } } },
+    }, 'Match Type Refusal E2E')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const linksInto = (nodeId: string) => page.evaluate((nodeId) =>
+    window.__dinksterTest!.renderer!.getScene().links
+      .filter((link) => link.to.kind === 'port' && link.to.node === nodeId)
+      .map((link) => link.to.kind === 'port' ? link.to.port : ''), nodeId)
+
+  for (const [nodeId, first, second] of [['match', 'a', 'b'], ['sw', 'branch.branch1', 'branch.branch2']] as const) {
+    await drag(page, await pinPoint(page, 'image', 'out'), await pinPoint(page, nodeId, first))
+    await expect.poll(() => linksInto(nodeId)).toEqual([first])
+    await expect.poll(() => pinPresentation(page, nodeId, second)).toMatchObject({ type: { kind: 'concrete', name: 'IMAGE' } })
+    await drag(page, await pinPoint(page, 'text', 'out'), await pinPoint(page, nodeId, second))
+    // The drop is not accepted: no wire reaches the other input.
+    await page.waitForTimeout(200)
+    expect(await linksInto(nodeId)).toEqual([first])
+  }
+  if (process.env['DINKSTER_MATCHTYPE_PROOF_DIR']) {
+    await page.screenshot({ path: `${process.env['DINKSTER_MATCHTYPE_PROOF_DIR']}/matchtype-wire-refused.png`, animations: 'disabled' })
+  }
+})

@@ -17,7 +17,6 @@ import {
   ERROR_BADGE,
   LOG_INFO_BADGE,
   MUTED_BADGE,
-  PROBLEM_BLOCKING_WARNING_BADGE,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
   SUBGRAPH_BADGE,
@@ -57,7 +56,9 @@ import {
   structuralGalleryScene,
 } from './structure.js'
 import { boundaryTreeGallery } from './boundary-tree.js'
+import { smallFlowNodesGallery } from './small-flow-nodes.js'
 import { switchPrimitiveGallery } from './switch-primitive.js'
+import { typeConflictGallery } from './type-conflict.js'
 import { widgetTapGallery } from './widget-taps.js'
 
 export const canvasGalleryPages = [
@@ -67,6 +68,7 @@ export const canvasGalleryPages = [
   ['idle-outline', 'Idle outline'],
   ['titles', 'Node titles'],
   ['titles-content', 'Node titles at content zoom'],
+  ['title-suffix', 'Title suffix'],
   ['tabs', 'Tabs'],
   ['tabs-content', 'Tabs at content zoom'],
   ['states', 'Node states'],
@@ -79,6 +81,7 @@ export const canvasGalleryPages = [
   ['row-lists', 'Lists in the row proposal'],
   ['color-editing', 'Color in the row'],
   ['node-look', 'Original and new node look'],
+  ['problem-box', 'The node\'s problem box'],
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],
   ['widget-driven', 'Link-driven widgets'],
@@ -98,6 +101,8 @@ export const canvasGalleryPages = [
   ['zoom-overview', 'Overview zoom'],
   ['minimap', 'Minimap'],
   ['switch-primitive', 'Switch and Primitive'],
+  ['small-flow-nodes', 'Or else, Has value and Only if'],
+  ['type-conflict', 'Type conflicts'],
 ] as const
 export type CanvasGalleryPage = (typeof canvasGalleryPages)[number][0]
 
@@ -267,6 +272,7 @@ export interface CanvasGalleryFixture {
     companions?: CompanionMap
     rowMarks?: RowMarkMap
     inactive?: ReadonlySet<string>
+    badges?: BadgeMap
   }[]
 }
 
@@ -583,7 +589,7 @@ export function createCanvasGalleryFixture(
               id,
               type: id === 'Missing type' ? 'Uninstalled' : definition.type,
               values: { ...defaultValuesOf(definition), ...values },
-              ...(id === 'Renamed' ? { title: 'Refine pass' } : {}),
+              ...(id === 'Renamed' || id === 'Suffix renamed' ? { title: 'Refine pass' } : {}),
               ...(id === 'Long renamed'
                 ? { title: 'A deliberately long custom refinement pass title' }
                 : {}),
@@ -667,7 +673,7 @@ export function createCanvasGalleryFixture(
                 : {}),
               [id]: {
                 position: { x, y },
-                size: { width: id === 'Narrow' ? 112 : 280, height: extra.height ?? 0 },
+                size: { width: id === 'Narrow' ? 112 : id === 'Suffix narrow' ? 200 : 280, height: extra.height ?? 0 },
                 ...(extra.textLines !== undefined ? { textLines: extra.textLines } : {}),
                 ...(id.startsWith('Minimized') || id === 'Long minimized'
                   ? { collapsed: true }
@@ -1027,6 +1033,20 @@ export function createCanvasGalleryFixture(
     const first = cards[0]!.scene
     fixture.scene.nodes = [...first.nodes]
     fixture.scene.links = [...first.links]
+    fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
+  } else if (page === 'small-flow-nodes') {
+    const cards = smallFlowNodesGallery(tokens, measure, widgetMeasure)
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
+    fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
+  } else if (page === 'type-conflict') {
+    const cards = typeConflictGallery(tokens, measure, widgetMeasure)
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
     examples.push(...cards)
   } else if (page === 'widget-taps') {
     const gallery = widgetTapGallery(tokens, measure, widgetMeasure)
@@ -1034,6 +1054,13 @@ export function createCanvasGalleryFixture(
     fixture.scene.links = [...gallery.scene.links]
     fixture.companions = gallery.companions
     examples.push(...gallery.examples)
+  } else if (page === 'title-suffix') {
+    const suffixed: NodeSchema = { ...sample, titleSuffix: { formula: 'str(steps) + " steps, " + sampler_name' } }
+    add('Suffix', suffixed)
+    add('Suffix renamed', suffixed)
+    add('Suffix narrow', { ...sample, titleSuffix: { formula: 'str(steps) + " steps with the " + sampler_name + " sampler"' } })
+    add('Minimized suffix', suffixed)
+    fixture.height = 560
   } else if (page === 'titles' || page === 'titles-content') {
     const long = {
       ...sample,
@@ -1072,7 +1099,6 @@ export function createCanvasGalleryFixture(
       'Skipped',
       'Failed',
       'Document error',
-      'Blocking warning',
       'Missing type',
       'Muted',
       'Bypassed',
@@ -1104,7 +1130,6 @@ export function createCanvasGalleryFixture(
       }
     }
     map['Document error']!.push(PROBLEM_ERROR_BADGE)
-    map['Blocking warning']!.push(PROBLEM_BLOCKING_WARNING_BADGE)
     map.Muted!.push(MUTED_BADGE)
     map.Bypassed!.push(BYPASSED_BADGE)
     const crowded = Array.from(
@@ -1192,7 +1217,6 @@ export function createCanvasGalleryFixture(
       'Skipped',
       'Failed',
       'Document error',
-      'Blocking warning',
       'Warning',
       'Muted',
       'Bypassed',
@@ -1223,7 +1247,6 @@ export function createCanvasGalleryFixture(
     })
     fixture.badges = {
       'Document error': [PROBLEM_ERROR_BADGE],
-      'Blocking warning': [PROBLEM_BLOCKING_WARNING_BADGE],
       Warning: [PROBLEM_WARNING_BADGE],
       Failed: [executionErrorBadge(1)],
       Muted: [MUTED_BADGE],
@@ -1252,7 +1275,7 @@ export function createCanvasGalleryFixture(
       dropTargets: new Set([dropTargetKey(held, 'cfg', 'in')]),
       dropRow: { nodeId: held, valueKey: 'cfg' },
     }
-    fixture.rowMarks = { 'Invalid value': new Set(['steps']) }
+    fixture.rowMarks = { 'Invalid value': { 'steps': 'error' } }
     fixture.scene.nodes = fixture.scene.nodes.map((node) => ({
       ...node,
       ...(node.id === 'Colored' ? { color: tokens.stateColors.running } : {}),
@@ -1353,7 +1376,6 @@ export function createCanvasGalleryFixture(
       BYPASSED_BADGE,
       PROBLEM_ERROR_BADGE,
       UNAVAILABLE_BADGE,
-      PROBLEM_BLOCKING_WARNING_BADGE,
       PROBLEM_WARNING_BADGE,
       mediaDiagnosticBadge('core.media.alpha_dropped.image.IMAGE', 'Alpha dropped: IMAGE'),
       mediaDiagnosticBadge('core.media.mask_polarity.mask.mask', 'Mask polarity: mask'),
@@ -1449,7 +1471,7 @@ export function createCanvasGalleryFixture(
     fixture.overlay = {
       hoveredWidget: { nodeId: 'Hovered', valueKey: widgetInput.id },
     }
-    fixture.rowMarks = { Invalid: new Set([widgetInput.id]) }
+    fixture.rowMarks = { Invalid: { [widgetInput.id]: 'error' } }
     fixture.height = 850
   } else if (page === 'boxes') {
     const socket = (id: string, type: string): InputSpec => ({
@@ -1771,6 +1793,113 @@ export function createCanvasGalleryFixture(
       at: column(0),
       dynamic: { loras: { members: ['lora0'] } },
     })
+    // A member's grip at the left end and its remove cross at the right: a
+    // one-row member with both, one with a grip only beside its spare
+    // member, and member boxes, whose headers already have both.
+    nextRow()
+    add(
+      'Grip and cross',
+      schema('Prompts', [
+        {
+          kind: 'group',
+          id: 'prompts',
+          displayName: 'Prompts',
+          value: widget('prompt', 'STRING', 'a red fox'),
+          keys: { kind: 'numbered', prefix: 'prompt', start: 0, pad: 0 },
+          grows: 'button',
+          minMembers: 1,
+          maxMembers: 4,
+          reorderable: true,
+          addLabel: 'Add prompt',
+        },
+      ]),
+      {},
+      23,
+      false,
+      { at: column(0), dynamic: { prompts: { members: ['prompt0', 'prompt1'] } } },
+    )
+    add(
+      'Grip only',
+      schema('Weights', [
+        {
+          kind: 'group',
+          id: 'weights',
+          displayName: 'Weights',
+          value: widget('weight', 'FLOAT', 1, { min: 0, max: 2, step: 0.05 }),
+          keys: { kind: 'numbered', prefix: 'weight', start: 0, pad: 0 },
+          grows: 'filled',
+          minMembers: 1,
+          reorderable: true,
+        },
+      ]),
+      { 'weights.weight0': 0.5, 'weights.weight1': 1.25 },
+      24,
+      false,
+      { at: column(1), dynamic: { weights: { members: ['weight0', 'weight1'] } } },
+    )
+    add('Member boxes', stack, named, 25, false, {
+      at: column(2),
+      dynamic: { loras: { members: ['lora0', 'lora1'] } },
+    })
+    examples.splice(-3, 3, {
+      caption: 'Grip at the left end, cross at the right',
+      nodes: examples.slice(-3).flatMap((example) => example.nodes ?? []),
+    })
+    // The room under the last thing in a box matches the room at its sides:
+    // a step under an add row or a member box, a field's inset under a
+    // field, and a box that ends a node is as far from its bottom edge as
+    // from its sides.
+    nextRow()
+    const seed = widget('seed', 'INT', 42, { min: 0, max: 1000 })
+    add(
+      'Ends in an add row',
+      schema('LoRA stack', [loras('loras', 'LoRAs'), seed]),
+      named,
+      26,
+      false,
+      { at: column(0), dynamic: { loras: { members: ['lora0'] } } },
+    )
+    add(
+      'Ends in a member box',
+      schema('LoRA stack', [{ ...loras('loras', 'LoRAs'), maxMembers: 1 }, seed]),
+      named,
+      27,
+      false,
+      { at: column(1), dynamic: { loras: { members: ['lora0'] } } },
+    )
+    add(
+      'Section ends in a field',
+      schema('Sampler', [
+        section('sampling', 'Sampling', [
+          widget('steps', 'INT', 20, { min: 1, max: 100 }),
+          widget('cfg', 'FLOAT', 7.5, { min: 0, max: 30, step: 0.1 }),
+        ]),
+        seed,
+      ]),
+      {},
+      28,
+      false,
+      { at: column(2) },
+    )
+    nextRow()
+    add(
+      'A box ends the node',
+      schema('Sampler', [
+        seed,
+        section('sampling', 'Sampling', [
+          widget('steps', 'INT', 20, { min: 1, max: 100 }),
+          widget('cfg', 'FLOAT', 7.5, { min: 0, max: 30, step: 0.1 }),
+        ]),
+      ]),
+      {},
+      29,
+      false,
+      { at: column(0) },
+    )
+    examples.splice(-4, 4, {
+      caption: 'Room under the last thing in a box',
+      nodes: examples.slice(-4).flatMap((example) => example.nodes ?? []),
+    })
     const dragging = fixture.scene.nodes.find((node) => node.id === 'Dragging lora 1 below lora 2')!
     const draggedGrip = dragging.layout.rows.flatMap((row) =>
       row.kind === 'member' && row.reorder?.member === 'lora0' ? [row.reorder] : [])[0]!
@@ -2075,6 +2204,41 @@ export function createRowEditingScene(
   return singleNodeScene(
     rowEditingSchema,
     { values: { seed: 123456789, denoise: 0.65 } },
+    { position, size: { width, height: 0 } },
+    tokens,
+    measure,
+    widgetMeasure,
+  )
+}
+
+/** A node whose number declares 0 as a special value labelled "no limit", stored at 0. */
+export const rowSpecialSchema: NodeSchema = schema('Load frames', [
+  { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
+  {
+    ...widget('frame_load_cap', 'INT', 0, {
+      min: 1,
+      max: 10000,
+      special: [{ value: 0, label: 'no limit' }],
+    }),
+    tooltip: 'Most frames to load.',
+  },
+  {
+    ...widget('select_every_nth', 'INT', 1, { min: 1, max: 100 }),
+    tooltip: 'Load one frame of every this many.',
+  },
+])
+
+/** The node of the row-editing page's special value examples. */
+export function createRowSpecialScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  position: { x: number; y: number },
+  width = 280,
+): Scene {
+  return singleNodeScene(
+    rowSpecialSchema,
+    {},
     { position, size: { width, height: 0 } },
     tokens,
     measure,

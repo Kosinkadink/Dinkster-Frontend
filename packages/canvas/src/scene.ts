@@ -18,6 +18,7 @@ import {
   documentNodeResolver,
   documentValueSourceResolver,
   effectiveOccurrenceTopology,
+  elabInputsOf,
   elaborateInterface,
   hasPreviewSurface,
   inputsOf,
@@ -33,6 +34,7 @@ import {
   portRefKey,
   regionBoundaryLabels,
   resolveBoundaryRoute,
+  resolveWidgetRepresentation,
   outputsOf,
   allRowsOf,
   samePortRef,
@@ -41,9 +43,11 @@ import {
   traceEndpoint,
   traceEndpointAll,
   typeExprFromTypeId,
+  valueKeyOf,
   type BoundaryItem,
   type BoundaryPositionResolver,
   type CommandInvocation,
+  type Connectivity,
   type Diagnostic,
   type DynamicPortState,
   type ElaboratedInterface,
@@ -56,6 +60,7 @@ import {
   type LinkEndpoint,
   type NodeData,
   type NodeProgress,
+  type NodeSchema,
   type OccurrenceLinkEndpoint,
   type OccurrenceRef,
   type PortRef,
@@ -65,6 +70,7 @@ import {
   type TypeExpr,
   type ValueSourceData,
   type VirtualNodeRenderModel,
+  type WidgetSpec,
   type WorkflowDocument,
 } from '@dinkster/core'
 import {
@@ -249,6 +255,12 @@ export interface SceneNode {
   readonly virtual?: VirtualNodeRenderModel
   /** Full effective interface, including inputs hidden by presentation state. */
   readonly elaborated?: ElaboratedInterface
+  /**
+   * Every field row of a minimized node or of a node with a folded section,
+   * laid out open with its sections unfolded, so a problem on a field the
+   * node does not show still reaches its tab. Absent when layout shows them all.
+   */
+  readonly fieldRows?: readonly LayoutRow[]
   /** Schema declares live previews or an output intended for preview. */
   readonly previewCapable?: true
   /** The open node's preview is folded to its caption row. */
@@ -366,6 +378,8 @@ export interface SceneLink {
    * DISTINCT from error/conflict styling - maybe-absent is normal.
    */
   readonly maybeAbsent?: true
+  /** The wire leaves a kept row (a field no longer part of its node): drawn dimmed, it gives nothing. */
+  readonly dimmed?: true
   /**
    * Set when this noodle renders a named-net fan-out rather than a document
    * link. Its `id` is synthetic (`netId:index`); deletion must go through
@@ -862,6 +876,7 @@ function projectedTypeConstraints(
         isOutputConnected: (port: string) =>
           projectedOutputKeys.get(nodeId)?.has(port) || base.isOutputConnected(port),
         inputPorts: () => [...new Set([...(base.inputPorts?.() ?? []), ...(projectedInputPortKeys.get(nodeId) ?? [])])],
+        outputPorts: () => [...new Set([...(base.outputPorts?.() ?? []), ...(projectedOutputKeys.get(nodeId) ?? [])])],
       }
     }
     const result = solveGraphTypes(solveGraph, resolve, {
@@ -879,8 +894,22 @@ function projectedTypeConstraints(
   return constraintsOf(topology, graphId)
 }
 
+/** A field row whose stored value the host checks. */
+export interface StoredValueRow {
+  readonly nodeId: string
+  readonly inputId: string
+  readonly valueKey: string
+  readonly spec: WidgetSpec
+}
+
 export interface BuildSceneInput {
   readonly document: WorkflowDocument
+  /**
+   * Whether a field's stored value fails its widget's own check (the
+   * host's widget kinds). A hidden row whose value fails shows, as a row
+   * with a problem does.
+   */
+  readonly storedValueProblem?: (row: StoredValueRow, value: Json | undefined) => boolean
   /** App capability controlling seed-controller UI construction. */
   readonly seedControllerEnabled?: boolean
   /** Graph definition to render (the root, or a subgraph being edited). */
@@ -1043,8 +1072,9 @@ export function updateSceneNodeValues(
     if (existing.node !== old || node.virtual || node.type.startsWith('#') ||
         !sameReferencesExcept(old as unknown as Readonly<Record<string, unknown>>, node as unknown as Readonly<Record<string, unknown>>, 'values')) return undefined
     const schema = resolve(node.type)
+    // A row with `visible` may show for a problem the new value has: the full build decides.
     if (!schema || schema.selector ||
-      !schema.body.every((row) => row.kind === 'input' || row.kind === 'output')) return undefined
+      !schema.body.every((row) => (row.kind === 'input' || row.kind === 'output') && row.visible === undefined)) return undefined
     for (const key of new Set([...Object.keys(old.values), ...Object.keys(node.values)])) {
       if (old.values[key] === node.values[key]) continue
       const input = inputsOf(schema).find((item) => item.id === key)
@@ -1071,6 +1101,34 @@ export function boundaryPositions(input: BuildSceneInput): ReturnType<BoundaryPo
 
 export function buildScene(input: BuildSceneInput): Scene {
   const def: GraphDef | undefined = input.document.graphs[input.graphId]
+  /**
+   * A node's interface as drawn. A row hidden by its `visible` shows while it
+   * has a problem: a solver problem on its port, or a stored value its
+   * widget's own check refuses.
+   */
+  const elaborateShown = (
+    schema: NodeSchema,
+    node: NodeData,
+    connectivity: Connectivity,
+    nodeId: string,
+    solverProblems: ReadonlySet<string> | undefined,
+    representations: Readonly<Record<string, string>> | undefined,
+  ): ElaboratedInterface => {
+    const problemRows = new Set(solverProblems)
+    const elaborated = elaborateInterface(schema, node, connectivity, problemRows.size > 0 ? { problemRows } : {})
+    const check = input.storedValueProblem
+    if (check === undefined) return elaborated
+    for (const item of elabInputsOf(elaborated)) {
+      const widget = item.spec.widget
+      if (item.spec.hidden !== true || widget === undefined) continue
+      const valueKey = valueKeyOf(item)
+      const spec = resolveWidgetRepresentation(widget, representations?.[valueKey]).spec
+      if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, node.values[valueKey])) problemRows.add(item.address.port)
+    }
+    return problemRows.size > (solverProblems?.size ?? 0)
+      ? elaborateInterface(schema, node, connectivity, { problemRows })
+      : elaborated
+  }
   if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
   let resolveSource: ReturnType<typeof documentValueSourceResolver> | undefined
   const sourcePath = input.occurrence === undefined
@@ -1220,6 +1278,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       isOutputConnected: (port: string) =>
         projectedOutputs.get(nodeId)?.has(port) || base.isOutputConnected(port),
       inputPorts: () => [...new Set([...(base.inputPorts?.() ?? []), ...(projectedInputPorts.get(nodeId) ?? [])])],
+      outputPorts: () => [...new Set([...(base.outputPorts?.() ?? []), ...(projectedOutputs.get(nodeId) ?? [])])],
     }
   }
 
@@ -1276,14 +1335,15 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
   })
 
-  // Port-anchored solver diagnostics (e.g. a stale DynamicSlot
-  // specialization) mark their pin: the warning must be visible where the
-  // user will act on it, not only in the Problems panel. Keys use the
-  // elaborated port key so dynamic member pins match exactly.
-  const warnedPins = new Set<string>()
+  /** Ports with a solver error or warning, by node: rows with a problem show even when hidden. */
+  const problemPorts = new Map<string, Set<string>>()
   for (const d of solverDiagnostics) {
     const ref = d.anchor?.port
-    if (ref !== undefined) warnedPins.add(`${ref.node}\u0000${ref.port}`)
+    if (ref === undefined) continue
+    if (d.severity === 'info') continue
+    let ports = problemPorts.get(ref.node)
+    if (!ports) problemPorts.set(ref.node, (ports = new Set()))
+    ports.add(ref.port)
   }
 
   const nodes: SceneNode[] = []
@@ -1311,7 +1371,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         }
     const schema = resolveNode(input.graphId, occurrenceNode, sourcePath)
     const elaborated = schema
-      ? elaborateInterface(schema, occurrenceNode, connectivityOf(node.id))
+      ? elaborateShown(schema, occurrenceNode, connectivityOf(node.id), node.id, problemPorts.get(node.id), view?.views)
       : undefined
     const baseLayout = schema
       ? layoutNode(schema, occurrenceNode, input.tokens, measure, input.widgetMeasure, {
@@ -1388,12 +1448,10 @@ export function buildScene(input: BuildSceneInput): Scene {
                 ? matchVariableOf(pin.type)
                 : undefined
             const matchConstraint = matchConstraintOf(pin.type)
-            const warn = warnedPins.has(`${node.id}\u0000${pin.address.port}`)
             if (matchVariable === undefined) {
               return {
                 ...pin,
                 type,
-                ...(warn ? { warn: true as const } : {}),
               }
             }
             return {
@@ -1404,20 +1462,22 @@ export function buildScene(input: BuildSceneInput): Scene {
                 ? { matchConstraint }
                 : {}),
               ...(!sameTypeExpr(type, pin.type) ? { inferred: true as const } : {}),
-              ...(warn ? { warn: true as const } : {}),
             }
           }),
         }
-      : {
-          // Missing schema: no solver substitution, but anchored diagnostics
-          // still mark their pin so the red ring appears where the user acts.
-          ...rawLayout,
-          pins: rawLayout.pins.map((pin) =>
-            warnedPins.has(`${node.id}\u0000${pin.address.port}`) ? { ...pin, warn: true as const } : pin,
-          ),
-        }
+      : rawLayout
     const virtual = node.virtual === true ? input.renderVirtualNode?.(occurrenceNode) : undefined
     const layout = virtual === undefined ? layoutWithPorts : { ...layoutWithPorts, pins: [] }
+    const foldedSections = elaborated?.items.filter((item) => item.kind === 'section').map((item) => item.spec.id) ?? []
+    const hidesFields = view?.collapsed === true || baseLayout.rows.some((row) => row.kind === 'section' && row.collapsed)
+    const fieldRows = schema && hidesFields
+      ? layoutNode(schema, occurrenceNode, input.tokens, measure, input.widgetMeasure, {
+          ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
+          sectionOverrides: Object.fromEntries(foldedSections.map((id) => [id, false])),
+          ...(view?.views ? { widgetRepresentations: view.views } : {}),
+          ...(elaborated !== undefined ? { elaborated } : {}),
+        }).rows.filter((row) => row.kind === 'widget')
+      : undefined
     const sceneNode: SceneNode = {
       id: node.id,
       x: pos.x,
@@ -1426,6 +1486,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       node: occurrenceNode,
       ...(virtual !== undefined ? { virtual } : {}),
       ...(elaborated !== undefined ? { elaborated } : {}),
+      ...(fieldRows !== undefined ? { fieldRows } : {}),
       ...(schema !== undefined && hasPreviewSurface(schema)
         ? { previewCapable: true as const }
         : {}),
@@ -1645,7 +1706,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   }
 
   // A link end's anchor point: pin center for ports, dot center for reroutes.
-  const endPoint = (end: LinkEndpoint, direction: 'in' | 'out'): { x: number; y: number; end: SceneLinkEnd; type?: TypeExpr } | undefined => {
+  const endPoint = (end: LinkEndpoint, direction: 'in' | 'out'): { x: number; y: number; end: SceneLinkEnd; type?: TypeExpr; kept?: true } | undefined => {
     if (isRerouteRef(end)) {
       const r = rerouteById.get(end.reroute)
       return r ? { x: r.x, y: r.y, end: { kind: 'reroute', reroute: r.id }, ...(r.typeName ? { type: typeExprFromTypeId(r.typeName) } : {}) } : undefined
@@ -1679,6 +1740,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         y: node.y + pin.y,
         end: { kind: 'widgetTap', node: end.node, input: end.tap },
         type: pin.type,
+        ...(pin.kept !== undefined ? { kept: true as const } : {}),
       } : undefined
     }
     const node = byId.get(end.node)
@@ -1781,6 +1843,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(to.type !== undefined ? { toType: to.type } : typeName !== undefined ? { toType: typeExprFromTypeId(typeName) } : {}),
       ...(typeName !== undefined ? { typeName } : {}),
       ...(tracedMaybeAbsent(c.from) ? { maybeAbsent: true as const } : {}),
+      ...(from.kept === true ? { dimmed: true as const } : {}),
       ...(c.mismatch === true ? { mismatch: true as const } : {}),
       ...(c.diagnostics !== undefined && c.diagnostics.length > 0 ? { diagnostics: c.diagnostics } : {}),
       ...(c.netId !== undefined ? { netId: c.netId } : {}),

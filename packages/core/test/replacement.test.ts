@@ -69,6 +69,12 @@ const schemas: Record<string, NodeSchema> = {
   TapDynamic: schemaOf('TapDynamic', [{
     kind: 'choice', id: 'amount', required: false, shared: [], options: [{ key: 'one', rows: [widgetInput('amount', 1)] }],
   }]),
+  TapChoiceOld: schemaOf('TapChoiceOld', [{
+    kind: 'choice', id: 'mode', required: true, shared: [], options: [{ key: 'a', rows: [widgetInput('amount', 1)] }, { key: 'b', rows: [] }],
+  }]),
+  TapChoiceNew: schemaOf('TapChoiceNew', [{
+    kind: 'choice', id: 'mode', required: true, shared: [], options: [{ key: 'a', rows: [widgetInput('amount', 2)] }, { key: 'b', rows: [] }],
+  }]),
   TapMaskOld: schemaOf('TapMaskOld', [widgetInput('amount', 0.5, { type: { kind: 'concrete', name: 'MASK' } })]),
   TapMaskComfy: schemaOf('TapMaskComfy', [widgetInput('amount', 1, { type: { kind: 'concrete', name: 'comfy.MASK' } })]),
   NewNode: schemaOf('NewNode', [
@@ -428,6 +434,23 @@ describe('planReplacement rewires', () => {
     expect(store.doc.graphs.g0!.links.tapLink).toEqual(before.graphs.g0!.links.tapLink)
   })
 
+  it("keeps a wire from the output of a field under the chosen option", () => {
+    const before = doc({ g0: graph({
+      id: 'g0',
+      nodes: {
+        old: node('old', 'TapChoiceOld', { 'mode.amount': 0.25 }, { dynamic: { mode: { selected: 'a' } } }),
+        dst: node('dst', 'Consumer'),
+      },
+      links: { tapLink: link('tapLink', { node: asNodeId('old'), tap: asPortId('mode.amount') }, port('dst', 'in')) },
+    }) })
+    const planned = planReplacement(before, 'g0', 'old', { from: 'TapChoiceOld', cases: [{ to: 'TapChoiceNew', slotVariants: { mode: 'a' }, inputs: { 'mode.amount': { kind: 'copy', input: 'mode.amount' } } }] }, resolve)
+    expect(planned.diagnostics).toEqual([])
+    expect(planned.plan!.dropLinks).toEqual([])
+    const store = new DocumentStore(before, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    expect(store.dispatch({ command: 'node.replace', params: { plan: planned.plan! } as unknown as Record<string, Json> }).ok).toBe(true)
+    expect(store.doc.graphs.g0!.links.tapLink).toEqual(before.graphs.g0!.links.tapLink)
+  })
+
   it.each([
     ['missing', 'NewNode'],
     ['incompatible type', 'TapWrongType'],
@@ -628,7 +651,7 @@ describe('input family replacement', () => {
     expect(overflow.diagnostics.some((diagnostic) => diagnostic.code === 'replace.target.familyMembers')).toBe(true)
   })
 
-  it('copies a differently named family with suffixes, order, values, controllers, links, and net sinks', () => {
+  it('copies a differently named family with suffixes, order, values, controllers, links, field outputs, and net sinks', () => {
     const original = doc({
       g0: graph({
         id: 'g0',
@@ -645,6 +668,7 @@ describe('input family replacement', () => {
         },
         links: {
           linked: link('linked', port('src', 'out'), port('old', 'operands.b')),
+          tapped: link('tapped', { node: asNodeId('old'), tap: asPortId('operands.a') }, port('dst', 'in')),
         },
         nets: {
           routed: net('routed', port('src', 'out'), [port('old', 'operands.a'), port('dst', 'other')]),
@@ -683,6 +707,8 @@ describe('input family replacement', () => {
       dynamic: { values: { members: ['b', 'a'] } },
       values: { 'values.b': 2, 'values.a': 1 },
     })
+    // A wire from a member field's output follows the member to its new address.
+    expect(store.doc.graphs.g0!.links.tapped!.from).toEqual({ node: 'old', tap: 'values.a' })
     expect(store.undo()).toBe(true)
     expect(store.doc).toEqual(original)
   })

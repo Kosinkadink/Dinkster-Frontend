@@ -963,6 +963,11 @@ describe('sections in scenes', () => {
     expect(closed.elaborated?.items.flatMap((item) =>
       item.kind === 'input' && item.apiName !== undefined ? [item.apiName] : [],
     )).toEqual(['a', 'w', 'b'])
+    // The folded field still has a row to check its stored value against.
+    const fieldIds = (node: typeof open) => node.fieldRows?.flatMap((row) => row.kind === 'widget' ? [row.inputId] : [])
+    expect(fieldIds(open)).toBeUndefined()
+    expect(fieldIds(closed)).toEqual(['w'])
+    expect(fieldIds(sectionedScene(false, false, false, true).nodes.find((n) => n.id === 's0')!)).toEqual(['w'])
   })
 
   it('link and named-net noodles into a collapsed section anchor on its closed row', () => {

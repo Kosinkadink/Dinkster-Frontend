@@ -533,6 +533,29 @@ describe('showing a field on the subgraph node', () => {
     expect(entries(linked, 'sub', 'blur', 'radius')).toEqual([])
   })
 
+  it('offers a whole group from its add row, and takes it off again from there', () => {
+    const registry = createMenuRegistry()
+    for (const contribution of coreMenuContributions()) registry.register(contribution)
+    const store = schemaStore(fieldDoc())
+    const entries = () => registry.resolve({
+      doc: store.doc, graphId: 'sub', resolve,
+      target: { kind: 'growth', nodeId: 'weigh', construct: 'weights' },
+      selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] }, worldX: 0, worldY: 0,
+    }).flatMap((group) => group.items) as MenuActionItem[]
+    const run = (item: MenuActionItem) => {
+      if (item.action.kind !== 'command') throw new Error('expected a command')
+      return store.dispatch(item.action.invocation)
+    }
+    const [show] = entries()
+    expect(show!.label).toBe('Show weights on subgraph node')
+    expect(run(show!).ok).toBe(true)
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs').map((item) => item.binds)).toEqual([{ kind: 'construct', node: 'weigh', port: 'weights' }])
+    const [remove] = entries()
+    expect(remove!.label).toBe('Remove weights from subgraph node')
+    expect(run(remove!).ok).toBe(true)
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')).toEqual([])
+  })
+
   it('replays in a shared session without a schema', () => {
     const original = fieldDoc()
     const command = coreCommandRegistry().get('boundary.showOnSubgraphNode')!

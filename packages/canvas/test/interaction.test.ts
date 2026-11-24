@@ -4634,25 +4634,28 @@ describe('moving a member by its grip', () => {
   const gripRows = (scene: Scene) => scene.nodes[0]!.layout.rows.filter((row) => row.kind === 'widget' && row.reorder !== undefined) as
     Extract<Scene['nodes'][number]['layout']['rows'][number], { kind: 'widget' }>[]
 
-  it('puts the grip 4 px before the remove cross, and the field 4 px before the grip', () => {
+  it('puts the grip before a member\'s field and the cross after it, each as far from the field as from the outline', () => {
     const scene = sceneWith(['lora0', 'lora1', 'lora2'])
-    const { width } = scene.nodes[0]!.layout
+    const layout = scene.nodes[0]!.layout
     const box = canvasPaintTokens.node.box
+    const outline = layout.boxes!.find((b) => b.id === 'group:loras')!
+    const inner = { left: outline.x + box.stroke, right: outline.x + outline.width - box.stroke }
     const rows = gripRows(scene)
     expect(rows.map((row) => row.reorder!.member)).toEqual(['lora0', 'lora1', 'lora2'])
     for (const row of rows) {
-      const crossLeft = width - row.crossInset! - box.cross.size
       const gripLeft = row.reorder!.gripX - box.gripWidth / 2
-      expect(crossLeft - (gripLeft + box.gripWidth)).toBe(4)
-      expect(gripLeft - (row.inset + row.width!)).toBe(4)
+      expect(gripLeft - inner.left).toBe(4)
+      expect(row.inset - (gripLeft + box.gripWidth)).toBe(4)
+      const crossRight = layout.width - row.crossInset!
+      expect(inner.right - crossRight).toBe(4)
+      expect(crossRight - box.cross.size - (row.inset + row.width!)).toBe(4)
       expect(row.reorder!.alone).toBeUndefined()
     }
-    // Without the cross the grip stands where the cross would, and the field ends 4 px before it.
+    // Without the cross the field runs to where any field in the group ends.
     const bare = sceneWith(['lora0', 'lora1'], defaultTokens)
     for (const row of gripRows(bare)) {
       expect(row.crossInset).toBeUndefined()
-      expect(bare.nodes[0]!.layout.width - row.inset - (row.reorder!.gripX + box.gripWidth / 2)).toBe(0)
-      expect(row.reorder!.gripX - box.gripWidth / 2 - (row.inset + row.width!)).toBe(4)
+      expect(inner.right - (row.inset + row.width!)).toBe(box.fieldGap)
     }
     // A group's only member has a grip that does nothing.
     expect(gripRows(sceneWith(['lora0']))[0]!.reorder).toMatchObject({ member: 'lora0', alone: true })
@@ -4678,7 +4681,7 @@ describe('moving a member by its grip', () => {
     ])
   })
 
-  it('gives a member drawn as one line of fields one grip, at the line\'s end, and one place', () => {
+  it('gives a member drawn as one line of fields one grip, before the line, and one place', () => {
     const field = (id: string) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } })
     const lined: NodeSchema = {
       ...schema(),
@@ -4688,11 +4691,11 @@ describe('moving a member by its grip', () => {
     const layout = layoutNode(lined, node, defaultTokens, (value) => value.length * 6, () => ({ viewId: 'core.number', rows: 1 }))
     const grips = layout.rows.filter((row) => row.kind === 'widget' && row.reorder !== undefined) as Extract<LayoutRow, { kind: 'widget' }>[]
     expect(grips.map((row) => [row.inputId, row.reorder!.member])).toEqual([
-      ['loras.lora0.b', 'lora0'], ['loras.lora1.b', 'lora1'], ['loras.lora2.b', 'lora2'],
+      ['loras.lora0.a', 'lora0'], ['loras.lora1.a', 'lora1'], ['loras.lora2.a', 'lora2'],
     ])
-    // The grip stands past the end of the line's last field.
-    for (const row of grips) expect(row.reorder!.gripX - canvasPaintTokens.node.box.gripWidth / 2 - (row.inset + row.width!)).toBe(4)
-    const middle = layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'loras.lora1.a')!
+    // The grip stands 4 px before the line's first field.
+    for (const row of grips) expect(row.inset - (row.reorder!.gripX + canvasPaintTokens.node.box.gripWidth / 2)).toBe(4)
+    const middle = layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'loras.lora1.b')!
     expect(memberAt(layout, middle.y + 1)).toEqual({ construct: 'loras', member: 'lora1', index: 1, count: 3 })
   })
 

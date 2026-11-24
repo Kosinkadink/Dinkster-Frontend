@@ -23,10 +23,10 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import type { DynamicPortState, GraphDef, Json, JsonObject, WorkflowDocument } from '../format/document.js'
 import { resolveDynamicAddress } from '../format/document.js'
 import type { CommandDefinition } from './contract.js'
-import { isPortEndpoint, MAX_MEMBER_ORDINAL } from '../ids.js'
+import { isPortEndpoint, isWidgetTapRef, MAX_MEMBER_ORDINAL } from '../ids.js'
 import { DEFAULT_ELAB_BUDGET } from '../schema/elaborate.js'
 import { constructsOf } from '../schema/body.js'
-import type { ChoiceSpec, GroupSpec } from '../schema/model.js'
+import type { ChoiceSpec, GroupSpec, TypeChoiceSpec } from '../schema/model.js'
 import { checkDocument, subgraphDefIdOf } from '../invariants.js'
 import { allNodesOf, storeStartState } from './start-state.js'
 import { boundaryItems } from '../format/document.js'
@@ -334,7 +334,7 @@ const portIsWithin = (port: string, construct: string): boolean =>
 function compactScope(
   scope: Readonly<Record<string, DynamicPortState>>,
   references: readonly MemberReference[],
-  constructs: ReadonlyMap<string, GroupSpec | ChoiceSpec> | undefined,
+  constructs: ReadonlyMap<string, GroupSpec | ChoiceSpec | TypeChoiceSpec> | undefined,
 ): Record<string, DynamicPortState> {
   const result: Record<string, DynamicPortState> = {}
   const removed: string[] = []
@@ -401,6 +401,8 @@ const dynamicCompact: CommandDefinition = {
     }
     for (const link of Object.values(def.links)) {
       if (isPortEndpoint(link.from)) add(link.from)
+      // A wire from a field's output uses the member the field is in.
+      else if (isWidgetTapRef(link.from)) add({ node: link.from.node, port: link.from.tap })
       if (isPortEndpoint(link.to)) add(link.to)
     }
     for (const net of Object.values(def.nets)) {
@@ -455,6 +457,7 @@ const dynamicCompact: CommandDefinition = {
     for (const item of [...(boundaryItems(def.boundary, 'inputs') ?? []), ...(boundaryItems(def.boundary, 'outputs') ?? [])]) {
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (binding.kind === 'port') add(binding)
+        else if (binding.kind === 'widgetTap') add({ node: binding.node, port: binding.tap })
       }
     }
     for (const key of Object.keys(node.values)) {

@@ -1241,42 +1241,57 @@ const nodePreviewExpose: MenuContribution = {
 
 /**
  * Inside a subgraph: show a whole group, choice, type choice or described row
- * on the subgraph node, from any row in it. Each enclosing construct is
- * offered once, outermost first, unless it or a row in it is already shown.
+ * on the subgraph node, from any row in it or a group's add row. Each
+ * enclosing construct is offered once, outermost first, unless a row in it is
+ * already shown; one already shown whole is offered for removal instead.
  */
 const showConstructOnSubgraphNode: MenuContribution = {
   id: 'core.boundary.showWhole',
-  targets: ['widget', 'pin'],
+  targets: ['widget', 'pin', 'growth'],
   group: '85-expose',
   resolve(ctx) {
     const target = ctx.target
-    if (target.kind !== 'widget' && target.kind !== 'pin') return []
+    if (target.kind !== 'widget' && target.kind !== 'pin' && target.kind !== 'growth') return []
     if (target.kind === 'widget' && target.synthetic === true) return []
     const def = ctx.doc.graphs[ctx.graphId]
     const node = def?.nodes[target.nodeId]
     if (!def || !node || ctx.graphId === ctx.doc.root) return []
     const schema = ctx.resolve?.(node.type)
     if (schema === undefined) return []
-    const port = target.kind === 'widget' ? target.inputId : target.portId
-    const shown = [...(boundaryItems(def.boundary, 'inputs') ?? []), ...(boundaryItems(def.boundary, 'outputs') ?? [])]
-      .flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
-      .filter((binding) => (binding.kind === 'port' || binding.kind === 'construct') && binding.node === node.id)
-      .map((binding) => ({ port: (binding as { port: string }).port, whole: binding.kind === 'construct' }))
-    return constructsAround(schema, port)
-      .filter((construct) => !shown.some((other) =>
-        other.port === construct.path || other.port.startsWith(`${construct.path}.`) ||
-        (other.whole && construct.path.startsWith(`${other.port}.`))))
-      .map((construct) => ({
+    const port = target.kind === 'widget' ? target.inputId : target.kind === 'pin' ? target.portId : target.construct
+    const shown = (['inputs', 'outputs'] as const).flatMap((side) => boundaryItems(def.boundary, side)
+      .flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])].map((binding) => ({ item: item.id, side, binding }))))
+      .filter(({ binding }) => (binding.kind === 'port' || binding.kind === 'construct') && binding.node === node.id)
+      .map(({ item, side, binding }) => ({ item, side, port: (binding as { port: string }).port, whole: binding.kind === 'construct' }))
+    return constructsAround(schema, port).flatMap((construct) => {
+      const whole = shown.find((other) => other.whole && other.port === construct.path)
+      if (whole !== undefined) {
+        return [{
+          id: `core.boundary.hideWhole.${construct.path}`,
+          label: `Remove ${construct.label} from subgraph node`,
+          action: {
+            kind: 'command' as const,
+            invocation: {
+              command: 'boundary.unbind',
+              params: { graphId: ctx.graphId, side: whole.side, itemId: whole.item, node: node.id, port: construct.path },
+            },
+          },
+        }]
+      }
+      if (shown.some((other) => other.port.startsWith(`${construct.path}.`) ||
+        (other.whole && construct.path.startsWith(`${other.port}.`)))) return []
+      return [{
         id: `core.boundary.showWhole.${construct.path}`,
         label: `Show ${construct.label} on subgraph node`,
         action: {
-          kind: 'command',
+          kind: 'command' as const,
           invocation: {
             command: 'boundary.showOnSubgraphNode',
             params: { graphId: ctx.graphId, node: node.id, port: construct.path },
           },
         },
-      }))
+      }]
+    })
   },
 }
 

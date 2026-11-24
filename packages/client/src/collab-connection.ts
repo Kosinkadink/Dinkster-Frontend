@@ -524,10 +524,15 @@ export class CollabHttpConnection implements CollabConnection {
     }
     const body = (await res.json().catch(() => null)) as {
       error?: unknown
+      message?: unknown
       revision?: unknown
       supported?: unknown
       retryAfterMs?: unknown
     } | null
+    if (res.status === 422 && typeof body?.error === 'string') {
+      const message = typeof body.message === 'string' ? body.message : body.error
+      return { kind: 'refused', code: body.error, message }
+    }
     if (res.status === 409 && body?.error === 'stale-base' && typeof body.revision === 'number') {
       return { kind: 'stale-base', revision: body.revision }
     }

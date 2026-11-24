@@ -554,7 +554,7 @@ interface DinksterTestBridge {
       /** Exact widget row under the idle pointer. */
       hoveredWidget?: { nodeId: string; valueKey: string }
     }
-    getBadges(): Readonly<Record<string, ReadonlyArray<{ id: string }>>>
+    getBadges(): Readonly<Record<string, ReadonlyArray<{ id: string; glyph?: string }>>>
     /** Where each badge of a node is painted and hit, in world units. */
     getNodeBadgeLayout(node: unknown): ReadonlyArray<{ badge: { id: string; placement?: string }; x: number; y: number; width: number; height: number }>
     getNodeOutputTexts(): Readonly<Record<string, { text: string; stale?: true; estimate?: true }>>
@@ -630,7 +630,11 @@ interface DinksterTestBridge {
       nodeBodyContent?: (node: DinksterBridgeSceneNode) =>
         ReadonlyArray<{ label: string; text: string; tone?: string }> | null
     }
-    getBadges(): Readonly<Record<string, readonly { id: string }[]>>
+    getBadges(): Readonly<Record<string, readonly { id: string; glyph?: string }[]>>
+    /** The strongest problem kind per row of each node. */
+    getRowMarks(): Readonly<Record<string, Readonly<Record<string, 'error' | 'warning'>>>>
+    /** The row drawn stronger because its line in the problem box is pointed at. */
+    getProblemRowHighlight(): { readonly nodeId: string; readonly row: string } | undefined
     getDesignTokens(): { rowHeight: number; rowGeometry: { stepperZone: number; stepperLabelInset: number } }
     getScene(): {
       graphId: string
