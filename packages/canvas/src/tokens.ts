@@ -181,17 +181,24 @@ export const canvasPaintTokens = {
       stroke: 1,
       radius: 5,
       /** Each box inside a box steps in this far from the outline around it. */
-      step: 6,
+      step: 8,
       /**
        * A field inside a box sits this far inside its outline, and the
        * outline's inner side lines up with a field outside any box, so a
-       * field in one box is this much narrower on each side.
+       * field in one box is this much narrower on each side. Equal to
+       * `step`, so a field is as wide as a box beside it in the same box.
        */
-      fieldGap: 3,
+      fieldGap: 8,
       /** The open header is this much shorter than the closed row, inside the outline. */
       headerShrink: 2,
       /** From the last field in a box to its outline. */
-      bottomGap: 3,
+      bottomGap: 4,
+      /** Between two member boxes, so their outlines do not read as one thick line. */
+      memberGap: 4,
+      /** From a field or pin row to the outline of a box header under it. */
+      headerGap: 4,
+      /** From a box's outline to the box header, field or pin row after it. */
+      boxGap: 4,
       /** An open box with no name: room above its outline for the tab, and below it. */
       tabGap: 6,
       tabPad: 4,
