@@ -39,8 +39,10 @@ export function drawnAnewInputs(
 }
 
 /**
- * How the runtime nodes behind one view node compare with the run: changed
- * when any of them changed, otherwise unknown when any cannot be compared.
+ * How the failed runtime nodes behind one view node compare with the run.
+ * A subgraph node follows the failed nodes inside it, at any depth: same
+ * while any of them is the same, otherwise unknown while any cannot be
+ * compared, and changed only when every one of them has changed.
  */
 export function runStandingFor(args: {
   readonly live: CompileResult | undefined
@@ -52,10 +54,10 @@ export function runStandingFor(args: {
     : undefined
   return (runtimeIds) => {
     if (standing === undefined || runtimeIds.length === 0) return 'unknown'
-    let result: RecipeStanding = 'same'
+    let result: RecipeStanding = 'changed'
     for (const id of runtimeIds) {
       const one = standing(id)
-      if (one === 'changed') return 'changed'
+      if (one === 'same') return 'same'
       if (one === 'unknown') result = 'unknown'
     }
     return result

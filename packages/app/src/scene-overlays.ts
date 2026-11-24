@@ -538,8 +538,9 @@ export function deriveSceneOverlays(args: {
   readonly dismissedErrorNodes?: ReadonlySet<string>
   readonly rowProblems?: RowProblemMap
   /**
-   * Live tabs: whether a node no longer runs as the run ran it, given its
-   * runtime ids in this view (run-problem-standing.ts). Absent = unchanged.
+   * Live tabs: whether a node no longer runs as the run ran it, given the
+   * runtime ids in this view that failed (all of its runtime ids when none
+   * is known to have failed); run-problem-standing.ts. Absent = unchanged.
    */
   readonly runChanged?: (sceneNodeId: string, runtimeIds: readonly string[]) => boolean
   readonly resolveSchema: ((type: string) => NodeSchema | undefined) | undefined
@@ -684,11 +685,19 @@ export function deriveSceneOverlays(args: {
 
   // A run's problems on a node lose their color once the node has changed
   // since the run: no Failed state, a gray Last run tab, no row outlines.
+  // A node is judged by its failed runtime nodes, so a subgraph node follows
+  // the failed nodes inside it rather than every node inside it.
   const lastRunNodes = new Set<string>()
-  if (!args.frozen && occ !== undefined && args.runChanged !== undefined) {
+  if (!args.frozen && occ !== undefined && args.runChanged !== undefined && exec !== undefined) {
     for (const n of scene.nodes) {
-      if ((runErrorsByNode.has(n.id) || states[n.id]?.state === 'error') &&
-        args.runChanged(n.id, runtimeIdsFor(occ, n.id))) lastRunNodes.add(n.id)
+      if (!runErrorsByNode.has(n.id) && states[n.id]?.state !== 'error') continue
+      const ids = runtimeIdsFor(occ, n.id)
+      const failed = new Set(ids.filter((id) => exec.nodes[id]?.state === 'error'))
+      for (const diagnostic of runErrorsByNode.get(n.id) ?? []) {
+        const id = diagnostic.data?.['runtimeId']
+        if (typeof id === 'string') failed.add(id)
+      }
+      if (args.runChanged(n.id, failed.size > 0 ? [...failed] : ids)) lastRunNodes.add(n.id)
     }
   }
   const shownStates = lastRunNodes.size === 0 ? states : Object.fromEntries(

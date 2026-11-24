@@ -69,8 +69,10 @@ describe('run problem standing', () => {
     expect(edited(['sink'])).toBe('changed')
     expect(edited(['source'])).toBe('changed')
     expect(edited(['lone'])).toBe('same')
-    // A view node behind several runtime nodes changed when any of them did.
-    expect(edited(['lone', 'sink'])).toBe('changed')
+    // A subgraph node keeps its color while any failed node inside is the
+    // same, and loses it only when every one of them has changed.
+    expect(edited(['lone', 'sink'])).toBe('same')
+    expect(edited(['source', 'sink'])).toBe('changed')
   })
 
   it('cannot tell without a current compile, and keeps the last answer until it can', () => {

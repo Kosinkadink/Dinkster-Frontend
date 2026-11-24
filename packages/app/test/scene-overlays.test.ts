@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DEPRECATED_BADGE, executionErrorBadge, LAST_RUN_BADGE, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, UNAVAILABLE_BADGE, type Scene } from '@dinkster/canvas'
-import { asGraphDefId, asLinkId, asNodeId, asPortId, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
+import { asGraphDefId, asLinkId, asNodeId, asPortId, occurrenceKey, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { applyNodeDecorations, deriveSceneOverlays, representedPreviewAssetForNode, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
@@ -1105,6 +1105,29 @@ describe('deriveSceneOverlays', () => {
 
     // A frozen tab shows the run as it ran.
     expect(derive(true, true).badges['n1']).toEqual([executionErrorBadge(1), PROBLEM_WARNING_BADGE])
+  })
+
+  it('judges a subgraph node by the failed nodes inside it', () => {
+    const failedA = occurrenceKey({ instancePath: [asNodeId('sub1')], node: asNodeId('a') })
+    const failedB = occurrenceKey({ instancePath: [asNodeId('sub1')], node: asNodeId('b') })
+    const fine = occurrenceKey({ instancePath: [asNodeId('sub1')], node: asNodeId('c') })
+    const asked: (readonly string[])[] = []
+    const derive = (changed: (ids: readonly string[]) => boolean) => deriveSceneOverlays({
+      ...base,
+      scene: scene([{ id: 'sub1', isSubgraph: true, type: '#def' }]),
+      exec: exec({
+        nodes: { [failedA]: { state: 'error' }, [fine]: { state: 'done' } },
+        errors: [
+          runError('a', ['sub1'], { data: { runtimeId: failedA } }),
+          runError('b', ['sub1'], { data: { runtimeId: failedB } }),
+        ],
+      }),
+      runChanged: (_id, runtimeIds) => { asked.push(runtimeIds); return changed(runtimeIds) },
+    })
+    // An edit to the node that did not fail is not asked about.
+    expect(derive(() => false).badges['sub1']).toContainEqual(executionErrorBadge(2))
+    expect([...asked[0]!].sort()).toEqual([failedA, failedB].sort())
+    expect(derive(() => true).badges['sub1']).toContainEqual(LAST_RUN_BADGE)
   })
 
   it('derives bottom warning and info badges from node-attributed log records', () => {
