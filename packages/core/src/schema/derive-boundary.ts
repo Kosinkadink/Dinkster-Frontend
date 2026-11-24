@@ -854,7 +854,8 @@ export function deriveBoundarySchema(
         minMembers: Math.max(0, derived.minMembers - count),
         maxMembers: limit - count,
         ...(derived.keys.kind === 'named' ? { keys: { kind: 'named' as const, names: derived.keys.names.filter((name) => !interior.members.includes(name)) } } : {}),
-        ...(count > 0 ? { interiorMembers: count } : {}),
+        // Members inside count through every level: an outer face numbers on from all of them.
+        ...(count > 0 ? { interiorMembers: (row.interiorMembers ?? 0) + count } : {}),
       }
     }
     const schema = resolveNode(node)!
