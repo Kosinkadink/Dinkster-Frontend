@@ -732,14 +732,19 @@ test('context menus keep 12 px sides, one label column and a check column only w
           .filter((row) => row.querySelector('.menu-shortcut, .menu-submenu-caret'))
           .map((row) => right - row.lastElementChild!.getBoundingClientRect().right))],
         checks: panel.querySelectorAll('.menu-check').length,
+        // Separators line up with the content on both sides.
+        separators: [...new Set([...panel.querySelectorAll<HTMLElement>('.menu-separator')].flatMap((line) => {
+          const box = line.getBoundingClientRect()
+          return [box.left - left, right - box.right]
+        }))],
       }
     }),
   )
   expect(menus).toEqual([
-    { id: 'icons', starts: [12], labels: [34], ends: [12], checks: 0 },
-    { id: 'no-icons', starts: [12], labels: [12], ends: [12], checks: 0 },
-    { id: 'mixed', starts: [12], labels: [34], ends: [12], checks: 0 },
-    { id: 'checkable', starts: [12], labels: [26], ends: [], checks: 5 },
+    { id: 'icons', starts: [12], labels: [34], ends: [12], checks: 0, separators: [12] },
+    { id: 'no-icons', starts: [12], labels: [12], ends: [12], checks: 0, separators: [12] },
+    { id: 'mixed', starts: [12], labels: [34], ends: [12], checks: 0, separators: [12] },
+    { id: 'checkable', starts: [12], labels: [26], ends: [], checks: 5, separators: [] },
   ])
   await expect(
     page.getByRole('heading', { name: 'Context menus' }).locator('xpath=ancestor::section[1]'),

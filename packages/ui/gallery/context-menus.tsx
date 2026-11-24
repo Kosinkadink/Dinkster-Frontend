@@ -22,7 +22,7 @@ const examples: readonly MenuExample[] = [
     groups: [
       { group: 'a', items: [submenu('mode', 'Mode', 'sliders-horizontal'), submenu('color', 'Color', 'palette')] },
       { group: 'b', items: [item('copy', 'Copy', { icon: 'copy', shortcut: 'ctrl+c' }), item('delete', 'Delete', { icon: 'trash-2', shortcut: 'delete' })] },
-      { group: 'c', items: [item('flatten', 'Flatten subgraph one level', { icon: 'ungroup', shortcut: 'ctrl+shift+f', disabled: true })] },
+      { group: 'c', items: [item('up-to', 'Execute up to selection', { icon: 'circle-play', disabled: true })] },
     ],
   },
   {
