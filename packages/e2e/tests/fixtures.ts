@@ -69,11 +69,24 @@ export async function executionDetails(row: Locator): Promise<Locator> {
   return details.getByTestId('run-details')
 }
 
+const regionSwitches = {
+  left: { testId: 'left-panel-toggle', item: 'Left panel' },
+  bottom: { testId: 'bottom-panel-toggle', item: 'Bottom panel' },
+  right: { testId: 'rail-toggle', item: 'Right panel' },
+} as const
+
+/** Uses the region's switch in the top bar, or its item in the layout menu when the bar is narrow. */
+export async function toggleShellRegion(page: Page, region: keyof typeof regionSwitches): Promise<void> {
+  const { testId, item } = regionSwitches[region]
+  const button = page.getByTestId(testId)
+  if (await button.count() > 0) return button.click()
+  await page.getByRole('button', { name: 'Customize layout' }).click()
+  await page.getByRole('menu', { name: 'Customize layout' }).getByRole('menuitemcheckbox', { name: item }).click()
+}
+
 export async function openRailPanel(page: Page, title: string): Promise<void> {
   const rail = page.getByTestId('dock-zone-right')
-  if (!await rail.isVisible()) {
-    await page.getByRole('button', { name: /^Toggle right rail/ }).click()
-  }
+  if (!await rail.isVisible()) await toggleShellRegion(page, 'right')
   await expect(rail).toBeVisible()
 
   const tab = rail.locator('[role="tab"]').filter({ hasText: title })

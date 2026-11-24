@@ -5,7 +5,7 @@
  * narrow side sheets preserve tabs and status. The thin status bar is not
  * the bottom panel and never toggles with it.
  */
-import { expect, nativeTest as test, waitForWorkspaceReady, type Locator } from './fixtures.js'
+import { expect, nativeTest as test, toggleShellRegion, waitForWorkspaceReady, type Locator } from './fixtures.js'
 
 async function expectWholeTabs(tablist: Locator, tabs: Locator): Promise<void> {
   const strip = (await tablist.boundingBox())!
@@ -531,7 +531,7 @@ test('narrow side surfaces preserve tabs and status without document overflow', 
   expect(inspectorBox.y).toBeGreaterThanOrEqual(dockBox.y + dockBox.height - 1)
   expect(inspectorBox.x + inspectorBox.width).toBeLessThanOrEqual(480)
 
-  await page.getByTestId('rail-toggle').click()
+  await toggleShellRegion(page, 'right')
   await expect(inspector).toBeHidden()
   await expect(dock).toBeVisible()
   const expandedDockBox = (await dock.boundingBox())!
