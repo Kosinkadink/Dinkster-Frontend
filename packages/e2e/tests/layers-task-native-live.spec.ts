@@ -36,6 +36,15 @@ const rowsOf = (page: Page, nodeId: string) =>
       : { kind: row.kind, key: row.construct ?? row.label })
   }, nodeId)
 
+/** The text each note and field row of a scene node draws for its label. */
+const labelsOf = (page: Page, nodeId: string) =>
+  page.evaluate((nodeId) => {
+    type Row = { kind: string; label?: string; text?: string }
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((n) => n.id === nodeId)!
+    return (node.layout.rows as unknown as Row[]).flatMap((row) =>
+      row.kind === 'note' ? [row.text!] : row.kind === 'widget' ? [row.label!] : [])
+  }, nodeId)
+
 /** Page point at the middle of the first row of `nodeId` that `match` accepts. */
 async function rowPoint(page: Page, nodeId: string, match: { kind: string; inputId?: string }): Promise<{ x: number; y: number }> {
   return page.evaluate(({ nodeId, match }) => {
@@ -214,17 +223,28 @@ test('the layers task: add, close, forward through two subgraphs, add and edit o
   // Second level: that subgraph node in another, the group shown again.
   const outer = await extractOnlyNode(page)
   await enter(page, outer)
-  // The face shows only the layers stored on the subgraph node, none yet,
-  // and the menu that shows a group opens from one of its fields: the inner
-  // subgraph node first gets a layer of its own.
-  expect((await rowsOf(page, inner)).map((row) => row.kind)).toEqual(['growth'])
-  await shot(page, '05-inside-outer')
+  // The face holds no layer of its own yet: it says the three inside and
+  // offers the whole group from its add row's menu.
+  expect((await rowsOf(page, inner)).map((row) => row.kind)).toEqual(['note', 'growth'])
   const addInner = await rowPoint(page, inner, { kind: 'growth' })
+  await page.mouse.click(addInner.x, addInner.y, { button: 'right' })
+  const showFromAdd = page.locator('[data-item-id="core.boundary.showWhole.layers"]')
+  await expect(showFromAdd).toContainText('Show Layers on subgraph node')
+  if (proofDir) await page.screenshot({ path: join(proofDir, '05-add-row-menu.png'), clip: { x: 0, y: 0, width: 760, height: 360 } })
+  await showFromAdd.click()
+  await expect.poll(async () => (await activeDoc(page)).graphs[await graphIdOfView(page)]!.boundary?.inputs.map((item) => item.binds))
+    .toEqual([{ kind: 'construct', node: inner, port: 'layers' }])
+  // A layer of the inner subgraph node's own reads 4, after the three inside.
   await page.mouse.click(addInner.x, addInner.y)
-  await expect.poll(async () => (await rowsOf(page, inner)).filter((row) => row.kind === 'widget').map((row) => row.key)).toEqual(['layers.1.name', 'layers.1.strength'])
-  await showGroupOnFace(page, inner, 'layers.1.name')
+  await expect.poll(async () => (await rowsOf(page, inner)).filter((row) => row.kind !== 'growth')).toEqual([
+    { kind: 'note', key: undefined },
+    { kind: 'widget', key: 'layers.1.name', value: 'layer' },
+    { kind: 'widget', key: 'layers.1.strength', value: 1 },
+  ])
+  expect(await labelsOf(page, inner)).toEqual(['1 to 3 are inside', '4 name', '4 strength'])
+  await shot(page, '05b-inner-face-own-layer')
   await leaveToRoot(page)
-  expect((await rowsOf(page, outer)).map((row) => row.kind)).toEqual(['growth'])
+  expect((await rowsOf(page, outer)).map((row) => row.kind)).toEqual(['note', 'growth'])
   await shot(page, '06-outer-subgraph-node')
 
   // On the outermost node: add a layer and edit its field.
@@ -233,6 +253,8 @@ test('the layers task: add, close, forward through two subgraphs, add and edit o
   await expect.poll(async () => (await rowsOf(page, outer)).filter((row) => row.kind === 'widget').map((row) => row.key)).toEqual(['layers.1.name', 'layers.1.strength'])
   await editField(page, outer, 'layers.1.strength', '1.75')
   await editField(page, outer, 'layers.1.name', 'glaze')
+  // Glaze is the fifth layer the node runs, and reads 5.
+  expect(await labelsOf(page, outer)).toEqual(['1 to 4 are inside', '5 name', '5 strength'])
   await shot(page, '07-outer-added-edited')
   const doc = await activeDoc(page)
   expect(doc.graphs[doc.root]!.nodes[outer]!.values).toEqual({ 'layers.1.name': 'glaze', 'layers.1.strength': 1.75 })

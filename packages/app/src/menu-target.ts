@@ -281,6 +281,8 @@ export function menuTargetOf(hit: Hit): MenuTarget {
       // the node's menu.
       if (hit.bnode !== undefined) return { kind: 'canvas' }
       return hit.row.editor === true ? { kind: 'node', nodeId: hit.node.id } : widgetMenuTarget(hit.node.id, hit.row)
+    case 'growth':
+      return { kind: 'growth', nodeId: hit.node.id, construct: hit.row.construct }
     case 'section':
       return {
         kind: 'section',

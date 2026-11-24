@@ -3669,7 +3669,7 @@ export class CanvasRenderer {
           // A formula note's text is unknown until formulas are evaluated, so
           // it draws dimmed like any other offer that is not settled yet.
           const rowAlpha = ctx.globalAlpha
-          if (row.unknown) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
+          if (row.unknown || row.quiet) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
           const width = row.width ?? l.width - row.inset * 2
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'

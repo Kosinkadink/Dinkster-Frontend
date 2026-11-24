@@ -224,6 +224,8 @@ export type LayoutRow =
       readonly text: string
       /** The text is the note's "while unknown" answer. */
       readonly unknown?: true
+      /** Drawn dimmed: a remark about the rows, such as the members inside a subgraph. */
+      readonly quiet?: true
     }
   | {
       /** A button (ElaboratedButton): drawn and inert; its steps never run here. */
@@ -816,7 +818,7 @@ export function layoutNode(
       : never
     section?: { sectionId: string; label: string; collapsed: boolean; hiddenModified?: number }
     growth?: { construct: string; label: string; frames: readonly MaterializeFrame[] }
-    note?: { noteId: string; text: string; unknown?: true }
+    note?: { noteId: string; text: string; unknown?: true; quiet?: true }
     button?: { buttonId: string; label: string }
     sectionId?: string
   }
@@ -959,7 +961,7 @@ export function layoutNode(
         kind: item.kind,
         ...(item.section !== undefined ? { sectionId: item.section } : {}),
         ...(item.kind === 'note'
-          ? { note: { noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}) } }
+          ? { note: { noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}), ...(item.quiet ? { quiet: true as const } : {}) } }
           : { button: { buttonId: item.id, label: item.label } }),
       })
       continue
