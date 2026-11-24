@@ -232,6 +232,8 @@ export interface ElaboratedInput {
    * nothing. The text says why.
    */
   readonly kept?: string
+  /** Inside its member's box: the row's own label, drawn in place of the full name. */
+  readonly ownLabel?: string
 }
 
 /**
@@ -274,6 +276,8 @@ export interface ElaboratedOutput {
   readonly wireable?: false
   readonly materialize?: readonly MaterializeFrame[]
   readonly boxes?: readonly string[]
+  /** Inside its member's box: the row's own label, drawn in place of the full name. */
+  readonly ownLabel?: string
 }
 
 /** A section header as the node draws it. */
@@ -577,6 +581,8 @@ interface Scope {
   readonly typeMember?: string
   /** Prefix for the labels of a record member's rows. */
   readonly labelPrefix?: string
+  /** The rows are inside their member's box, which already names the member. */
+  readonly inMemberBox?: boolean
   readonly formulaFrames: readonly FormulaFrame[]
   /** Use overrides for the shared rows of the choice whose option this is. */
   readonly shared?: ReadonlyMap<string, BodyRow>
@@ -1071,6 +1077,7 @@ function elaboratePass(
       return
     }
     const own = row.labelFormula !== undefined ? labelOf(row.labelFormula, row.id, scope) : row.displayName ?? row.id
+    const boxedLabel = label === undefined && scope.inMemberBox && scope.labelPrefix !== undefined
     let spec: InputSpec = {
       ...row,
       id: path,
@@ -1094,6 +1101,7 @@ function elaboratePass(
       ...common(scope),
       ...(parts !== undefined ? { parts } : {}),
       ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
+      ...(boxedLabel ? { ownLabel: own } : {}),
       ...extra,
     })
   }
@@ -1105,6 +1113,7 @@ function elaboratePass(
       return
     }
     const own = row.labelFormula !== undefined ? labelOf(row.labelFormula, row.id, scope) : row.displayName ?? row.id
+    const boxedLabel = label === undefined && scope.inMemberBox && scope.labelPrefix !== undefined
     push({
       kind: 'output',
       address: { port: path },
@@ -1118,6 +1127,7 @@ function elaboratePass(
       },
       ...common(scope),
       ...(scope.ghost || scope.dormant ? { wireable: false as const } : {}),
+      ...(boxedLabel ? { ownLabel: own } : {}),
     })
   }
 
@@ -1446,10 +1456,11 @@ function elaboratePass(
         else emitOutput({ ...row.value, id: key }, `${path}.${key}`, valueScope, label)
       } else {
         const prefix = `${path}.${key}.`
-        const fill = (boxes: readonly string[]): void => rows(row.member ?? [], {
+        const fill = (boxes: readonly string[], inMemberBox: boolean): void => rows(row.member ?? [], {
           ...memberScope,
           prefix,
           labelPrefix: label,
+          inMemberBox,
           boxes,
           formulaFrames: [...scope.formulaFrames, { prefix, rows: row.member ?? [], index: position, key }],
         })
@@ -1465,9 +1476,9 @@ function elaboratePass(
             ordinal: position,
             ...(ghost ? { ghost: true as const } : {}),
             ...boxed(scope),
-          }, fill)
+          }, (boxes) => fill(boxes, true))
         } else {
-          fill(scope.boxes)
+          fill(scope.boxes, false)
         }
       }
       const emitted = items.slice(before)
@@ -1656,6 +1667,7 @@ function elaboratePass(
           ...(scope.section !== undefined ? { section: scope.section } : {}),
           ...(scope.hidden ? { hidden: true as const } : {}),
         },
+        ...(scope.inMemberBox && scope.labelPrefix !== undefined ? { ownLabel: label } : {}),
         origin: { kind: 'selector', construct: path, ...(key !== undefined ? { selected: key } : {}) },
         ...(key !== undefined ? { derivedValue: key } : {}),
         ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
