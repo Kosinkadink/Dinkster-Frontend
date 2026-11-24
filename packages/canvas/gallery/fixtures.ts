@@ -17,7 +17,6 @@ import {
   ERROR_BADGE,
   LOG_INFO_BADGE,
   MUTED_BADGE,
-  PROBLEM_BLOCKING_WARNING_BADGE,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
   SUBGRAPH_BADGE,
@@ -40,7 +39,6 @@ import {
   toolboxButton,
   toolboxSeparator,
   type BadgeMap,
-  type PortProblemMap,
   type NodeBadge,
   type CompanionMap,
   type RowMarkMap,
@@ -81,6 +79,7 @@ export const canvasGalleryPages = [
   ['row-lists', 'Lists in the row proposal'],
   ['color-editing', 'Color in the row'],
   ['node-look', 'Original and new node look'],
+  ['problem-box', 'The node\'s problem box'],
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],
   ['in-node-editors', 'Editors in the node'],
@@ -265,7 +264,6 @@ export interface CanvasGalleryFixture {
     rowMarks?: RowMarkMap
     inactive?: ReadonlySet<string>
     badges?: BadgeMap
-    portProblems?: PortProblemMap
   }[]
 }
 
@@ -1038,7 +1036,6 @@ export function createCanvasGalleryFixture(
       'Skipped',
       'Failed',
       'Document error',
-      'Blocking warning',
       'Missing type',
       'Muted',
       'Bypassed',
@@ -1070,7 +1067,6 @@ export function createCanvasGalleryFixture(
       }
     }
     map['Document error']!.push(PROBLEM_ERROR_BADGE)
-    map['Blocking warning']!.push(PROBLEM_BLOCKING_WARNING_BADGE)
     map.Muted!.push(MUTED_BADGE)
     map.Bypassed!.push(BYPASSED_BADGE)
     const crowded = Array.from(
@@ -1158,7 +1154,6 @@ export function createCanvasGalleryFixture(
       'Skipped',
       'Failed',
       'Document error',
-      'Blocking warning',
       'Warning',
       'Muted',
       'Bypassed',
@@ -1189,7 +1184,6 @@ export function createCanvasGalleryFixture(
     })
     fixture.badges = {
       'Document error': [PROBLEM_ERROR_BADGE],
-      'Blocking warning': [PROBLEM_BLOCKING_WARNING_BADGE],
       Warning: [PROBLEM_WARNING_BADGE],
       Failed: [executionErrorBadge(1)],
       Muted: [MUTED_BADGE],
@@ -1218,7 +1212,7 @@ export function createCanvasGalleryFixture(
       dropTargets: new Set([dropTargetKey(held, 'cfg', 'in')]),
       dropRow: { nodeId: held, valueKey: 'cfg' },
     }
-    fixture.rowMarks = { 'Invalid value': new Set(['steps']) }
+    fixture.rowMarks = { 'Invalid value': { 'steps': 'error' } }
     fixture.scene.nodes = fixture.scene.nodes.map((node) => ({
       ...node,
       ...(node.id === 'Colored' ? { color: tokens.stateColors.running } : {}),
@@ -1319,7 +1313,6 @@ export function createCanvasGalleryFixture(
       BYPASSED_BADGE,
       PROBLEM_ERROR_BADGE,
       UNAVAILABLE_BADGE,
-      PROBLEM_BLOCKING_WARNING_BADGE,
       PROBLEM_WARNING_BADGE,
       mediaDiagnosticBadge('core.media.alpha_dropped.image.IMAGE', 'Alpha dropped: IMAGE'),
       mediaDiagnosticBadge('core.media.mask_polarity.mask.mask', 'Mask polarity: mask'),
@@ -1415,7 +1408,7 @@ export function createCanvasGalleryFixture(
     fixture.overlay = {
       hoveredWidget: { nodeId: 'Hovered', valueKey: widgetInput.id },
     }
-    fixture.rowMarks = { Invalid: new Set([widgetInput.id]) }
+    fixture.rowMarks = { Invalid: { [widgetInput.id]: 'error' } }
     fixture.height = 850
   } else if (page === 'boxes') {
     const socket = (id: string, type: string): InputSpec => ({
@@ -1844,6 +1837,35 @@ export function createCanvasGalleryFixture(
       caption: 'Room under the last thing in a box',
       nodes: examples.slice(-4).flatMap((example) => example.nodes ?? []),
     })
+    // A group's add row and a button the node declares stand raised, in
+    // each state. An add row is never disabled: it goes at the group's most.
+    nextRow()
+    const raised = (enabled?: false) => schema('LoRA stack', [
+      loras('loras', 'LoRAs'),
+      {
+        kind: 'button',
+        id: 'clear',
+        label: 'Clear LoRAs',
+        steps: [],
+        ...(enabled === false ? { enabled } : {}),
+      },
+    ])
+    const buttonStates: readonly [string, number, OverlayState, false?][] = [
+      ['Buttons at rest', 0, {}],
+      ['Add row pointed at', 1, { hoveredButton: { nodeId: 'Add row pointed at', key: 'growth:loras' } }],
+      ['Add row pressed', 2, { pressedButton: { nodeId: 'Add row pressed', key: 'growth:loras' } }],
+      ['Button pointed at', 0, { hoveredButton: { nodeId: 'Button pointed at', key: 'button:clear' } }],
+      ['Button pressed', 1, { pressedButton: { nodeId: 'Button pressed', key: 'button:clear' } }],
+      ['Button disabled', 2, {}, false],
+    ]
+    for (const [caption, at, overlay, enabled] of buttonStates) {
+      if (at === 0 && caption !== 'Buttons at rest') nextRow()
+      add(caption, raised(enabled), {}, 30, false, {
+        at: column(at),
+        dynamic: { loras: { members: ['lora0'] } },
+      })
+      examples[examples.length - 1] = { ...examples[examples.length - 1]!, overlay }
+    }
     const dragging = fixture.scene.nodes.find((node) => node.id === 'Dragging lora 1 below lora 2')!
     const draggedGrip = dragging.layout.rows.flatMap((row) =>
       row.kind === 'member' && row.reorder?.member === 'lora0' ? [row.reorder] : [])[0]!

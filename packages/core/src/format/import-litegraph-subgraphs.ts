@@ -34,6 +34,8 @@ const importedSlotType = (value: unknown): TypeExpr => {
   if (Array.isArray(value)) return { kind: 'concrete', name: 'COMBO' }
   if (typeof value !== 'string' || value === '*' || value === 'COMFY_MULTITYPED_V3') return { kind: 'wildcard' }
   if (value === 'COMFY_MATCHTYPE_V3') return { kind: 'variable', templateId: 'T' }
+  // ComfyUI's FLOATS is a list of numbers, Dinkster's list<FLOAT>.
+  if (value === 'FLOATS') return { kind: 'list', element: { kind: 'concrete', name: 'FLOAT' } }
   const names = value.split(',').map((name) => name.trim()).filter(Boolean)
   return names.length > 1 ? { kind: 'union', names } : { kind: 'concrete', name: names[0] ?? value }
 }

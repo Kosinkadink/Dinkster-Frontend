@@ -47,6 +47,7 @@ import { ColorEditingGallery } from './color-editing.js'
 import { InNodeEditorsGallery } from './in-node-editors.js'
 import { RowEditingGallery } from './row-editing.js'
 import { RowListsGallery } from './row-lists.js'
+import { ProblemBoxGallery } from './problem-box.js'
 
 type Theme = 'dark' | 'light'
 
@@ -92,6 +93,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
     ['Wires', ['types', 'structure']],
     ['Subgraphs', ['boundary', 'boundary-names']],
     ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
+    ['Problems with fixes', ['problem-box']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
 
@@ -149,6 +151,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   titles:
     'A title that does not fit ends in an ellipsis instead of squeezing its letters, drawn at 75 percent zoom.',
   'titles-content': 'The same titles at 50 percent zoom.',
+  'problem-box':
+    'A problem outlines its row; the node\'s Error or Warning tab counts the causes and opens one box under the node with each problem and, where one exists, the action that leads to it. Point at a line to light its row.',
   'title-suffix':
     'A node\'s declared title suffix, worked out from its values ("20 steps, euler"), one space after the title in the row names\' dim regular type: beside a pack title, beside a renamed title, cut first on a narrow node ("20 steps with the euler sampler"), and on a minimized node.',
   'node-look':
@@ -354,7 +358,6 @@ function ExampleCard(props: {
     renderer.setScene(scene)
     renderer.setNodeStates(example.states ?? fixture.states)
     renderer.setBadges(example.badges ?? fixture.badges)
-    renderer.setPortProblems(example.portProblems ?? {})
     renderer.setOverlay(example.overlay ?? fixture.overlay)
     renderer.setRowMarks(example.rowMarks ?? fixture.rowMarks)
     renderer.setCompanions(example.companions ?? fixture.companions)
@@ -600,7 +603,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look') return
+    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -707,6 +710,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'in-node-editors'}>
           <InNodeEditorsGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'problem-box'}>
+          <ProblemBoxGallery theme={theme()} />
         </Show>
         <Show when={prepared()[0]}>
           {(first) => (

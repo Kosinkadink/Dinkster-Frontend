@@ -66,6 +66,8 @@ export const canvasPaintTokens = {
       /** Drawn size of a tab's icon. */
       iconSize: 14,
       iconGap: 4,
+      /** Gap in screen px between the node's lowest tab and its open problem box. */
+      problemBoxGap: 4,
       maxLabelWidth: 120,
       stroke: 1,
       /** Shares of the tab's color: its fill over the canvas, its line over the canvas, its words over the title color. */
@@ -101,8 +103,6 @@ export const canvasPaintTokens = {
     selectionUnion: { world: [5, 4], screen: [4, 3] },
     marquee: { world: [4, 3], screen: [3, 2] },
     remote: [6, 4],
-    blockingWarning: { world: [1, 3], screen: [1, 3] },
-    growth: [3, 3],
     companionUnderline: [1, 2],
     running: { world: [13, 9], screen: [9, 6] },
     boundary: { world: [5, 3], screen: [4, 3] },
@@ -592,7 +592,10 @@ export const canvasPaintTokens = {
     inactiveOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     connectedOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     hoverOpacity: 0.12,
-    diagnosticStroke: 1.5,
+    diagnosticStroke: 1,
+    /** Outline and wash of the row whose line is pointed at in the node's problem box. */
+    problemHighlightStroke: 2,
+    problemHighlightOpacity: 0.18,
     /** Outline of the field a held wire would take. */
     dropStroke: 2,
     connectedControllerOpacity: 0.5,
@@ -610,7 +613,11 @@ export const canvasPaintTokens = {
     companion: { stroke: 1, underlineOffset: canvasSemanticTokens.space[4] },
     fallbackValueWidthPadding: canvasSemanticTokens.space[8],
     fallback: { opacity: 0.75, textInset: 4, labelRatio: 0.45, valueRatio: 0.5 },
-    growth: { stroke: 1, verticalInset: 3, textPadding: canvasSemanticTokens.space[8] },
+    /**
+     * A button on a node (a group's add row, a declared button): its outline,
+     * the room kept beside its words, and how far a disabled one fades.
+     */
+    button: { stroke: 1, textPadding: canvasSemanticTokens.space[8], disabledOpacity: canvasSemanticTokens.interaction.disabledOpacity },
   },
   minimap: {
     fallbackWidth: 160,
@@ -852,6 +859,14 @@ export interface DesignTokens {
     readonly boxCount: string
     /** The dot on a closed box that holds a value that is not its default. */
     readonly boxChanged: string
+    /** A button's face at rest, under the pointer and held down. */
+    readonly buttonFace: string
+    readonly buttonHover: string
+    readonly buttonPressed: string
+    /** The lit top edge of a button that is not pressed. */
+    readonly buttonLitEdge: string
+    /** The dark line under a button that is not pressed. */
+    readonly buttonShade: string
     /**
      * Companion (propagated) value text: what a link-driven input WOULD
      * execute with, rendered read-only in neutral italic text in place of
@@ -887,8 +902,6 @@ export interface DesignTokens {
      * document-level problems the solver proved, independent of execution.
      */
     readonly error: string
-    /** Execution-blocking document warning, shared by its badge and outline. */
-    readonly blockingWarning: string
   }
   /** Data-type -> pin/link color. Unknown types get a stable hashed hue. */
   readonly typeColors: Readonly<Record<string, string>>
@@ -1066,12 +1079,16 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     companionUnproven: tokens.meaning.info.foreground,
     companionEstimate: tokens.meaning.success.foreground,
     error: tokens.meaning.danger.border,
-    blockingWarning: tokens.meaning.warning.border,
-    boxOutline: theme === 'dark' ? '#343A41' : tokens.border.subtle,
+    boxOutline: tokens.border.box,
     boxInnerOutline: theme === 'dark' ? '#2E3338' : '#E1E5E9',
     boxHover: theme === 'dark' ? '#22262B' : tokens.surface.raised,
     boxCount: tokens.text.muted,
     boxChanged: tokens.meaning.accent.border,
+    buttonFace: tokens.button.face,
+    buttonHover: tokens.button.faceHover,
+    buttonPressed: tokens.button.facePressed,
+    buttonLitEdge: tokens.button.litEdge,
+    buttonShade: tokens.button.shade,
   }
 }
 
