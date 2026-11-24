@@ -734,6 +734,53 @@ describe('whole constructs on the subgraph node', () => {
     expect(callOf(outerOf([port('list', 's0', 'pick')]), {})).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
   })
 
+  it('an automatic field shown on a subgraph node is worked out in the inner node with this instance\'s values', () => {
+    const float = (id: string, extra: Record<string, unknown> = {}) =>
+      ({ kind: 'input', id, type: { kind: 'concrete', types: ['FLOAT'] }, default: 1, widget: { type: 'FLOAT' }, ...extra })
+    const { schema: retime } = parseDinksterSchema('Retime', { body: [
+      float('rate', { default: 48 }),
+      float('fps', { default: 24, automatic: { formula: 'rate / 4' } }),
+    ] } as never)
+    const port = (id: string, node: string, at: string) => ({ id, binds: { kind: 'port', node, port: at }, promoted: true })
+    const withRetime: SchemaResolver = (type) => (type === 'Retime' ? retime : resolve(type))
+    const faceOf = (stored: Record<string, Json>, shown: readonly unknown[], links: Record<string, unknown> = {}, nodes: Record<string, unknown> = {}) =>
+      deriveBoundarySchema(asDef({
+        id: 'gW', name: 'whole', links, nets: {}, nextOrdinal: 1, boundary: { inputs: shown, outputs: [] },
+        nodes: { r0: { id: 'r0', type: 'Retime', values: stored }, ...nodes },
+      }), withRetime).schema!
+    const fpsOf = (schema: NodeSchema, values: Record<string, Json>) => {
+      const elab = elaborateInterface(schema, { values })
+      return { row: elabInputsOf(elab).find((input) => input.spec.id === 'speed')!, warned: elab.diagnostics.some((d) => d.code === 'automatic.default') }
+    }
+    const both = faceOf({}, [port('pace', 'r0', 'rate'), port('speed', 'r0', 'fps')])
+    // Two instances each work out their own value from their own rate.
+    expect(fpsOf(both, { pace: 100 }).row.automatic).toEqual({ value: 25, state: 'worked-out' })
+    expect(fpsOf(both, { pace: 60 }).row.automatic).toEqual({ value: 15, state: 'worked-out' })
+    // A value on the instance is fixed; emptying it would give this instance's value.
+    const fixed = fpsOf(both, { pace: 100, speed: 30 }).row
+    expect(fixed.automatic).toBeUndefined()
+    expect(fixed.automaticIfEmptied).toEqual({ value: 25, state: 'worked-out' })
+    // A rate not shown on the subgraph node is the definition's.
+    expect(fpsOf(faceOf({ rate: 80 }, [port('speed', 'r0', 'fps')]), {}).row.automatic).toEqual({ value: 20, state: 'worked-out' })
+    // A value the definition stores is the row's value, not automatic.
+    const stored = fpsOf(faceOf({ fps: 12 }, [port('speed', 'r0', 'fps')]), {}).row
+    expect(stored.automatic).toBeUndefined()
+    expect(stored.spec.widget?.default).toBe(12)
+    // A rate wired inside the definition is not known: the default, with the warning.
+    const wired = fpsOf(faceOf({}, [port('speed', 'r0', 'fps')],
+      { l0: { id: 'l0', from: { node: 'n0', port: 'out' }, to: { node: 'r0', port: 'rate' } } },
+      { n0: { id: 'n0', type: 'Retime', values: {} } }), {})
+    expect(wired.row.automatic).toMatchObject({ value: 24, state: 'default' })
+    expect(wired.warned).toBe(true)
+    // Two levels out, the outer subgraph node's rate decides.
+    const outer = deriveBoundarySchema(asDef({
+      id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { s0: { id: 's0', type: '#gW', values: {} } },
+      boundary: { inputs: [port('tempo', 's0', 'pace'), port('speed', 's0', 'speed')], outputs: [] },
+    }), (type) => (type === '#gW' ? both : withRetime(type))).schema!
+    expect(fpsOf(outer, { tempo: 200 }).row.automatic).toEqual({ value: 50, state: 'worked-out' })
+  })
+
   it('a group with no declared maximum gets none on the subgraph node, and its members inside still share the cap', () => {
     const { maxMembers: _declared, ...items } = innerSchemas['Stack']!.body[0] as GroupSpec
     const open: SchemaResolver = (type) => (type === 'Stack' ? { ...innerSchemas['Stack']!, body: [items, ...innerSchemas['Stack']!.body.slice(1)] } : resolve(type))

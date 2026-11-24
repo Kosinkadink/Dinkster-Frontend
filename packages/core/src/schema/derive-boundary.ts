@@ -999,6 +999,9 @@ export function deriveBoundarySchema(
         ? { controllerInitial: node.controllers![item.binds.port as string] }
         : {}),
     } : undefined
+    // An automatic field the definition stores nothing for stays automatic on
+    // the subgraph node; a stored value is the row's default instead.
+    const automatic = promoted && !Object.hasOwn(node.values, item.binds.port as string) ? inner.automatic : undefined
     items.push({
       kind: 'input',
       id: item.id,
@@ -1015,7 +1018,8 @@ export function deriveBoundarySchema(
           ? { forceInput: true }
           : {}),
       ...(inner.lazy !== undefined ? { lazy: inner.lazy } : {}),
-      ...(promotedWidget?.looked !== undefined
+      ...(automatic !== undefined ? { automatic } : {}),
+      ...(promotedWidget?.looked !== undefined || automatic !== undefined
         ? { lookupScope: unwired(outerScopeOf(item.binds as RouteBoundaryBinding, node, item.binds.port as string, item.id, inner.lookupScope)) }
         : {}),
     })

@@ -1533,7 +1533,8 @@ function elaboratePass(
       ...extra,
     })
     if (row.automatic !== undefined && !scope.dormant && !linked(path)) {
-      const site = { row: spec, scope }
+      // On a subgraph node it is worked out in the inner node's scope.
+      const site = { row: spec, scope: lookupScope }
       if (Object.hasOwn(node.values, path)) fixedSites.set(path, site)
       else sites.set(path, site)
     }

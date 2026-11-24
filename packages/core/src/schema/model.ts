@@ -564,9 +564,10 @@ export interface InputSpec extends PortSpecBase {
    */
   readonly sent?: false
   /**
-   * On a subgraph node's field whose widget is worked out from lookups: what
-   * the names its lookup arguments read mean there. They keep the inner
-   * node's scope, as a construct shown whole does.
+   * On a subgraph node's field whose widget is worked out from lookups, or
+   * that is automatic: what the names its lookup arguments and its automatic
+   * formula read mean there. They keep the inner node's scope, as a
+   * construct shown whole does.
    */
   readonly lookupScope?: OuterScope
   /** Backend computation-semantic demand marker (wire 16); true or omitted. */
