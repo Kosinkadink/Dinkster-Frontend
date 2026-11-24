@@ -709,3 +709,39 @@ test('mobile navigation selects immediately and closes; desktop selection does n
     await lists.evaluate((element) => getComputedStyle(element).fontWeight),
   ).toBe(weight)
 })
+
+test('context menus keep 12 px sides, one label column and a check column only where an item can be checked', async ({
+  page,
+}) => {
+  await page.goto('/#context-menus')
+  await page.evaluate(() => document.fonts.ready)
+  const menus = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('[data-testid^="context-menu-example-"]')].map((figure) => {
+      const panel = figure.querySelector<HTMLElement>('[data-testid="context-menu"]')!
+      const inner = panel.getBoundingClientRect()
+      const border = parseFloat(getComputedStyle(panel).borderLeftWidth)
+      const left = inner.left + border
+      const right = inner.right - border
+      const rows = [...panel.querySelectorAll<HTMLElement>('[data-testid="context-menu-item"]')]
+      return {
+        id: figure.dataset['testid']!.replace('context-menu-example-', ''),
+        starts: [...new Set(rows.map((row) => row.firstElementChild!.getBoundingClientRect().left - left))],
+        labels: [...new Set(rows.map((row) => row.querySelector('.menu-label')!.getBoundingClientRect().left - left))],
+        // Rows that end in a shortcut or a submenu arrow reach the right side.
+        ends: [...new Set(rows
+          .filter((row) => row.querySelector('.menu-shortcut, .menu-submenu-caret'))
+          .map((row) => right - row.lastElementChild!.getBoundingClientRect().right))],
+        checks: panel.querySelectorAll('.menu-check').length,
+      }
+    }),
+  )
+  expect(menus).toEqual([
+    { id: 'icons', starts: [12], labels: [34], ends: [12], checks: 0 },
+    { id: 'no-icons', starts: [12], labels: [12], ends: [12], checks: 0 },
+    { id: 'mixed', starts: [12], labels: [34], ends: [12], checks: 0 },
+    { id: 'checkable', starts: [12], labels: [26], ends: [], checks: 5 },
+  ])
+  await expect(
+    page.getByRole('heading', { name: 'Context menus' }).locator('xpath=ancestor::section[1]'),
+  ).toHaveScreenshot('context-menus.png')
+})

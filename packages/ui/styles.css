@@ -573,7 +573,7 @@
 .context-menu-cascade { position: absolute; inset: 0; z-index: 11; pointer-events: none; outline: none; }
 .context-menu { position: absolute; box-sizing: border-box; min-width: min(180px, calc(100% - var(--dinkster-space-16))); max-height: 400px; overflow: auto; pointer-events: auto; padding: var(--dinkster-space-4) 0; outline: none; }
 .context-submenu { z-index: 1; }
-.menu-item { display: flex; align-items: center; gap: var(--dinkster-space-8); padding: var(--dinkster-space-4) var(--dinkster-space-12) var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-primary); cursor: pointer; user-select: none; }
+.menu-item { display: flex; align-items: center; gap: var(--dinkster-space-8); padding: var(--dinkster-space-4) var(--dinkster-space-12); color: var(--dinkster-text-primary); cursor: pointer; user-select: none; }
 .menu-item.active { color: var(--dinkster-text-on-selected); background: var(--dinkster-surface-selected); }
 .menu-item.disabled { color: var(--dinkster-text-disabled); cursor: default; }
 .menu-label { min-width: 0; overflow-wrap: anywhere; }
@@ -587,3 +587,5 @@
 .menu-check { width: 6px; height: 6px; border-radius: var(--dinkster-radius-capsule); flex: none; }
 .menu-item.checked .menu-check { background: var(--dinkster-accent-border); }
 .menu-separator { height: 1px; margin: var(--dinkster-space-4) var(--dinkster-space-8); background: var(--dinkster-border-subtle); }
+/* A gallery frame holding one open context menu. */
+.dinkster-context-menu-stage { width: 300px; height: 310px; }

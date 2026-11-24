@@ -50,6 +50,9 @@ const MENU_ICONS: Readonly<Record<string, LucideIcon>> = {
   'volume-x': VolumeX,
 }
 
+const menuIcon = (item: MenuItem): LucideIcon | undefined =>
+  item.icon === undefined ? undefined : MENU_ICONS[item.icon]
+
 export function menuStep(flat: MenuEntries, from: number, delta: -1 | 1): number {
   for (let index = from + delta; index >= 0 && index < flat.length; index += delta) {
     if (flat[index]?.item.disabled !== true) return index
@@ -345,6 +348,11 @@ export function ContextMenu(props: {
         {(panel, depthAccessor) => {
           const depth = depthAccessor()
           const parentIndex = panel.ownerIndex ?? 0
+          // Each panel lays out its own columns: a check slot only when one
+          // of its items can be checked, and an icon slot on every item when
+          // one has an icon, so all of its labels start at the same place.
+          const checkColumn = panel.entries.some((entry) => entry.item.checked !== undefined)
+          const iconColumn = panel.entries.some((entry) => menuIcon(entry.item) !== undefined)
           let panelElement: HTMLDivElement | undefined
           onCleanup(() => {
             if (panelElement && panelElements.get(depth) === panelElement) panelElements.delete(depth)
@@ -416,9 +424,13 @@ export function ContextMenu(props: {
                           openChildren(depth, entry.item, index)
                         }}
                       >
-                        <span class="menu-check" />
-                        <Show when={entry.item.icon === undefined ? undefined : MENU_ICONS[entry.item.icon]}>
-                          {(icon) => <span class="menu-icon" data-testid="menu-icon"><Icon icon={icon()} /></span>}
+                        <Show when={checkColumn}>
+                          <span class="menu-check" />
+                        </Show>
+                        <Show when={iconColumn}>
+                          <span class="menu-icon" data-testid={menuIcon(entry.item) ? 'menu-icon' : undefined}>
+                            <Show when={menuIcon(entry.item)}>{(icon) => <Icon icon={icon()} />}</Show>
+                          </span>
                         </Show>
                         <span class="menu-label">{entry.item.label}</span>
                         <Show when={entry.item.shortcut}>
