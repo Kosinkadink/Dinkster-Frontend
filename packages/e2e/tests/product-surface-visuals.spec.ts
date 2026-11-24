@@ -464,7 +464,7 @@ test('Boundary is hidden at root and shows definition empty states at desktop an
     await openRail(page, 'Boundary')
     await expect(page.getByTestId('boundary-prompt')).toHaveCount(0)
     await expect(page.getByTestId('boundary-empty')).toHaveCount(1)
-    await expect(page.getByTestId('boundary-empty')).toContainText('Nothing is on the subgraph node yet.')
+    await expect(page.getByTestId('boundary-empty')).toContainText('No rows yet.')
     await screenshot(page, `boundary-empty-sections-${width}`)
   }
 })

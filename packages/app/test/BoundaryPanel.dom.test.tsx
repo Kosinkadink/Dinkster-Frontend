@@ -93,7 +93,7 @@ const mountPanel = async (options: { valueSource?: boolean; inside?: boolean } =
 }
 
 const rowOf = (root: HTMLElement, id: string) =>
-  root.querySelector<HTMLButtonElement>(`[data-testid="boundary-item"][data-boundary-id="${id}"]`)!
+  root.querySelector<HTMLElement>(`[data-entry-id="${id}"]`)!
 const select = (root: HTMLElement, id: string) => rowOf(root, id).click()
 const settings = (root: HTMLElement) => root.querySelector<HTMLElement>('[data-testid="boundary-settings"]')
 const idle = (root: HTMLElement) => vi.waitFor(() => expect(root.querySelector('[aria-busy="true"]')).toBeNull())
@@ -127,9 +127,9 @@ describe('BoundaryPanel rows and settings', () => {
     const { app, tab, root, unmount } = await mountPanel()
     expect(root.querySelector('[data-testid="boundary-title"]')?.textContent).toBe('Soften')
     expect(root.querySelector('[data-testid="boundary-used-in"]')?.textContent).toBe('used in 2 places')
-    const rows = [...root.querySelectorAll<HTMLElement>('[data-testid="boundary-item"]')]
-    expect(rows.map((row) => [row.dataset.boundaryId, row.dataset.side])).toEqual([
-      ['image', 'inputs'], ['mask', 'inputs'], ['strength', 'inputs'], ['mode', 'inputs'], ['out', 'outputs'],
+    const rows = [...root.querySelectorAll<HTMLElement>('[data-entry-id]')]
+    expect(rows.map((row) => [row.dataset.entryId, row.dataset.side])).toEqual([
+      ['image', 'input'], ['mask', 'input'], ['strength', 'input'], ['mode', 'input'], ['out', 'output'],
     ])
     expect(rowOf(root, 'strength').textContent).toBe('StrengthBlend')
     expect(rowOf(root, 'image').textContent).toBe('imageBlend')
@@ -367,7 +367,7 @@ describe('BoundaryPanel rows and settings', () => {
     expect(tab.instancePath.get()).toEqual(['occ'])
     expect(tab.store.revision).toBe(revision)
     expect(root.querySelector('[data-testid="boundary-prompt"]')).toBeNull()
-    expect(root.querySelector('[data-testid="boundary-item"]')).not.toBeNull()
+    expect(root.querySelector('[data-entry-id]')).not.toBeNull()
 
     app.createWorkflow()
     expect(root.querySelector('[data-testid="boundary-prompt"]')?.textContent).toContain('Open a subgraph on the canvas')
@@ -414,7 +414,80 @@ describe('BoundaryPanel rows and settings', () => {
     for (const testId of ['boundary-name-input', 'boundary-help-input', 'boundary-remove']) {
       expect([testId, root.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`)?.disabled]).toEqual([testId, true])
     }
-    expect(root.querySelector<HTMLButtonElement>('[data-testid="boundary-show-on-canvas"]')!.disabled).toBe(false)
+    expect(root.querySelector('[data-testid="boundary-show-on-canvas"]')!.hasAttribute('disabled')).toBe(false)
+    unmount()
+  })
+
+  it('moves a row by dragging its body, in one undo step, and Escape puts it back', async () => {
+    const { tab, root, unmount } = await mountPanel()
+    const order = () => tab.store.doc.graphs.sub!.boundary!.body.map((entry) => 'id' in entry ? entry.id : entry.kind)
+    // Without layout, the drop target is the element under the pointer and its box.
+    const mask = rowOf(root, 'mask')
+    vi.spyOn(mask, 'getBoundingClientRect').mockReturnValue({ top: 100, bottom: 124, left: 0, right: 300, height: 24, width: 300, x: 0, y: 100, toJSON: () => ({}) })
+    vi.spyOn(document, 'elementFromPoint').mockImplementation(() => mask.querySelector('.boundary-tree-label'))
+    const drag = (id: string, end: (target: EventTarget) => void) => {
+      const row = rowOf(root, id)
+      row.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientX: 10, clientY: 300, bubbles: true }))
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 10, clientY: 290 }))
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 10, clientY: 105 }))
+      expect(root.querySelector('.boundary-tree-slot')).not.toBeNull()
+      end(window)
+    }
+
+    drag('out', (target) => target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    expect(root.querySelector('.boundary-tree-slot')).toBeNull()
+    expect(order()).toEqual(['image', 'mask', 'strength', 'mode', 'out'])
+
+    const revision = tab.store.revision
+    drag('out', (target) => target.dispatchEvent(new PointerEvent('pointerup', {})))
+    await idle(root)
+    expect(order()).toEqual(['image', 'out', 'mask', 'strength', 'mode'])
+    expect(tab.store.revision).toBe(revision + 1)
+    expect([...root.querySelectorAll<HTMLElement>('[data-entry-id]')].map((row) => row.dataset.entryId)).toEqual(['image', 'out', 'mask', 'strength', 'mode'])
+    expect(tab.store.undo()).toBe(true)
+    expect(order()).toEqual(['image', 'mask', 'strength', 'mode', 'out'])
+    unmount()
+  })
+
+  it('adds, names and removes a section, which keeps its rows where it was', async () => {
+    const { app, tab, root, unmount } = await mountPanel()
+    const body = () => tab.store.doc.graphs.sub!.boundary!.body
+    root.querySelector<HTMLButtonElement>('[data-testid="boundary-add-section"]')!.click()
+    await idle(root)
+    expect(body().map((entry) => entry.kind)).toEqual(['input', 'input', 'input', 'input', 'section', 'output'])
+    expect(app.boundaryFocus.get()?.item).toBe('section:section1')
+    expect(settings(root)!.dataset.sectionId).toBe('section1')
+
+    const name = root.querySelector<HTMLInputElement>('[data-testid="boundary-section-name"]')!
+    name.value = 'Look'
+    name.dispatchEvent(new Event('change', { bubbles: true }))
+    await idle(root)
+    expect(body()[4]).toMatchObject({ kind: 'section', id: 'section1', displayName: 'Look' })
+
+    // Alt with Down moves mode into the open section below it.
+    select(root, 'mode')
+    rowOf(root, 'mode').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true }))
+    await idle(root)
+    expect(body().map((entry) => 'id' in entry ? entry.id : entry.kind)).toEqual(['image', 'mask', 'strength', 'section1', 'out'])
+    expect(body()[3]).toMatchObject({ kind: 'section', rows: [{ kind: 'input', id: 'mode' }] })
+
+    rowOf(root, 'section:section1').querySelector<HTMLElement>('.boundary-tree-header')!.click()
+    root.querySelector<HTMLButtonElement>('[data-testid="boundary-section-remove"]')!.click()
+    await idle(root)
+    expect(body().map((entry) => 'id' in entry ? entry.id : entry.kind)).toEqual(['image', 'mask', 'strength', 'mode', 'out'])
+    unmount()
+  })
+
+  it('keeps an output off the line of the pin above it with Force its own row', async () => {
+    const { tab, root, unmount } = await mountPanel()
+    select(root, 'out')
+    const own = root.querySelector<HTMLInputElement>('[data-testid="boundary-own-row"]')!
+    expect(own.checked).toBe(false)
+    own.checked = true
+    own.dispatchEvent(new Event('change', { bubbles: true }))
+    await idle(root)
+    expect(tab.store.doc.graphs.sub!.boundary!.body.at(-1)).toMatchObject({ kind: 'output', id: 'out', ownRow: true })
+    expect(root.querySelector<HTMLInputElement>('[data-testid="boundary-own-row"]')!.checked).toBe(true)
     unmount()
   })
 
@@ -615,7 +688,7 @@ describe('BoundaryPanel region occurrence context', () => {
     mounted.app.tabs.set([...mounted.app.tabs.get()])
     expect(mounted.root.querySelector('[data-testid="boundary-frozen"]')?.getAttribute('role')).toBe('status')
     expect(mounted.root.querySelector<HTMLInputElement>('[data-testid="region-max-iterations"]')!.disabled).toBe(true)
-    expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="boundary-show-on-canvas"]')!.disabled).toBe(false)
+    expect(mounted.root.querySelector('[data-testid="boundary-show-on-canvas"]')!.hasAttribute('disabled')).toBe(false)
     const roles = [...mounted.root.querySelectorAll<HTMLButtonElement>('.region-role-controls button')]
     expect(roles).toHaveLength(3)
     expect(roles.every((button) => button.disabled)).toBe(true)
@@ -639,7 +712,7 @@ describe('BoundaryPanel region occurrence context', () => {
     desync.tab.graphStack.update((stack) => [...stack, 'body'])
     expect(desync.root.querySelector('[data-testid="region-panel"]')).toBeNull()
     expect(desync.root.querySelector('[data-testid="boundary-panel"]')).not.toBeNull()
-    expect(desync.root.querySelectorAll('[data-testid="boundary-item"]')).toHaveLength(7)
+    expect(desync.root.querySelectorAll('[data-entry-id]')).toHaveLength(7)
     desync.unmount()
 
     const deleted = (await mountRegionPanel())

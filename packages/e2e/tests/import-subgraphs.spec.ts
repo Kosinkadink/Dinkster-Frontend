@@ -69,8 +69,8 @@ nativeTest('retains unattached typed boundary slots without phantom destinations
   await openRailPanel(page, 'Boundary')
   const panel = page.getByTestId('boundary-panel')
   await expect(panel).toBeVisible()
-  await expect(panel.getByTestId('boundary-item').filter({ hasText: 'Nothing inside' })).toHaveCount(2)
-  const rows = panel.getByTestId('boundary-item')
+  await expect(panel.locator('.boundary-tree [data-entry-id]').filter({ hasText: 'Nothing inside' })).toHaveCount(2)
+  const rows = panel.locator('.boundary-tree [data-entry-id]')
   await expect(rows).toHaveCount(4)
   for (const [index, attached] of [[0, false], [1, true], [2, false], [3, true]] as const) {
     await rows.nth(index).click()
@@ -87,7 +87,7 @@ nativeTest('retains unattached typed boundary slots without phantom destinations
     if (failures.length) throw new Error(JSON.stringify(failures))
   }, after)
   await enterInstance(page, 'n10')
-  await expect(panel.getByTestId('boundary-item').filter({ hasText: 'Nothing inside' })).toHaveCount(2)
+  await expect(panel.locator('.boundary-tree [data-entry-id]').filter({ hasText: 'Nothing inside' })).toHaveCount(2)
   expect(errors).toEqual([])
 })
 

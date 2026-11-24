@@ -7,7 +7,8 @@
  * reports show on their row.
  */
 
-import { createEffect, createSignal as createSolidSignal, For, onCleanup, Show, type JSX } from 'solid-js'
+import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type JSX } from 'solid-js'
+import { Plus, Trash2, TriangleAlert } from 'lucide-solid'
 import { defaultTokens, typeColor } from '@dinkster/canvas'
 import {
   boundaryConditionScope,
@@ -19,21 +20,59 @@ import {
   documentResolver,
   inputsOf,
   isComboWidgetInput,
+  memberRowsOf,
   normalizedComboOptions,
   numberFieldRange,
+  optionRows,
   outputsOf,
+  scopeRowsOf,
   subgraphDefIdOf,
   type BoundaryBinding,
+  type BoundaryEntry,
   type BoundaryItem,
+  type BoundaryLineEntry,
+  type BoundarySectionEntry,
+  type ChoiceSpec,
+  type DescribedSpec,
   type Diagnostic,
   type GraphDef,
+  type GroupSpec,
   type InputSpec,
   type Json,
   type JsonObject,
+  type OptionRow,
   type OutputSpec,
   type RegionContract,
+  type TypeChoiceSpec,
+  type TypeExpr,
 } from '@dinkster/core'
-import { ProductButton, ProductCheckbox, ProductTextInput } from './ProductControls.js'
+import {
+  BoundaryTree,
+  ProductButton as UiButton,
+  ProductCheckbox as UiCheckbox,
+  ProductIcon,
+  ProductLink,
+  ProductTextInput as UiTextInput,
+  type BoundaryTreeDrag,
+  type BoundaryTreeDrop,
+  type BoundaryTreeEntry,
+  type BoundaryTreeRow,
+  type BoundaryTreeTemplateRow,
+} from '@dinkster/ui'
+import { ProductButton, ProductCheckbox } from './ProductControls.js'
+import {
+  addSection,
+  arrangeBody,
+  changeSection,
+  entryKey,
+  lineKey,
+  lineOf,
+  locate,
+  moveEntry,
+  placeOf,
+  sectionKey,
+  setOwnRow,
+} from './boundary-body.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ProductSelect } from './ProductSelect.js'
 import { useAppMessage } from './locale.js'
@@ -70,32 +109,13 @@ const formulaLiteral = (value: string | number | boolean): string =>
 /** The unbind parameters of one binding, or undefined when no unbind can remove it. */
 const unbindParams = (binding: BoundaryBinding): JsonObject | undefined => {
   if (binding.kind === 'widgetTap') return { node: binding.node, tap: binding.tap }
-  if (binding.kind !== 'port') return undefined
+  if (binding.kind !== 'port' && binding.kind !== 'construct') return undefined
   return {
     node: binding.node,
     port: binding.port,
     ...(binding.viaReroute !== undefined ? { viaReroute: binding.viaReroute } : {}),
   }
 }
-
-/** The type's color, as pins of that type are drawn on the canvas. */
-const TypeDot = (dotProps: { typeId: string }): JSX.Element => (
-  <span class="boundary-dot" style={{ background: typeColor(defaultTokens, dotProps.typeId) }} aria-hidden="true" />
-)
-
-const ConditionMark = (): JSX.Element => (
-  <svg class="boundary-mark" data-mark="condition" width="13" height="12" viewBox="0 0 13 12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
-    <path d="M1 6c1.6-2.7 3.4-4 5.5-4s3.9 1.3 5.5 4c-1.6 2.7-3.4 4-5.5 4S2.6 8.7 1 6z" />
-    <circle cx="6.5" cy="6" r="1.6" />
-  </svg>
-)
-
-const ProblemMark = (): JSX.Element => (
-  <svg class="boundary-mark" data-mark="problem" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
-    <path d="M6 1.2l5 9.3H1z" />
-    <path d="M6 4.8v2.7M6 9v.3" />
-  </svg>
-)
 
 export function BoundaryPanel(props: { app: AppState }) {
   const message = useAppMessage()
@@ -209,10 +229,13 @@ export function BoundaryPanel(props: { app: AppState }) {
     return (row.side === 'inputs' ? inputsOf(schema) : outputsOf(schema)).find((spec) => spec.id === row.item.id)
   }
 
-  const defaultItemName = (row: Row): string =>
-    specOf(row)?.displayName
+  const defaultItemName = (row: Row): string => {
+    const construct = constructOf(row)?.displayName
+    return specOf(row)?.displayName
+      ?? (typeof construct === 'string' ? construct : undefined)
       ?? defaultBoundaryLabels(boundaryItems(context()?.def.boundary, row.side)).get(row.item.id)
       ?? row.item.id
+  }
 
   const itemName = (row: Row): string => row.item.displayName ?? defaultItemName(row)
 
@@ -270,8 +293,11 @@ export function BoundaryPanel(props: { app: AppState }) {
       count + Object.values(graph.nodes).filter((node) => occurrenceReferencesDefinition(node, ctx.def.id)).length, 0)
   }
 
+  /** The stored body of the shown definition: its rows in the order the subgraph node draws them. */
+  const body = (): readonly BoundaryEntry[] => context()?.def.boundary?.body ?? []
+
   const rowCache = new Map<string, Row>()
-  /** Rows in stored order, reusing unchanged row objects so their DOM stays. */
+  /** Every input and output with its side, reusing unchanged row objects. */
   const rows = (): readonly Row[] => {
     const boundary = context()?.def.boundary
     const next = (['inputs', 'outputs'] as const).flatMap((side) => boundaryItems(boundary, side).map((item): Row => {
@@ -284,31 +310,343 @@ export function BoundaryPanel(props: { app: AppState }) {
     for (const row of next) rowCache.set(row.item.id, row)
     return next
   }
+  const rowById = (id: string): Row | undefined => rows().find((row) => row.item.id === id)
 
-  const selected = (): Row | undefined => {
+  /** The key of the tree entry selected in this definition: an item id, or `section:<id>`. */
+  const selectedKey = (): string | undefined => {
     const ctx = context()
     const current = focus()
-    if (!ctx || !current || current.tabId !== ctx.tab.id || current.graphId !== ctx.def.id) return undefined
-    return rows().find((row) => row.item.id === current.item)
+    return ctx && current && current.tabId === ctx.tab.id && current.graphId === ctx.def.id ? current.item : undefined
+  }
+  const selected = (): Row | undefined => {
+    const key = selectedKey()
+    return key === undefined ? undefined : rowById(key)
+  }
+  const selectedSection = (): BoundarySectionEntry | undefined => {
+    const key = selectedKey()
+    const found = key?.startsWith('section:') ? locate(body(), key) : undefined
+    return found?.entry.kind === 'section' ? found.entry : undefined
   }
 
-  const select = (row: Row): void => {
+  /** Selects a tree entry. A line itself has no settings; its fields do. */
+  const selectKey = (key: string): void => {
     const ctx = context()
-    if (!ctx) return
-    props.app.boundaryFocus.set({ tabId: ctx.tab.id, graphId: ctx.def.id, item: row.item.id })
+    if (!ctx || key.startsWith('line:')) return
+    props.app.boundaryFocus.set({ tabId: ctx.tab.id, graphId: ctx.def.id, item: key })
   }
 
-  // The list scrolls to a row selected from elsewhere once per selection, so
-  // rows re-created by a later edit never scroll it back.
-  const rowElements = new Map<string, HTMLElement>()
+  // -- The tree -------------------------------------------------------------
+
+  /** A whole group, choice, type choice or described row, as the derived schema holds it. */
+  const constructOf = (row: Row): GroupSpec | ChoiceSpec | TypeChoiceSpec | DescribedSpec | undefined => {
+    const schema = derivation()?.schema
+    if (schema === undefined || row.item.binds.kind !== 'construct') return undefined
+    const found = scopeRowsOf(schema.body).find((candidate) => 'id' in candidate && candidate.id === row.item.id)
+    return found?.kind === 'group' || found?.kind === 'choice' || found?.kind === 'typeChoice' || found?.kind === 'described'
+      ? found
+      : undefined
+  }
+
+  const textOf = (value: unknown, fallback: string): string => typeof value === 'string' ? value : fallback
+
+  /** What a construct is, in quiet text beside its name. */
+  const constructNote = (row: Row): string => {
+    const construct = constructOf(row)
+    if (construct === undefined) return message('boundaryPanel.kind.construct')
+    if (construct.kind !== 'group') return constructKind(row)
+    const grows = construct.grows
+    const fieldName = (id: string): string => {
+      const schema = derivation()?.schema
+      const spec = schema === undefined ? undefined : inputsOf(schema).find((candidate) => candidate.id === id)
+      return textOf(spec?.displayName, id.replaceAll('_', ' '))
+    }
+    if (typeof grows === 'object' && 'count' in grows) return message('boundaryPanel.construct.countedBy', { name: fieldName(grows.count) })
+    if (typeof grows === 'object') return message('boundaryPanel.construct.follows', { name: fieldName(grows.followList) })
+    return message('boundaryPanel.construct.growing')
+  }
+
+  /** The kind a construct is, as the settings head names it. */
+  const constructKind = (row: Row): string => {
+    const kind = constructOf(row)?.kind
+    return kind === 'group' ? message('boundaryPanel.kind.group')
+      : kind === 'choice' ? message('boundaryPanel.kind.choice')
+        : kind === 'typeChoice' ? message('boundaryPanel.kind.typeChoice')
+          : kind === 'described' ? message('boundaryPanel.kind.described')
+            : message('boundaryPanel.kind.construct')
+  }
+
+  const colorOf = (type: TypeExpr | undefined): string => typeColor(defaultTokens, (type === undefined ? undefined : canonicalTypeIdOf(type)) ?? '*')
+
+  /** What each member or option of a construct holds, listed under its name. */
+  const constructTemplate = (row: Row): BoundaryTreeTemplateRow[] => {
+    const construct = constructOf(row)
+    const plain = (rows: readonly OptionRow[]) => scopeRowsOf(rows).flatMap((entry) =>
+      entry.kind === 'input' || entry.kind === 'output' ? [entry] : [])
+    const line = (entry: InputSpec | OutputSpec): BoundaryTreeTemplateRow => ({
+      label: textOf(entry.displayName, entry.id),
+      side: entry.kind,
+      color: colorOf(entry.type),
+    })
+    if (construct === undefined) return []
+    if (construct.kind === 'group') return plain(memberRowsOf(construct)).map(line)
+    if (construct.kind === 'described') return construct.kinds.map(line)
+    const options = construct.kind === 'choice'
+      ? construct.options.map((option) => ({ key: option.label ?? option.key, rows: plain(optionRows(construct, option.key)), type: undefined }))
+      : (construct.variants ?? []).map((variant) => ({ key: variant.key, rows: plain(variant.rows), type: variant.type }))
+    return options.map((option) => ({
+      label: option.rows.length === 0 ? option.key : `${option.key}: ${option.rows.map((entry) => textOf(entry.displayName, entry.id)).join(', ')}`,
+      side: 'input',
+      color: colorOf(option.type ?? option.rows[0]?.type),
+    }))
+  }
+
+  const problemOf = (row: Row): string | undefined => {
+    const first = diagsFor(row.item)[0]
+    return first === undefined ? undefined : problemText(first)
+  }
+
+  const treeRow = (row: Row): BoundaryTreeRow => ({
+    kind: 'row',
+    id: row.item.id,
+    side: row.side === 'inputs' ? 'input' : 'output',
+    label: itemName(row),
+    color: typeColor(defaultTokens, typeIdOf(row)),
+    target: quietNodeName(row),
+    ...(row.item.visible !== undefined ? { condition: true } : {}),
+    ...(problemOf(row) !== undefined ? { problem: problemOf(row)! } : {}),
+  })
+
+  const [closedSections, setClosedSections] = createSolidSignal<ReadonlySet<string>>(new Set())
+  const toggleSection = (key: string): void => {
+    setClosedSections((current) => {
+      const next = new Set(current)
+      if (!next.delete(key)) next.add(key)
+      return next
+    })
+  }
+
+  const sectionName = (section: BoundarySectionEntry): string => section.displayName ?? message('boundaryPanel.section.unnamed')
+
+  /** The stored body as the panel's tree, reusing unchanged entries so their rows keep their DOM. */
+  const treeCache = new Map<string, { readonly json: string; readonly entry: BoundaryTreeEntry }>()
+  const treeEntries = createMemo((): readonly BoundaryTreeEntry[] => {
+    const seen = new Set<string>()
+    const keep = (entry: BoundaryTreeEntry): BoundaryTreeEntry => {
+      const json = JSON.stringify(entry)
+      seen.add(entry.id)
+      const cached = treeCache.get(entry.id)
+      if (cached?.json === json) return cached.entry
+      treeCache.set(entry.id, { json, entry })
+      return entry
+    }
+    const visit = (entries: readonly BoundaryEntry[]): BoundaryTreeEntry[] => entries.flatMap((entry): BoundaryTreeEntry[] => {
+      if (entry.kind === 'section') {
+        const key = sectionKey(entry.id)
+        return [keep({
+          kind: 'section',
+          id: key,
+          label: sectionName(entry),
+          open: !closedSections().has(key),
+          ...(entry.openName === false ? { nameWhileOpen: false } : {}),
+          rows: visit(entry.rows),
+        })]
+      }
+      if (entry.kind === 'line') {
+        const fields = entry.rows.flatMap((field) => {
+          const row = rowById(field.id)
+          return row === undefined ? [] : [treeRow(row)]
+        })
+        return [keep({ kind: 'line', id: lineKey(entry), rows: fields })]
+      }
+      const row = rowById(entry.id)
+      if (row === undefined) return []
+      if (row.item.binds.kind !== 'construct') return [keep(treeRow(row))]
+      const problem = problemOf(row)
+      return [keep({
+        kind: 'construct',
+        id: row.item.id,
+        construct: constructOf(row)?.kind ?? 'described',
+        side: row.side === 'inputs' ? 'input' : 'output',
+        label: itemName(row),
+        target: quietNodeName(row),
+        note: constructNote(row),
+        template: constructTemplate(row),
+        ...(problem !== undefined ? { problem } : {}),
+      })]
+    })
+    const entries = visit(body())
+    for (const key of [...treeCache.keys()]) if (!seen.has(key)) treeCache.delete(key)
+    return entries
+  })
+
+  /** Every tree entry a person can select, in the order the tree shows them. */
+  const shownKeys = (): string[] => {
+    const visit = (entries: readonly BoundaryTreeEntry[]): string[] => entries.flatMap((entry) =>
+      entry.kind === 'section' ? [entry.id, ...(entry.open ? visit(entry.rows) : [])]
+        : entry.kind === 'line' ? entry.rows.map((row) => row.id)
+          : [entry.id])
+    return visit(treeEntries())
+  }
+
+  let treeElement: HTMLDivElement | undefined
+  const entryElement = (key: string): HTMLElement | undefined =>
+    [...(treeElement?.querySelectorAll<HTMLElement>('[data-entry-id]') ?? [])].find((element) => element.dataset.entryId === key)
+
+  // The tree scrolls to an entry selected from elsewhere once per selection,
+  // so entries re-created by a later edit never scroll it back.
   let scrolledFocus: object | undefined
   createEffect(() => {
     const current = focus()
-    const row = selected()
-    if (current === undefined || row === undefined || current === scrolledFocus) return
+    const key = selectedKey()
+    treeEntries()
+    if (current === undefined || key === undefined || current === scrolledFocus) return
+    const element = entryElement(key)
+    if (element === undefined) return
     scrolledFocus = current
-    rowElements.get(row.item.id)?.scrollIntoView?.({ block: 'nearest' })
+    element.scrollIntoView?.({ block: 'nearest' })
   })
+
+  // -- Moving entries -------------------------------------------------------
+
+  const [drag, setDrag] = createSolidSignal<BoundaryTreeDrag | undefined>(undefined)
+  let endDrag: ((commit: boolean) => void) | undefined
+  onCleanup(() => endDrag?.(false))
+
+  /** Stores a new layout in one undo step; an unchanged layout stores nothing. */
+  const arrange = (next: readonly BoundaryEntry[]): Promise<boolean> =>
+    JSON.stringify(next) === JSON.stringify(body())
+      ? Promise.resolve(true)
+      : dispatch('boundary.arrange', { body: arrangeBody(next) }, 'layout')
+
+  /** A field may join a line with room: only fields share a line, and at most four. */
+  const canJoin = (key: string, line: BoundaryLineEntry): boolean => {
+    const row = rowById(key)
+    return row !== undefined && row.side === 'inputs' && row.item.binds.kind !== 'construct' && isField(row)
+      && line.rows.length < 4 && !line.rows.some((field) => field.id === key)
+  }
+
+  /** Where an entry dragged to a point would land; undefined keeps the drop it has. */
+  const dropAt = (key: string, x: number, y: number): BoundaryTreeDrop | undefined => {
+    const tree = treeElement
+    if (tree === undefined) return undefined
+    const entries = body()
+    const shown = (list: readonly BoundaryEntry[]) => list.filter((entry) => entryKey(entry) !== key)
+    const hit = document.elementFromPoint(x, y)
+    if (hit === null || !tree.contains(hit)) {
+      const box = tree.getBoundingClientRect()
+      return x >= box.left && x <= box.right && y > box.bottom ? { kind: 'slot', index: shown(entries).length } : undefined
+    }
+    if (hit.closest('.boundary-tree-slot') !== null) return undefined
+    let element = hit.closest<HTMLElement>('[data-entry-id]')
+    // A field of a line lands as its line does, except in the line's pocket.
+    if (element?.classList.contains('boundary-tree-cell')) element = element.parentElement?.closest<HTMLElement>('[data-entry-id]') ?? null
+    const found = element === null ? undefined : locate(entries, element.dataset.entryId ?? '')
+    if (element === null || found === undefined) return undefined
+    const slot = (index: number): BoundaryTreeDrop => ({ kind: 'slot', ...(found.section !== undefined ? { section: found.section } : {}), index })
+    const at = shown(found.list).indexOf(found.entry)
+    const box = element.getBoundingClientRect()
+    // The right end of a line with room is its pocket; the rest of it opens a slot above or below.
+    if (found.entry.kind === 'line' && canJoin(key, found.entry) && x > box.left + box.width * 0.7) {
+      return { kind: 'pocket', line: lineKey(found.entry) }
+    }
+    if (found.entry.kind === 'section') {
+      const sectionId = sectionKey(found.entry.id)
+      const header = [...element.children].find((child) => child.classList.contains('boundary-tree-header'))
+      const head = header?.getBoundingClientRect()
+      const headBottom = head?.bottom ?? box.top + box.height / 2
+      if (y < headBottom) {
+        const open = !closedSections().has(sectionId)
+        if (y < ((head?.top ?? box.top) + headBottom) / 2) return slot(at)
+        return open ? { kind: 'slot', section: sectionId, index: 0 } : slot(at + 1)
+      }
+      return { kind: 'slot', section: sectionId, index: shown(found.entry.rows).length }
+    }
+    return slot(y < box.top + box.height / 2 ? at : at + 1)
+  }
+
+  /** A press on an entry's body moved past the threshold: it lifts out until the press ends. */
+  const startDrag = (key: string): void => {
+    if (editingDisabled() || endDrag !== undefined) return
+    const start = placeOf(body(), key)
+    if (start === undefined) return
+    setDrag({ id: key, drop: start })
+    const move = (event: PointerEvent) => {
+      const drop = dropAt(key, event.clientX, event.clientY)
+      if (drop !== undefined) setDrag({ id: key, drop })
+    }
+    const up = () => endDrag?.(true)
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      endDrag?.(false)
+    }
+    endDrag = (commit) => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('keydown', escape, true)
+      endDrag = undefined
+      const drop = drag()?.drop
+      setDrag(undefined)
+      const next = commit && drop !== undefined ? moveEntry(body(), key, drop) : undefined
+      if (next !== undefined) void arrange(next)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('keydown', escape, true)
+  }
+
+  /**
+   * Alt with an arrow moves the selected entry one place up or down: past its
+   * neighbour, into an open section it meets, out of the section or line it
+   * ends. Fields of a line step out of it.
+   */
+  const moveByKey = (key: string, delta: -1 | 1): void => {
+    const entries = body()
+    const slot = (section: string | undefined, index: number): BoundaryTreeDrop => ({ kind: 'slot', ...(section !== undefined ? { section } : {}), index })
+    let drop: BoundaryTreeDrop | undefined
+    const line = lineOf(entries, key)
+    const found = locate(entries, line === undefined ? key : lineKey(line))
+    if (found === undefined) return
+    const index = found.list.indexOf(found.entry)
+    if (line !== undefined) drop = slot(found.section, delta < 0 ? index : index + 1)
+    else {
+      const neighbour = found.list[index + delta]
+      if (neighbour?.kind === 'section' && !closedSections().has(sectionKey(neighbour.id))) {
+        drop = slot(sectionKey(neighbour.id), delta > 0 ? 0 : neighbour.rows.length)
+      } else if (neighbour !== undefined) {
+        drop = slot(found.section, index + delta)
+      } else if (found.section !== undefined) {
+        const parent = locate(entries, found.section)
+        if (parent !== undefined) drop = slot(parent.section, parent.list.indexOf(parent.entry) + (delta > 0 ? 1 : 0))
+      }
+    }
+    const next = drop === undefined ? undefined : moveEntry(entries, key, drop)
+    if (next !== undefined) void arrange(next)
+  }
+
+  const focusEntry = (key: string): void => {
+    const element = entryElement(key)
+    const target = element?.matches('[tabindex]') ? element : element?.querySelector<HTMLElement>('[tabindex]')
+    target?.focus()
+  }
+
+  const onTreeKey = (event: KeyboardEvent): void => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    event.preventDefault()
+    const delta = event.key === 'ArrowDown' ? 1 : -1
+    const key = selectedKey()
+    if (event.altKey) {
+      if (key !== undefined && !editingDisabled()) moveByKey(key, delta)
+      return
+    }
+    const keys = shownKeys()
+    if (keys.length === 0) return
+    const index = key === undefined ? -1 : keys.indexOf(key)
+    const next = keys[index < 0 ? (delta > 0 ? 0 : keys.length - 1) : Math.min(keys.length - 1, Math.max(0, index + delta))]!
+    selectKey(next)
+    focusEntry(next)
+  }
 
   // One inline notice at a time, keyed to the row (or the region) whose edit
   // the command refused; cleared by any successful edit.
@@ -531,11 +869,11 @@ export function BoundaryPanel(props: { app: AppState }) {
   }
 
   const Setting = (settingProps: { label: string; for?: string; children: JSX.Element }) => (
-    <div class="boundary-setting">
-      <Show when={settingProps.for} fallback={<span class="boundary-setting-label">{settingProps.label}</span>}>
-        <label class="boundary-setting-label" for={settingProps.for}>{settingProps.label}</label>
+    <div class="boundary-tree-setting">
+      <Show when={settingProps.for} fallback={<span class="boundary-tree-setting-label">{settingProps.label}</span>}>
+        <label class="boundary-tree-setting-label" for={settingProps.for}>{settingProps.label}</label>
       </Show>
-      <div class="boundary-setting-value">{settingProps.children}</div>
+      <div class="boundary-tree-setting-value">{settingProps.children}</div>
     </div>
   )
 
@@ -578,7 +916,8 @@ export function BoundaryPanel(props: { app: AppState }) {
             />
           </Show>
         }>
-          <ProductTextInput
+          <UiTextInput
+            density="panel"
             data-testid="boundary-default-input"
             aria-label={message('boundaryPanel.default')}
             value={drafts()[`default:${row().item.id}`] ?? (typeof value() === 'string' ? value() as string : '')}
@@ -705,36 +1044,75 @@ export function BoundaryPanel(props: { app: AppState }) {
     )
   }
 
+  /** A text setting that commits on Enter, change or blur, and puts the stored text back on Escape. */
+  const TextSetting = (textProps: {
+    id: string
+    testId: string
+    draftKey: string
+    stored: string
+    placeholder?: string
+    commit: (value: string) => void
+  }) => (
+    <UiTextInput
+      density="panel"
+      id={textProps.id}
+      data-testid={textProps.testId}
+      placeholder={textProps.placeholder}
+      value={drafts()[textProps.draftKey] ?? textProps.stored}
+      disabled={editingDisabled()}
+      onInput={(event) => setDrafts((current) => ({ ...current, [textProps.draftKey]: event.currentTarget.value }))}
+      onChange={(event) => textProps.commit(event.currentTarget.value)}
+      onBlur={(event) => textProps.commit(event.currentTarget.value)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          event.currentTarget.blur()
+        } else if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          clearDraft(textProps.draftKey)
+          event.currentTarget.value = textProps.stored
+          event.currentTarget.blur()
+        }
+      }}
+    />
+  )
+
   const Settings = (settingsProps: { row: Row }) => {
     const row = () => settingsProps.row
     const id = () => row().item.id
-    const kindLabel = () => row().side === 'outputs'
-      ? message('boundaryPanel.kind.output')
-      : isField(row()) ? message('boundaryPanel.kind.field') : message('boundaryPanel.kind.pin')
+    const construct = () => row().item.binds.kind === 'construct'
+    const kindLabel = () => construct() ? constructKind(row())
+      : row().side === 'outputs' ? message('boundaryPanel.kind.output')
+        : isField(row()) ? message('boundaryPanel.kind.field') : message('boundaryPanel.kind.pin')
     const range = () => innerRange(row())
     const formatBound = (value: number | undefined, fallback: string): string => value === undefined ? fallback : String(value)
     const show = () => showChoices(row())
+    const ownRow = () => {
+      const found = locate(body(), id())
+      return found?.entry.kind === 'output' && found.entry.ownRow === true
+    }
     return (
-      <div class="boundary-settings" data-testid="boundary-settings" data-boundary-id={id()} role="group" aria-label={message('boundaryPanel.aria.settings', { name: itemName(row()) })}>
-        <div class="boundary-settings-head">
-          <TypeDot typeId={typeIdOf(row())} />
-          <span class="boundary-settings-name">{itemName(row())}</span>
-          <span class="boundary-quiet">{kindLabel()}</span>
+      <div class="boundary-tree-settings" data-testid="boundary-settings" data-boundary-id={id()} role="group" aria-label={message('boundaryPanel.aria.settings', { name: itemName(row()) })}>
+        <div class="boundary-tree-settings-head">
+          <span class="boundary-tree-panel-title">{itemName(row())}</span>
+          <span class="boundary-tree-quiet">{kindLabel()}</span>
         </div>
         <For each={diagsFor(row().item)}>
           {(d) => (
-            <div class="boundary-message" data-tone="diagnostic" data-testid="boundary-diag" data-code={d.code} role="alert">
+            <div class="boundary-tree-problem" data-testid="boundary-diag" data-code={d.code} role="alert">
+              <ProductIcon icon={TriangleAlert} />
               <span>{problemText(d)}</span>
               <Show when={d.code === 'boundary.limitsNotNumber'}>
-                <ProductButton
+                <UiButton
                   type="button"
-                  size="compact"
+                  density="panel"
                   data-testid="boundary-clear-limits"
                   disabled={editingDisabled()}
                   onClick={() => void dispatch('boundary.setLimits', { itemId: id(), min: null, max: null }, rowKey(row()))}
                 >
                   {message('boundaryPanel.problem.clearLimits')}
-                </ProductButton>
+                </UiButton>
               </Show>
             </div>
           )}
@@ -743,67 +1121,43 @@ export function BoundaryPanel(props: { app: AppState }) {
           <p class="boundary-message" data-tone="notice" data-testid="boundary-notice" role="status">{notice()!.text}</p>
         </Show>
         <Setting label={message('boundaryPanel.label')} for={`boundary-label-${id()}`}>
-          <ProductTextInput
+          <TextSetting
             id={`boundary-label-${id()}`}
-            data-testid="boundary-name-input"
+            testId="boundary-name-input"
+            draftKey={`name:${id()}`}
+            stored={row().item.displayName ?? ''}
             placeholder={defaultItemName(row())}
-            value={drafts()[`name:${id()}`] ?? row().item.displayName ?? ''}
-            disabled={editingDisabled()}
-            onInput={(event) => setDrafts((current) => ({ ...current, [`name:${id()}`]: event.currentTarget.value }))}
-            onChange={(event) => commitText(row(), 'name', event.currentTarget.value)}
-            onBlur={(event) => commitText(row(), 'name', event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                event.currentTarget.blur()
-              } else if (event.key === 'Escape') {
-                event.preventDefault()
-                event.stopPropagation()
-                clearDraft(`name:${id()}`)
-                event.currentTarget.value = row().item.displayName ?? ''
-                event.currentTarget.blur()
-              }
-            }}
+            commit={(value) => void commitText(row(), 'name', value)}
           />
         </Setting>
-        <Setting label={message('boundaryPanel.help')} for={`boundary-help-${id()}`}>
-          <ProductTextInput
-            id={`boundary-help-${id()}`}
-            data-testid="boundary-help-input"
-            placeholder={message('boundaryPanel.help.placeholder')}
-            value={drafts()[`help:${id()}`] ?? row().item.tooltip ?? ''}
-            disabled={editingDisabled()}
-            onInput={(event) => setDrafts((current) => ({ ...current, [`help:${id()}`]: event.currentTarget.value }))}
-            onChange={(event) => commitText(row(), 'help', event.currentTarget.value)}
-            onBlur={(event) => commitText(row(), 'help', event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                event.currentTarget.blur()
-              } else if (event.key === 'Escape') {
-                event.preventDefault()
-                event.stopPropagation()
-                clearDraft(`help:${id()}`)
-                event.currentTarget.value = row().item.tooltip ?? ''
-                event.currentTarget.blur()
-              }
-            }}
-          />
-        </Setting>
+        <Show when={!construct()}>
+          <Setting label={message('boundaryPanel.help')} for={`boundary-help-${id()}`}>
+            <TextSetting
+              id={`boundary-help-${id()}`}
+              testId="boundary-help-input"
+              draftKey={`help:${id()}`}
+              stored={row().item.tooltip ?? ''}
+              placeholder={message('boundaryPanel.help.placeholder')}
+              commit={(value) => void commitText(row(), 'help', value)}
+            />
+          </Setting>
+        </Show>
         <Setting label={row().side === 'outputs' ? message('boundaryPanel.from') : message('boundaryPanel.goesTo')}>
-          <Show when={destination(row())} fallback={<span class="boundary-quiet">{message('boundaryPanel.unbound')}</span>}>
+          <Show when={destination(row())} fallback={<span>{message('boundaryPanel.unbound')}</span>}>
             {(text) => (
-              <button
-                type="button"
-                class="boundary-link"
+              <ProductLink
+                href="#"
                 data-testid="boundary-show-on-canvas"
                 aria-label={context()?.outsideNode !== undefined
                   ? message('boundaryPanel.goesTo.open', { destination: text() })
                   : message('boundaryPanel.goesTo.show', { destination: text() })}
-                onClick={() => showOnCanvas(row())}
+                onClick={(event) => {
+                  event.preventDefault()
+                  showOnCanvas(row())
+                }}
               >
                 {text()}
-              </button>
+              </ProductLink>
             )}
           </Show>
         </Setting>
@@ -824,7 +1178,7 @@ export function BoundaryPanel(props: { app: AppState }) {
                 disabled={editingDisabled()}
                 onCommit={(raw) => setLimit(row(), 'min', raw)}
               />
-              <span class="boundary-quiet">{message('boundaryPanel.limits.to')}</span>
+              <span class="boundary-tree-quiet">{message('boundaryPanel.limits.to')}</span>
               <ProductNumberInput
                 class="boundary-limit"
                 testId="boundary-limit-max"
@@ -834,14 +1188,14 @@ export function BoundaryPanel(props: { app: AppState }) {
                 disabled={editingDisabled()}
                 onCommit={(raw) => setLimit(row(), 'max', raw)}
               />
-              <span class="boundary-quiet boundary-limits-inside">{message('boundaryPanel.limits.inside', {
+              <span class="boundary-tree-quiet boundary-limits-inside">{message('boundaryPanel.limits.inside', {
                 min: formatBound(inner().min, message('boundaryPanel.limits.noLowest')),
                 max: formatBound(inner().max, message('boundaryPanel.limits.noHighest')),
               })}</span>
             </Setting>
           )}
         </Show>
-        <Show when={row().side === 'inputs'}>
+        <Show when={row().side === 'inputs' && !construct()}>
           <Setting label={message('boundaryPanel.show')}>
             <ProductSelect
               class="boundary-show-select"
@@ -853,7 +1207,7 @@ export function BoundaryPanel(props: { app: AppState }) {
               onSelect={(option) => void dispatch('boundary.setVisible', { itemId: id(), formula: option.value }, rowKey(row()))}
             />
             <Show when={show().unnamed}>
-              <span class="boundary-quiet" data-testid="boundary-show-unnamed">{message('boundaryPanel.show.unnamed')}</span>
+              <span class="boundary-tree-quiet" data-testid="boundary-show-unnamed">{message('boundaryPanel.show.unnamed')}</span>
             </Show>
           </Setting>
         </Show>
@@ -871,28 +1225,40 @@ export function BoundaryPanel(props: { app: AppState }) {
             </Setting>
           )}
         </Show>
+        <Show when={row().side === 'outputs' && !construct()}>
+          <UiCheckbox
+            label={message('boundaryPanel.ownRow')}
+            data-testid="boundary-own-row"
+            checked={ownRow()}
+            disabled={editingDisabled()}
+            onChange={(event) => void arrange(setOwnRow(body(), id(), event.currentTarget.checked))}
+          />
+        </Show>
         <Show when={removable(row())}>
           <Show when={confirmingRemove() === id()} fallback={
-            <ProductButton
-              type="button"
-              size="compact"
-              class="boundary-remove"
-              data-testid="boundary-remove"
-              disabled={editingDisabled()}
-              onClick={() => setConfirmingRemove(id())}
-            >
-              {message('boundaryPanel.remove')}
-            </ProductButton>
+            <div class="dinkster-actions boundary-tree-actions">
+              <UiButton
+                type="button"
+                density="panel"
+                intent="remove"
+                data-testid="boundary-remove"
+                disabled={editingDisabled()}
+                onClick={() => setConfirmingRemove(id())}
+              >
+                <ProductIcon icon={Trash2} />
+                {message('boundaryPanel.remove')}
+              </UiButton>
+            </div>
           }>
             <div class="boundary-remove-confirm" role="group" data-testid="boundary-remove-confirm">
               <span>{message('boundaryPanel.remove.question', { name: itemName(row()), count: usedIn() })}</span>
-              <div class="boundary-remove-actions">
-                <ProductButton type="button" size="compact" variant="danger" data-testid="boundary-remove-yes" disabled={editingDisabled()} onClick={() => void remove(row())}>
-                  {message('boundaryPanel.remove.yes')}
-                </ProductButton>
-                <ProductButton type="button" size="compact" variant="ghost" onClick={() => setConfirmingRemove(undefined)}>
+              <div class="dinkster-actions boundary-tree-actions">
+                <UiButton type="button" density="panel" onClick={() => setConfirmingRemove(undefined)}>
                   {message('boundaryPanel.remove.cancel')}
-                </ProductButton>
+                </UiButton>
+                <UiButton type="button" density="panel" intent="remove" fill="solid" data-testid="boundary-remove-yes" disabled={editingDisabled()} onClick={() => void remove(row())}>
+                  {message('boundaryPanel.remove.yes')}
+                </UiButton>
               </div>
             </div>
           </Show>
@@ -901,14 +1267,96 @@ export function BoundaryPanel(props: { app: AppState }) {
     )
   }
 
-  const moveSelection = (delta: -1 | 1): void => {
-    const list = rows()
-    if (list.length === 0) return
-    const index = list.findIndex((row) => row === selected())
-    const next = list[index < 0 ? (delta > 0 ? 0 : list.length - 1) : Math.min(list.length - 1, Math.max(0, index + delta))]!
-    select(next)
-    rowElements.get(next.item.id)?.focus()
+  /** Changes one section's layout settings, or unboxes it with `undefined`, in one undo step. */
+  const editSection = (id: string, change: (section: BoundarySectionEntry) => BoundarySectionEntry | undefined): Promise<boolean> =>
+    arrange(changeSection(body(), id, change))
+
+  const commitSectionName = async (section: BoundarySectionEntry, value: string): Promise<void> => {
+    if (editingDisabled()) return
+    const key = `section:${section.id}`
+    const name = value.trim()
+    if (name === (section.displayName ?? '')) {
+      clearDraft(key)
+      return
+    }
+    const owner = lifetime
+    setDrafts((current) => ({ ...current, [key]: value }))
+    const accepted = await editSection(section.id, (current) => {
+      const { displayName: _displayName, ...rest } = current
+      return name === '' ? rest : { ...rest, displayName: name }
+    })
+    if (accepted && lifetime === owner && drafts()[key] === value) clearDraft(key)
   }
+
+  const SectionSettings = (sectionProps: { section: BoundarySectionEntry }) => {
+    const section = () => sectionProps.section
+    const flag = (field: 'openName' | 'collapsedByDefault', on: boolean) => void editSection(section().id, (current) => {
+      const { [field]: _field, ...rest } = current
+      if (field === 'openName') return on ? rest : { ...rest, openName: false }
+      return on ? { ...rest, collapsedByDefault: true } : rest
+    })
+    return (
+      <div class="boundary-tree-settings" data-testid="boundary-settings" data-section-id={section().id} role="group" aria-label={message('boundaryPanel.aria.settings', { name: sectionName(section()) })}>
+        <div class="boundary-tree-settings-head">
+          <span class="boundary-tree-panel-title">{sectionName(section())}</span>
+          <span class="boundary-tree-quiet">{message('boundaryPanel.kind.section')}</span>
+        </div>
+        <Setting label={message('boundaryPanel.section.name')} for={`boundary-section-name-${section().id}`}>
+          <TextSetting
+            id={`boundary-section-name-${section().id}`}
+            testId="boundary-section-name"
+            draftKey={`section:${section().id}`}
+            stored={section().displayName ?? ''}
+            placeholder={message('boundaryPanel.section.unnamed')}
+            commit={(value) => void commitSectionName(section(), value)}
+          />
+        </Setting>
+        <UiCheckbox
+          label={message('boundaryPanel.section.showName')}
+          data-testid="boundary-section-show-name"
+          checked={section().openName !== false}
+          disabled={editingDisabled()}
+          onChange={(event) => flag('openName', event.currentTarget.checked)}
+        />
+        <UiCheckbox
+          label={message('boundaryPanel.section.startClosed')}
+          data-testid="boundary-section-start-closed"
+          checked={section().collapsedByDefault === true}
+          disabled={editingDisabled()}
+          onChange={(event) => flag('collapsedByDefault', event.currentTarget.checked)}
+        />
+        <div class="dinkster-actions boundary-tree-actions">
+          <span class="boundary-tree-quiet">{message('boundaryPanel.section.keepsRows')}</span>
+          <UiButton
+            type="button"
+            density="panel"
+            intent="remove"
+            data-testid="boundary-section-remove"
+            disabled={editingDisabled()}
+            onClick={() => void editSection(section().id, () => undefined)}
+          >
+            <ProductIcon icon={Trash2} />
+            {message('boundaryPanel.section.remove')}
+          </UiButton>
+        </div>
+      </div>
+    )
+  }
+
+  /** A new section at the end of the top level, selected so it can be named. */
+  const newSection = async (): Promise<void> => {
+    const added = addSection(body(), message('boundaryPanel.section.unnamed'))
+    if (await arrange(added.body)) selectKey(sectionKey(added.id))
+  }
+
+  const AddSection = () => (
+    <div class="dinkster-actions boundary-tree-actions">
+      <UiButton type="button" density="panel" intent="add" data-testid="boundary-add-section" disabled={editingDisabled()} onClick={() => void newSection()}>
+        <ProductIcon icon={Plus} />
+        {message('boundaryPanel.section.add')}
+      </UiButton>
+    </div>
+  )
 
   return (
     <Show when={context()} fallback={
@@ -1015,73 +1463,48 @@ export function BoundaryPanel(props: { app: AppState }) {
           </Show>
           <div class="boundary-rows-heading">{message('boundaryPanel.rows')}</div>
           <Show
-            when={rows().length > 0}
+            when={body().length > 0}
             fallback={
-              <div data-testid="boundary-empty" role="status">
-                <ProductEmptyState title={message('boundaryPanel.empty.rows')} hint={message('boundaryPanel.empty.rowsHint')} />
+              <div class="boundary-tree-empty" data-testid="boundary-empty" role="status">
+                <span>{message('boundaryPanel.empty.rows')}</span>
+                <AddSection />
               </div>
             }
           >
-            <div
-              class="boundary-rows"
-              role="listbox"
-              aria-label={message('boundaryPanel.aria.rows')}
-              onKeyDown={(event) => {
-                if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
-                event.preventDefault()
-                moveSelection(event.key === 'ArrowDown' ? 1 : -1)
-              }}
-            >
-              <For each={rows()}>
-                {(row) => {
-                  onCleanup(() => rowElements.delete(row.item.id))
-                  const marks = () => (
-                    <>
-                      <Show when={row.item.visible !== undefined}>
-                        <span class="boundary-mark-slot" title={message('boundaryPanel.mark.condition')}><ConditionMark /></span>
-                      </Show>
-                      <Show when={diagsFor(row.item).length > 0}>
-                        <span class="boundary-mark-slot" title={message('boundaryPanel.mark.problem')}><ProblemMark /></span>
-                      </Show>
-                    </>
-                  )
-                  const dot = () => <TypeDot typeId={typeIdOf(row)} />
-                  return (
-                    <button
-                      ref={(element) => rowElements.set(row.item.id, element)}
-                      type="button"
-                      class="boundary-row"
-                      data-testid="boundary-item"
-                      data-boundary-id={row.item.id}
-                      data-binding-kind={row.item.binds.kind}
-                      data-side={row.side}
-                      data-problem={diagsFor(row.item).length > 0 ? 'true' : undefined}
-                      role="option"
-                      aria-selected={selected() === row}
-                      tabIndex={selected() === row || (selected() === undefined && rows()[0] === row) ? 0 : -1}
-                      onClick={() => select(row)}
-                    >
-                      <Show when={row.side === 'outputs'} fallback={
-                        <>
-                          {dot()}
-                          <span class="boundary-row-label">{itemName(row)}</span>
-                          {marks()}
-                          <span class="boundary-row-node">{quietNodeName(row)}</span>
-                        </>
-                      }>
-                        <span class="boundary-row-node" data-align="start">{quietNodeName(row)}</span>
-                        {marks()}
-                        <span class="boundary-row-label">{itemName(row)}</span>
-                        {dot()}
-                      </Show>
-                    </button>
-                  )
+            <div class="boundary-rows" ref={(element) => { treeElement = element }} onKeyDown={onTreeKey}>
+              <BoundaryTree
+                entries={treeEntries()}
+                selected={selectedKey()}
+                drag={drag()}
+                onSelect={selectKey}
+                onDragStart={startDrag}
+                onToggle={toggleSection}
+                strings={{
+                  rows: message('boundaryPanel.aria.rows'),
+                  move: message('boundaryPanel.tree.move'),
+                  open: message('boundaryPanel.tree.open'),
+                  close: message('boundaryPanel.tree.close'),
+                  condition: message('boundaryPanel.mark.condition'),
+                  problem: message('boundaryPanel.mark.problem'),
+                  closedRows: (count: number) => message('boundaryPanel.tree.closedRows', { count }),
                 }}
-              </For>
+              />
             </div>
+            <Show when={notice()?.key === 'layout'}>
+              <p class="boundary-message" data-tone="notice" data-testid="boundary-notice" role="status">{notice()!.text}</p>
+            </Show>
+            <AddSection />
           </Show>
           <div class="boundary-settings-area" data-testid="boundary-settings-area">
-            <Show when={selected()} fallback={<p class="boundary-quiet" data-testid="boundary-pick">{message('boundaryPanel.pick')}</p>}>
+            <Show when={selected()} fallback={
+              <Show when={selectedSection()} fallback={
+                <div class="boundary-tree-settings">
+                  <p class="boundary-tree-quiet" data-testid="boundary-pick">{message('boundaryPanel.pick')}</p>
+                </div>
+              }>
+                {(section) => <SectionSettings section={section()} />}
+              </Show>
+            }>
               {(row) => <Settings row={row()} />}
             </Show>
           </div>

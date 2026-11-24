@@ -196,7 +196,7 @@ test('boundary edits await acceptance and preserve refused drafts for retry', {
     })
   })
   const panel = page.getByTestId('boundary-panel')
-  const item = page.locator('[data-testid=boundary-item][data-boundary-id="workflow.input.masks_m4"]')
+  const item = page.locator('[data-entry-id="workflow.input.masks_m4"]')
   const input = panel.getByTestId('boundary-name-input')
   const settle = (index: number, accepted: boolean) => page.evaluate(({ index, accepted }) => {
     ;(window as any).__boundaryPending[index](accepted)
@@ -230,7 +230,7 @@ test('boundary edits await acceptance and preserve refused drafts for retry', {
 })
 
 test('root prompt reopens definitions and the panel follows the drilled tab', async ({ page }) => {
-  await expect(page.locator('[data-testid=boundary-item][data-boundary-id=image]')).toBeVisible()
+  await expect(page.locator('[data-entry-id="image"]')).toBeVisible()
 
   const drilledTabId = await page.evaluate(() => {
     const app = window.__dinksterTest!.app as unknown as {
@@ -268,17 +268,17 @@ test('root prompt reopens definitions and the panel follows the drilled tab', as
   // The root offers navigation, not definition-editing controls.
   await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
   await expect(boundaryTab(page)).toHaveCount(0)
-  await expect(page.getByTestId('boundary-item')).toHaveCount(0)
+  await expect(page.locator('.boundary-tree [data-entry-id]')).toHaveCount(0)
   await capture(page, 'boundary-root-hidden')
   await drillIntoOccurrence(page)
   await expect(boundaryTab(page).getByTestId('panel-indicator')).toBeVisible()
-  await expect(page.locator('[data-testid=boundary-item][data-boundary-id=image]')).toBeVisible()
+  await expect(page.locator('[data-entry-id="image"]')).toBeVisible()
 })
 
 test('exact ids and custom names round-trip through document persistence', async ({ page }) => {
   const panel = page.getByTestId('boundary-panel')
-  const item = (id: string) => panel.locator(`[data-testid=boundary-item][data-boundary-id="${id}"]`)
-  const itemName = (id: string) => item(id).locator('.boundary-row-label')
+  const item = (id: string) => panel.locator(`[data-entry-id="${id}"]`)
+  const itemName = (id: string) => item(id).locator('.boundary-tree-label')
   const firstMask = 'workflow.input.masks_m4'
 
   await expect(itemName(firstMask)).toHaveText('masks_m4')
@@ -357,7 +357,7 @@ test('empty and frozen states preserve inspection semantics', async ({ page }) =
   })
   await openRailPanel(page, 'Boundary')
   await expect(panel.getByTestId('boundary-frozen')).toHaveAttribute('role', 'status')
-  await panel.locator('[data-testid=boundary-item][data-boundary-id="image_3"]').click()
+  await panel.locator('[data-entry-id="image_3"]').click()
   await expect(panel.getByTestId('boundary-name-input')).toBeDisabled()
   await expect(panel.getByTestId('boundary-remove')).toBeDisabled()
   await expect(panel.getByTestId('boundary-show-on-canvas')).toBeEnabled()
@@ -424,11 +424,11 @@ test('region roles and continuation settings remain occurrence-owned', async ({ 
   await drillIntoOccurrence(page)
   const region = page.getByTestId('region-panel')
   await expect(region).toHaveAttribute('aria-label', 'While region settings')
-  await page.locator('[data-testid=boundary-item][data-boundary-id="workflow.input.0"]').click()
+  await page.locator('[data-entry-id="workflow.input.0"]').click()
   await expect(page.locator('[data-region-input="workflow.input.0"][data-role-choice=state]')).toHaveAttribute('aria-pressed', 'true')
-  await page.locator('[data-testid=boundary-item][data-boundary-id="workflow.output.1"]').click()
+  await page.locator('[data-entry-id="workflow.output.1"]').click()
   await expect(page.locator('[data-region-output="workflow.output.1"][data-role-choice=continue]')).toHaveAttribute('aria-pressed', 'true')
-  await page.locator('[data-testid=boundary-item][data-boundary-id=image]').click()
+  await page.locator('[data-entry-id="image"]').click()
   const compact = page.locator('[data-region-output=image][data-role-choice=compact]')
   await compact.click()
   await expect(compact).toHaveAttribute('aria-pressed', 'true')

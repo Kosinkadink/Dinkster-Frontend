@@ -102,9 +102,9 @@ test('a field shown on the subgraph node has no wire inside, carries the mark, a
 
   await page.mouse.click(mark.x, mark.y)
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
-  const selected = page.locator('[data-testid=boundary-item][data-selected]')
+  const selected = page.locator('.boundary-tree [data-entry-id][aria-selected="true"]')
   await expect(selected).toHaveCount(1)
-  await expect(selected).toHaveAttribute('data-boundary-id', 'strength')
+  await expect(selected).toHaveAttribute('data-entry-id', 'strength')
   if (proofDir) await page.screenshot({ path: join(proofDir, 'boundary-panel-selected.png'), animations: 'disabled' })
 
   // Outside, the subgraph node has the field, with no mark.

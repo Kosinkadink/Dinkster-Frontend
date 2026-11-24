@@ -200,7 +200,7 @@ export function BoundaryTree(props: {
   }) => (
     <>
       <Show when={markProps.condition}>
-        <span class="boundary-tree-mark" title={strings.condition}>
+        <span class="boundary-tree-mark" data-mark="condition" title={strings.condition}>
           <ProductIcon icon={Eye} />
         </span>
       </Show>
@@ -231,6 +231,7 @@ export function BoundaryTree(props: {
       aria-level={rowProps.level}
       aria-selected={props.selected === rowProps.row.id}
       tabindex={props.selected === rowProps.row.id ? 0 : -1}
+      data-entry-id={rowProps.lifted ? undefined : rowProps.row.id}
       data-side={rowProps.row.side}
       data-inert={rowProps.row.problem ? '' : undefined}
       onPointerDown={press(rowProps.row.id)}
@@ -280,6 +281,7 @@ export function BoundaryTree(props: {
         role="treeitem"
         aria-level={lineProps.level}
         aria-selected={props.selected === lineProps.line.id}
+        data-entry-id={lineProps.line.id}
         data-pocket={pocket() ? '' : undefined}
         onPointerDown={press(lineProps.line.id)}
         onClick={select(lineProps.line.id)}
@@ -294,6 +296,8 @@ export function BoundaryTree(props: {
               role="treeitem"
               aria-level={lineProps.level + 1}
               aria-selected={props.selected === row.id}
+              tabindex={props.selected === row.id ? 0 : -1}
+              data-entry-id={row.id}
               data-inert={row.problem ? '' : undefined}
               onPointerDown={press(row.id)}
               onClick={(event) => {
@@ -338,6 +342,7 @@ export function BoundaryTree(props: {
       aria-level={constructProps.level}
       aria-selected={props.selected === constructProps.construct.id}
       aria-expanded={true}
+      data-entry-id={constructProps.lifted ? undefined : constructProps.construct.id}
       data-construct={constructProps.construct.construct}
       data-inert={constructProps.construct.problem ? '' : undefined}
       onPointerDown={press(constructProps.construct.id)}
@@ -388,6 +393,7 @@ export function BoundaryTree(props: {
         aria-selected={props.selected === sectionProps.section.id}
         aria-expanded={sectionProps.section.open}
         aria-label={sectionProps.section.label}
+        data-entry-id={sectionProps.section.id}
         data-open={sectionProps.section.open ? '' : undefined}
         data-named={named() ? '' : undefined}
       >

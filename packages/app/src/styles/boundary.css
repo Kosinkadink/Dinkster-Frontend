@@ -26,56 +26,9 @@
   padding: var(--dinkster-space-4) 0;
   color: var(--dinkster-text-secondary);
 }
-.boundary-rows { display: grid; min-width: 0; min-height: 0; overflow-y: auto; padding-bottom: var(--dinkster-space-8); }
-.boundary-row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--dinkster-space-4);
-  min-width: 0;
-  height: 26px;
-  padding: 0 var(--dinkster-space-8);
-  border: 0;
-  border-radius: var(--dinkster-radius-control);
-  color: var(--dinkster-text-primary);
-  background: none;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.boundary-row:hover { background: var(--dinkster-interaction-hover); }
-.boundary-row[aria-selected='true'] { background: var(--dinkster-surface-raised); }
-.boundary-row[aria-selected='true']::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 6px;
-  width: 3px;
-  height: 14px;
-  border-top-right-radius: var(--dinkster-radius-small);
-  border-bottom-right-radius: var(--dinkster-radius-small);
-  background: var(--dinkster-accent-foreground);
-}
-.boundary-row:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: -1px; }
-.boundary-row[data-side='outputs'] { justify-content: flex-end; }
-.boundary-row-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.boundary-row-node {
-  flex: none;
-  max-width: 45%;
-  margin-left: auto;
-  padding-left: var(--dinkster-space-8);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--dinkster-text-muted);
-  font-size: var(--dinkster-type-metadata-size);
-}
-.boundary-row-node[data-align='start'] { margin-left: 0; margin-right: auto; padding-left: 0; padding-right: var(--dinkster-space-8); }
-.boundary-dot { flex: none; width: 8px; height: 8px; border-radius: var(--dinkster-radius-capsule); }
-.boundary-mark-slot { display: inline-flex; flex: none; }
-.boundary-mark { display: block; }
-.boundary-mark[data-mark='condition'] { color: var(--dinkster-text-muted); }
-.boundary-mark[data-mark='problem'] { color: var(--dinkster-warning-foreground); }
+.boundary-rows { display: grid; flex: 0 1 auto; min-width: 0; min-height: 0; overflow-y: auto; padding-bottom: var(--dinkster-space-8); }
+.boundary-panel > .boundary-tree-actions,
+.boundary-panel > .boundary-message { margin-bottom: var(--dinkster-space-8); }
 
 /* The settings area stays put at the bottom, so picking a row never moves the list. */
 .boundary-settings-area {
@@ -84,39 +37,20 @@
   padding: var(--dinkster-space-8) 0 var(--dinkster-space-4);
   border-top: 1px solid var(--dinkster-border-subtle);
 }
-.boundary-settings { display: grid; gap: var(--dinkster-space-8); min-width: 0; }
-.boundary-settings-head { display: flex; align-items: center; gap: var(--dinkster-space-8); min-width: 0; }
-.boundary-settings-name { min-width: 0; font-weight: var(--dinkster-weight-bold); overflow-wrap: anywhere; }
-.boundary-setting { display: flex; align-items: center; gap: var(--dinkster-space-8); min-width: 0; min-height: var(--dinkster-control-compact-height); }
-.boundary-setting-label { flex: none; width: 64px; color: var(--dinkster-text-muted); }
-.boundary-setting-value { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-4) var(--dinkster-space-8); min-width: 0; color: var(--dinkster-text-secondary); }
-.boundary-setting-value > .product-text-input,
-.boundary-setting-value > .boundary-show-select { flex: 1 1 140px; min-width: 0; }
-.boundary-setting-value .boundary-default-number { flex: none; width: 9rem; }
+.boundary-settings-area > .boundary-tree-settings { margin-top: 0; padding-top: 0; border-top: 0; }
+.boundary-tree-setting-value > .boundary-show-select { flex: 1 1 140px; min-width: 0; }
+/* The panel's other controls are as short as its text fields. */
+.boundary-tree-settings :is(.product-number, .product-select) { min-height: 0; height: var(--dinkster-input-canvas-height); }
+.boundary-tree-settings .product-select { padding-block: 0; }
+.boundary-tree-settings .product-number-field { padding-block: 0; }
+.boundary-tree-settings .product-number-steppers button { min-height: 0; height: 100%; min-width: var(--dinkster-input-canvas-height); }
+.boundary-tree-setting-value .boundary-default-number { flex: none; width: 9rem; }
 /* Limits are typed, so they drop the steppers to keep both on one line. */
-.boundary-setting-value .boundary-limit { flex: none; width: 4.75rem; }
+.boundary-tree-setting-value .boundary-limit { flex: none; width: 4.75rem; }
 .boundary-limit .product-number-steppers { display: none; }
 .boundary-limit .product-number-field { text-align: right; font-variant-numeric: tabular-nums; }
 .boundary-limits-inside { flex-basis: 100%; }
 .boundary-default-text { min-width: 0; color: var(--dinkster-text-primary); overflow-wrap: anywhere; }
-.boundary-link {
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  color: var(--dinkster-text-primary);
-  background: none;
-  font: inherit;
-  text-align: left;
-  text-decoration: underline;
-  text-decoration-color: var(--dinkster-border-strong);
-  text-underline-offset: 3px;
-  overflow-wrap: anywhere;
-  cursor: pointer;
-}
-.boundary-link:hover { text-decoration-color: var(--dinkster-text-primary); }
-.boundary-link:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 2px; border-radius: var(--dinkster-radius-small); }
-.boundary-remove.product-button { justify-self: start; color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); background: none; }
-.boundary-remove.product-button:hover:not(:disabled) { background: var(--dinkster-danger-background); }
 .boundary-remove-confirm {
   display: grid;
   gap: var(--dinkster-space-8);
@@ -126,7 +60,6 @@
   background: var(--dinkster-danger-background);
   color: var(--dinkster-text-primary);
 }
-.boundary-remove-actions { display: flex; gap: var(--dinkster-space-8); }
 
 .boundary-section-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); }
 .boundary-eyebrow {
@@ -191,12 +124,6 @@
 .region-role-controls button[aria-pressed='true'] { color: var(--dinkster-text-on-selected); background: var(--dinkster-surface-selected); border-color: var(--dinkster-border-selected); }
 .region-panel .boundary-message { margin-top: var(--dinkster-space-8); }
 
-@container boundary-panel (max-width: 239px) {
-  .boundary-setting { flex-direction: column; align-items: stretch; gap: 2px; }
-  .boundary-setting-label { width: auto; }
-}
-
 @media (pointer: coarse) {
   .boundary-panel :is(.boundary-button, .product-checkbox, .region-role-controls button, .region-control button) { min-height: 44px; }
-  .boundary-row { height: 44px; }
 }

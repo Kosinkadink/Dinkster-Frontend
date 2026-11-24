@@ -253,7 +253,7 @@ test('schema labels and user-defined boundary names stay consistent inside and o
       : []),
   ))
   await expect.poll(interiorLabels).toEqual(['Source Image', 'Result Image'])
-  const sourceItem = page.locator('[data-testid=boundary-item][data-boundary-id=source]')
+  const sourceItem = page.locator('[data-entry-id="source"]')
   await expect(sourceItem).toContainText('Source Image')
   await sourceItem.click()
   const nameInput = page.getByTestId('boundary-name-input')
@@ -266,7 +266,7 @@ test('schema labels and user-defined boundary names stay consistent inside and o
   await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
   await expect.poll(labels).toEqual(['Primary Photo', 'Result Image'])
   await drillIntoSub(page)
-  await page.locator('[data-testid=boundary-item][data-boundary-id=source]').click()
+  await page.locator('[data-entry-id="source"]').click()
   const renamedInput = page.getByTestId('boundary-name-input')
   await renamedInput.fill('')
   await renamedInput.press('Enter')
