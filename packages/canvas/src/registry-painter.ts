@@ -204,6 +204,11 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ? { x: chrome.x + paint.curve.inset, y: chrome.y + paint.curve.inset, size: sketchSize }
       : undefined
     const sketchShift = sketch === undefined ? 0 : sketch.x + sketch.size + paint.curve.gap - x - paint.opener.iconInset
+    // Beside the square the name and how the points are joined read as one block, centred on the row;
+    // a wired curve not known yet has no joining word, so its name is centred alone.
+    const sketchJoined = sketch !== undefined && !(args.connected && (resolved === null || typeof resolved !== 'object' || Array.isArray(resolved)))
+    const nameY = sketch === undefined ? y + rowHeight / 2
+      : chrome.y + chrome.height / 2 - (sketchJoined ? paint.curve.lineStep / 2 : 0)
     if (openerIcon !== undefined) {
       ctx.fillStyle = tokens.colors.widgetRaised
       ctx.strokeStyle = tokens.colors.nodeIdleOutline
@@ -217,7 +222,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.fill()
       if (!row.unfolded) ctx.stroke()
       paintToolboxIcon(ctx, openerIcon, x + sketchShift + paint.opener.iconInset,
-        y + (rowHeight - paint.opener.iconSize) / 2, paint.opener.iconSize, tokens.colors.value)
+        nameY - paint.opener.iconSize / 2, paint.opener.iconSize, tokens.colors.value)
       // An editor shown in the node points down while it is unfolded under this row.
       paintToolboxIcon(ctx, row.unfolded ? 'chevron-down' : 'chevron-right', x + width - paint.opener.trailingInset - paint.opener.iconSize,
         (sketch === undefined ? y + rowHeight / 2 : chrome.y + chrome.height / 2) - paint.opener.iconSize / 2, paint.opener.iconSize, tokens.colors.label)
@@ -287,7 +292,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.fillText(
         ellipsize(ctx, row.label, Math.max(0, (multiline ? width : labelWidth) - lead - paint.labelClipPadding)),
         x + lead + (multiline ? 0 : leftControl) + (numeric && openerIcon === undefined ? geometry.stepperLabelInset : paint.labelInset),
-        multiline ? chrome.y + multilineLabelHeight / 2 : y + rowHeight / 2,
+        multiline ? chrome.y + multilineLabelHeight / 2 : nameY,
       )
       paintSubgraphMark(args, false, numeric)
     }
@@ -406,7 +411,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             ctx.fillStyle = tokens.colors.valueMark
             ctx.textAlign = 'left'
             ctx.fillText(ellipsize(ctx, viewRun, Math.max(0, valueRight - joinLeft - sketchValueWidth - paint.labelValueGap)),
-              x + joinLeft, y + (ty + 0.5) * rowHeight)
+              x + joinLeft, nameY + paint.curve.lineStep)
             return
           }
           const summary = viewStyle['role'] === 'widgetValue' ? args.editorSummary : undefined
