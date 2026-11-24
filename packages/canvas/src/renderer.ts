@@ -637,6 +637,10 @@ export interface OverlayState {
   /** A box's header, closed row or tab under the idle pointer, by box key. */
   /** A box under the pointer; `target` names the field a held wire would reach in a closed box. */
   readonly hoveredBox?: { readonly nodeId: string; readonly boxId: string; readonly target?: string }
+  /** A button on a node under the idle pointer, by `growth:<group>` or `button:<id>`: its face lightens. */
+  readonly hoveredButton?: { readonly nodeId: string; readonly key: string }
+  /** A button on a node held down, keyed as hoveredButton: it sinks. */
+  readonly pressedButton?: { readonly nodeId: string; readonly key: string }
   /** The member grip under the pointer: drawn brighter. */
   readonly hoveredGrip?: { readonly nodeId: string; readonly construct: string; readonly member: string }
   /**
@@ -1082,7 +1086,7 @@ export class CanvasRenderer {
     const nodes = new Set<string>()
     const local = new Set<keyof OverlayState>([
       'selection', 'dragOffsets', 'resizePreview', 'bodyDropNode', 'dropRow', 'hoveredNode',
-      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBox', 'hoveredGrip', 'memberDrag', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'textBoxEdge', 'hoveredPreviewCaption',
+      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBox', 'hoveredButton', 'pressedButton', 'hoveredGrip', 'memberDrag', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'textBoxEdge', 'hoveredPreviewCaption',
       'previewEdge',
     ])
     const keys = new Set([...Object.keys(previous), ...Object.keys(overlay)] as (keyof OverlayState)[])
@@ -3638,6 +3642,54 @@ export class CanvasRenderer {
       const closedHeight = t.rowHeight - t.rowGeometry.fieldInsetY * 2
       const boxHovered = (id: string): boolean =>
         this.overlay.hoveredBox?.nodeId === sceneNode.id && this.overlay.hoveredBox.boxId === id
+      // A button stands raised: a lighter face than the node with a lit top
+      // edge and a dark line under it. Pointed at, the face lightens; pressed,
+      // it sinks to a field's dark; disabled, the whole button fades.
+      const paintButton = (x: number, rowY: number, width: number, height: number, label: string, key: string, enabled: boolean): void => {
+        const paint = canvasPaintTokens.widget.button
+        const chrome = widgetChromeRect(x, rowY, width, height, t.rowGeometry.fieldInsetY)
+        const at = (state: OverlayState['hoveredButton']): boolean => enabled && state?.nodeId === sceneNode.id && state.key === key
+        const pressed = at(this.overlay.pressedButton)
+        const hovered = !pressed && at(this.overlay.hoveredButton)
+        const rowAlpha = ctx.globalAlpha
+        if (!enabled) ctx.globalAlpha = rowAlpha * paint.disabledOpacity
+        const radius = chrome.radius
+        if (!pressed) {
+          ctx.fillStyle = t.colors.buttonShade
+          ctx.beginPath()
+          ctx.roundRect(chrome.x, chrome.y + paint.stroke, chrome.width, chrome.height, radius)
+          ctx.fill()
+        }
+        ctx.fillStyle = pressed ? t.colors.widgetBackground : hovered ? t.colors.buttonHover : t.colors.widgetRaised
+        ctx.beginPath()
+        ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, radius)
+        ctx.fill()
+        const half = paint.stroke / 2
+        const left = chrome.x + half
+        const top = chrome.y + half
+        const right = chrome.x + chrome.width - half
+        const inner = Math.max(0, radius - half)
+        ctx.strokeStyle = t.colors.boxOutline
+        ctx.lineWidth = paint.stroke
+        ctx.beginPath()
+        ctx.roundRect(left, top, right - left, chrome.height - paint.stroke, inner)
+        ctx.stroke()
+        if (!pressed) {
+          // The top line and the upper half of both corners.
+          ctx.strokeStyle = t.colors.buttonLitEdge
+          ctx.beginPath()
+          ctx.moveTo(left, top + inner)
+          ctx.arcTo(left, top, left + inner, top, inner)
+          ctx.lineTo(right - inner, top)
+          ctx.arcTo(right, top, right, top + inner, inner)
+          ctx.stroke()
+        }
+        ctx.fillStyle = pressed ? t.colors.label : t.colors.value
+        ctx.textAlign = 'center'
+        ctx.fillText(label, chrome.x + chrome.width / 2, rowY + height / 2, chrome.width - paint.textPadding)
+        ctx.textAlign = 'left'
+        ctx.globalAlpha = rowAlpha
+      }
       // Outlines first, outer boxes before the boxes inside them.
       for (const box of l.boxes ?? []) {
         const half = boxPaint.stroke / 2
@@ -3815,18 +3867,8 @@ export class CanvasRenderer {
           ctx.fillText(fitText(ctx, row.label, Math.max(0, right - boxPaint.cross.reserve - textX)), textX, cy)
           ctx.globalAlpha = rowAlpha
         } else if (row.kind === 'growth') {
-          // A group that grows by hand ends in an outlined Add row, as wide
-          // as a member's box.
-          const chrome = widgetChromeRect(node.x + row.inset, rowY, l.width - row.inset * 2, row.height, t.rowGeometry.fieldInsetY)
-          ctx.strokeStyle = t.colors.boxOutline
-          ctx.lineWidth = boxPaint.stroke
-          ctx.beginPath()
-          ctx.roundRect(chrome.x + boxPaint.stroke / 2, chrome.y + boxPaint.stroke / 2, chrome.width - boxPaint.stroke, chrome.height - boxPaint.stroke, chrome.radius)
-          ctx.stroke()
-          ctx.fillStyle = t.colors.label
-          ctx.textAlign = 'center'
-          ctx.fillText(`+ ${row.label}`, node.x + l.width / 2, rowY + row.height / 2, chrome.width - canvasPaintTokens.widget.growth.textPadding)
-          ctx.textAlign = 'left'
+          // A group that grows by hand ends in an Add button, as wide as a member's box.
+          paintButton(node.x + row.inset, rowY, l.width - row.inset * 2, row.height, `+ ${row.label}`, `growth:${row.construct}`, true)
         } else if (row.kind === 'note') {
           // A formula note's text is unknown until formulas are evaluated, so
           // it draws dimmed like any other offer that is not settled yet.
@@ -3838,21 +3880,7 @@ export class CanvasRenderer {
           ctx.fillText(row.text, node.x + row.inset + canvasPaintTokens.widget.labelInset, rowY + row.height / 2, width - canvasPaintTokens.widget.labelInset * 2)
           ctx.globalAlpha = rowAlpha
         } else if (row.kind === 'button') {
-          // Buttons do nothing yet: drawn as a solid capsule, never hovered.
-          const paint = canvasPaintTokens.widget
-          const width = row.width ?? l.width - row.inset * 2
-          const x = node.x + row.inset
-          ctx.fillStyle = t.colors.widgetBackground
-          ctx.beginPath()
-          ctx.roundRect(x, rowY + t.rowGeometry.fieldInsetY, width, row.height - t.rowGeometry.fieldInsetY * 2, paint.radius)
-          ctx.fill()
-          ctx.strokeStyle = t.colors.label
-          ctx.lineWidth = canvasPaintTokens.widget.growth.stroke
-          ctx.stroke()
-          ctx.fillStyle = t.colors.label
-          ctx.textAlign = 'center'
-          ctx.fillText(row.label, x + width / 2, rowY + row.height / 2, width - paint.growth.textPadding)
-          ctx.textAlign = 'left'
+          paintButton(node.x + row.inset, rowY, row.width ?? l.width - row.inset * 2, row.height, row.label, `button:${row.buttonId}`, row.enabled !== false)
         } else if (row.kind === 'fallback') {
           // Stored value on a schemaless node: read-only and dimmed, but
           // recognizable - the document's key and value survive the missing
