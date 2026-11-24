@@ -540,7 +540,7 @@
   "inNodeCurve.position": "位置",
   "inNodeCurve.value": "值",
   "inNodeCurve.deletePoint": "删除点",
-  "inNodeCurve.help": "双击添加一个点。拖动以移动它。点击以选中它。",
+  "inNodeCurve.addPoint": "双击添加一个点",
   "inNodeCurve.histogram": "直方图",
   "inNodeWebcam.start": "启动摄像头",
   "inNodeWebcam.stop": "停止",

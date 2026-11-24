@@ -538,7 +538,7 @@
   "inNodeCurve.position": "Position",
   "inNodeCurve.value": "Value",
   "inNodeCurve.deletePoint": "Delete point",
-  "inNodeCurve.help": "Double-click to add a point. Drag to move it. Click to select it.",
+  "inNodeCurve.addPoint": "Double-click to add a point",
   "inNodeCurve.histogram": "Histogram",
   "inNodeWebcam.start": "Start camera",
   "inNodeWebcam.stop": "Stop",

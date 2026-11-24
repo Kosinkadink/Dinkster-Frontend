@@ -671,6 +671,7 @@ export function CurveSpace(props: {
       <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}>
         <CanvasCurvePlot
           label={message('inNodeCurve.plot')}
+          tooltip={message('inNodeCurve.addPoint')}
           points={points()}
           sample={curveInterpolator(curve())}
           selected={selected()}
@@ -720,7 +721,6 @@ export function CurveSpace(props: {
         <CanvasEditorNote>{message('inNodeCurve.histogram')}</CanvasEditorNote>
       </Show>
       {/* One note that wraps, never cut off; at the narrowest node it takes the two lines it is given. */}
-      <CanvasEditorNote tone="muted" wrap>{message('inNodeCurve.help')}</CanvasEditorNote>
     </>
   )
 }

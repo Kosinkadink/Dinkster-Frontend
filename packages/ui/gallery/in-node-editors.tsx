@@ -349,7 +349,6 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
           <Show when={histogram !== undefined}>
             <CanvasEditorNote>Histogram</CanvasEditorNote>
           </Show>
-          <CanvasEditorNote tone="muted" wrap>Double-click to add a point. Drag to move it. Click to select it.</CanvasEditorNote>
         </>
       )
     }
