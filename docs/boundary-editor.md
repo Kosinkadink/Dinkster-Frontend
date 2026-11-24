@@ -1,25 +1,34 @@
 # Boundary editor
 
-The Boundary panel shows what is on a subgraph node: one list of rows in
-stored order, the inputs first and then the outputs. It edits the definition
+The Boundary panel shows what is on a subgraph node as one tree in stored
+order: rows, sections and lines of fields, as the node draws them. It edits the definition
 open on the canvas or, with no subgraph open, the definition of the one
 subgraph node selected on the canvas. Every change here changes every subgraph
 node of that definition, so the head names the subgraph and says how many
 places in the document use it ("used in 3 places").
 
-Each row is 26 px tall and shows the type's color dot, its label and, in quiet
-text, the inner node it goes to. An output's label and dot sit at the right
-end of its line, where its pin is on the node. After the label, an eye marks a
-row with a "Show" condition and a warning sign marks a row with a problem.
-Rows cannot be reordered, grouped or added here: a row reaches the node from
-the canvas, by showing a field on the subgraph node or by a wire to the Inputs
-or Outputs panel.
+Each row shows the type's color dot, its label and, while pointed at, the
+inner node it goes to. An output's label and dot sit at the right end, where
+its pin is on the node. After the label, an eye marks a row with a "Show"
+condition and a warning sign marks a row with a problem. A section is an
+outline around its rows under its name, a line holds two to four fields side
+by side, and a whole group, choice, type choice or described row is one face
+with the note that says how it grows or what it picks. Rows are not added
+here: a row reaches the node from the canvas, by showing a field on the
+subgraph node or by a wire to the Inputs or Outputs panel.
 
-Clicking a row selects it: the raised background and a 3 by 14 px accent bar
-at its left edge. The arrow keys move the selection. The selected row's
-settings sit in a fixed area at the bottom of the panel, so the list never
-moves when another row is picked. The selection is session state
-(`AppState.boundaryFocus`) and is not saved.
+Pressing a row, line or section and dragging it moves it; a gap opens where it
+would land, and Escape puts it back. Dropping a field on the right end of a
+line with room adds it to the line. Alt with the up or down arrow moves the
+selected entry one place: past its neighbour, into an open section it meets,
+or out of the section or line it ends. **Add section** adds an empty section
+before the outputs that end the tree. Each move is one `boundary.arrange` and
+one undo step, and changes no row id, value or wire.
+
+Clicking an entry selects it, and the arrow keys move the selection. The
+selected entry's settings sit in a fixed area at the bottom of the panel, so
+the tree never moves when another entry is picked. The selection is session
+state (`AppState.boundaryFocus`) and is not saved.
 
 The panel and the canvas point at each other. While a row is selected, the
 canvas outlines its row on the Inputs or Outputs panel in the selection color
@@ -36,8 +45,8 @@ stored value, a wire, a cache key or what a run sends.
 
 - **Label** sets the row's display name (`boundary.renameItem`), shared by the
   panel and every subgraph node. Clearing it restores the inner field's name,
-  then the bound port or tap id as written. Unattached and literal-source rows
-  fall back to their interface ids.
+  then the bound port or tap id as written. Unattached rows fall back to
+  their interface ids.
 - **Help text** is the row's tooltip on every subgraph node
   (`boundary.setTooltip`); empty falls back to the inner field's tooltip.
 - **Goes to** (an input) or **From** (an output) names the destination in
@@ -70,8 +79,15 @@ stored value, a wire, a cache key or what a run sends.
   decide that; it is not a setting.
 - **Remove from subgraph node** opens a confirmation that says how many places
   change. Confirming removes the row in one batch of `boundary.unbind`, the
-  row's extra bindings first and its primary binding last. Unattached,
-  literal-source and forwarded-family rows have no Remove.
+  row's extra bindings first and its primary binding last. Unattached rows
+  have no Remove.
+- **Force its own row on the node**, for an output: the node draws it on a
+  row of its own instead of beside an input.
+
+A whole group, choice, type choice or described row has a Label and **Goes
+to**, and no Help text, Show or Remove. A section has a **Name**, **Show the
+name while open**, **Start closed on new nodes** and **Remove section**, which
+keeps its rows where the section was.
 
 A row with a problem shows it in words above its settings, and what to do
 about it. Edits wait for final command acceptance. While an edit is pending,
