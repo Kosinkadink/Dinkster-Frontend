@@ -141,16 +141,12 @@ const tupleGet = parseDinksterSchema('std.tuple.get', {
 type TestEndpoint =
   | [string, string]
   | { reroute: string }
-  | { valueSource: string }
-  | { selector: string; candidate?: string }
   | { widgetTap: [string, string] }
 const defOf = (parts: {
   nodes: Record<string, { type: string; values?: Record<string, unknown>; dynamic?: Record<string, { members?: string[]; selected?: string }> }>
   links?: Record<string, { from: TestEndpoint; to: TestEndpoint }>
   nets?: Record<string, { source: [string, string]; sinks: [string, string][] }>
   reroutes?: string[]
-  /** Selector id -> candidate ids (policy: fixed on the first). */
-  selectors?: Record<string, string[]>
 }): GraphDef => {
   const end = (e: TestEndpoint): unknown =>
     Array.isArray(e)
@@ -177,20 +173,6 @@ const defOf = (parts: {
       ]),
     ),
     reroutes: Object.fromEntries((parts.reroutes ?? []).map((id) => [id, { id }])),
-    ...(parts.selectors
-      ? {
-          selectors: Object.fromEntries(
-            Object.entries(parts.selectors).map(([id, candidates]) => [
-              id,
-              {
-                id,
-                candidates: candidates.map((c) => ({ id: c })),
-                policy: { kind: 'fixed', candidate: candidates[0] },
-              },
-            ]),
-          ),
-        }
-      : {}),
     nextOrdinal: 99,
   } as unknown as GraphDef
 }
@@ -868,123 +850,6 @@ describe('unknown endpoints', () => {
 // ---------------------------------------------------------------------------
 // Selector branches (policy-independent conservative solving)
 // ---------------------------------------------------------------------------
-
-describe('selector branches', () => {
-  it('a consumer fed by a selector output checks against EVERY branch producer', () => {
-    // IMAGE and LATENT branches feeding an ImageSink: the LATENT branch can
-    // be picked by a future policy change, so the output link is a mismatch.
-    const def = defOf({
-      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, sink: { type: 'ImageSink' } },
-      selectors: { s1: ['ca', 'cb'] },
-      links: {
-        l0: { from: ['img', 'out'], to: { selector: 's1', candidate: 'ca' } },
-        l1: { from: ['lat', 'out'], to: { selector: 's1', candidate: 'cb' } },
-        l2: { from: { selector: 's1' }, to: ['sink', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l2' as never)).toBe('mismatch')
-    expect(s.diagnostics.some((d) => d.code === 'solve.linkMismatch')).toBe(true)
-    // Candidate feeds are structural: no verdicts of their own.
-    expect(s.linkVerdicts.get('l0' as never)).toBeUndefined()
-    expect(s.linkVerdicts.get('l1' as never)).toBeUndefined()
-  })
-
-  it('homogeneous branches are ok; verdicts are sticky-worst, not last-write-wins', () => {
-    const def = defOf({
-      nodes: { a: { type: 'ImageSrc' }, b: { type: 'ImageSrc' }, sink: { type: 'ImageSink' } },
-      selectors: { s1: ['ca', 'cb'] },
-      links: {
-        l0: { from: ['a', 'out'], to: { selector: 's1', candidate: 'ca' } },
-        l1: { from: ['b', 'out'], to: { selector: 's1', candidate: 'cb' } },
-        l2: { from: { selector: 's1' }, to: ['sink', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l2' as never)).toBe('ok')
-    expect(s.diagnostics).toEqual([])
-  })
-
-  it('an UNCONSUMED selector never unifies its branches (heterogeneous feeds are fine)', () => {
-    const def = defOf({
-      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' } },
-      selectors: { s1: ['ca', 'cb'] },
-      links: {
-        l0: { from: ['img', 'out'], to: { selector: 's1', candidate: 'ca' } },
-        l1: { from: ['lat', 'out'], to: { selector: 's1', candidate: 'cb' } },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.diagnostics).toEqual([])
-    expect([...s.linkVerdicts.entries()]).toEqual([])
-  })
-
-  it('MatchType variables see all branches: heterogeneous feeds conflict the class', () => {
-    // Pickle's T (domain IMAGE|LATENT) is intersected by BOTH branches:
-    // IMAGE then LATENT -> empty -> conflict, contributing edge marked.
-    const def = defOf({
-      nodes: { img: { type: 'ImageSrc' }, lat: { type: 'LatentSrc' }, pk: { type: 'Pickle' } },
-      selectors: { s1: ['ca', 'cb'] },
-      links: {
-        l0: { from: ['img', 'out'], to: { selector: 's1', candidate: 'ca' } },
-        l1: { from: ['lat', 'out'], to: { selector: 's1', candidate: 'cb' } },
-        l2: { from: { selector: 's1' }, to: ['pk', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.resolutionOf(n('pk'), 'T').kind).toBe('conflict')
-    expect(s.linkVerdicts.get('l2' as never)).toBe('mismatch')
-    expect(s.diagnostics.some((d) => d.code === 'solve.varConflict')).toBe(true)
-  })
-
-  it('MatchType variables resolve through homogeneous selector branches', () => {
-    const def = defOf({
-      nodes: { a: { type: 'ImageSrc' }, b: { type: 'ImageSrc' }, sw: { type: 'Switch' } },
-      selectors: { s1: ['ca', 'cb'] },
-      links: {
-        l0: { from: ['a', 'out'], to: { selector: 's1', candidate: 'ca' } },
-        l1: { from: ['b', 'out'], to: { selector: 's1', candidate: 'cb' } },
-        l2: { from: { selector: 's1' }, to: ['sw', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.resolutionOf(n('sw'), 'T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
-    expect(s.linkVerdicts.get('l2' as never)).toBe('ok')
-  })
-
-  it('composes: reroutes and selector chains solve end to end', () => {
-    // img -> r1 -> s1/ca; s1 -> s2/cx; s2 -> r2 -> sink
-    const def = defOf({
-      nodes: { img: { type: 'ImageSrc' }, sink: { type: 'ImageSink' } },
-      reroutes: ['r1', 'r2'],
-      selectors: { s1: ['ca'], s2: ['cx'] },
-      links: {
-        l0: { from: ['img', 'out'], to: { reroute: 'r1' } },
-        l1: { from: { reroute: 'r1' }, to: { selector: 's1', candidate: 'ca' } },
-        l2: { from: { selector: 's1' }, to: { selector: 's2', candidate: 'cx' } },
-        l3: { from: { selector: 's2' }, to: { reroute: 'r2' } },
-        l4: { from: { reroute: 'r2' }, to: ['sink', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l4' as never)).toBe('ok')
-    expect(s.diagnostics).toEqual([])
-  })
-
-  it('an undriven candidate constrains nothing; driven branches still check', () => {
-    const def = defOf({
-      nodes: { lat: { type: 'LatentSrc' }, sink: { type: 'ImageSink' } },
-      selectors: { s1: ['ca', 'cb'] },
-      links: {
-        l1: { from: ['lat', 'out'], to: { selector: 's1', candidate: 'cb' } },
-        l2: { from: { selector: 's1' }, to: ['sink', 'in'] },
-      },
-    })
-    const s = solveGraphTypes(def, resolve)
-    expect(s.linkVerdicts.get('l2' as never)).toBe('mismatch') // the LATENT branch
-  })
-
-})
 
 describe('type choice MatchType binding', () => {
   const matched = (selected: 'image' | 'mask') => ({

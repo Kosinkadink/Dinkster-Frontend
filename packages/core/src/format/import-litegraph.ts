@@ -1632,7 +1632,13 @@ function importLitegraphGraph(
   const generalPrimitive = primitives.find((schema) => primitiveOf(schema)!.value.type.kind === 'variable')
   for (const n of byId.values()) {
     if (!PRIMITIVE_TYPES.has(n.type)) continue
-    const field = fedField.get(n.id)
+    // When the fed field names no type, as a subgraph boundary does, the
+    // output type the adopted widget gave the PrimitiveNode chooses instead.
+    const fed = fedField.get(n.id)
+    const outputType = n.outputs?.[0]?.type
+    const field = fed?.widget !== undefined || fed?.type.kind === 'concrete' || typeof outputType !== 'string' || outputType === '*'
+      ? fed
+      : { kind: 'input', id: 'value', type: { kind: 'concrete', name: outputType }, optional: false } satisfies InputSpec
     const schema = field === undefined ? generalPrimitive : primitiveForField(primitives, field)
     if (schema !== undefined) primitiveSchemas.set(n.id, schema)
   }
