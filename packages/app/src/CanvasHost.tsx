@@ -189,7 +189,7 @@ import {
   type CanvasSemanticSource,
   type CanvasSemanticTarget,
 } from './CanvasSemanticNavigator.js'
-import { AudioRecordSpace, createAudioRecorders, editorSpaceInteractive, editorSpaceItems, NodeEditorSpaceOverlay, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
+import { AudioRecordSpace, createAudioRecorders, editorSpaceInteractive, editorSpaceItems, NodeEditorSpaceOverlay, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
 
@@ -1046,7 +1046,7 @@ export function reportBoundaryExposureRefusal(args: {
 }
 
 /** The editors shown in the node whose controls the app lays over their space: their rows fold out, the others open their dialogs. */
-const APP_EDITOR_VIEWS: ReadonlySet<string> = new Set(['core.audioRecord'])
+const APP_EDITOR_VIEWS: ReadonlySet<string> = new Set(['core.audioRecord', 'core.webcam'])
 
 export function NodeMediaOverlay(props: {
   readonly ownerId?: string
@@ -6883,6 +6883,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const current = item()
           return current === undefined ? [] : editorCovers(current)
         }
+        // While anything in front overlaps the editor, a live view shows its still picture.
+        const covered = () => covers().length > 0
         /** Where the editor's value is written: a group member's goes to its family's owner. */
         const valueTarget = () => {
           const current = item()
@@ -6907,6 +6909,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             commit: at.commit,
           })
         }
+        const webcam = () => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.webcam') return undefined
+          const backend = props.app.backendForTab(at.tab)
+          const native = backend.protocol === 'dinkster' ? backend.connection : undefined
+          const parts = at.current.field.parts
+          const dimension = (part: 'width' | 'height'): number => {
+            const row = parts === undefined ? undefined : Object.hasOwn(parts.writes, part) ? parts.writes[part] : parts.reads[part]
+            const value = row === undefined ? undefined : at.tab.store.doc.graphs[at.target.graphId]?.nodes[at.target.nodeId]?.values[row]
+            return typeof value === 'number' ? value : 0
+          }
+          return {
+            upload: native === undefined ? undefined
+              : (file: File, signal: AbortSignal) => native.uploadMediaAsset(file, { scope: 'local', kind: 'media/image', name: file.name, signal }),
+            fetchBytes: native === undefined ? undefined : (frame: AssetRef, signal: AbortSignal) => native.fetchAssetBytes(frame.digest, signal),
+            size: () => ({ width: dimension('width'), height: dimension('height') }),
+            commit: (value: Json) => at.commit(value),
+          }
+        }
         return (
           <Show when={item() !== undefined && projected() !== undefined}>
             <NodeEditorSpaceOverlay item={item()!} rect={projected()!} scale={editorViewport().scale} canvas={canvasEl} covers={covers()}
@@ -6917,6 +6938,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               }}>
               <Show when={recorder()}>
                 {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} />}
+              </Show>
+              <Show when={webcam()}>
+                {(ports) => <WebcamSpace value={item()?.value} ports={ports()}
+                  wired={item()?.wired === true} carried={item()?.carried} covered={covered()} />}
               </Show>
             </NodeEditorSpaceOverlay>
           </Show>
