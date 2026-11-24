@@ -725,6 +725,15 @@ export const WORKFLOW_SCHEMA = {
             properties: { collapsed: { type: 'boolean' } },
           },
         },
+        editors: {
+          type: 'object',
+          additionalProperties: {
+            type: 'object',
+            required: ['unfolded'],
+            properties: { unfolded: { type: 'boolean' } },
+          },
+        },
+        pictureHeights: { type: 'object', additionalProperties: { type: 'number' } },
         color: { type: 'string' },
         ext: { $ref: '#/$defs/extData' },
       },

@@ -53,13 +53,19 @@ import {
   type WidgetParts,
   type WidgetSpec,
 } from '@dinkster/core'
-import { canvasPaintTokens, type DesignTokens } from './tokens.js'
+import { IN_NODE_EDITORS, canvasPaintTokens, type DesignTokens } from './tokens.js'
 
 /** Injected text measurement (canvas measureText in the app; approximate in tests). */
 export type TextMeasurer = (text: string, role: 'title' | 'renamedTitle' | 'label' | 'value') => number
 
 /** Resolves the widget view for a spec: view id + compact row count. */
-export type WidgetMeasure = (spec: WidgetSpec) => { viewId: string; rows: number } | undefined
+/**
+ * How the host draws a widget: its view and rows. `editorControls`, for an
+ * editor shown in the node, is the height its own controls take when the
+ * host knows they differ from the editor's fixed rows, such as a recorder on
+ * a backend that cannot take uploads, which shows one sentence instead.
+ */
+export type WidgetMeasure = (spec: WidgetSpec) => { viewId: string; rows: number; editorControls?: number } | undefined
 
 export interface DynamicEditOwner {
   readonly graphId: string
@@ -155,6 +161,8 @@ export type LayoutRow =
       readonly inset: number
       /** Explicit cell width for widgets sharing a horizontal line, or beside a remove cross. */
       readonly width?: number
+      /** An editor shown in the node is unfolded under this row (its caret points down). */
+      readonly unfolded?: true
       /**
        * The row is a whole member of a group that grows by hand: a remove
        * cross ends it, its right edge this far from the node's right edge.
@@ -237,6 +245,32 @@ export type LayoutRow =
     } & DynamicAnnotations)
   | {
       /**
+       * The space an unfolded editor takes in the node, under the whole line
+       * of its editor button row. The canvas paints its panel; the editor's
+       * own controls are laid over it by the host.
+       */
+      readonly kind: 'editorSpace'
+      readonly y: number
+      /** With the band under the editor's outline, `fieldInsetY` high, that its controls leave free. */
+      readonly height: number
+      /** The editor row's left edge; the space is as wide as that row. */
+      readonly inset: number
+      /** The editor row's width when it is narrower than the node less both insets. */
+      readonly width?: number
+      /** How far above the space its editor row starts: the row and the space are one box. */
+      readonly rowAbove: number
+      readonly inputId: string
+      readonly valueKey: string
+      readonly viewId: string
+      /** The picture's top and height within the space; absent for an editor without one. */
+      readonly picture?: { readonly top: number; readonly height: number }
+      /** The editor's own sections that are open, by section id. */
+      readonly openSections?: readonly string[]
+      /** The editor's input named by its `wiredLine` has a wire, and the editor has a row for it. */
+      readonly wiredLine?: true
+    }
+  | {
+      /**
        * Grow-family affordance (ElaboratedGrowth): a nested-only autogrow
        * template whose trailing ghost renders no pins/widgets. Click
        * dispatches dynamic.materialize with `frames`; no pin, never wired.
@@ -315,6 +349,8 @@ export type LayoutRow =
       readonly top: number
       /** How many rows a section holds, or how many members a group shows. */
       readonly count: number
+      /** A group that declares a maximum: that maximum, shown after its count. */
+      readonly maxCount?: number
       /**
        * Count of MODIFIED widget values this box hides while collapsed
        * (derived via resettableWidgetsOf, never stored). Present only when
@@ -602,6 +638,38 @@ export function projectTextBoxLines(
     height: layout.height + delta,
     // The node's own resize surplus on this box is replaced, not kept.
     minHeight: layout.minHeight + bottom(rows) - bottom(ownHeightRows(layout, tokens)),
+    rows,
+    pins: remappedPins(layout, rows),
+    ...projectedBoxes(layout, rows),
+    ...(layout.preview === undefined ? {} : { preview: { ...layout.preview, y: layout.preview.y + delta } }),
+    ...(layout.textOutput === undefined ? {} : { textOutput: { ...layout.textOutput, y: layout.textOutput.y + delta } }),
+  }
+}
+
+/** A dragged editor picture's height, in whole units within the editor space's bounds. */
+export function clampPictureHeight(height: number): number {
+  const space = canvasPaintTokens.node.editorSpace
+  return Math.min(space.pictureMax, Math.max(space.pictureMin, Math.round(height)))
+}
+
+/**
+ * The layout after one unfolded editor's picture takes `height`, while every
+ * other row, the preview, and the text output keep their heights. Used for
+ * the live drag of a picture's bottom edge; the committed layout is the same.
+ */
+export function projectPictureHeight(layout: NodeLayout, valueKey: string, height: number): NodeLayout {
+  const index = layout.rows.findIndex((row) => row.kind === 'editorSpace' && row.valueKey === valueKey)
+  const space = layout.rows[index]
+  if (space?.kind !== 'editorSpace' || space.picture === undefined) return layout
+  const delta = clampPictureHeight(height) - space.picture.height
+  if (delta === 0) return layout
+  const reflowed = reflowRows(layout, (row, rowIndex) => rowIndex === index ? row.height + delta : row.height)
+  const rows = reflowed.map((row, rowIndex) => rowIndex === index && row.kind === 'editorSpace' && row.picture !== undefined
+    ? { ...row, picture: { ...row.picture, height: row.picture.height + delta } } : row)
+  return {
+    ...layout,
+    height: layout.height + delta,
+    minHeight: layout.minHeight + delta,
     rows,
     pins: remappedPins(layout, rows),
     ...projectedBoxes(layout, rows),
@@ -911,6 +979,10 @@ export interface LayoutOptions {
   readonly widgetRepresentations?: Readonly<Record<string, string>>
   /** Height in lines of each text box the user sized, by value key (view.setTextBoxLines). */
   readonly textBoxLines?: Readonly<Record<string, number>>
+  /** Per-editor fold overrides by value key (view.setEditorUnfolded). */
+  readonly editorUnfolded?: Readonly<Record<string, boolean>>
+  /** Height of each unfolded editor's picture the user dragged, by value key (view.setPictureHeight). */
+  readonly pictureHeights?: Readonly<Record<string, number>>
   /**
    * Ports with a link/net attached, keyed by connectedPortKey over ELAB
    * KEYS. A CONNECTED port inside a collapsed section keeps a pin (anchored
@@ -978,6 +1050,7 @@ export function layoutNode(
     /** Keys of the declared boxes around this one, outermost first. */
     readonly parents: readonly string[]
     readonly members?: number
+    readonly maxMembers?: number
     readonly construct?: string
     readonly ordinal?: number
     readonly ghost?: true
@@ -988,7 +1061,7 @@ export function layoutNode(
   /** A whole member's grip before its place is known. */
   type PendingGrip = Omit<MemberGrip, 'gripX'>
   interface PendingRow {
-    kind: 'ports' | 'widget' | 'section' | 'member' | 'growth' | 'note' | 'button'
+    kind: 'ports' | 'widget' | 'section' | 'member' | 'growth' | 'note' | 'button' | 'editorSpace'
     /** Keys of the declared boxes around the row, outermost first. */
     boxes: readonly string[]
     input?: PortSlot
@@ -1004,11 +1077,13 @@ export function layoutNode(
     growth?: { construct: string; label: string; frames: readonly MaterializeFrame[] }
     note?: { noteId: string; text: string; unknown?: true }
     button?: { buttonId: string; label: string; enabled?: false }
+    editorSpace?: Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset' | 'width' | 'rowAbove'>
   }
   /** A `Row` cell's text, which sets its share of the line's width. */
   const cellLabel = (row: PendingRow): string =>
     row.widget?.label ?? row.note?.text ?? row.button?.label ?? ''
   const pending: PendingRow[] = []
+  const editorControlHeights = new Map<string, number>()
   const outputs: {
     slot: PortSlot & { index: number }
     boxes: readonly string[]
@@ -1069,6 +1144,7 @@ export function layoutNode(
         parents: item.boxes ?? [],
         construct: item.construct,
         ...(item.members !== undefined ? { members: item.members } : {}),
+        ...(item.maxMembers !== undefined ? { maxMembers: item.maxMembers } : {}),
         ...(item.ordinal !== undefined ? { ordinal: item.ordinal } : {}),
         ...(item.ghost ? { ghost: true as const } : {}),
         ...(item.byHand ? { byHand: true as const } : {}),
@@ -1335,7 +1411,8 @@ export function layoutNode(
       widget,
       options.widgetRepresentations?.[valueKey],
     )
-    const measured = widgetMeasure(representation.spec) ?? { viewId: 'core.unknown', rows: 1 }
+    const { editorControls, ...measured } = widgetMeasure(representation.spec) ?? { viewId: 'core.unknown', rows: 1 }
+    if (editorControls !== undefined && Number.isFinite(editorControls)) editorControlHeights.set(valueKey, Math.max(0, editorControls))
     // Widget measures are host-supplied: a zero, negative, fractional, or
     // non-finite row count would fold rows onto each other and poison every
     // downstream y coordinate. Normalize to a positive whole number of rows.
@@ -1459,6 +1536,54 @@ export function layoutNode(
   for (const row of pending) emit(row)
   pending.splice(0, pending.length, ...positioned)
 
+  // An unfolded editor takes its space under the whole line of its row. A
+  // declaration may start it unfolded; a growing group's members start folded.
+  const space = canvasPaintTokens.node.editorSpace
+  const withSpaces: PendingRow[] = []
+  for (const row of pending) {
+    withSpaces.push(row)
+    const line = lines.get(row)!
+    if (line.at(-1) !== row) continue
+    for (const cell of line) {
+      const w = cell.widget
+      const editor = w === undefined ? undefined : IN_NODE_EDITORS[w.viewId]
+      if (w === undefined || editor === undefined) continue
+      const declared = w.familyMember !== true && w.spec.options['unfolded'] === true
+      if (!(options.editorUnfolded?.[w.valueKey] ?? declared)) continue
+      // Unfolded, the row is the editor's one-row header: what the folded row
+      // shows in small (the curve's sketch) is the editor itself under it.
+      cell.widget = { ...w, unfolded: true, rows: 1 }
+      const stored = options.pictureHeights?.[w.valueKey]
+      const pictureHeight = editor.picture === undefined ? undefined
+        : stored !== undefined && Number.isFinite(stored)
+          ? clampPictureHeight(stored)
+          : editor.picture
+      const openSections = (editor.sections ?? []).filter((section) =>
+        options.sectionOverrides?.[`${w.valueKey}.${section.id}`] === false)
+      const wiredLine = editor.wiredLine !== undefined && isConnected('in', editor.wiredLine)
+      const controls = editorControlHeights.get(w.valueKey) ??
+        (editor.controlRows + (wiredLine ? 1 : 0) + openSections.reduce((sum, section) => sum + section.rows, 0)) * tokens.rowHeight
+      const spaceRow: PendingRow = {
+        kind: 'editorSpace',
+        boxes: cell.boxes,
+        editorSpace: {
+          inputId: w.inputId,
+          valueKey: w.valueKey,
+          viewId: w.viewId,
+          ...(openSections.length > 0 ? { openSections: openSections.map((section) => section.id) } : {}),
+          ...(wiredLine ? { wiredLine: true as const } : {}),
+          // The editor's outline stops `fieldInsetY` above the space's bottom,
+          // as every row's box does; its controls fill the space above that.
+          height: space.pad * 2 + controls + (pictureHeight === undefined ? 0 : pictureHeight + space.gap) + tokens.rowGeometry.fieldInsetY,
+          ...(pictureHeight !== undefined ? { picture: { top: space.pad, height: pictureHeight } } : {}),
+        },
+      }
+      lines.set(spaceRow, [spaceRow])
+      withSpaces.push(spaceRow)
+    }
+  }
+  pending.splice(0, pending.length, ...withSpaces)
+
   const rowBaseHeight = (row: PendingRow): number => row.kind === 'ports'
     ? tokens.rowGeometry.portRowHeight
     : row.kind !== 'widget' || row.widget === undefined
@@ -1572,6 +1697,7 @@ export function layoutNode(
           collapsed: decl.closed,
           inset: outlineX(depth),
           count,
+          ...(decl.kind === 'group' && decl.maxMembers !== undefined ? { maxCount: decl.maxMembers } : {}),
           ...(decl.closed && modified !== undefined ? { hiddenModified: modified } : {}),
           ...(decl.closed && hiddenPorts.has(decl.id) ? { hiddenPorts: hiddenPorts.get(decl.id)! } : {}),
         }
@@ -1604,7 +1730,11 @@ export function layoutNode(
       }
       enter(row.boxes)
       const depth = open.length
-      if (row.kind === 'growth') {
+      if (row.kind === 'editorSpace') {
+        const editorSpace = row.editorSpace!
+        push({ kind: 'editorSpace', y, inset: fieldInset(depth), rowAbove: 0, ...editorSpace }, depth)
+        y += editorSpace.height
+      } else if (row.kind === 'growth') {
         const g = row.growth!
         const height = tokens.rowHeight
         push({ kind: 'growth', y, height, inset: outlineX(depth + 1), construct: g.construct, label: g.label, frames: g.frames }, depth)
@@ -1742,10 +1872,25 @@ export function layoutNode(
       content = measure(row.text, 'label') + row.inset * 2
     } else if (row.kind === 'button') {
       content = measure(row.label, 'label') + canvasPaintTokens.node.growthWidthPadding + extra
+    } else if (row.kind === 'editorSpace') {
+      // The space is as wide as its row, which a member's grip and cross shorten.
+      const editorRow = rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === row.valueKey)
+      const room = editorRow?.kind !== 'widget' ? 0
+        : (editorRow.crossInset === undefined ? 0 : box.cross.size + box.cross.fieldGap) +
+          (editorRow.reorder === undefined ? 0 : box.gripWidth + box.cross.fieldGap)
+      content = canvasPaintTokens.node.editorSpace.minWidth + extra + room
     } else {
       // Label + a value area floor; widget content depth lives in the
       // expanded editor, so rows never force extreme widths.
       content = measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + extra
+      if (row.kind === 'widget' && row.viewId === 'core.curve' && !row.unfolded && tokens.widgetRowLook === 'raised-editors') {
+        // A folded curve's square comes before its opener icon and name, and
+        // how the points are joined sits under both.
+        const curve = canvasPaintTokens.widget.curve
+        const label = measure(row.label, 'label')
+        content += widgetChromeRect(0, 0, 0, row.height, tokens.rowGeometry.fieldInsetY).height - curve.inset + curve.gap +
+          Math.max(canvasPaintTokens.widget.opener.iconReserve + label, canvasPaintTokens.node.widgetValueMinWidth) - label
+      }
     }
     if (row.kind === 'widget' || row.kind === 'note' || row.kind === 'button') fieldDepth = Math.max(fieldDepth, depth)
     width = Math.max(width, content + tokens.padX * 2)
@@ -1818,6 +1963,18 @@ export function layoutNode(
       ? row.inset + (row.width ?? width - row.inset * 2)
       : width - row.crossInset - box.cross.size - gap
     rows[index] = { ...row, inset: row.inset + gripRoom, width: right - row.inset - gripRoom, ...reorder }
+  }
+  // An unfolded editor and its row are one box: the space takes the row's
+  // place and width, so a member's grip and cross stay beside both.
+  const editorRows = new Map<string, Extract<LayoutRow, { kind: 'widget' }>>()
+  for (const [index, row] of rows.entries()) {
+    if (row.kind === 'widget' && row.unfolded) editorRows.set(row.valueKey, row)
+    const editorRow = row.kind === 'editorSpace' ? editorRows.get(row.valueKey) : undefined
+    if (row.kind !== 'editorSpace' || editorRow === undefined) continue
+    rows[index] = {
+      ...row, inset: editorRow.inset, rowAbove: row.y - editorRow.y,
+      ...(editorRow.width !== undefined ? { width: editorRow.width } : {}),
+    }
   }
 
   if (options.minimized) {
