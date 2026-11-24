@@ -1227,6 +1227,36 @@ describe('view.setEditorUnfolded and view.setPictureHeight', () => {
     expect(store.dispatch(unfold('n1', '', true)).ok).toBe(false)
     expect(store.dispatch(unfold('missing', 'frame', true)).ok).toBe(false)
   })
+
+  it('keeps a value source\'s fold on its own view state and the Inputs panel\'s apart from the subgraph node outside', () => {
+    const store = makeStore({
+      ...doc({
+        g0: graph({ id: 'g0', nodes: { sub: node('sub', '#g1') } }),
+        g1: graph({
+          id: 'g1', name: 'sub', boundary: { inputs: [], outputs: [] }, nodes: { m1: node('m1') },
+          valueSources: { v1: { id: asValueSourceId('v1'), value: 7 } as never },
+        }),
+      }),
+      view: { graphs: { g1: { nodes: {}, valueSources: { v1: { position: { x: 5, y: 6 } } } } } },
+    })
+    const set = (command: string, params: Record<string, unknown>) => store.dispatch({ command, params: { graphId: 'g1', ...params } } as never)
+    expect(set('view.setEditorUnfolded', { valueSourceId: 'v1', unfolded: true }).ok).toBe(true)
+    expect(set('view.setPictureHeight', { valueSourceId: 'v1', height: 180 }).ok).toBe(true)
+    expect(set('view.setEditorUnfolded', { inputsPanel: true, valueKey: 'curve', unfolded: true }).ok).toBe(true)
+    expect(set('view.setPictureHeight', { inputsPanel: true, valueKey: 'curve', height: 300 }).ok).toBe(true)
+    const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!.view
+    expect(loaded.graphs.g1!.valueSources!.v1).toEqual({ position: { x: 5, y: 6 }, editorUnfolded: true, pictureHeight: 180 })
+    expect(loaded.graphs.g1!.inputsPanel).toEqual({ editors: { curve: { unfolded: true } }, pictureHeights: { curve: 300 } })
+    expect(loaded.graphs.g0?.nodes.sub?.editors).toBeUndefined()
+    expect(store.undo()).toBe(true)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.view.graphs.g1!.inputsPanel).toBeUndefined()
+    expect(set('view.setEditorUnfolded', { valueSourceId: 'v1', unfolded: null }).ok).toBe(true)
+    expect(set('view.setPictureHeight', { valueSourceId: 'v1', height: null }).ok).toBe(true)
+    expect(store.doc.view.graphs.g1!.valueSources!.v1).toEqual({ position: { x: 5, y: 6 } })
+    expect(set('view.setEditorUnfolded', { valueSourceId: 'missing', unfolded: true }).ok).toBe(false)
+    expect(store.dispatch({ command: 'view.setEditorUnfolded', params: { graphId: 'g0', inputsPanel: true, valueKey: 'curve', unfolded: true } }).ok).toBe(false)
+  })
 })
 
 describe('view.setPreviewFolded', () => {

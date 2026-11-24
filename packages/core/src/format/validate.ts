@@ -581,6 +581,18 @@ function checkVec2(c: ShapeChecker, v: unknown, path: string): void {
   c.num(v['y'], `${path}.y`)
 }
 
+/** A node's or the Inputs panel's per-editor folds and dragged picture heights. */
+function checkEditorViews(c: ShapeChecker, v: Record<string, unknown>, path: string): void {
+  if (v['editors'] !== undefined && c.obj(v['editors'], `${path}.editors`)) {
+    for (const [k, e] of Object.entries(v['editors'])) {
+      if (c.obj(e, `${path}.editors.${k}`)) c.bool(e['unfolded'], `${path}.editors.${k}.unfolded`)
+    }
+  }
+  if (v['pictureHeights'] !== undefined && c.obj(v['pictureHeights'], `${path}.pictureHeights`)) {
+    for (const [k, height] of Object.entries(v['pictureHeights'])) c.num(height, `${path}.pictureHeights.${k}`)
+  }
+}
+
 function checkNodeView(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   if (v['position'] !== undefined) checkVec2(c, v['position'], `${path}.position`)
@@ -602,14 +614,7 @@ function checkNodeView(c: ShapeChecker, v: unknown, path: string): void {
       if (c.obj(s, `${path}.sections.${k}`)) c.bool(s['collapsed'], `${path}.sections.${k}.collapsed`)
     }
   }
-  if (v['editors'] !== undefined && c.obj(v['editors'], `${path}.editors`)) {
-    for (const [k, e] of Object.entries(v['editors'])) {
-      if (c.obj(e, `${path}.editors.${k}`)) c.bool(e['unfolded'], `${path}.editors.${k}.unfolded`)
-    }
-  }
-  if (v['pictureHeights'] !== undefined && c.obj(v['pictureHeights'], `${path}.pictureHeights`)) {
-    for (const [k, height] of Object.entries(v['pictureHeights'])) c.num(height, `${path}.pictureHeights.${k}`)
-  }
+  checkEditorViews(c, v, path)
   c.optStr(v['color'], `${path}.color`)
   c.optExt(v['ext'], `${path}.ext`)
 }
@@ -640,6 +645,8 @@ function checkValueSourceView(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   checkVec2(c, v['position'], `${path}.position`)
   c.optStr(v['view'], `${path}.view`)
+  c.optBool(v['editorUnfolded'], `${path}.editorUnfolded`)
+  if (v['pictureHeight'] !== undefined) c.num(v['pictureHeight'], `${path}.pictureHeight`)
   c.optExt(v['ext'], `${path}.ext`)
 }
 
@@ -685,6 +692,7 @@ function checkGraphView(c: ShapeChecker, v: unknown, path: string): void {
       c.optExt(b['ext'], `${p}.ext`)
     }
   }
+  if (v['inputsPanel'] !== undefined && c.obj(v['inputsPanel'], `${path}.inputsPanel`)) checkEditorViews(c, v['inputsPanel'], `${path}.inputsPanel`)
   c.optExt(v['ext'], `${path}.ext`)
 }
 
