@@ -643,12 +643,13 @@ test('A reopened workflow shows no missing node until the node definitions arriv
   }, document)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
+  // The test bridge appears after startup begins, so read it optionally and let the poll retry.
   const drawn = () => page.evaluate(() => ({
-    schemas: window.__dinksterTest!.app.backends.get()[0]?.schemaState.get().status,
+    schemas: window.__dinksterTest?.app.backends.get()[0]?.schemaState.get().status,
     nodes: Object.fromEntries((window.__dinksterTest?.renderer?.getScene().nodes ?? []).map((node) => [
       node.id, node.unrecognized === true ? 'missing' : node.schemaPending === true ? 'pending' : 'resolved',
     ])),
-    problems: window.__dinksterTest!.app.problems.get().filter((problem) => problem.code === 'schema.unresolvedType').length,
+    problems: window.__dinksterTest?.app.problems.get().filter((problem) => problem.code === 'schema.unresolvedType').length,
   }))
   await expect.poll(drawn, { timeout: 30_000 }).toEqual({
     schemas: 'loading', nodes: { source: 'pending', sink: 'pending', absent: 'pending' }, problems: 0,
