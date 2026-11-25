@@ -2254,10 +2254,14 @@ describe('node chrome paint on the live renderer', () => {
     const border = nodeBorder(calls, n)
     expect(border).toMatchObject({ strokeStyle: running, lineWidth: 2, shadowBlur: 0 })
     expect(border!.globalAlpha).toBeCloseTo(0.9)
-    const glow = calls.filter((c) => c.method === 'stroke' && c.strokeStyle === running && c.shadowColor === running)
-    expect(glow).toHaveLength(1)
-    expect(glow[0]).toMatchObject({ lineWidth: 2, shadowBlur: 12 })
-    expect(glow[0]!.globalAlpha).toBeCloseTo(0.32)
+    // The glow is the node's box, grown by 1 px and blurred 12 px at 32%, painted only outside the node.
+    const glowAt = calls.findIndex((c) => c.method === 'fill' && c.fillStyle === running && c.shadowColor === running)
+    const glow = calls[glowAt]!
+    expect(glow).toMatchObject({ shadowBlur: 12 })
+    expect(glow.globalAlpha).toBeCloseTo(0.32)
+    const before = calls.slice(0, glowAt).reverse()
+    expect(before.find((c) => c.method === 'roundRect')!.args).toEqual([n.x - 1, n.y - 1, n.layout.width + 2, n.layout.height + 2, defaultTokens.cornerRadius + 1])
+    expect(before.find((c) => c.method === 'clip')!.args).toEqual(['evenodd'])
     expect(calls.some((c) =>
       c.method === 'stroke' && c.strokeStyle === defaultTokens.progressBar && c.lineDash.length > 0,
     )).toBe(true)
@@ -2309,7 +2313,7 @@ describe('node chrome paint on the live renderer', () => {
 
       const running = defaultTokens.stateColors.running
       expect(calls.some((call) =>
-        call.method === 'stroke' && call.strokeStyle === running && call.shadowColor === running && call.shadowBlur > 0,
+        call.method === 'fill' && call.fillStyle === running && call.shadowColor === running && call.shadowBlur > 0,
       )).toBe(true)
       expect(calls.some((call) =>
         call.method === 'stroke' && call.strokeStyle === defaultTokens.progressBar && call.lineDash.length > 0,
