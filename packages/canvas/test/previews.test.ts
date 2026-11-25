@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { animationFrameAt, containRect, type NodePreview, type NodePreviewAnimation } from '../src/previews.js'
+import { animationFrameAt, containRect, searchNodePreviewViewport, type NodePreview, type NodePreviewAnimation } from '../src/previews.js'
 
 const preview = (width: number, height: number): NodePreview =>
   ({ image: {} as CanvasImageSource, width, height })
+
+it('fits search nodes to the available width with margins, caps enlargement, and lets tall nodes set the height', () => {
+  expect(searchNodePreviewViewport({ width: 100, height: 60 }, 294)).toEqual({
+    width: 294, height: 122, x: 72, y: 16, scale: 1.5,
+  })
+  expect(searchNodePreviewViewport({ width: 360, height: 600 }, 302)).toEqual({
+    width: 302, height: 482, x: 16, y: 16, scale: 0.75,
+  })
+})
 
 describe('containRect', () => {
   const region = { x: 10, y: 20, width: 200, height: 100 }

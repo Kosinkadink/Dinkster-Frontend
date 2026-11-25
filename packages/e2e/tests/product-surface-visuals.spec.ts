@@ -796,7 +796,7 @@ test('A reopened workflow draws from the kept node definitions until the real on
   // Search lists the copy's types, and placing one adds it with the copy's defaults.
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('@ Pick')
-  await page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]', { hasText: 'Pick' }).click()
+  await page.locator('[data-group="core.nodes"] [role="option"]', { hasText: 'Pick' }).click()
   const canvas = (await page.getByTestId('graph-canvas').boundingBox())!
   await page.mouse.click(canvas.x + 900, canvas.y + 160)
   const placed = () => page.evaluate(() => Object.values(window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes)
