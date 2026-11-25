@@ -87,7 +87,7 @@
   "projectAccount.current": "Current account project",
   "projectAccount.choice": "Account project",
   "projectAccount.choose": "Choose an account project",
-  "projectAccount.signIn": "Sign in using the account control in the top bar, then refresh. You can remove an existing link while signed out.",
+  "projectAccount.signIn": "Sign in using the account control, then refresh. You can remove an existing link while signed out.",
   "projectAccount.empty": "No account projects are available to link.",
   "projectAccount.save": "Save link",
   "projectAccount.unlink": "Remove link",
