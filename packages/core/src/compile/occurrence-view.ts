@@ -134,6 +134,11 @@ export function occurrenceDynamicView(
         childEvidence.push({ ...evidence, ref: { node: binding.node, port: asPortId(port) }, projectedRoute, ...(evidence.route !== undefined ? { route: evidence.route.slice(1) } : {}) })
       }
     }
+    // Seed whole-construct state before explicit port values, including
+    // socket-only values that do not transfer widget ownership.
+    const constructs = projectConstructs(child, { values: instanceValues, ...(instanceDynamic !== undefined ? { dynamic: instanceDynamic } : {}) }, (inner) => resolveNode(child.id, inner), childOverlays)
+    for (const [target, dynamic] of constructs.dynamic) childOverlays.set(target, dynamic)
+    for (const [target, projected] of constructs.values) childValues.set(target, projected)
     for (const item of child.boundary.inputs) {
       const owner = valueOwners.get(hop)?.get(item.id) ?? { graphId: def.id, nodeId: hop, valueKey: item.id }
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
@@ -157,11 +162,6 @@ export function occurrenceDynamicView(
         })
       }
     }
-    // A construct the subgraph node shows whole: its members, picks and
-    // values reach the inner node, and an edit there is written back outside.
-    const constructs = projectConstructs(child, { values: instanceValues, ...(instanceDynamic !== undefined ? { dynamic: instanceDynamic } : {}) }, (inner) => resolveNode(child.id, inner), childOverlays)
-    for (const [target, dynamic] of constructs.dynamic) childOverlays.set(target, dynamic)
-    for (const [target, projected] of constructs.values) childValues.set(target, projected)
     for (const [target, owners] of constructs.owners) {
       const targetOwners = childValueOwners.get(target) ?? new Map<string, ValueOwner>()
       childValueOwners.set(target, targetOwners)

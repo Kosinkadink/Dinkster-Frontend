@@ -297,19 +297,22 @@ describe('workflow model presence', () => {
 
   it.each([true, false])('checks each subgraph instance value and excludes wired and unused values (promoted: %s)', async (promoted) => {
     const { backend, presence } = await setup({ model: 'source.safetensors' }, [field('model'),
+      { kind: 'input', id: 'strength', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+        widget: { widgetType: 'FLOAT', options: {}, default: 1 } },
       { kind: 'output', id: 'asset', type: { kind: 'concrete', name: 'ASSET' } },
     ])
     presence.mockImplementation(async (wanted) => wanted.map((model) => ({ ...model,
       status: model.name === 'left.safetensors' ? 'missing' as const : 'local' as const, plannable: true })))
     const inner = { id: 'inner', name: 'Model group', nodes: {
-      loader: { id: 'loader', type: 'ModelLoader', values: { model: 'unused-definition.safetensors' } },
+      loader: { id: 'loader', type: 'ModelLoader', values: { model: 'unused-definition.safetensors', strength: 1 } },
     }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
-      boundary: { inputs: [{ id: 'model', promoted, binds: { kind: 'port', node: 'loader', port: 'model' } }], outputs: [] } }
+      boundary: { inputs: [{ id: 'model', promoted, binds: { kind: 'port', node: 'loader', port: 'model' } },
+        { id: 'strength', promoted: true, binds: { kind: 'port', node: 'loader', port: 'strength' } }], outputs: [] } }
     await app.openDocument({ ...CHAIN_DOC, lineage: 'instance-models', graphs: {
       g0: { ...CHAIN_DOC.graphs.g0, nodes: {
         source: { id: 'source', type: 'ModelLoader', values: { model: 'source.safetensors' } },
-        left: { id: 'left', type: '#inner', values: { model: 'left.safetensors' } },
-        right: { id: 'right', type: '#inner', values: { model: 'right.safetensors' } },
+        left: { id: 'left', type: '#inner', values: { model: 'left.safetensors', strength: 0.5 } },
+        right: { id: 'right', type: '#inner', values: { model: 'right.safetensors', strength: 0.75 } },
         wired: { id: 'wired', type: '#inner', values: { model: 'ignored-wired.safetensors' } },
         muted: { id: 'muted', type: '#inner', mode: 'muted', values: { model: 'ignored-muted.safetensors' } },
       }, links: { l1: { id: 'l1', from: { node: 'source', port: 'asset' }, to: { node: 'wired', port: 'model' } } } },
