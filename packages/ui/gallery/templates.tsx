@@ -292,7 +292,7 @@ export function TemplatesGallery() {
     )
 
   return (
-    <main class="dinkster-stack" data-testid="templates-gallery">
+    <main class="dinkster-page dinkster-stack" data-testid="templates-gallery">
       <div class="dinkster-templates-frame dinkster-root" data-theme="dark">
         <ProductTemplatesPage
           title="Templates"
@@ -388,31 +388,13 @@ export function TemplatesGallery() {
           </Show>
         </ProductTemplatesPage>
       </div>
-      <ProductPage
-        title="Templates page"
-        description="It opens in a tab, like a workflow does. Groups on the left, pictures in the middle, and the one you clicked explained on the right. One click selects, a double click, Enter or Use template opens it. Every name, picture, size and count is example data."
-      >
-        <ProductField label="State">
-          {(attributes) => (
-            <ProductSelect
-              {...attributes}
-              value={state()}
-              onChange={(event) =>
-                setState(event.currentTarget.value as keyof typeof states)
-              }
-            >
-              <For each={Object.entries(states)}>
-                {([value, label]) => <option value={value}>{label}</option>}
-              </For>
-            </ProductSelect>
-          )}
-        </ProductField>
-        <p role="status">{activity()}</p>
-      </ProductPage>
-      <ProductPage
-        title="A tile, in each state"
-        description="A ready tile says nothing about models. Missing models show how much there is to download, which becomes a percentage with a thin line while downloading. A template with no picture shows its workflow, drawn as the minimap draws one. Selected has the fill and a mark; under the pointer has the fill only."
-      >
+      <section class="dinkster-stack" aria-labelledby="template-tile-states">
+        <h2 id="template-tile-states" class="dinkster-heading">
+          A tile, in each state
+        </h2>
+        <p class="dinkster-description">
+          A ready tile says nothing about models. Missing models show how much there is to download, which becomes a percentage with a thin line while downloading. A template with no picture shows its workflow, drawn as the minimap draws one. Selected has the fill and a mark; under the pointer has the fill only.
+        </p>
         <div class="dinkster-template-states">
           <For
             each={
@@ -442,6 +424,27 @@ export function TemplatesGallery() {
             )}
           </For>
         </div>
+      </section>
+      <ProductPage
+        title="Templates page"
+        description="It opens in a tab, like a workflow does. Groups on the left, pictures in the middle, and the one you clicked explained on the right. One click selects, a double click, Enter or Use template opens it. Every name, picture, size and count is example data."
+      >
+        <ProductField label="State">
+          {(attributes) => (
+            <ProductSelect
+              {...attributes}
+              value={state()}
+              onChange={(event) =>
+                setState(event.currentTarget.value as keyof typeof states)
+              }
+            >
+              <For each={Object.entries(states)}>
+                {([value, label]) => <option value={value}>{label}</option>}
+              </For>
+            </ProductSelect>
+          )}
+        </ProductField>
+        <p role="status">{activity()}</p>
       </ProductPage>
     </main>
   )
