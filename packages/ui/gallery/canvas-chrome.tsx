@@ -54,7 +54,7 @@ const lenses = [
 
 const defaultSwitches: Readonly<Record<string, boolean>> = {
   ...Object.fromEntries(MINIMAP_SWITCHES.map((item) => [item.id, true])),
-  bookmarks: false,
+  bookmarks: true,
 }
 
 function minimapTokens(): DesignTokens {
