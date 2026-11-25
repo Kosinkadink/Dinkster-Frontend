@@ -1,16 +1,15 @@
-import { For, Show, createSignal as createSolidSignal, createUniqueId, onCleanup, onMount } from 'solid-js'
+import { For, Show, createSignal as createSolidSignal, createUniqueId, onCleanup, onMount, type JSX } from 'solid-js'
 import type { ExecutionState } from '@dinkster/client'
-import type { ExecutionRef, LineageId } from '@dinkster/core'
+import { executionKey, type ExecutionRef, type LineageId } from '@dinkster/core'
 import Play from 'lucide-solid/icons/play'
 import List from 'lucide-solid/icons/list'
-import { ProductRunActivity } from '@dinkster/ui'
+import { ProductCancelButton, ProductRunActivity } from '@dinkster/ui'
 import { executionActivity } from './execution-activity.js'
 import { useAppMessage } from './locale.js'
-import { ExecutionActivityCard, executionProgress } from './ExecutionActivityCard.js'
+import { executionProgress, executionStatusLabel } from './ExecutionActivityCard.js'
 import { Icon } from './Icon.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
-import type { AppState } from './app-state.js'
-import { CancelExecutionButton } from './CancelExecutionButton.js'
+import { RunRow, RunSection, placeInLine, runIsPending, type RunNodeTitle } from './RunControls.js'
 
 export interface WorkflowQueueOwner {
   readonly id: string
@@ -18,8 +17,16 @@ export interface WorkflowQueueOwner {
   readonly lineage: LineageId
 }
 
+/** Running jobs first, then the queue in its order, then finished runs newest first. */
+const runOrder = (executions: readonly ExecutionState[]) => {
+  const running = executions.filter((entry) => entry.status === 'running')
+  const queued = executions.filter((entry) => entry.status === 'queued')
+    .sort((a, b) => (placeInLine(a, executions) ?? 0) - (placeInLine(b, executions) ?? 0))
+  const finished = executions.filter((entry) => !runIsPending(entry))
+  return { pending: [...running, ...queued], finished }
+}
+
 export function WorkflowQueueControl(props: {
-  readonly app?: AppState
   readonly owner: WorkflowQueueOwner
   readonly executions: readonly ExecutionState[]
   readonly canQueue: boolean
@@ -28,6 +35,11 @@ export function WorkflowQueueControl(props: {
   /** Absent on a frozen tab, which has no Run button: only its run list and progress. */
   readonly onQueue?: (() => void) | undefined
   readonly onOpenExecution: (ref: ExecutionRef) => void
+  /** Absent where jobs cannot be cancelled, such as the component gallery. */
+  readonly onCancel?: ((ref: ExecutionRef) => void) | undefined
+  readonly cancelling?: ReadonlySet<string> | undefined
+  readonly nodeTitle?: RunNodeTitle | undefined
+  readonly thumbnail?: ((entry: ExecutionState) => JSX.Element) | undefined
 }) {
   const message = useAppMessage()
   const [open, setOpen] = createSolidSignal(false)
@@ -36,10 +48,12 @@ export function WorkflowQueueControl(props: {
   let toggle!: HTMLButtonElement
   let list!: HTMLDivElement
 
+  const runningEntry = () => props.executions.find((entry) => entry.status === 'running')
   const progress = () => {
-    const active = props.executions.find((entry) => entry.status === 'running')
+    const active = runningEntry()
     return active === undefined ? undefined : executionProgress(active)
   }
+  const cancelling = (entry: ExecutionState): boolean => props.cancelling?.has(executionKey(entry.ref)) === true
 
   const activity = () => executionActivity(props.executions)
   const summary = (): string => {
@@ -49,6 +63,7 @@ export function WorkflowQueueControl(props: {
       ...(waiting > 0 ? [`${waiting} queued`] : []),
     ].join(', ') || 'No active jobs'
   }
+  const rows = () => runOrder(props.executions)
 
   const close = (restoreFocus = false): void => {
     setOpen(false)
@@ -74,6 +89,22 @@ export function WorkflowQueueControl(props: {
     window.addEventListener('pointerdown', outside, true)
     onCleanup(() => window.removeEventListener('pointerdown', outside, true))
   })
+
+  const Row = (row: { entry: ExecutionState }) => (
+    <RunRow
+      entry={row.entry}
+      name={executionStatusLabel(row.entry.status)}
+      workflow={props.owner.title}
+      statusInNote={false}
+      all={props.executions}
+      cancelling={cancelling(row.entry)}
+      onCancel={() => props.onCancel?.(row.entry.ref)}
+      onOpen={() => { close(); props.onOpenExecution(row.entry.ref) }}
+      testId="workflow-queue-entry"
+      nodeTitle={props.nodeTitle}
+      thumbnail={props.thumbnail?.(row.entry)}
+    />
+  )
 
   return (
     <div
@@ -121,20 +152,31 @@ export function WorkflowQueueControl(props: {
             <ProductRunActivity running={activity().running} waiting={activity().waiting} label={summary()} />
           </Show>
         </button>
-      </div>
-      <Show when={progress()}>
-        {(current) => (
-          <label class="workflow-queue-progress" data-testid="workflow-progress">
-            <span>Workflow {Math.round(current().value * 100)}%</span>
+        <Show when={props.onCancel ? runningEntry() : undefined}>
+          {(entry) => (
+            <span class="workflow-queue-cancel">
+              <ProductCancelButton
+                label={message('runs.cancel.named', { name: props.owner.title })}
+                data-testid="workflow-cancel"
+                pending={cancelling(entry())}
+                onClick={() => props.onCancel?.(entry().ref)}
+              />
+            </span>
+          )}
+        </Show>
+        <Show when={progress()}>
+          {(current) => (
             <progress
+              class="workflow-queue-line"
+              data-testid="workflow-progress"
               max="1"
               value={current().value}
               aria-label={`${props.owner.title} workflow progress`}
+              aria-valuetext={`${Math.round(current().value * 100)}%, ${current().finished} of ${current().total} nodes`}
             />
-            <span>{current().finished} of {current().total} nodes</span>
-          </label>
-        )}
-      </Show>
+          )}
+        </Show>
+      </div>
       <Show when={open()}>
         <section
           id={popoverId}
@@ -148,16 +190,11 @@ export function WorkflowQueueControl(props: {
             }
           }}
         >
-          <header>
-            <strong>{props.owner.title}</strong>
-            <span>{summary()}</span>
-          </header>
+          <header>{props.owner.title}: {summary()}</header>
           <Show when={props.executions.length > 0} fallback={<ProductEmptyState title="No jobs for this workflow." />}>
             <div
               ref={list}
               class="workflow-queue-list"
-              role="list"
-              aria-label="Workflow jobs"
               onKeyDown={(event) => {
                 const entries = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('.execution-open:not(:disabled)')]
                 const current = entries.indexOf(document.activeElement as HTMLButtonElement)
@@ -171,18 +208,16 @@ export function WorkflowQueueControl(props: {
                 entries[next]!.focus()
               }}
             >
-              <For each={props.executions}>
-                {(entry) => (
-                  <ExecutionActivityCard
-                    entry={entry}
-                    title={props.owner.title}
-                    testId="workflow-queue-entry"
-                    compact
-                    cancelControl={<Show when={props.app}>{(app) => <CancelExecutionButton app={app()} execution={entry} />}</Show>}
-                    onOpen={() => { close(); props.onOpenExecution(entry.ref) }}
-                  />
-                )}
-              </For>
+              <Show when={rows().pending.length > 0}>
+                <div class="run-section-rows" role="list" aria-label="Workflow jobs">
+                  <For each={rows().pending}>{(entry) => <Row entry={entry} />}</For>
+                </div>
+              </Show>
+              <Show when={rows().finished.length > 0}>
+                <RunSection title={message('runs.section.finished')}>
+                  <For each={rows().finished}>{(entry) => <Row entry={entry} />}</For>
+                </RunSection>
+              </Show>
             </div>
           </Show>
         </section>

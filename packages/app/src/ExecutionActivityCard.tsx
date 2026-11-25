@@ -2,7 +2,6 @@ import { For, Show } from 'solid-js'
 import type { ExecutionState } from '@dinkster/client'
 import { isDinksterRegionEntry, type DinksterGraphWire } from '@dinkster/core'
 import { runAttributionLabel } from './run-attribution.js'
-import type { JSX } from 'solid-js'
 import { t } from '@dinkster/core'
 import Snowflake from 'lucide-solid/icons/snowflake'
 import { ProductButton } from './ProductControls.js'
@@ -142,11 +141,9 @@ export function ExecutionActivityCard(props: {
   readonly title: string
   readonly testId: string
   readonly relation?: ExecutionActivityRelation | undefined
-  readonly compact?: boolean | undefined
   readonly hideOpen?: boolean | undefined
   readonly onOpen?: (() => void) | undefined
   readonly onPin?: (() => void) | undefined
-  readonly cancelControl?: JSX.Element
 }) {
   const status = () => executionStatusLabel(props.entry.status)
   const progress = () => executionProgress(props.entry)
@@ -166,12 +163,10 @@ export function ExecutionActivityCard(props: {
   return (
     <article
       class="execution-activity-card"
-      classList={{ compact: props.compact === true }}
       role="listitem"
       data-testid={props.testId}
       data-status={props.entry.status}
       data-overlay={props.relation}
-      title={props.compact === true ? attribution() : undefined}
     >
       <div class="execution-activity-heading">
         <span class="execution-status-mark" aria-hidden="true" />
@@ -182,7 +177,7 @@ export function ExecutionActivityCard(props: {
         <span class="execution-status">{status()}</span>
       </div>
       <div class="execution-activity-facts">
-        <Show when={props.compact !== true ? attribution() : undefined}>
+        <Show when={attribution()}>
           {(label) => (
             <span class="execution-attribution">
               {label()}
@@ -228,7 +223,6 @@ export function ExecutionActivityCard(props: {
         </div>
       </Show>
       <div class="execution-activity-actions">
-        {props.cancelControl}
         <Show when={!props.hideOpen}>
           <ExecutionOpenButton entry={props.entry} title={props.title} onOpen={props.onOpen} />
         </Show>

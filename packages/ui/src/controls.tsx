@@ -6,7 +6,7 @@ import {
   splitProps,
   type JSX,
 } from 'solid-js'
-import { ChevronDown, CircleAlert, Clock, LoaderCircle, type LucideIcon } from 'lucide-solid'
+import { ChevronDown, CircleAlert, Clock, LoaderCircle, X, type LucideIcon } from 'lucide-solid'
 import { Dynamic } from 'solid-js/web'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
 import { useProductStrings } from './strings.js'
@@ -234,6 +234,35 @@ export function ProductIconButton(
       title={button['data-tooltip-label'] ? undefined : local.label}
     >
       <ProductIcon icon={local.icon} />
+    </Button>
+  )
+}
+
+/**
+ * The slim X that cancels a run: muted at rest, coral under the pointer. Its
+ * label names the job it cancels, or says that it opens the list instead.
+ */
+export function ProductCancelButton(
+  props: Omit<ButtonAttributes, 'children' | 'aria-label' | 'title'> & {
+    label: string
+    pending?: boolean
+  },
+) {
+  const [local, button] = splitProps(props, ['label', 'pending'])
+  return (
+    <Button
+      {...button}
+      intent={undefined}
+      fill="quiet"
+      iconOnly
+      pending={local.pending}
+      data-cancel=""
+      aria-label={local.label}
+      data-tooltip-label={local.label}
+    >
+      <Show when={!local.pending}>
+        <ProductIcon icon={X} />
+      </Show>
     </Button>
   )
 }

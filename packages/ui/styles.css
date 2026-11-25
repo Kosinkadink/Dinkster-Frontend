@@ -145,6 +145,11 @@
 .dinkster-button[data-fill='solid']:not(:disabled, [aria-disabled='true']):active { background: var(--dinkster-action-primary-bg); filter: brightness(0.8); }
 .dinkster-button[data-role='remove'][data-fill='solid']:not(:disabled, [aria-disabled='true']):is(:hover, :active) { background: var(--dinkster-danger-foreground); }
 .dinkster-button[data-icon-only][data-fill='quiet'][aria-pressed='true'] { color: var(--dinkster-accent-foreground); background: transparent; border-color: transparent; }
+/* The slim X that cancels a run: 22 px, muted at rest, coral under the pointer. */
+.dinkster-button[data-cancel] { width: 22px; min-height: 22px; height: 22px; color: var(--dinkster-text-muted); border-radius: var(--dinkster-radius-small); }
+.dinkster-button[data-cancel] .dinkster-icon { width: 14px; height: 14px; }
+.dinkster-button[data-cancel] .dinkster-spinner { width: 12px; height: 12px; }
+.dinkster-button[data-cancel]:not(:disabled, [aria-disabled='true']):hover { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); }
 .dinkster-root :is(button, input, select, textarea):disabled, .dinkster-root [aria-disabled='true'] { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 .dinkster-field { display: grid; gap: var(--dinkster-space-4); min-width: 0; }
 .dinkster-input { width: 100%; min-width: 0; min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-8) var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-inset); color: var(--dinkster-text-primary); }
@@ -843,9 +848,82 @@
 .workflow-queue-toggle[data-running='true'] { color: var(--dinkster-accent-foreground); }
 /* A frozen tab has no Run button, so its list button stands alone with all four edges. */
 .workflow-queue-toggle:first-child { border-left: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
+/* The slim X after the count joins the list button's segment, which then gives up its right edge. */
+.workflow-queue-buttons { position: relative; }
+.workflow-queue-buttons:has(.workflow-queue-cancel) .workflow-queue-toggle { padding-right: var(--dinkster-space-4); border-right: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.workflow-queue-cancel { display: inline-flex; align-items: center; padding-right: var(--dinkster-space-8); border: 1px solid var(--dinkster-border-subtle); border-left: 0; border-radius: 0 var(--dinkster-radius-control) var(--dinkster-radius-control) 0; background: var(--dinkster-surface-panel); }
+/* Progress is a 2 px line along the bar's bottom edge, as wide as the workflow's progress. */
+.workflow-queue-line { position: absolute; right: 1px; bottom: 0; left: 1px; width: auto; height: 2px; border: 0; background: transparent; appearance: none; pointer-events: none; }
+.workflow-queue-line::-webkit-progress-bar { background: transparent; }
+.workflow-queue-line::-webkit-progress-value { background: var(--dinkster-accent-foreground); }
+.workflow-queue-line::-moz-progress-bar { background: var(--dinkster-accent-foreground); }
+/* The list under the runs button. */
+.workflow-queue-popover {
+  position: absolute;
+  top: calc(var(--dinkster-control-compact-height) + var(--dinkster-space-4));
+  right: 0;
+  width: min(360px, calc(100cqw - var(--dinkster-space-16)));
+  padding: var(--dinkster-space-8) var(--dinkster-space-4);
+  color: var(--dinkster-text-primary);
+  background: var(--dinkster-surface-panel);
+  border: 1px solid var(--dinkster-border-subtle);
+  border-radius: var(--dinkster-radius-card);
+  box-shadow: var(--dinkster-elevation-high);
+}
+.workflow-queue-popover header {
+  padding: var(--dinkster-space-4) var(--dinkster-space-8) var(--dinkster-space-8);
+  color: var(--dinkster-text-muted);
+  font-size: var(--dinkster-type-metadata-size);
+  overflow-wrap: anywhere;
+}
+.workflow-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(420px, calc(100vh - 140px));
+  overflow-y: auto;
+}
 .dinkster-canvas-chrome-stage { width: 320px; height: 240px; }
 .dinkster-canvas-chrome-stage[data-shape='tall'] { width: 320px; height: 440px; }
 .dinkster-canvas-chrome-stage[data-shape='top'] { width: 380px; height: 420px; }
 .dinkster-canvas-chrome-stage[data-shape='bar'] { width: 380px; height: 120px; }
 .dinkster-canvas-chrome-toolbar { position: absolute; top: 8px; left: 8px; display: flex; }
 .dinkster-canvas-chrome-toolbar[data-side='right'] { right: 8px; left: auto; }
+.dinkster-run-controls-stage { width: 380px; height: 120px; }
+.dinkster-run-controls-stage[data-shape='list'] { height: 330px; }
+.dinkster-run-controls-stage[data-shape='panel'] { width: 340px; height: 470px; }
+.dinkster-run-controls-topbar { position: absolute; top: 8px; right: 8px; display: flex; align-items: center; min-height: 44px; padding: 0 var(--dinkster-space-12); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-frame); }
+.dinkster-run-controls-list { top: 8px; right: 8px; left: 8px; width: auto; }
+.dinkster-run-controls-picture { display: block; width: 100%; height: 100%; background: var(--dinkster-border-subtle); }
+.dinkster-run-controls-picture[data-tone='1'] { background: var(--dinkster-surface-selected); }
+.dinkster-run-controls-panel { position: absolute; inset: 8px; overflow: auto; padding: var(--dinkster-space-8); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-panel); }
+
+/* Run rows: one line each (ring or clock, or a finished run's thumbnail; name; percent or place in line; snowflake; X), grouped under quiet section titles. */
+.run-activity-control { display: inline-flex; align-items: center; gap: var(--dinkster-space-8); }
+.run-section { display: grid; gap: 2px; min-width: 0; }
+.run-section-title { margin: var(--dinkster-space-8) 0 var(--dinkster-space-4); padding: 0 var(--dinkster-space-8); color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); font-weight: var(--dinkster-weight-regular); }
+.run-section-rows { display: grid; gap: 2px; min-width: 0; }
+.run-row { display: grid; gap: var(--dinkster-space-4); min-width: 0; padding: var(--dinkster-space-4) var(--dinkster-space-8); border-radius: var(--dinkster-radius-control); }
+.run-row:hover, .run-row[data-selected='true'] { background: var(--dinkster-interaction-hover); }
+.run-row-line { display: flex; align-items: center; gap: var(--dinkster-space-8); min-width: 0; min-height: var(--dinkster-control-compact-height); }
+.run-row-mark { display: inline-flex; flex: none; color: var(--dinkster-text-secondary); }
+.run-row-mark[data-status='running'] { color: var(--dinkster-accent-foreground); }
+.run-row-mark[data-status='running'] > svg { animation: dinkster-spin calc(var(--dinkster-motion-standard) * 4) linear infinite; }
+@media (prefers-reduced-motion: reduce) { .run-row-mark[data-status='running'] > svg { animation: none !important; } }
+.run-row-mark > svg { width: var(--dinkster-space-16); height: var(--dinkster-space-16); }
+.run-row-thumbnail { display: block; flex: none; width: 40px; height: 40px; overflow: hidden; border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-inset); }
+.run-row-thumbnail > .run-thumbnail { width: 100%; height: 100%; border-radius: 0; object-fit: cover; }
+.run-row-text { display: grid; flex: 1; min-width: 0; }
+.run-row-name { min-width: 0; overflow: hidden; color: var(--dinkster-text-primary); text-overflow: ellipsis; white-space: nowrap; }
+.run-row-line button.run-row-name { display: block; min-height: 0; padding: 0; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.run-row-line button.run-row-name:hover { background: transparent; text-decoration: underline; }
+.run-row-note { min-width: 0; overflow: hidden; color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); text-overflow: ellipsis; white-space: nowrap; }
+.run-row-note > .execution-status { color: inherit; font-size: inherit; font-weight: inherit; }
+.run-row-detail { flex: none; color: var(--dinkster-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.run-row-line .execution-open.product-button { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; border-radius: var(--dinkster-radius-small); color: var(--dinkster-text-secondary); background: transparent; font: inherit; cursor: pointer; }
+.run-row-line .execution-open.product-button:hover:not(:disabled) { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
+.run-row-line .execution-open.product-button:disabled { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
+.run-row-bar { display: block; width: calc(100% - var(--dinkster-space-16) - var(--dinkster-space-8)); height: 2px; margin: 0 0 var(--dinkster-space-4) calc(var(--dinkster-space-16) + var(--dinkster-space-8)); border: 0; background: var(--dinkster-border-subtle); appearance: none; }
+.run-row-bar::-webkit-progress-bar { background: var(--dinkster-border-subtle); }
+.run-row-bar::-webkit-progress-value { background: var(--dinkster-accent-foreground); }
+.run-row-bar::-moz-progress-bar { background: var(--dinkster-accent-foreground); }

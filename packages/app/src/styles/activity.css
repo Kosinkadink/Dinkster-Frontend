@@ -109,8 +109,6 @@
 .execution-pin:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .execution-pin:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .execution-pin.pinned { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); }
-.execution-activity-card.compact .execution-activity-title strong { display: none; }
-.execution-activity-card.compact .execution-activity-actions { justify-content: flex-end; }
 
 .outputs {
   display: grid;

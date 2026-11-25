@@ -756,7 +756,7 @@ for (const state of ['running', 'pending'])
               }),
             ),
           ).toEqual(before)
-          for (const label of ['Dinkster menu', 'Cancel run']) {
+          for (const label of ['Dinkster menu', 'Cancel Long run']) {
             const action = bar.getByRole('button', {
               name: label,
               exact: true,
@@ -770,7 +770,7 @@ for (const state of ['running', 'pending'])
             expect(spinner.y + spinner.height / 2).toBe(
               actionBounds.y + actionBounds.height / 2,
             )
-            if (label === 'Cancel run')
+            if (label === 'Cancel Long run')
               expect(spinner.x + spinner.width / 2).toBe(
                 actionBounds.x + actionBounds.width / 2,
               )
@@ -963,7 +963,7 @@ for (const state of ['idle', 'running', 'pending'])
               bar.getByRole('button', { name: label, exact: true }),
             ).toBeVisible()
         const cancel = bar.getByRole('button', {
-          name: 'Cancel run',
+          name: 'Cancel Long run',
           exact: true,
         })
         if (state === 'idle') await expect(cancel).toHaveCount(0)
@@ -1007,7 +1007,7 @@ for (const state of ['idle', 'running', 'pending'])
     await expect(search).toHaveAttribute('title', 'Search')
     await search.click()
     await expect(page.getByRole('status')).toHaveText('Search opened')
-    await first.getByRole('button', { name: 'Cancel run' }).click()
+    await first.getByRole('button', { name: 'Cancel Long run' }).click()
     await expect(page.getByRole('status')).toHaveText('Run cancelled')
     const trigger = first.getByRole('button', {
       name: 'Dinkster menu',

@@ -207,8 +207,7 @@ describe('ExecutionActivityCard', () => {
   it('shows agent attribution while leaving local human runs unchanged', () => {
     const agentRoot = document.createElement('div')
     const localRoot = document.createElement('div')
-    const compactRoot = document.createElement('div')
-    document.body.append(agentRoot, localRoot, compactRoot)
+    document.body.append(agentRoot, localRoot)
 
     render(() => <ExecutionActivityCard
       entry={entry({ submittedBy: { principalId: 'queue-agent', kind: 'agent' } })}
@@ -220,19 +219,11 @@ describe('ExecutionActivityCard', () => {
       title="Local workflow"
       testId="local-activity"
     />, localRoot)
-    render(() => <ExecutionActivityCard
-      entry={entry({ submittedBy: { principalId: 'queue-agent', kind: 'agent' } })}
-      title="Compact workflow"
-      testId="compact-activity"
-      compact
-    />, compactRoot)
 
     expect(agentRoot.querySelector('.execution-attribution')?.textContent).toContain('queued by queue-agent')
     expect(agentRoot.querySelector('.execution-attribution .collab-agent')?.textContent).toBe('agent')
     expect(localRoot.querySelector('.execution-attribution')).toBeNull()
     expect(localRoot.textContent).not.toContain('queued by')
-    expect(compactRoot.querySelector('.execution-attribution')).toBeNull()
-    expect(compactRoot.querySelector('article')?.title).toBe('queued by queue-agent')
   })
 
   it('routes explicit open and pin or follow actions without making the whole card interactive', () => {

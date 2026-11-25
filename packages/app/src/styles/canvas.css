@@ -309,61 +309,6 @@
 .extension-editor-host .host-ui-text,
 .extension-editor-host .host-ui-status { overflow-wrap: anywhere; }
 
-.workflow-queue-progress {
-  display: grid;
-  grid-template-columns: auto minmax(72px, 1fr) auto;
-  align-items: center;
-  gap: var(--dinkster-space-8);
-  padding: var(--dinkster-space-4) var(--dinkster-space-8);
-  color: var(--dinkster-text-secondary);
-  border: 1px solid var(--dinkster-border-subtle);
-  border-top: 0;
-  border-radius: 0 0 var(--dinkster-radius-control) var(--dinkster-radius-control);
-  background: var(--dinkster-surface-raised);
-  font-size: var(--dinkster-type-metadata-size);
-  font-variant-numeric: tabular-nums;
-}
-.workflow-queue-progress progress {
-  width: 100%;
-  height: 6px;
-  accent-color: var(--dinkster-info-border);
-}
-.workflow-queue-progress + .workflow-queue-popover {
-  top: calc(var(--dinkster-control-compact-height) + 30px + var(--dinkster-space-4));
-}
-.workflow-queue-popover {
-  position: absolute;
-  top: calc(var(--dinkster-control-compact-height) + var(--dinkster-space-4));
-  right: 0;
-  width: min(420px, calc(100cqw - var(--dinkster-space-16)));
-  padding: var(--dinkster-space-12);
-  color: var(--dinkster-text-primary);
-  background: var(--dinkster-surface-panel);
-  border: 1px solid var(--dinkster-border-subtle);
-  border-radius: var(--dinkster-radius-card);
-  box-shadow: var(--dinkster-elevation-high);
-}
-.workflow-queue-popover header {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--dinkster-space-12);
-  padding: var(--dinkster-space-4) var(--dinkster-space-4) var(--dinkster-space-12);
-  color: var(--dinkster-text-muted);
-  font-size: var(--dinkster-type-metadata-size);
-}
-.workflow-queue-popover header strong {
-  min-width: 0;
-  color: var(--dinkster-text-primary);
-  overflow-wrap: anywhere;
-}
-.workflow-queue-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--dinkster-space-8);
-  max-height: min(420px, calc(100vh - 140px));
-  overflow-y: auto;
-}
-
 @media (max-width: 520px) {
   .workflow-queue-control { max-width: calc(100% - var(--dinkster-space-16)); }
   .workflow-queue-submit { padding-inline: var(--dinkster-space-8); }
