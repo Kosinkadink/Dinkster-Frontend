@@ -577,7 +577,7 @@ export function earlierRowSummaries(registry: WidgetRegistry): WidgetRegistry {
           const { count: _count, suffix: _suffix, shorter: _shorter, ...kept } = style
           const before = earlier(view, value, spec)
           if (before === undefined) return ctx.text(x, y, run, kept)
-          const { items: _items, placeholder: _placeholder, ...plain } = kept
+          const { items: _items, placeholder: _placeholder, labelFirst: _labelFirst, ...plain } = kept
           ctx.text(x, y, before.text, before.items === undefined ? plain : { ...plain, items: before.items })
         },
       }

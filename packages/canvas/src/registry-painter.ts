@@ -47,6 +47,7 @@ function summaryFitOf(run: string, style: Readonly<Record<string, unknown>>): Su
 /** A row's value text, whether it is the row's empty-state message, and any color square before it. */
 interface RowSummary extends CompanionSummary {
   readonly placeholder: boolean
+  readonly labelFirst: boolean
 }
 
 /**
@@ -64,6 +65,7 @@ function compactSummary(view: WidgetView, value: Json, spec: WidgetSpec): RowSum
         summary = {
           ...summaryFitOf(run, style),
           placeholder: style['placeholder'] === true,
+          labelFirst: style['labelFirst'] === true || style['placeholder'] === true,
           ...(typeof style['swatch'] === 'string' ? { swatch: style['swatch'] } : {}),
         }
       },
@@ -313,15 +315,14 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     // The mode icon always shows; the label and value share the rest of the row.
     const modeIconSize = paint.modeIconSize
     const modeIconReserve = modeIcon === undefined ? 0 : paint.modeIconLead + modeIconSize + paint.modeIconGap
-    // An empty row that opens an editor keeps its label whole while it fits;
-    // what it asks for ("Choose image", "No clip") takes what is left and is
-    // cut first.
-    const emptyRow = (args.editorSummary?.placeholder ?? (RAISED_ROW_ICONS[row.viewId] === undefined
+    // Empty editor rows and valueless openers keep their label whole while
+    // it fits; what they ask for takes what is left and is cut first.
+    const labelFirst = (args.editorSummary?.placeholder ?? (RAISED_ROW_ICONS[row.viewId] === undefined
       ? undefined
-      : (assetSummary ?? compactSummary(view, resolved, row.spec))?.placeholder)) === true
+      : (assetSummary ?? compactSummary(view, resolved, row.spec))?.labelFirst)) === true
     const labelWidth = multiline
       ? 0
-      : emptyRow
+      : labelFirst
         ? Math.min(naturalLabelWidth, Math.max(0, fieldWidth - modeIconReserve))
         : shareRowWidth(fieldWidth - modeIconReserve, naturalLabelWidth, naturalValueWidth, true)
     const paintLabel = () => {
@@ -479,9 +480,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
             const fitWidth = Math.max(0, availableWidth - iconReserve)
             const line = run.split('\n')[0] ?? ''
             const fitted = fitSummary(ctx, summaryFitOf(run, style), fitWidth)
-            // An empty text cut to fewer than three letters before its
-            // ellipsis is not drawn at all.
-            const text = items === undefined && style['placeholder'] === true && fitted !== line
+            // An empty text or opener cut to fewer than three letters
+            // before its ellipsis is not drawn at all.
+            const text = items === undefined && (style['placeholder'] === true || labelFirst) && fitted !== line
               && fitted.slice(0, -'...'.length).replace(/\s/g, '').length < 3 ? '' : fitted
             // A folded curve's count sits beside its square, in the middle of the row.
             const centered = sketch !== undefined && style['role'] === 'widgetValue'

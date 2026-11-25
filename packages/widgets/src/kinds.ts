@@ -1033,7 +1033,7 @@ export const load3dView: WidgetView<Json> = {
   // says what it opens rather than describing the object.
   drawCompact(ctx, _value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      t('load3dWidget.open'), state, 'widget.edit', true)
+      t('load3dWidget.open'), state, 'widget.edit', false, { labelFirst: true })
   },
   readout: () => [],
 }
@@ -1062,7 +1062,7 @@ export const imageCompareView: WidgetView<null> = {
   ...makeCompactView<null>('core.imageCompare', 'IMAGECOMPARE'),
   drawCompact(ctx, _value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      t('imageCompareWidget.open'), state, 'widget.edit', true)
+      t('imageCompareWidget.open'), state, 'widget.edit', false, { labelFirst: true })
   },
   readout: () => [],
 }
@@ -1079,7 +1079,7 @@ export const cameraAngleView: WidgetView<string> = {
   // string means nothing to a reader.
   drawCompact(ctx, _value, spec, state) {
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '',
-      t('cameraAngleWidget.open'), state, 'widget.edit', true)
+      t('cameraAngleWidget.open'), state, 'widget.edit', false, { labelFirst: true })
   },
   readout: () => [],
 }

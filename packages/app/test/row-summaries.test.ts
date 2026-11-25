@@ -22,7 +22,7 @@ const painter = createRegistryPainter(registry)
 const LABEL = 'v'
 
 function fakeCtx() {
-  const texts: { text: string; font: string }[] = []
+  const texts: { text: string; font: string; color: string }[] = []
   const fills: string[] = []
   const ctx = {
     fillStyle: '', strokeStyle: '', lineWidth: 1, font: '12px system-ui', globalAlpha: 1, textAlign: 'left',
@@ -30,7 +30,7 @@ function fakeCtx() {
     stroke() {}, rect() {}, clip() {}, roundRect() {}, fill() {}, setLineDash() {}, closePath() {},
     fillRect() { fills.push(String(this.fillStyle)) },
     measureText: (text: string) => ({ width: text.length * 6 }),
-    fillText(text: string) { texts.push({ text, font: this.font }) },
+    fillText(text: string) { texts.push({ text, font: this.font, color: String(this.fillStyle) }) },
   }
   return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, fills }
 }
@@ -134,8 +134,8 @@ describe('a value that does not fit gives way in order', () => {
     ['LOAD_3D', {}],
     ['IMAGECOMPARE', null],
     ['CAMERA_ANGLE_VIEW', 'front'],
-  ] as const)('keeps the label before the empty %s opener and never paints a lone ellipsis', (kind, value) => {
-    for (const width of [180, 140, 120]) {
+  ] as const)('draws the %s opener upright, keeps its label first and never paints a lone ellipsis', (kind, value) => {
+    for (const width of [600, 180, 140, 120]) {
       const { ctx, texts } = fakeCtx()
       const spec = specOf(kind)
       painter({
@@ -144,6 +144,12 @@ describe('a value that does not fit gives way in order', () => {
       })
       expect(texts[0]?.text).toBe('populated')
       expect(texts.some((call) => call.text === '...')).toBe(false)
+      const opener = texts.filter((call) => call.text.startsWith('Open'))
+      if (width === 600) expect(opener).toHaveLength(1)
+      for (const call of opener) {
+        expect(call.font.startsWith('italic')).toBe(false)
+        expect(call.color).toBe(defaultTokens.colors.value)
+      }
     }
   })
 
