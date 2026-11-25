@@ -105,7 +105,7 @@
   padding: var(--dinkster-space-4) var(--dinkster-space-8);
   color: var(--dinkster-text-primary);
   background: var(--dinkster-surface-raised);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-small);
 }
 
@@ -239,11 +239,12 @@
   padding: var(--dinkster-space-4) var(--dinkster-space-12);
   color: var(--dinkster-text-secondary);
   background: var(--dinkster-surface-raised);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
   font: inherit;
   cursor: pointer;
 }
+.asset-section-heading > button:where(:hover:not(:disabled)), .asset-match-candidates button:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .asset-section-heading > button:hover:not(:disabled),
 .asset-match-candidates button:hover:not(:disabled) { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .asset-section-heading > button:focus-visible,
@@ -314,7 +315,7 @@
   padding-left: var(--dinkster-space-8);
   color: var(--dinkster-text-primary);
   background: var(--dinkster-surface-inset);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-capsule);
 }
 .asset-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -413,7 +414,8 @@
 .asset-browser-selection .asset-digest-value code { white-space: normal; overflow-wrap: anywhere; }
 .asset-digest-value button { flex: none; }
 .asset-digest-value button,
-.asset-rail-details > button { min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); font: inherit; cursor: pointer; }
+.asset-rail-details > button { min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); font: inherit; cursor: pointer; }
+.asset-digest-value button:where(:hover:not(:disabled)), .asset-rail-details > button:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .asset-digest-value button:hover,
 .asset-rail-details > button:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .asset-digest-value button:focus-visible,

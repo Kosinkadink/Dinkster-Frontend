@@ -40,7 +40,7 @@
   align-items: center;
   min-height: var(--dinkster-space-24);
   padding: var(--dinkster-space-4) var(--dinkster-space-8);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-capsule);
   color: var(--dinkster-text-secondary);
   background: var(--dinkster-surface-raised);
@@ -93,12 +93,13 @@
   width: 100%;
   min-height: var(--dinkster-control-compact-height);
   padding: var(--dinkster-space-4) var(--dinkster-space-8);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
   color: var(--dinkster-text-primary);
   background: var(--dinkster-surface-inset);
   font: inherit;
 }
+.boundary-name-input:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .boundary-name-input::placeholder { color: var(--dinkster-text-muted); }
 .boundary-name-input:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .boundary-name-input:disabled { color: var(--dinkster-text-disabled); }
@@ -115,13 +116,14 @@
   flex: none;
   min-height: var(--dinkster-control-compact-height);
   padding: var(--dinkster-space-4) var(--dinkster-space-8);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
   color: var(--dinkster-text-primary);
   background: var(--dinkster-surface-raised);
   font: inherit;
   cursor: pointer;
 }
+.boundary-focus-action:where(:hover:not(:disabled)), .boundary-button:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .boundary-focus-action { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); }
 :is(.boundary-focus-action, .boundary-button):hover:not(:disabled) { background: var(--dinkster-interaction-hover); }
 :is(.boundary-focus-action, .boundary-button):focus-visible,
