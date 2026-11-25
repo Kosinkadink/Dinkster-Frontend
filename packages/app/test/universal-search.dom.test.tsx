@@ -4,17 +4,17 @@ import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SearchProvider, SearchResult } from '@dinkster/core'
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { AppState } from '../src/app-state.js'
-import { UniversalSearch, UniversalSearchTrigger } from '../src/UniversalSearch.js'
-import { searchRecents } from '../src/universal-search.js'
+import { UniversalSearch, UniversalSearchTrigger, shortcutKeys } from '../src/UniversalSearch.js'
+import { recordSearchRecent, registerCoreSearchProviders, searchRecents } from '../src/universal-search.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.useRealTimers() })
 
 const action = (id: string) => ({ kind: 'host' as const, action: 'tab.activate' as const, params: { id } })
 const row = (id: string, score: number): SearchResult => ({ id, title: id, score, action: action(id) })
 
-function fixture(providers: readonly SearchProvider[]) {
-  const app = new AppState()
+function fixture(providers: readonly SearchProvider[], app = new AppState()) {
   const disposers = providers.map((provider) => app.searchRegistry.register(provider))
   const root = document.createElement('div')
   document.body.append(root)
@@ -27,8 +27,20 @@ const type = (element: HTMLInputElement, value: string): void => {
   element.value = value
   element.dispatchEvent(new InputEvent('input', { bubbles: true }))
 }
+const key = (root: Element, name: string, shiftKey = false): void => {
+  input(root).dispatchEvent(new KeyboardEvent('keydown', { key: name, shiftKey, bubbles: true }))
+}
+const options = (root: Element, group?: string): HTMLElement[] =>
+  [...root.querySelectorAll<HTMLElement>(`${group === undefined ? '' : `[data-group="${group}"] `}[role="option"]`)]
+const titles = (root: Element, group?: string): string[] =>
+  options(root, group).map((option) => option.querySelector('.dinkster-search-row-title')?.textContent ?? '')
+const current = (root: Element): HTMLElement | null => root.querySelector('[role="option"][aria-selected="true"]')
+const headings = (root: Element): string[] =>
+  [...root.querySelectorAll('.dinkster-search-group-heading > span:first-child')].map((heading) => heading.textContent ?? '')
+const busy = (root: Element): string | null => root.querySelector('dialog')!.getAttribute('aria-busy')
+const settle = () => new Promise<void>((resolve) => queueMicrotask(resolve))
 
-describe('UniversalSearch palette', () => {
+describe('UniversalSearch', () => {
   it.each([false, true])('waits for document command acceptance %s before dismissal and recency', async (accepted) => {
     const { app, root, dispose } = fixture([{
       id: 'edits', label: 'Edits', priority: 1,
@@ -37,29 +49,30 @@ describe('UniversalSearch palette', () => {
       } }],
     }])
     app.searchOpen.set(true)
+    type(input(root), 'add')
     const recents = searchRecents(app.settings)
-    let settle!: () => void
+    let finish!: () => void
     const dispatch = vi.spyOn(app, 'dispatchTo').mockImplementation(() => new Promise((resolve) => {
-      settle = () => resolve({ ok: accepted, diagnostics: [] })
+      finish = () => resolve({ ok: accepted, diagnostics: [] })
     }) as never)
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    const button = root.querySelector<HTMLButtonElement>('[data-testid="search-result-row"]')!
-    button.click()
+    await settle()
+    const option = options(root)[0]!
+    option.click()
     expect(app.searchOpen.get()).toBe(true)
     expect(searchRecents(app.settings)).toEqual(recents)
-    expect(input(root).getAttribute('aria-busy')).toBe('true')
-    button.click()
-    input(root).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(busy(root)).toBe('true')
+    option.click()
+    key(root, 'Enter')
     expect(dispatch).toHaveBeenCalledOnce()
-    settle()
-    await vi.waitFor(() => expect(input(root).getAttribute('aria-busy')).toBe('false'))
+    finish()
+    await vi.waitFor(() => expect(busy(root)).toBe('false'))
     expect(app.searchOpen.get()).toBe(!accepted)
     expect(searchRecents(app.settings)).toEqual(accepted ? ['edits:add-node', ...recents.filter((id) => id !== 'edits:add-node')].slice(0, 20) : recents)
     if (!accepted) {
-      button.click()
+      option.click()
       expect(dispatch).toHaveBeenCalledTimes(2)
-      settle()
-      await vi.waitFor(() => expect(input(root).getAttribute('aria-busy')).toBe('false'))
+      finish()
+      await vi.waitFor(() => expect(busy(root)).toBe('false'))
     }
     dispose()
     app.dispose()
@@ -73,16 +86,17 @@ describe('UniversalSearch palette', () => {
       } }],
     }])
     app.searchOpen.set(true)
+    type(input(root), 'edit')
     const recents = searchRecents(app.settings)
-    let settle!: () => void
+    let finish!: () => void
     vi.spyOn(app, 'dispatchTo').mockImplementation(() => new Promise((resolve) => {
-      settle = () => resolve({ ok: true })
+      finish = () => resolve({ ok: true })
     }) as never)
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    root.querySelector<HTMLButtonElement>('[data-testid="search-result-row"]')!.click()
+    await settle()
+    options(root)[0]!.click()
     if (replacement === 'query') {
       type(input(root), 'another query')
-      type(input(root), '')
+      type(input(root), 'edit')
     } else if (replacement === 'tab') {
       const tab = app.activeTabId.get()
       app.activeTabId.set('another-tab')
@@ -94,7 +108,7 @@ describe('UniversalSearch palette', () => {
       dispose()
       app.searchOpen.set(true)
     }
-    settle()
+    finish()
     await Promise.resolve()
     await Promise.resolve()
     await Promise.resolve()
@@ -104,39 +118,164 @@ describe('UniversalSearch palette', () => {
     app.dispose()
   })
 
-  it('renders the host-owned combobox, ranked groups, rows, announcements, and five-row expansion', async () => {
+  it('before typing lists only what was used last and the open tabs', async () => {
+    const app = new AppState()
+    recordSearchRecent(app.settings, 'commands:second')
+    recordSearchRecent(app.settings, 'tabs:tab-b')
     const { root, dispose } = fixture([
-      { id: 'commands', label: 'Commands', prefix: '>', priority: 20, query: () => [row('low', 1), row('high', 10)] },
-      { id: 'tabs', label: 'Tabs', prefix: '~', priority: 10, query: () => Array.from({ length: 6 }, (_, at) => row(`tab-${at}`, 6 - at)) },
-    ])
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-
-    const searchInput = input(root)
-    const listbox = root.querySelector<HTMLElement>('[role="listbox"]')!
-    const options = [...root.querySelectorAll<HTMLElement>('[role="option"]')]
-    expect(searchInput.getAttribute('role')).toBe('combobox')
-    expect(searchInput.getAttribute('aria-controls')).toBe(listbox.id)
-    expect(searchInput.getAttribute('aria-activedescendant')).toBe(options[0]?.id)
-    expect([...root.querySelectorAll('.search-result-group-header h2')].map((item) => item.textContent)).toEqual(['Commands', 'Tabs'])
-    expect([...root.querySelectorAll('[data-provider="commands"] .search-result-row-title')].map((item) => item.textContent)).toEqual(['high', 'low'])
-    expect(root.querySelectorAll('[data-provider="tabs"] [data-testid="search-result-row"]')).toHaveLength(5)
-    expect(listbox.querySelector('[data-search-state]')).toBeNull()
-    expect(listbox.querySelector('button:not([role="option"])')).toBeNull()
-    expect([...listbox.querySelectorAll('[role="group"]')].every((group) => group.querySelector('[role="option"]') !== null)).toBe(true)
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('8 results')
-    const showMore = root.querySelector('[data-provider="tabs"] .search-show-more') as HTMLButtonElement
-    expect(showMore.getAttribute('role')).toBe('option')
-    for (let at = 0; at < 7; at += 1) searchInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
-    expect(searchInput.getAttribute('aria-activedescendant')).toBe(showMore.id)
-    searchInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    expect(root.querySelectorAll('[data-provider="tabs"] [data-testid="search-result-row"]')).toHaveLength(6)
-    expect(root.querySelector('[data-provider="tabs"] .search-show-more')).toBeNull()
-    expect(document.activeElement).toBe(searchInput)
-    expect(searchInput.getAttribute('aria-activedescendant')).toBe(root.querySelectorAll('[data-provider="tabs"] [role="option"]')[5]?.id)
+      { id: 'commands', label: 'Commands', priority: 20, query: () => [row('first', 2), row('second', 1)] },
+      { id: 'core.tabs', label: 'Tabs', priority: 10, query: () => [row('tab-a', 1)] },
+      { id: 'tabs', label: 'Other', priority: 5, query: () => [row('tab-b', 1)] },
+    ], app)
+    await settle()
+    expect(headings(root)).toEqual(['Recent', 'Open tabs'])
+    expect(titles(root, 'recent')).toEqual(['tab-b', 'second'])
+    expect(titles(root, 'core.tabs')).toEqual(['tab-a'])
+    type(input(root), 'x')
+    expect(headings(root)).toEqual(['Commands', 'Tabs', 'Other'])
     dispose()
   })
 
-  it('renders manifest-gated extension providers and previews without extension-owned markup', async () => {
+  it('after typing shows the best three of each kind, then "N more", which opens the rest in place', async () => {
+    const { root, dispose } = fixture([
+      { id: 'commands', label: 'Commands', priority: 20, query: () => [row('low', 1), row('high', 10)] },
+      { id: 'tabs', label: 'Tabs', priority: 10, query: () => Array.from({ length: 6 }, (_, at) => row(`tab-${at}`, 6 - at)) },
+    ])
+    type(input(root), 'a')
+    await settle()
+    const listbox = root.querySelector<HTMLElement>('[role="listbox"]')!
+    expect(input(root).getAttribute('role')).toBe('combobox')
+    expect(input(root).getAttribute('aria-controls')).toBe(listbox.id)
+    expect(input(root).getAttribute('aria-activedescendant')).toBe(options(root)[0]?.id)
+    expect(titles(root, 'commands')).toEqual(['high', 'low'])
+    expect(titles(root, 'tabs')).toEqual(['tab-0', 'tab-1', 'tab-2', '3 more tabs'])
+    expect(root.querySelector('[role="status"]')?.textContent).toContain('8 results')
+    for (let at = 0; at < 5; at += 1) key(root, 'ArrowDown')
+    expect(current(root)?.dataset['kind']).toBe('more')
+    key(root, 'Enter')
+    expect(titles(root, 'tabs')).toEqual(['tab-0', 'tab-1', 'tab-2', 'tab-3', 'tab-4', 'tab-5'])
+    expect(current(root)?.textContent).toContain('tab-3')
+    expect(document.activeElement).toBe(input(root))
+    dispose()
+  })
+
+  it('names each kind as a tab with its count; Tab narrows the list to the next kind', async () => {
+    const { root, dispose } = fixture([
+      { id: 'commands', label: 'Commands', priority: 20, query: () => [row('one', 1)] },
+      { id: 'tabs', label: 'Tabs', priority: 10, query: () => Array.from({ length: 4 }, (_, at) => row(`tab-${at}`, 4 - at)) },
+      { id: 'empty', label: 'Empty', priority: 5, query: () => [] },
+    ])
+    const tabs = () => [...root.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)
+    expect(tabs()).toEqual(['All', 'Commands', 'Tabs', 'Empty'])
+    type(input(root), 'a')
+    expect(tabs()).toEqual(['All', 'Commands 1', 'Tabs 4'])
+    key(root, 'Tab')
+    key(root, 'Tab')
+    expect(root.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Tabs 4')
+    expect(headings(root)).toEqual(['Tabs'])
+    expect(titles(root)).toEqual(['tab-0', 'tab-1', 'tab-2', 'tab-3'])
+    key(root, 'Tab', true)
+    expect(headings(root)).toEqual(['Commands'])
+    dispose()
+  })
+
+  it('shows prefix-routed kinds instead of the previously selected kind', async () => {
+    const { root, dispose } = fixture([
+      { id: 'commands', label: 'Commands', prefix: '>', priority: 20, query: () => [row('Open settings', 1)] },
+      { id: 'settings', label: 'Settings', prefix: '#', priority: 10, query: () => [row('Demo flag', 1)] },
+      { id: 'extension', label: 'Extension', prefix: '>', priority: 5, query: () => [row('Open extension', 1)] },
+    ])
+    await settle()
+    root.querySelectorAll<HTMLElement>('[role="tab"]')[2]!.click()
+    type(input(root), 'flag')
+    expect(titles(root)).toEqual(['Demo flag'])
+    type(input(root), '? flag')
+    expect(titles(root)).toEqual(['Demo flag'])
+    type(input(root), '> Open')
+    expect(titles(root)).toEqual(['Open settings', 'Open extension'])
+    expect(root.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('All')
+    root.querySelectorAll<HTMLElement>('[role="tab"]')[1]!.click()
+    type(input(root), '# flag')
+    expect(titles(root)).toEqual(['Demo flag'])
+    dispose()
+  })
+
+  it('flips a setting that is a switch in its row and shows a command shortcut as keys', async () => {
+    const app = new AppState()
+    app.settings.register({ id: 'demo.flag', name: 'Demo flag', category: 'demo', type: 'boolean', defaultValue: false })
+    const { root, dispose } = fixture([
+      { id: 'core.settings', label: 'Settings', priority: 20, query: () => [{
+        ...row('demo.flag', 1), title: 'Demo flag', action: { kind: 'host', action: 'settings.open', params: { category: 'demo', id: 'demo.flag' } },
+      }] },
+      { id: 'core.commands', label: 'Commands', priority: 10, query: () => [{
+        ...row('save', 1), detail: 'ctrl+shift+s', action: { kind: 'host', action: 'command.run', params: { id: 'save' } },
+      }] },
+    ], app)
+    app.searchOpen.set(true)
+    type(input(root), 'a')
+    const toggle = root.querySelector<HTMLElement>('[role="switch"]')!
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    toggle.click()
+    expect(app.settings.get('demo.flag')).toBe(true)
+    expect(app.searchOpen.get()).toBe(true)
+    key(root, 'Enter')
+    expect(app.settings.get('demo.flag')).toBe(false)
+    expect(root.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false')
+    expect([...root.querySelectorAll('[data-group="core.commands"] kbd')].map((chip) => chip.textContent)).toEqual(['Ctrl', 'Shift', 'S'])
+    expect(shortcutKeys('ctrl+enter')).toEqual(['Ctrl', 'Enter'])
+    dispose()
+  })
+
+  it('floats the preview beside a node or blueprint row only', async () => {
+    const node = (id: string, actionName: 'node.armPlacement' | 'blueprint.armPlacement'): SearchResult => ({
+      ...row(id, 2),
+      title: `${id} title`,
+      action: actionName === 'node.armPlacement'
+        ? { kind: 'host', action: actionName, params: { type: id, schemaKey: 'key', backendId: 'backend' } }
+        : { kind: 'host', action: actionName, params: { type: `blueprint:pack/${id}`, backendId: 'backend' } },
+      preview: { version: 1, title: `${id} title`, description: `What ${id} does.`, fields: [{ label: 'Where', value: `dev / image - ${id} pack` }] },
+    })
+    const { root, dispose } = fixture([
+      { id: 'core.nodes', label: 'Nodes', priority: 30, query: () => [node('stats', 'node.armPlacement')] },
+      { id: 'core.blueprints', label: 'Blueprints', priority: 20, query: () => [node('upscale', 'blueprint.armPlacement')] },
+      { id: 'core.tabs', label: 'Tabs', priority: 10, query: () => [{ ...row('tab', 1), preview: { version: 1, title: 'Tab preview' } }] },
+    ])
+    type(input(root), 'a')
+    const preview = () => root.querySelector('[data-testid="search-preview"]')
+    expect(preview()?.getAttribute('data-place')).toBe('floating')
+    expect(preview()?.querySelector('h2')?.textContent).toBe('stats title')
+    expect(preview()?.textContent).toContain('What stats does.')
+    expect(preview()?.textContent).toContain('dev / image - stats pack')
+    key(root, 'ArrowDown')
+    expect(preview()?.querySelector('h2')?.textContent).toBe('upscale title')
+    key(root, 'ArrowDown')
+    expect(current(root)?.textContent).toContain('tab')
+    expect(preview()).toBeNull()
+    dispose()
+  })
+
+  it('draws the selected blueprint from its catalog entry', () => {
+    const app = prepareWorkflowApp(new AppState())
+    app.canvasBridge.set({
+      selectedNodes: () => [],
+      blueprintEntries: () => [{
+        type: 'blueprint:pack/upscale', name: 'Upscale blueprint', category: 'Image tools', kind: 'blueprint', fields: [],
+        blueprint: { packId: 'pack', descriptor: {
+          id: 'upscale', name: 'Upscale blueprint', digest: `sha256:${'a'.repeat(64)}`,
+          boundaryInputs: ['comfy.IMAGE'], boundaryOutputs: ['comfy.IMAGE'],
+        } },
+      }],
+    } as never)
+    const unregister = registerCoreSearchProviders(app)
+    const { root, dispose } = fixture([], app)
+    type(input(root), 'Upscale blueprint')
+    expect(root.querySelector('[data-testid="search-preview"] canvas')?.getAttribute('aria-label')).toBe('Upscale blueprint preview')
+    dispose()
+    unregister.forEach((stop) => stop())
+    app.dispose()
+  })
+
+  it('renders manifest-gated extension providers as kinds of their own without extension-owned markup', async () => {
     const app = new AppState()
     expect(app.extensions.register({
       id: 'demo', displayName: 'Demo pack', contributions: [
@@ -149,10 +288,6 @@ describe('UniversalSearch palette', () => {
         query: () => [{
           id: 'open-demo', title: 'Open demo workflow', detail: 'Typed extension result', score: 2,
           action: { kind: 'host', action: 'settings.open', params: { category: 'demo' } },
-          preview: {
-            version: 1, title: 'Demo workflow', description: 'Static detail rendered by the search host.',
-            fields: [{ label: 'Source', value: 'Demo pack' }, { label: 'Kind', value: 'Workflow action' }],
-          },
         }],
       })
       api.searchProvider('demo.search.secondary', {
@@ -160,31 +295,17 @@ describe('UniversalSearch palette', () => {
         query: () => [row('secondary-result', 1)],
       })
     })).toEqual([])
-    const root = document.createElement('div')
-    document.body.append(root)
-    const dispose = render(() => <UniversalSearch app={app} />, root)
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-
-    expect([...root.querySelectorAll('.search-result-group-header h2')].map((heading) => heading.textContent)).toEqual([
-      'Demo primary', 'Demo secondary',
-    ])
-    const preview = root.querySelector('[data-testid="search-result-preview"]')!
-    expect(preview.getAttribute('aria-labelledby')).toBe(`${preview.id}-heading`)
-    expect(preview.querySelector('h2')?.textContent).toBe('Demo workflow')
-    expect(preview.textContent).toContain('Static detail rendered by the search host.')
-    expect(preview.textContent).toContain('SourceDemo pack')
-    expect(root.querySelector('[aria-selected="true"]')?.getAttribute('aria-describedby')).toBe(`${preview.id}-heading ${preview.id}-content`)
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('Preview available')
-    expect(preview.querySelector('[class]')).toBeNull()
-
+    const { root, dispose } = fixture([], app)
+    type(input(root), 'demo')
+    await settle()
+    expect(headings(root)).toEqual(['Demo primary', 'Demo secondary'])
+    expect(options(root, 'demo.search.primary')[0]?.querySelector('.dinkster-search-row-detail')?.textContent).toBe('Typed extension result')
     app.extensions.setContributionEnabled('demo.search.primary', false)
-    expect(root.querySelector('[data-provider="demo.search.primary"]')).toBeNull()
-    expect(root.querySelector('[data-testid="search-result-preview"]')).toBeNull()
+    expect(root.querySelector('[data-group="demo.search.primary"]')).toBeNull()
     app.extensions.setContributionEnabled('demo.search.primary', true)
-    expect(root.querySelector('[data-provider="demo.search.primary"]')).not.toBeNull()
-    expect(root.querySelector('[data-testid="search-result-preview"]')).not.toBeNull()
+    expect(root.querySelector('[data-group="demo.search.primary"]')).not.toBeNull()
     app.extensions.unregister('demo')
-    expect(root.querySelector('[data-provider^="demo.search"]')).toBeNull()
+    expect(root.querySelector('[data-group^="demo.search"]')).toBeNull()
     dispose()
   })
 
@@ -201,13 +322,13 @@ describe('UniversalSearch palette', () => {
     let activated = ''
     app.commands.register({ id: 'commands-first', label: 'First', run: () => { activated = 'commands-first' } })
     app.commands.register({ id: 'commands-second', label: 'Second', run: () => { activated = 'commands-second' } })
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    await settle()
     calls.length = 0
     type(input(root), '> save')
     expect(calls).toEqual(['commands:save'])
-    input(root).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
-    input(root).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    key(root, 'ArrowDown')
+    key(root, 'Enter')
+    await settle()
     expect(activated).toBe('commands-second')
     expect(app.searchOpen.get()).toBe(false)
     dispose()
@@ -222,13 +343,13 @@ describe('UniversalSearch palette', () => {
       }],
     }])
     app.searchOpen.set(true)
+    type(input(root), 'invalid')
     const initialRequest = app.settingsOpenRequest.get()
     const initialModal = app.modalPanel.get()
     const initialRecents = searchRecents(app.settings)
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-
-    ;(root.querySelector('[data-testid="search-result-row"]') as HTMLButtonElement).click()
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    await settle()
+    options(root)[0]!.click()
+    await settle()
     expect(app.searchOpen.get()).toBe(true)
     expect(searchRecents(app.settings)).toEqual(initialRecents)
     expect(app.settingsOpenRequest.get()).toBe(initialRequest)
@@ -236,7 +357,7 @@ describe('UniversalSearch palette', () => {
     dispose()
   })
 
-  it('topbar field shows the effective shortcut and clicking it opens and focuses the palette input', async () => {
+  it('topbar field shows the effective shortcut and clicking it opens and focuses the search field', async () => {
     const app = new AppState()
     app.searchRegistry.register({ id: 'commands', label: 'Commands', priority: 1, query: () => [] })
     const [open, setOpen] = createSignal(false)
@@ -252,7 +373,7 @@ describe('UniversalSearch palette', () => {
     expect(trigger.getAttribute('aria-label')).toBe('Search Dinkster')
     expect(trigger.title).toBe('Search Dinkster (alt+k)')
     trigger.click()
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    await settle()
     expect(document.activeElement).toBe(input(root))
     dispose()
   })
@@ -275,7 +396,7 @@ describe('UniversalSearch palette', () => {
     dispose()
   })
 
-  it('renders sync results immediately, debounces async work, aborts stale queries, and preserves selection as groups stream', async () => {
+  it('renders sync results immediately, debounces async work, aborts stale queries, and keeps the current row as groups stream', async () => {
     vi.useFakeTimers()
     let resolveAsync: ((rows: readonly SearchResult[]) => void) | undefined
     const signals: AbortSignal[] = []
@@ -288,53 +409,47 @@ describe('UniversalSearch palette', () => {
       } },
       { id: 'sync', label: 'Sync', priority: 10, query: () => [row('sync-first', 2), row('sync-second', 1)] },
     ])
-
-    expect(root.querySelector('[data-provider="sync"]')).not.toBeNull()
-    expect(root.querySelector('[data-provider="async"] [data-search-state="loading"]')?.textContent).toContain('Searching Async')
-    expect(root.querySelector('[data-provider="async"] [role="status"]')?.getAttribute('aria-live')).toBe('polite')
-    expect(document.getElementById(input(root).getAttribute('aria-describedby')!)?.textContent).toContain('Searching providers')
+    type(input(root), 'a')
+    calls = 0
+    signals.length = 0
+    expect(root.querySelector('[data-group="sync"]')).not.toBeNull()
+    expect(root.querySelector('[data-group="async"] .dinkster-search-note')?.textContent).toBe('Searching async')
     expect(calls).toBe(0)
-    input(root).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
-    expect(root.querySelector('.search-result-row.active')?.textContent).toContain('sync-second')
+    key(root, 'ArrowDown')
+    expect(current(root)?.textContent).toContain('sync-second')
     await vi.advanceTimersByTimeAsync(119)
     expect(calls).toBe(0)
     await vi.advanceTimersByTimeAsync(1)
     expect(calls).toBe(1)
     resolveAsync?.([row('async-first', 5)])
     await Promise.resolve()
-    expect(root.querySelector('[data-provider="async"]')).not.toBeNull()
-    expect(root.querySelector('.search-result-row.active')?.textContent).toContain('sync-second')
+    expect(titles(root, 'async')).toEqual(['async-first'])
+    expect(current(root)?.textContent).toContain('sync-second')
 
     type(input(root), 'next')
     expect(signals[0]?.aborted).toBe(true)
-    expect(root.querySelector('[data-provider="async"] [data-search-state="loading"]')).not.toBeNull()
+    expect(root.querySelector('[data-group="async"] .dinkster-search-note')).not.toBeNull()
     await vi.advanceTimersByTimeAsync(120)
     expect(calls).toBe(2)
     dispose()
   })
 
-  it('renders no-match and isolated provider-failure states without exposing error text', async () => {
+  it('says when nothing matches and when a provider failed, without exposing its error text', async () => {
     const empty = fixture([{ id: 'empty', label: 'Empty', priority: 1, query: () => [] }])
     type(input(empty.root), 'no such result')
-    const emptyState = empty.root.querySelector('[data-search-state="empty"]')!
+    const emptyState = empty.root.querySelector('.dinkster-search-empty')!
     expect(emptyState.textContent).toContain('No matches')
-    expect(empty.root.querySelector('[role="listbox"]')!.contains(emptyState)).toBe(false)
-    expect(empty.root.querySelector('[role="status"]')?.textContent).toContain('No matches for no such result')
+    expect(empty.root.querySelector('[role="status"]')?.textContent).toContain('Nothing is called "no such result"')
     empty.dispose()
 
-    const failed = fixture([{
-      id: 'failed', label: 'Private provider', priority: 1,
-      query: () => { throw new Error('secret provider detail') },
-    }])
-    const errorState = failed.root.querySelector('[data-search-state="error"]')!
-    expect(errorState.textContent).toContain('Provider unavailable')
-    expect(errorState.textContent).toContain('Private provider could not return results')
-    expect(errorState.querySelector('[role="alert"]')?.textContent).toContain('Provider unavailable')
-    expect(failed.root.querySelector('[role="listbox"]')!.contains(errorState)).toBe(false)
-    expect(errorState.closest('[role="region"]')).not.toBeNull()
-    expect(errorState.closest('[role="group"]')).toBeNull()
+    const failed = fixture([
+      { id: 'failed', label: 'Private provider', priority: 2, query: () => { throw new Error('secret provider detail') } },
+      { id: 'fine', label: 'Fine', priority: 1, query: () => [row('fine-result', 1)] },
+    ])
+    type(input(failed.root), 'a')
+    expect(failed.root.querySelector('[data-group="failed"] .dinkster-search-note')?.textContent).toBe('Private provider could not be searched.')
+    expect(titles(failed.root, 'fine')).toEqual(['fine-result'])
     expect(failed.root.textContent).not.toContain('secret provider detail')
-    expect(failed.root.querySelector('[role="status"]')?.textContent).toContain('1 provider is unavailable')
     failed.dispose()
   })
 
@@ -351,10 +466,11 @@ describe('UniversalSearch palette', () => {
       }],
     }])
     const armNodePlacement = vi.fn(() => true)
-    app.canvasBridge.set({ armNodePlacement } as never)
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    app.canvasBridge.set({ armNodePlacement, selectedNodes: () => [] } as never)
+    type(input(root), 'canonical')
+    await settle()
     expect(armNodePlacement).not.toHaveBeenCalled()
-    ;(root.querySelector('[data-testid="search-result-row"]') as HTMLButtonElement).click()
+    options(root)[0]!.click()
     expect(armNodePlacement).toHaveBeenCalledWith('canonical.node', { schemaKey: 'schema-a', backendId: 'backend-a' })
     dispose()
   })
