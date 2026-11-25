@@ -669,6 +669,7 @@ interface DinksterTestBridge {
           width: number
           height: number
           headerHeight: number
+          rows: DinksterBridgeSceneNode['layout']['rows']
           pins: ReadonlyArray<{ portId: string; direction: 'in' | 'out'; y: number }>
         }
       }>

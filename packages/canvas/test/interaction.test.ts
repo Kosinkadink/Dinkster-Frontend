@@ -4426,15 +4426,51 @@ describe('Inputs panel fields', () => {
     const y = panel.y + row.y + mark.y + mark.size / 2
     const hovers: CanvasHoverTarget[] = []
     const activated: string[] = []
+    const inspected: string[] = []
     const harness = interactionHarness(scene, {
       onHoverTarget: (target) => { if (target !== undefined) hovers.push(target) },
       onSubgraphMarkActivate: (item) => activated.push(item),
+      onWiredWidgetActivate: (hit) => inspected.push(hit.row.valueKey),
     })
     harness.fire('pointermove', x, y)
     expect(hovers.at(-1)?.kind).toBe('subgraphMark')
     harness.fire('pointerdown', x, y)
     harness.fire('pointerup', x, y)
     expect(activated).toEqual(['radius'])
+    expect(inspected).toEqual([])
+    const valueX = panel.x + row.inset + width - defaultTokens.rowGeometry.stepperZone / 2
+    harness.fire('pointerdown', valueX, y)
+    harness.fire('pointerup', valueX, y)
+    expect(inspected).toEqual(['radius'])
+    expect(harness.dispatched).toEqual([])
+  })
+
+  it('inspects a wired multiline panel field beside its painted promotion mark', () => {
+    const doc = structuredClone(workflow()) as any
+    doc.graphs.g1.boundary.inputs[1].wireHidden = true
+    const original = panelScene(doc as WorkflowDocument, 'soft')
+    const panel = original.boundaryNodes.find((bnode) => bnode.side === 'inputs')!
+    const row = panel.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === 'radius') as Extract<LayoutRow, { kind: 'widget' }>
+    const textRow = { ...row, viewId: 'core.text', spec: { widgetType: 'STRING', options: { multiline: true } } }
+    const scene: Scene = { ...original, boundaryNodes: original.boundaryNodes.map((node) => node !== panel ? node : {
+      ...panel,
+      layout: { ...panel.layout, rows: panel.layout.rows.map((candidate) => candidate === row ? textRow : candidate) },
+      fields: { ...panel.fields!, wired: { radius: { value: 'arriving text' } } },
+    }) }
+    const activated: string[] = []
+    const inspected: string[] = []
+    const harness = interactionHarness(scene, {
+      onSubgraphMarkActivate: (item) => activated.push(item),
+      onWiredWidgetActivate: (hit) => inspected.push(hit.row.valueKey),
+    })
+    // This point is beside the arriving-value mark, inside the unwired text mark.
+    const x = panel.x + row.inset + 8
+    const y = panel.y + row.y + 8
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointerup', x, y)
+    expect(inspected).toEqual(['radius'])
+    expect(activated).toEqual([])
+    expect(harness.dispatched).toEqual([])
   })
 
   it('shows a promoted input reached through a reroute as a field of the entered node', () => {

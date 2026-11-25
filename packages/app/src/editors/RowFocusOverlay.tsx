@@ -25,6 +25,8 @@ export interface RowFocusState extends RowBox {
   readonly defaultText?: string
   readonly help?: string
   readonly representation?: RowRepresentation
+  readonly arriving?: JSX.Element
+  readonly cancellation?: string
   /**
    * Lines that explain a row which cannot be edited, such as a color a wire
    * brings. The row then shows them in a neutral side part with no outline
@@ -57,15 +59,16 @@ export function RowFocusOverlay(props: {
   // A scene refresh updates inspection in place, without remounting its open list.
   const side = (
     <CanvasSidePart
-      facts={props.focus.note !== undefined || props.focus.defaultText === undefined ? [] : [{ key: 'default', value: props.focus.defaultText }]}
-      {...(props.focus.note !== undefined || props.focus.help === undefined ? {} : { help: props.focus.help })}
+      {...(props.focus.cancellation === undefined ? {} : { result: props.focus.cancellation })}
+      facts={props.focus.note !== undefined || props.focus.arriving !== undefined || props.focus.defaultText === undefined ? [] : [{ key: 'default', value: props.focus.defaultText }]}
+      {...(props.focus.note !== undefined || props.focus.arriving !== undefined || props.focus.help === undefined ? {} : { help: props.focus.help })}
       {...(props.focus.note !== undefined || props.focus.representation === undefined ? {} : { representation: {
         choices: props.focus.representation.choices,
         selected: props.focus.representation.selected,
         ...(props.focus.representation.note === undefined ? {} : { note: props.focus.representation.note }),
         onChoose: (id: string) => { if (id !== props.focus.representation?.selected) props.onRepresentation(id) },
       } })}
-    >{props.focus.note}</CanvasSidePart>
+    >{props.focus.note ?? props.focus.arriving}</CanvasSidePart>
   )
   let frame!: HTMLDivElement
   createEffect(() => placeRow(frame, placement()))
@@ -88,7 +91,7 @@ export function RowFocusOverlay(props: {
           sideTop={placement().sideTop}
           {...(placement().sideMaxHeight === undefined ? {} : { sideMaxHeight: placement().sideMaxHeight! })}
           onSideSize={setSideSize}
-          {...(props.focus.defaultText === undefined && props.focus.help === undefined && props.focus.representation === undefined && props.focus.note === undefined ? {} : { side })}
+          {...(props.focus.defaultText === undefined && props.focus.help === undefined && props.focus.representation === undefined && props.focus.note === undefined && props.focus.arriving === undefined && props.focus.cancellation === undefined ? {} : { side })}
         />
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeTest as test, subgraphMarkPoint, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 
 async function rowPoint(page: Page, nodeId: string, inputId: string, at = 0.5): Promise<{ x: number; y: number }> {
@@ -57,6 +57,127 @@ async function openSampler(page: Page, access?: 'readOnly' | 'disabled'): Promis
 const value = (page: Page, key: string) => page.evaluate((key) => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values[key], key)
 const openLabel = (page: Page) => page.locator('.widget-in-row-field input').getAttribute('aria-label')
 const field = (page: Page) => page.locator('.widget-in-row-field input')
+
+for (const [key, type, draft, stored, incoming] of [['steps', 'INT', '31', 20, 7], ['notes', 'STRING', 'unfinished text', 'first', 'arriving text']] as const) for (const known of [false, true]) {
+  test(`a new ${known ? 'known' : 'unknown'} wire discards the ${key} draft without changing its stored value`, async ({ page }, testInfo) => {
+    await openSampler(page)
+    await page.evaluate(({ type, known, incoming }) => {
+      const app = window.__dinksterTest!.app
+      app.registerSchemas([{
+        type: 'WireSource', displayName: 'Wire source', category: 'test', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'source', type: { kind: 'concrete', name: type }, optional: true },
+          { kind: 'output', id: 'value', type: { kind: 'concrete', name: type }, ...(known ? { knownValue: { input: 'source' } } : {}) },
+        ],
+      }] as never)
+      const result = app.activeTab()!.store.dispatch({ command: 'node.add', params: {
+        graphId: 'g0', type: 'WireSource', position: { x: -100, y: 100 }, values: { source: incoming },
+      } })
+      if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    }, { type, known, incoming })
+    const point = await rowPoint(page, 'n1', key)
+    await page.mouse.click(point.x, point.y)
+    const input = key === 'notes' ? page.locator('[data-editor-surface="in-node"] textarea') : field(page)
+    await input.fill(draft)
+    await page.evaluate((key) => {
+      const tab = window.__dinksterTest!.app.activeTab()!
+      const source = Object.values(tab.store.doc.graphs.g0!.nodes).find((node) => node.type === 'WireSource')!
+      const result = tab.store.dispatch({ command: 'link.connect', params: {
+        graphId: 'g0', from: { node: source.id, port: 'value' }, to: { node: 'n1', port: key },
+      } })
+      if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    }, key)
+    await expect(input).toHaveCount(0)
+    await expect.poll(() => value(page, key)).toBe(stored)
+    const inspection = page.getByTestId('row-focus')
+    await expect(inspection).toContainText('A wire now feeds this field. Your edit was not kept.')
+    await expect(inspection).toContainText(known ? `The wire brings ${incoming}.` : 'The wire has no known value yet; this does not mean nothing.')
+    await expect(inspection).toContainText(`Stored ${stored}, used again when the wire is removed.`)
+    await page.screenshot({ path: testInfo.outputPath('new-wire-draft-cancelled.png') })
+    await page.keyboard.press('Escape')
+    await expect(inspection).toHaveCount(0)
+    const wiredPoint = await rowPoint(page, 'n1', key)
+    await page.mouse.click(wiredPoint.x, wiredPoint.y)
+    await expect(inspection).toBeVisible()
+    await expect(input).toHaveCount(0)
+    await expect.poll(() => value(page, key)).toBe(stored)
+    await expect(inspection).not.toContainText('Your edit was not kept.')
+    await expect(inspection).toContainText(`Stored ${stored}, used again when the wire is removed.`)
+    await expect(inspection.getByRole('button', { name: /Representation/ })).toHaveCount(key === 'notes' ? 1 : 0)
+    await page.keyboard.press('Control+z')
+    await expect.poll(() => page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.links).length)).toBe(0)
+    await expect.poll(() => value(page, key)).toBe(stored)
+  })
+}
+
+for (const known of [false, true]) test(`a ${known ? 'known' : 'unknown'} wire outside the subgraph discards an Inputs panel draft without writing the outer value`, async ({ page }, testInfo) => {
+  await openSampler(page)
+  await page.evaluate(async (known) => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'WireSource', displayName: 'Wire source', category: 'test', source: 'v3', isOutputNode: false,
+      body: [
+        { kind: 'input', id: 'source', type: { kind: 'concrete', name: 'INT' }, optional: true },
+        { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'INT' }, ...(known ? { knownValue: { input: 'source' } } : {}) },
+      ],
+    }])
+    const sampler = app.activeTab()!.store.doc.graphs.g0!.nodes.n1!
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-wire', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'root', nodes: {
+          outer: { id: 'outer', type: '#sub', values: { steps: 20 } },
+          source: { id: 'source', type: 'WireSource', values: { source: 7 } },
+        }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3 },
+        sub: { id: 'sub', name: 'Sampler inputs', nodes: { n1: sampler }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
+          boundary: { inputs: [{ id: 'steps', binds: { kind: 'port', node: 'n1', port: 'steps' }, promoted: true }], outputs: [] } },
+      },
+      view: { graphs: {
+        g0: { nodes: { outer: { position: { x: 300, y: 100 } }, source: { position: { x: 0, y: 100 } } } },
+        sub: { nodes: { n1: { position: { x: 450, y: 150 } } } },
+      } },
+    } as never, 'Inputs panel wire')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  }, known)
+  const mark = await subgraphMarkPoint(page, 'outer')
+  await page.mouse.dblclick(mark.x, mark.y)
+  await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
+  const point = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    renderer.setViewport({ x: 250, y: 150, scale: 1 })
+    const panel = renderer.getScene().boundaryNodes.find((node) => node.side === 'inputs')!
+    const row = panel.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'steps')!
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return { x: rect.left + panel.x + panel.layout.width / 2 + 250, y: rect.top + panel.y + row.y + row.height / 2 + 150 }
+  })
+  await page.mouse.click(point.x, point.y)
+  await field(page).fill('31')
+  await page.evaluate(() => {
+    const result = window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'link.connect', params: {
+      graphId: 'g0', from: { node: 'source', port: 'value' }, to: { node: 'outer', port: 'steps' },
+    } })
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+  })
+  await expect(field(page)).toHaveCount(0)
+  const inspection = page.getByTestId('row-focus')
+  await expect(inspection).toContainText('A wire now feeds this field. Your edit was not kept.')
+  await expect(inspection).toContainText(known ? 'The wire brings 7.' : 'The wire has no known value yet; this does not mean nothing.')
+  await expect(inspection).toContainText('Stored 20, used again when the wire is removed.')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.outer!.values.steps)).toBe(20)
+  await page.screenshot({ path: testInfo.outputPath('panel-wire-draft-cancelled.png') })
+  await page.keyboard.press('Escape')
+  await expect(inspection).toHaveCount(0)
+  await page.mouse.click(point.x, point.y)
+  await expect(inspection).toContainText(known ? 'The wire brings 7.' : 'The wire has no known value yet; this does not mean nothing.')
+  await expect(inspection).not.toContainText('Your edit was not kept.')
+  await expect(inspection).toContainText('Stored 20, used again when the wire is removed.')
+  await expect(field(page)).toHaveCount(0)
+  await page.mouse.move(point.x, point.y)
+  await page.mouse.down()
+  await page.mouse.move(point.x + 45, point.y)
+  await page.mouse.up()
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.outer!.values.steps)).toBe(20)
+})
 
 for (const access of ['readOnly', 'disabled'] as const) {
   test(`a ${access} flag discards the draft and explains the row without preventing non-UI writes`, async ({ page }, testInfo) => {

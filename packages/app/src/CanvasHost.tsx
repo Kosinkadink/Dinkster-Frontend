@@ -72,7 +72,7 @@ import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
-import { CanvasColorArriving, CanvasRowAbsence } from '@dinkster/ui'
+import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart } from '@dinkster/ui'
 import {
   defaultValuesOf,
   initialDynamicStateOf,
@@ -3312,15 +3312,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       onWiredWidgetActivate: (hit) => {
         const color = usedWiredColor(hit.row, arrivingCompanions[hit.node.id]?.[hit.row.valueKey]?.value)
         if (color !== undefined) showRowNote({ nodeId: hit.node.id, valueKey: hit.row.valueKey }, <CanvasColorArriving arriving={color.arriving} used={color.used} />)
-        const state = color === undefined ? renderer.fieldCompanion(hit.node.id, hit.row.valueKey)?.state : undefined
-        if (state === 'nothing' || state === 'unknown') {
-          const values = hit.node.node.values ?? {}
+        else if (renderer.fieldCompanion(hit.node.id, hit.row.valueKey)?.state === 'nothing') {
+          const values = hit.node.node.values
           const stored = Object.hasOwn(values, hit.row.valueKey) ? values[hit.row.valueKey] : effectiveWidgetDefault(hit.row.spec)
-          showRowNote(
-            { nodeId: hit.node.id, valueKey: hit.row.valueKey },
-            <CanvasRowAbsence state={state} stored={formatWidgetValue(stored, hit.row.spec)} />,
-          )
+          showRowNote({ nodeId: hit.node.id, valueKey: hit.row.valueKey }, <CanvasRowAbsence state="nothing" stored={formatWidgetValue(stored, hit.row.spec)} />)
         }
+        else focusEditorRow({ nodeId: hit.node.id, valueKey: hit.row.valueKey })
       },
       onWidgetRowAffordanceActivate: (hit) => {
         const tab = activeTab()
@@ -4692,8 +4689,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         editorExtensionsGeneration === extensionsGeneration
       // A subgraph's Inputs panel carries field rows too, edited like a node's.
       const fieldNodes = [...scene.nodes, ...scene.boundaryNodes.flatMap((bnode) => boundaryFieldNode(bnode) ?? [])]
+      const editorTarget = ed?.target.kind === 'input' ? ed.target : undefined
+      const editorNode = editorTarget?.kind === 'input' ? fieldNodes.find((node) => node.id === editorTarget.nodeId) : undefined
+      const editorRow = editorNode?.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === editorTarget?.valueKey)
+      const editorDriven = editorNode !== undefined && editorRow?.kind === 'widget' && rowIsDriven(editorNode.id, editorRow)
       if (widgetEditorAnchorAlive(ed, fieldNodes, tab.id, graphId, reg?.mergeableTypes, documentUnchanged) &&
-        inRowValueKept(ed, tab.store.doc)) {
+        !editorDriven && inRowValueKept(ed, tab.store.doc)) {
         // A workspace promotion replaces the Tab wrapper. Rebind in place so
         // the keyed editor keeps its draft and commits to the live store.
         ed!.tab = tab
@@ -4710,8 +4711,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const target = ed.target
           const node = fieldNodes.find((item) => item.id === target.nodeId)
           const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === target.valueKey)
-          if (node !== undefined && row?.kind === 'widget' && (row.readOnly || row.disabled)) {
-            setRowFocus(rowFocusAt(tab, node, row))
+          if (node !== undefined && row?.kind === 'widget' && (row.readOnly || row.disabled || editorDriven)) {
+            setRowFocus({ ...rowFocusAt(tab, node, row), ...(editorDriven ? {
+              cancellation: 'A wire now feeds this field. Your edit was not kept.',
+            } : {}) })
           }
         }
         if (restoreFocus) queueMicrotask(() => {
@@ -4725,7 +4728,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
         setRowFocus(node === undefined || row?.kind !== 'widget' || focus.tabId !== tab.id || focus.graphId !== graphId
           ? undefined
-          : { ...rowFocusAt(tab, node, row), ...(focus.note === undefined ? {} : { note: focus.note }) })
+          : { ...rowFocusAt(tab, node, row), ...(focus.note === undefined ? {} : { note: focus.note }),
+            ...(focus.cancellation === undefined || !rowIsDriven(node.id, row) ? {} : { cancellation: focus.cancellation }) })
       }
       const openMenu = untrack(menu)
       // Menu items are a semantic snapshot: they also go stale when the
@@ -5436,7 +5440,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // (companion display), and editing would silently mutate the dormant
       // stored value underneath. Selector rows keep their own value channel
       // and are never driven.
-      if (hit.row.selector === undefined && companionInputs.get(nodeId)?.has(hit.row.address.port)) return
+      if (rowIsDriven(nodeId, hit.row)) {
+        focusEditorRow({ nodeId, valueKey: hit.row.valueKey })
+        return
+      }
       const editorRole = (registry()?.resolve(hit.node.node.type) as { readonly editorRole?: string } | undefined)?.editorRole
       const valueType = canonicalTypeIdOf(hit.row.type)
       if (props.app.openEditorForBinding(tab.id, {
@@ -5597,7 +5604,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     // A node by id, or the Inputs panel's field face, whose rows take the
     // keyboard like a node's; `wired` holds the panel rows wired outside.
-    const rowNodeOf = (id: string): { node: SceneNode; wired?: Readonly<Record<string, unknown>> } | undefined => {
+    const rowNodeOf = (id: string): { node: SceneNode; wired?: Readonly<Record<string, { readonly value?: Json }>> } | undefined => {
       const scene = renderer.getScene()
       const node = scene.nodes.find((item) => item.id === id)
       if (node !== undefined) return { node }
@@ -5606,6 +5613,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (face?.id === id) return { node: face, wired: bnode.fields!.wired }
       }
       return undefined
+    }
+
+    function rowIsDriven(nodeId: string, row: WidgetLayoutRow): boolean {
+      // Selector choices have a separate stored value even when their parent input is wired.
+      return row.selector === undefined && (companionInputs.get(nodeId)?.has(row.address.port) === true ||
+        Object.hasOwn(rowNodeOf(nodeId)?.wired ?? {}, row.valueKey))
     }
 
     // Tab never leaves the node: past its last stop it goes to the first. A
@@ -5624,7 +5637,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         (row.viewId === 'core.text' || row.viewId === 'core.line') &&
         widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi === undefined
       const stops = node.layout.rows.filter((row): row is WidgetLayoutRow =>
-        row.kind === 'widget' && !companionInputs.get(node.id)?.has(row.address.port) && !Object.hasOwn(found?.wired ?? {}, row.valueKey))
+        row.kind === 'widget' && !rowIsDriven(node.id, row))
       const index = stops.findIndex((row) => row.valueKey === from.valueKey)
       if (index < 0) return
       const row = stops[(index + direction + stops.length) % stops.length]!
@@ -5679,6 +5692,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ...(item?.kind === 'input' && item.tooltip ? [item.tooltip] : []),
       ].join('. ') || undefined
       const declared = effectiveWidgetDefault(row.spec)
+      const panelWire = rowNodeOf(node.id)?.wired?.[row.valueKey]
+      const companion = renderer.fieldCompanion(node.id, row.valueKey) ?? (panelWire === undefined ? undefined
+        : panelWire.value === undefined ? { value: null, state: 'unknown' as const } : { value: panelWire.value })
+      const stored = formatWidgetValue(Object.hasOwn(node.node.values, row.valueKey) ? node.node.values[row.valueKey] : declared, row.spec)
+      const arriving = !rowIsDriven(node.id, row) ? undefined
+        : companion === undefined || companion.state === 'nothing' || companion.state === 'unknown'
+          ? <CanvasRowAbsence state={companion?.state === 'nothing' ? 'nothing' : 'unknown'} stored={stored} />
+          : <><CanvasSidePart result={`The wire brings ${formatWidgetValue(companion.value, row.spec)}.`} />
+            <CanvasSidePart result={`Stored ${stored}, used again when the wire is removed.`} /></>
       return {
         tabId: tab.id,
         graphId: currentGraphId(tab),
@@ -5690,6 +5712,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         nodeBottom: node.y + node.layout.height,
         ...(declared === undefined ? {} : { defaultText: formatWidgetValue(declared, row.spec) }),
         ...(help === undefined ? {} : { help }),
+        ...(arriving === undefined ? {} : { arriving }),
         ...(rowRepresentationOf(tab, node, row) === undefined ? {} : { representation: rowRepresentationOf(tab, node, row)! }),
       }
     }

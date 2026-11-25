@@ -1861,9 +1861,14 @@ export class InteractionController {
         return
       case 'boundary-header':
       case 'boundary-body': {
-        const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
+        const wiredPanelMark = this.wiredPanelFieldAt(hit, w.x, w.y)
         if (wiredPanelMark !== undefined) {
           this.host.onSubgraphMarkActivate?.(wiredPanelMark.row.subgraphMark!.item)
+          return
+        }
+        const wiredPanelField = this.wiredPanelFieldAt(hit, w.x, w.y, false)
+        if (wiredPanelField !== undefined) {
+          this.gesture = { kind: 'widget', hit: wiredPanelField, moved: false }
           return
         }
         const id = boundarySceneId(hit.bnode.side)
@@ -2903,6 +2908,7 @@ export class InteractionController {
     const row = hit.row
     if (row.viewId !== 'core.number' && row.viewId !== 'core.slider') return undefined
     if (row.derivedValue !== undefined || row.ghost || row.readOnly || row.disabled) return undefined
+    if (Object.hasOwn(hit.bnode?.fields?.wired ?? {}, row.valueKey)) return undefined
     const scene = this.renderer.getScene()
     if (scene.links.some((link) => link.to.kind === 'port' && link.to.node === hit.node.id && link.to.port === row.inputId)) return undefined
     const start = this.numberRowValue(hit)
@@ -2945,7 +2951,7 @@ export class InteractionController {
   private subgraphMarkContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
     if (hit.row.subgraphMark === undefined) return false
     const tokens = this.renderer.getDesignTokens()
-    const display = this.renderer.widgetPaintState(hit.node, hit.row)
+    const display = this.renderer.widgetPaintState(hit.node, hit.row, hit.bnode?.fields?.wired[hit.row.valueKey])
     const arriving = display.companion !== undefined && !drawsPassedValueAsEditor(hit.row, display.companion, tokens)
     const rect = subgraphMarkRect(hit.row, hit.width, tokens.rowHeight, tokens, arriving, isNumberRow(hit.row), display)
     return hit.localX >= rect.x && hit.localX <= rect.x + rect.size && hit.localY >= rect.y && hit.localY <= rect.y + rect.size
@@ -2953,10 +2959,10 @@ export class InteractionController {
 
   /**
    * An Inputs panel field wired outside the subgraph hits as panel body, but
-   * its subgraph mark still names and selects its input: the mark's row as a
-   * widget hit when the point is on the mark.
+   * its subgraph mark still names and selects its input. The rest of its row
+   * opens inspection without allowing a value edit.
    */
-  private wiredPanelMarkAt(hit: Hit | undefined, wx: number, wy: number): Extract<Hit, { kind: 'widget' }> | undefined {
+  private wiredPanelFieldAt(hit: Hit | undefined, wx: number, wy: number, markOnly = true): Extract<Hit, { kind: 'widget' }> | undefined {
     if (hit?.kind !== 'boundary-body' || hit.bnode.fields === undefined) return undefined
     const { bnode } = hit
     const face = boundaryFieldNode(bnode)
@@ -2964,10 +2970,15 @@ export class InteractionController {
     const tokens = this.renderer.getDesignTokens()
     for (const row of bnode.layout.rows) {
       const driven = row.kind === 'widget' && Object.hasOwn(bnode.fields!.wired, row.valueKey) ? bnode.fields!.wired[row.valueKey] : undefined
-      if (row.kind !== 'widget' || row.subgraphMark === undefined || driven === undefined) continue
+      if (row.kind !== 'widget' || (markOnly && row.subgraphMark === undefined) || driven === undefined) continue
       const width = row.width ?? bnode.layout.width - row.inset * 2
       const localX = wx - bnode.x - row.inset
       const localY = wy - bnode.y - row.y
+      if (!markOnly) {
+        if (localX >= 0 && localX <= width && localY >= 0 && localY <= row.height)
+          return { kind: 'widget', node: face, row, bnode, x: bnode.x + row.inset, y: bnode.y + row.y, width, height: row.height, localX, localY }
+        continue
+      }
       const arriving = driven.value !== undefined && !drawsPassedValueAsEditor(row, { value: driven.value }, tokens)
       const rect = subgraphMarkRect(row, width, tokens.rowHeight, tokens, arriving, isNumberRow(row), this.renderer.widgetPaintState(face, row, driven))
       if (localX >= rect.x && localX <= rect.x + rect.size && localY >= rect.y && localY <= rect.y + rect.size)
@@ -3087,7 +3098,7 @@ export class InteractionController {
       : hit?.kind === 'grip' && hit.grip.alone !== true ? 'grab' : ''
     const controllerChip = hit?.kind === 'widget' && hit.row.controllerMode !== undefined
       && this.controllerChipContains(hit)
-    const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
+    const wiredPanelMark = this.wiredPanelFieldAt(hit, w.x, w.y)
     const subgraphMark = hit?.kind === 'widget' && this.subgraphMarkContains(hit) ? hit.row.subgraphMark
       : wiredPanelMark?.row.subgraphMark
     const note = !overview && hit?.kind === 'body' ? hit.node.layout.rows.find((row): row is Extract<LayoutRow, { kind: 'note' }> =>
@@ -3484,7 +3495,7 @@ export class InteractionController {
             return
           }
           const bindingOk = (link: SceneLink) => g.hit.row.selector === undefined || link.boundary !== true
-          const connected = scene.links.some(
+          const connected = Object.hasOwn(g.hit.bnode?.fields?.wired ?? {}, g.hit.row.valueKey) || scene.links.some(
             (link) => bindingOk(link) && link.to.kind === 'port' && link.to.node === g.hit.node.id && link.to.port === g.hit.row.inputId,
           )
           // The connected value wins; editing the dormant value invites confusion.
