@@ -223,11 +223,14 @@
 .collection-children { display: contents; }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-entry.collection-child { margin-left: var(--dinkster-space-16); }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='accent'] { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-rest-border); }
-:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='danger'] { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-rest-border); }
+:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='danger'],
+.library-panel[data-source='blueprints'] .collection-action[data-action='remove'] { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-rest-border); }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='accent']:hover:not(:disabled) { color: var(--dinkster-accent-foreground); border-color: var(--dinkster-accent-border); background: var(--dinkster-accent-wash); }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='accent']:active:not(:disabled) { color: var(--dinkster-accent-foreground); border-color: var(--dinkster-accent-border); background: var(--dinkster-accent-wash-pressed); }
-:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='danger']:hover:not(:disabled) { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash); }
-:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='danger']:active:not(:disabled) { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash-pressed); }
+:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='danger']:hover:not(:disabled),
+.library-panel[data-source='blueprints'] .collection-action[data-action='remove']:hover:not(:disabled) { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash); }
+:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='danger']:active:not(:disabled),
+.library-panel[data-source='blueprints'] .collection-action[data-action='remove']:active:not(:disabled) { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash-pressed); }
 
 .collection-panel {
   flex: 1;
