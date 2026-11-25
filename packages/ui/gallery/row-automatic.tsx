@@ -99,7 +99,8 @@ const retimeSchema: NodeSchema = {
 /**
  * How the automatic frame_rate stands. `worked-out` and `default` show a
  * value; `loading` waits for a lookup's answer and shows the default;
- * `not-known` shows the default while nothing is under way (offline).
+ * `not-known` shows the default while nothing is under way (offline,
+ * paused or waiting for a file to be checked).
  * Absent when the user fixed a value.
  */
 interface AutomaticState {

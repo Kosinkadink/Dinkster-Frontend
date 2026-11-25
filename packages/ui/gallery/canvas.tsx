@@ -218,7 +218,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'zoom-overview':
     'The same nodes just below 50 percent, where the canvas draws its overview.',
   minimap:
-    'The minimap: nodes colored by state, a bypassed node, groups, and the frame of the visible area.',
+    'The minimap: nodes outlined by state, a bypassed node, wires in their type colors, groups, and the frame of the visible area.',
   'switch-primitive':
     'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields.',
   'subgraph-icon':
@@ -539,6 +539,7 @@ function ExampleCard(props: {
         links: fixture.scene.links.map((link) => ({
           from: { x: link.x1, y: link.y1 },
           to: { x: link.x2, y: link.y2 },
+          ...(link.typeName !== undefined ? { typeName: link.typeName } : {}),
         })),
         reroutes: fixture.scene.reroutes,
         viewport: {

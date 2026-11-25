@@ -86,6 +86,7 @@ import {
   selectCanvasPage,
 } from './canvas.js'
 import { ContextMenuGallery } from './context-menus.js'
+import { CanvasChromeGallery } from './canvas-chrome.js'
 import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
 
@@ -162,7 +163,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={route() === '#canvas' ? undefined : 'site'}
+      contentDensity={route() === '#canvas' || route() === '#canvas-chrome' ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -314,6 +315,11 @@ function Gallery() {
             </Match>
             <Match when={route() === '#canvas'}>
               <CanvasGallery />
+            </Match>
+            <Match when={route() === '#canvas-chrome'}>
+              <Section title="Canvas corner, view bar and Run" components="CanvasCornerControls, CanvasViewControls, WorkflowQueueControl">
+                <CanvasChromeGallery />
+              </Section>
             </Match>
             <Match when={route() === '#context-menus'}>
               <Section title="Context menus" components="ContextMenu">
@@ -1414,11 +1420,12 @@ function GalleryRoot() {
   const [narrow, setNarrow] = createSignal(narrowQuery.matches)
   // The site pages use the site form throughout. The gallery uses the Canvas
   // page's frame, except that below the breakpoint its other pages keep the
-  // site form's narrow frame; their content always uses the site form.
+  // site form's narrow frame. Their content uses the site form, except the
+  // Canvas and canvas chrome pages, which show app controls at the app's size.
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#window-toolbar', '#editor-bar'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#window-toolbar', '#editor-bar'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'

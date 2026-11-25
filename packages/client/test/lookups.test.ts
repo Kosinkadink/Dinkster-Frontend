@@ -60,6 +60,25 @@ describe('lookup client', () => {
     expect(host.seen).toHaveLength(2)
   })
 
+  it('asks again for a file the host had not checked when its files change, and only for that', async () => {
+    const host = fakeHost()
+    const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })
+    const unchecked = client.request(call('n0', 'local'))
+    await host.answer(409, { error: 'lookup-file-unchecked' })
+    expect(await unchecked).toEqual({ state: 'unavailable', reason: 'file-unchecked' })
+    const failed = client.request(call('n1', 'broken'))
+    await host.answer(500, { error: 'lookup-failed' })
+    expect(await failed).toEqual({ state: 'unavailable', reason: 'failed' })
+    client.filesChanged()
+    // The failure that is not about a file stays until Try again.
+    expect(client.entry(call('n1', 'broken'))).toEqual({ state: 'unavailable', reason: 'failed' })
+    expect(client.entry(call('n0', 'local'))).toBeUndefined()
+    const again = client.request(call('n0', 'local'))
+    await host.answer(200, { answer: ['checked'] })
+    expect(await again).toEqual({ state: 'ready', answer: ['checked'] })
+    expect(host.seen.map((seen) => seen.args)).toEqual([['local'], ['broken'], ['local']])
+  })
+
   it('never shows an answer for other arguments, and a failed refresh is stale only for the same ones', async () => {
     const host = fakeHost()
     const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })

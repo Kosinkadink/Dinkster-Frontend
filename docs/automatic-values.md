@@ -34,7 +34,7 @@ number field, the side part's default line reads "automatic (24)", or
 "automatic (not known)" when the value cannot be worked out, with a spinner
 while a lookup loads, and its link empties the field. While the field is empty, the side part also gives
 the warning, or one plain line when a lookup's answer is not fresh: "Could not
-refresh", "Paused" or "Offline".
+refresh", "Paused", "Offline" or "Waiting for the file to be checked.".
 
 ## Working the value out
 
@@ -46,15 +46,31 @@ value.
 
 When the value cannot be worked out - the formula reads something not known
 or fails, the result is not a value of the field, a lookup fails, runs out of
-time or has an argument that is not known - the field's default is used and
-the field carries a warning, "Could not work out frame rate. Using the
-default, 24.", listed in Problems. While a lookup's answer is still to come
-the field shows the default without a warning.
+time, or has an argument that fails, is None or cannot be known in the editor,
+such as a wired input - the field's default is used and the field carries a
+warning, "Could not work out frame rate. Using the default, 24.", listed in
+Problems. A lookup takes no None argument, so the editor and the engine both
+use the default without calling it. While a lookup's answer is still to come,
+one of its arguments reads another automatic field still waiting on its
+lookup, or an argument is None because it reads a field left empty - one with
+no default that stores nothing, or stores null, such as an optional source
+rate not set yet - the field shows the default without a warning. For an
+empty field the side part reads "Waiting for source rate.", with that field's
+label, or "Waiting for a value." when the argument is not that one field.
+A lookup argument that names a file field, which no formula can read, is
+the picked file as the node stores it; the editor and the run send the same
+value, and the host checks the file before the lookup gets it. With no file
+picked the field waits the same way, with the file field's label: "Waiting
+for video.". The run then uses the default. A file field fed by a wire cannot
+be known in the editor and gives the default with the warning.
 
 A lookup's answer kept for the same arguments is shown as worked out, with no
 warning, while a newer one loads, after a refresh failed, or while the editing
-budget is spent. Offline, with no answer kept, the field shows the default
-with no warning: nothing is under way and the field cannot fix it.
+budget is spent. Offline, paused or waiting for a file to be checked, with no
+answer kept, the field shows the default with no warning: nothing is under
+way that the field can fix. A lookup that waited for its file to be checked
+is asked again when the host reports a change to its mounted files, so the
+answer comes once the file is checked.
 
 A whole-number field takes a whole number or a decimal that is exactly whole;
 a decimal field takes either; a choice is checked against its options only
@@ -75,7 +91,13 @@ holds, or the default when there is neither. When that is the default, the
 field carries the warning "Could not work out frame rate. Retime 2 gets the
 default, 24.", listed in Problems in place of the field's own warning. The
 engine still works out the owning node's own value when the run is queued,
-so it can differ from the value passed on.
+so it can differ from the value passed on. The editor keeps each value passed
+on with the run it queued; when the owning node ran and its recorded value
+differs, the field carries the warning "The last run used 30 for frame rate,
+but Retime 2 got 24.", listed in Problems. It is one warning for the field,
+naming two nodes ("Retime 2 and Retime 3") or counting more ("3 nodes"), and
+it goes when the user fixes a value or wires the field, or a later run
+replaces the record. Fields on nodes inside a region body are not compared.
 
 When the latest run of the open workflow used the default for a field that
 the editor works out now, the field carries the warning "The last run could

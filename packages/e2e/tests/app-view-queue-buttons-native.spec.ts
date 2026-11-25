@@ -100,7 +100,7 @@ test('an App View partial queue button completes against the native backend', as
   }
 
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   const queue = page.getByRole('button', { name: 'Generate base' })
   await expect(queue).toBeEnabled({ timeout: 15_000 })
   await expect(queue).toHaveAccessibleDescription('Ready')

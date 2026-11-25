@@ -3102,10 +3102,8 @@ export class AppState {
     this.settings.register({ id: 'canvas.minimap.bookmarks', get name() { return t('settings.canvas.minimap.bookmarks') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.visible', get name() { return t('settings.canvas.minimap.visible') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.nodes', get name() { return t('settings.canvas.minimap.nodes') }, type: 'boolean', defaultValue: true })
-    this.settings.register({ id: 'canvas.minimap.bypass', get name() { return t('settings.canvas.minimap.bypass') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.noodles', get name() { return t('settings.canvas.minimap.noodles') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.groups', get name() { return t('settings.canvas.minimap.groups') }, type: 'boolean', defaultValue: true })
-    this.settings.register({ id: 'canvas.minimap.reroutes', get name() { return t('settings.canvas.minimap.reroutes') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.errors', get name() { return t('settings.canvas.minimap.errors') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
@@ -4788,6 +4786,8 @@ export class AppState {
       )
       const disposeMountHealth = connection.mountError.subscribe(() => this.backendsTick.update((v) => v + 1))
       const disposeLookupChanges = connection.onLookupsChanged((functions) => lookups.invalidate(functions))
+      // A mount's scan commits as a mount ping; a local file a lookup waited on may be checked now.
+      const disposeLookupFiles = connection.onMountsChanged(() => lookups.filesChanged())
       const disposeLibraryChanges = connection.onLibraryChanged(() => {
         for (const tab of this.tabs.get()) {
           if (tab.execution || this.backendForTab(tab) !== nativeBackend) continue
@@ -4833,6 +4833,7 @@ export class AppState {
           disposeLibraryChanges()
           disposeMountHealth()
           disposeLookupChanges()
+          disposeLookupFiles()
           disposeConnection()
           scopedClient.dispose()
           lookups.dispose()

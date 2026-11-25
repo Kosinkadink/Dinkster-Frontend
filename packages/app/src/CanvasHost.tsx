@@ -130,7 +130,7 @@ import {
   type WidgetView,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, Snowflake, TriangleAlert, X } from 'lucide-solid'
+import { Check, CheckCircle2, Dice5, FileUp, LoaderCircle, Lock, Minus, Plus, Snowflake, TriangleAlert, X } from 'lucide-solid'
 import { executionProgress } from './ExecutionActivityCard.js'
 import { controllerAdvancementPlan, currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
 import { LookupDemand, lookupAnswersOf, rowListLookupOf } from './lookup-demand.js'
@@ -160,7 +160,8 @@ import { isNativeTextScopeTarget, shortcutSuppressed } from './settings.js'
 import { bookmarkJumpMode, bookmarkJumpPlan, bookmarkMarkerWorldPoint, bookmarkSaveMode, bookmarkViewFromViewport, bookmarkViewportForView, createCameraAnimator, viewportCenteredOnNode, type BookmarkJumpPlan } from './bookmark-camera.js'
 import { Icon } from './Icon.js'
 import { autoSpecialization } from './dynamic-slot.js'
-import { minimapMenuPlacement, setupMinimap, type MinimapMarker, type MinimapMenuPlacement } from './minimap.js'
+import { cornerMenuMaxHeight, setupMinimap, type MinimapMarker } from './minimap.js'
+import { CanvasCornerControls, MINIMAP_SWITCHES, type CanvasCornerMenu } from './CanvasChrome.js'
 import { NodePalette, type PaletteAnchor, type PaletteEntry } from './NodePalette.js'
 import { ContextMenu } from './ContextMenu.js'
 import { canvasMenuContext, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
@@ -169,7 +170,7 @@ import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
 import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type WidgetEditorState } from './WidgetEditor.js'
-import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
+import { GLSL_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
 import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
 import type { LatentMetadata } from './latent-metadata.js'
@@ -580,128 +581,6 @@ export function linkDropPaletteGhost(context: LinkDropContext, worldX: number, w
   return context.seeking === 'in'
     ? { x1: context.anchorX, y1: context.anchorY, x2: worldX, y2: worldY, ...presentation }
     : { x1: worldX, y1: worldY, x2: context.anchorX, y2: context.anchorY, ...presentation }
-}
-
-export function CanvasViewControls(props: {
-  readonly drilled: boolean
-  readonly disabled: boolean
-  readonly activeView: string
-  readonly appViewEnabled: boolean
-  readonly activeLens: { readonly id: string; readonly label: string }
-  readonly lenses: readonly { readonly id: string; readonly label: string; readonly description: string }[]
-  readonly viewMenuOpen: boolean
-  readonly lensMenuOpen: boolean
-  readonly onToggleViewMenu: () => void
-  readonly onToggleLensMenu: () => void
-  readonly onSelectView: (kind: string) => void
-  readonly onSelectLens: (id: string) => void
-  readonly commandScope?: unknown
-  readonly onSetAllNetsDisplay: (mode: 'noodle' | 'tags' | 'guide') => CommandOutcome | Promise<CommandOutcome | undefined> | undefined
-}) {
-  const message = useAppMessage()
-  const [pending, setPending] = createSolidSignal(false)
-  const [refusal, setRefusal] = createSolidSignal<string>()
-  let generation = 0
-  let scopeGeneration = 0
-  let live = true
-  let viewTrigger: HTMLButtonElement | undefined
-  onCleanup(() => { live = false; generation++ })
-  createEffect(() => {
-    props.commandScope
-    props.disabled
-    scopeGeneration++
-    generation++
-    setPending(false)
-    setRefusal(undefined)
-  })
-  createEffect(() => {
-    props.viewMenuOpen
-    generation++
-    setRefusal(undefined)
-  })
-  const setAllNetsDisplay = async (mode: 'noodle' | 'tags' | 'guide'): Promise<void> => {
-    if (pending() || props.disabled || !props.viewMenuOpen) return
-    const owner = generation
-    const scope = scopeGeneration
-    setPending(true)
-    setRefusal(undefined)
-    try {
-      const outcome = await props.onSetAllNetsDisplay(mode)
-      if (!live || owner !== generation) return
-      if (outcome?.ok) {
-        props.onToggleViewMenu()
-        viewTrigger?.focus()
-      } else if (outcome !== undefined) {
-        setRefusal(outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
-      }
-    } catch (error) {
-      if (live && owner === generation) setRefusal(error instanceof Error ? error.message : String(error))
-    } finally {
-      if (live && scope === scopeGeneration) setPending(false)
-    }
-  }
-  const viewLabel = () => message(`canvas.viewControls.active.${props.activeView === APP_EDITOR_KIND ? 'app' : 'graph'}`)
-  return (
-    <div class="canvas-view-controls" classList={{ drilled: props.drilled }}>
-      <div class="canvas-view-control">
-        <ProductButton size="compact"
-          ref={viewTrigger}
-          type="button"
-          data-testid="views-switcher"
-          data-tooltip-label={props.viewMenuOpen ? undefined : message('canvas.viewControls.view.tooltip')}
-          aria-haspopup="menu"
-          aria-expanded={props.viewMenuOpen}
-          disabled={props.disabled}
-          onClick={props.onToggleViewMenu}
-        ><Icon icon={AppWindow} /> {viewLabel()} <Icon icon={ChevronDown} /></ProductButton>
-        <Show when={props.viewMenuOpen}>
-          <div class="lens-menu view-menu" role="menu" aria-busy={pending()}>
-            <Show when={refusal()}>{(text) => <ProductNotice tone="error" testId="net-display-error">{text()}</ProductNotice>}</Show>
-            <div class="lens-menu-heading">{message('canvas.viewControls.heading.views')}</div>
-            <ProductButton variant="ghost" size="compact" role="menuitemradio" aria-checked={props.activeView === GRAPH_EDITOR_KIND} onClick={() => props.onSelectView(GRAPH_EDITOR_KIND)}><strong>{message('canvas.viewControls.active.graph')}</strong></ProductButton>
-            <Show when={props.appViewEnabled}>
-              <ProductButton variant="ghost" size="compact" role="menuitemradio" aria-checked={props.activeView === APP_EDITOR_KIND} onClick={() => props.onSelectView(APP_EDITOR_KIND)}><strong>{message('canvas.viewControls.view.app')}</strong></ProductButton>
-            </Show>
-            <div class="lens-menu-heading">{message('canvas.viewControls.heading.namedNets')}</div>
-            <ProductButton variant="ghost" size="compact"
-              role="menuitem"
-              data-testid="net-display-all-noodle"
-              disabled={pending()}
-              onClick={() => { void setAllNetsDisplay('noodle') }}
-            ><strong>{message('canvas.viewControls.namedNets.noodles.label')}</strong><small>{message('canvas.viewControls.namedNets.noodles.description')}</small></ProductButton>
-            <ProductButton variant="ghost" size="compact"
-              role="menuitem"
-              data-testid="net-display-all-tags"
-              disabled={pending()}
-              onClick={() => { void setAllNetsDisplay('tags') }}
-            ><strong>{message('canvas.viewControls.namedNets.tags.label')}</strong><small>{message('canvas.viewControls.namedNets.tags.description')}</small></ProductButton>
-            <ProductButton variant="ghost" size="compact"
-              role="menuitem"
-              data-testid="net-display-all-guide"
-              disabled={pending()}
-              onClick={() => { void setAllNetsDisplay('guide') }}
-            ><strong>{message('canvas.viewControls.namedNets.guides.label')}</strong><small>{message('canvas.viewControls.namedNets.guides.description')}</small></ProductButton>
-          </div>
-        </Show>
-      </div>
-      <div class="canvas-view-control">
-        <ProductButton size="compact"
-          type="button"
-          data-testid="lens-switcher"
-          data-tooltip-label={props.lensMenuOpen ? undefined : message('canvas.viewControls.lens.tooltip')}
-          aria-haspopup="menu"
-          aria-expanded={props.lensMenuOpen}
-          onClick={props.onToggleLensMenu}
-        ><Icon icon={Layers} /> {props.activeLens.label} <Icon icon={ChevronDown} /></ProductButton>
-        <Show when={props.lensMenuOpen}>
-          <div class="lens-menu" role="menu">
-            <div class="lens-menu-heading">{message('canvas.viewControls.heading.lenses')}</div>
-            <For each={props.lenses}>{(lens) => <ProductButton variant="ghost" size="compact" role="menuitemradio" aria-checked={props.activeLens.id === lens.id} onClick={() => props.onSelectLens(lens.id)}><strong>{lens.label}</strong><small>{lens.description}</small></ProductButton>}</For>
-          </div>
-        </Show>
-      </div>
-    </div>
-  )
 }
 
 /** Turn toolbar menu buttons into the same node target used by right-click. */
@@ -1925,39 +1804,40 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // the partial-scope preview effect keys off it.
   const [selVersion, setSelVersion] = createSolidSignal(0)
   const [stack, setStack] = createSolidSignal<readonly string[]>([])
-  const [minimapMenu, setMinimapMenu] = createSolidSignal(false)
-  const [minimapMenuPose, setMinimapMenuPose] = createSolidSignal<MinimapMenuPlacement>({ above: false })
-  let minimapSettingsEl!: HTMLButtonElement
+  const [cornerMenu, setCornerMenu] = createSolidSignal<CanvasCornerMenu>()
+  const [cornerMenuHeight, setCornerMenuHeight] = createSolidSignal<number>()
   let cornerControlsEl!: HTMLDivElement
-  const measureMinimapMenu = (): void => {
+  const measureCornerMenu = (): void => {
     const stageEl = cornerControlsEl.offsetParent
     const stage = stageEl?.getBoundingClientRect()
     // The popover may reach up to the stage top, but not into the floating
     // top toolbar row when one is present.
     const toolbar = stageEl?.querySelector('.canvas-stage-toolbar')?.getBoundingClientRect()
     const top = Math.max(stage?.top ?? 0, toolbar?.bottom ?? 0)
-    setMinimapMenuPose(minimapMenuPlacement(cornerControlsEl.getBoundingClientRect(), { left: stage?.left ?? 0, top }))
+    const bar = cornerControlsEl.querySelector('.canvas-corner-bar')?.getBoundingClientRect()
+    setCornerMenuHeight(bar === undefined ? undefined : cornerMenuMaxHeight(bar.top, top))
   }
-  const openMinimapMenu = (): void => {
-    measureMinimapMenu()
-    setMinimapMenu(true)
-    queueMicrotask(() => document.querySelector<HTMLElement>('.minimap-menu .minimap-setting-row')?.focus())
+  const openCornerMenu = (menu: CanvasCornerMenu): void => {
+    measureCornerMenu()
+    setCornerMenu(menu)
   }
   createEffect(() => {
-    if (!minimapMenu()) return
-    window.addEventListener('resize', measureMinimapMenu)
-    onCleanup(() => window.removeEventListener('resize', measureMinimapMenu))
+    if (cornerMenu() === undefined) return
+    window.addEventListener('resize', measureCornerMenu)
+    onCleanup(() => window.removeEventListener('resize', measureCornerMenu))
   })
-  const closeMinimapMenu = (): void => {
-    setMinimapMenu(false)
-    queueMicrotask(() => minimapSettingsEl?.focus())
-  }
+  const closeCornerMenu = (): void => { setCornerMenu(undefined) }
   const minimapVisible = (): boolean => (settingsTick(), props.app.settings.get<boolean>('canvas.minimap.visible'))
+  const minimapSwitches = createMemo(() => {
+    settingsTick()
+    return Object.fromEntries([...MINIMAP_SWITCHES.map((item) => item.id), 'bookmarks'].map((id) =>
+      [id, props.app.settings.get<boolean>(`canvas.minimap.${id}`)]))
+  })
   const toggleMinimap = (): void => {
     const next = !props.app.settings.get<boolean>('canvas.minimap.visible')
     props.app.settings.set('canvas.minimap.visible', next)
     if (next) repaintMinimap?.()
-    else setMinimapMenu(false)
+    else if (cornerMenu() === 'minimap') setCornerMenu(undefined)
   }
   const [embeddedDropChoice, setEmbeddedDropChoice] = createSolidSignal<{
     readonly loadImage: () => void
@@ -1976,7 +1856,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   /** Set in onMount; canvas chrome delegates to the mounted renderer. */
   let repaintMinimap: (() => void) | undefined
   let zoomCanvas: ((factor: number) => void) | undefined
-  let resetCanvasZoom: (() => void) | undefined
+  let zoomCanvasTo: ((scale: number) => void) | undefined
   let fitCanvas: (() => void) | undefined
 
   const frozen = (): boolean => activeTab()?.execution !== undefined
@@ -2453,8 +2333,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   createEffect(() => {
     const paletteOpen = palette() !== undefined
     const editorOpen = editor() !== undefined
-    const minimapOpen = minimapMenu()
-    if (!paletteOpen && !editorOpen && !minimapOpen) return
+    const cornerOpen = cornerMenu() !== undefined
+    if (!paletteOpen && !editorOpen && !cornerOpen) return
 
     const isInside = (event: Event, selector: string): boolean =>
       event.composedPath().some((item) => item instanceof Element && item.matches(selector))
@@ -2512,8 +2392,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
         return
       }
-      if (minimapOpen) {
-        if (!isInside(event, '.minimap-menu')) dismiss(event, closeMinimapMenu)
+      if (cornerOpen) {
+        if (!isInside(event, '.minimap-menu, .canvas-zoom-menu')) dismiss(event, closeCornerMenu)
       }
     }
     // Consuming pointerdown does not stop the browser's synthesized click,
@@ -2582,7 +2462,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           })
         })
       }
-      else if (minimapOpen) dismiss(event, closeMinimapMenu)
+      else if (cornerOpen) dismiss(event, closeCornerMenu)
     }
     window.addEventListener('pointerdown', onWindowPointerDown, true)
     // auxclick covers middle-click activation (tab close), dblclick covers
@@ -2635,9 +2515,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
     const zoomBy = (factor: number) => zoomTo(renderer.getViewport().scale * factor)
     zoomCanvas = zoomBy
-    // Setting the scale directly keeps the reset exact; scale * (1 / scale)
-    // does not round-trip to 1 in floating point.
-    resetCanvasZoom = () => zoomTo(1)
+    // Setting the scale directly keeps a typed zoom and the reset exact;
+    // scale * (1 / scale) does not round-trip to 1 in floating point.
+    zoomCanvasTo = zoomTo
     const fitView = () => renderer.fitToScene()
     fitCanvas = fitView
     const endpointPin = (end: unknown, direction: 'in' | 'out') => {
@@ -6466,7 +6346,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     onCleanup(() => {
       zoomCanvas = undefined
-      resetCanvasZoom = undefined
+      zoomCanvasTo = undefined
       fitCanvas = undefined
       boundChannel?.blur() // host unmount: peers see us leave
       presenceProjector.dispose()
@@ -7122,40 +7002,42 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           </div>
         )}
       </Show>
-      <Show when={minimapMenu()}>
+      <Show when={cornerMenu() !== undefined}>
         <div
           class="canvas-popover-backdrop"
           data-testid="canvas-popover-backdrop"
           onPointerDown={(event) => {
             event.preventDefault()
             event.stopPropagation()
-            closeMinimapMenu()
+            closeCornerMenu()
           }}
         />
       </Show>
-      <div ref={cornerControlsEl} class="canvas-corner-controls" data-minimap-size={(settingsTick(), props.app.settings.get<string>('canvas.minimap.size'))}>
-        <canvas ref={minimapEl} class="minimap" classList={{ hidden: (settingsTick(), !props.app.settings.get<boolean>('canvas.minimap.visible')) }} data-testid="minimap" data-node-colors={props.app.settings.get<boolean>('canvas.minimap.nodes')} data-bypass={props.app.settings.get<boolean>('canvas.minimap.bypass')} data-links={props.app.settings.get<boolean>('canvas.minimap.noodles')} data-groups={props.app.settings.get<boolean>('canvas.minimap.groups')} data-reroutes={props.app.settings.get<boolean>('canvas.minimap.reroutes')} data-errors={props.app.settings.get<boolean>('canvas.minimap.errors')} data-bookmarks={props.app.settings.get<boolean>('canvas.minimap.bookmarks')} />
-        <div class="canvas-corner-bar">
-          <div class="minimap-bar-controls" role="group" aria-label="Minimap controls">
-            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button" data-testid="minimap-toggle" data-tooltip-label={minimapVisible() ? 'Hide minimap' : 'Show minimap'} aria-label={minimapVisible() ? 'Hide minimap' : 'Show minimap'} aria-pressed={minimapVisible()} onClick={toggleMinimap}><Icon icon={MapIcon} /></ProductButton>
-            <ProductButton variant="ghost" size="compact" ref={minimapSettingsEl} type="button" class="canvas-corner-button" data-testid="minimap-settings" data-tooltip-label="Minimap settings" aria-label="Minimap settings" aria-expanded={minimapMenu()} onClick={() => minimapMenu() ? closeMinimapMenu() : openMinimapMenu()}><Icon icon={Settings2} /></ProductButton>
-          </div>
-          <div class="canvas-zoom-controls" role="group" aria-label="Canvas view controls">
-            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button" data-testid="canvas-zoom-out" data-tooltip-label="Zoom out" aria-label="Zoom out (Alt+-)" onClick={() => zoomCanvas?.(1 / 1.2)}><Icon icon={Minus} /></ProductButton>
-            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button canvas-zoom-level" data-testid="canvas-zoom-level" data-tooltip-label="Reset zoom to 100%" aria-label={`Reset zoom to 100%. Current zoom ${Math.round(editorViewport().scale * 100)}%`} onClick={() => resetCanvasZoom?.()}>{Math.round(editorViewport().scale * 100)}%</ProductButton>
-            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button" data-testid="canvas-zoom-in" data-tooltip-label="Zoom in" aria-label="Zoom in (Alt+=)" onClick={() => zoomCanvas?.(1.2)}><Icon icon={Plus} /></ProductButton>
-            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button" data-testid="canvas-fit-view" data-tooltip-label="Fit graph to view" aria-label="Fit graph to view (.)" onClick={() => fitCanvas?.()}><Icon icon={Maximize2} /></ProductButton>
-          </div>
-        </div>
-        <Show when={minimapMenu()}><div classList={{ 'minimap-menu': true, above: minimapMenuPose().above }} style={minimapMenuPose().above ? { 'max-height': `${minimapMenuPose().maxHeight}px` } : undefined}>
-            <For each={[["nodes", "Node Colors", Palette], ["bypass", "Render Bypass State", CircleSlash2], ["noodles", "Show Links", Route], ["groups", "Show Frames/Groups", Frame], ["reroutes", "Reroutes", CircleSlash2], ["errors", "Render Error State", MessageCircleWarning]] as const}>{([id, label, icon]) => {
-              const setting = `canvas.minimap.${id}`
-              const enabled = () => (settingsTick(), props.app.settings.get<boolean>(setting))
-              return <ProductButton variant="ghost" size="compact" type="button" role="switch" class="minimap-setting-row" data-testid={`minimap-toggle-${id}`} aria-label={label} aria-checked={enabled()} onClick={() => { props.app.settings.set(setting, !enabled()); repaintMinimap?.() }}><Icon icon={icon} /><span>{label}</span><span class="minimap-switch" aria-hidden="true"><span /></span></ProductButton>
-            }}</For>
-            <ProductButton variant="ghost" size="compact" type="button" role="switch" class="minimap-setting-row" data-testid="minimap-marker-toggle" aria-checked={(settingsTick(), props.app.settings.get<boolean>('canvas.minimap.bookmarks'))} data-tooltip-label="Show bookmark numbers on the minimap" aria-label="Bookmarks. Show bookmark numbers on the minimap" onClick={() => { props.app.settings.set('canvas.minimap.bookmarks', !props.app.settings.get<boolean>('canvas.minimap.bookmarks')); repaintMinimap?.() }}><Icon icon={Bookmark} /><span>Bookmarks</span><span class="minimap-switch" aria-hidden="true"><span /></span></ProductButton>
-          </div></Show>
-      </div>
+      <CanvasCornerControls
+        ref={(element) => { cornerControlsEl = element }}
+        minimapRef={(element) => { minimapEl = element }}
+        size={(settingsTick(), props.app.settings.get<string>('canvas.minimap.size'))}
+        minimapVisible={minimapVisible()}
+        settings={minimapSwitches()}
+        zoom={editorViewport().scale}
+        menu={cornerMenu()}
+        menuMaxHeight={cornerMenuHeight()}
+        shortcuts={(settingsTick(), {
+          zoomIn: props.app.keybindings.combo('view.zoomIn'),
+          zoomOut: props.app.keybindings.combo('view.zoomOut'),
+        })}
+        onToggleMinimap={toggleMinimap}
+        onToggleSetting={(id) => {
+          const setting = `canvas.minimap.${id}`
+          props.app.settings.set(setting, !props.app.settings.get<boolean>(setting))
+          repaintMinimap?.()
+        }}
+        onOpenMenu={openCornerMenu}
+        onCloseMenu={closeCornerMenu}
+        onFit={() => fitCanvas?.()}
+        onZoomBy={(factor) => zoomCanvas?.(factor)}
+        onZoomTo={(scale) => zoomCanvasTo?.(scale)}
+      />
 
       <Show when={frozenInfo()}>
         {(f) => (

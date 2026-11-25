@@ -82,6 +82,7 @@ test('icon-only activity items show immediate name-first help on hover and focus
 })
 
 test('Settings keeps immediate help, Alt detail, and hover-out', async ({ page }) => {
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('tooltips.delayMs', 3000))
   const settings = page.getByTestId('settings-button')
   await settings.hover()
@@ -226,7 +227,7 @@ test('shell and minimap seams use product tooltips without document writes', asy
   await expect(shellToggle).toHaveAccessibleName('Toggle left panel')
   await expect(shellToggle).toHaveAttribute('aria-pressed', /true|false/)
   await proveTooltip(minimapToggle, 'Show bookmark numbers on the minimap')
-  await expect(minimapToggle).toHaveAccessibleName('Bookmarks. Show bookmark numbers on the minimap')
+  await expect(minimapToggle).toHaveAccessibleName('Bookmark numbers')
 
   const checked = await minimapToggle.getAttribute('aria-checked')
   await minimapToggle.click()
