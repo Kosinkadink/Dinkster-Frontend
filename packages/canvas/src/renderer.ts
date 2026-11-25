@@ -4597,19 +4597,23 @@ export class CanvasRenderer {
     height: number,
   ): void {
     const paint = canvasPaintTokens.running
+    const pulse = this.reducedMotion
+      ? paint.reducedMotionPulse
+      : (Math.sin((this.animationTimeMs / paint.pulsePeriodMs) * Math.PI * 2) + 1) / 2
     const scale = finiteScale(this.viewport.scale)
     const radius = this.tokens.cornerRadius
     // As a CSS box-shadow draws it: the node's box grown by the spread and
     // blurred, painted only outside the node. Canvas blur is in device
     // pixels, so it is scaled to read as the same CSS pixels on any screen.
-    const blur = paint.glowBlur * (globalThis.devicePixelRatio ?? 1)
-    const reach = (paint.glowSpread + paint.glowBlur * 2) / scale
+    const cssBlur = paint.glowBlur + pulse * paint.glowPulseBlur
+    const blur = cssBlur * (globalThis.devicePixelRatio ?? 1)
+    const reach = (paint.glowSpread + cssBlur * 2) / scale
     ctx.save()
     ctx.beginPath()
     ctx.rect(x - reach, y - reach, width + reach * 2, height + reach * 2)
     ctx.roundRect(x, y, width, height, radius)
     ctx.clip('evenodd')
-    ctx.globalAlpha *= paint.glowOpacity
+    ctx.globalAlpha *= paint.glowOpacity + pulse * paint.glowPulseOpacity
     ctx.beginPath()
     ctx.roundRect(x - paint.glowSpread, y - paint.glowSpread, width + paint.glowSpread * 2, height + paint.glowSpread * 2, radius + paint.glowSpread)
     ctx.fillStyle = this.tokens.stateColors.running

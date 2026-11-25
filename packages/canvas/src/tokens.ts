@@ -303,15 +303,20 @@ export const canvasPaintTokens = {
     ghostMinScreenStroke: 1,
   },
   /**
-   * The running node: a 2 px outline in the running colour at 90%, and a
-   * steady glow around it, as a box shadow of 12 px blur and 1 px spread at
-   * 32% would draw it.
+   * The running node: a steady 2 px outline in the running colour at 90%, and
+   * a glow around it, as a box shadow of 1 px spread would draw it, that
+   * breathes on a sine from 12 px blur at 32% to 17 px at 47%. Reduced
+   * motion holds the midpoint.
    */
   running: {
     outlineStroke: 2,
     outlineOpacity: 0.9,
+    pulsePeriodMs: 1400,
+    reducedMotionPulse: 0.5,
     glowOpacity: 0.32,
+    glowPulseOpacity: 0.15,
     glowBlur: 12,
+    glowPulseBlur: 5,
     glowSpread: 1,
     accentStroke: 1.5,
     accentMinScreenStroke: 1.5,
