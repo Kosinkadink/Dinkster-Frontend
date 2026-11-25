@@ -2484,6 +2484,8 @@ export class AppState {
   readonly menuRegistry = createMenuRegistry()
   readonly searchRegistry = createSearchRegistry()
   readonly searchOpen = createSignal(false)
+  /** Incremented to open the top bar's layout menu from a command. */
+  readonly layoutMenuRequests = createSignal(0)
   readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
   readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
@@ -3241,7 +3243,7 @@ export class AppState {
     register('view.fitSelection', 'command.view.fitSelection', '.', () => this.canvasBridge.get()?.fitSelection(), () => this.canvasBridge.get() !== undefined)
     this.frontendDoors.command('layout.customize', {
       get label() { return t('command.layout.customize') },
-      run: () => this.modalPanel.set('customize-layout'),
+      run: () => this.layoutMenuRequests.update((count) => count + 1),
     })
     this.frontendDoors.command('backend.open', {
       get label() { return t('command.backend.open') },

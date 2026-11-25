@@ -2,9 +2,7 @@ import { createEffect, createRoot, createSignal, createUniqueId, For, Index, get
 import type { MenuActionItem, MenuItem, ResolvedMenuGroup } from '@dinkster/core'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
 import X from 'lucide-solid/icons/x'
-import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import PanelLeft from 'lucide-solid/icons/panel-left'
-import { ProductIconButton } from '@dinkster/ui'
 import { ContextMenu } from './ContextMenu.js'
 import { Icon } from './Icon.js'
 import {
@@ -17,7 +15,6 @@ import {
 import { aggregatePanelIndicators, type PanelDescriptor, type PanelIndicator } from './panels.js'
 import { ProductTabs, type ProductTab } from './ProductTabs.js'
 import type { ShellRegion } from './shell-layout.js'
-import type { CommandRegistry } from './settings.js'
 import { useAppMessage } from './locale.js'
 import type { VisibleTooltip } from './tooltips.js'
 
@@ -66,8 +63,16 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
     element.style.top = `${Math.max(8, Math.min(top, window.innerHeight - height - 8))}px`
   }
   createEffect(position)
+  const observer = new ResizeObserver(position)
+  // The anchor moves when a neighbour changes size (the project button widening when the
+  // project's name loads), which resizes the anchor's container but not the anchor.
+  createEffect(() => {
+    const container = props.tip.element?.parentElement
+    if (container === null || container === undefined) return
+    observer.observe(container)
+    onCleanup(() => observer.unobserve(container))
+  })
   onMount(() => {
-    const observer = new ResizeObserver(position)
     observer.observe(element)
     window.addEventListener('resize', position)
     window.addEventListener('scroll', position, true)
@@ -93,19 +98,6 @@ export function TransientStatus(props: { readonly message: string | undefined })
     <span class="status-announcer" data-testid="transient-status" aria-live="polite" role="status">
       {props.message ?? ''}
     </span>
-  )
-}
-
-export function CustomizeLayoutButton(props: { readonly commands: CommandRegistry }) {
-  const message = useAppMessage()
-  return (
-    <ProductIconButton
-      label={message('command.layout.customize')}
-      icon={SlidersHorizontal}
-      data-testid="customize-layout-button"
-      data-tooltip-label={message('command.layout.customize')}
-      onClick={() => props.commands.get('layout.customize')?.run()}
-    />
   )
 }
 

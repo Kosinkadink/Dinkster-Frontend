@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TestInfo } from '@playwright/test'
-import { expect, test, waitForWorkspaceReady, type Locator, type Page } from './fixtures.js'
+import { expect, setShellRegion, test, waitForWorkspaceReady, type Locator, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_INTERACTION_ACCESSIBILITY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -138,8 +138,7 @@ test.beforeEach(async ({ page }) => {
 test('touch reaches the in-row field and its after-run modes on a narrow viewport', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 640 })
   await installProofSurfaces(page)
-  const railToggle = page.getByRole('button', { name: 'Toggle right rail' })
-  if (await railToggle.getAttribute('aria-pressed') === 'true') await touch(railToggle, page)
+  await setShellRegion(page, 'right', false)
 
   const widget = await widgetPoint(page)
   await page.touchscreen.tap(widget.x, widget.y)
@@ -166,8 +165,7 @@ test('touch reaches the in-row field and its after-run modes on a narrow viewpor
 test('an open field keeps its after-run modes reachable through a short canvas resize', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 400 })
   await installProofSurfaces(page)
-  const railToggle = page.getByRole('button', { name: 'Toggle right rail' })
-  if (await railToggle.getAttribute('aria-pressed') === 'true') await touch(railToggle, page)
+  await setShellRegion(page, 'right', false)
   await page.getByTestId('minimap-toggle').click()
 
   const widget = await widgetPoint(page)
