@@ -7,7 +7,7 @@ import { createEffect, createMemo, createSignal as createSolidSignal, For, Index
 import { BrandMark } from './BrandMark.js'
 import { StatusBar } from './StatusBar.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
-import type { DinksterValuesClient, ExecutionState } from '@dinkster/client'
+import { noEngineOpen, type DinksterValuesClient, type ExecutionState } from '@dinkster/client'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Database from 'lucide-solid/icons/database'
 import FolderOpen from 'lucide-solid/icons/folder-open'
@@ -2841,6 +2841,7 @@ export function App(props: {
                       owner={{ id: tab().id, title: tab().title, lineage: tab().store.doc.lineage }}
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), tab().execution === undefined && app.registryForTab(tab()) !== undefined)}
+                      blockedReason={noEngineOpen(supervisorOf(app.backendForTab(tab()))) ? message('shell.engine.notRunning') : undefined}
                       onQueue={() => { void app.queue(tab()) }}
                       onOpenExecution={(ref) => { void app.openExecutionView(ref) }}
                     />
