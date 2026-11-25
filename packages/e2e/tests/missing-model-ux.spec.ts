@@ -51,7 +51,7 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'auditModelLoader', displayName: 'audit Model Loader', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'model', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
         widget: {
           widgetType: 'ASSET', kind: 'model/checkpoint',

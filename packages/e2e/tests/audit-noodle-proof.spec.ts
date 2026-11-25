@@ -7,14 +7,14 @@ async function openFixture(page: Page): Promise<void> {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([{
       type: 'TapWidget', displayName: 'Tap Widget', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
+      body: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', name: 'FLOAT' }, optional: true,
         widget: { widgetType: 'FLOAT', options: {}, default: 1 } }],
     }, {
       type: 'FloatSource', displayName: 'Float Source', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }],
+      body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'FLOAT' } }],
     }, {
       type: 'FloatSink', displayName: 'Float Sink', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
+      body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
     }])
     const failures = (await bridge.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'audit-proof', root: 'g0',
