@@ -280,7 +280,7 @@ export interface ElaboratedEditor {
 }
 
 /** Why an automatic value could not be worked out, so the default is used. */
-export type AutomaticReason = 'unknown' | 'failed' | 'wrong-type' | 'argument-unknown' | 'lookup-failed' | 'lookup-timeout' | 'offline' | 'paused' | 'file-unchecked'
+export type AutomaticReason = 'unknown' | 'failed' | 'wrong-type' | 'argument-unknown' | 'argument-empty' | 'lookup-failed' | 'lookup-timeout' | 'offline' | 'paused' | 'file-unchecked'
 
 /**
  * The value an automatic field has in use. Working it out never writes the
@@ -293,12 +293,14 @@ export interface AutomaticState {
    * 'loading' while a lookup's answer is to come, and 'not-known' while
    * nothing is under way that the field can wait on: the editor is offline,
    * the editing budget is spent, the lookup waits for a file to be checked,
-   * or an argument reads a value not known yet. `value` is then the default,
-   * with no warning. 'default' is a value that cannot be worked out, with
-   * the warning.
+   * an argument reads a value not known yet, or an argument reads a field
+   * left empty. `value` is then the default, with no warning. 'default' is
+   * a value that cannot be worked out, with the warning.
    */
   readonly state: 'worked-out' | 'default' | 'loading' | 'not-known'
   readonly reason?: AutomaticReason
+  /** The label of the empty field an 'argument-empty' value waits for, when the argument is that one field. */
+  readonly waitingFor?: string
   readonly call?: LookupCallSpec
   /**
    * A lookup's answer kept for these same arguments, shown because a newer
@@ -798,6 +800,8 @@ const defaultOf = (row: InputSpec): unknown => row.widget?.default ?? row.ext?.[
 
 type AutomaticKind = 'int' | 'float' | 'number' | 'text' | 'choice' | 'bool'
 
+const PLAIN_NAME = /^\s*[A-Za-z_][A-Za-z0-9_]*\s*$/
+
 /** A lookup-backed field whose value is still to come: what reads it reads unknown, not its default. */
 function waiting(outcome: AutomaticState): boolean {
   return outcome.state === 'loading' || outcome.state === 'not-known'
@@ -1017,7 +1021,11 @@ function elaboratePass(
       const automatic = automaticInUse(path)
       if (automatic !== undefined) return automatic === UNKNOWN ? UNKNOWN : formulaValueOf(automatic, kind)
     }
-    return formulaValueOf(Object.hasOwn(node.values, path) ? node.values[path] : fallback, kind)
+    const raw = Object.hasOwn(node.values, path) ? node.values[path] : fallback
+    // A field with no default that stores nothing, or the null clearing
+    // stores, is empty: nothing is chosen yet.
+    if ((raw === undefined || raw === null) && (fallback === undefined || fallback === null)) readEmpty = path
+    return formulaValueOf(raw, kind)
   }
 
   // -- Automatic values -------------------------------------------------------
@@ -1032,6 +1040,8 @@ function elaboratePass(
   let resolving = false
   /** Set when a formula read an automatic field that is still waiting on its lookup. */
   let readWaiting = false
+  /** The last field a formula read that is empty, with nothing chosen and no default. */
+  let readEmpty: string | undefined
 
   /**
    * What a formula reads for an automatic field with nothing stored: its
@@ -1055,6 +1065,7 @@ function elaboratePass(
     if (working.has(path)) return undefined
     working.add(path)
     const outer = readWaiting
+    const outerEmpty = readEmpty
     try {
       const outcome = workOutAutomatic(sites.get(path)!)
       outcomes.set(path, outcome)
@@ -1062,6 +1073,7 @@ function elaboratePass(
     } finally {
       working.delete(path)
       readWaiting = outer
+      readEmpty = outerEmpty
     }
   }
 
@@ -1079,12 +1091,20 @@ function elaboratePass(
       const args: Json[] = []
       for (const argument of automatic.args) {
         readWaiting = false
-        const outcome = evaluate(typeof argument === 'string' ? argument : argument.formula, scope)
+        readEmpty = undefined
+        const text = typeof argument === 'string' ? argument : argument.formula
+        const outcome = evaluate(text, scope)
         // An argument that reads another automatic field still waiting on
         // its lookup waits too, without a warning. One that can never be
         // known here, such as a wired input, gives the default, as a run does.
         if (outcome.kind === 'unknown' && readWaiting) return { value: fallback, state: 'not-known', reason: 'argument-unknown' }
-        // A lookup takes no None argument, so none is sent.
+        // A lookup takes no None argument, so none is sent. One that is None
+        // because it reads a field left empty waits for that field quietly;
+        // a stored value that does not fit warns.
+        if (outcome.kind === 'value' && outcome.value === null && readEmpty !== undefined) {
+          const field = PLAIN_NAME.test(text) ? readEmpty : undefined
+          return { value: fallback, state: 'not-known', reason: 'argument-empty', ...(field === undefined ? {} : { waitingFor: field }) }
+        }
         if (outcome.kind !== 'value' || outcome.value === null) return standIn('argument-unknown')
         const value = outcome.value
         args.push(Array.isArray(value)
@@ -2470,14 +2490,21 @@ function elaboratePass(
     const outcome = automaticOutcome(path)!
     inUse.set(path, waiting(outcome) ? UNKNOWN : outcome.value)
   }
+  // The empty field an argument waits for is named by its label.
+  const labelled = (outcome: AutomaticState): AutomaticState => {
+    if (outcome.waitingFor === undefined) return outcome
+    const field = items.find((other): other is ElaboratedInput => other.kind === 'input' && other.address.port === outcome.waitingFor)
+    return { ...outcome, waitingFor: field?.spec.displayName ?? field?.spec.id ?? outcome.waitingFor }
+  }
   for (const [index, item] of items.entries()) {
     const fixed = item.kind === 'input' ? fixedSites.get(item.address.port) : undefined
     if (fixed !== undefined && item.kind === 'input') {
-      items[index] = { ...item, automaticIfEmptied: workOutAutomatic(fixed) }
+      items[index] = { ...item, automaticIfEmptied: labelled(workOutAutomatic(fixed)) }
       continue
     }
-    const outcome = item.kind === 'input' ? outcomes.get(item.address.port) : undefined
-    if (outcome === undefined || item.kind !== 'input') continue
+    const found = item.kind === 'input' ? outcomes.get(item.address.port) : undefined
+    if (found === undefined || item.kind !== 'input') continue
+    const outcome = labelled(found)
     items[index] = { ...item, automatic: outcome }
     if (outcome.state === 'default') {
       const shown = typeof outcome.value === 'string' ? outcome.value : JSON.stringify(outcome.value)

@@ -266,6 +266,11 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     if (now?.kept === 'stale') return message('automaticField.couldNotRefresh')
     if (now?.kept === 'paused' || now?.reason === 'paused') return message('automaticField.paused')
     if (now?.reason === 'file-unchecked') return message('canvas.lookup.fileUnchecked')
+    if (now?.reason === 'argument-empty') {
+      return now.waitingFor === undefined
+        ? message('automaticField.waitingForValue')
+        : message('canvas.lookup.waiting', { input: now.waitingFor })
+    }
     return now?.reason === 'offline' ? message('automaticField.offline') : undefined
   }
   const side = createMemo(() => {

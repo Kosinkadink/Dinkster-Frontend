@@ -1130,6 +1130,39 @@ describe('automatic values', () => {
     expect(elaborated.diagnostics.some((d) => d.code === 'automatic.default')).toBe(true)
   })
 
+  it('waits quietly for an argument field left empty, and warns for a stored value that does not fit', () => {
+    const video = intInput('video', { type: { kind: 'concrete', name: 'STRING' }, displayName: 'Video', widget: { widgetType: 'STRING', options: {} } })
+    const delay = intInput('delay', { widget: { widgetType: 'INT', options: {}, default: 0 } })
+    const lookupRate = (args: readonly (string | { readonly formula: string })[]) => intInput('fps', {
+      automatic: { lookup: 'video.rate_of', args: args as never },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const elaborate = (args: readonly (string | { readonly formula: string })[], values: Record<string, unknown>) => {
+      const asked: unknown[] = []
+      const elaborated = elaborateInterface(schemaOf([video, delay, lookupRate(args)]), { values: values as never }, EMPTY_CONNECTIVITY,
+        { lookupAnswers: ((lookup: string, called: unknown) => { asked.push([lookup, called]); return { state: 'ready', answer: 30 } }) as never })
+      return {
+        automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'fps')!.automatic,
+        warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default'),
+        asked,
+      }
+    }
+    // A new node stores nothing; clearing a file field stores null. Both wait for the field by its label.
+    for (const values of [{}, { video: null }]) {
+      expect(elaborate(['video'], values)).toEqual({
+        automatic: { value: 24, state: 'not-known', reason: 'argument-empty', waitingFor: 'Video' }, warned: false, asked: [],
+      })
+    }
+    // An argument that is not one plain field waits for a value.
+    expect(elaborate([{ formula: 'video if delay == 0 else video' }], {}).automatic)
+      .toEqual({ value: 24, state: 'not-known', reason: 'argument-empty' })
+    // A field with a default that stores null holds a value that does not fit: the default, with the warning.
+    expect(elaborate(['delay'], { delay: null })).toEqual({
+      automatic: { value: 24, state: 'default', reason: 'argument-unknown' }, warned: true, asked: [],
+    })
+    expect(elaborate(['video'], { video: 'clip.mp4' }).automatic).toMatchObject({ value: 30, state: 'worked-out' })
+  })
+
   it('works out a fixed field only for its open field, without a warning, while the fixed value stays in use', () => {
     const doubled = intInput('doubled', {
       automatic: { formula: 'rate * 2' },

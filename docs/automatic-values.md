@@ -51,8 +51,12 @@ such as a wired input - the field's default is used and the field carries a
 warning, "Could not work out frame rate. Using the default, 24.", listed in
 Problems. A lookup takes no None argument, so the editor and the engine both
 use the default without calling it. While a lookup's answer is still to come,
-or one of its arguments reads another automatic field still waiting on its
-lookup, the field shows the default without a warning.
+one of its arguments reads another automatic field still waiting on its
+lookup, or an argument is None because it reads a field left empty - one with
+no default that stores nothing, or the null clearing stores, such as a file
+not picked yet - the field shows the default without a warning. For an empty
+field the side part reads "Waiting for video.", with that field's label, or
+"Waiting for a value." when the argument is not that one field.
 
 A lookup's answer kept for the same arguments is shown as worked out, with no
 warning, while a newer one loads, after a refresh failed, or while the editing
