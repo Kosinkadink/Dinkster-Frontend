@@ -103,6 +103,22 @@ component gallery on loopback port 5276 after `pnpm build:ui`; production galler
 files are in `packages/ui/dist/gallery`. The gallery is an isolated reference,
 not an account service or a replacement for the app.
 
+The standalone `#page-tabs` gallery uses `WorkflowTabs` and the shared
+`createPageTabHost` from `packages/app/src/page-tabs.tsx`. A registered page
+has an id, title, icon and component; opening it again focuses its existing
+tab without replacing its opening parameters. The caller owns the mixed
+tab list and active id. `PageTabPanel` renders page content without a workflow
+document, and its context can close the page or replace it with a workflow
+at the same active position. Disabled or unregistered pages close; dirty,
+save and snapshot callbacks stay owned by each page.
+
+The app uses that same host as `app.pages`: register a descriptor, then call
+`app.pages.open(id, parameters)`. The shell renders its component beside real
+workflow tabs and confirms closing dirty pages. Pages remain session-only;
+`app.tabs`, workflow persistence and execution contain only documents. A page
+context's `replaceWithWorkflow(tab)` takes the real tab returned by a workflow
+open and retains the page's position in its editor group, including splits.
+
 The Canvas pages include Tabs at controls and content zoom in both themes:
 the subgraph mark in the title bar, tabs above and below the node, crowded
 icon strips and an overflow count, on open and minimized nodes. Hover reveals

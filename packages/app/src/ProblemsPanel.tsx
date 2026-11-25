@@ -378,7 +378,19 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                           <code>{diagnostic.code}</code>
                           <Show when={diagnostic.data}><pre>{JSON.stringify(diagnostic.data, null, 2)}</pre></Show>
                           <Show when={diagnostic.anchor !== undefined}>
-                            <Show when={diagnostic.code === 'asset.availability.missing' && typeof diagnostic.data?.['input'] === 'string'}>
+                            <Show when={diagnostic.code === 'model.availability.missing' && diagnostic.data?.['plannable'] === true}>
+                              <ProductButton type="button" variant="secondary" size="compact" onClick={() => {
+                                const tab = diagnosticFocusTarget(props.app.tabs.get(), props.app.activeTabId.get(), diagnostic)?.tab
+                                if (tab !== undefined) props.app.reviewModelDownload(tab, diagnostic)
+                              }}>{message('problems.action.reviewModel')}</ProductButton>
+                            </Show>
+                            <Show when={diagnostic.code === 'model.availability.model-hidden' || diagnostic.code === 'model.availability.folder-disabled'}>
+                              <ProductButton type="button" variant="secondary" size="compact" onClick={() => {
+                                const tab = diagnosticFocusTarget(props.app.tabs.get(), props.app.activeTabId.get(), diagnostic)?.tab
+                                if (tab !== undefined) props.app.openModelStorage(tab, diagnostic)
+                              }}>{message(diagnostic.code === 'model.availability.model-hidden' ? 'problems.action.modelManagement' : 'problems.action.modelStorage')}</ProductButton>
+                            </Show>
+                            <Show when={(diagnostic.code === 'asset.availability.missing' || diagnostic.code.startsWith('model.availability.')) && typeof diagnostic.data?.['input'] === 'string'}>
                               <ProductButton type="button" variant="secondary" size="compact"
                                 onClick={() => activateProblem(props.app, diagnostic, diagnostic.data!['input'] as string)}>
                                 {message('problems.action.locateAsset')}

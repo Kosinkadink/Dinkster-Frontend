@@ -635,6 +635,7 @@ export const WORKFLOW_SCHEMA = {
           },
         },
         editors: { $ref: '#/$defs/editorFolds' },
+        histogramVisibility: { type: 'object', additionalProperties: { type: 'boolean' } },
         pictureHeights: { $ref: '#/$defs/pictureHeights' },
         color: { type: 'string' },
         ext: { $ref: '#/$defs/extData' },
