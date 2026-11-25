@@ -126,6 +126,7 @@ test('tab close affordances retain activation semantics', async ({ page }) => {
   await expect(tab(page, 'Basic').locator('.tab-select')).toBeFocused()
 
   await page.getByTestId('new-tab').click()
+  await page.getByRole('menuitem', { name: 'Blank workflow', exact: true }).click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(2)
   await expect.poll(() => page.evaluate(() => {
     const untitled = window.__dinksterTest!.app.tabs.get().find((entry) => entry.title === 'Untitled')
@@ -251,7 +252,10 @@ test('shell separators expose values and resize from the keyboard', async ({ pag
 })
 
 test('tab strip suppresses vertical scrolling and retains horizontal overflow', async ({ page }) => {
-  for (let index = 0; index < 20; index++) await page.getByTestId('new-tab').click()
+  for (let index = 0; index < 20; index++) {
+    await page.getByTestId('new-tab').click()
+    await page.getByRole('menuitem', { name: 'Blank workflow', exact: true }).click()
+  }
   await page.evaluate(() => document.fonts.ready)
   // Tab publication can replace DOM nodes between a locator query and evaluation.
   const titleWidths = await page.evaluate(() => {
