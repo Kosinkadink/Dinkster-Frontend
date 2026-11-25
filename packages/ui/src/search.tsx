@@ -450,6 +450,7 @@ export function ProductSearch(props: {
                 return (
                   <div
                     class="dinkster-search-group"
+                    data-group={group.key}
                     role="group"
                     aria-labelledby={group.label === undefined ? undefined : heading}
                   >
