@@ -1688,6 +1688,7 @@
   "automaticField.waitingForValue": "等待一个值。",
   "projects.title": "项目",
   "projects.loading": "正在加载项目",
+  "projects.detail.loading": "正在加载项目",
   "projects.empty": "还没有项目。",
   "projects.action.new": "新建",
   "projects.action.open": "打开",

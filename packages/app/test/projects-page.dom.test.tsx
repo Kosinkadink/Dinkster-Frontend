@@ -129,6 +129,26 @@ it('shows slow loading at 200 ms and retains it for at least 300 ms', async () =
   expect(document.querySelector('[data-testid="projects-loading"]')).toBeNull()
 })
 
+it('labels slow detail as one project and reveals its headings and lists together', async () => {
+  vi.useFakeTimers({ now: NOW })
+  const workflows = deferred<readonly never[]>()
+  render(() => <ProjectsView shell={shell()} source={{
+    ...source(projects), listWorkflows: () => workflows.promise,
+  }} />, document.body)
+  await vi.advanceTimersByTimeAsync(199)
+  expect(document.querySelector('[data-testid="project-loading"]')).toBeNull()
+  await vi.advanceTimersByTimeAsync(1)
+  expect(document.querySelector('[data-testid="project-loading"]')?.textContent).toBe('Loading project')
+  expect(document.querySelector('[data-testid="projects-loading"]')).toBeNull()
+  expect(document.querySelector('h2')).toBeNull()
+  expect(document.body.textContent).not.toContain('No workflows yet.')
+  workflows.resolve([])
+  await vi.advanceTimersByTimeAsync(300)
+  expect(document.querySelector('[data-testid="project-loading"]')).toBeNull()
+  expect(document.querySelector('h2')?.textContent).toBe('Film grain tests')
+  expect(document.body.textContent).toContain('No workflows yet.')
+})
+
 it('keeps the first painted elements unchanged as detail arrives, and keeps old detail until a project switch settles', async () => {
   const film = deferred<readonly never[]>()
   const valley = deferred<readonly never[]>()

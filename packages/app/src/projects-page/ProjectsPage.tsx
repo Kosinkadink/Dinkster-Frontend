@@ -943,7 +943,9 @@ export function ProjectsView(props: {
                   <ProductEmptyState message={message(projects() === null ? 'projects.unreadable' : 'projects.empty')} />
               </Show>
               <Show when={selected() && detailArrival.loading()}>
-                <div class="projects-page-arrival"><ProductLoading label={message('projects.loading')} /></div>
+                <div class="projects-page-loading projects-page-arrival" data-testid="project-loading">
+                  <ProductLoading label={message('projects.detail.loading')} />
+                </div>
               </Show>
               </>
             }

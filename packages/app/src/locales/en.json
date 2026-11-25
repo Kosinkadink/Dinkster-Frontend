@@ -1688,6 +1688,7 @@
   "automaticField.waitingForValue": "Waiting for a value.",
   "projects.title": "Projects",
   "projects.loading": "Loading projects",
+  "projects.detail.loading": "Loading project",
   "projects.empty": "No projects yet.",
   "projects.action.new": "New",
   "projects.action.open": "Open",
