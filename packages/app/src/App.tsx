@@ -2661,6 +2661,13 @@ export function App(props: {
             }}
             isDirty={(tab) => dirtyTabs().has(tab.id)}
             isFrozen={(tab) => tab.execution !== undefined}
+            tooltip={(tab) => {
+              if (tab.execution === undefined) return undefined
+              executions()
+              const status = app.store.get(tab.execution)?.status
+              return message('frozen.runTooltip', { id: tab.execution.prompt.slice(0, 8),
+                state: status === undefined ? '' : executionStatusLabel(status).toLocaleLowerCase() })
+            }}
             isShared={(tab) => collabTabs().has(tab.id)}
             renderLeading={(tab) => (
               <Show when={collabTabs().get(tab.id)} keyed>
@@ -2834,9 +2841,9 @@ export function App(props: {
                       app={app}
                       owner={{ id: tab().id, title: tab().title, lineage: tab().store.doc.lineage }}
                       executions={paneWorkflowExecutions()}
-                      canQueue={(backendsTick(), tab().execution === undefined && app.registryForTab(tab()) !== undefined)}
+                      canQueue={(backendsTick(), app.registryForTab(tab()) !== undefined)}
                       blockedReason={(backendsTick(), app.engineOffReason(tab(), message))}
-                      onQueue={() => { void app.queue(tab()) }}
+                      onQueue={tab().execution === undefined ? () => { void app.queue(tab()) } : undefined}
                       onOpenExecution={(ref) => { void app.openExecutionView(ref) }}
                     />
                   )}
@@ -2981,7 +2988,7 @@ export function App(props: {
             )}</Show>
           </Show>
         </>}
-        search={<UniversalSearchTrigger shortcut={searchShortcut()} onOpen={() => app.searchOpen.set(true)} />}
+        search={<UniversalSearchTrigger shortcut={searchShortcut()} open={searchOpen()} onOpen={() => app.searchOpen.set(true)} />}
         actions={(narrow) => <>
           <Show when={allWorkflowActivity().running > 0}>
             <ProductRunActivity {...allWorkflowActivity()} label={message('runs.activity', allWorkflowActivity())} />

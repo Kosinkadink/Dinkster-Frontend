@@ -196,6 +196,7 @@ import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 import type { CanvasLens } from './data-lens.js'
 import { registerLocaleSetting } from './locale.js'
+import { runClock } from './execution-activity.js'
 import { registerThemeSetting } from './theme.js'
 import {
   assetGuessCandidateToRef,
@@ -233,7 +234,7 @@ import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import type { CatalogNode } from './node-catalog.js'
 import { activeProjectId, migrateBrowserProjects, scopedSharedName, scopedStorageKey } from './projects.js'
-import { keepSchemas, keptRegistry, readKeptSchemas } from './kept-schemas.js'
+import { keepSchemas, keptRegistry, newerKeptTable, readKeptSchemas } from './kept-schemas.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
@@ -5565,9 +5566,8 @@ export class AppState {
   async duplicateTab(tabId: string, replaceFrozen = false): Promise<Tab | undefined> {
     const source = this.tabs.get().find((candidate) => candidate.id === tabId)
     if (!source || ![GRAPH_EDITOR_KIND, APP_EDITOR_KIND].includes(source.editorKind)) return undefined
-    const title = source.execution
-      ? source.title.slice(0, -` @ ${source.execution.prompt.slice(0, 8)}`.length)
-      : source.title
+    const suffix = source.execution === undefined ? '' : this.frozenTitleSuffix(source.execution)
+    const title = suffix !== '' && source.title.endsWith(suffix) ? source.title.slice(0, -suffix.length) : source.title
     const titles = new Set(this.tabs.get().map((tab) => tab.title))
     let copyTitle = `${title} copy`
     for (let ordinal = 2; titles.has(copyTitle); ordinal++) copyTitle = `${title} copy ${ordinal}`
@@ -5955,7 +5955,7 @@ export class AppState {
     if (!backend) return false
     if (!stillWanted()) return false
     this.store.retain(ref)
-    const title = `${this.tabTitleFor(ref)} @ ${ref.prompt.slice(0, 8)}`
+    const title = `${this.tabTitleFor(ref)}${this.frozenTitleSuffix(ref)}`
     const tab = this.makeTab(artifact.snapshot, title, ref)
     this.tabs.update((tabs) => [...tabs, tab])
     this.activeTabId.set(id)
@@ -7813,10 +7813,17 @@ export class AppState {
     backend.invalidateRemoteChoices()
   }
 
-  /** Draw each backend's nodes from its kept node table until the backend answers. */
+  /**
+   * Draw each backend's nodes from a kept node table until the backend
+   * answers: this browser's copy or the table the always-on process recorded
+   * from the engine, whichever was recorded last.
+   */
   async loadKeptSchemas(): Promise<void> {
     await Promise.all(this.backends.get().map(async (backend) => {
-      const kept = await readKeptSchemas(backend.baseUrl, activeProjectId())
+      const kept = newerKeptTable(...await Promise.all([
+        readKeptSchemas(backend.baseUrl, activeProjectId()),
+        backend.connection.fetchProvisionalSchemas(),
+      ]))
       if (kept === undefined || backend.registry.get() !== undefined) return
       backend.keptRegistry.set(keptRegistry(backend.id, kept))
     }))
@@ -9677,28 +9684,10 @@ export class AppState {
     return this.semanticHashOfTab(live) === artifact.semanticHash ? 'in-sync' : 'diverged'
   }
 
-  /**
-   * For a LIVE tab: how its document relates to the execution its overlay
-   * shows (pinned run when pinned, else the lineage's latest). `inSync:
-   * false` means edits landed after that submission - progress overlays may
-   * not match what actually runs; the frozen view is the truth.
-   */
-  liveSyncStatus(tab: Tab): {
-    ref: ExecutionRef
-    status: ExecutionStatus
-    inSync: boolean
-    mode: 'latest' | 'pinned'
-  } | undefined {
-    if (tab.execution) return undefined
-    const pinned = this.pinnedExecutionFor(tab)
-    const shown = pinned ?? this.latestExecutionFor(tab.store.doc.lineage)
-    if (!shown?.artifact) return undefined
-    return {
-      ref: shown.ref,
-      status: shown.status,
-      inSync: this.semanticHashOfTab(tab) === shown.artifact.semanticHash,
-      mode: pinned ? 'pinned' : 'latest',
-    }
+  /** A frozen tab is named by its workflow and the time the run was queued, such as "Portrait, 14:02". */
+  private frozenTitleSuffix(ref: ExecutionRef): string {
+    const state = this.store.get(ref)
+    return state === undefined ? '' : `, ${runClock(state.queuedAt)}`
   }
 
   tabTitleFor(ref: ExecutionRef): string {

@@ -267,16 +267,3 @@ describe('view-state lifecycle', () => {
     expect(app.overlayModeForTab(app.activeTab()!)).toBe('latest')
   })
 })
-
-describe('liveSyncStatus', () => {
-  it('reports the pinned run with mode "pinned" and stays in sync with it', () => {
-    const older = run(basic, 100)
-    run(basic, 200)
-    app.pinExecutionOverlay(basic.id, older)
-    const status = app.liveSyncStatus(basic)
-    expect(status?.ref).toEqual(older)
-    expect(status?.mode).toBe('pinned')
-    expect(status?.inSync).toBe(true) // document unchanged since that compile
-  })
-
-})

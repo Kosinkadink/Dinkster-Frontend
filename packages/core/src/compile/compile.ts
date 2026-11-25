@@ -90,7 +90,7 @@ import { solveGraphTypes } from '../schema/solve.js'
 import { constructsOf } from '../schema/body.js'
 import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
 import { assetTypeId, canonicalTypeIdOf, effectiveAbsentPolicy, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
-import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
+import { effectiveWidgetDefault, isAssetRefValue, sentWhenUnset } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
   decimalIntegerWire,
@@ -2619,16 +2619,15 @@ function compileImpl(
       if (spec.widget) {
         // Explicit schema default first, then the widget kind's intrinsic
         // value (an INT shows 0/min, a STRING shows '', ...): what the
-        // canvas visibly displays is what executes. Kinds without an
-        // intrinsic value (ASSET, remote COMBO, ...) fall through to the
-        // missing-input warning - those genuinely need the user. A purely
-        // INTRINSIC value is synthesized only when a declared default exists
-        // or the input is REQUIRED: an optional widget input with no schema
-        // default was always omitted from the prompt and stays omitted (the
-        // backend's own default applies - inventing 0/''/false would change
-        // valid workflows that never warned).
-        const fallback = effectiveWidgetDefault(spec.widget)
-        if (fallback !== undefined && (spec.widget.default !== undefined || !spec.optional)) {
+        // canvas visibly displays is what executes, and what a formula reads
+        // for the field. Kinds without an intrinsic value (ASSET, remote
+        // COMBO, ...) fall through to the missing-input warning - those
+        // genuinely need the user. An optional widget input with no schema
+        // default stays out of the prompt (the backend's own default
+        // applies - inventing 0/''/false would change valid workflows that
+        // never warned).
+        const fallback = sentWhenUnset(spec)
+        if (fallback !== undefined) {
           const lowered = lowerWidgetLiteral(fn, input, fallback)
           if (lowered !== undefined) fn.inputs[spec.id] = lowered
           // A refused fallback already errored; the missing-input warning

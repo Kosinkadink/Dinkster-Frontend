@@ -555,6 +555,52 @@ describe('value handling', () => {
     expect(tapped('width')?.taps).toBeUndefined()
     expect(tapped('height')?.warnings.map(([message]) => message)).toEqual([expect.stringMatching(/^Could not work out height\. Retime 2 gets the default, \d+\.$/)])
   })
+
+  it('has a formula read for a field with no default what the run is sent for it', () => {
+    const field = (id: string, name: string, widget: Record<string, unknown>, optional = false) =>
+      ({ kind: 'input', id, type: { kind: 'concrete', name }, optional, widget })
+    const read = ['num', 'text', 'pick', 'opt', 'hid', 'limited', 'many', 'authored']
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      const body = [
+        ...schema.body,
+        field('num', 'INT', { widgetType: 'INT', options: { min: 16, max: 64 } }),
+        field('text', 'STRING', { widgetType: 'STRING', options: {} }),
+        field('pick', 'COMBO', { widgetType: 'COMBO', options: { options: ['slow', 'fast'] } }),
+        field('opt', 'INT', { widgetType: 'INT', options: { min: 5 } }, true),
+        // Hidden by its visible, looked-up limits, authored options and members past an optional minimum change what compile sends.
+        { ...field('hid', 'INT', { widgetType: 'INT', options: { min: 7 } }), visible: { formula: 'width > 100' } },
+        field('limited', 'INT', { widgetType: 'INT', options: {}, looked: { min: { formula: 'width + 1' } } }),
+        field('authored', 'COMBO', { widgetType: 'COMBO', options: { options: ['declared'] }, editableOptions: true }),
+        {
+          kind: 'group', id: 'many', minMembers: 1, optionalAfterMinimum: true, grows: 'button',
+          keys: { kind: 'numbered', prefix: 'm', start: 0, pad: 0 },
+          member: [field('entry', 'INT', { widgetType: 'INT', options: { min: 3 } })],
+        },
+        ...read.map((id) => ({ ...field(`reads_${id}`, 'INT', { widgetType: 'INT', options: {}, default: 0 }), automatic: { lookup: `probe.${id}`, args: [id === 'many' ? 'many.entry' : id] } })),
+      ]
+      return { ...schema, body } as NodeSchema
+    }
+    const doc = mutableWorkflow('exec-basic')
+    const nodes = ((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable
+    ;(nodes['n0'] as Mutable)['values'] = { width: 64, height: 64, batch_size: 1, color: 0 }
+    ;(nodes['n0'] as Mutable)['dynamic'] = { many: { members: ['m0', 'm1'] }, authored: { options: ['first', 'second'] } }
+    const asked: Record<string, unknown> = {}
+    const lookupAnswers: CompileInput['lookupAnswers'] = (lookup, args) => {
+      asked[lookup.slice('probe.'.length)] = args[0]
+      return { state: 'ready', answer: 1 }
+    }
+    const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    const inputs = result.artifact.prompt['n0']!.inputs
+    // A required field reads its widget's start: the minimum, an empty text, the first option.
+    const sent = Object.fromEntries(['num', 'text', 'pick', 'opt', 'hid', 'limited', 'authored', 'many.m0.entry', 'many.m1.entry'].map((id) => [id, inputs[id]]))
+    expect(sent).toEqual({ num: 16, text: '', pick: 'slow', opt: undefined, hid: undefined, limited: 65, authored: 'first', 'many.m0.entry': 3, 'many.m1.entry': undefined })
+    // The lookup is called with what the run is sent; a field sent nothing waits.
+    expect(asked).toEqual({ num: 16, text: '', pick: 'slow', limited: 65, authored: 'first', many: [3, null] })
+  })
 })
 
 describe('semantic hash', () => {

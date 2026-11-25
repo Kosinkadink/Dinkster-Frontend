@@ -131,7 +131,8 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { Check, CheckCircle2, Dice5, FileUp, LoaderCircle, Lock, Minus, Plus, Snowflake, TriangleAlert, X } from 'lucide-solid'
-import { executionProgress } from './ExecutionActivityCard.js'
+import { executionProgress, executionStatusLabel } from './ExecutionActivityCard.js'
+import { runClock } from './execution-activity.js'
 import { controllerAdvancementPlan, currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
 import { LookupDemand, lookupAnswersOf, rowListLookupOf } from './lookup-demand.js'
 import { provideRowListLookups } from './editors/InRowListEditor.js'
@@ -968,6 +969,8 @@ export function NodeMediaOverlay(props: {
  * keeps few WebGL contexts (16 in Chromium), so the rest show a still picture.
  */
 const LIVE_MODEL_VIEWS = 8
+/** Space the frozen line keeps from the canvas controls beside it, in CSS pixels. */
+const FROZEN_LINE_CLEARANCE = 8
 
 /**
  * Orbit viewport for a model3d node preview. The canvas paints the poster;
@@ -6411,6 +6414,37 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     return tab?.store.doc.graphs[graphId]?.name ?? graphId
   }
 
+  /**
+   * The frozen line sits centred on the row of the view and lens controls,
+   * and drops to the next row, still centred, only when it would touch a
+   * control on that row.
+   */
+  const placeFrozenLine = (line: HTMLDivElement): void => {
+    onMount(() => {
+      const stage = line.closest<HTMLElement>('.canvas-stage')
+      const toolbar = stage?.querySelector<HTMLElement>('.canvas-stage-toolbar')
+      if (!stage || !toolbar) return
+      const place = (): void => {
+        const area = stage.getBoundingClientRect()
+        const half = line.offsetWidth / 2 + FROZEN_LINE_CLEARANCE
+        const centre = area.left + area.width / 2
+        const controls = [...toolbar.children].map((child) => child.getBoundingClientRect()).filter((box) => box.width > 0)
+        const firstRow = Math.min(...controls.map((box) => box.top))
+        const touches = controls.some((box) => box.top === firstRow && box.left < centre + half && box.right > centre - half)
+        line.dataset['row'] = touches || line.offsetWidth > area.width - 2 * FROZEN_LINE_CLEARANCE ? 'below' : 'top'
+      }
+      const observer = new ResizeObserver(place)
+      for (const element of [stage, toolbar, line, ...toolbar.children]) observer.observe(element)
+      const children = new MutationObserver(() => {
+        for (const child of toolbar.children) observer.observe(child)
+        place()
+      })
+      children.observe(toolbar, { childList: true })
+      place()
+      onCleanup(() => { observer.disconnect(); children.disconnect() })
+    })
+  }
+
   /** Frozen-tab banner data: execution identity, status, live-sync verdict. */
   const frozenInfo = () => {
     executions()
@@ -6425,22 +6459,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       progress: state?.status === 'running' ? executionProgress(state) : undefined,
       queuedAt: state?.queuedAt,
       sync: props.app.frozenSyncStatus(tab),
+      tooltip: message('frozen.runTooltip', { id: tab.execution.prompt.slice(0, 8),
+        state: state === undefined ? '' : executionStatusLabel(state.status).toLocaleLowerCase() }),
       live: props.app.liveTabFor(tab.store.doc.lineage),
       // The compile-time registry is gone (e.g. app restarted, backend
       // removed before it was retained): the snapshot renders without node
       // definitions. Say so - never silently resolve with other schemas.
       schemasUnavailable: !registry(),
     }
-  }
-
-  /** Live-tab chip: how the document relates to its overlay execution. */
-  const liveSync = () => {
-    executions()
-    overlayPins()
-    docTick()
-    const tab = activeTab()
-    if (!tab || tab.execution) return undefined
-    return props.app.liveSyncStatus(tab)
   }
 
   // Badge popover content: reactive wrappers binding the framework-free
@@ -7051,31 +7077,32 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
       <Show when={frozenInfo()}>
         {(f) => (
-          <div class="frozen-banner" data-testid="frozen-banner" data-sync={f().sync}>
-            <Icon icon={Snowflake} />
-            <span class="frozen-label">{message('frozen.label')}</span>
-            <span class="frozen-sync">
-              {f().status === 'running'
-                ? `Running${f().progress === undefined ? '' : ` ${Math.round(f().progress!.value * 100)}%`}.`
-                : f().status === 'queued'
-                  ? 'Queued.'
-                  : `Ran${f().queuedAt === undefined ? '' : ` ${new Date(f().queuedAt!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`} (${f().status}).`}
-              {' '}{f().sync === 'in-sync' ? 'Matches live.' : f().sync === 'diverged' ? 'Live changed.' : 'No live tab.'}
-            </span>
-            <Show when={f().schemasUnavailable}>
-              <span class="frozen-schema-warning" data-testid="frozen-schema-missing">
-                schemas from this run are unavailable - nodes render without definitions
+          <div ref={placeFrozenLine} class="frozen-banner" data-testid="frozen-banner" data-sync={f().sync}>
+            <span class="frozen-words" data-tooltip-label={f().tooltip}>
+              <Icon icon={Snowflake} />
+              <span class="frozen-label">{message('frozen.label')}</span>
+              <span class="frozen-sync">
+                {f().status === 'running'
+                  ? message('frozen.running', { percent: Math.round((f().progress?.value ?? 0) * 100) })
+                  : f().status === 'queued'
+                    ? message('frozen.queued')
+                    : f().queuedAt === undefined ? '' : message('frozen.ran', { time: runClock(f().queuedAt!) })}
+                {' '}{message(f().sync === 'in-sync' ? 'frozen.sync.inSync' : f().sync === 'diverged' ? 'frozen.sync.diverged' : 'frozen.sync.noLive')}
               </span>
-            </Show>
-            <ProductButton size="compact"
-              class="banner-button"
+              <Show when={f().schemasUnavailable}>
+                <span class="frozen-schema-warning" data-testid="frozen-schema-missing">
+                  schemas from this run are unavailable - nodes render without definitions
+                </span>
+              </Show>
+            </span>
+            <span class="canvas-chrome-divider" aria-hidden="true" />
+            <ProductButton variant="ghost" type="button" class="canvas-chrome-button frozen-action"
               data-testid="frozen-open-copy"
               onClick={() => { void props.app.duplicateTab(f().tab.id, true) }}
             >{message('frozen.openCopy')}</ProductButton>
             <Show when={f().live}>
               {(live) => (
-                <ProductButton size="compact"
-                  class="banner-button"
+                <ProductButton variant="ghost" type="button" class="canvas-chrome-button frozen-action"
                   data-testid="frozen-go-live"
                   onClick={() => props.app.activeTabId.set(live().id)}
                 >
@@ -7083,43 +7110,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 </ProductButton>
               )}
             </Show>
-          </div>
-        )}
-      </Show>
-
-      <Show when={liveSync()}>
-        {(s) => (
-          <div
-            class="sync-chip"
-            data-testid="sync-chip"
-            data-sync={s().inSync ? 'in-sync' : 'diverged'}
-            data-overlay-mode={s().mode}
-          >
-            <span>
-              {s().mode === 'pinned' ? 'pinned: ' : ''}
-              {s().inSync
-                ? `execution ${s().ref.prompt.slice(0, 8)}: ${s().status}`
-                : `edited since execution ${s().ref.prompt.slice(0, 8)} (${s().status})`}
-            </span>
-            <Show when={s().mode === 'pinned'}>
-              <ProductButton size="compact"
-                class="banner-button"
-                data-testid="sync-chip-follow-latest"
-                onClick={() => {
-                  const tab = activeTab()
-                  if (tab) props.app.followLatestExecution(tab.id)
-                }}
-              >
-                Follow Latest
-              </ProductButton>
-            </Show>
-            <ProductButton size="compact"
-              class="banner-button"
-              data-testid="sync-chip-open"
-              onClick={() => { void props.app.openExecutionView(s().ref) }}
-            >
-              View Frozen
-            </ProductButton>
           </div>
         )}
       </Show>

@@ -13,3 +13,8 @@ export function executionActivity(executions: Iterable<ExecutionState>): {
   }
   return { running, waiting }
 }
+
+/** The clock time a frozen view names a run by: 24-hour hours and minutes, such as 14:02. */
+export function runClock(at: number): string {
+  return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+}
