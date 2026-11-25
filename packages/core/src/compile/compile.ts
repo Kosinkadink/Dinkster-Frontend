@@ -193,8 +193,10 @@ export function documentPrimitiveResolver(doc: WorkflowDocument, base: SchemaRes
       const reaches = consumer.sources.some((source) => 'occurrence' in source && source.graph === graphId &&
         source.occurrence.node === node.id && source.valueKey === shape.value.id && samePath(source.occurrence.instancePath))
       if (!reaches) continue
+      const storedValue = doc.graphs[consumer.terminal.graph]?.nodes[consumer.terminal.occurrence.node]?.values[consumer.terminal.valueKey]
       fed.set(JSON.stringify([consumer.terminal.graph, occurrenceKey(consumer.terminal.occurrence), consumer.terminal.valueKey]),
-        { name: `${consumer.ref.node}.${consumer.input.displayName ?? consumer.input.id}`, input: consumer.input })
+        { name: `${consumer.ref.node}.${consumer.input.displayName ?? consumer.input.id}`, input: consumer.input,
+          ...(storedValue !== undefined ? { storedValue } : {}) })
     }
     // A limit field holds its typed-in value, or the one its wire brings
     // when that is known before the run, such as another primitive's.
