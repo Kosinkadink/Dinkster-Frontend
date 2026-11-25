@@ -220,7 +220,7 @@
   box-sizing: border-box;
   pointer-events: auto;
 }
-.asset-editor.widget-modal-editor { overflow: hidden; }
+.asset-editor.widget-modal-editor:has(> .asset-editor-scroll) { overflow: hidden; }
 .asset-editor-scroll {
   display: flex;
   flex: 1;
