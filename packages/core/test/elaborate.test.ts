@@ -713,16 +713,13 @@ describe('type choices', () => {
     expect(elabInputsOf(hidden)).toHaveLength(1)
   })
 
-  it('the chosen variant adds its rows at <slot>.<row>', () => {
+  it('the chosen variant adds its rows at <slot>.<row> only while connected or valued', () => {
     const e = elaborateInterface(schemaOf([specialized()]), { values: {}, dynamic: { model: { selected: 'lora' } } }, connectedInputs('model'))
     expect(elabInputsOf(e).map((i) => [i.address.port, i.apiName])).toEqual([
       ['model', 'model'], ['model.shared', 'model.shared'], ['model.weight', 'model.weight'],
     ])
     expect(elabInputsOf(e)[2]!.origin).toEqual({ kind: 'dependent', construct: 'model', variant: 'lora' })
     expect(e.choices).toEqual({ model: 'lora' })
-  })
-
-  it('a disconnected stored variant hides shared and variant rows without deleting their values', () => {
     const schema = schemaOf([specialized()])
     const node = { values: { 'model.shared': 3, 'model.weight': 7 }, dynamic: { model: { selected: 'lora' } } }
     const disconnected = elaborateInterface(schema, node)
