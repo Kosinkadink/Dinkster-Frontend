@@ -208,9 +208,11 @@ const shownValue = (value: Json): string => typeof value === 'string' ? value : 
 /**
  * The fields the viewed graph's last run filled with their default because
  * it could not work out their automatic value, while the editor works one
- * out now: one warning each, anchored to the field and listed in Problems.
- * A field that is fixed or wired is not automatic, so its warning goes; a
- * later run replaces the records.
+ * out now, and the fields whose value a node got at compile time differs
+ * from the one the run worked out for the field's own node: warnings
+ * anchored to the field and listed in Problems. A field that is fixed or
+ * wired is not automatic, so its warnings go; a later run replaces the
+ * records.
  */
 export function lastRunAutomaticDiagnostics(args: {
   readonly scene: Scene
@@ -226,8 +228,35 @@ export function lastRunAutomaticDiagnostics(args: {
         data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
       }))
   })
+  // A node that got the field's value copied in at compile time ran with
+  // that value, while the field's own node was worked out again when queued.
+  const taps = args.execution?.artifact?.automaticTaps ?? []
+  const differing = (record: RecordedAutomatic) => taps.filter((tap) =>
+    tap.runtimeNodeId === record.runtimeNodeId && tap.inputId === record.inputId && !sameJson(tap.value, record.value))
+  eachRecordedAutomaticRow(args.scene, args.execution, args.instancePath, (record) => differing(record).length > 0, (node, row, record) => {
+    // A compile passes one value on for a field, so the nodes that got it
+    // share one warning; a group per value keeps any other value apart.
+    const byValue = new Map<string, Map<string, string>>()
+    for (const tap of differing(record)) {
+      const key = JSON.stringify(tap.value)
+      let receivers = byValue.get(key)
+      if (receivers === undefined) byValue.set(key, (receivers = new Map()))
+      receivers.set(tap.receiverRuntimeId, tap.receiver)
+    }
+    for (const [key, receivers] of byValue) {
+      const names = [...receivers.values()]
+      const who = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.length} nodes`
+      out.push(diag('warning', 'runtime', 'automatic.lastRunTapDiffers',
+        `The last run used ${shownValue(record.value)} for ${row.label}, but ${who} got ${shownValue(JSON.parse(key) as Json)}.`, {
+          anchor: { port: { node: asNodeId(node.id), port: asPortId(row.inputId) } },
+          data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
+        }))
+    }
+  })
   return out
 }
+
+const sameJson = (a: Json, b: Json): boolean => JSON.stringify(a) === JSON.stringify(b)
 
 /**
  * A frozen view of a past run: each automatic row shows the value that run
