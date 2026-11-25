@@ -97,11 +97,12 @@ export function RunRow(props: {
   const ended = () => props.entry.endedAt ?? props.entry.startedAt ?? props.entry.queuedAt
   return (
     <article
-      class="run-row"
+      class="run-row dinkster-list-row"
       role="listitem"
       data-testid={props.testId}
       data-status={props.entry.status}
       data-selected={props.selected === true ? 'true' : undefined}
+      aria-current={props.selected === true ? 'true' : undefined}
     >
       <div class="run-row-line">
         <Show when={runIsPending(props.entry)} fallback={
@@ -157,7 +158,7 @@ export function RunSection(props: { readonly title: string; readonly testId?: st
   return (
     <section class="run-section" data-testid={props.testId} aria-label={props.title}>
       <h3 class="run-section-title">{props.title}</h3>
-      <div class="run-section-rows" role="list" aria-label={props.title}>{props.children}</div>
+      <div class="run-section-rows dinkster-list-rows" role="list" aria-label={props.title}>{props.children}</div>
     </section>
   )
 }

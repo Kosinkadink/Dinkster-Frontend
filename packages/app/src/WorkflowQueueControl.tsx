@@ -209,7 +209,7 @@ export function WorkflowQueueControl(props: {
               }}
             >
               <Show when={rows().pending.length > 0}>
-                <div class="run-section-rows" role="list" aria-label="Workflow jobs">
+                <div class="run-section-rows dinkster-list-rows" role="list" aria-label="Workflow jobs">
                   <For each={rows().pending}>{(entry) => <Row entry={entry} />}</For>
                 </div>
               </Show>

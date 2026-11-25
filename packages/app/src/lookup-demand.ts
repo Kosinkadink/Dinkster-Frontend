@@ -3,7 +3,7 @@
  * backend's one lookup client, and which calls the nodes on screen ask for.
  * The client shares equal calls and keeps answers; this only decides demand.
  */
-import { lookupSitesOf, type ElaborateOptions, type ElaboratedItem, type LookupAnswerState, type LookupCallSpec, type LookupFailure } from '@dinkster/core'
+import { lookupSitesOf, type AutomaticCall, type AutomaticValueRecord, type ElaborateOptions, type ElaboratedItem, type LookupAnswerState, type LookupCallSpec, type LookupFailure } from '@dinkster/core'
 import type { LookupClient } from '@dinkster/client'
 import { comboOptions } from './app-view-rows.js'
 import type { ComboOption } from './combo-search.js'
@@ -13,6 +13,19 @@ import type { RowLookups } from './WidgetEditorController.js'
 /** What elaboration reads for a lookup call: the answer the client holds, if any. */
 export const lookupAnswersOf = (lookups: LookupClient): NonNullable<ElaborateOptions['lookupAnswers']> =>
   (lookup, args) => lookups.entry({ function: lookup, args }) as LookupAnswerState | undefined
+
+/**
+ * A run worked out each recorded field again when it was queued. Where it
+ * got another value from the call the editor made for the field, that call's
+ * kept answer is old, so the row asks again and the next run agrees.
+ */
+export function recordRunAnswers(lookups: LookupClient, calls: readonly AutomaticCall[], records: readonly AutomaticValueRecord[]): void {
+  for (const record of records) {
+    if (!record.workedOut) continue
+    const call = calls.find((item) => item.runtimeNodeId === record.runtimeNodeId && item.inputId === record.inputId)
+    if (call !== undefined) lookups.answerRecorded({ function: call.lookup, args: call.args }, record.value)
+  }
+}
 
 /** A drawn node: its type (which declares the lookups), a key unique on its backend, and its elaborated rows. */
 export interface LookupDemandNode {
@@ -44,7 +57,9 @@ export class LookupDemand {
         const callKey = JSON.stringify([site.call.lookup, site.call.args])
         wanted.add(key)
         const previous = this.held.get(key)
-        if (previous?.call === callKey && !this.lookups.isOld(call)) return
+        // A demand is held only while its call is under way; asking again
+        // would cancel the call that is to replace an old answer.
+        if (previous?.call === callKey) return
         previous?.controller.abort()
         this.held.delete(key)
         if (this.lookups.entry(call) !== undefined && !this.lookups.isOld(call)) return

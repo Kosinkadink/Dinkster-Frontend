@@ -387,7 +387,7 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
                 <Show when={proposals().length > 0}>
                   <section class="collab-proposal-section" aria-labelledby="collab-proposals-heading" data-testid="collab-proposals">
                     <header><h4 id="collab-proposals-heading">Proposals</h4></header>
-                    <ul class="collab-proposals">
+                    <ul class="collab-proposals dinkster-list-rows">
                       <For each={proposals()}>
                         {({ remote, proposal, key }) => {
                           const definition = () => {
@@ -397,7 +397,7 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
                           const valid = () => props.app.settings.isUsableValue(proposal.settingId, proposal.value)
                           const applied = () => appliedProposals().has(key)
                           return (
-                            <li class="collab-proposal-card" data-testid="collab-proposal" data-proposal-id={proposal.id}>
+                            <li class="collab-proposal-card dinkster-list-row" data-testid="collab-proposal" data-proposal-id={proposal.id}>
                               <header>
                                 <span class="collab-proposal-agent">
                                   <strong>{remote.identity?.displayName ?? actorLabel(remote.actorId)}</strong>

@@ -94,14 +94,14 @@ export function AssetConsentDialog(props: { app: AppState }) {
         <Show when={selectable().length > 0 && !request()?.busy}>
           <ProductNotice tone="warning" class="asset-decision-notice">{message('assetConsent.notice.available')}</ProductNotice>
         </Show>
-        <ul class="asset-decision-list" tabindex="0" aria-label={message('assetConsent.listAriaLabel')}>
+        <ul class="asset-decision-list dinkster-list-rows" tabindex="0" aria-label={message('assetConsent.listAriaLabel')}>
           <For each={request()?.assets ?? []}>{(asset, index) => {
             const display = () => presentAssetPlan(asset, message)
             const controlId = `asset-consent-choice-${index()}`
             const nameId = `${controlId}-name`
             const detailId = `${controlId}-detail`
             return <li
-              class="asset-decision-row"
+              class="asset-decision-row dinkster-list-row"
               classList={{ unresolvable: !display().consentable, selected: selected().has(asset.digest) }}
               data-testid="asset-consent-row"
               data-state={display().consentable ? 'available' : 'unresolvable'}

@@ -62,7 +62,7 @@ function minimapTokens(): DesignTokens {
   return { ...defaultTokens, colors: canvasColorsForTheme(theme), ...canvasTypePaintForTheme(theme) }
 }
 
-function paintMinimap(canvas: HTMLCanvasElement, switches: Readonly<Record<string, boolean>>): void {
+function paintMinimap(canvas: HTMLCanvasElement, switches: Readonly<Record<string, boolean>>, hovered: boolean): void {
   const dpr = window.devicePixelRatio || 1
   const width = canvas.clientWidth
   const height = canvas.clientHeight
@@ -85,7 +85,7 @@ function paintMinimap(canvas: HTMLCanvasElement, switches: Readonly<Record<strin
     linkColors: switches['nodes'] !== false,
     viewport,
   })
-  if (tf) drawMinimapOverlay(context, tf, { width, height, tokens, viewport })
+  if (tf) drawMinimapOverlay(context, tf, { width, height, tokens, viewport, hovered })
 }
 
 interface CornerExample {
@@ -135,13 +135,15 @@ function CornerExampleCard(props: { readonly example: CornerExample }) {
   const [visible, setVisible] = createSignal(props.example.visible)
   const [menu, setMenu] = createSignal(props.example.menu)
   const [zoom, setZoom] = createSignal(scene.viewport.scale)
+  const [hovered, setHovered] = createSignal(false)
   let minimap: HTMLCanvasElement | undefined
   let figure: HTMLElement | undefined
   dismissOnOutside(() => figure, () => menu() !== undefined, '.minimap-menu, .canvas-zoom-menu, [data-testid="minimap-settings"], [data-testid="canvas-zoom-level"]', () => setMenu(undefined))
   onMount(() => {
     createEffect(() => {
       const current = switches()
-      if (visible() && minimap) paintMinimap(minimap, current)
+      const pointerOver = hovered()
+      if (visible() && minimap) paintMinimap(minimap, current, pointerOver)
     })
   })
   return (
@@ -154,7 +156,11 @@ function CornerExampleCard(props: { readonly example: CornerExample }) {
           zoom={zoom()}
           menu={menu()}
           shortcuts={{ zoomIn: 'alt+=', zoomOut: 'alt+-' }}
-          minimapRef={(element) => { minimap = element }}
+          minimapRef={(element) => {
+            minimap = element
+            element.addEventListener('pointerenter', () => setHovered(true))
+            element.addEventListener('pointerleave', () => setHovered(false))
+          }}
           onToggleMinimap={() => setVisible((value) => !value)}
           onToggleSetting={(id) => setSwitches((value) => ({ ...value, [id]: !value[id] }))}
           onOpenMenu={setMenu}

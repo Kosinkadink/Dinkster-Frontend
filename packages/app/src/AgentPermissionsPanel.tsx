@@ -95,7 +95,7 @@ export function AgentPermissionsPanel(props: { readonly connection: PermissionsC
         <h3>{message('agentPermissions.title')}</h3>
         <p>{message('agentPermissions.description')}</p>
         <Show when={self()}>
-          <div class="agent-permissions-row" data-testid="connect-agent">
+          <div class="agent-permissions-row dinkster-list-row" data-testid="connect-agent">
             <h4>{message('agentPermissions.connect')}</h4>
             <ProductField controlId="delegate-name" label={message('agentPermissions.name')}>
               <input id="delegate-name" value={name()} maxLength={64} onInput={(event) => setName(event.currentTarget.value)} />
@@ -126,9 +126,9 @@ export function AgentPermissionsPanel(props: { readonly connection: PermissionsC
             <Show when={notice()}><ProductNotice tone="error">{notice()}</ProductNotice></Show>
           </div>
         </Show>
-        <div class="agent-permissions-list">
+        <div class="agent-permissions-list dinkster-list-rows">
           <For each={principals()}>{(principal) => (
-            <div class="agent-permissions-row" data-testid="agent-permissions-row">
+            <div class="agent-permissions-row dinkster-list-row" data-testid="agent-permissions-row">
               <div class="agent-permissions-identity">
                 <strong>{principal.principalId}</strong>
                 <span class="backend-badge">{principal.kind}</span>

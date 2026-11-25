@@ -53,6 +53,8 @@ export interface SemanticDesignTokens {
     readonly panel: string
     readonly inset: string
     readonly raised: string
+    /** A quiet surface on a panel, such as the projects page's fact boxes: half the step to raised. */
+    readonly quiet: string
     readonly selected: string
     /** A canvas row's field while it is open for editing. */
     readonly fieldOpen: string
@@ -127,6 +129,8 @@ export interface SemanticDesignTokens {
     readonly hoverOverlay: string
     readonly pressedOverlay: string
     readonly selectedOverlay: string
+    /** The active workflow tab's translucent tint at its top, fading into the canvas below. */
+    readonly activeTabTint: string
     readonly disabledOpacity: number
     readonly unfocusedOpacity: number
   }
@@ -161,6 +165,7 @@ export const semanticTokensForTheme = (
       panel: colors.bg.surface,
       inset: colors.bg.canvas,
       raised: colors.bg.raised,
+      quiet: colors.bg.quiet,
       selected: colors.bg.hover,
       fieldOpen: colors.bg.fieldOpen,
     },
@@ -212,6 +217,7 @@ export const semanticTokensForTheme = (
       hoverOverlay: colors.bg.hover,
       pressedOverlay: colors.bg.raised,
       selectedOverlay: colors.bg.hover,
+      activeTabTint: colors.bg.activeTabTint,
     },
     motion: components.motion,
     elevation: components.elevation,
@@ -326,6 +332,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-surface-panel': semanticDesignTokens.surface.panel,
     '--dinkster-surface-inset': semanticDesignTokens.surface.inset,
     '--dinkster-surface-raised': semanticDesignTokens.surface.raised,
+    '--dinkster-surface-quiet': semanticDesignTokens.surface.quiet,
     '--dinkster-surface-selected': semanticDesignTokens.surface.selected,
     '--dinkster-surface-field-open': semanticDesignTokens.surface.fieldOpen,
     '--dinkster-checker-dark': semanticDesignTokens.checker.dark,
@@ -395,6 +402,8 @@ export const semanticCssVariablesForTheme = (
       semanticDesignTokens.interaction.pressedOverlay,
     '--dinkster-interaction-selected':
       semanticDesignTokens.interaction.selectedOverlay,
+    '--dinkster-interaction-active-tab-tint':
+      semanticDesignTokens.interaction.activeTabTint,
     '--dinkster-interaction-disabled-opacity': String(
       semanticDesignTokens.interaction.disabledOpacity,
     ),
