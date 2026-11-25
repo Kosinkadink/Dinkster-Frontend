@@ -7,8 +7,10 @@
  */
 import { createEffect, createMemo, createResource, createSignal, For, Index, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { AudioLines, BookOpen, Database, Ellipsis, Eye, EyeOff, LayoutGrid, Search, Server, Workflow } from 'lucide-solid'
-import { activeLocale, asConnectionId } from '@dinkster/core'
+import { activeLocale, asConnectionId, loadDocument, type SchemaResolver, type WorkflowDocument } from '@dinkster/core'
+import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import {
+  buildDinksterRegistry,
   DinksterConnection,
   type LibraryProject,
   type LibraryRecord,
@@ -47,6 +49,7 @@ import { DEFAULT_PROJECT_ID } from '../projects.js'
 import '@dinkster/ui/styles.css'
 import './projects-page.css'
 import { byProjectTime, formatBytes, formatWhen, projectTime } from './project-facts.js'
+import { WorkflowPicture } from './workflow-picture.js'
 
 /** An installation a project can run on. */
 export interface PageInstallation {
@@ -62,6 +65,10 @@ export interface ProjectsSource {
   renameProject(project: LibraryProject, name: string): Promise<LibraryProject>
   deleteProject(project: LibraryProject): Promise<LibraryProject>
   listWorkflows(project: string): Promise<readonly LibraryRecord[]>
+  /** A saved workflow's document; undefined when its bytes cannot be read or loaded. */
+  workflowDocument(digest: string): Promise<WorkflowDocument | undefined>
+  /** The node definitions the project last ran with; undefined when the process has none. */
+  definitions(project: string): Promise<SchemaResolver | undefined>
   listOutputs(project: string, limit: number): Promise<readonly LocalAssetCatalogEntry[]>
   /** Stored bytes and output count; undefined while the process cannot tell. */
   usage(project: string): Promise<{ readonly outputs: number; readonly bytes: number } | undefined>
@@ -152,6 +159,15 @@ export function processSource(connection: DinksterConnection = processConnection
     async listWorkflows(project) {
       const page = await connection.listLibrary({ scope: 'local', label: 'workflow', project, limit: 200 })
       return page.records
+    },
+    async workflowDocument(digest) {
+      const response = await fetch(`/api/assets/${encodeURIComponent(digest)}`)
+      return response.ok ? loadDocument(await response.json()).document : undefined
+    },
+    async definitions(project) {
+      const response = await fetch(`/api/nodes/provisional?${new URLSearchParams({ project })}`, { cache: 'no-store' })
+      if (!response.ok) return undefined
+      return buildDinksterRegistry(asConnectionId('projects-page'), await response.json()).resolve
     },
     async listOutputs(project, limit) {
       return (await connection.listProjectOutputs(project, { limit })).assets
@@ -354,6 +370,7 @@ export function ProjectsView(props: {
   const [workflows] = createResource(selectedId, (id) => props.source.listWorkflows(id).catch(() => null))
   const [outputs] = createResource(selectedId, (id) => props.source.listOutputs(id, OUTPUT_LIMIT).catch(() => null))
   const [usage] = createResource(selectedId, (id) => props.source.usage(id).catch(() => undefined))
+  const [definitions] = createResource(selectedId, (id) => props.source.definitions(id).catch(() => undefined))
 
   const when = (at: number) => {
     locale()
@@ -588,16 +605,27 @@ export function ProjectsView(props: {
             >
               <ProductTileGrid size="wide">
                 <For each={workflows()}>
-                  {(workflow) => (
-                    <ProductTile
-                      label={workflow.name}
-                      caption={workflow.name}
-                      // Library records carry seconds.
-                      detail={when(workflow.modified * 1000)}
-                      empty={<ProductIcon icon={Workflow} />}
-                      onClick={() => open(project)}
-                    />
-                  )}
+                  {(workflow) => {
+                    // The workflow is drawn as the minimap draws it once its document is read; the icon stands in until then, or when it cannot be.
+                    const [document] = createResource(() =>
+                      props.source.workflowDocument(workflow.digest).catch(() => undefined),
+                    )
+                    return (
+                      <ProductTile
+                        label={workflow.name}
+                        caption={workflow.name}
+                        // Library records carry seconds.
+                        detail={when(workflow.modified * 1000)}
+                        picture={
+                          document() ? (
+                            <WorkflowPicture document={document()!} resolve={definitions() ?? noDefinitions} widgets={widgets} />
+                          ) : undefined
+                        }
+                        empty={<ProductIcon icon={Workflow} />}
+                        onClick={() => open(project)}
+                      />
+                    )
+                  }}
                 </For>
               </ProductTileGrid>
             </Show>
@@ -800,6 +828,10 @@ export function ProjectsView(props: {
  * Delete should do is decided; the dialog stays built behind this switch.
  */
 const OFFER_DELETE = false
+
+const widgets = createWidgetRegistry()
+registerCoreWidgets(widgetRegistrationDoors(widgets))
+const noDefinitions: SchemaResolver = () => undefined
 
 const ENGINE_WORDS: Record<EngineState, string> = {
   stopped: 'shell.engine.notRunning',

@@ -55,6 +55,8 @@ function source(projects: readonly LibraryProject[]): ProjectsSource {
     usage: async () => undefined,
     installations: async () => ({ all: [stable, nightly], open: stable, openFolder: true }),
     openFolder: async () => {},
+    workflowDocument: async () => undefined,
+    definitions: async () => undefined,
   }
 }
 
@@ -228,4 +230,24 @@ it('dates a workflow tile from the record, which counts seconds', async () => {
   await settle()
   const tile = [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Kitchen still life'))
   expect(tile?.textContent).toBe('Kitchen still life' + '2 hours ago')
+})
+
+it('draws a workflow tile from its saved document, and keeps the icon for one it cannot read', async () => {
+  const record = (id: string, digest: string) => ({ id, scope: 'local', name: id, digest, mediaType: 'application/x-dinkster-workflow+json',
+    labels: ['workflow'], created: 1, modified: 1, revision: 1 })
+  const saved = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'l', root: 'g0',
+    graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 } },
+    view: { graphs: { g0: { nodes: {} } } } } as unknown as import('@dinkster/core').WorkflowDocument
+  const data = {
+    ...source(projects),
+    listWorkflows: async () => [record('Readable', 'blake3:read'), record('Unreadable', 'blake3:gone')],
+    workflowDocument: async (digest: string) => (digest === 'blake3:read' ? saved : undefined),
+  }
+  render(() => <ProjectsView shell={shell()} source={data} />, document.body)
+  await settle()
+  await settle()
+  const tile = (name: string) => [...document.querySelectorAll('button.dinkster-tile')].find((b) => b.textContent?.startsWith(name))!
+  expect(tile('Readable').querySelector('.dinkster-tile-picture canvas')).not.toBeNull()
+  expect(tile('Unreadable').querySelector('canvas')).toBeNull()
+  expect(tile('Unreadable').querySelector('.dinkster-tile-empty svg')).not.toBeNull()
 })
