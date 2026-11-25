@@ -175,7 +175,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'editor-rows':
     'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for.',
   'widget-driven':
-    'A row whose value comes from a wire is dimmed and its stored value is struck through.',
+    'A wired row is dimmed and reads Known after a run until its arriving value is known. The stored value stays available in its readout.',
   'widget-offered':
     'Rows a node offers but does not have yet are dimmed until they are added.',
   'widget-companions':
