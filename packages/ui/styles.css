@@ -651,6 +651,12 @@
 .dinkster-project-row-detail { display: flex; align-items: center; gap: var(--dinkster-space-4); min-width: 0; overflow: hidden; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); white-space: nowrap; }
 .dinkster-project-row[data-state='failed'] .dinkster-project-row-detail { color: var(--dinkster-warning-foreground); }
 .dinkster-project-row-detail > .dinkster-icon { width: var(--dinkster-type-metadata-size); height: var(--dinkster-type-metadata-size); }
+.dinkster-projects-list > .dinkster-disclosure { padding-inline: var(--dinkster-space-12); }
+.dinkster-projects-list > .dinkster-disclosure > .dinkster-stack { margin-inline: calc(-1 * var(--dinkster-space-12)); }
+.dinkster-project-row[data-state='deleted'] { grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--dinkster-space-8); cursor: default; }
+.dinkster-project-row[data-state='deleted']:hover { background: transparent; }
+.dinkster-project-row[data-state='deleted'] > .dinkster-project-row-name { color: var(--dinkster-text-secondary); font-weight: var(--dinkster-weight-regular); }
+.dinkster-project-row[data-state='deleted'] > .dinkster-text-button { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
 .dinkster-progress { position: absolute; inset-inline: var(--dinkster-space-12); bottom: var(--dinkster-space-4); height: var(--dinkster-focus-ring-width); overflow: hidden; border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-border-subtle); }
 .dinkster-progress::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: var(--dinkster-accent-border); animation: dinkster-progress calc(var(--dinkster-motion-standard) * 8) var(--dinkster-motion-easing) infinite; }
 @keyframes dinkster-progress { from { translate: -100% 0; } to { translate: 250% 0; } }

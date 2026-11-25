@@ -1,6 +1,7 @@
 import { For, Index, Show, createUniqueId, type JSX } from "solid-js";
 import { Plus, TriangleAlert } from "lucide-solid";
-import { ProductButton, ProductIcon } from "./controls.js";
+import { ProductButton, ProductIcon, ProductTextButton } from "./controls.js";
+import { ProductDisclosure } from "./account.js";
 
 /** One project in the projects page's list. */
 export interface ProductProjectEntry {
@@ -45,6 +46,16 @@ export function ProductProjectList(props: {
   selected: string | undefined;
   onSelect: (id: string) => void;
   loadingLabel: string;
+  /**
+   * Deleted projects, under a closed disclosure after the last project. Their
+   * rows cannot be selected; only Restore acts. Absent when there are none.
+   */
+  deleted?: {
+    title: string;
+    restoreLabel: string;
+    rows: readonly { id: string; name: string; detail: string }[];
+    onRestore: (id: string) => void;
+  };
 }) {
   const heading = createUniqueId();
   let list!: HTMLUListElement;
@@ -125,6 +136,38 @@ export function ProductProjectList(props: {
               )}
             </For>
           </ul>
+        )}
+      </Show>
+      <Show when={props.deleted?.rows.length ? props.deleted : undefined}>
+        {(deleted) => (
+          <ProductDisclosure title={deleted().title}>
+            <ul
+              class="dinkster-projects-rows"
+              data-testid="deleted-projects"
+              aria-label={deleted().title}
+            >
+              <For each={deleted().rows}>
+                {(row) => {
+                  const name = createUniqueId();
+                  return (
+                    <li class="dinkster-project-row" data-state="deleted">
+                      <span id={name} class="dinkster-project-row-name">
+                        {row.name}
+                      </span>
+                      <span class="dinkster-project-row-detail">
+                        {row.detail}
+                      </span>
+                      <ProductTextButton
+                        label={deleted().restoreLabel}
+                        aria-describedby={name}
+                        onClick={() => deleted().onRestore(row.id)}
+                      />
+                    </li>
+                  );
+                }}
+              </For>
+            </ul>
+          </ProductDisclosure>
         )}
       </Show>
     </>

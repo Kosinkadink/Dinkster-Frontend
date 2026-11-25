@@ -3583,6 +3583,27 @@ describe('workflow library wire', () => {
     await expect(stale.deleteProject('p-film', 2)).rejects.toThrow('changed elsewhere')
   })
 
+  it('restoreProject posts the revision it read and refuses an answer that is still deleted', async () => {
+    const restored = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', modified: '2026-11-25T13:00:00Z', revision: 5, deleted: false }
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { project: restored }))
+    expect(await conn.restoreProject('p-film', 4)).toMatchObject({ deleted: false, revision: 5, modified: '2026-11-25T13:00:00Z' })
+    expect(requests[0]!.init?.method).toBe('POST')
+    expect(requests[0]!.url).toBe('http://test/api/projects/p-film/restore')
+    expect(JSON.parse(String(requests[0]!.init?.body))).toEqual({ revision: 4 })
+    const { conn: kept } = submitHarness(() => jsonResponse(200, { project: { ...restored, deleted: true } }))
+    await expect(kept.restoreProject('p-film', 4)).rejects.toThrow('did not restore')
+    const { conn: stale } = submitHarness(() => jsonResponse(409, { error: 'stale' }))
+    await expect(stale.restoreProject('p-film', 3)).rejects.toThrow('changed elsewhere')
+  })
+
+  it('listProjects asks for deleted projects only when told to', async () => {
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { items: [], cursor: null }))
+    await conn.listProjects()
+    await conn.listProjects(undefined, undefined, true)
+    expect(new URL(requests[0]!.url).searchParams.has('includeDeleted')).toBe(false)
+    expect(new URL(requests[1]!.url).searchParams.get('includeDeleted')).toBe('true')
+  })
+
   it('listLibrary throws on a rejected cursor (restart from page one)', async () => {
     const { conn } = submitHarness(() => jsonResponse(400, { error: 'cursor-query-mismatch' }))
     await expect(conn.listLibrary({ scope: 'local', cursor: 'stale' })).rejects.toThrow('400')

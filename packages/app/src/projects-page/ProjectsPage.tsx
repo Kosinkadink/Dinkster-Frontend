@@ -61,10 +61,12 @@ export interface PageInstallation {
 
 /** What the page reads; the process in the app, a stand-in in tests. */
 export interface ProjectsSource {
+  /** Every project, deleted ones included. */
   listProjects(): Promise<readonly LibraryProject[]>
   registerProject(id: string, name: string): Promise<LibraryProject>
   renameProject(project: LibraryProject, name: string): Promise<LibraryProject>
   deleteProject(project: LibraryProject): Promise<LibraryProject>
+  restoreProject(project: LibraryProject): Promise<LibraryProject>
   listWorkflows(project: string): Promise<readonly LibraryRecord[]>
   /** A saved workflow's document; undefined when its bytes cannot be read or loaded. */
   workflowDocument(digest: string): Promise<WorkflowDocument | undefined>
@@ -148,15 +150,16 @@ export function processSource(connection: DinksterConnection = processConnection
       const projects: LibraryProject[] = []
       let cursor: string | undefined
       do {
-        const page = await connection.listProjects(cursor)
+        const page = await connection.listProjects(cursor, undefined, true)
         projects.push(...page.items)
         cursor = page.cursor ?? undefined
       } while (cursor !== undefined)
-      return projects.filter((project) => !project.deleted)
+      return projects
     },
     registerProject: (id, name) => connection.registerProject(id, name),
     renameProject: (project, name) => connection.renameProject(project.id, name, project.revision),
     deleteProject: (project) => connection.deleteProject(project.id, project.revision),
+    restoreProject: (project) => connection.restoreProject(project.id, project.revision),
     async listWorkflows(project) {
       const page = await connection.listLibrary({ scope: 'local', label: 'workflow', project, limit: 200 })
       return page.records
@@ -364,8 +367,14 @@ export function ProjectsView(props: {
     globalThis.addEventListener('focus', reread)
     onCleanup(() => globalThis.removeEventListener('focus', reread))
   })
+  // The list holds deleted projects too; they show only under "Deleted projects".
+  const live = () => projects()?.filter((project) => !project.deleted)
+  const gone = () =>
+    projects()
+      ?.filter((project) => project.deleted)
+      .sort((a, b) => deletedAt(b) - deletedAt(a))
   createEffect(() => {
-    const list = projects()
+    const list = live()
     if (list && !installations.loading && !firstRun()) props.onCount?.(list.length)
   })
   createEffect(() => {
@@ -377,10 +386,11 @@ export function ProjectsView(props: {
   const [folderFailed, setFolderFailed] = createSignal<string>()
   const [runsOnChoice, setRunsOnChoice] = createSignal(0)
   const [hiddenChange, setHiddenChange] = createSignal(0)
+  const [restoreFailed, setRestoreFailed] = createSignal<string>()
 
   const selectedId = (): string | undefined =>
-    chosen() ?? props.shell.selectedProjectId() ?? projects()?.[0]?.id
-  const selected = createMemo(() => projects()?.find((project) => project.id === selectedId()))
+    chosen() ?? props.shell.selectedProjectId() ?? live()?.[0]?.id
+  const selected = createMemo(() => live()?.find((project) => project.id === selectedId()))
   const [workflows] = createResource(selectedId, (id) => props.source.listWorkflows(id).catch(() => null))
   const [outputs] = createResource(selectedId, (id) => props.source.listOutputs(id, OUTPUT_LIMIT).catch(() => null))
   const [usage] = createResource(selectedId, (id) => props.source.usage(id).catch(() => undefined))
@@ -405,7 +415,7 @@ export function ProjectsView(props: {
   }
 
   const entries = (): ProductProjectEntry[] | undefined => {
-    const list = projects()
+    const list = live()
     if (!list) return undefined
     const now = opening()
     return list.map((project) => {
@@ -449,12 +459,26 @@ export function ProjectsView(props: {
       const renamed = await props.source.renameProject(project, newName().trim())
       setProjects((list) => list?.map((entry) => (entry.id === renamed.id ? renamed : entry)))
     })
+  const replace = (changed: LibraryProject) =>
+    setProjects((list) => list && byProjectTime(list.map((entry) => (entry.id === changed.id ? changed : entry))))
+  // After Delete the next project down is selected, or the one above when it was the last.
   const remove = (project: LibraryProject) =>
     act(async () => {
-      await props.source.deleteProject(project)
-      setProjects((list) => list?.filter((entry) => entry.id !== project.id))
-      setChosen(undefined)
+      const list = live() ?? []
+      const index = list.findIndex((entry) => entry.id === project.id)
+      replace(await props.source.deleteProject(project))
+      setChosen((list[index + 1] ?? list[index - 1])?.id)
     })
+  const restore = async (project: LibraryProject) => {
+    setRestoreFailed(undefined)
+    try {
+      replace(await props.source.restoreProject(project))
+      setChosen(project.id)
+      if (newProject()) props.shell.showProjects()
+    } catch {
+      setRestoreFailed(project.name)
+    }
+  }
 
   const open = (project: LibraryProject) => {
     setBannerShown(true)
@@ -499,7 +523,7 @@ export function ProjectsView(props: {
                         },
                       },
                       // The default project cannot be deleted, so it has no Delete.
-                      ...(!OFFER_DELETE || project.id === DEFAULT_PROJECT_ID
+                      ...(project.id === DEFAULT_PROJECT_ID
                         ? []
                         : [
                             'separator' as const,
@@ -536,6 +560,13 @@ export function ProjectsView(props: {
           <ProductErrorBanner quiet onDismiss={() => setBannerShown(false)}>
             {message('projects.failed.banner', { failed: here()!.failed!, project: project.name })}
           </ProductErrorBanner>
+        </Show>
+        <Show when={restoreFailed()}>
+          {(name) => (
+            <ProductErrorBanner quiet onDismiss={() => setRestoreFailed(undefined)}>
+              {message('projects.restore.failed', { project: name() })}
+            </ProductErrorBanner>
+          )}
         </Show>
         <Show when={folderFailed() === project.id}>
           <ProductErrorBanner quiet onDismiss={() => setFolderFailed(undefined)}>
@@ -821,6 +852,19 @@ export function ProjectsView(props: {
               if (newProject()) props.shell.showProjects()
             }}
             loadingLabel={message('projects.loading')}
+            deleted={{
+              title: message('projects.deleted.title', { count: gone()?.length ?? 0 }),
+              restoreLabel: message('projects.deleted.restore'),
+              rows: (gone() ?? []).map((project) => ({
+                id: project.id,
+                name: project.name,
+                detail: message('projects.deleted.when', { when: when(deletedAt(project)) }),
+              })),
+              onRestore: (id) => {
+                const project = gone()?.find((entry) => entry.id === id)
+                if (project) void restore(project)
+              },
+            }}
           />
         }
       >
@@ -850,12 +894,8 @@ export function ProjectsView(props: {
   )
 }
 
-/**
- * Deleting a project today only hides it: its workflows can never be opened
- * again and nothing is freed on disk. The menu offers Rename only until what
- * Delete should do is decided; the dialog stays built behind this switch.
- */
-const OFFER_DELETE = false
+/** A deleted project's record changes no more, so its last change is when it was deleted. */
+const deletedAt = (project: LibraryProject) => Date.parse(project.modified ?? project.created)
 
 /** The command that makes a first installation (Dinkster's docs/install.md). */
 const SETUP_COMMAND = 'dinkster setup'

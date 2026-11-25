@@ -1339,6 +1339,8 @@ export interface LibraryProject {
   readonly created: string
   readonly revision: number
   readonly deleted: boolean
+  /** When the record last changed; for a deleted project, when it was deleted. */
+  readonly modified?: string
   /** The project's selected output folder, an absolute path; null when the process has none to name. */
   readonly folder?: string | null
   readonly environment?: { readonly id: string } & (
@@ -1415,12 +1417,17 @@ function decodeLibraryProject(value: unknown): LibraryProject {
   if (folder !== undefined && folder !== null && (typeof folder !== 'string' || folder.length === 0)) {
     throw new Error('Malformed library project folder')
   }
+  const modified = row['modified']
+  if (modified !== undefined && (typeof modified !== 'string' || !Number.isFinite(Date.parse(modified)))) {
+    throw new Error('Malformed library project modification time')
+  }
   return {
     ...(link === undefined ? {} : { accountProject: link }),
     id: row['id'], name: row['name'], created: row['created'], revision: row['revision'] as number, deleted: row['deleted'],
     ...(uid === undefined ? {} : { uid: uid as string }),
     ...(environment === undefined ? {} : { environment: environment as Exclude<LibraryProject['environment'], undefined> }),
     ...(folder === undefined ? {} : { folder: folder as string | null }),
+    ...(modified === undefined ? {} : { modified: modified as string }),
   }
 }
 
@@ -4106,12 +4113,14 @@ export class DinksterConnection {
     return { id: row['id'], snapshot: row['snapshot'] }
   }
 
-  async listProjects(cursor?: string, signal?: AbortSignal): Promise<{
+  /** One page of projects; deleted ones only when `includeDeleted` asks for them. */
+  async listProjects(cursor?: string, signal?: AbortSignal, includeDeleted = false): Promise<{
     readonly items: readonly LibraryProject[]
     readonly cursor: string | null
   }> {
     const query = new URLSearchParams({ limit: '100' })
     if (cursor !== undefined) query.set('cursor', cursor)
+    if (includeDeleted) query.set('includeDeleted', 'true')
     const res = await this.fetchFn(`${this.baseUrl}/api/projects?${query}`, { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
     if (!res.ok) throw new Error(`GET /api/projects failed: ${res.status}`)
     const payload = await res.json() as Record<string, unknown> | null
@@ -4258,6 +4267,20 @@ export class DinksterConnection {
     const payload = await res.json() as { project?: unknown } | null
     const project = decodeLibraryProject(payload?.project)
     if (project.id !== id || !project.deleted) throw new Error('Library did not delete the project')
+    return project
+  }
+
+  /** Clears the project's deleted mark at `revision`; its workflows and outputs come back with it. */
+  async restoreProject(id: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}/restore`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision }), ...(signal === undefined ? {} : { signal }),
+    })
+    if (res.status === 409) throw new Error('Project changed elsewhere. Refresh before restoring.')
+    if (!res.ok) throw new Error(`POST /api/projects/${id}/restore failed: ${res.status}`)
+    const payload = await res.json() as { project?: unknown } | null
+    const project = decodeLibraryProject(payload?.project)
+    if (project.id !== id || project.deleted) throw new Error('Library did not restore the project')
     return project
   }
 

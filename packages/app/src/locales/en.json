@@ -1731,7 +1731,7 @@
   "projects.rename.title": "Rename project",
   "projects.rename.save": "Save",
   "projects.delete.title": "Delete {project}?",
-  "projects.delete.consequence": "The project is removed from this list. Its workflows and output files are kept on disk.",
+  "projects.delete.consequence": "It moves to Deleted projects at the bottom of this list, with its workflows and outputs. You can restore it from there. No files are removed.",
   "projects.delete.action": "Delete project",
   "projects.open.noInstallation": "This project has no installation to run on.",
   "projects.unreadable": "Could not read the projects.",
@@ -1743,5 +1743,9 @@
   "projects.facts.folderFailed": "The folder could not be opened on this computer.",
   "projects.setup.title": "Set up Dinkster",
   "projects.setup.how": "Install an engine from a terminal on the computer that runs Dinkster:",
-  "projects.setup.after": "This page lists the installation when setup is done."
+  "projects.setup.after": "This page lists the installation when setup is done.",
+  "projects.deleted.title": "Deleted projects ({count})",
+  "projects.deleted.when": "Deleted {when}",
+  "projects.deleted.restore": "Restore",
+  "projects.restore.failed": "{project} could not be restored."
 }

@@ -394,23 +394,63 @@ export function ProjectsGallery() {
   const [name, setName] = createSignal('Night market')
   const [startWith, setStartWith] = createSignal('empty')
   const [activity, setActivity] = createSignal('No action yet')
+  // Deleted projects can be restored; these two were deleted before the page opened.
+  const [deleted, setDeleted] = createSignal<
+    readonly { id: string; name: string; detail: string }[]
+  >([
+    {
+      id: 'old-storyboard',
+      name: 'Old storyboard',
+      detail: 'Deleted 3 days ago',
+    },
+    { id: 'test-renders', name: 'Test renders', detail: 'Deleted Oct 12' },
+  ])
+  const [removed, setRemoved] = createSignal<ReadonlySet<string>>(new Set())
+  const [restored, setRestored] = createSignal<readonly MockProject[]>([])
   const pictures = new Map<string, string>()
   const picture = (output: MockOutput, index: number) => {
     const key = `${output.hue}-${index}`
     if (!pictures.has(key)) pictures.set(key, outputPicture(output.hue, index))
     return pictures.get(key)!
   }
-  const allProjects = (): MockProject[] => [
-    ...projects,
-    ...(many()
-      ? extraNames.map((name, index) => ({
-          ...projects[5]!,
-          id: `extra-${index}`,
-          name,
-          opened: 'Oct 30',
-        }))
-      : []),
-  ]
+  const allProjects = (): MockProject[] =>
+    [
+      ...projects,
+      ...restored(),
+      ...(many()
+        ? extraNames.map((name, index) => ({
+            ...projects[5]!,
+            id: `extra-${index}`,
+            name,
+            opened: 'Oct 30',
+          }))
+        : []),
+    ].filter((entry) => !removed().has(entry.id))
+  const deleteSelected = () => {
+    const list = allProjects()
+    const index = list.findIndex((entry) => entry.id === project().id)
+    const gone = list[index]!
+    setRemoved(new Set([...removed(), gone.id]))
+    setDeleted([
+      { id: gone.id, name: gone.name, detail: 'Deleted just now' },
+      ...deleted(),
+    ])
+    setSelected((list[index + 1] ?? list[index - 1])!.id)
+    setActivity(`Deleted ${gone.name}`)
+  }
+  const restore = (id: string) => {
+    const row = deleted().find((entry) => entry.id === id)!
+    if (removed().has(id))
+      setRemoved(new Set([...removed()].filter((entry) => entry !== id)))
+    else
+      setRestored([
+        ...restored(),
+        { ...projects[5]!, id, name: row.name, opened: 'Created Oct 2' },
+      ])
+    setDeleted(deleted().filter((entry) => entry.id !== id))
+    setSelected(id)
+    setActivity(`Restored ${row.name}`)
+  }
   const project = () =>
     allProjects().find((entry) => entry.id === selected()) ?? projects[0]!
   const ownEditor = () => state() === 'opening-own-editor'
@@ -931,6 +971,15 @@ export function ProjectsGallery() {
                         setSelected(id)
                       }}
                       loadingLabel="Loading projects"
+                      deleted={{
+                        title: `Deleted projects (${deleted().length})`,
+                        restoreLabel: 'Restore',
+                        rows: deleted(),
+                        onRestore: (id) => {
+                          if (state() === 'new') setState('ready')
+                          restore(id)
+                        },
+                      }}
                     />
                   }
                 >
@@ -990,12 +1039,12 @@ export function ProjectsGallery() {
           onDismiss={() => setDialog(undefined)}
         >
           <ProductConfirmation
-            consequence="Not final: what deleting a project keeps is still being decided."
+            consequence="It moves to Deleted projects at the bottom of this list, with its workflows and outputs. You can restore it from there. No files are removed."
             actionLabel="Delete project"
             intent="remove"
             onConfirm={() => {
               setDialog(undefined)
-              setActivity(`Deleted ${project().name}`)
+              deleteSelected()
             }}
             onCancel={() => setDialog(undefined)}
           />

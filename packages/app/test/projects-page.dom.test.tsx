@@ -42,7 +42,8 @@ function source(projects: readonly LibraryProject[]): ProjectsSource {
     listProjects: async () => projects,
     registerProject: async (id, name) => project(id, name, new Date(NOW).toISOString()),
     renameProject: async (entry, name) => ({ ...entry, name, revision: entry.revision + 1 }),
-    deleteProject: async (entry) => ({ ...entry, deleted: true, revision: entry.revision + 1 }),
+    deleteProject: async (entry) => ({ ...entry, deleted: true, revision: entry.revision + 1, modified: new Date(NOW).toISOString() }),
+    restoreProject: async (entry) => ({ ...entry, deleted: false, revision: entry.revision + 1 }),
     listWorkflows: async () => [],
     listOutputs: async (id) =>
       id === 'p-valley'
@@ -147,14 +148,13 @@ const button = (label: string) => [...document.querySelectorAll('button')].find(
 const menuItem = (label: string) =>
   [...document.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === label) as HTMLElement | undefined
 
-it('renames the selected project at the revision it read, and offers no Delete while deleting would lose its workflows', async () => {
+it('renames the selected project at the revision it read', async () => {
   vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
   const data = source(projects)
   const renamed = vi.spyOn(data, 'renameProject')
   render(() => <ProjectsView shell={shell()} source={data} />, document.body)
   await settle()
   document.querySelector<HTMLButtonElement>('[aria-label="Project actions"]')!.click()
-  expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(['Rename'])
   menuItem('Rename')!.click()
   await settle()
   const input = document.querySelector<HTMLInputElement>('dialog input')!
@@ -164,6 +164,45 @@ it('renames the selected project at the revision it read, and offers no Delete w
   await settle()
   expect(renamed).toHaveBeenCalledWith(expect.objectContaining({ id: 'p-film', revision: 1 }), 'Film grain')
   expect(rows()).toContain('Film grain' + 'Ran 2 hours ago')
+})
+
+it('moves a deleted project under Deleted projects, selects the next one, and restores it selected', async () => {
+  vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
+  const old = { ...project('p-old', 'Old storyboard', hoursAgo(24 * 40)), deleted: true, revision: 3, modified: hoursAgo(3) }
+  const data = source([...projects, old])
+  const restored = vi.spyOn(data, 'restoreProject')
+  render(() => <ProjectsView shell={shell()} source={data} />, document.body)
+  await settle()
+  const deletedRows = () => [...document.querySelectorAll('[data-testid="deleted-projects"] li')].map((row) => row.textContent)
+  expect(rows()).toEqual(['Film grain testsRan 2 hours ago', 'Valley matte paintingsCreated yesterday', 'Bookshop diorama' + 'Created 3 days ago'])
+  expect(document.querySelector('summary')?.textContent).toBe('Deleted projects (1)')
+  expect(deletedRows()).toEqual(['Old storyboardDeleted 3 hours agoRestore'])
+
+  document.querySelector<HTMLButtonElement>('[aria-label="Project actions"]')!.click()
+  expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(['Rename', 'Delete'])
+  menuItem('Delete')!.click()
+  await settle()
+  expect(document.querySelector('dialog')?.textContent).toContain('It moves to Deleted projects at the bottom of this list')
+  button('Delete project')!.click()
+  await settle()
+  expect(rows().map((row) => row?.split(/Ran|Created/)[0])).toEqual(['Valley matte paintings', 'Bookshop diorama'])
+  expect(document.querySelector('h2')?.textContent).toBe('Valley matte paintings')
+  expect(deletedRows()).toEqual(['Film grain testsDeleted nowRestore', 'Old storyboardDeleted 3 hours agoRestore'])
+
+  ;[...document.querySelectorAll<HTMLButtonElement>('[data-testid="deleted-projects"] button')][1]!.click()
+  await settle()
+  expect(restored).toHaveBeenCalledWith(expect.objectContaining({ id: 'p-old', revision: 3 }))
+  expect(rows().map((row) => row?.split(/Ran|Created/)[0])).toContain('Old storyboard')
+  expect(document.querySelector('h2')?.textContent).toBe('Old storyboard')
+  expect(document.querySelector('[role="option"][aria-selected="true"]')?.textContent).toContain('Old storyboard')
+  expect(deletedRows()).toEqual(['Film grain testsDeleted nowRestore'])
+})
+
+it('offers no Delete for the default project', async () => {
+  render(() => <ProjectsView shell={shell()} source={source([project('default', 'Default', hoursAgo(1))])} />, document.body)
+  await settle()
+  document.querySelector<HTMLButtonElement>('[aria-label="Project actions"]')!.click()
+  expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(['Rename'])
 })
 
 it('does not open a project when the process cannot say which installation it runs on', async () => {
