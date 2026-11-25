@@ -1,7 +1,6 @@
 import { For, createEffect, createSignal, onCleanup, type JSX } from 'solid-js'
 import {
   AppWindow,
-  Box,
   Download,
   PanelTop,
   Search,
@@ -35,6 +34,7 @@ import {
   widgetRegistrationDoors,
 } from '@dinkster/widgets'
 import {
+  BlueprintIcon,
   ProductSearch,
   ProductSearchNodePreview,
   ProductSection,
@@ -70,7 +70,7 @@ const KINDS: readonly { readonly id: 'all' | Kind; readonly label: string }[] = 
 
 const ICONS: Record<Kind, LucideIcon> = {
   nodes: PanelTop,
-  blueprints: Box,
+  blueprints: BlueprintIcon,
   commands: SquareTerminal,
   settings: SlidersHorizontal,
   workflows: Workflow,
