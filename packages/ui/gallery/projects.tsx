@@ -195,7 +195,7 @@ const projects: readonly MockProject[] = [
     name: 'Audio experiments',
     opened: 'Nov 3',
     path: '/home/kosin/Dinkster/projects/audio-experiments',
-    runsOn: 'Nightly',
+    runsOn: 'Stable 0.0.16',
     packs: '1 enabled',
     size: '12 MB',
     outputCount: '3 outputs',
@@ -244,6 +244,7 @@ const states = {
   'first-run': 'First run',
   new: 'New project',
   opening: 'Opening',
+  'opening-own-editor': "Opening in an installation's own editor",
   failed: 'Failed to open',
 } as const
 
@@ -407,7 +408,8 @@ export function ProjectsGallery() {
   ]
   const project = () =>
     allProjects().find((entry) => entry.id === selected()) ?? projects[0]!
-  const opening = 'bookshop-diorama'
+  const ownEditor = () => state() === 'opening-own-editor'
+  const opening = () => (ownEditor() ? 'audio-experiments' : 'bookshop-diorama')
   const entries = (): ProductProjectEntry[] | undefined => {
     if (state() === 'loading') return undefined
     const list = allProjects().map(
@@ -418,13 +420,15 @@ export function ProjectsGallery() {
         state: undefined,
       }),
     )
-    if (state() === 'opening' || state() === 'failed') {
-      const target = list.find((entry) => entry.id === opening)!
-      target.state = state() === 'opening' ? 'opening' : 'failed'
-      target.detail =
-        state() === 'opening'
+    if (state() === 'opening' || state() === 'failed' || ownEditor()) {
+      const target = list.find((entry) => entry.id === opening())!
+      target.state = state() === 'failed' ? 'failed' : 'opening'
+      target.detail = ownEditor()
+        ? "Opening in Stable 0.0.16's own editor"
+        : state() === 'opening'
           ? 'Stopping Stable, starting Nightly'
           : 'Nightly did not start'
+      if (ownEditor()) target.reason = 'This installation uses an older editor.'
     }
     if (state() === 'new')
       list.unshift({
@@ -436,18 +440,21 @@ export function ProjectsGallery() {
     return list
   }
   createEffect(() => {
-    if (state() === 'opening' || state() === 'failed') setSelected(opening)
+    if (state() === 'opening' || state() === 'failed' || ownEditor())
+      setSelected(opening())
     if (state() === 'failed') setBanner(true)
   })
   const listSelection = () => (state() === 'new' ? 'new' : selected())
   const engineStatus = () =>
     state() === 'first-run'
       ? 'No installation'
-      : state() === 'opening'
-        ? 'Starting Nightly'
-        : state() === 'failed'
-          ? 'Nightly stopped'
-          : 'No engine running'
+      : ownEditor()
+        ? 'Starting Stable 0.0.16'
+        : state() === 'opening'
+          ? 'Starting Nightly'
+          : state() === 'failed'
+            ? 'Nightly stopped'
+            : 'No engine running'
   const logoInBar = () => platform() === 'darwin' && iconBar()
   const logoMenu = () => (
     <ProductMenu
@@ -493,7 +500,7 @@ export function ProjectsGallery() {
         }
         actions={
           <Show
-            when={state() !== 'opening'}
+            when={state() !== 'opening' && !ownEditor()}
             fallback={
               <>
                 <ProductButton onClick={() => setState('ready')}>

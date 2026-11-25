@@ -8,6 +8,8 @@ export interface ProductProjectEntry {
   name: string
   /** When it was last opened, or what is happening to it now. */
   detail: string
+  /** Why the detail says what it does, shown on hover, such as why a project opens in its own editor. */
+  reason?: string | undefined
   /** Opening shows progress under the row; failed marks it with a warning. */
   state?: 'opening' | 'failed' | 'draft' | undefined
 }
@@ -105,7 +107,10 @@ export function ProductProjectList(props: {
                   onClick={() => props.onSelect(project.id)}
                 >
                   <span class="dinkster-project-row-name">{project.name}</span>
-                  <span class="dinkster-project-row-detail">
+                  <span
+                    class="dinkster-project-row-detail"
+                    title={project.reason}
+                  >
                     <Show when={project.state === 'failed'}>
                       <ProductIcon icon={TriangleAlert} />
                     </Show>
