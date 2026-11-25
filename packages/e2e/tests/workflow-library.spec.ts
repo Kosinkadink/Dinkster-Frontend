@@ -3,7 +3,7 @@
  * save, browse, and reopen; the bridge is used only for deterministic setup
  * and a document command whose persisted result can be asserted exactly.
  */
-import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, selectProductOption, nativeTest as test, type Page } from './fixtures.js'
 
 const uniqueName = (label: string): string =>
   `e2e-${label}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
@@ -279,8 +279,9 @@ test('failed new save surfaces a Problem, stays dirty, and retries successfully'
 test.describe('project of a saved workflow', () => {
   test.use({ seedWorkflows: false })
 
-  test('a workflow saved in a project other than Default is recorded in that project, and saving again keeps it there', async ({ page }) => {
+  test('a workflow saved in a project other than Default is recorded in that project, and saving again keeps it there', async ({ page }, testInfo) => {
     const project = `p-${uniqueName('save-project')}`.slice(0, 64).toLowerCase()
+    const title = uniqueName('project-workflow')
     const registered = await fetch(`${NATIVE_BACKEND}/api/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -300,6 +301,11 @@ test.describe('project of a saved workflow', () => {
     }
     await page.goto(`/?dinksterProject=${project}`)
     await targetNativeBackend(page)
+    await page.evaluate((name) => {
+      const app = window.__dinksterTest!.app
+      app.renameTab(app.activeTab()!.id, name)
+    }, title)
+    await page.screenshot({ path: testInfo.outputPath('project-before-save.png') })
     await save('POST')
     const saved = await ids(project)
     expect(saved).toHaveLength(1)
@@ -309,5 +315,8 @@ test.describe('project of a saved workflow', () => {
     await save('PATCH')
     expect(await ids(project)).toEqual(saved)
     expect(await ids('default')).not.toContain(saved[0])
+    await openWorkflows(page)
+    await expect(workflowRow(page, title)).toHaveCount(1)
+    await page.screenshot({ path: testInfo.outputPath('project-after-save.png') })
   })
 })
