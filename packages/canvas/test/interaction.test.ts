@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   asNodeId, coreCommandRegistry, deriveBoundarySchema, documentResolver, DocumentStore, loadDocument, occurrenceDynamicView,
-  type CommandInvocation, type NodeSchema, type WorkflowDocument,
+  type CommandInvocation, type Json, type NodeSchema, type WorkflowDocument,
 } from '@dinkster/core'
 import { InteractionController, connectivityRangeSelection, resizedNodeBounds, type CanvasHoverTarget, type InteractionHost } from '../src/interaction.js'
 import { subgraphMarkRect } from '../src/registry-painter.js'
@@ -66,7 +66,11 @@ function interactionHarness(
     getNodeBadgeLayout: (node: SceneNode) => layoutNodeBadges(node, badges[node.id] ?? [], { tokens: defaultTokens }),
     getLensCapabilities: () => lensCapabilities,
     getDesignTokens: () => defaultTokens,
-    showsArrivingValue: () => false,
+    widgetPaintState: (node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>, driven?: { readonly value?: Json }) => ({
+      value: row.derivedValue ?? node.node.values[row.valueKey],
+      ...(driven?.value === undefined ? {} : { companion: { value: driven.value } }),
+      connected: driven !== undefined,
+    }),
     getOverlay: () => overlay,
     setOverlay: (next: Record<string, unknown>) => {
       overlay = next
@@ -334,6 +338,37 @@ function interactionScene(): Scene {
     netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
   } as unknown as Scene
 }
+
+describe('folded curve promotion mark', () => {
+  it.each([false, true])('selects the boundary at its name rather than over the sketch (unknown %s)', (unknown) => {
+    const scene = interactionScene()
+    const base = scene.nodes[0]!
+    const value = unknown ? null : { points: [] }
+    const row: Extract<LayoutRow, { kind: 'widget' }> = {
+      kind: 'widget', y: 20, height: 52, inset: 10, inputId: 'curve', valueKey: 'curve',
+      address: { port: 'curve' }, label: 'Curve', type: { kind: 'concrete', name: 'CURVE' },
+      viewId: 'core.curve', rows: 1, spec: { widgetType: 'CURVE', options: {}, default: value },
+      readOnly: true, subgraphMark: { item: 'curve', label: 'Curve' },
+    }
+    const node = { ...base, node: { ...base.node, values: { curve: value } },
+      layout: { ...base.layout, width: 300, height: 72, rows: [row] } }
+    const activated: string[] = []
+    const harness = interactionHarness({ ...scene, nodes: [node] }, {
+      onSubgraphMarkActivate: (item) => activated.push(item),
+    })
+    Object.assign(harness.renderer, { widgetPaintState: () => ({ value, connected: true }) })
+    // The 40 px sketch ends at local x45. The opener takes 20 px,
+    // followed by the lock and 4 px gap; the boundary mark starts at x91.
+    const x = node.x + row.inset + 92
+    const y = node.y + row.y + (unknown ? 32 : 12)
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointerup', x, y)
+    expect(activated).toEqual(['curve'])
+    harness.fire('pointerdown', node.x + row.inset + 30, y)
+    harness.fire('pointerup', node.x + row.inset + 30, y)
+    expect(activated).toEqual(['curve'])
+  })
+})
 
 describe('persistent host overlays', () => {
   it('preserves an armed placement ghost across selection overlay updates', () => {

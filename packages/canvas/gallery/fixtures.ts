@@ -830,6 +830,7 @@ export function createCanvasGalleryFixture(
       add(label, schema('Field access', accessFields.map((field) => ({ ...field, ...access }))))
     }
     add('Read-only fields, narrow', schema('Field access', accessFields.map((field) => ({ ...field, readOnly: true }))), {}, undefined, false, { width: 180 })
+    add('Read-only folded curve', schema('Curve access', galleryWidgetInputs.filter((field) => field.id === 'curve').map((field) => ({ ...field, readOnly: true }))))
     add('Known note', schema('Resize image', [width, note('Result: 512 x 768, 1 image'), height]))
     add('Unknown note, supplied text', schema('Resize image', [width, {
       kind: 'note', id: 'result', text: { formula: 'missing_result' }, unknown: 'Result is not known yet',

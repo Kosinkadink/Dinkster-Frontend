@@ -112,6 +112,7 @@ export function subgraphMarkRect(
   tokens: DesignTokens,
   companion: boolean,
   numeric: boolean,
+  display?: Pick<WidgetPaintArgs, 'value' | 'connected' | 'companion'>,
 ): { readonly x: number; readonly y: number; readonly size: number } {
   const geometry = tokens.rowGeometry
   const size = paint.subgraphMark.size
@@ -121,17 +122,25 @@ export function subgraphMarkRect(
   }
   const opener = openerIconOf(row, tokens)
   const multiline = row.viewId === 'core.text'
-  const leftControl = multiline ? 0 : opener !== undefined ? paint.opener.iconReserve : numeric ? geometry.stepperZone : 0
+  const curve = tokens.widgetRowLook === 'raised-editors' && row.viewId === 'core.curve' && !row.unfolded
+  const chrome = widgetChromeRect(0, 0, width, row.height, geometry.fieldInsetY)
+  const sketchShift = curve
+    ? paint.curve.inset + Math.max(0, chrome.height - paint.curve.inset * 2) + paint.curve.gap - paint.opener.iconInset
+    : 0
+  const value = display?.companion === undefined ? display?.value : display.companion.value
+  const joined = !display?.connected || value === undefined || (value !== null && typeof value === 'object' && !Array.isArray(value))
+  const center = curve ? chrome.y + chrome.height / 2 - (joined ? paint.curve.lineStep / 2 : 0) : rowHeight / 2
+  const leftControl = multiline ? 0 : opener !== undefined ? sketchShift + paint.opener.iconReserve : numeric ? geometry.stepperZone : 0
   return {
     x: readOnlyReserve(row) + leftControl + (numeric && opener === undefined ? geometry.stepperLabelInset : paint.labelInset),
-    y: multiline ? geometry.fieldInsetY + (tokens.multilineText.labelHeight - size) / 2 : (rowHeight - size) / 2,
+    y: multiline ? geometry.fieldInsetY + (tokens.multilineText.labelHeight - size) / 2 : center - size / 2,
     size,
   }
 }
 
 function paintLabelMarks(args: WidgetPaintArgs, companion: boolean, numeric: boolean): void {
   const { ctx, row, x, y, width, rowHeight, tokens } = args
-  const rect = subgraphMarkRect(row, width, rowHeight, tokens, companion, numeric)
+  const rect = subgraphMarkRect(row, width, rowHeight, tokens, companion, numeric, args)
   if (row.readOnly) {
     paintToolboxIcon(ctx, 'lock', x + rect.x - readOnlyReserve(row), y + rect.y, paint.readOnlyMark.size, tokens.colors.label)
   }
@@ -311,7 +320,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         x + lead + (multiline ? 0 : leftControl) + (numeric && openerIcon === undefined ? geometry.stepperLabelInset : paint.labelInset),
         multiline ? chrome.y + multilineLabelHeight / 2 : nameY,
       )
-      paintLabelMarks(args, false, numeric)
+      paintLabelMarks({ ...args, value: resolved }, false, numeric)
     }
     const sliderMin = row.spec.options['min']
     const sliderMax = row.spec.options['max']

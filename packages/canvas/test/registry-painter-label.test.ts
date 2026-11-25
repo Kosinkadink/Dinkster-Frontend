@@ -360,6 +360,36 @@ describe('registry painter label/value split', () => {
     expect(painted.texts).toContain('5')
   })
 
+  it.each([false, true])('keeps folded curve marks beside the name, clear of the sketch (promoted %s)', (promoted) => {
+    const tokens = { ...defaultTokens, widgetRowLook: 'raised-editors' as const }
+    const curveRegistry: WidgetRegistry = {
+      ...registry,
+      kind: () => ({ ...stubKind, type: 'CURVE', defaultValue: () => ({ points: [] }) }),
+      viewsFor: () => [{ ...stubView, id: 'core.curve', kind: 'CURVE', drawCompact: () => {} }],
+    }
+    for (const value of [{ points: [] }, null]) {
+      const painted = fakeCtx()
+      const row = {
+        ...rowWith(value), label: 'Curve', viewId: 'core.curve', height: 52, readOnly: true as const,
+        spec: { widgetType: 'CURVE', options: {}, default: value },
+        ...(promoted ? { subgraphMark: { item: 'curve', label: 'Curve' } } : {}),
+      }
+      createRegistryPainter(curveRegistry)({
+        ctx: painted.ctx, row, value, x: 10, y: 20, width: 300, rowHeight: 24, connected: true, tokens,
+      })
+      const icons = painted.transforms.filter((call) => call.method === 'translate')
+      const lock = icons[1]!
+      const name = painted.textCalls.find((call) => call.text === 'Curve')!
+      expect(lock.x).toBeGreaterThan(55)
+      expect(lock.y + 7).toBe(name.y)
+      expect(name.x - lock.x).toBe(promoted ? 36 : 18)
+      if (promoted) {
+        const mark = subgraphMarkRect(row, 300, 24, tokens, false, false, { value, connected: true })
+        expect(icons[2]).toMatchObject({ x: 10 + mark.x, y: 20 + mark.y })
+      }
+    }
+  })
+
   it('paints an empty multiline placeholder in muted italic type', () => {
     const painted = paintMultilineDetails(76, 160, '')
     const placeholder = painted.textCalls.find((call) => call.text === 'text' && call.y > 24)!

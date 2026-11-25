@@ -2945,7 +2945,9 @@ export class InteractionController {
   private subgraphMarkContains(hit: Extract<Hit, { kind: 'widget' }>): boolean {
     if (hit.row.subgraphMark === undefined) return false
     const tokens = this.renderer.getDesignTokens()
-    const rect = subgraphMarkRect(hit.row, hit.width, tokens.rowHeight, tokens, this.renderer.showsArrivingValue(hit.node.id, hit.row), isNumberRow(hit.row))
+    const display = this.renderer.widgetPaintState(hit.node, hit.row)
+    const arriving = display.companion !== undefined && !drawsPassedValueAsEditor(hit.row, display.companion, tokens)
+    const rect = subgraphMarkRect(hit.row, hit.width, tokens.rowHeight, tokens, arriving, isNumberRow(hit.row), display)
     return hit.localX >= rect.x && hit.localX <= rect.x + rect.size && hit.localY >= rect.y && hit.localY <= rect.y + rect.size
   }
 
@@ -2967,7 +2969,7 @@ export class InteractionController {
       const localX = wx - bnode.x - row.inset
       const localY = wy - bnode.y - row.y
       const arriving = driven.value !== undefined && !drawsPassedValueAsEditor(row, { value: driven.value }, tokens)
-      const rect = subgraphMarkRect(row, width, tokens.rowHeight, tokens, arriving, isNumberRow(row))
+      const rect = subgraphMarkRect(row, width, tokens.rowHeight, tokens, arriving, isNumberRow(row), this.renderer.widgetPaintState(face, row, driven))
       if (localX >= rect.x && localX <= rect.x + rect.size && localY >= rect.y && localY <= rect.y + rect.size)
         return { kind: 'widget', node: face, row, bnode, x: bnode.x + row.inset, y: bnode.y + row.y, width, height: row.height, localX, localY }
     }

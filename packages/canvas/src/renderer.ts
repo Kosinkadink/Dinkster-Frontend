@@ -1377,11 +1377,25 @@ export class CanvasRenderer {
     return this.lensCapabilities
   }
 
-  /** Whether a field row paints a value arriving by wire in place of its own (WidgetPaintArgs.companion). */
-  showsArrivingValue(nodeId: string, row: Extract<LayoutRow, { kind: 'widget' }>): boolean {
-    const panelKey = `${nodeId}\u0000${row.inputId}`
-    const arriving = this.panelFieldValues.has(panelKey) ? { value: this.panelFieldValues.get(panelKey)! } : this.companions[nodeId]?.[row.valueKey]
-    return arriving !== undefined && !drawsPassedValueAsEditor(row, arriving, this.tokens)
+  /** The value and wire state shared by field painting and label-mark hit testing. */
+  widgetPaintState(node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>, driven?: { readonly value?: Json }): Pick<WidgetPaintArgs, 'value' | 'companion' | 'connected'> {
+    const arriving = driven !== undefined ? driven.value : this.panelFieldValues.get(`${node.id}\u0000${row.inputId}`)
+    const companion = driven !== undefined || arriving !== undefined
+      ? arriving === undefined ? undefined : { value: arriving }
+      : this.companions[node.id]?.[row.valueKey]
+    const linkSet = row.selector !== undefined ? this.valueDrivenInputPins : this.connectedInputPins
+    const connected = driven !== undefined || companion !== undefined || linkSet.has(`${node.id}\u0000${row.inputId}`)
+    const drag = this.rowDrags[node.id]?.valueKey === row.valueKey ? this.rowDrags[node.id] : undefined
+    const automatic = drag === undefined && row.spec.automatic === true && node.node.values[row.valueKey] === undefined
+    return {
+      value: drag !== undefined ? drag.value
+        : companion === undefined && this.editorSummaries[node.id]?.[row.valueKey]?.value !== undefined
+          ? this.editorSummaries[node.id]![row.valueKey]!.value
+          : row.derivedValue !== undefined ? row.derivedValue
+          : automatic ? effectiveWidgetDefault(row.spec) : node.node.values[row.valueKey],
+      ...(companion !== undefined ? { companion } : {}),
+      connected,
+    }
   }
 
   getDesignTokens(): DesignTokens {
@@ -4421,15 +4435,9 @@ export class CanvasRenderer {
     const l = node.layout
     const rowY = node.y + row.y
     if (this.openRows[sceneNode.id] === row.valueKey) return
-    const arriving = driven !== undefined ? driven.value : this.panelFieldValues.get(`${sceneNode.id}\u0000${row.inputId}`)
-    const companion = driven !== undefined || arriving !== undefined
-      ? arriving === undefined ? undefined : { value: arriving }
-      : this.companions[sceneNode.id]?.[row.valueKey]
+    const display = this.widgetPaintState(node, row, driven)
+    const { companion, connected } = display
     const widgetWidth = row.width ?? l.width - row.inset * 2
-    // Selector rows ignore boundary bindings for inertness: the bound row
-    // remains the occurrence-local editor.
-    const linkSet = row.selector !== undefined ? this.valueDrivenInputPins : this.connectedInputPins
-    const connected = driven !== undefined || companion !== undefined || linkSet.has(`${sceneNode.id}\u0000${row.inputId}`)
     const rowAlpha = ctx.globalAlpha
     if (row.disabled) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
     else {
@@ -4450,11 +4458,7 @@ export class CanvasRenderer {
       row,
       // Selector rows (DynamicCombo) carry their value on the row itself;
       // everything else persists under the row's value key.
-      value: drag !== undefined ? drag.value
-        : companion === undefined && this.editorSummaries[sceneNode.id]?.[row.valueKey]?.value !== undefined
-          ? this.editorSummaries[sceneNode.id]![row.valueKey]!.value
-          : row.derivedValue !== undefined ? row.derivedValue
-          : automatic ? effectiveWidgetDefault(row.spec) : node.node.values[row.valueKey],
+      value: display.value,
       ...(drag !== undefined ? { dragging: true } : {}),
       ...(companion !== undefined ? { companion } : {}),
       ...(companion !== undefined ? { companionAlpha } : {}),
