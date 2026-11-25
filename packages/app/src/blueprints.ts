@@ -226,3 +226,10 @@ export const blueprintFailureDiagnostic = (
   }
   return undefined
 }
+
+/**
+ * The one icon every surface draws for a blueprint. The cube marks model
+ * files only, and the workflow and subgraph icons mark those, so a
+ * blueprint uses neither.
+ */
+export const BLUEPRINT_ICON = 'layers' as const
