@@ -43,6 +43,7 @@ import {
 import { useAppMessage } from '../locale.js'
 import { createArrival } from '../arrival.js'
 import { SetupForm } from '../SetupForm.js'
+import { setupInProgress } from '../setup-job.js'
 import { AccountControl, createAccountSession } from '../AccountControl.js'
 import { ActivityBarButton, IconBar, ShellTooltip } from '../ShellChrome.js'
 import { attachDomTooltips, TooltipController, type DomTooltipTarget } from '../tooltips.js'
@@ -82,6 +83,7 @@ export interface ProjectsSource {
     readonly open?: PageInstallation
     readonly engine?: EngineState
     readonly openFolder?: boolean
+    readonly settingUp?: boolean
   }>
   /** Opens the project's folder in this computer's file manager. */
   openFolder(project: string): Promise<void>
@@ -208,6 +210,7 @@ export function processSource(connection: DinksterConnection = processConnection
         ...(open ? { open } : {}),
         ...(status.state ? { engine: status.state } : {}),
         openFolder: status.openFolder === true,
+        settingUp: !open && all.length > 0 && await setupInProgress(),
       }
     },
     async openFolder(project) {
@@ -366,7 +369,7 @@ export function ProjectsView(props: {
   const setProjects = (update: (list: LibraryProject[] | null) => LibraryProject[] | null | undefined) =>
     setPage((current) => current && { ...current, projects: update(current.projects) ?? null })
   const painted = () => arrival.value() !== undefined
-  const firstRun = () => installations()?.all.length === 0
+  const firstRun = () => installations()?.all.length === 0 || installations()?.settingUp === true
   onMount(() => {
     const reread = () => {
       void rereadPage()

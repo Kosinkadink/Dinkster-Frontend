@@ -65,6 +65,16 @@ const problem = (error: unknown): SetupProblem => ({
 export const setupJobActive = (job: SetupJob | null | undefined): boolean =>
   job?.state === 'running' || job?.state === 'cancelling'
 
+/** Registration can precede completion; a listed installation may still be setting up. */
+export async function setupInProgress(): Promise<boolean> {
+  try {
+    const response = await fetch('/supervisor/setup', { cache: 'no-store' })
+    return response.ok && setupJobActive((await response.json()).activeJob)
+  } catch {
+    return false
+  }
+}
+
 /** The same process-owned job is discovered by either first-run screen. */
 export function createSetupController(options: {
   readonly onInstallation?: (installation: NonNullable<SetupJob['installation']>) => void

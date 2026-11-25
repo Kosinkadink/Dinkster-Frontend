@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import '../src/locale.js'
 import { SetupForm } from '../src/SetupForm.js'
 import { EditorFirstRunSetup } from '../src/EditorFirstRunSetup.js'
+import { processSource } from '../src/projects-page/ProjectsPage.js'
 import type { SetupJob, SetupPlan } from '../src/setup-job.js'
 
 const plan: SetupPlan = {
@@ -88,7 +89,24 @@ it.each(['unavailable', 'installed', 'remote', 'unknown'] as const)('does not of
   dispose = render(() => <EditorFirstRunSetup backendUrl={state === 'remote' ? 'https://elsewhere.invalid/' : ''} />, document.body)
   await vi.advanceTimersByTimeAsync(1000)
   expect(document.body.textContent).toBe('')
-  expect(fetch.mock.calls.some(([url]) => url.startsWith('/supervisor/setup'))).toBe(false)
+  if (state !== 'installed') expect(fetch.mock.calls.some(([url]) => url.startsWith('/supervisor/setup'))).toBe(false)
+})
+
+it.each(['running', 'cancelling'] as const)('rediscovers a %s job after its installation was registered but before completion', async (state) => {
+  vi.useFakeTimers()
+  const current = { ...job, state }
+  const fetch = vi.fn(async (url: string) => {
+    if (url.startsWith('/supervisor/setup')) return answer({ plan, activeJob: current })
+    return answer(url.includes('installations') ? { installations: [{ root: job.root }] } : { state: 'stopped' })
+  })
+  vi.stubGlobal('fetch', fetch)
+  dispose = render(() => <EditorFirstRunSetup backendUrl="" />, document.body)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(document.body.textContent).toContain(state === 'running' ? 'Setting up Dinkster' : 'Cancelling and cleaning up')
+  expect(button('Cancel').disabled).toBe(state === 'cancelling')
+  const installations = await processSource().installations()
+  expect(installations.all.map((row) => row.root)).toEqual([job.root])
+  expect(installations.settingUp).toBe(true)
 })
 
 it('offers the editor form only after a confirmed empty supervisor and leaves it after completion', async () => {

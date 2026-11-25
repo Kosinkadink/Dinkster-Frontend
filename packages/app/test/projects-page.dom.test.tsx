@@ -329,10 +329,11 @@ it('does not open a project when the process cannot say which installation it ru
   expect(navigation.openProject).not.toHaveBeenCalled()
 })
 
-it('shows the setup form while there is no installation, and the list once one appears', async () => {
-  let found: readonly PageInstallation[] = []
+it.each([false, true])('keeps setup visible until an installation is complete (registered early: %s)', async (registered) => {
+  let found: readonly PageInstallation[] = registered ? [stable] : []
+  let settingUp = registered
   const counted = vi.fn()
-  const data = { ...source([]), installations: async () => ({ all: found }) }
+  const data = { ...source([]), installations: async () => ({ all: found, settingUp }) }
   render(() => <ProjectsView shell={shell()} source={data} onCount={counted} />, document.body)
   await settle()
   expect(document.querySelector('[data-testid="setup-form"]')?.textContent).toContain('NVIDIA graphics card build')
@@ -341,9 +342,10 @@ it('shows the setup form while there is no installation, and the list once one a
   expect(rows()).toEqual([])
   expect(counted).not.toHaveBeenCalled()
   found = [stable]
+  settingUp = false
   window.dispatchEvent(new Event('focus'))
   await settle()
-  expect(document.querySelector('[data-testid="projects-first-run"]')).toBeNull()
+  expect(document.querySelector('[data-testid="setup-form"]')).toBeNull()
   expect(counted).toHaveBeenLastCalledWith(0)
 })
 

@@ -1,7 +1,8 @@
 import { createResource, createSignal, Show } from 'solid-js'
 import { SetupForm } from './SetupForm.js'
+import { setupInProgress } from './setup-job.js'
 
-/** Only a confirmed empty local supervisor can offer installation on this computer. */
+/** Offer local setup only for a confirmed first run or a job already in progress. */
 export function EditorFirstRunSetup(props: { readonly backendUrl: string }) {
   const [completed, setCompleted] = createSignal(false)
   const [firstRun] = createResource(() => props.backendUrl, async (backendUrl) => {
@@ -15,7 +16,8 @@ export function EditorFirstRunSetup(props: { readonly backendUrl: string }) {
       if (!status.ok || !installations.ok) return false
       const state = await status.json()
       const rows = await installations.json()
-      return !state.open && Array.isArray(rows.installations) && rows.installations.length === 0
+      if (state.open || !Array.isArray(rows.installations)) return false
+      return rows.installations.length === 0 || await setupInProgress()
     } catch {
       return false
     }
