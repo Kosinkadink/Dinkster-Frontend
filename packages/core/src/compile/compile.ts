@@ -37,7 +37,7 @@
  * Stored controller values compile as-is; advancement happens elsewhere.
  */
 
-import { diag, type Diagnostic } from '../diagnostics.js'
+import { diag, type Diagnostic, type DiagnosticAnchor, type DiagnosticRef } from '../diagnostics.js'
 import {
   suppressedDeliveryKey,
   type BoundaryRouteLeg,
@@ -76,6 +76,7 @@ import {
   elabInputsOf,
   elabOutputsOf,
   elaborateInterface,
+  type ElaborateOptions,
   ruleProblemRefs,
   selectorMembersOf,
   valueKeyOf,
@@ -299,8 +300,22 @@ export interface CompileInput {
    * = oldest wire, emit no negotiated forms.
    */
   readonly graphFeatures?: readonly string[]
+  /**
+   * The lookup answers the editor holds, so an automatic lookup field copied
+   * into another node passes on the answer its row shows. Absent, such a
+   * field passes on its default.
+   */
+  readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
   /** Submission-only worker hints, keyed by root runtime node id. */
   readonly placement?: Readonly<Record<string, string>>
+}
+
+/** An automatic field passed on at its default, and where its warning goes. */
+interface TapDefault {
+  readonly label: string
+  readonly value: Json
+  readonly anchor: DiagnosticAnchor
+  readonly ref: DiagnosticRef
 }
 
 const KNOWN_VALUE_TYPES: ReadonlySet<string> = new Set(['INT', 'FLOAT', 'STRING', 'BOOLEAN', 'COMBO'])
@@ -854,13 +869,20 @@ function compileImpl(
     // persisted link whose lowering is dropped (muted endpoint, undriven
     // reroute) conjure an api-visible member that leaks values/defaults or
     // shifts output wire indexes.
-    const e = elaborateInterface(schema, state, connectivity, { promoteGhosts: false, nodeId })
+    const e = elaborateInterface(schema, state, connectivity, {
+      promoteGhosts: false, nodeId,
+      ...(options?.lookupAnswers !== undefined ? { lookupAnswers: options.lookupAnswers } : {}),
+    })
     // Elaboration diagnostics surface once per cache entry: once per
     // definition node normally, once per occurrence for overlaid nodes
     // (over-cap etc. genuinely depend on the merged occurrence state).
     // Errors (budget exhaustion) fail the compile - a truncated interface
     // must never produce a prompt.
     for (const d of e.diagnostics) {
+      // The canvas reports an automatic value it cannot work out while the
+      // field is shown and drops it the moment a value is fixed; a compiled
+      // copy would outlive that fix and list the warning twice.
+      if (d.code === 'automatic.default') continue
       // A failed node rule keeps its data and names its node (and its one
       // field), so the editor's copy and this one read as one cause.
       const rule = d.code === 'node.rule.failed'
@@ -1308,7 +1330,7 @@ function compileImpl(
      * one is known (tap fallbacks always carry it), feeding the $typed
      * lowering for non-concrete destinations.
      */
-    | { readonly kind: 'value'; readonly value: Json; readonly typeId?: string; readonly controllerSources?: readonly ControllerInputSource[]; readonly controllerWidget?: WidgetSpec }
+    | { readonly kind: 'value'; readonly value: Json; readonly typeId?: string; readonly controllerSources?: readonly ControllerInputSource[]; readonly controllerWidget?: WidgetSpec; readonly automaticDefault?: TapDefault }
     /** `node` names the muted node the route reached, for the reason sent with $absent. */
     | { readonly kind: 'muted'; readonly reason: string; readonly node?: string }
     /** `absent`: the wire gives nothing (its field is no longer part of its node), sent as $absent when the server takes it. */
@@ -1423,7 +1445,8 @@ function compileImpl(
               if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.tap.novalue', `${endpoint.node}.${endpoint.tap}: tapped input has no value`))
               return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `widget tap '${endpoint.node}.${endpoint.tap}' has no value` } }] }
             }
-            return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped.value, typeId: tapped.typeId } }] }
+            return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped.value, typeId: tapped.typeId,
+              ...(tapped.automaticDefault !== undefined ? { automaticDefault: tapped.automaticDefault } : {}) } }] }
           }
           const resolved = resolveOutputPort(at.path, at.defId, endpoint, sink, delivery)
           if (resolved === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `producer '${endpoint.node}' is muted or in an inactive occurrence`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
@@ -1460,6 +1483,7 @@ function compileImpl(
           }
           const widget = input.spec.widget
           return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped.value, typeId: tapped.typeId,
+            ...(tapped.automaticDefault !== undefined ? { automaticDefault: tapped.automaticDefault } : {}),
             ...(widget !== undefined ? { controllerSources: sources, controllerWidget: widget } : {}) } }] }
         }
         const bypass = at.bypass
@@ -1920,7 +1944,7 @@ function compileImpl(
     nodeId: NodeId,
     inputId: string,
     sink: Diagnostic[] = diags,
-  ): { readonly value: Json; readonly typeId: string } | 'muted' | undefined => {
+  ): { readonly value: Json; readonly typeId: string; readonly automaticDefault?: TapDefault } | 'muted' | undefined => {
     const inputs = tappedInputs(path, defId, nodeId, inputId, sink)
     if (inputs === 'muted') return 'muted'
     if (!inputs || inputs.length === 0) return undefined
@@ -1947,9 +1971,20 @@ function compileImpl(
     // Schema default, then the widget kind's intrinsic value - a tapped INT
     // widget showing 0 taps as 0; only kinds with no intrinsic value (ASSET,
     // remote COMBO, ...) leave the tap valueless.
+    // An automatic field with nothing stored passes on the value its row
+    // shows: the worked-out value, the lookup answer the editor holds, or
+    // the default when neither exists, which the receiving node is warned of.
+    const automatic = input.input.automatic
     const widget = input.input.spec.widget
-    const fallback = widget ? effectiveWidgetDefault(widget) : undefined
-    return fallback === undefined ? undefined : { value: fallback, typeId: assetSourceTypeOf(input.input, fallback) ?? typeId }
+    const fallback = automatic?.value ?? (widget ? effectiveWidgetDefault(widget) : undefined)
+    if (fallback === undefined) return undefined
+    const automaticDefault: TapDefault | undefined = automatic === undefined || automatic.state === 'worked-out' ? undefined : {
+      label: input.input.spec.displayName ?? input.input.spec.id,
+      value: fallback,
+      anchor: { occurrence: { instancePath: path, node: nodeId }, port: { node: nodeId, port: input.input.address.port as PortRef['port'] } },
+      ref: { graphId: defId, nodeId, valueKey: valueKeyOf(input.input), direction: 'input' },
+    }
+    return { value: fallback, typeId: assetSourceTypeOf(input.input, fallback) ?? typeId, ...(automaticDefault !== undefined ? { automaticDefault } : {}) }
   }
 
   for (const { defId, path } of graphOccurrences) {
@@ -2132,7 +2167,7 @@ function compileImpl(
         // matching always sees that destination's declared type.
         const routeDiagnostics: Diagnostic[] = []
         let src: ResolvedOutput | undefined
-        let baked: { readonly value: Json; readonly typeId?: string } | undefined
+        let baked: { readonly value: Json; readonly typeId?: string; readonly automaticDefault?: TapDefault } | undefined
         if (structuralSrc && !('bypass' in structuralSrc) && !('structuralSource' in structuralSrc) && !('knownValue' in structuralSrc)) {
           src = structuralSrc
         } else {
@@ -2162,7 +2197,8 @@ function compileImpl(
             continue
           }
           if (trace.kind === 'value') {
-            baked = { value: trace.value, ...(trace.typeId !== undefined ? { typeId: trace.typeId } : {}) }
+            baked = { value: trace.value, ...(trace.typeId !== undefined ? { typeId: trace.typeId } : {}),
+              ...(trace.automaticDefault !== undefined ? { automaticDefault: trace.automaticDefault } : {}) }
             if (trace.controllerSources !== undefined) {
               let byInput = literalControllers.get(dst.runtimeId)
               if (!byInput) literalControllers.set(dst.runtimeId, (byInput = new Map()))
@@ -2179,6 +2215,13 @@ function compileImpl(
         if (!consumer) {
           diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is unavailable`))
           continue
+        }
+        if (baked?.automaticDefault !== undefined) {
+          // Listed on the field the value comes from; a run is never blocked by an automatic value.
+          const passed = baked.automaticDefault
+          diags.push(diag('warning', 'compile', 'automatic.tapDefault',
+            `Could not work out ${passed.label}. ${nameOf(consumer.graphId, consumer.node)} gets the default, ${typeof passed.value === 'string' ? passed.value : JSON.stringify(passed.value)}.`,
+            { anchor: passed.anchor, refs: [passed.ref], data: { input: passed.ref.valueKey } }))
         }
         if (baked !== undefined) {
           // Passthrough traced to a known value or tap value: bake, same
@@ -2549,6 +2592,9 @@ function compileImpl(
       const spec = input.spec
       if (fn.inputs[spec.id] !== undefined) continue
       if (spec.hidden === true) continue
+      // An automatic field with nothing stored stays out of the prompt: the
+      // engine works it out when the run is queued.
+      if (spec.automatic !== undefined) continue
       // A primitive's empty limit only shows the limit worked out for it.
       if (spec.widget?.automatic === true) continue
       if (spec.widget) {

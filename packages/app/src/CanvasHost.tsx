@@ -9,7 +9,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, on, onCleanup, onMount, Show, For, Index, untrack, type JSX } from 'solid-js'
-import type { ExecutionLogEntry, LookupClient } from '@dinkster/client'
+import type { ExecutionLogEntry, ExecutionState, LookupClient } from '@dinkster/client'
 import {
   buildScene,
   boundarySceneId,
@@ -107,6 +107,7 @@ import {
   type CommandInvocation,
   type CommandOutcome,
   type ControllerMode,
+  type AutomaticState,
   type Diagnostic,
   type EditorSizing,
   type ElaboratedInterface,
@@ -145,7 +146,7 @@ import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource 
 import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
 import { RowFocusOverlay, type RowFocusState } from './editors/RowFocusOverlay.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
-import { applyNodeDecorations, deriveSceneOverlays, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
+import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, retainProvenExecution, withRecordedAutomaticValues, type SelectedInputPreview } from './scene-overlays.js'
 import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
 import { problemBoxLines, problemBoxRows, type ProblemBoxLine } from './problem-box.js'
 import { NodeProblemBox } from './NodeProblemBox.js'
@@ -3092,12 +3093,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const top = -viewport.y / viewport.scale
       const right = left + width / viewport.scale
       const bottom = top + height / viewport.scale
+      const open = untrack(editor)
+      const openField = open?.inRow?.automatic === undefined || open.tab.id !== tab.id ? undefined : open.target
       lookupDemandFor(lookups).show(renderer.getScene().nodes.flatMap((node) =>
         node.elaborated === undefined || node.x > right || node.y > bottom ||
           node.x + node.layout.width < left || node.y + node.layout.height < top
           ? []
-          : [{ nodeType: node.node.type, node: lookupNodeKey(tab, node.id), items: node.elaborated.items }]))
+          : [{
+              nodeType: node.node.type,
+              node: lookupNodeKey(tab, node.id),
+              items: node.elaborated.items,
+              ...(openField?.nodeId === node.id ? { openField: openField.valueKey } : {}),
+            }]))
     }
+    // Opening or closing a field changes which fixed automatic field asks what emptying it would give.
+    createEffect(on(editor, () => showLookups(), { defer: true }))
     // A choice row edited in its row lists the options its lookup gave.
     provideRowListLookups((editor) => {
       const lookups = editor.editor.ed.inRow?.lookups
@@ -4234,9 +4244,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly extensionRevision: number
       readonly seedControllerEnabled: boolean
       readonly plannerAvailable: boolean
+      readonly recordedAutomatic: ExecutionState['automaticValues']
       readonly lookups: LookupClient | undefined
       readonly lookupGeneration: number
     } | undefined
+    // A frozen tab's run records what its automatic fields used; the record
+    // arrives with the finished job, after the snapshot's first scene.
+    const frozenAutomatic = createMemo(() => {
+      executions()
+      const tab = activeTab()
+      return tab?.execution === undefined ? undefined : props.app.executionForTab(tab)?.automaticValues
+    })
     let sceneViewportOwner: { readonly tabId: string; readonly graphId: string } | undefined
     let pendingViewport: { readonly tabId: string; readonly graphId: string; readonly viewport: ReturnType<CanvasRenderer['getViewport']> } | undefined
     let viewportPause: ReturnType<typeof setTimeout> | undefined
@@ -4299,6 +4317,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         node: asNodeId(path[path.length - 1]!),
       }
       const plannerAvailable = occurrenceOwner !== undefined && occurrencePlanner() !== undefined
+      const recordedAutomatic = frozenAutomatic()
       // A frozen view of a run calls no lookups.
       const lookupBackend = tab.execution === undefined ? props.app.backendForTab(tab) : undefined
       const lookups = lookupBackend?.lookups
@@ -4316,6 +4335,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         previousBuild.extensionRevision === currentExtensionRevision &&
         previousBuild.seedControllerEnabled === seedControllerEnabled &&
         previousBuild.plannerAvailable === plannerAvailable &&
+        previousBuild.recordedAutomatic === recordedAutomatic &&
         previousBuild.lookups === lookups &&
         previousBuild.lookupGeneration === lookupGeneration
       const valuesUpdated = canReuseScene && path.length === 0
@@ -4332,7 +4352,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? shown?.resolve(type))
         const occurrenceView = occurrenceDynamicView(doc, resolve, path, path.length === 0 ? graphId : doc.root)
         const valueRegistry = widgetRegistry()
-        return buildScene({
+        const fresh = buildScene({
           document: doc,
           seedControllerEnabled,
           ...(lookupAnswers === undefined ? {} : { lookupAnswers }),
@@ -4351,6 +4371,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             occurrence: { owner: occurrenceOwner, plannerAvailable },
           } : {}),
         })
+        return recordedAutomatic === undefined ? fresh
+          : withRecordedAutomaticValues(fresh, untrack(() => props.app.executionForTab(tab)), path)
       })()
       const graphView = doc.view.graphs[graphId]
       sceneBuildContext = {
@@ -4378,6 +4400,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         extensionRevision: currentExtensionRevision,
         seedControllerEnabled,
         plannerAvailable,
+        recordedAutomatic,
         lookups,
         lookupGeneration,
       }
@@ -4565,6 +4588,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // and the dormant stored value must survive untouched underneath.
     let companionInputs: CompanionSourceMap = new Map()
     let companionDisplays: CompanionMap = {}
+    // The last run's automatic fields that used their default, derived with
+    // the overlays from the tab's latest run against the installed scene.
+    let lastRunAutomatic: readonly Diagnostic[] = []
+    let lastRunAutomaticKey = '[]'
     // What the wires bring, before a row's own rules, such as dropping a
     // color's opacity, decide what it shows.
     let arrivingCompanions: CompanionMap = {}
@@ -4612,7 +4639,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         (elaborated?.diagnostics ?? [])
           .filter((d) => d.code === 'node.rule.failed')
           .map((d): Diagnostic => ({ ...d, origin: 'compile', refs: ruleProblemRefs(d, scene.graphId, node.id) })))
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags]
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags, ...lastRunAutomatic]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
     }
@@ -4656,6 +4683,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
       const boundExec = props.app.executionForTab(tab)
       const gid = currentGraphId(tab)
+      const frozenView = tab.execution !== undefined
+      const lastRun = frozenView ? [] : lastRunAutomaticDiagnostics({ scene, execution: boundExec, instancePath: viewInstancePath(tab) })
+      const lastRunKey = canonicalJson(lastRun.map((d) => [d.message, d.anchor?.port ?? null]))
+      if (lastRunKey !== lastRunAutomaticKey) {
+        lastRunAutomatic = lastRun
+        lastRunAutomaticKey = lastRunKey
+        // Replaces the scene diagnostics, which reruns these overlays once.
+        refreshSceneDiagnostics(tab)
+      }
 
       // On live tabs, a producer value sheds its stale mark only when a
       // cached comparison compile of the CURRENT document proves the
@@ -5183,7 +5219,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const value =
         hit.row.derivedValue !== undefined
           ? hit.row.derivedValue
-          : stored !== undefined ? stored : effectiveWidgetDefault(spec)
+          : stored !== undefined ? stored : hit.row.automatic?.value ?? effectiveWidgetDefault(spec)
       const reg = registry()
       const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
       const schema = resolve(hit.node.node.type)
@@ -5218,6 +5254,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const fieldInsetY = tokens.rowGeometry.fieldInsetY
       const inputItem = schema?.body.find((item) => item.kind === 'input' && item.id === hit.row.inputId)
       const help = inputItem?.kind === 'input' ? inputItem.tooltip : undefined
+      const automaticAtOpen = hit.row.automatic ?? hit.row.automaticIfEmptied
+      const rowValueKey = hit.row.valueKey
+      const automatic = automaticAtOpen === undefined ? undefined : (): AutomaticState => {
+        sceneVersion()
+        const row = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)?.layout.rows
+          .find((candidate) => candidate.kind === 'widget' && candidate.valueKey === rowValueKey)
+        return (row?.kind === 'widget' ? row.automatic ?? row.automaticIfEmptied : undefined) ?? automaticAtOpen
+      }
 
       // Keep the graph as the focus origin before an optional editor takes
       // focus. ASSET uses native modal restoration; other families open an
@@ -5269,6 +5313,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ...(help === undefined ? {} : { help }),
           ...(caret === undefined || hit.row.viewId !== 'core.line' ? {} : { caret }),
           ...(hit.row.controllerMode === undefined ? {} : { controllerMode: hit.row.controllerMode }),
+          ...(automatic === undefined ? {} : { automatic }),
           ...(rowLookups === undefined ? {} : { lookups: rowLookups }),
         } } : {}),
         initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,

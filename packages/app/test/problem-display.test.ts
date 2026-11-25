@@ -216,6 +216,23 @@ describe('deriveNodeProblems', () => {
     expect(lines?.map((line) => [line.row, line.diagnostic.data?.['rule']])).toEqual([['width', 0], [undefined, 1]])
   })
 
+  it('lists an automatic default passed on to another node once, by the warning that names that node', () => {
+    const port = (node: string, input: string) => ({ node: asNodeId(node), port: asPortId(input) })
+    const own = (node: string) => diag('warning', 'schema', 'automatic.default', 'Could not work out frame rate. Using the default, 24.', {
+      anchor: { port: port(node, 'frame_rate') }, data: { input: 'frame_rate' },
+    })
+    const passedOn = diag('warning', 'compile', 'automatic.tapDefault', 'Could not work out frame rate. Retime 2 gets the default, 24.', {
+      anchor: { occurrence: { instancePath: [], node: asNodeId('n5-a1b2') }, port: port('n5-a1b2', 'frame_rate') },
+      refs: [{ graphId: 'g0', nodeId: 'n5-a1b2', valueKey: 'frame_rate', direction: 'input' }],
+      data: { input: 'frame_rate' },
+    })
+    const lines = composeCanvasProblemDiagnostics({ owned: [passedOn], scene: [own('n5-a1b2'), own('other')] })
+    expect(lines.map((d) => [d.code, d.anchor?.port?.node])).toEqual([
+      ['automatic.tapDefault', 'n5-a1b2'],
+      ['automatic.default', 'other'],
+    ])
+  })
+
   it('puts a problem on an output on the output row, apart from an input with the same id', () => {
     const viaRef = diag('warning', 'compile', 'out.ref', 'unused output', {
       refs: [{ graphId: 'g0', nodeId: 'n5-a1b2', portId: 'image', direction: 'output' }],

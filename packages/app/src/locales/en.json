@@ -1623,5 +1623,12 @@
   "load3dWidget.pauseAnimation": "Pause animation",
   "load3dWidget.recordingFailed": "Viewport recording failed.",
   "load3dWidget.record": "Record viewport",
-  "load3dWidget.stopRecording": "Stop recording"
+  "load3dWidget.stopRecording": "Stop recording",
+  "automaticField.auto": "auto",
+  "automaticField.defaultLine": "automatic ({value})",
+  "automaticField.notKnown": "automatic (not known)",
+  "automaticField.warning": "Could not work out {field}. Using the default, {value}.",
+  "automaticField.couldNotRefresh": "Could not refresh",
+  "automaticField.paused": "Paused",
+  "automaticField.offline": "Offline"
 }

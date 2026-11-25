@@ -51,6 +51,29 @@ function sceneOf(workflow: string, graphId = 'g0') {
 }
 
 describe('buildScene', () => {
+  it('lists an automatic value that cannot be worked out as a warning on its field, until a value is fixed', () => {
+    const base = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
+    const automatic = (type: string): NodeSchema | undefined => {
+      const schema = schemas.get(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      return { ...schema, body: schema.body.map((row) => row.kind !== 'input' ? row
+        : row.id === 'batch_size' ? { ...row, automatic: { formula: 'width / 0' } }
+        : row.id === 'color' ? { ...row, automatic: { formula: 'width' } } : row) }
+    }
+    const sceneWith = (values: Record<string, Json>) => {
+      const graph = base.graphs.g0!
+      const doc = { ...base, graphs: { ...base.graphs, g0: { ...graph, nodes: { ...graph.nodes, n0: { ...graph.nodes.n0!, values } } } } }
+      return buildScene({ document: doc, graphId: 'g0', resolve: documentResolver(doc, automatic), tokens: defaultTokens, measure, widgetMeasure })
+    }
+    const warnings = (scene: Scene) => scene.diagnostics.filter((d) => d.code === 'automatic.default')
+    const failing = warnings(sceneWith({ width: 64, height: 64 }))
+    expect(failing).toHaveLength(1)
+    expect(failing[0]!.severity).toBe('warning')
+    expect(failing[0]!.anchor).toEqual({ port: { node: 'n0', port: 'batch_size' } })
+    expect(failing[0]!.message).toBe('Could not work out batch_size. Using the default, 1.')
+    expect(warnings(sceneWith({ width: 64, height: 64, batch_size: 2 }))).toHaveLength(0)
+  })
+
   it('keeps numeric edit scenes equal to a fresh build and declines value-dependent presentation', () => {
     const previous = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
     const graph = previous.graphs.g0!

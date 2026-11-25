@@ -31,7 +31,7 @@ import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
 import { MediaDiagnostics, MediaValueInspector } from './MediaValueInspector.js'
 import { mediaMetadataOf } from './media-metadata.js'
-import { resolveNodeOccurrence } from './problem-display.js'
+import { resolveNodeOccurrence, withoutPassedOnDefaults } from './problem-display.js'
 import { Icon } from './Icon.js'
 import { LibraryPanel } from './LibraryPanel.js'
 import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
@@ -1549,12 +1549,12 @@ export function App(props: {
   // The indicator always counts the full list, regardless of the selection filter.
   const problemDiagnostics = (): readonly Diagnostic[] => {
     const execution = activeExecution()
-    return [
-      ...solveDiagnostics(),
+    const others = [
       ...visibleProblems(problems(), new Set([activeTabId()])),
       ...(activeTab()?.execution ? execution?.artifact?.diagnostics ?? [] : []),
       ...(execution?.errors ?? []),
     ]
+    return [...withoutPassedOnDefaults(solveDiagnostics(), others), ...others]
   }
   const importedNodes = () => {
     boundaryStateTick()

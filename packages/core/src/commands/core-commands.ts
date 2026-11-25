@@ -953,8 +953,9 @@ function nodeSetControllerOf(resolve?: (type: string) => NodeSchema | undefined)
  * Atomic multi-value write: one dispatch = one undo step. The schema-aware
  * caller computes WHAT to write. Entries whose stored value already equals
  * the new value (canonical JSON) are skipped, so a fully-matching dispatch is
- * a no-op success with no undo entry. `unset` empties optional fields, such
- * as a primitive's limits when it goes back to the fields it feeds.
+ * a no-op success with no undo entry. `unset` empties fields: an automatic
+ * field returning to automatic, or a primitive's limits when it goes back to
+ * the fields it feeds. A key with nothing stored is skipped the same way.
  */
 function nodeSetValuesOf(resolve?: SchemaResolver): CommandDefinition {
   return {

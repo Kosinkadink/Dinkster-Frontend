@@ -12,6 +12,8 @@
  *   writes the CURRENT schema default EXPLICITLY into node.values - never
  *   deletes the key, which would silently track future defaults and break
  *   exact reproduction.
+ * - A field that declares `automatic` is the exception: reset removes its
+ *   stored value, which makes it automatic again.
  * - Multi-widget resets dispatch ONE node.setValues = one undo step.
  * - Only MODIFIED widgets are written (unmodified ones stay as they are -
  *   absent keys are not pinned by someone else's reset).
@@ -54,13 +56,17 @@ function resetItem(
 ): MenuItem {
   const modified = widgets.filter((w) => w.modified)
   const values: Record<string, Json> = {}
-  for (const w of modified) values[w.valueKey] = w.defaultValue
+  const unset: string[] = []
+  for (const w of modified) {
+    if (w.defaultValue === undefined) unset.push(w.valueKey)
+    else values[w.valueKey] = w.defaultValue
+  }
   return {
     id,
     label,
     action: {
       kind: 'command',
-      invocation: { command: 'node.setValues', params: { graphId: ctx.graphId, nodeId, values } },
+      invocation: { command: 'node.setValues', params: { graphId: ctx.graphId, nodeId, values, ...(unset.length > 0 ? { unset } : {}) } },
     },
     ...(modified.length === 0 ? { disabled: true } : {}),
   }

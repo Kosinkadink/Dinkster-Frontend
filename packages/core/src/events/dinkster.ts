@@ -31,6 +31,7 @@
 
 import { asPromptId, type ConnectionId, type ExecutionRef } from '../ids.js'
 import type { RuntimeErrorDetail, RuntimeErrorHint } from '../diagnostics.js'
+import type { Json } from '../format/document.js'
 import { isValueDiagnostic, type EventNormalizer, type NodeActivity, type NodeExpansion, type NodeOutputSummary, type NodeProgress, type NormalizedEvent, type OnMalformedEvent, type ValueDiagnostic } from './contract.js'
 import { COMPOSITOR_STATE_PREVIEW_CHANNEL, COMPOSITOR_STATE_PREVIEW_STREAM, compositorStateOf } from '../compositor.js'
 import { GLSL_STATE_PREVIEW_CHANNEL, GLSL_STATE_PREVIEW_STREAM, glslShaderStateOf } from '../glsl-shader.js'
@@ -823,6 +824,35 @@ export interface DinksterJobWire {
   readonly scope?: unknown
   /** Content digest of the workflow document uploaded at submission. */
   readonly sourceDocument?: unknown
+  /** What each automatic field of the run used: [{nodeId, inputId, value, source, reason?}]. */
+  readonly automaticValues?: unknown
+}
+
+/** What one automatic field of a run used, as the run record holds it. */
+export interface AutomaticValueRecord {
+  /** The node's runtime id in the run. */
+  readonly runtimeNodeId: string
+  /** The field's flattened id, the node.values key. */
+  readonly inputId: string
+  readonly value: Json
+  /** False when the run could not work the value out and used the default. */
+  readonly workedOut: boolean
+}
+
+/** The automatic values a job record holds; malformed entries are dropped. */
+export function automaticValuesOfJob(job: DinksterJobWire): readonly AutomaticValueRecord[] {
+  if (!Array.isArray(job.automaticValues)) return []
+  const out: AutomaticValueRecord[] = []
+  for (const entry of job.automaticValues as readonly unknown[]) {
+    const item = rec(entry)
+    const runtimeNodeId = str(item?.['nodeId'])
+    const inputId = str(item?.['inputId'])
+    const source = item?.['source']
+    if (item === undefined || runtimeNodeId === undefined || inputId === undefined ||
+        !Object.hasOwn(item, 'value') || (source !== 'worked-out' && source !== 'default')) continue
+    out.push({ runtimeNodeId, inputId, value: item['value'] as Json, workedOut: source === 'worked-out' })
+  }
+  return out
 }
 
 const JOB_NODE_STATES: Readonly<Record<string, NodeProgress['state']>> = {

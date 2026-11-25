@@ -1623,5 +1623,12 @@
   "load3dWidget.pauseAnimation": "暂停动画",
   "load3dWidget.recordingFailed": "视口录制失败。",
   "load3dWidget.record": "录制视口",
-  "load3dWidget.stopRecording": "停止录制"
+  "load3dWidget.stopRecording": "停止录制",
+  "automaticField.auto": "自动",
+  "automaticField.defaultLine": "自动（{value}）",
+  "automaticField.notKnown": "自动（未知）",
+  "automaticField.warning": "无法计算 {field}，使用默认值 {value}。",
+  "automaticField.couldNotRefresh": "无法刷新",
+  "automaticField.paused": "已暂停",
+  "automaticField.offline": "离线"
 }

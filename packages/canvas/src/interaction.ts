@@ -2862,7 +2862,8 @@ export class InteractionController {
   /** The value a number row's stepper or drag starts from: stored, else declared, else intrinsic default. */
   private numberRowValue(hit: Extract<Hit, { kind: 'widget' }>): IntegerWidgetValue | undefined {
     const row = hit.row
-    const stored = hit.node.node.values[row.valueKey]
+    // An automatic field steps and drags from the value it has in use.
+    const stored = hit.node.node.values[row.valueKey] ?? row.automatic?.value
     const intrinsic = this.host.resolveWidgetDefault?.(row.spec)
     return row.spec.widgetType === 'INT'
       ? isIntegerWidgetValue(stored)

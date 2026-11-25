@@ -227,6 +227,10 @@ export interface ElaboratedInput {
   readonly derivedValue?: Json
   /** Member state to persist before writing or wiring this row. */
   readonly materialize?: readonly MaterializeFrame[]
+  /** A field that declares `automatic` with nothing stored and no wire: the value in use. */
+  readonly automatic?: AutomaticState
+  /** A field that declares `automatic` and holds a fixed value: what it would work out to if emptied. */
+  readonly automaticIfEmptied?: AutomaticState
   /** Keys of the boxes the node draws around this row, outermost first. */
   readonly boxes?: readonly string[]
   /** The rows its widget's `writes` and `reads` name, when it names any. */
@@ -273,6 +277,33 @@ export interface ElaboratedEditor {
   readonly materialize?: readonly MaterializeFrame[]
   /** Keys of the boxes the node draws around this row, outermost first. */
   readonly boxes?: readonly string[]
+}
+
+/** Why an automatic value could not be worked out, so the default is used. */
+export type AutomaticReason = 'unknown' | 'failed' | 'wrong-type' | 'argument-unknown' | 'lookup-failed' | 'lookup-timeout' | 'offline'
+
+/**
+ * The value an automatic field has in use. Working it out never writes the
+ * document: `value` is shown, and the run works it out again when queued.
+ */
+export interface AutomaticState {
+  /** The worked-out value, or the field's default. */
+  readonly value: Json
+  /**
+   * 'loading' while a lookup's answer is to come, and 'not-known' while
+   * nothing is under way and the field cannot fix it (the editor is
+   * offline): `value` is then the default, with no warning. 'default' is a
+   * value that cannot be worked out, with the warning.
+   */
+  readonly state: 'worked-out' | 'default' | 'loading' | 'not-known'
+  readonly reason?: AutomaticReason
+  readonly call?: LookupCallSpec
+  /**
+   * A lookup's answer kept for these same arguments, shown because a newer
+   * one did not come: the newest call failed ('stale') or the editing
+   * budget is spent ('paused').
+   */
+  readonly kept?: 'stale' | 'paused'
 }
 
 export interface ElaboratedOutput {
@@ -446,14 +477,24 @@ export interface LookupSite {
   readonly accepts: (answer: unknown) => boolean
 }
 
-/** The calls the lookup fields and notes of an elaborated node are loading for, or hold an answer for. */
-export function lookupSitesOf(items: readonly ElaboratedItem[]): LookupSite[] {
+/**
+ * The calls the lookup fields, automatic fields and notes of an elaborated
+ * node are loading for, or hold an answer for. A fixed automatic field's
+ * call is made only while that field is open (`openField`, its value key),
+ * where it shows what emptying it would give; it comes last, so the other
+ * sites keep their places.
+ */
+export function lookupSitesOf(items: readonly ElaboratedItem[], openField?: string): LookupSite[] {
   const sites: LookupSite[] = []
   for (const item of items) {
     if (item.kind === 'note' && item.lookup !== undefined && 'call' in item.lookup && item.lookup.call !== undefined) {
       sites.push({ call: item.lookup.call, accepts: (answer) => typeof answer === 'string' })
     }
-    if (item.kind !== 'input' || item.looked === undefined) continue
+    if (item.kind !== 'input') continue
+    // An automatic field takes any answer: one that is not a value of the
+    // field gives its default with the warning, as the run does.
+    if (item.automatic?.call !== undefined) sites.push({ call: item.automatic.call, accepts: () => true })
+    if (item.looked === undefined) continue
     const widget = item.spec.widget
     if (widget === undefined) continue
     for (const [field, state] of Object.entries(item.looked) as [LookedWidgetField, LookedState][]) {
@@ -461,6 +502,9 @@ export function lookupSitesOf(items: readonly ElaboratedItem[]): LookupSite[] {
       sites.push({ call: state.call, accepts: (answer) => lookedAnswerValue(widget, field, answer) !== undefined })
     }
   }
+  const open = openField === undefined ? undefined
+    : items.find((item): item is ElaboratedInput => item.kind === 'input' && valueKeyOf(item) === openField)
+  if (open?.automaticIfEmptied?.call !== undefined) sites.push({ call: open.automaticIfEmptied.call, accepts: () => true })
   return sites
 }
 
@@ -750,6 +794,52 @@ function formulaValueOf(raw: unknown, kind: FormulaNameKind): FormulaValue | Unk
 
 const defaultOf = (row: InputSpec): unknown => row.widget?.default ?? row.ext?.['default']
 
+type AutomaticKind = 'int' | 'float' | 'number' | 'text' | 'choice' | 'bool'
+
+/** The kind of field an automatic value fills (the engine's `automatic_kind`). */
+function automaticKindOf(type: TypeExpr): AutomaticKind | undefined {
+  if (type.kind === 'union') {
+    return type.names.length === 2 && type.names.includes('INT') && type.names.includes('FLOAT') ? 'number' : undefined
+  }
+  if (type.kind !== 'concrete') return undefined
+  return ({ INT: 'int', FLOAT: 'float', STRING: 'text', COMBO: 'choice', BOOLEAN: 'bool' } as const)[type.name as 'INT']
+}
+
+/**
+ * A worked-out value as the field stores it, or undefined when it is not a
+ * value of the field: a decimal fills a whole-number field only when it is
+ * exactly whole, a whole number fills a decimal one, and a choice is one of
+ * its static options.
+ */
+function automaticValueOf(kind: AutomaticKind, value: FormulaValue | Json, row: InputSpec): Json | undefined {
+  if (kind === 'bool') return typeof value === 'boolean' ? value : undefined
+  if (kind === 'text' || kind === 'choice') {
+    if (typeof value !== 'string') return undefined
+    const widget = row.widget
+    const options = kind === 'choice' && widget !== undefined && widget.remote === undefined && !widget.editableOptions ? widget.options['options'] : undefined
+    if (Array.isArray(options) && !options.some((option) => normalizeComboOption(option)?.value === value)) return undefined
+    return value
+  }
+  if (typeof value === 'bigint') return Number.isSafeInteger(Number(value)) ? Number(value) : undefined
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return kind !== 'int' || Number.isInteger(value) ? value : undefined
+}
+
+/** Formula values worked out only when the formula reads them. */
+class LazyValues extends Map<string, FormulaValue | Unknown> {
+  private readonly thunks = new Map<string, () => FormulaValue | Unknown>()
+  setLazy(name: string, thunk: () => FormulaValue | Unknown): void {
+    this.thunks.set(name, thunk)
+  }
+  override get(name: string): FormulaValue | Unknown | undefined {
+    if (!super.has(name) && this.thunks.has(name)) super.set(name, this.thunks.get(name)!())
+    return super.get(name)
+  }
+}
+
+const sameInUse = (a: ReadonlyMap<string, Json | Unknown>, b: ReadonlyMap<string, Json | Unknown>): boolean =>
+  a.size === b.size && [...a].every(([key, value]) => b.has(key) && JSON.stringify(b.get(key)) === JSON.stringify(value) && (value === UNKNOWN) === (b.get(key) === UNKNOWN))
+
 /** Passes a node's choice keys take to settle; a longer chain of formulas is refused. */
 const MAX_CHOICE_PASSES = 8
 
@@ -783,11 +873,14 @@ function settle(
   connectivity: Connectivity,
   options: ElaborateOptions,
 ): { readonly elaborated: ElaboratedInterface; readonly problems: ReadonlySet<string>; readonly hid: boolean } {
+  // The values in use of automatic fields settle the same way as the keys: a
+  // count or a leader reads the values the previous pass worked out.
   let settled: ReadonlyMap<string, string | null> = new Map()
+  let inUse: ReadonlyMap<string, Json | Unknown> = new Map()
   for (let pass = 1; ; pass++) {
-    const result = elaboratePass(schema, node, connectivity, options, settled)
+    const result = elaboratePass(schema, node, connectivity, options, settled, inUse)
     const unsettled = [...result.early].filter((path) => (result.chosen.get(path) ?? null) !== (settled.get(path) ?? null))
-    if (unsettled.length === 0) return result
+    if (unsettled.length === 0 && (sameInUse(result.inUse, inUse) || pass === MAX_CHOICE_PASSES)) return result
     if (pass === MAX_CHOICE_PASSES) {
       return {
         ...result,
@@ -799,6 +892,7 @@ function settle(
       }
     }
     settled = result.chosen
+    inUse = result.inUse
   }
 }
 
@@ -808,10 +902,12 @@ function elaboratePass(
   connectivity: Connectivity,
   options: ElaborateOptions,
   settled: ReadonlyMap<string, string | null>,
+  previousInUse: ReadonlyMap<string, Json | Unknown>,
 ): {
   readonly elaborated: ElaboratedInterface
   readonly chosen: ReadonlyMap<string, string | null>
   readonly early: ReadonlySet<string>
+  readonly inUse: ReadonlyMap<string, Json | Unknown>
   /** Rows this pass reported a problem on, and whether it hid any row. */
   readonly problems: ReadonlySet<string>
   readonly hid: boolean
@@ -910,7 +1006,94 @@ function elaboratePass(
       if (key !== undefined) return key
     }
     if (linked(path)) return UNKNOWN
+    if (!Object.hasOwn(node.values, path)) {
+      const automatic = automaticInUse(path)
+      if (automatic !== undefined) return automatic === UNKNOWN ? UNKNOWN : formulaValueOf(automatic, kind)
+    }
     return formulaValueOf(Object.hasOwn(node.values, path) ? node.values[path] : fallback, kind)
+  }
+
+  // -- Automatic values -------------------------------------------------------
+
+  /** Fields that declare `automatic` with nothing stored and no wire, and the scope each sits in. */
+  const sites = new Map<string, { readonly row: InputSpec; readonly scope: Scope }>()
+  /** Fields that declare `automatic` and hold a fixed value, worked out for what emptying them would give. */
+  const fixedSites = new Map<string, { readonly row: InputSpec; readonly scope: Scope }>()
+  const outcomes = new Map<string, AutomaticState>()
+  const working = new Set<string>()
+  /** Set once the walk has found every site: formulas then work sites out as they read them. */
+  let resolving = false
+
+  /**
+   * What a formula reads for an automatic field with nothing stored: its
+   * worked-out value, its default when it cannot be worked out, unknown
+   * while its lookup is loading or when reading it goes round in a circle.
+   * Undefined for any other field.
+   */
+  const automaticInUse = (path: string): Json | Unknown | undefined => {
+    if (!resolving) return previousInUse.get(path)
+    if (!sites.has(path)) return undefined
+    const outcome = automaticOutcome(path)
+    return outcome === undefined || outcome.state === 'loading' ? UNKNOWN : outcome.value
+  }
+
+  const automaticOutcome = (path: string): AutomaticState | undefined => {
+    const known = outcomes.get(path)
+    if (known !== undefined) return known
+    if (working.has(path)) return undefined
+    working.add(path)
+    try {
+      const outcome = workOutAutomatic(sites.get(path)!)
+      outcomes.set(path, outcome)
+      return outcome
+    } finally {
+      working.delete(path)
+    }
+  }
+
+  const workOutAutomatic = ({ row, scope }: { readonly row: InputSpec; readonly scope: Scope }): AutomaticState => {
+    const automatic = row.automatic!
+    const fallback = (defaultOf(row) ?? null) as Json
+    const kind = automaticKindOf(row.type)
+    const standIn = (reason: AutomaticReason, call?: LookupCallSpec): AutomaticState =>
+      ({ value: fallback, state: 'default', reason, ...(call !== undefined ? { call } : {}) })
+    if (kind === undefined) return standIn('wrong-type')
+    let found: FormulaValue | Json
+    let call: LookupCallSpec | undefined
+    let kept: AutomaticState['kept']
+    if (isLookupSpec(automatic)) {
+      const args: Json[] = []
+      for (const argument of automatic.args) {
+        const outcome = evaluate(typeof argument === 'string' ? argument : argument.formula, scope)
+        if (outcome.kind !== 'value') return standIn('argument-unknown')
+        const value = outcome.value
+        args.push(Array.isArray(value)
+          ? value.map((item) => (typeof item === 'bigint' ? Number(item) : item))
+          : typeof value === 'bigint' ? Number(value) : value as Json)
+      }
+      call = { lookup: automatic.lookup, args }
+      const held = options.lookupAnswers?.(call.lookup, call.args)
+      // The last answer stands while a newer one loads, after a refresh
+      // failed or while the budget is spent. With none, the field waits on
+      // the call; offline nothing is under way, which is no failure of the
+      // lookup.
+      if (held !== undefined && 'answer' in held && held.answer !== undefined) {
+        found = held.answer
+        if (held.state === 'stale' || held.state === 'paused') kept = held.state
+      } else if (held?.state === 'unavailable' && held.reason === 'offline') {
+        return { value: fallback, state: 'not-known', reason: 'offline', call }
+      } else if (held?.state === 'unavailable') {
+        return standIn(held.reason === 'timeout' ? 'lookup-timeout' : 'lookup-failed', call)
+      } else return { value: fallback, state: 'loading', call }
+    } else {
+      const outcome = evaluate(automatic.formula, scope)
+      if (outcome.kind === 'unknown') return standIn('unknown')
+      if (outcome.kind === 'failed') return standIn('failed')
+      found = outcome.value
+    }
+    const value = automaticValueOf(kind, found, row)
+    if (value === undefined) return standIn('wrong-type', call)
+    return { value, state: 'worked-out', ...(call !== undefined ? { call } : {}), ...(kept !== undefined ? { kept } : {}) }
   }
 
   /** Member keys a formula counts for a group: the stored ones, or a count group's own. */
@@ -1043,7 +1226,7 @@ function elaboratePass(
       }
     }
     const member = [...scope.formulaFrames].reverse().find((frame) => frame.index !== undefined)
-    const values = new Map<string, FormulaValue | Unknown>()
+    const values = new LazyValues()
     const wired = new Map<string, boolean>()
     const sizes = new Map<string, number>()
     for (const [name, kind] of names.names) {
@@ -1054,7 +1237,7 @@ function elaboratePass(
         if (names.inputs.has(name)) wired.set(name, constant.linked === true)
       } else if (unknown.has(name)) {
         // A group's size with no entry in `sizes` reads unknown.
-        if (kind !== 'opaque' && kind !== 'group') values.set(name, UNKNOWN)
+        if (kind !== 'opaque' && kind !== 'group') values.setLazy(name, () => UNKNOWN)
         if (names.inputs.has(name)) wired.set(name, false)
       } else if (kind === 'group') {
         sizes.set(name, membersFor(path).length)
@@ -1062,16 +1245,17 @@ function elaboratePass(
         const dot = path.lastIndexOf('.')
         const group = path.slice(0, dot)
         const row = path.slice(dot + 1)
-        const list: (bigint | number | boolean | string | null)[] = []
-        let unknown = false
-        for (const key of membersFor(group)) {
-          const value = valueFor(`${group}.${key}.${row}`, kind.slice(0, -2) as FormulaNameKind, defaults.get(`${group}.${key}.${row}`))
-          if (value === UNKNOWN || Array.isArray(value)) unknown = true
-          else list.push(value as bigint | number | boolean | string | null)
-        }
-        values.set(name, unknown ? UNKNOWN : list)
+        values.setLazy(name, () => {
+          const list: (bigint | number | boolean | string | null)[] = []
+          for (const key of membersFor(group)) {
+            const value = valueFor(`${group}.${key}.${row}`, kind.slice(0, -2) as FormulaNameKind, defaults.get(`${group}.${key}.${row}`))
+            if (value === UNKNOWN || Array.isArray(value)) return UNKNOWN
+            list.push(value as bigint | number | boolean | string | null)
+          }
+          return list
+        })
       } else {
-        if (kind !== 'opaque') values.set(name, valueFor(path, kind, defaults.get(path)))
+        if (kind !== 'opaque') values.setLazy(name, () => valueFor(path, kind, defaults.get(path)))
         if (names.inputs.has(name)) wired.set(name, linked(path))
       }
     }
@@ -1355,6 +1539,12 @@ function elaboratePass(
       ...(looked !== undefined && Object.keys(looked.states).length > 0 ? { looked: looked.states } : {}),
       ...extra,
     })
+    if (row.automatic !== undefined && !scope.dormant && !linked(path)) {
+      // On a subgraph node it is worked out in the inner node's scope.
+      const site = { row: spec, scope: lookupScope }
+      if (Object.hasOwn(node.values, path)) fixedSites.set(path, site)
+      else sites.set(path, site)
+    }
   }
 
   const emitOutput = (row: OutputSpec, path: string, scope: Scope, label?: string): void => {
@@ -2252,6 +2442,30 @@ function elaboratePass(
       items[index] = { ...item, spec }
     }
   }
+  resolving = true
+  const inUse = new Map<string, Json | Unknown>()
+  for (const path of sites.keys()) {
+    const outcome = automaticOutcome(path)!
+    inUse.set(path, outcome.state === 'loading' ? UNKNOWN : outcome.value)
+  }
+  for (const [index, item] of items.entries()) {
+    const fixed = item.kind === 'input' ? fixedSites.get(item.address.port) : undefined
+    if (fixed !== undefined && item.kind === 'input') {
+      items[index] = { ...item, automaticIfEmptied: workOutAutomatic(fixed) }
+      continue
+    }
+    const outcome = item.kind === 'input' ? outcomes.get(item.address.port) : undefined
+    if (outcome === undefined || item.kind !== 'input') continue
+    items[index] = { ...item, automatic: outcome }
+    if (outcome.state === 'default') {
+      const shown = typeof outcome.value === 'string' ? outcome.value : JSON.stringify(outcome.value)
+      diagnostics.push(diag('warning', 'schema', 'automatic.default',
+        `Could not work out ${item.spec.displayName ?? item.spec.id}. Using the default, ${shown}.`, {
+          ...(options.nodeId !== undefined ? { anchor: { port: { node: options.nodeId, port: asPortId(item.address.port) } } } : {}),
+          data: { input: item.address.port, reason: outcome.reason ?? 'unknown' },
+        }))
+    }
+  }
   const elaborated: ElaboratedInterface = {
     items,
     submissionValues: [],
@@ -2268,7 +2482,7 @@ function elaboratePass(
     ...(suffix ? { titleSuffix: suffix } : {}),
     diagnostics,
   }
-  return { elaborated, chosen, early, problems, hid }
+  return { elaborated, chosen, early, inUse, problems, hid }
 }
 
 // ---------------------------------------------------------------------------

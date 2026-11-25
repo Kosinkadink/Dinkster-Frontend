@@ -17,6 +17,7 @@ import {
   asPromptId,
   canonicalJson,
   canonicalTypeIdOf,
+  automaticValuesOfJob,
   companionSourcesOf,
   compile,
   documentResolver,
@@ -136,6 +137,7 @@ import {
   type Vec2,
   type CompileArtifact,
 } from '@dinkster/core'
+import { lookupAnswersOf } from './lookup-demand.js'
 import {
   DINKSTER_GRAPH_FEATURE_PLACEMENT,
   DinksterConnection,
@@ -7941,6 +7943,7 @@ export class AppState {
       outputs,
       artifacts: job.artifacts ?? [],
       ...(result.submittedBy === undefined ? {} : { submittedBy: result.submittedBy }),
+      automaticValues: automaticValuesOfJob(job),
       jobRef: result.jobRef,
       sourceDocument: result.sourceDocument,
       queuedAt: result.queuedAt,
@@ -8215,6 +8218,9 @@ export class AppState {
       // Capability-negotiated graph wire forms (e.g. $typed) are gated on
       // the TARGET backend's advertised features, exactly like the registry.
       ...(registry.graphFeatures ? { graphFeatures: registry.graphFeatures } : {}),
+      // An automatic lookup field copied into another node passes on the
+      // answer its row shows; a frozen view of a run calls no lookups.
+      ...(tab.execution === undefined ? { lookupAnswers: lookupAnswersOf(backend.lookups) } : {}),
     }
   }
 
