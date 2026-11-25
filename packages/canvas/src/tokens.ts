@@ -130,13 +130,14 @@ export const canvasPaintTokens = {
     /** Rows an open text result shows at least. */
     textOutputMinRows: 2,
     /**
-     * The bar on the bottom edge of a node whose preview is open: the text
-     * box's bar (`widget.textBoxEdge`), its top `barRise` above the node's
-     * edge so it sits on the edge, and a band around the edge that drags it.
-     * Arrow keys on a pressed bar step a picture's height by `keyStep`; a text
-     * result steps one row.
+     * The bar of a node whose preview is open: the text box's bar
+     * (`widget.textBoxEdge`), its top `barRise` above the node's bottom edge
+     * so it sits inside the node under the preview, as a text box's bar sits
+     * inside its box, and a band around the edge that drags it. Arrow keys on
+     * a pressed bar step a picture's height by `keyStep`; a text result steps
+     * one row.
      */
-    previewEdge: { barRise: 1, hitAbove: 5, hitBelow: 5, keyStep: 10 },
+    previewEdge: { barRise: 5, hitAbove: 5, hitBelow: 5, keyStep: 10 },
     missing: { portLabelPadding: 4, pairedPortGap: 16, tapLabelPadding: 20 },
     widgetPinGap: canvasSemanticTokens.space[4],
     pinOverhang: canvasSemanticTokens.space[12],
