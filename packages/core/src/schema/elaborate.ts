@@ -798,6 +798,11 @@ const defaultOf = (row: InputSpec): unknown => row.widget?.default ?? row.ext?.[
 
 type AutomaticKind = 'int' | 'float' | 'number' | 'text' | 'choice' | 'bool'
 
+/** A lookup-backed field whose value is still to come: what reads it reads unknown, not its default. */
+function waiting(outcome: AutomaticState): boolean {
+  return outcome.state === 'loading' || outcome.state === 'not-known'
+}
+
 /** The kind of field an automatic value fills (the engine's `automatic_kind`). */
 function automaticKindOf(type: TypeExpr): AutomaticKind | undefined {
   if (type.kind === 'union') {
@@ -1025,18 +1030,23 @@ function elaboratePass(
   const working = new Set<string>()
   /** Set once the walk has found every site: formulas then work sites out as they read them. */
   let resolving = false
+  /** Set when a formula read an automatic field that is still waiting on its lookup. */
+  let readWaiting = false
 
   /**
    * What a formula reads for an automatic field with nothing stored: its
    * worked-out value, its default when it cannot be worked out, unknown
-   * while its lookup is loading or when reading it goes round in a circle.
+   * while its lookup waits or when reading it goes round in a circle.
    * Undefined for any other field.
    */
   const automaticInUse = (path: string): Json | Unknown | undefined => {
     if (!resolving) return previousInUse.get(path)
     if (!sites.has(path)) return undefined
     const outcome = automaticOutcome(path)
-    return outcome === undefined || outcome.state === 'loading' ? UNKNOWN : outcome.value
+    if (outcome === undefined) return UNKNOWN
+    if (!waiting(outcome)) return outcome.value
+    readWaiting = true
+    return UNKNOWN
   }
 
   const automaticOutcome = (path: string): AutomaticState | undefined => {
@@ -1044,12 +1054,14 @@ function elaboratePass(
     if (known !== undefined) return known
     if (working.has(path)) return undefined
     working.add(path)
+    const outer = readWaiting
     try {
       const outcome = workOutAutomatic(sites.get(path)!)
       outcomes.set(path, outcome)
       return outcome
     } finally {
       working.delete(path)
+      readWaiting = outer
     }
   }
 
@@ -1066,10 +1078,12 @@ function elaboratePass(
     if (isLookupSpec(automatic)) {
       const args: Json[] = []
       for (const argument of automatic.args) {
+        readWaiting = false
         const outcome = evaluate(typeof argument === 'string' ? argument : argument.formula, scope)
-        // An argument that reads a value not known yet, such as another
-        // automatic field whose lookup is loading, waits without a warning.
-        if (outcome.kind === 'unknown') return { value: fallback, state: 'not-known', reason: 'argument-unknown' }
+        // An argument that reads another automatic field still waiting on
+        // its lookup waits too, without a warning. One that can never be
+        // known here, such as a wired input, gives the default, as a run does.
+        if (outcome.kind === 'unknown' && readWaiting) return { value: fallback, state: 'not-known', reason: 'argument-unknown' }
         // A lookup takes no None argument, so none is sent.
         if (outcome.kind !== 'value' || outcome.value === null) return standIn('argument-unknown')
         const value = outcome.value
@@ -1081,8 +1095,8 @@ function elaboratePass(
       const held = options.lookupAnswers?.(call.lookup, call.args)
       // The last answer stands while a newer one loads, after a refresh
       // failed or while the budget is spent. With none, the field waits on
-      // the call; offline nothing is under way, which is no failure of the
-      // lookup.
+      // the call; offline, paused or before a file is checked nothing is
+      // under way, which is no failure of the lookup.
       if (held !== undefined && 'answer' in held && held.answer !== undefined) {
         found = held.answer
         if (held.state === 'stale' || held.state === 'paused') kept = held.state
@@ -2454,7 +2468,7 @@ function elaboratePass(
   const inUse = new Map<string, Json | Unknown>()
   for (const path of sites.keys()) {
     const outcome = automaticOutcome(path)!
-    inUse.set(path, outcome.state === 'loading' ? UNKNOWN : outcome.value)
+    inUse.set(path, waiting(outcome) ? UNKNOWN : outcome.value)
   }
   for (const [index, item] of items.entries()) {
     const fixed = item.kind === 'input' ? fixedSites.get(item.address.port) : undefined

@@ -46,13 +46,13 @@ value.
 
 When the value cannot be worked out - the formula reads something not known
 or fails, the result is not a value of the field, a lookup fails, runs out of
-time, or has an argument that fails or is None - the field's default is used
-and the field carries a warning, "Could not work out frame rate. Using the
-default, 24.", listed in Problems. A lookup takes no None argument, so the
-editor and the engine both use the default without calling it. While a
-lookup's answer is still to come, or one of its arguments reads a value not
-known yet such as another automatic field that is loading, the field shows
-the default without a warning.
+time, or has an argument that fails, is None or cannot be known in the editor,
+such as a wired input - the field's default is used and the field carries a
+warning, "Could not work out frame rate. Using the default, 24.", listed in
+Problems. A lookup takes no None argument, so the editor and the engine both
+use the default without calling it. While a lookup's answer is still to come,
+or one of its arguments reads another automatic field still waiting on its
+lookup, the field shows the default without a warning.
 
 A lookup's answer kept for the same arguments is shown as worked out, with no
 warning, while a newer one loads, after a refresh failed, or while the editing
