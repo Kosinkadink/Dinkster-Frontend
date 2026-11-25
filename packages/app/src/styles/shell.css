@@ -267,6 +267,15 @@
 .sidebar-button-icon { display: inline-flex; align-items: center; justify-content: center; }
 .sidebar-button-icon svg { width: 20px; height: 20px; stroke-width: 1.5; }
 .sidebar-settings-button { flex: 0 0 auto; margin-top: var(--dinkster-space-4); }
+.sidebar-logo { display: flex; justify-content: center; margin-bottom: var(--dinkster-space-4); }
+.sidebar-logo .dinkster-window-action > .dinkster-button { width: 40px; height: 40px; padding: 0; border-color: transparent; background: transparent; }
+.sidebar-logo .dinkster-window-action > .dinkster-button:is(:hover, [aria-expanded='true']) { background: var(--dinkster-interaction-hover); }
+.sidebar-logo .dinkster-brand-mark { width: 22px; height: 22px; }
+.sidebar-account { display: flex; justify-content: center; margin-top: var(--dinkster-space-4); }
+.sidebar-account:empty { display: none; }
+/* The Dinkster menu's account rows, shown while the left bar is hidden. */
+.menu-item.disabled[data-item-id='account.identity'] { color: var(--dinkster-text-primary); }
+.menu-item[data-item-id='account.signOut'] { color: var(--dinkster-danger-foreground); }
 
 .view-toggle-cluster { display: inline-flex; align-items: center; margin-right: var(--dinkster-space-4); }
 .view-toggle-button {

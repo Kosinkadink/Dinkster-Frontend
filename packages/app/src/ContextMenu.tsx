@@ -35,6 +35,7 @@ interface RectLike {
 
 const MENU_MARGIN = semanticDesignTokens.space[8]
 const SUBMENU_GAP = semanticDesignTokens.space[4]
+const MENU_MAX_HEIGHT = 400
 
 const Subgraph: LucideIcon = (props) => <LucideBaseIcon {...props} iconNode={SUBGRAPH_ICON as IconNode} />
 
@@ -90,6 +91,7 @@ const placeRootPanel = (
   panel: { readonly width: number; readonly height: number },
   anchor: { readonly x: number; readonly y: number },
   bounds: { readonly width: number; readonly height: number },
+  maxHeight = MENU_MAX_HEIGHT,
 ): FloatingSurfacePlacement =>
   placeFloatingSurface({
     surface: panel,
@@ -98,7 +100,7 @@ const placeRootPanel = (
     direction: 'point',
     margin: MENU_MARGIN,
     gap: 0,
-    maxHeight: 400,
+    maxHeight,
   })
 
 export function rootPanelPosition(
@@ -123,7 +125,7 @@ const placeSubmenuPanel = (
     direction: 'inline',
     margin: MENU_MARGIN,
     gap: SUBMENU_GAP,
-    maxHeight: 400,
+    maxHeight: MENU_MAX_HEIGHT,
   })
 
 export function submenuPanelPosition(
@@ -141,13 +143,15 @@ export function ContextMenu(props: {
   /** Invoke a terminal item; the host closes and routes its command/action. */
   onInvoke: (item: MenuActionItem) => void
   onClose: (reason?: 'escape' | 'focusout') => void
+  /** The root panel's height cap; submenus keep the shared cap. The window still bounds it. */
+  maxHeight?: number
 }) {
   const rootEntries = createMemo(() => menuFlat(props.menu.groups))
   const [openPath, setOpenPath] = createSignal<readonly MenuSubmenuItem[]>([])
   const [indices, setIndices] = createSignal<readonly number[]>([firstEnabled(rootEntries())])
   const [activeDepth, setActiveDepth] = createSignal(0)
   const [positions, setPositions] = createSignal<readonly PanelPosition[]>([
-    { x: props.menu.x, y: props.menu.y, maxWidth: 180, maxHeight: 400 },
+    { x: props.menu.x, y: props.menu.y, maxWidth: 180, maxHeight: props.maxHeight ?? MENU_MAX_HEIGHT },
   ])
   let focusRoot!: HTMLDivElement
   const panelElements = new Map<number, HTMLDivElement>()
@@ -204,7 +208,7 @@ export function ContextMenu(props: {
   }, [])
 
   const panelPosition = (depth: number): PanelPosition =>
-    positions()[depth] ?? { x: props.menu.x, y: props.menu.y, maxWidth: 180, maxHeight: 400 }
+    positions()[depth] ?? { x: props.menu.x, y: props.menu.y, maxWidth: 180, maxHeight: depth === 0 ? props.maxHeight ?? MENU_MAX_HEIGHT : MENU_MAX_HEIGHT }
 
   const setIndex = (depth: number, index: number): void => {
     setIndices((current) => {
@@ -254,6 +258,7 @@ export function ContextMenu(props: {
       { width: rootElement.offsetWidth, height: intrinsicPanelHeight(rootElement) },
       props.menu,
       bounds,
+      props.maxHeight,
     )
     next.push({ x: rootPosition.left, y: rootPosition.top, maxWidth: rootPosition.maxWidth, maxHeight: rootPosition.maxHeight })
     for (let depth = 1; depth < panels().length; depth += 1) {

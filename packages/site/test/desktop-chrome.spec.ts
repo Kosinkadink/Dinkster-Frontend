@@ -119,6 +119,32 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
       }
     }
   }
+  // Full screen hides the window buttons, so neither the traffic-light inset
+  // nor the Windows overlay reservation stays.
+  for (const platform of ['darwin', 'win32'] as const) {
+    for (const fullScreen of [true, false]) {
+      await page.evaluate(
+        ({ platform, fullScreen }) =>
+          window.DinksterDesktopChrome.install({
+            title: 'Host toolbar',
+            platform,
+            theme: 'dark',
+            qa: true,
+            development: true,
+            fullScreen,
+          }),
+        { platform, fullScreen },
+      )
+      await expect(bar).toHaveCSS(
+        'padding-left',
+        platform === 'darwin' && !fullScreen ? '92px' : '12px',
+      )
+      await expect(bar).toHaveCSS(
+        'padding-right',
+        platform === 'win32' && !fullScreen ? '148px' : '12px',
+      )
+    }
+  }
   await bar.evaluate((node) => node.remove())
   await expect(page.locator('.dinkster-window-fallback')).toHaveCount(1)
   await page.evaluate((content) => {
@@ -229,7 +255,7 @@ for (const existing of [false, true]) {
         dark: { color: '#090D0D', symbolColor: '#F0F5F5', height: 44 },
         light: { color: '#EDEFF2', symbolColor: '#20252A', height: 44 },
       },
-      trafficLightPosition: { x: 14, y: 10 },
+      trafficLightPosition: { x: 14, y: 14 },
     })
     const requests: string[] = []
     page.on('request', (request) => requests.push(request.url()))
