@@ -106,14 +106,24 @@ test('the typed words are marked in each result title', async ({ page }) => {
   await expect(search.getByRole('option', { name: /Image to video\s*Blueprint/ }).locator('mark')).toHaveText(['to', 'vid'])
 })
 
-test('the floating preview is hidden when it does not fit beside the list in the window', async ({ page }) => {
-  await page.setViewportSize({ width: 1600, height: 900 })
-  await page.goto('/#search')
-  const search = example(page, 'search-typed')
-  const preview = search.getByTestId('search-preview')
-  await field(search).focus()
-  await expect(preview).toBeVisible()
-  const list = (await search.getByRole('listbox').boundingBox())!
-  await page.setViewportSize({ width: Math.floor(list.x + list.width + 100), height: 900 })
-  await expect(preview).toBeHidden()
+test('the floating preview narrows to 240 px and is hidden when that does not fit beside the list in the window', async ({ page }) => {
+  const seen: string[] = []
+  for (const width of [1600, 1330, 1240]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/#search')
+    const search = example(page, 'search-typed')
+    const preview = search.getByTestId('search-preview')
+    await field(search).focus()
+    await expect(preview).toHaveCount(1)
+    const room = await preview.evaluate((element) => document.documentElement.clientWidth - element.getBoundingClientRect().left)
+    if (room < 240) {
+      await expect(preview).toBeHidden()
+      seen.push('hidden')
+    } else {
+      await expect(preview).toBeVisible()
+      expect(Math.round((await preview.boundingBox())!.width)).toBe(Math.round(Math.min(320, room)))
+      seen.push(room < 320 ? 'narrowed' : 'full')
+    }
+  }
+  expect(seen).toEqual(['full', 'narrowed', 'hidden'])
 })
