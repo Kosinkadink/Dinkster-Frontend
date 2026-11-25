@@ -78,6 +78,8 @@ test.beforeEach(async ({ page }, testInfo) => {
     detail: 'Engine healthy',
     progress: { done: 8, total: 8, phase: 'Engine healthy' },
   } }))
+  // The direct engine has no supervisor cache; seed it from the live catalog.
+  await page.route('/api/nodes/provisional*', (route) => route.fulfill({ json: table }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
@@ -180,7 +182,8 @@ test('edits in the node, undoes, reloads, runs and draws the wired histogram of 
   const editor = await unfoldNodeEditor(page, 'editor', 'curve')
   await expect(editor.getByRole('button', { name: /^Interpolation/ })).toContainText('Monotone cubic')
   await expect(points(editor)).toHaveCount(2)
-  await expect(editor).toContainText('Histogram: not known yet')
+  await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
+  await expect(editor.locator('.dinkster-canvas-curve-histogram')).toHaveCount(0)
   expect(await storedCurve(page)).toBeUndefined()
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
 
