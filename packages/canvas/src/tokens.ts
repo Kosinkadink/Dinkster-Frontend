@@ -157,6 +157,11 @@ export const canvasPaintTokens = {
     modeOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     /** `crisp` is the idle outline of a node look with crisp edges. */
     outline: { idle: 1.25, crisp: 1, strong: 2.5, unrecognizedFactor: 3, screen: 1, strongScreen: 2 },
+    /**
+     * A node that ran, in the frozen view: 2 px in its state's colour at half
+     * strength. A cached node takes the same 2 px, dashed, in the neutral outline.
+     */
+    ranOutline: { stroke: 2, opacity: 0.5 },
     identityBodyTint: 0.18,
     identityHeaderTint: 0.72,
     errorBodyTint: 0.2,
@@ -297,16 +302,22 @@ export const canvasPaintTokens = {
     ghostStroke: 1.5,
     ghostMinScreenStroke: 1,
   },
+  /**
+   * The running node: a steady 2 px outline in the running colour at 90%, and
+   * a glow around it, as a box shadow of 1 px spread would draw it, that
+   * breathes on a sine from 12 px blur at 32% to 17 px at 47%. Reduced
+   * motion holds the midpoint.
+   */
   running: {
+    outlineStroke: 2,
+    outlineOpacity: 0.9,
     pulsePeriodMs: 1400,
     reducedMotionPulse: 0.5,
-    glowOpacity: 0.48,
-    glowPulseOpacity: 0.22,
-    glowOutset: 2,
-    glowStroke: 4.5,
-    glowMinScreenStroke: 3,
-    glowBlur: canvasSemanticTokens.space[8],
+    glowOpacity: 0.32,
+    glowPulseOpacity: 0.15,
+    glowBlur: 12,
     glowPulseBlur: 5,
+    glowSpread: 1,
     accentStroke: 1.5,
     accentMinScreenStroke: 1.5,
     dashSpeed: 0.032,
@@ -433,6 +444,7 @@ export const canvasPaintTokens = {
   },
   preview: {
     palette: { availableWidthPadding: 16, maxHeight: 240, inset: 6 },
+    search: { inset: 16, maxScale: 1.5 },
     appWidgetFallbackWidth: 320,
     unknownPlacement: { width: 180, height: 88 },
     stroke: 1,
@@ -681,11 +693,12 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
    */
   readonly sections?: readonly { readonly id: string; readonly rows: number }[]
   /**
-   * An input of the node that, while it has a wire, gives the editor one more
-   * control row: a line about what comes through it. Without a wire there is
-   * no such row, so the height follows the wire and not a run.
+   * Where a curve that declares a histogram has one more control row, counted
+   * from the first control row: the histogram's line, with its input's pin.
+   * The row is there whether or not the input has a wire, so the height
+   * follows the declaration and not a run.
    */
-  readonly wiredLine?: string
+  readonly histogramLine?: number
 }>> = {
   // Record strip (two rows), Microphone, Limit, the stored clip's line.
   'core.audioRecord': { controlRows: 5 },
@@ -702,9 +715,9 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
   'core.imageCompare': { picture: 180, controlRows: 3 },
   // The camera position under the orbit and elevation pictures.
   'core.cameraAngle': { picture: 150, controlRows: 1 },
-  // Interpolation; Position; Value; Delete point; and, while the histogram input has a wire,
-  // the histogram's line.
-  'core.curve': { picture: 180, controlRows: 4, wiredLine: 'histogram' },
+  // Interpolation; Position; Value; Delete point; and, for a curve that declares a histogram,
+  // the histogram's line after them.
+  'core.curve': { picture: 180, controlRows: 4, histogramLine: 4 },
 }
 
 /** Minimum zoom for text detail and transient media DOM. */

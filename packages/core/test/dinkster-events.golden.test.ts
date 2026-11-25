@@ -423,19 +423,30 @@ describe('routing guards', () => {
 describe('curve histogram previews', () => {
   const histogram = Array.from({ length: 256 }, (_, index) => index)
 
-  it('normalizes an exact attributed histogram onto its own preview stream', () => {
-    expect(new DinksterNormalizer(CONN, () => 23).normalize({
-      type: 'node_event', jobId: 'curve-job', nodeId: 'curve',
-      event: 'dinkster.curve.histogram', data: { histogram },
-    })).toEqual([{
+  it("keeps each curve's histogram on a preview stream of its own", () => {
+    const normalizer = new DinksterNormalizer(CONN, () => 23)
+    const sent = (curve: string, bins: readonly number[]) => normalizer.normalize({
+      type: 'node_event', jobId: 'curve-job', nodeId: 'curves',
+      event: 'dinkster.curve.histogram', data: { curve, histogram: bins },
+    })
+    const reversed = [...histogram].reverse()
+    expect([...sent('curves.1.curve', histogram), ...sent('curves.2.curve', reversed)]).toEqual([
+      ['curves.1.curve', histogram, 'curve-histogram:curves.1.curve'],
+      ['curves.2.curve', reversed, 'curve-histogram:curves.2.curve'],
+    ].map(([curve, bins, stream]) => ({
       kind: 'preview',
       execution: { connection: CONN, prompt: asPromptId('curve-job') },
       timestamp: 23,
-      runtimeNodeId: 'curve',
+      runtimeNodeId: 'curves',
       channel: 'application/vnd.dinkster.curve-histogram+json',
-      payload: { histogram },
-      stream: 'curve-histogram',
-    }])
+      payload: { curve, histogram: bins },
+      stream,
+    })))
+    // A histogram that names no curve has nowhere to go.
+    expect(normalizer.normalize({
+      type: 'node_event', jobId: 'curve-job', nodeId: 'curves',
+      event: 'dinkster.curve.histogram', data: { histogram },
+    }).every((event) => event.kind !== 'preview')).toBe(true)
   })
 
 })
