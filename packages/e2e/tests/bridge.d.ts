@@ -21,6 +21,7 @@ interface DinksterBridgeSceneNode {
     minimized?: true
     preview?: { x: number; y: number; width: number; height: number; compact?: true }
     advancedGroup?: { y: number; height: number }
+    boxes?: ReadonlyArray<{ id: string; y: number; height: number; closed?: true }>
     rows: ReadonlyArray<{
       kind: string
       y: number
