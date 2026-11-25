@@ -2071,7 +2071,7 @@ export function layoutNode(
   // on a node of the least width.
   const depthExtra = (fieldInset(fieldDepth) - fieldInset(0)) * 2
   const columns = Math.max(1, ...[...lines.values()].map((line) => line.length))
-  const cellGap = canvasPaintTokens.node.widgetColumnGap
+  const cellGap = canvasPaintTokens.node.lineCellGap
   const minWidth = columns * tokens.nodeMinWidth + (columns - 1) * cellGap + depthExtra
   for (const line of new Set(lines.values())) {
     if (line.length < 2) continue
@@ -2089,28 +2089,27 @@ export function layoutNode(
   for (const line of new Set(lines.values())) {
     if (line.length < 2) continue
     const gap = cellGap
-    const compactWidth = tokens.nodeMinWidth
-    // Cells share the width between the boxes around the line; a line of
-    // buttons shares it evenly from end to end.
-    const boxInset = fieldInset(rowDepth[rowIndex.get(line[0]!)!]!) - fieldInset(0)
-    const lineWidth = width - boxInset * 2
-    const even = line.every((row) => row.kind === 'button') ? (lineWidth - (line.length - 1) * gap) / line.length : undefined
+    // The line takes the field inset once. Grip and cross room is shared
+    // before division so the visible fields still have equal widths.
+    const inset = fieldInset(rowDepth[rowIndex.get(line[0]!)!]!)
+    const first = rows[rowIndex.get(line[0]!)!] as Extract<LayoutRow, { kind: 'widget' | 'note' | 'button' }>
+    const last = rows[rowIndex.get(line.at(-1)!)!] as typeof first
+    const gripRoom = first.kind === 'widget' && (first.reorder !== undefined || line[0]!.gripSpace)
+      ? box.cross.fieldGap * 2 + box.gripWidth - box.fieldGap : 0
+    const crossRoom = last.kind === 'widget' && last.crossInset !== undefined
+      ? last.crossInset + box.cross.size + box.cross.fieldGap - inset : 0
     const pinned = pinnedCells(line)
-    // Beside a field, a button with an icon is a square face, as high as the
-    // field, that shows the icon alone.
-    const cellInsetOf = (row: PendingRow): number => (rows[rowIndex.get(row)!] as { inset: number }).inset - boxInset
-    const laterWidth = (row: PendingRow): number =>
-      row.kind === 'button' && row.button?.icon !== undefined
-        ? rowBaseHeight(row) - tokens.rowGeometry.fieldInsetY * 2 + cellInsetOf(row) * 2
-        : compactWidth
-    const laterWidths = line.slice(1).reduce((sum, row) => sum + laterWidth(row) + gap, 0)
-    let left = boxInset
+    const icons = new Set(pinned.length === 0 ? [] : line.filter((row) => row.button?.icon !== undefined))
+    const iconWidth = lineBaseHeight(line) - tokens.rowGeometry.fieldInsetY * 2
+    const sharedWidth = (width - inset * 2 - gripRoom - crossRoom - (line.length - 1) * gap - icons.size * iconWidth) /
+      (line.length - icons.size)
+    let left = inset
     for (const [column, pendingRow] of line.entries()) {
       const index = rowIndex.get(pendingRow)!
       const row = rows[index] as Extract<LayoutRow, { kind: 'widget' | 'note' | 'button' }>
-      const cellInset = row.inset - boxInset
-      const cellWidth = even ?? (column === 0 ? lineWidth - laterWidths : laterWidth(pendingRow))
-      rows[index] = { ...row, inset: left + cellInset, width: cellWidth - cellInset * 2 }
+      const cellWidth = (icons.has(pendingRow) ? iconWidth : sharedWidth) +
+        (column === 0 ? gripRoom : 0) + (column === line.length - 1 ? crossRoom : 0)
+      rows[index] = { ...row, inset: left, width: cellWidth }
       const slot = pinned.indexOf(pendingRow)
       for (const [index, pin] of pins.entries()) {
         if (row.kind === 'widget' && pin.portId === row.inputId && (pin.direction === 'in' || pin.widgetTap === true))

@@ -158,6 +158,39 @@ describe('pairing', () => {
     expect(rate!.kind === 'widget' && rate!.width).toBeGreaterThan(beside.width / 2)
   })
 
+  it('shares mixed cells evenly with one outer inset and 4 px between their faces', () => {
+    const layout = layoutNode(schemaOf([{ kind: 'row', rows: [
+      widget('short'), { kind: 'button', id: 'apply', label: 'Apply changes', steps: [] }, widget('longer-name'),
+    ] }]), nodeData, defaultTokens, measure, widgetMeasure, { size: { width: 817, height: 200 } })
+    const cells = layout.rows.filter((row) => row.kind === 'widget' || row.kind === 'button')
+    expect(cells).toHaveLength(3)
+    expect(cells[0]!.inset).toBe(defaultTokens.rowGeometry.fieldInsetX)
+    expect(cells[0]!.width).toBeCloseTo(cells[1]!.width!)
+    expect(cells[1]!.width).toBeCloseTo(cells[2]!.width!)
+    for (let i = 1; i < cells.length; i++)
+      expect(cells[i]!.inset - cells[i - 1]!.inset - cells[i - 1]!.width!).toBeCloseTo(4)
+    expect(cells[2]!.inset + cells[2]!.width!).toBeCloseTo(817 - defaultTokens.rowGeometry.fieldInsetX)
+    const icon = doLayout([{ kind: 'row', rows: [
+      widget('path'), { kind: 'button', id: 'reset', label: 'Reset', icon: 'rotate-ccw', steps: [] },
+    ] }]).rows.filter((row) => row.kind === 'widget' || row.kind === 'button')
+    expect(icon[1]!.inset - icon[0]!.inset - icon[0]!.width!).toBeCloseTo(4)
+    expect(icon[1]!.width).toBe(icon[1]!.height - defaultTokens.rowGeometry.fieldInsetY * 2)
+    const member = layoutNode(schemaOf([{
+      kind: 'group', id: 'files', reorderable: true, grows: 'button', minMembers: 2,
+      keys: { kind: 'numbered', prefix: 'file', start: 0, pad: 0 },
+      member: [{ kind: 'row', rows: [widget('path'), widget('quality'), widget('rate')] }],
+    }]), { ...nodeData, dynamic: { files: { members: ['file0', 'file1'] } } },
+    { ...defaultTokens, memberRemoveCross: true }, measure, widgetMeasure,
+    { size: { width: 817, height: 200 } }).rows.filter((row) => row.kind === 'widget').slice(0, 3)
+    expect(member.map((row) => row.inputId)).toEqual(['files.file0.path', 'files.file0.quality', 'files.file0.rate'])
+    expect(member.map((row) => row.reorder !== undefined)).toEqual([true, false, false])
+    expect(member.map((row) => row.crossInset !== undefined)).toEqual([false, false, true])
+    for (let i = 1; i < member.length; i++) {
+      expect(member[i]!.width).toBeCloseTo(member[0]!.width!)
+      expect(member[i]!.inset - member[i - 1]!.inset - member[i - 1]!.width!).toBeCloseTo(4)
+    }
+  })
+
   it('outputs pair with connection-input rows top-down', () => {
     const l = doLayout([input('a'), input('b'), output('x'), output('y')])
     expect(l.rows).toHaveLength(2)

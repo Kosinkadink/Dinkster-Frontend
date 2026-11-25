@@ -17,6 +17,11 @@ non-empty legacy `interface` list.
   only.
 - **Section**: a titled box that holds rows and can start folded (wire
   `collapsed`). Layout only; it adds nothing to row ids.
+- **Row**: two to four fields, notes or buttons on one line. The line takes
+  the field inset once and leaves 4 px between cell faces. Fields, notes
+  and worded buttons share the width equally; a declared-icon button beside
+  a field is a field-high square. Member grips and remove crosses keep
+  their space outside those equal shares.
 - **Button**: a full-width raised row (the face an editor's opener row has,
   a lit top edge and a dark line under it), its label centered and an
   optional icon from the engine's list, on its own line or as a cell of a

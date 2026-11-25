@@ -138,7 +138,7 @@ export const canvasPaintTokens = {
     },
     widgetLabelPadding: canvasSemanticTokens.space[12],
     widgetValueMinWidth: 90,
-    widgetColumnGap: 20,
+    lineCellGap: canvasSemanticTokens.space[4],
     /** Rows an open text result shows by default at most; the node's bottom edge sizes it past that. */
     textOutputMaxRows: 6,
     /** Rows an open text result shows at least. */
