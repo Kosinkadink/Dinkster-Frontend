@@ -3,6 +3,8 @@
  * show; layout owns the in-body region that drawing and hit-testing share.
  */
 
+import { canvasPaintTokens } from './tokens.js'
+
 /** Ring-addressed live animation cycled by the render loop. */
 export interface NodePreviewAnimation {
   /** Ring slot -> decoded frame; undefined slots have not arrived yet. */
@@ -188,4 +190,17 @@ export function containRect(rect: PreviewRect, preview: NodePreview): PreviewRec
   const w = width * scale
   const h = height * scale
   return { x: rect.x + (rect.width - w) / 2, y: rect.y + (rect.height - h) / 2, width: w, height: h }
+}
+
+/** Fit the search's node drawing to its width; its height follows the node. */
+export function searchNodePreviewViewport(node: { readonly width: number; readonly height: number }, width: number) {
+  const { inset, maxScale } = canvasPaintTokens.preview.search
+  const scale = Math.min(maxScale, Math.max(1, width - inset * 2) / node.width)
+  return {
+    width,
+    height: Math.ceil(node.height * scale + inset * 2),
+    x: (width - node.width * scale) / 2,
+    y: inset,
+    scale,
+  }
 }

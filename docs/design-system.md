@@ -159,7 +159,7 @@ every core tab once.
   messages are off; field problems are shown by `ProductField`.
   Changing to another record mounts a new form.
 - `ProductMenu` owns click, outside-click, focus-leave and Escape dismissal,
-  keyboard item movement and opener focus restoration. Items keep their buttons
+  keyboard item movement and opener focus restoration; `fill="quiet"` gives its text trigger the shared borderless quiet fill and retains its hover fill while open, while absent preserves the outlined trigger. Items keep their buttons
   by position, so a host that passes new item objects while the menu is open
   (a count arriving) does not move focus or close it. Disabled items are
   skipped; a disabled-only menu remains keyboard-dismissable. The menu aligns
@@ -167,7 +167,7 @@ every core tab once.
   then uses the app's viewport algorithm from `@dinkster/core/floating-surface`
   to clamp and to flip above when needed. Scroll outside or resize dismisses
   the menu rather than leaving a stale anchor. Its document listeners exist
-  only while it is open. Item text follows its intent. Removal callbacks open a
+  only while it is open. Item text follows its intent; optional `description` is a muted second line associated as the item's accessible description, without changing its label. Removal callbacks open a
   confirmation. Use `iconOnly` with an icon for compact folder actions; the
   label remains the trigger and menu's accessible name. `ProductAccountMenu` shows the person's initial and name on a
   borderless trigger (the initial alone below the breakpoint), reads out name
@@ -177,7 +177,7 @@ every core tab once.
   repeated secondary identity lines are omitted; the trigger's accessible name
   follows the same primary line.
 - `ProductNotice` is standing information without a dismiss button, including
-  its warning tone for QA environments.
+  its warning tone for conditions the person clears and its error tone for failures. Error notices use the error icon and alert role; information and warning retain their note role.
   `ProductErrorBanner` is dismissed explicitly or by the caller after success.
   `ProductToast` is the corner region for success feedback. Keep one mounted
   and pass each success as a new `notification` object, so the region exists
@@ -190,6 +190,7 @@ every core tab once.
   tokens). A link inside a message stays primary and its close button
   secondary, so the strip is not one colour. The toast puts the message on
   the raised surface because it floats over other content.
+- `ProductProgress` takes a required accessible `label` and optional fractional `value` from 0 to 1. Zero is determinate; omission sweeps without exposing a current value. Reduced motion replaces the sweep with a full static fill at 45% opacity, distinct from completion. The host owns phase wording, amounts and spacing. The address-only `#setup-components` gallery shows progress, notice tones and described menu choices together.
 - `ProductConfirmation` orders the title, consequence, solid action and Cancel.
   Sites use it as page content. Inside `ProductDialog`, omit the confirmation's
   duplicate title and let the dialog provide it. `ProductDialog` provides native modal inertness,
@@ -1126,9 +1127,10 @@ capped at the 480px `toolbarSearchMaxWidth`, and centers on the window when the
 surrounding controls leave room; otherwise it stays within its available grid
 slot. The app-menu button uses the D symbol alone at every width, with no
 chevron, not a wordmark or a three-line menu icon. Its accessible name is
-unchanged. Off macOS it is centred over the 48px `iconBarWidth` column of the
-editor's left icon bar, and the next control in the brand slot starts at that
-column's edge, where the panels start. On macOS the editor moves it to the top
+unchanged. Off macOS it is centred over the 54px `iconBarWidth` column of the
+editor's left icon bar, which spans the frame strip up to the first panel, and
+the next control in the brand slot starts at that column's edge, where the
+panels start. On macOS the editor moves it to the top
 of the left icon bar, below the bar's row, and the project follows the window
 buttons; while the left bar is hidden it returns to the bar after the window
 buttons. The editor reads the platform from the bar's `data-platform`, which

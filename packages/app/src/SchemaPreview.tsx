@@ -3,12 +3,12 @@ import type { NodeSchema, WidgetRegistry } from '@dinkster/core'
 import { paintSchemaPreview } from './palette-node-preview.js'
 import { useAppMessage } from './locale.js'
 
-export function SchemaPreview(props: { readonly schema: NodeSchema; readonly widgets: WidgetRegistry }) {
+export function SchemaPreview(props: { readonly schema: NodeSchema; readonly widgets: WidgetRegistry; readonly maximize?: boolean; readonly subgraph?: boolean }) {
   let canvas!: HTMLCanvasElement
   const message = useAppMessage()
   const [failure, setFailure] = createSignal(false)
   const paint = () => {
-    try { paintSchemaPreview(canvas, props.schema, props.widgets); setFailure(false) }
+    try { paintSchemaPreview(canvas, props.schema, props.widgets, props.subgraph, props.maximize); setFailure(false) }
     catch { setFailure(true) }
   }
   createEffect(() => { props.schema; props.widgets; paint() })

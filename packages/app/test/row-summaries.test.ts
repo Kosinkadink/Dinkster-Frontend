@@ -176,6 +176,13 @@ describe('a value that does not fit gives way in order', () => {
       expect('Trim + crop'.startsWith(form.slice(0, -3))).toBe(true)
   })
 
+  it('keeps the mount and last segment of a long save prefix', () => {
+    const forms = formsOf(specOf('SAVE_TARGET'), { mount: 'renders', prefix: 'a-long-session/nested/frame' })
+    expect(forms).toContain('renders/a-long-session/nested/frame')
+    expect(forms).toContain('renders/.../frame')
+    expect(formsOf(specOf('SAVE_TARGET'), { mount: 'renders', prefix: 'frame' }).some((text) => text.includes('/.../'))).toBe(false)
+  })
+
 })
 
 describe('a value arriving down a wire uses the same summary', () => {
@@ -236,6 +243,13 @@ describe('pointing at a row reads out its whole value without changing it', () =
   it('never writes out the object of a row that only opens an editor', () => {
     expect(readout(specOf('LOAD_3D'), { camera: { fov: 35 } })).toEqual([])
     expect(readout(specOf('CAMERA_ANGLE_VIEW'), 'front')).toEqual([])
+  })
+
+  it('reads the full save prefix and names a project-default target without inventing a mount', () => {
+    expect(readout(specOf('SAVE_TARGET'), { mount: 'renders', prefix: 'a-long-session/nested/frame' }))
+      .toEqual(['Value: renders/a-long-session/nested/frame'])
+    expect(readout(specOf('SAVE_TARGET'), { prefix: 'nested/frame' }))
+      .toEqual(['Value: Project default/nested/frame'])
   })
 
   it('reads the incoming value first and the stored one under it', () => {
