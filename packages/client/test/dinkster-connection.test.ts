@@ -3415,6 +3415,19 @@ describe('workflow library wire', () => {
     await expect(conn.activeEnvironment()).rejects.toThrow('Malformed active environment')
   })
 
+  it.each([['p-film', { project: 'p-film' }], [undefined, {}]] as const)(
+    'creates a library record in the window project (%s), or leaves the project to the engine without one',
+    async (project, sent) => {
+      const record = { id: 'r1', scope: 'local', name: 'Grain', digest: `blake3:${'a'.repeat(64)}`, mediaType: 'application/x-dinkster-workflow+json',
+        labels: ['workflow'], folder: '', created: 1, modified: 1, revision: 1 }
+      const { conn, requests } = submitHarness(() => jsonResponse(201, record), project)
+      await conn.createLibraryRecord({ scope: 'local', name: 'Grain', digest: record.digest, mediaType: record.mediaType, labels: ['workflow'] })
+      expect(JSON.parse(String(requests[0]!.init?.body))).toEqual({
+        scope: 'local', name: 'Grain', digest: record.digest, mediaType: record.mediaType, labels: ['workflow'], ...sent,
+      })
+    },
+  )
+
   it.each([
     undefined,
     null,
