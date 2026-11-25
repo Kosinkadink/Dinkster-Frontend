@@ -369,13 +369,14 @@ export function ProjectsView(props: {
   })
   // The list holds deleted projects too; they show only under "Deleted projects".
   const live = () => projects()?.filter((project) => !project.deleted)
+  const setupOnly = () => firstRun() && projects()?.length === 0
   const gone = () =>
     projects()
       ?.filter((project) => project.deleted)
       .sort((a, b) => deletedAt(b) - deletedAt(a))
   createEffect(() => {
     const list = live()
-    if (list && !installations.loading && !firstRun()) props.onCount?.(list.length)
+    if (list && !installations.loading && !setupOnly()) props.onCount?.(list.length)
   })
   createEffect(() => {
     const found = installations()
@@ -481,6 +482,7 @@ export function ProjectsView(props: {
   }
 
   const open = (project: LibraryProject) => {
+    if (!runsOn(project.id)) return
     setBannerShown(true)
     props.shell.openProject(project.id, runsOn(project.id))
   }
@@ -573,6 +575,7 @@ export function ProjectsView(props: {
             {message('projects.facts.folderFailed')}
           </ProductErrorBanner>
         </Show>
+        <Show when={firstRun()}>{setupInstructions()}</Show>
         <ProductProjectFacts
           label={message('projects.facts.label')}
           columns={[
@@ -659,6 +662,8 @@ export function ProjectsView(props: {
                       <ProductTile
                         label={workflow.name}
                         caption={workflow.name}
+                        disabled={!installation()}
+                        tooltip={installation() ? undefined : message('projects.open.noInstallation')}
                         // Library records carry seconds.
                         detail={when(workflow.modified * 1000)}
                         picture={
@@ -716,6 +721,8 @@ export function ProjectsView(props: {
                   {(output) => (
                     <ProductTile
                       label={output.asset.name}
+                      disabled={!installation()}
+                      tooltip={installation() ? undefined : message('projects.open.noInstallation')}
                       empty={
                         <>
                           <ProductIcon icon={AudioLines} />
@@ -825,20 +832,26 @@ export function ProjectsView(props: {
     </>
   )
 
+  const setupInstructions = () => (
+    <div class="dinkster-stack projects-page-setup">
+      <ProductCodeBlock label={message('projects.setup.how')} value={SETUP_COMMAND} />
+      <p class="dinkster-description">{message('projects.setup.platforms')}</p>
+      <p class="dinkster-description">{message('projects.setup.after')}</p>
+    </div>
+  )
   const setup = () => (
     <ProductProjectsView>
       <div class="dinkster-projects-setup" data-testid="projects-first-run">
         <div class="dinkster-stack projects-page-setup">
           <h1 class="dinkster-title">{message('projects.setup.title')}</h1>
-          <ProductCodeBlock label={message('projects.setup.how')} value={SETUP_COMMAND} />
-          <p class="dinkster-description">{message('projects.setup.after')}</p>
+          {setupInstructions()}
         </div>
       </div>
     </ProductProjectsView>
   )
 
   return (
-    <Show when={!firstRun()} fallback={setup()}>
+    <Show when={!setupOnly()} fallback={setup()}>
       <ProductProjectsView
         list={
           <ProductProjectList
@@ -898,7 +911,7 @@ export function ProjectsView(props: {
 const deletedAt = (project: LibraryProject) => Date.parse(project.modified ?? project.created)
 
 /** The command that makes a first installation (Dinkster's docs/install.md). */
-const SETUP_COMMAND = 'dinkster setup'
+const SETUP_COMMAND = 'dinkster setup --variant linux-cpu --channel nightly'
 
 const widgets = createWidgetRegistry()
 registerCoreWidgets(widgetRegistrationDoors(widgets))

@@ -224,18 +224,45 @@ it('does not open a project when the process cannot say which installation it ru
 it('shows the setup command while there is no installation, and the list once one appears', async () => {
   let found: readonly PageInstallation[] = []
   const counted = vi.fn()
-  const data = { ...source(projects), installations: async () => ({ all: found }) }
+  const data = { ...source([]), installations: async () => ({ all: found }) }
   render(() => <ProjectsView shell={shell()} source={data} onCount={counted} />, document.body)
   await settle()
-  expect(document.querySelector('[data-testid="projects-first-run"]')?.textContent).toContain('dinkster setup')
+  expect(document.querySelector('code')?.textContent).toBe('dinkster setup --variant linux-cpu --channel nightly')
+  expect(document.querySelector('[data-testid="projects-first-run"]')?.textContent).toContain('Use win-cpu on Windows or mac-arm64 on Apple Silicon.')
   expect(rows()).toEqual([])
   expect(counted).not.toHaveBeenCalled()
   found = [stable]
   window.dispatchEvent(new Event('focus'))
   await settle()
   expect(document.querySelector('[data-testid="projects-first-run"]')).toBeNull()
+  expect(counted).toHaveBeenLastCalledWith(0)
+})
+
+it('keeps projects readable and restorable without an installation, but cannot open an editor from a workflow tile', async () => {
+  const navigation = shell()
+  const deleted = { ...project('p-old', 'Old storyboard', hoursAgo(48)), deleted: true }
+  const data = {
+    ...source([...projects, deleted]),
+    installations: async () => ({ all: [] }),
+    listWorkflows: async () => [{ id: 'w1', scope: 'local', name: 'Kitchen still life', digest: 'blake3:1',
+      mediaType: 'application/x-dinkster-workflow+json', labels: ['workflow'], created: 1, modified: 1, revision: 1 }],
+  }
+  render(() => <ProjectsView shell={navigation} source={data} />, document.body)
+  await settle()
+  expect(document.querySelector('[data-testid="projects-first-run"]')).toBeNull()
   expect(rows()).toHaveLength(3)
-  expect(counted).toHaveBeenLastCalledWith(3)
+  expect(document.querySelector('h2')?.textContent).toBe('Film grain tests')
+  expect(document.querySelector('code')?.textContent).toBe('dinkster setup --variant linux-cpu --channel nightly')
+  expect(document.querySelector('[data-testid="projects-open"]')?.getAttribute('aria-disabled')).toBe('true')
+  const tile = document.querySelector<HTMLButtonElement>('.dinkster-tile')!
+  expect(tile.disabled).toBe(true)
+  expect(tile.getAttribute('data-tooltip-label')).toBe('This project has no installation to run on.')
+  tile.click()
+  expect(navigation.openProject).not.toHaveBeenCalled()
+  button('Restore')!.click()
+  await settle()
+  expect(document.querySelector('h2')?.textContent).toBe('Old storyboard')
+  expect(rows()).toHaveLength(4)
 })
 
 it('keeps selection working when the process cannot list workflows or outputs', async () => {

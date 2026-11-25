@@ -1743,6 +1743,7 @@
   "projects.facts.folderFailed": "The folder could not be opened on this computer.",
   "projects.setup.title": "Set up Dinkster",
   "projects.setup.how": "Install an engine from a terminal on the computer that runs Dinkster:",
+  "projects.setup.platforms": "Use win-cpu on Windows or mac-arm64 on Apple Silicon.",
   "projects.setup.after": "This page lists the installation when setup is done.",
   "projects.deleted.title": "Deleted projects ({count})",
   "projects.deleted.when": "Deleted {when}",
