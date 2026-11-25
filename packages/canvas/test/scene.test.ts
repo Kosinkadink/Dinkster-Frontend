@@ -1877,7 +1877,7 @@ describe('an editor on the Inputs panel', () => {
         g1: {
           id: 'g1', name: 'Sub', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
           nodes: { inner: { id: 'inner', type: 'Rec', values: {} } },
-          boundary: { inputs: [{ id: 'clip', promoted: true, binds: { kind: 'port', node: 'inner', port: 'clip' } }], outputs: [] },
+          boundary: { body: [{ kind: 'input', id: 'clip', promoted: true, binds: { kind: 'port', node: 'inner', port: 'clip' } }] },
         },
       },
       view: { graphs: {
