@@ -139,7 +139,8 @@ for (const theme of ['dark', 'light'] as const) {
     await header.evaluate((node) => { (node as HTMLElement).dataset['platform'] = 'win32' })
     await page.setViewportSize({ width: 390, height: 900 })
     await expect(trigger).toHaveAccessibleName('Dinkster')
-    expect((await trigger.boundingBox())!.width).toBe(44)
+    // The D symbol alone, filling the left bar's 48px column inside the bar's 12px padding.
+    expect((await trigger.boundingBox())!.width).toBe(24)
     // The panel switches leave once the toolbar observes its new width.
     await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
     for (const control of await header.locator('button:visible').all()) {
@@ -1446,6 +1447,7 @@ test('Project rows preserve names, rename drafts and host actions', async ({ pag
       ['p-audio', { id: 'p-audio', name: 'Audio experiments', revision: 1 }],
     ])
     const connection = {
+      accountStatus: async () => ({ available: false }),
       listProjects: async () => ({ items: [...records.values()], cursor: null }),
       registerProject: async (id: string, name: string) => {
         const project = records.get(id) ?? { id, name, revision: 1 }

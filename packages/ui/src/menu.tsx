@@ -1,7 +1,8 @@
 import {
-  For,
   Index,
+  Match,
   Show,
+  Switch,
   createEffect,
   createMemo,
   createSignal,
@@ -9,7 +10,17 @@ import {
   onCleanup,
   type JSX,
 } from 'solid-js'
-import { Check, ChevronDown, LogOut, User, type LucideIcon } from 'lucide-solid'
+import {
+  Check,
+  ChevronDown,
+  ExternalLink,
+  FolderOpen,
+  LayoutGrid,
+  LogOut,
+  Plus,
+  User,
+  type LucideIcon,
+} from 'lucide-solid'
 import { ProductIcon, type ProductRole } from './controls.js'
 import { useProductStrings } from './strings.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
@@ -30,8 +41,17 @@ export interface ProductMenuItem {
   disabled?: boolean
   checked?: boolean
   attention?: ProductAttention | undefined
+  /** A second action at the row's end, shown on hover and keyboard focus. */
+  rowAction?: { label: string; icon: LucideIcon; onSelect: () => void }
   onSelect: () => void
 }
+
+/** A separator, or one muted line such as a list that could not be read. */
+type MenuEntry = ProductMenuItem | 'separator' | { note: string }
+const menuItem = (entry: MenuEntry) =>
+  typeof entry === 'object' && 'onSelect' in entry ? entry : undefined
+const menuNote = (entry: MenuEntry) =>
+  typeof entry === 'object' && 'note' in entry ? entry.note : undefined
 
 function Attention(props: { attention: ProductAttention }) {
   return (
@@ -53,14 +73,18 @@ interface MenuIdentity {
 function Menu(props: {
   triggerName: string
   menuName: string
-  items: readonly ProductMenuItem[]
+  items: readonly MenuEntry[]
   identity: MenuIdentity | undefined
   account?: boolean
+  /** Drawn for a side bar: the menu opens beside the trigger, upward from its bottom. */
+  rail?: boolean | undefined
+  project?: boolean
   iconOnly?: boolean | undefined
   busy?: boolean
   title?: string
   attention?: ProductAttention | undefined
   onTrigger?: (() => void) | undefined
+  onOpen?: (() => void) | undefined
   children: JSX.Element
 }) {
   const strings = useProductStrings()
@@ -84,11 +108,35 @@ function Menu(props: {
   ]
   const show = (last = false) => {
     setOpen(true)
+    props.onOpen?.()
     queueMicrotask(() => {
       if (!open()) return
       const anchor = trigger.getBoundingClientRect()
       const surface = menu.getBoundingClientRect()
       const margin = tokens.space[8]
+      const bounds = {
+        left: 0,
+        top: 0,
+        right: window.innerWidth,
+        bottom: window.innerHeight,
+      }
+      if (props.rail) {
+        // Bottom edges align, so a menu near the window's bottom grows upward.
+        const placement = placeFloatingSurface({
+          surface,
+          anchor: { ...anchor.toJSON(), top: anchor.bottom - surface.height },
+          bounds,
+          direction: 'inline',
+          margin,
+          gap: tokens.space[4],
+        })
+        menu.style.left = `${placement.left}px`
+        menu.style.top = `${placement.top}px`
+        menu.style.maxHeight = `${placement.maxHeight}px`
+        const items = enabledItems()
+        ;(items[last ? items.length - 1 : 0] ?? menu).focus()
+        return
+      }
       // Left edges align; a trigger too near the right edge of the window
       // aligns right edges instead, before the shared clamp applies.
       const fitsFromLeft =
@@ -105,12 +153,7 @@ function Menu(props: {
           right: anchor.right,
           bottom: anchor.bottom,
         },
-        bounds: {
-          left: 0,
-          top: 0,
-          right: window.innerWidth,
-          bottom: window.innerHeight,
-        },
+        bounds,
         direction: 'block',
         margin,
         gap: tokens.space[4],
@@ -146,6 +189,7 @@ function Menu(props: {
   return (
     <div
       class="dinkster-menu-anchor"
+      data-project={props.project ? '' : undefined}
       ref={root}
       onFocusOut={(event) => {
         if (!root.contains(event.relatedTarget as Node | null)) close()
@@ -155,6 +199,8 @@ function Menu(props: {
         ref={trigger}
         class="dinkster-button dinkster-menu-trigger"
         data-account={props.account ? '' : undefined}
+        data-rail={props.rail ? '' : undefined}
+        data-project={props.project ? '' : undefined}
         data-icon-only={props.iconOnly ? '' : undefined}
         type="button"
         aria-haspopup={props.onTrigger ? undefined : 'menu'}
@@ -192,6 +238,7 @@ function Menu(props: {
           id={id}
           class="dinkster-menu dinkster-menu-popover"
           data-account={props.account ? '' : undefined}
+          data-project={props.project ? '' : undefined}
           role="menu"
           tabindex="-1"
           aria-label={props.menuName}
@@ -242,43 +289,89 @@ function Menu(props: {
           {/* Index keeps each item's button when the host passes new item objects, so an open
               menu whose items update (a count arriving) keeps focus and stays open. */}
           <Index each={props.items}>
-            {(item) => (
-              <button
-                type="button"
-                role={
-                  item().checked === undefined ? 'menuitem' : 'menuitemcheckbox'
-                }
-                aria-checked={item().checked}
-                tabindex="-1"
-                aria-label={(() => {
-                  const attention = item().attention
-                  return attention
-                    ? `${item().label}${strings.statusSeparator}${attention.label}`
-                    : undefined
-                })()}
-                class="dinkster-menu-item"
-                data-role={item().intent ?? 'neutral'}
-                disabled={item().disabled}
-                onClick={() => {
-                  close(true)
-                  item().onSelect()
-                }}
-              >
-                <Show
-                  when={item().checked !== undefined}
-                  fallback={
-                    <Show when={item().icon}>
-                      {(icon) => <ProductIcon icon={icon()} />}
-                    </Show>
-                  }
-                >
-                  <ProductIcon icon={Check} />
-                </Show>
-                {item().label}
-                <Show when={item().attention}>
-                  {(attention) => <Attention attention={attention()} />}
-                </Show>
-              </button>
+            {(entry) => (
+              <Switch>
+                <Match when={entry() === 'separator'}>
+                  <div class="dinkster-menu-separator" role="separator" />
+                </Match>
+                <Match when={menuNote(entry())}>
+                  {(note) => (
+                    <div class="dinkster-menu-note" role="presentation">
+                      {note()}
+                    </div>
+                  )}
+                </Match>
+                <Match when={menuItem(entry())}>
+                  {(item) => {
+                    // A function, so the row and the plain item each get their own element.
+                    const button = () => (
+                      <button
+                        type="button"
+                        role={
+                          item().checked === undefined
+                            ? 'menuitem'
+                            : 'menuitemcheckbox'
+                        }
+                        aria-checked={item().checked}
+                        tabindex="-1"
+                        aria-label={(() => {
+                          const attention = item().attention
+                          return attention
+                            ? `${item().label}${strings.statusSeparator}${attention.label}`
+                            : undefined
+                        })()}
+                        class="dinkster-menu-item"
+                        data-role={item().intent ?? 'neutral'}
+                        disabled={item().disabled}
+                        onClick={() => {
+                          close(true)
+                          item().onSelect()
+                        }}
+                      >
+                        <Show
+                          when={item().checked !== undefined}
+                          fallback={
+                            <Show when={item().icon}>
+                              {(icon) => <ProductIcon icon={icon()} />}
+                            </Show>
+                          }
+                        >
+                          <ProductIcon icon={Check} />
+                        </Show>
+                        <span class="dinkster-menu-item-label">
+                          {item().label}
+                        </span>
+                        <Show when={item().attention}>
+                          {(attention) => <Attention attention={attention()} />}
+                        </Show>
+                      </button>
+                    )
+                    return (
+                      <Show when={item().rowAction} fallback={button()}>
+                        {(action) => (
+                          <div class="dinkster-menu-row" role="none">
+                            {button()}
+                            <button
+                              type="button"
+                              role="menuitem"
+                              tabindex="-1"
+                              class="dinkster-menu-item dinkster-menu-row-action"
+                              aria-label={`${action().label}: ${item().label}`}
+                              title={action().label}
+                              onClick={() => {
+                                close(true)
+                                action().onSelect()
+                              }}
+                            >
+                              <ProductIcon icon={action().icon} />
+                            </button>
+                          </div>
+                        )}
+                      </Show>
+                    )
+                  }}
+                </Match>
+              </Switch>
             )}
           </Index>
         </div>
@@ -290,7 +383,7 @@ function Menu(props: {
 export function ProductMenu(props: {
   label: string
   triggerName?: string
-  items: readonly ProductMenuItem[]
+  items: readonly (ProductMenuItem | 'separator')[]
   identity?: MenuIdentity
   icon?: LucideIcon
   iconOnly?: boolean
@@ -320,6 +413,8 @@ export function ProductSignInControl(props: {
   onSignIn: () => void
   onCancel: () => void
   onOpenSignInPage?: (() => void) | undefined
+  /** Drawn in a side bar, with the menu opening beside it. */
+  rail?: boolean
 }) {
   const strings = useProductStrings()
   const label = () => (props.pending ? strings.signingIn : strings.signIn)
@@ -332,6 +427,7 @@ export function ProductSignInControl(props: {
         triggerName={label()}
         menuName={label()}
         title={label()}
+        rail={props.rail}
         busy={props.pending}
         identity={
           props.unavailableReason && !props.pending
@@ -370,6 +466,8 @@ export function ProductAccountMenu(props: {
   email?: string | null
   pictureSrc?: string | null
   onSignOut: () => void
+  /** Drawn in a side bar, with the menu opening beside it. */
+  rail?: boolean
 }) {
   const strings = useProductStrings()
   const name = () => props.name?.trim() ?? ''
@@ -398,6 +496,7 @@ export function ProductAccountMenu(props: {
       triggerName={`${strings.accountMenu}: ${primary()}`}
       menuName={strings.accountMenu}
       account
+      rail={props.rail}
       identity={{ name: primary(), email: secondary() }}
       items={[
         {
@@ -429,6 +528,82 @@ export function ProductAccountMenu(props: {
       </span>
       <span class="dinkster-menu-label" data-compact="true">
         {primary()}
+      </span>
+    </Menu>
+  )
+}
+
+export interface ProductProject {
+  id: string
+  name: string
+}
+
+/** The other projects a project menu lists; the rest are reached through All projects. */
+const projectMenuLimit = 8
+
+/**
+ * The current project's name on a menu that switches between projects.
+ * `projects` are the other projects in the engine's order and stay undefined
+ * while they load; the menu opens at once without them.
+ */
+export function ProductProjectMenu(props: {
+  name: string
+  projects: readonly ProductProject[] | undefined
+  failed?: boolean
+  onOpen?: () => void
+  onSwitch: (id: string) => void
+  onOpenWindow: (id: string) => void
+  onAllProjects: () => void
+  onNewProject: () => void
+}) {
+  const strings = useProductStrings()
+  const others = (): MenuEntry[] =>
+    props.failed
+      ? [{ note: strings.projectsUnavailable }, 'separator']
+      : (props.projects ?? []).length > 0
+        ? [
+            ...(props.projects ?? [])
+              .slice(0, projectMenuLimit)
+              .map((project) => ({
+                label: project.name,
+                onSelect: () => props.onSwitch(project.id),
+                rowAction: {
+                  label: strings.openInNewWindow,
+                  icon: ExternalLink,
+                  onSelect: () => props.onOpenWindow(project.id),
+                },
+              })),
+            'separator' as const,
+          ]
+        : []
+  return (
+    <Menu
+      triggerName={props.name}
+      menuName={strings.projects}
+      title={props.name}
+      project
+      identity={undefined}
+      onOpen={props.onOpen}
+      items={[
+        { label: props.name, checked: true, onSelect: () => {} },
+        'separator',
+        ...others(),
+        {
+          label: strings.allProjects,
+          icon: LayoutGrid,
+          onSelect: props.onAllProjects,
+        },
+        {
+          label: strings.newProject,
+          icon: Plus,
+          intent: 'add',
+          onSelect: props.onNewProject,
+        },
+      ]}
+    >
+      <ProductIcon icon={FolderOpen} />
+      <span class="dinkster-menu-label dinkster-project-name">
+        {props.name}
       </span>
     </Menu>
   )

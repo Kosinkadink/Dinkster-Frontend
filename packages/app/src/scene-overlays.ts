@@ -852,7 +852,8 @@ export function deriveSceneOverlays(args: {
   // schema items: a persisted dynamic member is a real widget source too.
   // Cache one elaboration per source node for this overlay pass.
   // A primitive's value field takes the widget its own row draws, so a field
-  // it feeds shows the value an empty primitive passes on in a run.
+  // it feeds shows the value an empty primitive passes on in a run. An
+  // automatic field passes on the value its own row has in use, as a run does.
   const tapDefaults = new Map<string, ReadonlyMap<string, Json | undefined>>()
   let connectivity: ReturnType<typeof buildGraphConnectivity> | undefined
   let resolvePrimitive: ReturnType<typeof documentPrimitiveResolver> | undefined
@@ -877,8 +878,14 @@ export function deriveSceneOverlays(args: {
           (connectivity ??= buildGraphConnectivity(args.def!))(node.id),
           { promoteGhosts: false },
         ))
+        const rows = args.scene.nodes.find((candidate) => candidate.id === nodeId)?.layout.rows ?? []
         for (const item of items) {
-          if (item.spec.widget !== undefined) resolved.set(valueKeyOf(item), effectiveWidgetDefault(item.spec.widget))
+          if (item.spec.widget === undefined) continue
+          const key = valueKeyOf(item)
+          const row = rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === key)
+          resolved.set(key, row?.kind === 'widget' && row.automatic !== undefined
+            ? row.automatic.value
+            : effectiveWidgetDefault(item.spec.widget))
         }
       }
       defaults = resolved

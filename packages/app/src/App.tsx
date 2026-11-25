@@ -7,7 +7,7 @@ import { createEffect, createMemo, createSignal as createSolidSignal, For, Index
 import { BrandMark } from './BrandMark.js'
 import { StatusBar } from './StatusBar.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
-import type { DinksterValuesClient, ExecutionState } from '@dinkster/client'
+import { noEngineOpen, type DinksterValuesClient, type ExecutionState } from '@dinkster/client'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Database from 'lucide-solid/icons/database'
 import FolderOpen from 'lucide-solid/icons/folder-open'
@@ -41,11 +41,10 @@ import { AppView } from './AppView.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductRunActivity, type ProductAttention, type ProductMenuItem, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductRunActivity, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
-import { TopBarAccount } from './TopBarAccount.js'
-import ChevronDown from 'lucide-solid/icons/chevron-down'
+import { AccountControl, createAccountSession } from './AccountControl.js'
 import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
@@ -196,11 +195,36 @@ const APP_MENU_COMMAND_GROUPS = [
   { group: '50-settings', ids: ['settings.open'] },
 ] as const
 
+/** A Dinkster menu row that is not a command, such as the account's while the left bar is hidden. */
+export interface AppMenuAction {
+  readonly id: string
+  readonly label: string
+  readonly hint?: string
+  /** Absent for a row that only informs or opens children. */
+  readonly run?: () => void
+  /** Rows of a submenu this row opens. */
+  readonly children?: readonly AppMenuAction[]
+}
+
+const appMenuItem = (action: AppMenuAction): MenuItem => ({
+  id: action.id,
+  label: action.label,
+  ...(action.hint ? { hint: action.hint } : {}),
+  ...(action.children !== undefined
+    ? { children: action.children.map(appMenuItem) }
+    : { action: { kind: 'host', action: action.id }, ...(action.run === undefined ? { disabled: true } : {}) }),
+})
+
+const flatAppMenuActions = (actions: readonly AppMenuAction[]): readonly AppMenuAction[] =>
+  actions.flatMap((action) => [action, ...flatAppMenuActions(action.children ?? [])])
+
 export function DinksterAppMenu(props: {
   commands: CommandRegistry
   keybindings: KeybindingRegistry
   /** Signals that invalidate ContextMenu's deliberate per-open snapshot. */
   invalidationSignals?: () => readonly ReadonlySignal<unknown>[]
+  /** Rows before the commands, in their own group. */
+  account?: () => readonly AppMenuAction[]
 }) {
   const message = useAppMessage()
   const [open, setOpen] = createSolidSignal(false)
@@ -214,7 +238,7 @@ export function DinksterAppMenu(props: {
     setOpen(false)
     if (restoreFocus) queueMicrotask(() => button.focus())
   }
-  const groups = (): readonly ResolvedMenuGroup[] => APP_MENU_COMMAND_GROUPS.flatMap(({ group, ids }) => {
+  const groups = (): readonly ResolvedMenuGroup[] => [...accountGroup(), ...APP_MENU_COMMAND_GROUPS.flatMap(({ group, ids }): ResolvedMenuGroup[] => {
     const items = ids.flatMap((id): MenuItem[] => {
       const command = props.commands.get(id)
       const hint = props.keybindings.combo(id)
@@ -227,7 +251,14 @@ export function DinksterAppMenu(props: {
       }] : []
     })
     return items.length > 0 ? [{ group, items }] : []
-  })
+  })]
+  const accountGroup = (): ResolvedMenuGroup[] => {
+    const actions = props.account?.() ?? []
+    return actions.length === 0 ? [] : [{
+      group: '00-account',
+      items: actions.map(appMenuItem),
+    }]
+  }
   const show = (): void => {
     const rect = button.getBoundingClientRect()
     setAnchor({ x: rect.left, y: rect.bottom + 2 })
@@ -237,6 +268,13 @@ export function DinksterAppMenu(props: {
   }
   const toggle = (): void => open() ? close() : show()
   const invoke = (item: MenuItem): void => {
+    const account = flatAppMenuActions(props.account?.() ?? []).find((action) => action.id === item.id)
+    if (account?.run !== undefined) {
+      close()
+      button.focus()
+      account.run()
+      return
+    }
     const command = props.commands.get(item.id)
     if (!command || command.enabled?.() === false) return
     // The menu itself is transient. Put focus on its persistent trigger
@@ -260,7 +298,7 @@ export function DinksterAppMenu(props: {
     <div class="app-menu" ref={root}>
       <ProductWindowAction
         label={message('shell.applicationTitle')}
-        labelContent={<><ProductBrandMark /><ProductIcon icon={ChevronDown} /></>}
+        labelContent={<ProductBrandMark />}
         icon={() => <ProductBrandMark />}
         ref={button}
         data-testid="dinkster-menu-button"
@@ -284,6 +322,8 @@ export function DinksterAppMenu(props: {
           menu={{ ...anchor(), worldX: 0, worldY: 0, groups: groups() }}
           onInvoke={invoke}
           onClose={(reason) => close(reason === 'escape')}
+          // Settings sits last; the window, not the shared 400 px cap, bounds this menu.
+          maxHeight={Number.POSITIVE_INFINITY}
         />
       </Show>
     </div>
@@ -491,6 +531,20 @@ export function App(props: {
   // three zones. ShellLayout owns their pixel sizes and bar visibility.
   const dockLayoutState = useSignal(app.dock.state)
   const activityBarVisible = useSignal(app.shell.activityBarVisible)
+  // Desktop marks the bar with its platform. On macOS the logo sits at the top
+  // of the left bar, and after the window buttons while that bar is hidden.
+  const [barPlatform, setBarPlatform] = createSolidSignal<string | undefined>()
+  onMount(() => {
+    // The bar may mount after this component, and Desktop may set the attribute later.
+    const read = (): void => {
+      setBarPlatform(document.querySelector<HTMLElement>('.dinkster-window-toolbar-host')?.dataset['platform'])
+    }
+    read()
+    const observer = new MutationObserver(read)
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-platform'] })
+    onCleanup(() => observer.disconnect())
+  })
+  const logoInLeftBar = (): boolean => barPlatform() === 'darwin' && activityBarVisible()
   const statusBarVisible = useSignal(app.shell.statusBarVisible)
   const dockWidth = useSignal(app.shell.leftWidth)
   const railWidth = useSignal(app.shell.rightWidth)
@@ -1718,7 +1772,7 @@ export function App(props: {
       id: 'projects', get title() { return message('shell.panel.projects.title') },
       get description() { return message('shell.panel.projects.description') }, get ariaLabel() { return message('shell.panel.projects.title') },
       placement: 'modal', allowedPlacements: ['modal'], order: 18,
-      component: () => <ProjectsDialog connection={activeBackend().connection} onSwitch={switchProject} onOpenWindow={openProjectWindow} />,
+      component: () => <ProjectsDialog connection={activeBackend().connection} onSwitch={switchProject} onOpenWindow={openProjectWindow} focusNewProject={projectsFocusNew()} />,
     }),
     registerBuiltinPanel({
       id: 'subgraph-definitions', get title() { return message('shell.panel.subgraphDefinitions.title') },
@@ -2347,6 +2401,58 @@ export function App(props: {
       .then((project) => setProjectName(project.name), () => {})
     onCleanup(() => controller.abort())
   })
+  const account = createAccountSession(() => app.connection)
+  const [projectList, setProjectList] = createSolidSignal<readonly ProductProject[]>()
+  const [projectListFailed, setProjectListFailed] = createSolidSignal(false)
+  const [projectsFocusNew, setProjectsFocusNew] = createSolidSignal(false)
+  let projectListRead: AbortController | undefined
+  // The menu shows the first page of projects, read again each time it opens.
+  const readProjectList = (): void => {
+    projectListRead?.abort()
+    setProjectListFailed(false)
+    const backend = primaryConnected()
+    if (backend === undefined) {
+      setProjectListFailed(true)
+      return
+    }
+    const controller = new AbortController()
+    projectListRead = controller
+    backend.connection.listProjects(undefined, controller.signal).then((page) => {
+      setProjectListFailed(false)
+      setProjectList(page.items.filter((project) => !project.deleted).map(({ id, name }) => ({ id, name })))
+    }, () => {
+      if (!controller.signal.aborted) setProjectListFailed(true)
+    })
+  }
+  onCleanup(() => projectListRead?.abort())
+  const openProjects = (focusNewProject: boolean): void => {
+    setProjectsFocusNew(focusNewProject)
+    app.modalPanel.set('projects')
+  }
+  // The account lives in the left bar. While that bar is hidden the Dinkster menu
+  // carries it as one row that opens the left bar button's menu, so Settings stays in view.
+  const accountMenuActions = (): readonly AppMenuAction[] => {
+    const status = account.status()
+    if (activityBarVisible() || status?.available !== true) return []
+    if (account.pending()) {
+      return [{ id: 'account', label: message('shell.account.signingIn'), children: [
+        ...(account.authorizationUrl() === undefined ? [] : [{ id: 'account.openSignInPage', label: message('shell.account.openSignInPage'), run: () => account.openSignInPage() }]),
+        { id: 'account.cancelSignIn', label: message('shell.account.cancelSignIn'), run: () => account.cancelSignIn() },
+      ] }]
+    }
+    if (status.signedIn) {
+      const name = status.profile?.displayName?.trim() || ''
+      const email = status.profile?.email?.trim() || ''
+      const identity = name || email || message('shell.account.signedIn')
+      return [{ id: 'account', label: identity, children: [
+        { id: 'account.identity', label: identity, ...(name && email && email !== name ? { hint: email } : {}) },
+        { id: 'account.signOut', label: message('shell.account.signOut'), run: () => account.signOut() },
+      ] }]
+    }
+    return status.signInUnavailableReason === 'account-sign-in-requires-engine-machine'
+      ? [{ id: 'account.signIn', label: message('shell.account.signInRequiresEngineMachine') }]
+      : [{ id: 'account.signIn', label: message('shell.account.signIn'), run: () => account.signIn() }]
+  }
   const modalDescriptor = () => {
     panelsTick()
     const id = modalPanel()
@@ -2729,6 +2835,7 @@ export function App(props: {
                       owner={{ id: tab().id, title: tab().title, lineage: tab().store.doc.lineage }}
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), tab().execution === undefined && app.registryForTab(tab()) !== undefined)}
+                      blockedReason={noEngineOpen(supervisorOf(app.backendForTab(tab()))) ? message('shell.engine.notRunning') : undefined}
                       onQueue={() => { void app.queue(tab()) }}
                       onOpenExecution={(ref) => { void app.openExecutionView(ref) }}
                     />
@@ -2753,6 +2860,23 @@ export function App(props: {
       </section>
     )
   }
+
+  const appMenu = () => (
+    <DinksterAppMenu
+      commands={app.commands}
+      keybindings={app.keybindings}
+      invalidationSignals={() => [
+        activeLocale,
+        app.settings.changed,
+        app.canvasBridge,
+        app.tabs,
+        app.activeTabId,
+        app.backendsTick,
+        ...(app.activeTab() ? [app.activeTab()!.store.document] : []),
+      ]}
+      account={accountMenuActions}
+    />
+  )
 
   return (
     <>
@@ -2837,23 +2961,27 @@ export function App(props: {
       <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
       <ProductWindowToolbar title={message('shell.applicationControls')} platform="linux" service={servicesLabel()}
         serviceKind={servicesKind()}
-        brand={
-          <DinksterAppMenu
-            commands={app.commands}
-            keybindings={app.keybindings}
-            invalidationSignals={() => [
-              activeLocale,
-              app.settings.changed,
-              app.canvasBridge,
-              app.tabs,
-              app.activeTabId,
-              app.backendsTick,
-              ...(app.activeTab() ? [app.activeTab()!.store.document] : []),
-            ]}
-          />
-        }
+        brand={<>
+          <Show when={!logoInLeftBar()}>{appMenu()}</Show>
+          <Show when={managedContext().kind === 'primary'}>
+            {/* Until the library names the project, the button is the folder alone. */}
+            <Show when={projectName()} keyed fallback={
+              <ProductIconButton label={message('shell.panel.projects.title')} icon={FolderOpen} data-testid="projects-button" data-tooltip-label={message('shell.panel.projects.title')} data-tooltip-detail={message('shell.panel.projects.description')} onClick={() => openProjects(false)} />
+            }>{(name) => (
+              <ProductProjectMenu
+                name={name}
+                projects={projectList()?.filter((project) => project.id !== activeProjectId())}
+                failed={projectListFailed()}
+                onOpen={readProjectList}
+                onSwitch={switchProject}
+                onOpenWindow={openProjectWindow}
+                onAllProjects={() => openProjects(false)}
+                onNewProject={() => openProjects(true)}
+              />
+            )}</Show>
+          </Show>
+        </>}
         search={<UniversalSearchTrigger shortcut={searchShortcut()} onOpen={() => app.searchOpen.set(true)} />}
-        account={<TopBarAccount connection={app.connection} />}
         actions={(narrow) => <>
           <Show when={allWorkflowActivity().running > 0}>
             <ProductRunActivity {...allWorkflowActivity()} label={message('runs.activity', allWorkflowActivity())} />
@@ -2862,6 +2990,7 @@ export function App(props: {
             <ProductWindowAction label={message('shell.window.moveToMain')} icon={PanelTop} data-testid="redock-workflow" onClick={redockCurrentWindow} />
           </Show>
           <CancelExecutionButton toolbar app={app} execution={(executions(), activeTab(), app.currentCancellableExecution())} />
+          <ProductIconButton label={message('shell.panel.workspace.title')} icon={Users} data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} onClick={() => app.modalPanel.set('collab')} />
           <span class="app-layout-menu" ref={layoutMenu}><ProductMenu
             label={message('command.layout.customize')}
             icon={SlidersHorizontal}
@@ -2892,26 +3021,6 @@ export function App(props: {
               onClick={() => app.dock.setOpen('right', !railOpen())}
             />
           </Show>
-          <Show when={managedContext().kind === 'primary'}>
-            {/* Until the library names the project, the button is the folder alone. */}
-            <Show when={projectName()} keyed fallback={
-              <ProductIconButton label={message('shell.panel.projects.title')} icon={FolderOpen} data-testid="projects-button" data-tooltip-label={message('shell.panel.projects.title')} data-tooltip-detail={message('shell.panel.projects.description')} onClick={() => app.modalPanel.set('projects')} />
-            }>{(name) => (
-              <ProductWindowAction
-                label={name}
-                labelContent={
-                  <span class="dinkster-window-project-label">
-                    <ProductIcon icon={FolderOpen} />
-                    <span class="dinkster-window-project-name">{name}</span>
-                  </span>
-                }
-                icon={FolderOpen}
-                data-testid="projects-button"
-                onClick={() => app.modalPanel.set('projects')}
-              />
-            )}</Show>
-          </Show>
-          <ProductIconButton label={message('shell.panel.workspace.title')} icon={Users} data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} onClick={() => app.modalPanel.set('collab')} />
         </>}
       />
       <ProductToast notification={projectPackNotification()} onDismiss={() => app.projectPackNotification.set(undefined)} />
@@ -2985,6 +3094,7 @@ export function App(props: {
 
       <div class="body" ref={bodyElement} onPointerDown={beginPanelDrag}>
         <nav class="left-sidebar" aria-label={message('shell.primaryNavigation')} data-tooltip-session="left-rail" hidden={!activityBarVisible()}>
+          <Show when={logoInLeftBar()}><div class="sidebar-logo">{appMenu()}</div></Show>
           <div class="sidebar-toggle-stack">
             <div class="sidebar-toggle-group" data-testid="dock-toggle-group">
               <For each={dockPanels()}>
@@ -3005,6 +3115,9 @@ export function App(props: {
                 )}
               </For>
             </div>
+          </div>
+          <div class="sidebar-account">
+            <AccountControl session={account} rail />
           </div>
           <ActivityBarButton
             icon={Settings}

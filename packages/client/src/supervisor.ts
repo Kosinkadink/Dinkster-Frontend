@@ -6,7 +6,7 @@
  * proxies to the engine once healthy. Its whole wire surface is:
  *
  *   GET  /supervisor/status         -> { protocol, state, detail?, engine?, progress? }
- *   POST /supervisor/engine/restart -> 200 | 409 {"error":"restart-unavailable"}
+ *   POST /supervisor/engine/restart -> 200 | 409 {"error":"restart-unavailable", "message"?}
  *
  * and, before the engine is ready, EVERY other route answers
  * 503 {"error":"engine-not-ready", "state":..., "status":"/supervisor/status"}.
@@ -37,7 +37,19 @@ export interface SupervisorStatus {
    * answer); absent once composed. Never null.
    */
   readonly progress?: SupervisorProgress
+  /**
+   * The always-on Dinkster process answers with role 'home': it serves the
+   * page with no engine, counts the installations on its machine, and names
+   * the installation whose engine is open, if any.
+   */
+  readonly role?: 'home'
+  readonly installations?: number
+  readonly open?: { readonly root: string; readonly engine: string }
 }
+
+/** The always-on process answers and no installation's engine is open. */
+export const noEngineOpen = (status: SupervisorStatus | undefined): boolean =>
+  status?.role === 'home' && status.open === undefined
 
 /**
  * One probe outcome, trichotomous on purpose:
@@ -75,6 +87,9 @@ export const parseSupervisorStatus = (raw: unknown): SupervisorStatus | undefine
     detail?: unknown
     engine?: unknown
     progress?: unknown
+    role?: unknown
+    installations?: unknown
+    open?: unknown
   }
   if (typeof s.protocol !== 'number') return undefined
   if (typeof s.state !== 'string' || !SUPERVISOR_STATES.includes(s.state)) return undefined
@@ -89,12 +104,18 @@ export const parseSupervisorStatus = (raw: unknown): SupervisorStatus | undefine
         })()
       : undefined
   const progress = parseProgress(s.progress)
+  const open = s.open as { root?: unknown; engine?: unknown } | null | undefined
   return {
     protocol: s.protocol,
     state: s.state as SupervisorState,
     ...(typeof s.detail === 'string' ? { detail: s.detail } : {}),
     ...(engine !== undefined ? { engine } : {}),
     ...(progress !== undefined ? { progress } : {}),
+    ...(s.role === 'home' ? { role: 'home' as const } : {}),
+    ...(typeof s.installations === 'number' ? { installations: s.installations } : {}),
+    ...(typeof open === 'object' && open !== null && typeof open.root === 'string' && typeof open.engine === 'string'
+      ? { open: { root: open.root, engine: open.engine } }
+      : {}),
   }
 }
 
@@ -143,9 +164,11 @@ export async function restartSupervisorEngine(
     if (res.ok) return { ok: true }
     let error = `restart failed: ${res.status}`
     try {
-      const body = (await res.json()) as { error?: unknown; detail?: unknown }
+      const body = (await res.json()) as { error?: unknown; detail?: unknown; message?: unknown }
       if (typeof body.error === 'string') error = body.error
       if (typeof body.detail === 'string') error += `: ${body.detail}`
+      // The always-on process explains a refusal for people; show that alone.
+      if (typeof body.message === 'string') error = body.message
     } catch {
       /* non-JSON body: keep the status-code message */
     }

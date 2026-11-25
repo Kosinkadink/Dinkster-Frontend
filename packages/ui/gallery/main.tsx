@@ -13,11 +13,9 @@ import { render } from 'solid-js/web'
 import components from '@dinkster/branding/components' with { type: 'json' }
 import {
   Bell,
-  ChevronDown,
   CircleAlert,
   Ellipsis,
   LayoutList,
-  FolderOpen,
   PanelLeft,
   PanelBottom,
   PanelRight,
@@ -26,6 +24,7 @@ import {
   Square,
   Plus,
   Settings,
+  SlidersHorizontal,
   Trash2,
   User,
   Users,
@@ -62,6 +61,7 @@ import {
   ProductLoading,
   ProductMenu,
   ProductNotice,
+  ProductProjectMenu,
   ProductPage,
   ProductRadio,
   ProductSection,
@@ -88,6 +88,7 @@ import {
 import { ContextMenuGallery } from './context-menus.js'
 import { CanvasChromeGallery } from './canvas-chrome.js'
 import { SiteGallery } from './site.js'
+import { EditorBarGallery } from './editor-bar.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -245,6 +246,9 @@ function Gallery() {
               >
                 <ProductLink href="#window-toolbar">
                   Inspect responsive window toolbar
+                </ProductLink>
+                <ProductLink href="#editor-bar">
+                  Inspect the editor bar and left bar
                 </ProductLink>
                 <For each={['win32', 'linux', 'darwin'] as const}>
                   {(platform) => {
@@ -1274,36 +1278,49 @@ function WindowToolbarGallery() {
                         </Show>
                       }
                       brand={
-                        <Show
-                          when={brand() === 'wordmark'}
-                          fallback={
-                            <ProductMenu
-                              label="Dinkster"
-                              triggerName="Dinkster menu"
-                              icon={() => <ProductBrandMark />}
-                              items={[
-                                {
-                                  label: 'Projects',
-                                  onSelect: () =>
-                                    setActivity('Projects opened'),
-                                },
-                              ]}
-                            />
-                          }
-                        >
-                          <ProductWindowAction
-                            label="Dinkster menu"
-                            labelContent={
-                              <>
-                                <ProductBrandMark />
-                                <ProductIcon icon={ChevronDown} />
-                              </>
+                        <>
+                          <Show
+                            when={brand() === 'wordmark'}
+                            fallback={
+                              <ProductMenu
+                                label="Dinkster"
+                                triggerName="Dinkster menu"
+                                icon={() => <ProductBrandMark />}
+                                iconOnly
+                                items={[
+                                  {
+                                    label: 'Projects',
+                                    onSelect: () =>
+                                      setActivity('Projects opened'),
+                                  },
+                                ]}
+                              />
                             }
-                            icon={() => <ProductBrandMark />}
-                            pending={state() === 'pending'}
-                            onClick={() => setActivity('Dinkster opened')}
+                          >
+                            <ProductWindowAction
+                              label="Dinkster menu"
+                              labelContent={<ProductBrandMark />}
+                              icon={() => <ProductBrandMark />}
+                              pending={state() === 'pending'}
+                              onClick={() => setActivity('Dinkster opened')}
+                            />
+                          </Show>
+                          <ProductProjectMenu
+                            name={projectName()}
+                            projects={[
+                              { id: 'teapot', name: 'Teapot product shots' },
+                              { id: 'valley', name: 'Valley matte paintings' },
+                            ]}
+                            onSwitch={() => setActivity('Project switched')}
+                            onOpenWindow={() =>
+                              setActivity('Project opened in a window')
+                            }
+                            onAllProjects={() => setActivity('Projects opened')}
+                            onNewProject={() =>
+                              setActivity('New project opened')
+                            }
                           />
-                        </Show>
+                        </>
                       }
                       search={
                         <ProductWindowAction
@@ -1321,9 +1338,23 @@ function WindowToolbarGallery() {
                               label={runSummary()}
                             />
                           </Show>
+                          <Show when={state() !== 'idle'}>
+                            <ProductWindowAction
+                              label="Cancel run"
+                              icon={Square}
+                              intent="remove"
+                              pending={state() === 'pending'}
+                              onClick={() => setActivity('Run cancelled')}
+                            />
+                          </Show>
+                          <ProductIconButton
+                            label="Collaboration"
+                            icon={Users}
+                            onClick={() => setActivity('Collaboration opened')}
+                          />
                           <ProductMenu
                             label="Customize layout"
-                            icon={Settings}
+                            icon={SlidersHorizontal}
                             attention={
                               narrow() ? rightPanelAttention() : undefined
                             }
@@ -1370,33 +1401,6 @@ function WindowToolbarGallery() {
                               )}
                             </For>
                           </Show>
-                          <Show when={state() !== 'idle'}>
-                            <ProductWindowAction
-                              label="Cancel run"
-                              icon={Square}
-                              intent="remove"
-                              pending={state() === 'pending'}
-                              onClick={() => setActivity('Run cancelled')}
-                            />
-                          </Show>
-                          <ProductWindowAction
-                            label={projectName()}
-                            labelContent={
-                              <span class="dinkster-window-project-label">
-                                <ProductIcon icon={FolderOpen} />
-                                <span class="dinkster-window-project-name">
-                                  {projectName()}
-                                </span>
-                              </span>
-                            }
-                            icon={FolderOpen}
-                            onClick={() => setActivity('Projects opened')}
-                          />
-                          <ProductIconButton
-                            label="Collaboration"
-                            icon={Users}
-                            onClick={() => setActivity('Collaboration opened')}
-                          />
                         </>
                       )}
                     />
@@ -1421,7 +1425,8 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : route() !== '#canvas' && route() !== '#canvas-chrome' && route() !== '#window-toolbar' && narrow()
+      : !['#canvas', '#canvas-chrome', '#window-toolbar', '#editor-bar'].includes(route()) &&
+          narrow()
         ? 'site'
         : 'app'
   })
@@ -1439,9 +1444,14 @@ function GalleryRoot() {
     <Show
       when={route().startsWith('#site-')}
       fallback={
-        <Show when={route() === '#window-toolbar'} fallback={<Gallery />}>
-          <WindowToolbarGallery />
-        </Show>
+        <Switch fallback={<Gallery />}>
+          <Match when={route() === '#window-toolbar'}>
+            <WindowToolbarGallery />
+          </Match>
+          <Match when={route() === '#editor-bar'}>
+            <EditorBarGallery />
+          </Match>
+        </Switch>
       }
     >
       <SiteGallery
