@@ -1,4 +1,4 @@
-import { expect, nativeTest as test } from './fixtures.js'
+import { expect, nativeTest as test, selectProductOption } from './fixtures.js'
 
 test('served dev blueprint copies its graph independently and undoes as one insertion', async ({ page }, testInfo) => {
   await page.goto('/')
@@ -54,4 +54,158 @@ test('served dev blueprint copies its graph independently and undoes as one inse
   await expect.poll(async () => Object.keys((await document()).graphs.root!.nodes).length).toBe(8)
   expect((await document()).graphs.root).toEqual(before.graphs.root)
   await page.screenshot({ path: testInfo.outputPath('blueprint-template-reopened.png') })
+})
+
+test('a saved blueprint is detached, placeable, renameable and removable without changing placed subgraphs', async ({ page, context }, testInfo) => {
+  const name = `Saved image helpers ${Date.now()}`
+  const renamed = `${name} renamed`
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.goto('/')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()
+    .map((backend) => ({ state: backend.schemaState.get(), ready: backend.registry.get()?.schemas.has('dev.features.slot') }))))
+    .toEqual(expect.arrayContaining([expect.objectContaining({ ready: true })]))
+  expect(await page.evaluate(async (name) => {
+    const app = window.__dinksterTest!.app
+    const backend = app.backends.get().find((item) => item.registry.get()?.schemas.has('dev.features.slot'))!
+    if (!await app.openTemplate('dinkster-nodes-dev', 'node-features', 'Node Feature Examples', backend.id)) return ['template failed']
+    const doc = structuredClone(app.activeTab()!.store.doc)
+    const body = doc.root
+    const root = 'saved-blueprint-test-root'
+    const diagnostics = await app.openDocument({
+      ...doc, root, lineage: `saved-${name}`,
+      graphs: {
+        ...doc.graphs,
+        [body]: { ...doc.graphs[body]!, name, boundary: { inputs: [], outputs: [] } },
+        [root]: {
+          id: root, name: 'Blueprint independence', nodes: { source: { id: 'source', type: `#${body}`, values: {} } },
+          links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+        },
+      },
+      view: { ...doc.view, graphs: {
+        ...doc.view.graphs,
+        [root]: { nodes: { source: { position: { x: 160, y: 160 } } } },
+      } },
+    }, 'Blueprint independence')
+    app.setTabTarget(app.activeTab()!.id, backend.id)
+    return diagnostics
+  }, name)).toEqual([])
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
+    .some((node) => node.id === 'source'))).toBe(true)
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
+  const point = await page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'source')!
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return { x: canvas.left + node.x + node.layout.width / 2, y: canvas.top + node.y + node.layout.headerHeight / 2 }
+  })
+  await page.mouse.click(point.x, point.y)
+  await page.mouse.click(point.x, point.y, { button: 'right' })
+  const save = page.locator('[data-testid=context-menu-item][data-item-id="core.subgraph.saveBlueprint"]')
+  await expect(save).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('saved-blueprint-menu.png') })
+  const created = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/library' && response.request().method() === 'POST')
+  await save.click()
+  const response = await Promise.race([
+    created,
+    page.waitForFunction(() => window.__dinksterTest!.app.problems.get().some((item) => item.severity === 'error')).then(async () => {
+      throw new Error(JSON.stringify(await page.evaluate(() => window.__dinksterTest!.app.problems.get())))
+    }),
+  ])
+  expect(response.status()).toBe(201)
+  const record = await response.json() as { id: string; digest: string; project: string }
+  expect(record.project).toBe('default')
+  const backendUrl = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
+  const bodyResponse = await page.request.get(`${backendUrl}/api/assets/${record.digest}`)
+  expect(bodyResponse.ok()).toBe(true)
+  const saved = await bodyResponse.json()
+  expect(saved.graphs[saved.root].nodes.mirror.values.gain).toBe(0.5)
+  expect(await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    const body = tab.store.doc.graphs[tab.store.doc.root]!.nodes.source!.type.slice(1)
+    return (await app.dispatchTo(tab, { command: 'node.setValue', params: {
+      graphId: body, nodeId: 'mirror', inputId: 'gain', value: 1.75,
+    } })).ok
+  })).toBe(true)
+  expect(await (await page.request.get(`${backendUrl}/api/assets/${record.digest}`)).json()).toEqual(saved)
+
+  const canvas = page.getByTestId('graph-canvas')
+  await canvas.dblclick({ position: { x: 650, y: 400 } })
+  await page.getByTestId('palette-search').fill(name)
+  const result = page.locator(`[data-testid=palette-item][data-node-type="blueprint:saved/${record.id}"]`)
+  await expect(result).toContainText(name)
+  await expect(result).toHaveCount(1)
+  await page.screenshot({ path: testInfo.outputPath('saved-blueprint-search.png') })
+  await result.click()
+  await canvas.click({ position: { x: 650, y: 400 } })
+  await expect.poll(() => page.evaluate(() => {
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    return Object.keys(doc.graphs[doc.root]!.nodes).length
+  })).toBe(2)
+  const placed = await page.evaluate(() => {
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    const root = doc.graphs[doc.root]!
+    const added = Object.values(root.nodes).find((node) => node.id !== 'source')!
+    return {
+      type: added.type,
+      original: doc.graphs[root.nodes.source!.type.slice(1)]!.nodes.mirror!.values!.gain,
+      inserted: doc.graphs[added.type.slice(1)]!.nodes.mirror!.values!.gain,
+    }
+  })
+  expect(placed.original).toBe(1.75)
+  expect(placed.inserted).toBe(0.5)
+
+  await page.keyboard.press('Control+c')
+  await page.mouse.move(point.x + 300, point.y + 300)
+  await page.keyboard.press('Control+v')
+  await expect.poll(() => page.evaluate((type) => {
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    return Object.values(doc.graphs[doc.root]!.nodes).filter((node) => node.type === type).length
+  }, placed.type)).toBe(2)
+  expect(await page.evaluate(async (type) => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    const nodeId = [...window.__dinksterTest!.controller!.getSelection()][0]!
+    const outcome = await app.dispatchTo(tab, { command: 'occurrence.localize', params: {
+      graphId: tab.store.doc.root, nodeId,
+    } })
+    const copy = tab.store.doc.graphs[tab.store.doc.root]!.nodes[nodeId]!
+    return { ok: outcome.ok, independent: copy.type !== type,
+      gain: tab.store.doc.graphs[copy.type.slice(1)]!.nodes.mirror!.values!.gain }
+  }, placed.type)).toEqual({ ok: true, independent: true, gain: 0.5 })
+
+  await page.getByTestId('library-toggle').click()
+  const library = page.getByTestId('library-overlay')
+  const source = library.locator('[data-testid=collection-source][data-source=blueprints]')
+  if (await source.isVisible()) await source.click()
+  else await selectProductOption(page, library.getByTestId('library-source-select'), 'blueprints')
+  await library.getByTestId('collection-entry').filter({ hasText: name }).click()
+  await page.screenshot({ path: testInfo.outputPath('saved-blueprint-library.png') })
+  await library.locator('[data-testid=library-detail-action][data-action=rename]').click()
+  await page.getByTestId('library-rename-input').fill(renamed)
+  await page.screenshot({ path: testInfo.outputPath('saved-blueprint-rename.png') })
+  await page.getByTestId('library-rename-input').press('Enter')
+  const row = library.getByTestId('collection-entry').filter({ hasText: renamed })
+  await expect(row).toHaveCount(1)
+  await page.keyboard.press('Escape')
+  await canvas.dblclick({ position: { x: 650, y: 550 } })
+  await page.getByTestId('palette-search').fill(renamed)
+  await expect(result).toContainText(renamed)
+  await page.keyboard.press('Escape')
+  await page.getByTestId('library-toggle').click()
+  await row.click()
+  await library.locator('[data-testid=library-detail-action][data-action=remove]').click()
+  const confirm = page.getByRole('button', { name: 'Remove blueprint', exact: true })
+  await expect(confirm).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('saved-blueprint-remove.png') })
+  expect((await page.request.get(`${backendUrl}/api/library/${record.id}?scope=local`)).ok()).toBe(true)
+  await confirm.click()
+  await expect(row).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await canvas.dblclick({ position: { x: 650, y: 550 } })
+  await page.getByTestId('palette-search').fill(renamed)
+  await expect(result).toHaveCount(0)
+  expect(await page.evaluate((type) => {
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    return Object.values(doc.graphs[doc.root]!.nodes).some((node) => node.type === type)
+  }, placed.type)).toBe(true)
 })
