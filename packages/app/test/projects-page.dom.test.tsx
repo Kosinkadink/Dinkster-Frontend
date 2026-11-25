@@ -106,11 +106,13 @@ it.each(['projects', 'installations'] as const)('waits for both deciding reads w
   render(() => <ProjectsView shell={shell()} onCount={counted} source={{
     ...source([]), listProjects: () => projectsRead.promise, installations: () => installationsRead.promise,
   }} />, document.body)
-  expect(document.body.textContent).toBe('')
+  expect(document.querySelector('h1')?.textContent).toBe('Projects')
+  expect(document.querySelector('button')?.textContent).toContain('New')
   if (first === 'projects') projectsRead.resolve([])
   else installationsRead.resolve({ all: [] })
   await settle()
-  expect(document.body.textContent).toBe('')
+  expect(document.querySelector('h1')?.textContent).toBe('Projects')
+  expect(document.querySelector('[role="option"]')).toBeNull()
   expect(counted).not.toHaveBeenCalled()
   projectsRead.resolve([])
   installationsRead.resolve({ all: [] })
@@ -127,7 +129,8 @@ it('shows slow loading at 200 ms and retains it for at least 300 ms', async () =
   const read = deferred<readonly LibraryProject[]>()
   render(() => <ProjectsView shell={shell()} source={{ ...source([]), listProjects: () => read.promise, installations: async () => ({ all: [] }) }} />, document.body)
   await vi.advanceTimersByTimeAsync(199)
-  expect(document.body.textContent).toBe('')
+  expect(document.querySelector('h1')?.textContent).toBe('Projects')
+  expect(document.querySelector('[data-testid="projects-loading"]')).toBeNull()
   await vi.advanceTimersByTimeAsync(1)
   expect(document.querySelector('[data-testid="projects-loading"]')?.textContent).toBe('Loading projects')
   read.resolve([])
@@ -139,7 +142,7 @@ it('shows slow loading at 200 ms and retains it for at least 300 ms', async () =
   expect(document.querySelector('[data-testid="projects-loading"]')).toBeNull()
 })
 
-it('labels slow detail as one project and reveals its headings and lists together', async () => {
+it('shows known headings and actions before slow project facts arrive', async () => {
   vi.useFakeTimers({ now: NOW })
   const workflows = deferred<readonly never[]>()
   render(() => <ProjectsView shell={shell()} source={{
@@ -150,7 +153,9 @@ it('labels slow detail as one project and reveals its headings and lists togethe
   await vi.advanceTimersByTimeAsync(1)
   expect(document.querySelector('[data-testid="project-loading"]')?.textContent).toBe('Loading project')
   expect(document.querySelector('[data-testid="projects-loading"]')).toBeNull()
-  expect(document.querySelector('h2')).toBeNull()
+  expect(document.querySelector('h2')?.textContent).toBe('Film grain tests')
+  expect(document.querySelector('h3')?.textContent).toBe('Workflows')
+  expect(document.querySelector('[data-testid="projects-open"]')).not.toBeNull()
   expect(document.body.textContent).not.toContain('No workflows yet.')
   workflows.resolve([])
   await vi.advanceTimersByTimeAsync(300)

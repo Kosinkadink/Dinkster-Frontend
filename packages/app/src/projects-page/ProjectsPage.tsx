@@ -516,18 +516,44 @@ export function ProjectsView(props: {
     setHiddenChange((n) => n + 1)
   }
 
-  const detail = (data: NonNullable<ReturnType<typeof projectDetail>>) => {
-    const { project } = data
-    const workflows = () => data.workflows
-    const outputs = () => data.outputs
-    const usage = () => data.usage
-    const definitions = () => data.definitions
+  const detail = (project: LibraryProject) => {
+    const data = () => detailArrival.value()?.project.id === project.id ? detailArrival.value() : undefined
+    const workflows = () => data()?.workflows
+    const outputs = () => data()?.outputs
+    const usage = () => data()?.usage
+    const definitions = () => data()?.definitions
     const time = projectTime(project)
     const here = () => opening()?.projectId === project.id ? opening() : undefined
     const installation = () => runsOn(project.id)
     const unavailable = () => message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.open.noInstallation')
+    const locationFacts = createMemo(() => [
+      ...(project.folder ? [{
+        label: message('projects.facts.outputsFolder'),
+        value: project.folder,
+        action: <Show when={installations()?.openFolder}>
+          <ProductTextButton label={message('projects.facts.showInFolder')} onClick={() => {
+            setFolderFailed(undefined)
+            props.source.openFolder(project.id).catch(() => setFolderFailed(project.id))
+          }} />
+        </Show>,
+      }] : []),
+      {
+        label: message('projects.facts.runsOn'),
+        value: installation()?.name ?? message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.facts.noInstallation'),
+        detail: installation() ? message('projects.facts.thisComputer') : undefined,
+        action: <Show when={(installations()?.all.length ?? 0) > 1}>
+          <ProductMenu label={message('projects.facts.change')} items={(installations()?.all ?? []).map((row) => ({
+            label: row.name,
+            onSelect: () => {
+              writeChoice(pageKey(project.id, 'runsOn'), row.root)
+              setRunsOnChoice((n) => n + 1)
+            },
+          }))} />
+        </Show>,
+      },
+    ])
     return (
-      <div class="projects-page-arrival projects-page-detail" data-testid="projects-detail">
+      <div class="projects-page-detail" data-testid="projects-detail">
         <ProductProjectHeader
           title={project.name}
           subtitle={message(time.kind === 'ran' ? 'projects.time.lastRun' : 'projects.time.created', {
@@ -601,51 +627,18 @@ export function ProjectsView(props: {
             {message('projects.facts.folderFailed')}
           </ProductErrorBanner>
         </Show>
+        <Show when={!data() && detailArrival.loading()}>
+          <div class="projects-page-loading projects-page-arrival" data-testid="project-loading">
+            <ProductLoading label={message('projects.detail.loading')} />
+          </div>
+        </Show>
+        <Show when={data()}>
         <Show when={firstRun()}>{setupInstructions()}</Show>
+        </Show>
         <ProductProjectFacts
           label={message('projects.facts.label')}
           columns={[
-            [
-              // The folder is the project's output folder, so the fact says Outputs; with no folder there is no fact.
-              ...(project.folder
-                ? [
-                    {
-                      label: message('projects.facts.outputsFolder'),
-                      value: project.folder,
-                      action: (
-                        <Show when={installations()?.openFolder}>
-                          <ProductTextButton
-                            label={message('projects.facts.showInFolder')}
-                            onClick={() => {
-                              setFolderFailed(undefined)
-                              props.source.openFolder(project.id).catch(() => setFolderFailed(project.id))
-                            }}
-                          />
-                        </Show>
-                      ),
-                    },
-                  ]
-                : []),
-              {
-                label: message('projects.facts.runsOn'),
-                value: installation()?.name ?? message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.facts.noInstallation'),
-                detail: installation() ? message('projects.facts.thisComputer') : undefined,
-                action: (
-                  <Show when={(installations()?.all.length ?? 0) > 1}>
-                    <ProductMenu
-                      label={message('projects.facts.change')}
-                      items={(installations()?.all ?? []).map((row) => ({
-                        label: row.name,
-                        onSelect: () => {
-                          writeChoice(pageKey(project.id, 'runsOn'), row.root)
-                          setRunsOnChoice((n) => n + 1)
-                        },
-                      }))}
-                    />
-                  </Show>
-                ),
-              },
-            ],
+            locationFacts(),
             usage()
               ? [
                   {
@@ -661,6 +654,7 @@ export function ProjectsView(props: {
           title={message('projects.workflows.title')}
           aside={<span class="dinkster-metadata">{workflows()?.length ?? ''}</span>}
         >
+          <Show when={data()}>
             <Show
               when={(workflows()?.length ?? 0) > 0}
               fallback={
@@ -673,7 +667,7 @@ export function ProjectsView(props: {
                 <For each={workflows()}>
                   {(workflow) => {
                     // Draw saved documents as the minimap does; unreadable documents keep the icon.
-                    const document = () => data.documents.get(workflow.digest)
+                    const document = () => data()?.documents.get(workflow.digest)
                     return (
                       <ProductTile
                         label={workflow.name}
@@ -695,6 +689,7 @@ export function ProjectsView(props: {
                 </For>
               </ProductTileGrid>
             </Show>
+          </Show>
         </ProductProjectSection>
         <ProductProjectSection
           title={message('projects.outputs.title')}
@@ -722,6 +717,7 @@ export function ProjectsView(props: {
             </Show>
           }
         >
+          <Show when={data()}>
           <Show
             when={(outputs()?.length ?? 0) > 0}
             fallback={
@@ -751,6 +747,7 @@ export function ProjectsView(props: {
                 </For>
               </ProductTileGrid>
             </Show>
+          </Show>
           </Show>
         </ProductProjectSection>
         <Show when={dialog() === 'rename'}>
@@ -859,14 +856,7 @@ export function ProjectsView(props: {
   )
 
   return (
-    <Show when={painted()} fallback={
-      <Show when={arrival.loading()}>
-        <div class="projects-page-loading projects-page-arrival" data-testid="projects-loading">
-          <ProductLoading label={message('projects.loading')} />
-        </div>
-      </Show>
-    }>
-    <div class="projects-page-arrival projects-page-content" data-testid="projects-content">
+    <div class="projects-page-content" data-testid="projects-content">
     <Show when={!setupOnly()} fallback={setup()}>
       <ProductProjectsView
         list={
@@ -900,29 +890,28 @@ export function ProjectsView(props: {
         }
       >
         <Show when={!newProject()} fallback={newProjectForm()}>
+          <Show when={!painted() && arrival.loading()}>
+            <div class="projects-page-loading projects-page-arrival" data-testid="projects-loading">
+              <ProductLoading label={message('projects.loading')} />
+            </div>
+          </Show>
           <Show
-            when={selected() && detailArrival.value()}
+            when={detailArrival.value()?.project ?? selected()}
             keyed
             fallback={
               <>
-              <Show when={!selected()}>
+              <Show when={painted() && !selected()}>
                   <ProductEmptyState message={message(projects() === null ? 'projects.unreadable' : 'projects.empty')} />
-              </Show>
-              <Show when={selected() && detailArrival.loading()}>
-                <div class="projects-page-loading projects-page-arrival" data-testid="project-loading">
-                  <ProductLoading label={message('projects.detail.loading')} />
-                </div>
               </Show>
               </>
             }
           >
-            {(data) => detail(data)}
+            {(project) => detail(project)}
           </Show>
         </Show>
       </ProductProjectsView>
     </Show>
     </div>
-    </Show>
   )
 }
 

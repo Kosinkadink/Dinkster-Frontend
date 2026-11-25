@@ -8,6 +8,10 @@
 .projects-page-setup { width: min(100%, 560px); }
 .projects-page-content { height: 100%; }
 .projects-page-loading { display: grid; place-content: center; height: 100%; }
-.projects-page-detail { display: flex; flex-direction: column; gap: var(--dinkster-space-24); }
+.projects-page-detail { position: relative; min-height: 100%; display: flex; flex-direction: column; gap: var(--dinkster-space-24); }
+.projects-page-detail > .projects-page-loading { position: absolute; inset: 0; pointer-events: none; }
 .projects-page-arrival { animation: projects-page-arrival 200ms var(--dinkster-motion-easing); }
+.projects-page-content .dinkster-project-row,
+.projects-page-detail .dinkster-project-fact-value,
+.projects-page-detail .dinkster-project-section > :not(header) { animation: projects-page-arrival 200ms var(--dinkster-motion-easing); }
 @keyframes projects-page-arrival { from { opacity: 0; } to { opacity: 1; } }
