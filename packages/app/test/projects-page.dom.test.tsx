@@ -188,3 +188,21 @@ it('does not open a project when there is no installation to run it on', async (
   open.click()
   expect(navigation.openProject).not.toHaveBeenCalled()
 })
+
+it('keeps selection working when the process cannot list workflows or outputs', async () => {
+  vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
+  const data = {
+    ...source(projects),
+    listWorkflows: async () => Promise.reject(new Error('GET /api/library failed: 404')),
+    listOutputs: async (id: string) => Promise.reject(new Error(`GET /api/projects/${id}/outputs failed: 404`)),
+  }
+  render(() => <ProjectsView shell={shell()} source={data} />, document.body)
+  await settle()
+  expect(document.body.textContent).toContain("Could not read this project's workflows.")
+  expect(document.body.textContent).toContain("Could not read this project's latest outputs.")
+  ;[...document.querySelectorAll('[role="option"]')].find((row) => row.textContent?.startsWith('Bookshop'))!
+    .dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await settle()
+  expect(document.querySelector('h2')?.textContent).toBe('Bookshop diorama')
+  expect(document.querySelector('[role="option"][aria-selected="true"]')?.textContent).toContain('Bookshop diorama')
+})

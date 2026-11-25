@@ -1733,5 +1733,9 @@
   "projects.delete.title": "删除 {project}？",
   "projects.delete.consequence": "它的工作流和输出将从项目列表中移除。其文件夹中的文件保留在磁盘上。",
   "projects.delete.action": "删除项目",
-  "projects.open.noInstallation": "此项目没有可运行的安装。"
+  "projects.open.noInstallation": "此项目没有可运行的安装。",
+  "projects.unreadable": "无法读取项目。",
+  "projects.workflows.unreadable": "无法读取此项目的工作流。",
+  "projects.outputs.unreadable": "无法读取此项目的最新输出。",
+  "projects.status.running": "运行于 {installation}"
 }

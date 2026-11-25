@@ -65,9 +65,16 @@ export interface ProjectsSource {
   listOutputs(project: string, limit: number): Promise<readonly LocalAssetCatalogEntry[]>
   /** Stored bytes and output count; undefined while the process cannot tell. */
   usage(project: string): Promise<{ readonly outputs: number; readonly bytes: number } | undefined>
-  /** Every installation, and the one that is open, if any. */
-  installations(): Promise<{ readonly all: readonly PageInstallation[]; readonly open?: PageInstallation }>
+  /** Every installation, the one that is open, if any, and the state of its engine. */
+  installations(): Promise<{
+    readonly all: readonly PageInstallation[]
+    readonly open?: PageInstallation
+    readonly engine?: EngineState
+  }>
 }
+
+/** The process's engine state, from /supervisor/status. */
+export type EngineState = 'stopped' | 'starting' | 'ready' | 'failed'
 
 /** The part of the shell's navigation the page uses. */
 export interface ProjectsPageShell {
@@ -156,16 +163,21 @@ export function processSource(connection: DinksterConnection = processConnection
     },
     async installations() {
       const [status, rows] = await Promise.all([
-        fetch('/supervisor/status', { cache: 'no-store' }).then((response) => (response.ok ? response.json() : {})),
+        fetch('/supervisor/status', { cache: 'no-store' })
+          .then((response) => (response.ok ? response.json() : {}))
+          .catch(() => ({})),
         fetch('/supervisor/installations', { cache: 'no-store' })
           .then((response) => (response.ok ? response.json() : { installations: [] }))
           .catch(() => ({ installations: [] })),
-      ]) as [{ open?: { root: string; engine: string } }, { installations?: readonly { root: string }[] }]
+      ]) as [
+        { state?: EngineState; open?: { root: string; engine: string } },
+        { installations?: readonly { root: string }[] },
+      ]
       const named = (root: string, engine = 'main'): PageInstallation => ({ root, engine, name: folderName(root) })
       const all = (rows.installations ?? []).map((row) => named(row.root))
       const open = status.open ? named(status.open.root, status.open.engine) : undefined
       if (open && !all.some((row) => row.root === open.root)) all.unshift(open)
-      return { all, ...(open ? { open } : {}) }
+      return { all, ...(open ? { open } : {}), ...(status.state ? { engine: status.state } : {}) }
     },
   }
 }
@@ -191,6 +203,7 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
   const account = createAccountSession(() => connection)
   const [place, setPlace] = createSignal<Place>('projects')
   const [count, setCount] = createSignal<number>()
+  const [engine, setEngine] = createSignal<{ state?: EngineState; open?: PageInstallation }>({})
   // The editor's tooltips, so the frame's controls explain themselves here too.
   const tooltips = new TooltipController()
   tooltips.register({
@@ -262,7 +275,7 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
         <div class="projects-page-body dinkster-root">
           <Switch>
             <Match when={place() === 'projects'}>
-              <ProjectsView shell={props.shell} source={source} onCount={setCount} />
+              <ProjectsView shell={props.shell} source={source} onCount={setCount} onEngine={setEngine} />
             </Match>
             <Match when={true}>
               <ProductProjectsView>
@@ -275,11 +288,15 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
       </div>
       <footer class="statusbar statusbar-state" aria-label={message('shell.applicationStatus')}>
         <div class="status-items">
-          <span class="status-item status-connection projects-page-status" data-state="no-engine">
+          <span class="status-item status-connection projects-page-status" data-state={engineDot(engine().state)}>
             <span class="status-connection-dot" aria-hidden="true" />
             <span class="status-connection-name">{message('projects.status.local')}</span>
           </span>
-          <span class="status-item">{message('shell.engine.notRunning')}</span>
+          <span class="status-item" data-testid="projects-engine-status">
+            {engine().state === 'ready' && engine().open
+              ? message('projects.status.running', { installation: engine().open!.name })
+              : message(ENGINE_WORDS[engine().state ?? 'stopped'])}
+          </span>
           <Show when={count() !== undefined}>
             <span class="status-item projects-page-count">{message('projects.status.count', { count: count()! })}</span>
           </Show>
@@ -295,15 +312,24 @@ export function ProjectsView(props: {
   readonly source: ProjectsSource
   /** Told how many projects the list holds once it has read them. */
   readonly onCount?: (count: number) => void
+  /** Told the engine's state and the open installation once the page has read them. */
+  readonly onEngine?: (engine: { state?: EngineState; open?: PageInstallation }) => void
 }) {
   const message = useAppMessage()
   const locale = useSignal(activeLocale)
-  const [projects, { mutate: setProjects }] = createResource(() => props.source.listProjects().then(byProjectTime))
+  // A read that fails resolves to null, so one missing route leaves the rest of the page working.
+  const [projects, { mutate: setProjects }] = createResource(() =>
+    props.source.listProjects().then(byProjectTime, () => null),
+  )
   createEffect(() => {
     const list = projects()
     if (list) props.onCount?.(list.length)
   })
-  const [installations] = createResource(() => props.source.installations())
+  const [installations] = createResource(() => props.source.installations().catch((): Awaited<ReturnType<ProjectsSource['installations']>> => ({ all: [] })))
+  createEffect(() => {
+    const found = installations()
+    if (found) props.onEngine?.({ ...(found.engine ? { state: found.engine } : {}), ...(found.open ? { open: found.open } : {}) })
+  })
   const [chosen, setChosen] = createSignal<string>()
   const [bannerShown, setBannerShown] = createSignal(true)
   const [runsOnChoice, setRunsOnChoice] = createSignal(0)
@@ -312,8 +338,8 @@ export function ProjectsView(props: {
   const selectedId = (): string | undefined =>
     chosen() ?? props.shell.selectedProjectId() ?? projects()?.[0]?.id
   const selected = createMemo(() => projects()?.find((project) => project.id === selectedId()))
-  const [workflows] = createResource(selectedId, (id) => props.source.listWorkflows(id))
-  const [outputs] = createResource(selectedId, (id) => props.source.listOutputs(id, OUTPUT_LIMIT))
+  const [workflows] = createResource(selectedId, (id) => props.source.listWorkflows(id).catch(() => null))
+  const [outputs] = createResource(selectedId, (id) => props.source.listOutputs(id, OUTPUT_LIMIT).catch(() => null))
   const [usage] = createResource(selectedId, (id) => props.source.usage(id).catch(() => undefined))
 
   const when = (at: number) => {
@@ -516,7 +542,11 @@ export function ProjectsView(props: {
           >
             <Show
               when={(workflows()?.length ?? 0) > 0}
-              fallback={<ProductEmptyState message={message('projects.workflows.empty')} />}
+              fallback={
+                <ProductEmptyState
+                  message={message(workflows() === null ? 'projects.workflows.unreadable' : 'projects.workflows.empty')}
+                />
+              }
             >
               <ProductTileGrid size="wide">
                 <For each={workflows()}>
@@ -562,7 +592,11 @@ export function ProjectsView(props: {
         >
           <Show
             when={(outputs()?.length ?? 0) > 0 || outputs.loading}
-            fallback={<ProductEmptyState message={message('projects.outputs.empty')} />}
+            fallback={
+              <ProductEmptyState
+                message={message(outputs() === null ? 'projects.outputs.unreadable' : 'projects.outputs.empty')}
+              />
+            }
           >
             <Show when={!outputsHidden(project.id)}>
               <ProductTileGrid size="narrow">
@@ -703,7 +737,9 @@ export function ProjectsView(props: {
           fallback={
             <Show
               when={projects.loading}
-              fallback={<ProductEmptyState message={message('projects.empty')} />}
+              fallback={
+                <ProductEmptyState message={message(projects() === null ? 'projects.unreadable' : 'projects.empty')} />
+              }
             >
               <div class="dinkster-stack" role="status" aria-label={message('projects.loading')}>
                 <ProductSkeleton shape="title" />
@@ -718,6 +754,17 @@ export function ProjectsView(props: {
     </ProductProjectsView>
   )
 }
+
+const ENGINE_WORDS: Record<EngineState, string> = {
+  stopped: 'shell.engine.notRunning',
+  starting: 'shell.engine.starting',
+  ready: 'shell.engine.notRunning',
+  failed: 'shell.engine.failed',
+}
+
+/** The connection dot: grey with no engine, the editor's green when one is ready, warning otherwise. */
+const engineDot = (state: EngineState | undefined) =>
+  state === 'ready' ? 'connected' : state === 'starting' || state === 'failed' ? state : 'no-engine'
 
 function writeChoice(key: string, value: string): void {
   try {

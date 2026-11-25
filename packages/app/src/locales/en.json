@@ -1733,5 +1733,9 @@
   "projects.delete.title": "Delete {project}?",
   "projects.delete.consequence": "Its workflows and outputs leave the project list. Files in its folder stay on disk.",
   "projects.delete.action": "Delete project",
-  "projects.open.noInstallation": "This project has no installation to run on."
+  "projects.open.noInstallation": "This project has no installation to run on.",
+  "projects.unreadable": "Could not read the projects.",
+  "projects.workflows.unreadable": "Could not read this project's workflows.",
+  "projects.outputs.unreadable": "Could not read this project's latest outputs.",
+  "projects.status.running": "Running on {installation}"
 }
