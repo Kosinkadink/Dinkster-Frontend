@@ -5135,7 +5135,10 @@ export class AppState {
   /** Why what the engine answers is off for this tab: no engine is open, or its real node table has not arrived. */
   engineOffReason(tab: Tab, message: (key: string) => string): string | undefined {
     const backend = this.backendForTab(tab)
-    if (noEngineOpen(backend.supervisor.get())) return message('shell.engine.notRunning')
+    const supervisor = backend.supervisor.get()
+    if (supervisor?.state === 'failed') return message('shell.engine.failed')
+    if (noEngineOpen(supervisor) || supervisor?.state === 'stopped') return message('shell.engine.notRunning')
+    if (supervisor?.state === 'starting') return message('shell.engine.stillStarting')
     if (tab.execution || this.registryForTab(tab) !== undefined) return undefined
     return message(backend.schemaState.get().status === 'error' ? 'shell.engine.notAnswering' : 'shell.engine.stillStarting')
   }

@@ -4987,9 +4987,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }),
       ]
       const rows: ToolboxRow[] = []
-      if (currentGraphId(tab) === tab.store.doc.root && registry()) {
-        const scopes = props.app.previewSelectionExecutionScopes(tab, sel)
-        rows.push(partialExecutionButtons(scopes === undefined ? {
+      if (currentGraphId(tab) === tab.store.doc.root) {
+        backendsTick()
+        const blockedReason = props.app.engineOffReason(tab, message)
+        const scopes = blockedReason === undefined ? props.app.previewSelectionExecutionScopes(tab, sel) : undefined
+        rows.push(partialExecutionButtons(blockedReason !== undefined ? {
+          upTo: blockedReason,
+          between: blockedReason,
+          fromOnwards: blockedReason,
+        } : scopes === undefined ? {
           upTo: message('execution.scopes.checking'),
           between: message('execution.scopes.checking'),
           fromOnwards: message('execution.scopes.checking'),
