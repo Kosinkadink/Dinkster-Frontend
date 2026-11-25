@@ -118,7 +118,7 @@ export function EngineRunControl(props: {
         </section>
       </Show>
       <Show when={logOpen()}>
-        <ProductDialog title={message('shell.engine.log')} onDismiss={() => { logRequest++; setLogOpen(false) }}>
+        <ProductDialog title={message('shell.engine.log')} size="wide" onDismiss={() => { logRequest++; setLogOpen(false) }}>
           <Show when={log()} fallback={<ProductLoading label={message('shell.engine.loadingLog')} />}>
             {(result) => <Switch>
               <Match when={!result().ok}><p role="alert">{message('shell.engine.logUnavailable')}</p></Match>

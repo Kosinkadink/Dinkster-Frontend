@@ -54,6 +54,8 @@ test('a post-ready engine death surfaces restart and returns to ready', async ({
   expect(await heading.boundingBox()).toEqual(headingBounds)
   expect(await dialog.evaluate((element) => element.scrollTop)).toBe(0)
   const dialogBounds = (await dialog.boundingBox())!
+  expect(dialogBounds.width).toBe(Math.min(960, page.viewportSize()!.width - 32))
+  expect(dialogBounds.x).toBeGreaterThanOrEqual(16)
   expect(dialogBounds.y).toBeGreaterThanOrEqual(16)
   expect(dialogBounds.y + dialogBounds.height).toBeLessThanOrEqual(page.viewportSize()!.height - 16)
   await page.keyboard.press('Escape')
