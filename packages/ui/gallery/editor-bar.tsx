@@ -4,7 +4,6 @@ import {
   Blocks,
   Images,
   Library,
-  LogOut,
   PanelBottom,
   PanelLeft,
   PanelRight,
@@ -114,30 +113,25 @@ export function EditorBarGallery() {
       ]}
     />
   )
+  // One account row, as in the app, where it opens the left bar button's menu.
   const accountItems = (): (ProductMenuItem | 'separator')[] =>
     leftBar()
       ? []
-      : account() === 'signed-in'
-        ? [
-            { label: 'Alex Rivers', disabled: true, onSelect: () => {} },
-            {
-              label: 'Sign out',
-              icon: LogOut,
-              intent: 'remove',
-              onSelect: () => setAccount('signed-out'),
-            },
-            'separator',
-          ]
-        : [
-            {
-              label: 'Sign in',
-              onSelect: () => {
-                setAccount('signed-in')
-                setActivity('Signed in')
+      : [
+          account() === 'signed-out'
+            ? {
+                label: 'Sign in',
+                onSelect: () => {
+                  setAccount('signing-in')
+                  setActivity('Sign in opened')
+                },
+              }
+            : {
+                label: account() === 'signed-in' ? 'Alex Rivers' : 'Signing in',
+                onSelect: () => setActivity('Account menu opened'),
               },
-            },
-            'separator',
-          ]
+          'separator',
+        ]
   let frame!: HTMLDivElement
   createEffect(() => {
     frame.style.width =

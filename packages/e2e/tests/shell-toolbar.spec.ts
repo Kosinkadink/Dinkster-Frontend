@@ -267,6 +267,11 @@ nativeTest('editor bar holds the project menu and the left bar holds the account
   // With the left bar hidden, the macOS logo returns to the bar after the window buttons.
   await expect(brand.getByTestId('dinkster-menu-button')).toBeVisible()
   await page.getByTestId('dinkster-menu-button').click()
-  await expect(page.locator('[data-item-id="account.identity"]')).toContainText('Alex Rivers')
-  await expect(page.locator('[data-item-id="account.signOut"]')).toBeVisible()
+  // One account row heads the menu and opens the left bar button's account menu.
+  const accountRow = page.getByTestId('context-menu').locator('[data-item-id="account"]')
+  await expect(accountRow).toHaveText(/Alex Rivers/)
+  await accountRow.click()
+  const submenu = page.getByTestId('context-submenu')
+  await expect(submenu.locator('[data-item-id="account.identity"]')).toContainText('Alex Rivers')
+  await expect(submenu.locator('[data-item-id="account.signOut"]')).toBeVisible()
 })

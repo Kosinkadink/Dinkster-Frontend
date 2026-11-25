@@ -1439,6 +1439,7 @@
   "shell.account.signOut": "Sign out",
   "shell.account.cancelSignIn": "Cancel sign-in",
   "shell.account.openSignInPage": "Open the sign-in page",
+  "shell.account.signingIn": "Signing in",
   "shell.account.signedIn": "Signed in",
   "shell.account.signInRequiresEngineMachine": "Sign in from the computer that runs Dinkster.",
   "shell.panel.assets.description": "Browse assets across mounted sources",

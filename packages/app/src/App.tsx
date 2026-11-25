@@ -200,16 +200,30 @@ export interface AppMenuAction {
   readonly id: string
   readonly label: string
   readonly hint?: string
-  /** Absent for a row that only informs, such as the signed-in name. */
+  /** Absent for a row that only informs or opens children. */
   readonly run?: () => void
+  /** Rows of a submenu this row opens. */
+  readonly children?: readonly AppMenuAction[]
 }
+
+const appMenuItem = (action: AppMenuAction): MenuItem => ({
+  id: action.id,
+  label: action.label,
+  ...(action.hint ? { hint: action.hint } : {}),
+  ...(action.children !== undefined
+    ? { children: action.children.map(appMenuItem) }
+    : { action: { kind: 'host', action: action.id }, ...(action.run === undefined ? { disabled: true } : {}) }),
+})
+
+const flatAppMenuActions = (actions: readonly AppMenuAction[]): readonly AppMenuAction[] =>
+  actions.flatMap((action) => [action, ...flatAppMenuActions(action.children ?? [])])
 
 export function DinksterAppMenu(props: {
   commands: CommandRegistry
   keybindings: KeybindingRegistry
   /** Signals that invalidate ContextMenu's deliberate per-open snapshot. */
   invalidationSignals?: () => readonly ReadonlySignal<unknown>[]
-  /** Rows before the commands, in their own group, so they are never scrolled out of view. */
+  /** Rows before the commands, in their own group. */
   account?: () => readonly AppMenuAction[]
 }) {
   const message = useAppMessage()
@@ -242,13 +256,7 @@ export function DinksterAppMenu(props: {
     const actions = props.account?.() ?? []
     return actions.length === 0 ? [] : [{
       group: '00-account',
-      items: actions.map((action): MenuItem => ({
-        id: action.id,
-        label: action.label,
-        ...(action.hint ? { hint: action.hint } : {}),
-        action: { kind: 'host', action: action.id },
-        ...(action.run === undefined ? { disabled: true } : {}),
-      })),
+      items: actions.map(appMenuItem),
     }]
   }
   const show = (): void => {
@@ -260,7 +268,7 @@ export function DinksterAppMenu(props: {
   }
   const toggle = (): void => open() ? close() : show()
   const invoke = (item: MenuItem): void => {
-    const account = props.account?.().find((action) => action.id === item.id)
+    const account = flatAppMenuActions(props.account?.() ?? []).find((action) => action.id === item.id)
     if (account?.run !== undefined) {
       close()
       button.focus()
@@ -2425,23 +2433,25 @@ export function App(props: {
     setProjectsFocusNew(focusNewProject)
     app.modalPanel.set('projects')
   }
-  // The account lives in the left bar; while that bar is hidden the Dinkster menu carries it.
+  // The account lives in the left bar. While that bar is hidden the Dinkster menu
+  // carries it as one row that opens the left bar button's menu, so Settings stays in view.
   const accountMenuActions = (): readonly AppMenuAction[] => {
     const status = account.status()
     if (activityBarVisible() || status?.available !== true) return []
     if (account.pending()) {
-      return [
+      return [{ id: 'account', label: message('shell.account.signingIn'), children: [
         ...(account.authorizationUrl() === undefined ? [] : [{ id: 'account.openSignInPage', label: message('shell.account.openSignInPage'), run: () => account.openSignInPage() }]),
         { id: 'account.cancelSignIn', label: message('shell.account.cancelSignIn'), run: () => account.cancelSignIn() },
-      ]
+      ] }]
     }
     if (status.signedIn) {
       const name = status.profile?.displayName?.trim() || ''
       const email = status.profile?.email?.trim() || ''
-      return [
-        { id: 'account.identity', label: name || email || message('shell.account.signedIn'), ...(name && email && email !== name ? { hint: email } : {}) },
+      const identity = name || email || message('shell.account.signedIn')
+      return [{ id: 'account', label: identity, children: [
+        { id: 'account.identity', label: identity, ...(name && email && email !== name ? { hint: email } : {}) },
         { id: 'account.signOut', label: message('shell.account.signOut'), run: () => account.signOut() },
-      ]
+      ] }]
     }
     return status.signInUnavailableReason === 'account-sign-in-requires-engine-machine'
       ? [{ id: 'account.signIn', label: message('shell.account.signInRequiresEngineMachine') }]

@@ -1439,6 +1439,7 @@
   "shell.account.signOut": "退出登录",
   "shell.account.cancelSignIn": "取消登录",
   "shell.account.openSignInPage": "打开登录页面",
+  "shell.account.signingIn": "正在登录",
   "shell.account.signedIn": "已登录",
   "shell.account.signInRequiresEngineMachine": "请在运行 Dinkster 的电脑上登录。",
   "shell.panel.assets.description": "浏览挂载来源中的资产",
