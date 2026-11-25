@@ -11,6 +11,7 @@ import {
 import {
   buildScene,
   type DesignTokens,
+  type ButtonPaintMap,
   type OverlayState,
   type RowMarkMap,
   type Scene,
@@ -173,6 +174,8 @@ export interface RowStateExample {
   readonly states?: Readonly<Record<string, NodeProgress>>
   readonly rowMarks?: RowMarkMap
   readonly overlay?: OverlayState
+  readonly buttons?: ButtonPaintMap
+  readonly focus?: { readonly button: string; readonly help?: string }
 }
 
 /** The canvas examples of the page, by section, in the order it shows them. */
@@ -180,7 +183,7 @@ export function rowStateExamples(
   tokens: DesignTokens,
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
-): { readonly nothing: readonly RowStateExample[]; readonly promoted: readonly RowStateExample[] } {
+): { readonly nothing: readonly RowStateExample[]; readonly promoted: readonly RowStateExample[]; readonly buttons: readonly RowStateExample[] } {
   const feed = () => sceneOf(
     [
       { id: 'measure', schema: measureNode, x: 0, y: 0, width: 160 },
@@ -267,7 +270,60 @@ export function rowStateExamples(
       })(),
     },
   ]
-  return { nothing, promoted }
+  const buttonNode = schema('Prepare image', [
+    field('strength', 'FLOAT', 0.65, { min: 0, max: 1 }),
+    { kind: 'button', id: 'prepare', label: 'Prepare', steps: [{ step: 'set', field: 'radius', value: { value: 24 } }] },
+    field('radius', 'INT', 12, { min: 0, max: 64 }),
+  ])
+  const buttons: RowStateExample[] = [
+    {
+      id: 'button-ready-focus',
+      caption: 'Ready Button, keyboard focus. Tab and Shift+Tab keep its place between strength and radius. Enter or Space presses it once; holding a key does not repeat the press.',
+      scene: sceneOf([{ id: 'prepare', schema: buttonNode, x: 0, y: 0 }], [], tokens, measure, widgetMeasure),
+      focus: { button: 'prepare' },
+    },
+    {
+      id: 'button-disabled-focus',
+      caption: 'Disabled Button, keyboard focus. The same shared outline and side part as a disabled field show the reason. It is announced disabled; Enter and Space do nothing.',
+      scene: sceneOf([{ id: 'prepare', schema: schema('Prepare image', buttonNode.body.map((row) => row.kind !== 'button' ? row : {
+        ...row, enabled: false, disabledReason: 'Choose a preset before using this button.',
+      })), x: 0, y: 0 }], [], tokens, measure, widgetMeasure),
+      buttons: { prepare: { prepare: { kind: 'off' } } },
+      focus: { button: 'prepare', help: 'Choose a preset before using this button.' },
+    },
+    {
+      id: 'button-busy-focus',
+      caption: 'Busy Button, keyboard focus. Reported progress replaces the label and Cancel stays visible. Enter or Space cancels without storing any staged edits; the Button keeps its row-cycle place.',
+      scene: sceneOf([{ id: 'prepare', schema: buttonNode, x: 0, y: 0 }], [], tokens, measure, widgetMeasure),
+      buttons: { prepare: { prepare: { kind: 'busy', text: 'Preparing 40%' } } },
+      focus: { button: 'prepare' },
+    },
+    {
+      id: 'button-unknown-focus',
+      caption: 'A required argument is not known until a run. The host disables the Button, but its keyboard stop still shows the reason without starting the action.',
+      scene: sceneOf([{ id: 'prepare', schema: schema('Prepare image', [
+        { kind: 'input', id: 'image', type: concrete('IMAGE'), optional: false },
+        ...buttonNode.body.map((row) => row.kind !== 'button' ? row : {
+          ...row, steps: [{ step: 'call', function: 'image.radius', args: ['image'], writes: ['radius'] }],
+        }),
+      ]), x: 200, y: 0 },
+      { id: 'load', schema: loadImage, x: 0, y: 0, width: 160 },
+      ], [{ from: ['load', 'IMAGE'], to: ['prepare', 'image'] }], tokens, measure, widgetMeasure),
+      buttons: { prepare: { prepare: { kind: 'off' } } },
+      focus: { button: 'prepare', help: 'Needs image, which is not known until a run.' },
+    },
+    {
+      id: 'button-wired-focus',
+      caption: 'Every write target has a wire. The host disables the Button and its keyboard stop explains why. Inspecting the reason changes no wire or value.',
+      scene: sceneOf([
+        { id: 'prepare', schema: buttonNode, x: 200, y: 0 },
+        { id: 'measure', schema: measureNode, x: 0, y: 0, width: 160 },
+      ], [{ from: ['measure', 'radius'], to: ['prepare', 'radius'] }], tokens, measure, widgetMeasure),
+      buttons: { prepare: { prepare: { kind: 'off' } } },
+      focus: { button: 'prepare', help: 'Every field this would set has a wire.' },
+    },
+  ]
+  return { nothing, promoted, buttons }
 }
 
 /** A whole-number field declared with the color display: Color is its declared look, Number the raw number. */

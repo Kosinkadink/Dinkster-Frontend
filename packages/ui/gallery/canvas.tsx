@@ -182,11 +182,11 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'core-rows':
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
   'declaration-rows':
-    'Read-only fields keep their contrast and show a lock; disabled fields are quiet without active fills. Both keep the lock. Declaration notes keep one quiet line, including unknown and empty text. Long and multiline text ellipsizes without stretching the row. Shared lines divide the visible fields, worded buttons and notes equally with a 4 px gap.',
+    'Read-only fields keep their contrast and show a lock; disabled fields are quiet without active fills. When both flags apply, disabled paint keeps the read-only lock. Declaration notes keep one quiet line, including unknown and empty text. Long and multiline text ellipsizes without stretching the row. Shared lines divide the visible fields, worded buttons and notes equally with a 4 px gap.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
   'row-states':
-    'What a row shows when a finished run proved that nothing arrives, for a skipped node, while a wired value is not known, for a promoted field, and the control at the end of the side part that switches how a field is drawn.',
+    'What a row shows when a finished run proved that nothing arrives, for a skipped node, while a wired value is not known, for a promoted field, and the control at the end of the side part that switches how a field is drawn. Ready, disabled and busy Buttons keep the shared keyboard outline, with host and declaration reasons beside disabled rows.',
   'row-automatic':
     'A number whose value is automatic: closed, opened, stepped, while a lookup loads, and when it cannot be worked out.',
   'row-lists':

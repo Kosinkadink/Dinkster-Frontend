@@ -1,4 +1,4 @@
-import { For, createEffect, onCleanup } from 'solid-js'
+import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
 import {
   CanvasRenderer,
   canvasColorsForTheme,
@@ -27,7 +27,7 @@ import {
   rowStateExamples,
   type RowStateExample,
 } from '../../canvas/gallery/row-states.js'
-import { ProductSection } from '../src/index.js'
+import { CanvasRowFocus, CanvasSidePart, ProductSection } from '../src/index.js'
 import {
   MARGIN,
   NODE_WIDTH,
@@ -76,6 +76,7 @@ function SceneCard(props: {
   registry: WidgetRegistry
 }) {
   let canvas!: HTMLCanvasElement
+  const [focusBox, setFocusBox] = createSignal<{ x: number; y: number; width: number }>()
   createEffect(() => {
     const { example, tokens } = props
     const renderer = new CanvasRenderer(canvas, tokens, createRegistryPainter(props.registry))
@@ -87,6 +88,7 @@ function SceneCard(props: {
     renderer.setBadges(presentation.badges)
     renderer.setOverlay(example.overlay ?? {})
     renderer.setRowMarks(example.rowMarks ?? {})
+    renderer.setButtonPaint(example.buttons ?? {})
     const box = sceneVisualBounds({ ...renderer.getScene(), links: [] }, {}, (node) => renderer.getNodeBadgeBounds(node))!
     for (const link of example.scene.links) {
       const dx = linkControlOffset(link.x1, link.x2)
@@ -97,24 +99,49 @@ function SceneCard(props: {
         box.maxY = Math.max(box.maxY, y)
       }
     }
-    canvas.style.width = `${Math.ceil(box.maxX - box.minX + PAD * 2)}px`
+    canvas.style.width = `${Math.ceil(box.maxX - box.minX + PAD * 2) + (example.focus?.help === undefined ? 0 : SIDE_ROOM)}px`
     canvas.style.height = `${Math.ceil(box.maxY - box.minY + PAD * 2)}px`
     renderer.setViewport({ x: PAD - box.minX, y: PAD - box.minY, scale: 1 })
     renderer.renderNow()
+    const node = example.scene.nodes[0]!
+    const row = node.layout.rows.find((item) => item.kind === 'button' && item.buttonId === example.focus?.button)
+    setFocusBox(row?.kind !== 'button' ? undefined : {
+      x: node.x + row.inset + PAD - box.minX,
+      y: node.y + row.y + tokens.rowGeometry.fieldInsetY + PAD - box.minY,
+      width: row.width ?? node.layout.width - row.inset * 2,
+    })
     canvas.dataset.ready = `${example.id}-${props.theme}`
     onCleanup(() => {
       renderer.dispose()
       delete canvas.dataset.ready
     })
   })
+  const picture = <canvas
+    ref={canvas}
+    role="img"
+    aria-label={`${props.example.id} in ${props.theme} theme`}
+    data-testid={`row-states-${props.example.id}`}
+  />
   return (
     <figure class="dinkster-canvas-example">
-      <canvas
-        ref={canvas}
-        role="img"
-        aria-label={`${props.example.id} in ${props.theme} theme`}
-        data-testid={`row-states-${props.example.id}`}
-      />
+      <Show when={props.example.focus !== undefined} fallback={picture}>
+      <div class="dinkster-canvas-example-stage">
+        {picture}
+        <Show when={focusBox()}>{(box) => (
+          <CanvasRowFocus
+            ref={(element) => createEffect(() => {
+              element.style.left = `${box().x}px`
+              element.style.top = `${box().y}px`
+            })}
+            rowWidth={box().width}
+            look={props.tokens.nodeLook}
+            place="right"
+            sideTop={0}
+            {...(props.example.focus?.help === undefined ? {} : { side: <CanvasSidePart help={props.example.focus.help} /> })}
+          />
+        )}</Show>
+      </div>
+      </Show>
       <figcaption class="dinkster-metadata">{props.example.caption}</figcaption>
     </figure>
   )
@@ -218,6 +245,7 @@ export function RowStatesGallery(props: { theme: Theme }) {
     <>
       <ProductSection title="Gives nothing, and a skipped node">{cards(examples().nothing)}</ProductSection>
       <ProductSection title="Promoted fields inside and outside">{cards(examples().promoted)}</ProductSection>
+      <ProductSection title="Button keyboard focus">{cards(examples().buttons)}</ProductSection>
       <ProductSection title="Representation control at the end of the side part">
         <div class="dinkster-canvas-examples">
           <For each={representationExamples}>

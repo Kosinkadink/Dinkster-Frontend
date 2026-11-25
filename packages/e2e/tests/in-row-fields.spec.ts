@@ -708,7 +708,7 @@ test('multiline box: Tab stores and moves on; Ctrl+Enter stores then runs', asyn
   await expect.poll(() => page.evaluate(() => (window as unknown as { queuedNotes?: unknown }).queuedNotes)).toBe('third')
 })
 
-async function openMixed(page: Page, buttons = false): Promise<void> {
+async function openMixed(page: Page, buttons = false, hostDisabled?: 'unknown' | 'wired'): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'inrow-mixed', schemaWire: 2, graphFeatures: ['decimalInt'] }, nodes: {},
   } }))
@@ -717,7 +717,7 @@ async function openMixed(page: Page, buttons = false): Promise<void> {
   await waitForWorkspaceReady(page)
   const close = page.locator('.template-gallery-close')
   if ((await close.count()) > 0 && (await close.first().isVisible())) await close.first().click()
-  await page.evaluate(async (buttons) => {
+  await page.evaluate(async ({ buttons, hostDisabled }) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
@@ -727,7 +727,7 @@ async function openMixed(page: Page, buttons = false): Promise<void> {
       body: [
         { ...widget('steps', 'INT', 20, { min: 1, max: 10000, step: 1 }), tooltip: 'How many denoising steps to run.' },
         ...(buttons ? [
-          { kind: 'button', id: 'increment', label: 'Add a step', steps: [{ step: 'set', field: 'steps', value: { formula: 'steps + 1' } }] },
+          { kind: 'button', id: 'increment', label: hostDisabled === 'wired' ? 'Set steps' : 'Add a step', steps: [{ step: 'set', field: 'steps', value: hostDisabled === 'wired' ? { value: 99 } : { formula: 'steps + 1' } }] },
           { kind: 'button', id: 'disabled', label: 'Use preset', enabled: false, disabledReason: 'Choose a preset before using this button.', steps: [{ step: 'set', field: 'steps', value: { value: 99 } }] },
           { kind: 'button', id: 'working', label: 'Prepare', steps: [
             { step: 'set', field: 'steps', value: { value: 88 } },
@@ -743,18 +743,52 @@ async function openMixed(page: Page, buttons = false): Promise<void> {
           ] },
           { step: 'set', field: 'enabled', value: { formula: 'enabled_pass' } },
         ] }] : []),
+        ...(hostDisabled === 'unknown' ? [
+          widget('incoming', 'INT', 7),
+          { kind: 'button', id: 'needs_input', label: 'Needs input', steps: [{ step: 'call', function: 'test.prepare', args: ['incoming'], writes: ['prefix'] }] },
+        ] : []),
       ],
+    }] as never)
+    if (hostDisabled !== undefined) window.__dinksterTest!.app.registerSchemas([{
+      type: 'UnknownSource', displayName: 'Unknown source', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'output', id: 'value', type: { kind: 'concrete', name: 'INT' } }],
     }] as never)
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'inrow-mixed', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes: {
         n1: { id: 'n1', type: 'Mixed', values: { steps: 20, enabled: true, sampler: 'euler', prefix: 'Dinkster' } },
-      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+        ...(hostDisabled === undefined ? {} : { source: { id: 'source', type: 'UnknownSource', values: {} } }),
+      }, links: hostDisabled === undefined ? {} : {
+        wired: { id: 'wired', from: { node: 'source', port: 'value' }, to: { node: 'n1', port: hostDisabled === 'unknown' ? 'incoming' : 'steps' } },
+      }, nets: {}, reroutes: {}, nextOrdinal: 3 } },
       view: { graphs: { g0: { nodes: { n1: { position: { x: 100, y: 100 } } } } } },
     } as never, 'Mixed')
     window.__dinksterTest!.renderer!.setViewport({ x: 200, y: 150, scale: 1 })
-  }, buttons)
+  }, { buttons, hostDisabled })
 }
+
+for (const reason of ['unknown', 'wired'] as const) test(`a host-disabled Button keeps keyboard reason inspection when ${reason}`, async ({ page }) => {
+  let calls = 0
+  await page.route('**/api/node-functions/call', (route) => { calls++; return route.fulfill({ json: { answer: {} } }) })
+  await openMixed(page, true, reason)
+  const prefix = await rowPoint(page, 'n1', 'prefix')
+  await page.mouse.click(prefix.x, prefix.y)
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Tab')
+  const focus = page.getByTestId('row-focus')
+  const message = reason === 'unknown' ? 'Needs incoming, which is not known until a run.' : 'Every field this would set has a wire.'
+  await expect(focus).toHaveAccessibleName(reason === 'unknown' ? 'Needs input' : 'Set steps')
+  await expect(focus).toHaveAttribute('aria-disabled', 'true')
+  await expect(focus).toHaveAccessibleDescription(message)
+  await expect(focus).toContainText(message)
+  await page.keyboard.press('Enter')
+  await page.keyboard.press(' ')
+  expect(await value(page, 'steps')).toBe(20)
+  expect(await value(page, 'prefix')).toBe('Dinkster')
+  expect(calls).toBe(0)
+  expect(await page.evaluate(() => Object.keys(window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.links))).toEqual(['wired'])
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.canUndo)).toBe(false)
+})
 
 test('a keyboard-started Ask Button gives its form the keyboard and applies one undoable edit', async ({ page }) => {
   await openMixed(page, true)
