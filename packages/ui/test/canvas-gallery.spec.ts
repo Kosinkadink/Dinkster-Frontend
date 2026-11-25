@@ -311,7 +311,7 @@ test('Color picker handles stay wholly inside every control', async ({
   expect(hue!.x).toBeCloseTo((220 / 360) * hue!.width, 0)
 })
 
-test('An open row\'s side part draws its rules and keys in the node\'s divider and label colors', async ({
+test('Open rows use a quiet outline and preserve keyboard focus and side-part colors', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
@@ -331,9 +331,50 @@ test('An open row\'s side part draws its rules and keys in the node\'s divider a
   expect(
     await help.evaluate((element) => getComputedStyle(element).borderTopColor),
   ).toBe(await palette('--dinkster-border-divider'))
-  expect(
-    await key.evaluate((element) => getComputedStyle(element).color),
-  ).toBe(await palette('--dinkster-text-secondary'))
+  expect(await key.evaluate((element) => getComputedStyle(element).color)).toBe(
+    await palette('--dinkster-text-secondary'),
+  )
+  for (const theme of ['dark', 'light'] as const) {
+    await openPage(page, 'row-editing', theme)
+    await cardsReady(page, 'row-editing', theme)
+    for (const id of ['number-right', 'text-right', 'focus-number']) {
+      const outline = page
+        .getByTestId(`row-editing-${id}`)
+        .locator('..')
+        .locator('.dinkster-canvas-field-outline path')
+      await expect(outline).toHaveCSS(
+        'stroke',
+        await palette(
+          id === 'focus-number'
+            ? '--dinkster-border-focus'
+            : '--dinkster-accent-rest-border',
+        ),
+      )
+      await expect(outline).toHaveCSS('stroke-width', '2px')
+    }
+    await openPage(page, 'save-target-box', theme)
+    await cardsReady(page, 'save-target-box', theme)
+    const target = page
+      .getByTestId('save-target-box-open')
+      .locator('..')
+      .locator('.dinkster-canvas-field-outline path')
+    await expect(target).toHaveCSS(
+      'stroke',
+      await palette('--dinkster-accent-rest-border'),
+    )
+    await expect(target).toHaveCSS('stroke-width', '2px')
+    await openPage(page, 'color-editing', theme)
+    await cardsReady(page, 'color-editing', theme)
+    const neutral = page
+      .getByTestId('color-editing-wired')
+      .locator('..')
+      .locator('.dinkster-canvas-field-outline path')
+    await expect(neutral).toHaveCSS(
+      'stroke',
+      await palette('--dinkster-border-subtle'),
+    )
+    await expect(neutral).toHaveCSS('stroke-width', '1px')
+  }
 })
 
 for (const theme of ['dark', 'light'] as const) {
