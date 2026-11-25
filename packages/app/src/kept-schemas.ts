@@ -8,26 +8,37 @@ import type { ConnectionId, DinksterNodesPayload } from '@dinkster/core'
  * only mean nodes wait for the backend as they would without a copy.
  */
 const DATABASE = 'dinkster-kept-schemas'
-const STORE = 'tables'
+const TABLES = 'tables'
+/** Last use per record, kept apart so trimming never reads the large tables. */
+const USED = 'used'
+/** Projects kept per backend; the least recently used beyond this are dropped. */
+export const KEPT_PROJECTS_PER_BACKEND = 20
+
+let lastUse = 0
+/** Strictly increasing, so records written in the same millisecond still have an order. */
+const useStamp = (): number => (lastUse = Math.max(Date.now(), lastUse + 1))
 
 const keyOf = (baseUrl: string, project: string | undefined): string => JSON.stringify([baseUrl, project ?? null])
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DATABASE, 1)
-    request.onupgradeneeded = () => request.result.createObjectStore(STORE)
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(TABLES)
+      request.result.createObjectStore(USED)
+    }
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
   })
 }
 
-async function withStore<T>(mode: IDBTransactionMode, use: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+async function transact<T>(mode: IDBTransactionMode, use: (tables: IDBObjectStore, used: IDBObjectStore) => () => T): Promise<T> {
   const database = await openDatabase()
   try {
     return await new Promise<T>((resolve, reject) => {
-      const transaction = database.transaction(STORE, mode)
-      const request = use(transaction.objectStore(STORE))
-      transaction.oncomplete = () => resolve(request.result)
+      const transaction = database.transaction([TABLES, USED], mode)
+      const result = use(transaction.objectStore(TABLES), transaction.objectStore(USED))
+      transaction.oncomplete = () => resolve(result())
       transaction.onerror = () => reject(transaction.error)
       transaction.onabort = () => reject(transaction.error)
     })
@@ -37,11 +48,37 @@ async function withStore<T>(mode: IDBTransactionMode, use: (store: IDBObjectStor
 }
 
 export async function keepSchemas(baseUrl: string, project: string | undefined, payload: DinksterNodesPayload): Promise<void> {
-  await withStore('readwrite', (store) => store.put(payload, keyOf(baseUrl, project))).catch(() => undefined)
+  await transact('readwrite', (tables, used) => {
+    const key = keyOf(baseUrl, project)
+    tables.put(payload, key)
+    used.put(useStamp(), key)
+    const backendUse: [string, number][] = []
+    const cursor = used.openCursor()
+    cursor.onsuccess = () => {
+      const entry = cursor.result
+      if (entry !== null) {
+        const [entryBaseUrl] = JSON.parse(String(entry.key)) as [string, string | null]
+        if (entryBaseUrl === baseUrl) backendUse.push([String(entry.key), Number(entry.value)])
+        entry.continue()
+        return
+      }
+      backendUse.sort((a, b) => b[1] - a[1])
+      for (const [stale] of backendUse.slice(KEPT_PROJECTS_PER_BACKEND)) {
+        tables.delete(stale)
+        used.delete(stale)
+      }
+    }
+    return () => undefined
+  }).catch(() => undefined)
 }
 
 export async function readKeptSchemas(baseUrl: string, project: string | undefined): Promise<DinksterNodesPayload | undefined> {
-  const kept = await withStore('readonly', (store) => store.get(keyOf(baseUrl, project))).catch(() => undefined)
+  const kept = await transact('readwrite', (tables, used) => {
+    const key = keyOf(baseUrl, project)
+    const request = tables.get(key)
+    request.onsuccess = () => { if (request.result !== undefined) used.put(useStamp(), key) }
+    return () => request.result as unknown
+  }).catch(() => undefined)
   return typeof kept === 'object' && kept !== null ? kept as DinksterNodesPayload : undefined
 }
 

@@ -764,6 +764,18 @@ test('A reopened workflow draws from the kept node definitions until the real on
     animations: 'disabled',
     maxDiffPixelRatio: 0.002,
   })
+  // Renaming starts from the copy's display name, not the type id.
+  const title = await (await page.waitForFunction(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const sink = renderer.getScene().nodes.find((node) => node.id === 'sink')!
+    const viewport = renderer.getViewport()
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return { x: rect.left + (sink.x + 40) * viewport.scale + viewport.x, y: rect.top + (sink.y + sink.layout.headerHeight / 2) * viewport.scale + viewport.y }
+  })).jsonValue() as { x: number; y: number }
+  await page.mouse.click(title.x, title.y, { button: 'right' })
+  await page.getByRole('menuitem', { name: /^Rename/ }).click()
+  await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.value)).toBe('Sink')
+  await page.keyboard.press('Escape')
   release()
   await expect.poll(drawn).toEqual({
     schemas: 'ready', registry: true, run: false, problems: 1, rows: first.rows! + 1,

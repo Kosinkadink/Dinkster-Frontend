@@ -3928,7 +3928,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (typeof nodeId !== 'string') return
         const node = m.tab.store.doc.graphs[m.graphId]?.nodes[nodeId]
         if (!node) return
-        const renameRegistry = props.app.registryForTab(m.tab)
+        const renameRegistry = props.app.registryForTab(m.tab) ?? props.app.keptRegistryForTab(m.tab)
         const renameResolve = renameRegistry ? documentResolver(m.tab.store.doc, renameRegistry.resolve) : undefined
         const originalTitle = renameResolve?.(node.type)?.displayName ?? node.type
         setNodePrompt({
