@@ -2867,6 +2867,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               action: { kind: 'host' as const, action: 'flattenSubgraph' },
               disabled: tab.execution !== undefined || flattenRefusalOfSelection(tab) !== undefined,
             }] : []),
+            // Saving reads the document only, so a frozen run view may save too.
+            ...(canFlattenSubgraph() ? [{
+              id: 'core.subgraph.saveBlueprint',
+              label: 'Save as blueprint',
+              icon: 'box',
+              action: { kind: 'host' as const, action: 'saveBlueprint' },
+              disabled: props.app.backendForTab(tab).protocol !== 'dinkster',
+            }] : []),
           ],
         }),
         ...additionalGroups,
@@ -3729,6 +3737,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       extractSubgraph: () => { beginExtractSubgraph() },
       flattenSubgraph: () => { flattenSelectedSubgraph() },
+      saveBlueprint: (_params, m) => {
+        const nodeId = [...controller.getSelection()][0]
+        if (nodeId !== undefined) void props.app.saveSubgraphAsBlueprint(m.tab.id, m.graphId, nodeId)
+      },
       openPalette: (_params, m) => openPaletteAt(m.worldX, m.worldY),
       deleteSelection: () => deleteSelection(),
       queueSelection: (params) => {

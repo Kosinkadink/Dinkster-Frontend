@@ -12,6 +12,7 @@ import {
   analyzeSelectionExecution,
   asConnectionId,
   asLineageId,
+  blueprintFromSubgraph,
   asNodeId,
   asPortId,
   asPromptId,
@@ -820,6 +821,8 @@ export const WORKFLOW_MEDIA_TYPE = 'application/x-dinkster-workflow+json'
  * Workflows collection - list-then-filter would break the paging contract.
  */
 export const WORKFLOW_LABEL = 'workflow'
+/** Label stamped on saved blueprint records; search and the Library list by it. */
+export const BLUEPRINT_LABEL = 'blueprint'
 
 /** Filesystem-safe stem used by local workflow downloads. */
 export function workflowExportFilename(title: string): string {
@@ -2919,6 +2922,8 @@ export class AppState {
    * rebinding per backend). Same pattern as CanvasHost's docTick.
    */
   readonly backendsTick: Signal<number> = createSignal(0)
+  /** Ticks when this window saves, renames or removes a saved blueprint, so lists of them read again. */
+  readonly savedBlueprintsTick: Signal<number> = createSignal(0)
   /** Confirmed-deleted history rows stay out of run lists without clearing canvas results. */
   readonly hiddenHistoryExecutions: Signal<ReadonlySet<string>> = createSignal(new Set<string>())
 
@@ -7433,6 +7438,50 @@ export class AppState {
         diag('error', 'validation', 'library.saveFailed', `failed to save workflow: ${e instanceof Error ? e.message : String(e)}`),
       ])
       this.showTransientStatus(`Save failed on ${backend.label}: ${e instanceof Error ? e.message : String(e)}`)
+      return false
+    }
+  }
+
+  /**
+   * Save one subgraph node of a tab as a blueprint in this window's project:
+   * a detached body (blueprintFromSubgraph) uploaded by digest and recorded
+   * in the library under BLUEPRINT_LABEL. Nothing links the saved body back
+   * to the subgraph. Failures land in Problems.
+   */
+  async saveSubgraphAsBlueprint(tabId: string, graphId: string, nodeId: string): Promise<boolean> {
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
+    if (!tab) return false
+    const backend = this.backendForTab(tab)
+    if (backend.protocol !== 'dinkster') {
+      this.showTransientStatus(`Saving a blueprint requires a Dinkster backend; ${backend.label} uses the ComfyUI protocol`)
+      return false
+    }
+    const built = blueprintFromSubgraph(this.stampedDocumentOf(tab), graphId, nodeId,
+      asLineageId(`blueprint-${Date.now()}-${++newWorkflowOrdinal}`))
+    if (!built.ok) {
+      this.reportProblems(tab.id, built.diagnostics)
+      return false
+    }
+    const name = built.document.meta?.title ?? 'Blueprint'
+    try {
+      const digest = await backend.connection.uploadAsset(JSON.stringify(built.document))
+      await backend.connection.createLibraryRecord({
+        scope: LIBRARY_SCOPE,
+        name,
+        digest,
+        mediaType: WORKFLOW_MEDIA_TYPE,
+        labels: [BLUEPRINT_LABEL],
+        project: activeProjectId(),
+      })
+      this.savedBlueprintsTick.update((v) => v + 1)
+      this.showTransientStatus(`Saved blueprint ${name}`)
+      return true
+    } catch (e) {
+      if (!this.tabs.get().includes(tab)) return false
+      this.reportProblems(tab.id, [
+        diag('error', 'validation', 'blueprint.saveFailed', `failed to save blueprint '${name}': ${e instanceof Error ? e.message : String(e)}`),
+      ])
+      this.showTransientStatus(`Saving blueprint ${name} failed on ${backend.label}`)
       return false
     }
   }
