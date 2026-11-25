@@ -11,7 +11,10 @@ import type { SetupJob, SetupPlan } from '../src/setup-job.js'
 const plan: SetupPlan = {
   id: 'plan-1', root: '/install/nightly', channel: 'nightly', variant: 'linux-nvidia',
   buildLabel: 'NVIDIA graphics card build', buildReason: 'Supported graphics card',
-  engineRelease: 'release-1', baseId: 'base-1', detectedCards: [], choices: [{ variant: 'linux-nvidia', label: 'NVIDIA', reason: 'Detected card' }], gpus: ['0'],
+  engineRelease: 'release-1', baseId: 'base-1', detectedCards: [], choices: [
+    { variant: 'linux-nvidia', label: 'NVIDIA graphics', reason: 'Needs NVIDIA driver 580 or newer.' },
+    { variant: 'linux-cpu', label: 'Linux with CPU only', reason: 'Does not use the graphics card and is much slower.' },
+  ], gpus: ['0'],
   downloadBytes: null, runtimeDownloadBytes: 2048, freeBytes: 9000, refusal: null,
 }
 const job: SetupJob = { id: 'job-1', root: plan.root, channel: plan.channel, variant: plan.variant!,
@@ -34,7 +37,7 @@ it.each(['projects', 'editor'] as const)('starts the same process-owned job from
   await vi.advanceTimersByTimeAsync(0)
   expect(document.body.textContent).toContain('NVIDIA graphics card build')
   expect(document.body.textContent).toContain('At least 2 kB - 9 kB free')
-  expect(button('Change build')).toBeUndefined()
+  expect(button('Change build').disabled).toBe(false)
   expect(document.body.textContent).not.toContain('Supported graphics card')
   button('Set up').click()
   await vi.advanceTimersByTimeAsync(0)
@@ -67,22 +70,44 @@ it.each(['win-nvidia-cu126', 'unlisted-build'])('labels a running %s job without
   expect(facts.textContent?.includes('NVIDIA graphics, older drivers')).toBe(variant === 'win-nvidia-cu126')
 })
 
-it('changes builds through a checked menu without adding a facts row', async () => {
+it.each([
+  ['win-nvidia-cu126', 'NVIDIA graphics, older drivers'],
+  ['win-cpu', 'Windows with CPU only'],
+])('selects %s explicitly without changing the recommended default or adding a facts row', async (variant, label) => {
   vi.useFakeTimers()
-  const choices = [{ variant: 'win-nvidia', label: 'NVIDIA', reason: 'Detected card' }, { variant: 'win-nvidia-cu126', label: 'NVIDIA CUDA 12.6', reason: 'Compatible card' }]
-  const fetch = vi.fn(async (_url: string) => answer({ plan: { ...plan, variant: 'win-nvidia', choices }, activeJob: null }))
+  const choices = [
+    { variant: 'win-nvidia', label: 'NVIDIA graphics', reason: 'Needs NVIDIA driver 580 or newer.' },
+    { variant: 'win-nvidia-cu126', label: 'NVIDIA graphics, older drivers', reason: 'Needs NVIDIA driver 525 or newer.' },
+    { variant: 'win-cpu', label: 'Windows with CPU only', reason: 'Does not use the graphics card and is much slower.' },
+  ]
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') return answer({ ...job, variant }, 202)
+    const selected = choices.find((choice) => choice.variant === new URL(url, location.href).searchParams.get('variant')) ?? choices[0]!
+    return answer({ plan: { ...plan, id: selected.variant, variant: selected.variant, buildLabel: selected.label, choices,
+      gpus: selected.variant === 'win-cpu' ? [] : ['0'] }, activeJob: null })
+  })
   vi.stubGlobal('fetch', fetch)
   dispose = render(() => <SetupForm surface="projects" />, document.body)
   await vi.advanceTimersByTimeAsync(0)
   button('Change build').click()
-  expect(document.querySelector('[role="menuitemcheckbox"][aria-checked="true"]')?.textContent).toContain('NVIDIA')
+  expect([...document.querySelectorAll('[role="menuitemcheckbox"]')].map((node) => [node.textContent, node.getAttribute('aria-checked')])).toEqual([
+    ['NVIDIA graphics', 'true'], ['NVIDIA graphics, older drivers', 'false'], ['Windows with CPU only', 'false'],
+  ])
   expect(document.querySelector('select')).toBeNull()
   expect(document.querySelectorAll('dt').length).toBe(3)
-  const alternate = [...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')].find((node) => node.textContent?.includes('CUDA 12.6'))!
+  const alternate = [...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')].find((node) => node.textContent === label)!
   alternate.click()
   await vi.advanceTimersByTimeAsync(0)
-  expect(fetch.mock.calls.at(-1)?.[0]).toContain('variant=win-nvidia-cu126')
+  expect(fetch.mock.calls.at(-1)?.[0]).toContain(`variant=${variant}`)
   expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(document.querySelector('.setup-facts')?.textContent).toContain(label)
+  button('Change build').click()
+  expect(document.querySelector('[role="menuitemcheckbox"][aria-checked="true"]')?.textContent).toBe(label)
+  document.querySelector('[role="menu"]')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  button('Set up').click()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(fetch.mock.calls.find(([, init]) => init?.method === 'POST')?.[1]?.body).toBe(JSON.stringify({ planId: variant }))
 })
 
 it.each(['projects', 'editor'] as const)('keeps exact, estimated and minimum downloads distinct on %s', async (surface) => {
