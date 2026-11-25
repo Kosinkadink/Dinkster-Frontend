@@ -47,6 +47,7 @@ import {
   traceEndpoint,
   traceEndpointAll,
   typeExprFromTypeId,
+  missingWhenUnset,
   valueKeyOf,
   type BoundaryItem,
   type BypassCandidate,
@@ -925,8 +926,9 @@ export function buildScene(input: BuildSceneInput): Scene {
   const def: GraphDef | undefined = input.document.graphs[input.graphId]
   /**
    * A node's interface as drawn. A row hidden by its `visible` shows while it
-   * has a problem: a solver problem on its port, or a stored value its
-   * widget's own check refuses.
+   * has a problem: a solver problem on its port, a stored value its
+   * widget's own check refuses, or nothing stored where a run needs a value
+   * (`compile.input.missing`).
    */
   const elaborateShown = (
     schema: NodeSchema,
@@ -940,13 +942,19 @@ export function buildScene(input: BuildSceneInput): Scene {
     const lookups = input.lookupAnswers === undefined ? {} : { lookupAnswers: input.lookupAnswers }
     const elaborated = elaborateInterface(schema, node, connectivity, problemRows.size > 0 ? { problemRows, ...lookups } : lookups)
     const check = input.storedValueProblem
-    if (check === undefined) return elaborated
     for (const item of elabInputsOf(elaborated)) {
-      const widget = item.spec.widget
-      if (item.spec.hidden !== true || widget === undefined) continue
+      if (item.spec.hidden !== true) continue
       const valueKey = valueKeyOf(item)
+      const stored = node.values[valueKey]
+      // A hidden row has no wire: a wired row already shows.
+      if (stored === undefined && item.hiddenByScope === true && missingWhenUnset(item)) {
+        problemRows.add(item.address.port)
+        continue
+      }
+      const widget = item.spec.widget
+      if (check === undefined || widget === undefined) continue
       const spec = resolveWidgetRepresentation(widget, representations?.[valueKey]).spec
-      if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, node.values[valueKey])) problemRows.add(item.address.port)
+      if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, stored)) problemRows.add(item.address.port)
     }
     return problemRows.size > (solverProblems?.size ?? 0)
       ? elaborateInterface(schema, node, connectivity, { problemRows, ...lookups })

@@ -62,12 +62,14 @@ the run; with nothing stored it is sent what it would be sent if shown, so
 showing or hiding a row never changes what a run receives. A box whose
 `visible` is false hides every row in it. A row with a wire on its pin or
 its field's output shows anyway, and so does a box that holds one at any
-depth. A row with a problem shows the same way, and hides
-again once the problem is gone: an error or a warning that elaboration or
-the type solver finds on it, a failed rule that reads only that field, or a
-stored value its widget refuses, such as a number out of range. A note whose text is a lookup shows its `unknown` text. A group's
-`memberLabel`, a group's `count` and a choice's `leader` are worked out as
-the rows above describe.
+depth. A row with a problem shows the same way, and hides again once the
+problem is gone: an error or a warning that elaboration or the type solver
+finds on it, a failed rule that reads only that field, a stored value its
+widget refuses, such as a number out of range, or nothing stored where a run
+needs a value it cannot be given, such as a required image
+(`compile.input.missing`). A note whose text is a lookup shows its `unknown`
+text. A group's `memberLabel`, a group's `count` and a choice's `leader` are
+worked out as the rows above describe.
 
 A rule whose `check` is false is one problem, with the rule's message: an
 error when the rule has no `fix`, which stops the run, and a warning when it

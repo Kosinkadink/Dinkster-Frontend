@@ -77,6 +77,7 @@ import {
   elabOutputsOf,
   elaborateInterface,
   type ElaborateOptions,
+  missingWhenUnset,
   ruleProblemRefs,
   selectorMembersOf,
   valueKeyOf,
@@ -2637,7 +2638,8 @@ function compileImpl(
           continue
         }
       }
-      if (!spec.optional) {
+      // The canvas shows a row this refuses even when it is hidden, by the same rule.
+      if (missingWhenUnset(input)) {
         // Server-side validation is authoritative; surface early as a warning.
         diags.push(diag('warning', 'compile', 'compile.input.missing', `'${fn.node.type}' required input '${spec.id}' has no value or connection`, {
           blocksExecution: true,
