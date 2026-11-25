@@ -476,6 +476,12 @@ test('44px toolbar keeps account and full compact metadata in one row', async ({
         expect(rect.x + rect.width).toBeLessThanOrEqual(
           bounds.x + bounds.width - 12,
         )
+        // The slim X that cancels a run is 22 px, centred on the same row.
+        if ((await button.getAttribute('data-cancel')) !== null) {
+          expect(rect.height).toBe(22)
+          expect(rect.y - bounds.y + rect.height / 2).toBe(22)
+          continue
+        }
         expect(rect.y - bounds.y).toBe(6)
         expect(rect.height).toBe(32)
       }
