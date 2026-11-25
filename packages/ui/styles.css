@@ -734,7 +734,7 @@
 .canvas-zoom-menu kbd { color: var(--dinkster-text-muted); font-family: inherit; font-size: var(--dinkster-type-metadata-size); white-space: nowrap; }
 .canvas-zoom-field { display: flex; align-items: center; gap: 3px; box-sizing: border-box; height: 28px; margin-bottom: 2px; padding: 0 var(--dinkster-space-8); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); color: var(--dinkster-text-muted); font-variant-numeric: tabular-nums; }
 .canvas-zoom-field:focus-within { border-color: var(--dinkster-border-focus); }
-.canvas-zoom-field input { flex: 1; min-width: 0; width: 100%; min-height: 0; height: 24px; padding: 0; border: 0; color: var(--dinkster-text-primary); background: transparent; font: inherit; text-align: right; outline: none; }
+.canvas-zoom-field input, .canvas-zoom-field input:focus-visible { flex: 1; min-width: 0; width: 100%; min-height: 0; height: 24px; padding: 0; border: 0; color: var(--dinkster-text-primary); background: transparent; font: inherit; text-align: right; outline: none; }
 .canvas-view-control > .lens-menu { top: calc(100% + 8px); left: -4px; }
 .lens-menu button { flex-direction: column; align-items: flex-start; }
 .lens-menu small { color: var(--dinkster-text-muted); }
