@@ -164,6 +164,7 @@ interface Placed {
   readonly schema: NodeSchema
   readonly x: number
   readonly values?: Record<string, Json>
+  readonly dynamic?: Readonly<Record<string, { readonly selected?: string; readonly members?: readonly string[] }>>
   readonly minimized?: true
   /** Node width; NODE_WIDTH when absent. */
   readonly width?: number
@@ -195,6 +196,7 @@ function sceneOf(
           id: node.id,
           type: node.schema.type,
           values: { ...defaultValuesOf(node.schema), ...node.values },
+          ...(node.dynamic ? { dynamic: node.dynamic } : {}),
           ...(node.mode ? { mode: node.mode } : {}),
         }])),
         links: Object.fromEntries(wires.map(([from, to], index) => [`w${index}`, {
@@ -260,7 +262,7 @@ export function problemBoxGallery(
   const scene = (nodes: readonly Placed[], wires: readonly Wire[] = []) => sceneOf(tokens, measure, widgetMeasure, nodes, wires)
   const solverCard = (id: string, caption: string, nodes: readonly Placed[], wires: readonly Wire[]): ProblemBoxGalleryCard => {
     const drawn = scene(nodes, wires)
-    const scale = nodes.length > 2 ? 0.8 : 1
+    const scale = nodes.length > 2 ? 0.65 : 1
     return {
       id, caption, scene: drawn, diagnostics: drawn.diagnostics.filter((diagnostic) => diagnostic.code.startsWith('solve.')),
       badges: {}, rowMarks: {}, boxes: [], scale, width: column(nodes.length - 1) * scale + BOX_MAX + LEFT,
@@ -272,6 +274,21 @@ export function problemBoxGallery(
     { ...pin('image', 'IMAGE', 'image'), type: matched },
     { ...out('out', 'IMAGE', 'image'), type: matched },
   ])
+  const groupType: TypeExpr = { kind: 'tuple', elements: [concrete('IMAGE'), concrete('MASK')] }
+  const groupSource = schema('GalleryGroupSource', 'Make group', [{ ...out('values', 'IMAGE', 'values'), type: groupType }])
+  const switchNode: NodeSchema = {
+    ...schema('GalleryPickSwitch', 'Switch', [
+      field('pick', 'pick', 'INT', 1),
+      { kind: 'group', id: 'branch', value: { ...pin('branch', 'IMAGE', 'branch'), type: matched }, keys: { kind: 'numbered', prefix: 'branch', start: 0, pad: 0 }, grows: 'link', minMembers: 1, maxMembers: 8 },
+      { ...out('image', 'IMAGE', 'image'), type: matched },
+    ]),
+    selector: { input: 'pick', group: 'branch' },
+  }
+  const switchInputs: readonly Placed[] = [
+    { id: 'load', schema: loadImage, x: column(0) },
+    { id: 'latent', schema: schema('GalleryLoadLatent', 'Load latent', [out('samples', 'LATENT', 'samples')]), x: column(1) },
+  ]
+  const switchWires: readonly Wire[] = [[['load', 'image'], ['switch', 'branch.branch0']], [['latent', 'samples'], ['switch', 'branch.branch1']]]
   return [
     solverCard('type-warning', 'An image sent to samples that needs latent data. The same warning names the node in Problems and the row once in its own box. The wire and its handle are warning yellow.', [
       { id: 'load', schema: loadImage, x: column(0) },
@@ -286,10 +303,42 @@ export function problemBoxGallery(
       { id: 'load', schema: schema('GalleryLoadImages', 'Load images', [{ ...out('images', 'IMAGE', 'images'), type: { kind: 'list', element: concrete('IMAGE') } }]), x: column(0) },
       { id: 'blur', schema: blurImage, x: column(1) },
     ], [[['load', 'images'], ['blur', 'image']]]),
+    solverCard('type-list-needed', 'One image cannot fill an input that needs a list. The receiving row, wire and midpoint handle use error red.', [
+      { id: 'load', schema: loadImage, x: column(0) },
+      { id: 'combine', schema: schema('GalleryCombineImages', 'Combine images', [{ ...pin('images', 'IMAGE', 'images'), type: { kind: 'list', element: concrete('IMAGE') } }]), x: column(1) },
+    ], [[['load', 'image'], ['combine', 'images']]]),
+    solverCard('type-missing-row', 'A saved wire still points at an input that no longer exists. The sentence describes the missing input without exposing its stored id.', [
+      { id: 'load', schema: loadImage, x: column(0) },
+      { id: 'resize', schema: schema('GalleryChangedResize', 'Resize image', [field('scale', 'scale', 'FLOAT', 2)]), x: column(1) },
+    ], [[['load', 'image'], ['resize', 'old_image']]]),
     solverCard('type-group-warning', 'Different group lengths warn without blocking the run. The message names both lengths, without tuple syntax.', [
-      { id: 'group', schema: schema('GalleryMakeGroup', 'Make group', [{ ...out('values', 'IMAGE', 'values'), type: { kind: 'tuple', elements: [concrete('IMAGE'), concrete('MASK')] } }]), x: column(0) },
+      { id: 'group', schema: groupSource, x: column(0) },
       { id: 'combine', schema: schema('GalleryCombine', 'Combine values', [{ ...pin('values', 'IMAGE', 'values'), type: { kind: 'tuple', elements: [concrete('IMAGE'), concrete('MASK'), concrete('INT')] } }]), x: column(1) },
     ], [[['group', 'values'], ['combine', 'values']]]),
+    solverCard('type-selected', 'The stored image choice no longer agrees with Load latent. The shown source row and selected type appear in both surfaces, not the stored variant key.', [
+      { id: 'latent', schema: schema('GallerySelectedLatent', 'Load latent', [out('samples', 'LATENT', 'samples')]), x: column(0) },
+      { id: 'choose', schema: schema('GalleryChooseModel', 'Choose model', [{ kind: 'typeChoice', id: 'source', displayName: 'source', required: true, rows: [], variants: [{ key: 'image', type: concrete('IMAGE'), rows: [] }] }]), dynamic: { source: { selected: 'image' } }, x: column(1) },
+    ], [[['latent', 'samples'], ['choose', 'source']]]),
+    solverCard('type-group-position', 'A position beyond the group stops the run on the shown value output. The message explains the chosen position and actual group length.', [
+      { id: 'group', schema: groupSource, x: column(0) },
+      { id: 'pick', schema: schema('GalleryPickValue', 'Pick value', [
+        { ...pin('tuple', 'IMAGE', 'group'), type: { kind: 'variable', templateId: 'Tuple' } },
+        field('index', 'position', 'INT', 3),
+        { ...out('item', 'IMAGE', 'value'), type: { kind: 'tuple_element', input: 'tuple', index: 'index' } },
+      ]), x: column(1) },
+    ], [[['group', 'values'], ['pick', 'tuple']]]),
+    solverCard('type-optional', 'Find face may send nothing to a required input. The node warns while its optional output keeps the existing type-coloured dashed wire.', [
+      { id: 'find', schema: schema('GalleryFindFace', 'Find face', [{ ...out('image', 'IMAGE', 'image'), optional: true }]), x: column(0) },
+      { id: 'blur', schema: schema('GalleryRequiredBlur', 'Blur image', [{ ...pin('image', 'IMAGE', 'image'), onAbsent: 'fail' }]), x: column(1) },
+    ], [[['find', 'image'], ['blur', 'image']]]),
+    solverCard('type-switch-stored', 'The stored Switch pick chooses one branch. Different branch types warn rather than stop the run; both rows are named in plain words.', [
+      ...switchInputs,
+      { id: 'switch', schema: switchNode, dynamic: { branch: { members: ['branch0', 'branch1'] } }, x: column(2) },
+    ], switchWires),
+    solverCard('type-switch-runtime', 'A run-time Switch pick can choose either branch, so different branch types stop the run. The same sentence now has error paint.', [
+      ...switchInputs.map((node) => node.id === 'latent' ? { ...node, schema: { ...node.schema, body: [...node.schema.body, out('pick', 'INT', 'position')] } } : node),
+      { id: 'switch', schema: switchNode, dynamic: { branch: { members: ['branch0', 'branch1'] } }, x: column(2) },
+    ], [...switchWires, [['latent', 'pick'], ['switch', 'pick']]]),
     {
       id: 'at-rest',
       caption: 'At rest. Width and height are 0 and steps is 12000: two rows are outlined red and steps yellow, and nothing is drawn at the node\'s edge. The tabs read Error 2 and Warning. Selecting the node or pointing at it opens nothing. This part offers only actions that change no stored value, such as Edit field; fix buttons such as "Use 10000" on the steps line come with the later part that adds fixes.',
