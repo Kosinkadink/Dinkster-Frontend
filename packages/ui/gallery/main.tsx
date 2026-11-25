@@ -92,6 +92,7 @@ import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
 import { ProjectsGallery } from './projects.js'
 import { TemplatesGallery } from './templates.js'
+import { EngineStatesGallery } from './engine-states.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -166,7 +167,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={route() === '#canvas' || route() === '#canvas-chrome' ? undefined : 'site'}
+      contentDensity={route() === '#canvas' || route() === '#canvas-chrome' || route() === '#engine-states' ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -324,6 +325,11 @@ function Gallery() {
             <Match when={route() === '#canvas-chrome'}>
               <Section title="Canvas corner, view bar and Run" components="CanvasCornerControls, CanvasViewControls, WorkflowQueueControl">
                 <CanvasChromeGallery />
+              </Section>
+            </Match>
+            <Match when={route() === '#engine-states'}>
+              <Section title="Engine states" components="EngineRunControl, WorkflowQueueControl">
+                <EngineStatesGallery />
               </Section>
             </Match>
             <Match when={route() === '#context-menus'}>
@@ -1460,7 +1466,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#window-toolbar', '#editor-bar', '#projects', '#templates'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'

@@ -1215,3 +1215,16 @@
 .dinkster-template-states > div { display: grid; gap: 6px; }
 .dinkster-template-states .dinkster-template-tiles { padding: 0; overflow: visible; }
 .dinkster-template-states .dinkster-template-tile { background: var(--dinkster-surface-panel); }
+
+.engine-run-control { position: relative; display: inline-flex; align-items: stretch; gap: var(--dinkster-space-4); }
+.engine-run-control > .dinkster-button, .engine-run-starting { min-height: calc(var(--dinkster-space-32) + var(--dinkster-space-4)); }
+.engine-run-starting { display: inline-flex; align-items: center; gap: var(--dinkster-space-8); box-sizing: border-box; padding: var(--dinkster-space-4) var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-panel); white-space: nowrap; }
+.engine-run-percent { color: var(--dinkster-text-muted); font-variant-numeric: tabular-nums; }
+.engine-run-reason { position: absolute; top: calc(100% + var(--dinkster-space-8)); right: 0; z-index: 1; display: grid; gap: var(--dinkster-space-12); box-sizing: border-box; width: var(--dinkster-project-menu-max-width); max-width: calc(100vw - var(--dinkster-space-32)); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-high); }
+.engine-run-reason > p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.engine-run-reason-actions { display: flex; flex-wrap: wrap; gap: var(--dinkster-space-8); }
+.engine-state-gallery { display: grid; gap: var(--dinkster-space-16); }
+.engine-state-gallery-example { display: grid; gap: var(--dinkster-space-8); margin: 0; }
+.engine-state-gallery-example > figcaption { color: var(--dinkster-text-secondary); }
+.engine-state-gallery-stage { display: flex; justify-content: flex-end; min-height: calc(var(--dinkster-space-32) * 6); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); }
+.engine-state-gallery-bar { display: inline-flex; align-items: flex-start; gap: var(--dinkster-space-4); }
