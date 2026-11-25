@@ -68,11 +68,11 @@
 .shell-region-icon-panel[data-active='true'] { fill: currentColor; }
 
 /* The bar is the whole frame strip left of the first panel: it takes the row's
-   6px gap into itself, so its buttons and the logo above it are centred in
-   that strip. */
+   6px gap into itself, so its buttons are centred in that strip. Its width is
+   the iconBarWidth token the top bar centres the logo on. */
 .left-sidebar {
-  width: var(--dinkster-icon-bar-width);
-  flex: 0 0 var(--dinkster-icon-bar-width);
+  width: 54px;
+  flex: 0 0 54px;
   margin-right: -6px;
   display: flex;
   flex-direction: column;
@@ -640,11 +640,11 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
     bottom: 0;
     z-index: 20;
     min-width: 0;
-    width: calc(100vw - var(--dinkster-icon-bar-width)) !important;
-    max-width: calc(100vw - var(--dinkster-icon-bar-width));
+    width: calc(100vw - 54px) !important;
+    max-width: calc(100vw - 54px);
     box-shadow: var(--dinkster-elevation-high);
   }
-  .dock-panel { left: var(--dinkster-icon-bar-width); }
+  .dock-panel { left: 54px; }
   .rail { right: 0; }
   /* Overlaid dock/rail surfaces cover the editors, but each group's tab
      strip must stay visible and reachable. Hide only the stages and

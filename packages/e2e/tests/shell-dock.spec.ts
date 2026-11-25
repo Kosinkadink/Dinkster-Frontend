@@ -187,7 +187,7 @@ test('left bar uses square icon-only actions and each toggle activates or closes
   // The bar's buttons, their selected fill and the logo above them are centred
   // between the window's edge and whatever the row shows next.
   const expectCentredInStrip = async () => {
-    const stripEnd = await page.locator('.body').evaluate((body) => Math.min(...[...body.children]
+    const stripEnd = await page.locator('.body').evaluate((body) => Math.min(...Array.from(body.children)
       .filter((child) => !child.matches('.left-sidebar') && child.getClientRects().length > 0)
       .map((child) => child.getBoundingClientRect().left)))
     const centres = [page.getByTestId('dinkster-menu-button'), ...await page.locator('.left-sidebar .sidebar-button').all()]
