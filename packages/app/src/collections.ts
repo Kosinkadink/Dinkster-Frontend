@@ -374,11 +374,6 @@ const blueprintEntry = (r: LibraryRecord, backend: Backend): CollectionEntry => 
   owner: backend.id,
   title: r.name,
   subtitle: `Saved ${formatCollectionDate(r.modified * 1000)}`,
-  details: [
-    { label: 'saved in', text: 'this project' },
-    { label: 'backend', text: backend.label },
-    { label: 'digest', text: r.digest },
-  ],
   actions: [{ id: 'rename', label: 'Rename' }, { id: 'remove', label: 'Remove' }],
 })
 
