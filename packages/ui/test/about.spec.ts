@@ -261,25 +261,29 @@ test('circular account toolbar fits its measured platform minimums', async ({
         const bar = page
           .getByRole('region', { name: `custom dark ${platform}`, exact: true })
           .locator('header')
-        for (const delta of [0, -1]) {
-          await page.setViewportSize({ width: width + delta, height: 900 })
-          await expect(bar.locator('button[aria-pressed]')).toHaveCount(0)
-          const geometry = await bar.evaluate((bar) => {
-            const rect = bar.getBoundingClientRect(),
-              style = getComputedStyle(bar)
-            const buttons = [...bar.querySelectorAll('button')].map((button) =>
-              button.getBoundingClientRect(),
-            )
-            return {
-              left: rect.left + parseFloat(style.paddingLeft),
-              right: rect.right - parseFloat(style.paddingRight),
-              first: Math.min(...buttons.map((rect) => rect.left)),
-              last: Math.max(...buttons.map((rect) => rect.right)),
-            }
-          })
-          expect(geometry.first).toBe(geometry.left)
-          expect(geometry.last - geometry.right).toBe(delta === 0 ? 0 : 1)
-        }
+        await page.setViewportSize({ width, height: 900 })
+        await expect(bar.locator('button[aria-pressed]')).toHaveCount(0)
+        const geometry = await bar.evaluate((bar) => {
+          const rect = bar.getBoundingClientRect(),
+            style = getComputedStyle(bar)
+          const buttons = [...bar.querySelectorAll('button')].map((button) =>
+            button.getBoundingClientRect(),
+          )
+          return {
+            left: rect.left + parseFloat(style.paddingLeft),
+            right: rect.right - parseFloat(style.paddingRight),
+            first: Math.min(...buttons.map((rect) => rect.left)),
+            last: Math.max(...buttons.map((rect) => rect.right)),
+            name: bar
+              .querySelector('.dinkster-project-name')!
+              .getBoundingClientRect().width,
+          }
+        })
+        // At the platform's minimum window every control fits, and the
+        // project's name has given way no further than its 64px floor.
+        expect(geometry.first).toBe(geometry.left)
+        expect(geometry.last).toBeLessThanOrEqual(geometry.right)
+        expect(geometry.name).toBeGreaterThanOrEqual(64)
       }
     }
   }

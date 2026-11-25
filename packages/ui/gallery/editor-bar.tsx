@@ -94,7 +94,6 @@ export function EditorBarGallery() {
       ? []
       : account() === 'signed-in'
         ? [
-            'separator',
             { label: 'Alex Rivers', disabled: true, onSelect: () => {} },
             {
               label: 'Sign out',
@@ -102,9 +101,9 @@ export function EditorBarGallery() {
               intent: 'remove',
               onSelect: () => setAccount('signed-out'),
             },
+            'separator',
           ]
         : [
-            'separator',
             {
               label: 'Sign in',
               onSelect: () => {
@@ -112,6 +111,7 @@ export function EditorBarGallery() {
                 setActivity('Signed in')
               },
             },
+            'separator',
           ]
   let frame!: HTMLDivElement
   createEffect(() => {
@@ -154,6 +154,7 @@ export function EditorBarGallery() {
                 triggerName="Dinkster menu"
                 icon={() => <ProductBrandMark />}
                 items={[
+                  ...accountItems(),
                   {
                     label: 'New workflow',
                     onSelect: () => setActivity('New workflow'),
@@ -166,7 +167,6 @@ export function EditorBarGallery() {
                     label: 'Settings',
                     onSelect: () => setActivity('Settings opened'),
                   },
-                  ...accountItems(),
                 ]}
               />
               <ProductProjectMenu

@@ -107,7 +107,7 @@ test('the left bar account menu opens beside the bar, upward from its trigger', 
     ['signed-in', 'Account menu: Alex Rivers', 'Account menu'],
     ['signing-in', 'Signing in', 'Signing in'],
   ] as const) {
-    await page.getByLabel('Account').selectOption(state)
+    await page.getByLabel('Account', { exact: true }).selectOption(state)
     const trigger = rail.getByRole('button', { name, exact: true })
     await trigger.click()
     const menu = page.getByRole('menu', { name: menuName, exact: true })

@@ -303,7 +303,8 @@ function Menu(props: {
                 </Match>
                 <Match when={menuItem(entry())}>
                   {(item) => {
-                    const button = (
+                    // A function, so the row and the plain item each get their own element.
+                    const button = () => (
                       <button
                         type="button"
                         role={
@@ -346,10 +347,10 @@ function Menu(props: {
                       </button>
                     )
                     return (
-                      <Show when={item().rowAction} fallback={button}>
+                      <Show when={item().rowAction} fallback={button()}>
                         {(action) => (
                           <div class="dinkster-menu-row" role="none">
-                            {button}
+                            {button()}
                             <button
                               type="button"
                               role="menuitem"

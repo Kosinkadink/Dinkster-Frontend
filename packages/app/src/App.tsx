@@ -210,7 +210,7 @@ export function DinksterAppMenu(props: {
   keybindings: KeybindingRegistry
   /** Signals that invalidate ContextMenu's deliberate per-open snapshot. */
   invalidationSignals?: () => readonly ReadonlySignal<unknown>[]
-  /** Rows after the commands, in their own group. */
+  /** Rows before the commands, in their own group, so they are never scrolled out of view. */
   account?: () => readonly AppMenuAction[]
 }) {
   const message = useAppMessage()
@@ -225,7 +225,7 @@ export function DinksterAppMenu(props: {
     setOpen(false)
     if (restoreFocus) queueMicrotask(() => button.focus())
   }
-  const groups = (): readonly ResolvedMenuGroup[] => [...APP_MENU_COMMAND_GROUPS.flatMap(({ group, ids }): ResolvedMenuGroup[] => {
+  const groups = (): readonly ResolvedMenuGroup[] => [...accountGroup(), ...APP_MENU_COMMAND_GROUPS.flatMap(({ group, ids }): ResolvedMenuGroup[] => {
     const items = ids.flatMap((id): MenuItem[] => {
       const command = props.commands.get(id)
       const hint = props.keybindings.combo(id)
@@ -238,11 +238,11 @@ export function DinksterAppMenu(props: {
       }] : []
     })
     return items.length > 0 ? [{ group, items }] : []
-  }), ...accountGroup()]
+  })]
   const accountGroup = (): ResolvedMenuGroup[] => {
     const actions = props.account?.() ?? []
     return actions.length === 0 ? [] : [{
-      group: '60-account',
+      group: '00-account',
       items: actions.map((action): MenuItem => ({
         id: action.id,
         label: action.label,
