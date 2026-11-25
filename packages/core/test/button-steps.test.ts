@@ -340,6 +340,34 @@ describe('each step', () => {
 })
 
 describe('what a press may write', () => {
+  it.each(['readOnly', 'disabled'] as const)('allows action writes to a %s field but still skips its wired sibling', async (access) => {
+    addSchema('test.blocked-action', [
+      ...['first', 'second'].map((id) => ({
+        kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, required: true,
+        default: 12, [access]: true, widget: { type: 'NUMBER', min: 0, max: 100 },
+      })),
+      { kind: 'button', id: 'set', label: 'Set', steps: [
+        { step: 'set', field: 'first', value: { value: 24 } },
+        { step: 'set', field: 'second', value: { value: 36 } },
+      ] },
+    ])
+    addSchema('test.blocked-source', [{ kind: 'output', id: 'value', type: { kind: 'concrete', types: ['INT'] } }])
+    const session = sessionOf(documentOf({
+      n1: { type: 'test.blocked-action', values: { first: 12, second: 12 } },
+      src: { type: 'test.blocked-source' },
+    }, link('l1', ['src', 'value'], ['n1', 'second'])))
+    expect(buttonAvailability(session.doc, at('set'), hostOf())).toEqual({ enabled: true })
+    const outcome = await runPress(session, at('set'), hostOf())
+    expect(outcome).toMatchObject({ kind: 'done', skipped: [{ id: 'second', why: 'wired' }] })
+    expect(valuesOf(session)).toEqual({ first: 24, second: 12 })
+    expect(session.doc.graphs.g0!.links.l1).toMatchObject({ to: { node: 'n1', port: 'second' } })
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ first: 12, second: 12 })
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ first: 24, second: 12 })
+  })
+
   it('fails on an off-step whole number or an option the field does not have, and stores a decimal off its step', async () => {
     const session = sessionOf(documentOf({ n1: { type: 'dev.buttons.field_steps', values: { width: 512, mode: 'fast', scale: 0.5 } } }))
     expect((await runPress(session, at('off_step'), hostOf())).message).toBe('Nothing was changed. width moves in steps of 64; the button gave 100.')
