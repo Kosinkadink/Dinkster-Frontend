@@ -2660,7 +2660,7 @@ function compileImpl(
           : `'${fn.node.type}' required input '${spec.id}' has no value or connection`
         diags.push(diag('warning', 'compile', 'compile.input.missing', message, {
           blocksExecution: true,
-          ...(hidden ? { data: { hiddenRequiredField: name } } : {}),
+          ...(hidden ? { hiddenRequiredField: name } : {}),
           anchor: { occurrence: fn.occ, ...(hidden ? {} : { port: { node: fn.occ.node, port: input.address.port } as PortRef }) },
         }))
       }
