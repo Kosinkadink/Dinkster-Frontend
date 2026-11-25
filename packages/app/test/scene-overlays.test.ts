@@ -2012,13 +2012,13 @@ describe('last run automatic warnings', () => {
 
   it('finds a field promoted to a subgraph node through each boundary it crosses', () => {
     const view = { ...automaticScene({ sub: { fps: 'worked-out', frame_rate: 'worked-out' } }), diagnostics: [] } as unknown as Scene
-    const port = (id: string, node: string, inner: string) => ({ id, binds: { kind: 'port', node, port: inner } })
+    const port = (id: string, node: string, inner: string) => ({ kind: 'input', id, binds: { kind: 'port', node, port: inner } })
     const execution = run({ r1: 'sub.mid.inner' }, [
       { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, workedOut: false },
     ], {
       g0: { nodes: { sub: { type: '#outer' } } },
-      outer: { nodes: { mid: { type: '#middle' } }, boundary: { inputs: [port('fps', 'mid', 'rate')] } },
-      middle: { nodes: { inner: { type: 'Video' } }, boundary: { inputs: [port('rate', 'inner', 'frame_rate')] } },
+      outer: { nodes: { mid: { type: '#middle' } }, boundary: { body: [port('fps', 'mid', 'rate')] } },
+      middle: { nodes: { inner: { type: 'Video' } }, boundary: { body: [port('rate', 'inner', 'frame_rate')] } },
     })
 
     expect(lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: [] }).map((d) => d.anchor?.port))
