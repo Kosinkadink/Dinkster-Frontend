@@ -42,6 +42,18 @@ const doLayout = (items: NodeSchema['body'], displayName?: string) =>
   layoutNode(schemaOf(items, displayName), nodeData, defaultTokens, measure, widgetMeasure)
 
 describe('pairing', () => {
+  it('carries resolved field access without changing row geometry or pins', () => {
+    const plain = [widget('radius'), widget('mix')]
+    const blocked = [widget('radius', { readOnly: true }), widget('mix', { disabled: true, disabledReason: 'Preset controls mix' })]
+    const before = doLayout(plain)
+    const after = doLayout(blocked)
+    expect(after.rows[0]).toMatchObject({ kind: 'widget', inputId: 'radius', readOnly: true })
+    expect(after.rows[1]).toMatchObject({ kind: 'widget', inputId: 'mix', disabled: true, disabledReason: 'Preset controls mix' })
+    expect(after.pins).toEqual(before.pins)
+    expect(after.rows.map((row) => [row.y, row.height])).toEqual(before.rows.map((row) => [row.y, row.height]))
+    expect(after.height).toBe(before.height)
+  })
+
   it('places an appended adjacent widget after its sibling without changing schema or value order', () => {
     const items = [widget('prefix'), widget('quality'), widget('mount', { adjacentTo: 'prefix' }), widget('tail')]
     const before = JSON.stringify(items)

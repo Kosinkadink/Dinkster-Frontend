@@ -51,6 +51,7 @@ fails:
 | `visible` on a row or a box | The row shows |
 | A label on an input, output, section, choice or type choice; a choice's tooltip | The id |
 | A note's `text` | Its `unknown` text, dimmed |
+| An input's `readOnly`, `disabled` and `disabledReason` | Neither flag is set, with no reason |
 | A button's `enabled`, `disabledReason` and `tooltip` | Enabled, with no reason |
 | A rule's `check` in the node's `validate` | The rule passes |
 | The node's `titleSuffix` | No suffix |

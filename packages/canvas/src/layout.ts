@@ -245,6 +245,10 @@ export type LayoutRow =
       readonly socketless?: true
       /** Declared `sent=False`: stored and edited, never sent, so no outgoing value tap. */
       readonly unsent?: true
+      /** Limits direct user value edits, not wires or action writes. */
+      readonly readOnly?: true
+      readonly disabled?: true
+      readonly disabledReason?: string
       /** Wire-22 execution binding retained from the elaborated input. */
       readonly sourceFilename?: SourceFilenameSpec
       /** Effective named representation selected for this row (wire 17). */
@@ -1567,6 +1571,9 @@ export function layoutNode(
         ...(item.derivedValue !== undefined ? { derivedValue: item.derivedValue } : {}),
         ...(item.automatic !== undefined ? { automatic: item.automatic } : {}),
         ...(item.automaticIfEmptied !== undefined ? { automaticIfEmptied: item.automaticIfEmptied } : {}),
+        ...(item.readOnly ? { readOnly: true as const } : {}),
+        ...(item.disabled ? { disabled: true as const } : {}),
+        ...(item.disabledReason !== undefined ? { disabledReason: item.disabledReason } : {}),
         // A menu's state lives under its flattened id, members included.
         ...(representation.spec.editableOptions === true ? { optionsTarget: { construct: item.address.port } } : {}),
         ...(selector !== undefined ? { selector, lead: true as const } : {}),
