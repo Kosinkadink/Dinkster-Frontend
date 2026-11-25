@@ -563,7 +563,7 @@ describe('canvas hover affordance paint', () => {
     const scene = hoverScene()
     const node = scene.nodes[0]!
     const text = 'First\nsecond\r\nthird'
-    const note = { kind: 'note' as const, noteId: 'result', y: 20, height: 24, inset: 10, width: 80, text, unknown }
+    const note = { kind: 'note' as const, noteId: 'result', y: 20, height: 24, inset: 10, width: 80, text, ...(unknown ? { unknown: true as const } : {}) }
     const calls = paint({ ...scene, nodes: [{ ...node, layout: { ...node.layout, rows: [note] } }] })
     const rendered = calls.find((call) => call.method === 'fillText' && call.args[0] === 'First se...')
     expect(rendered?.args).toEqual(['First se...', 116, 132])
