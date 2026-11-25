@@ -11,7 +11,7 @@
 import { formatWidgetValue, type Json, type WidgetRegistry, type WidgetSpec, type WidgetView } from '@dinkster/core'
 import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
-import { defaultWidgetPainter, fitItems, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
+import { defaultWidgetPainter, drawsPassedValueAsEditor, fitItems, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
 import type { DesignTokens } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 import { canvasPaintTokens } from './tokens.js'
@@ -142,12 +142,19 @@ function paintSubgraphMark(args: WidgetPaintArgs, companion: boolean, numeric: b
 export const ellipsize = fitText
 
 export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
-  return (args) => {
+  const painter: WidgetPainter = (args) => {
     const { ctx, row, value, x, y, width, rowHeight, tokens } = args
     const view = registry.viewsFor(row.spec.widgetType).find((v) => v.id === row.viewId)
     const kind = registry.kind(row.spec.widgetType)
     if (!view || !kind) {
       defaultWidgetPainter(args)
+      return
+    }
+    if (args.companion !== undefined && drawsPassedValueAsEditor(row, args.companion, tokens)) {
+      // An editor shown in the node draws a value its wire brings before a run
+      // as it draws what a run brought: its own view of that value, muted.
+      const { companion, companionAlpha: _alpha, ...wired } = args
+      painter({ ...wired, value: companion.value, editorSummary: args.editorSummary ?? { value: companion.value } })
       return
     }
     if (args.companion !== undefined) {
@@ -564,6 +571,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ctx.fill()
     }
   }
+  return painter
 }
 
 /**
