@@ -93,6 +93,7 @@ import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
 import { ProjectsGallery } from './projects.js'
 import { TemplatesGallery } from './templates.js'
+import { SearchGallery } from './search.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -128,6 +129,7 @@ function Gallery() {
   const [toast, setToast] = createSignal<{ readonly message: string }>()
   const [error, setError] = createSignal(true)
   const [dialog, setDialog] = createSignal(false)
+  const [wideDialog, setWideDialog] = createSignal(false)
   const [pending, setPending] = createSignal(false)
   const [fail, setFail] = createSignal(false)
   const [invalid, setInvalid] = createSignal(false)
@@ -135,6 +137,7 @@ function Gallery() {
   const [nameTaken, setNameTaken] = createSignal(false)
   const [activity, setActivity] = createSignal('No action yet')
   const [loading, setLoading] = createSignal(false)
+  const [quietType, setQuietType] = createSignal('Any type')
   let navigationTimer: number | undefined
   onCleanup(() => window.clearTimeout(navigationTimer))
   const navigate = (href: string) => {
@@ -190,7 +193,7 @@ function Gallery() {
             ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
             : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
         }
-        table={route() === '#lists' || route() === '#canvas'}
+        table={route() === '#lists' || route() === '#canvas' || route() === '#search'}
       >
         <Show
           when={!loading()}
@@ -326,6 +329,9 @@ function Gallery() {
               <Section title="Canvas corner, view bar and Run" components="CanvasCornerControls, CanvasViewControls, WorkflowQueueControl">
                 <CanvasChromeGallery />
               </Section>
+            </Match>
+            <Match when={route() === '#search'}>
+              <SearchGallery />
             </Match>
             <Match when={route() === '#run-controls'}>
               <Section title="Run controls" components="RunActivityControl, WorkflowQueueControl, RunRow, RunSection, ProductCancelButton">
@@ -889,6 +895,15 @@ function Gallery() {
                     email="alex@example.test"
                     onSignOut={() => complete('Signed out')}
                   />
+                  <ProductMenu
+                    label={`Type: ${quietType().toLowerCase()}`}
+                    fill="quiet"
+                    items={['Any type', 'Image', 'String'].map((type) => ({
+                      label: type,
+                      checked: type === quietType(),
+                      onSelect: () => setQuietType(type),
+                    }))}
+                  />
                 </div>
               </Section>
               <Section
@@ -1040,6 +1055,9 @@ function Gallery() {
                 <ProductButton intent="remove" onClick={() => setDialog(true)}>
                   Review removal
                 </ProductButton>
+                <ProductButton onClick={() => setWideDialog(true)}>
+                  Open wide dialog
+                </ProductButton>
               </Section>
               <Section
                 title="Replaced built-in text"
@@ -1087,6 +1105,18 @@ function Gallery() {
               complete('Item removed')
             }}
             onCancel={() => setDialog(false)}
+          />
+        </ProductDialog>
+      </Show>
+      <Show when={wideDialog()}>
+        <ProductDialog
+          title="Diagnostics"
+          size="wide"
+          onDismiss={() => setWideDialog(false)}
+        >
+          <ProductCodeBlock
+            label="Output"
+            value="Startup complete. All services are available and ready to accept requests."
           />
         </ProductDialog>
       </Show>

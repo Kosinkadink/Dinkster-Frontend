@@ -35,7 +35,7 @@ it('shows the carried curve in a wired space, never the dormant curve, and resto
   expect(editorSpaceItems(scene.nodes, { wired: () => true, carried: () => undefined })[0]?.value).toBeUndefined()
   expect(items(false)[0]?.value).toEqual(stored)
   expect(scene.nodes.find((node) => node.id === 'curve')?.node.values.curve).toEqual(stored)
-  dispose = render(() => <CurveSpace value={carried} wired options={{}} histogram={undefined} wiredLine={false}
+  dispose = render(() => <CurveSpace value={carried} wired options={{}} histogram={undefined} histogramInput="none"
     commit={() => { throw new Error('a wired curve cannot commit') }} />, document.body)
   const plot = document.querySelector('svg.dinkster-canvas-curve')!
   expect(plot.getAttribute('role')).toBe('img')

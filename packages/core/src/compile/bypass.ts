@@ -28,6 +28,7 @@
  */
 
 import { atomNamesOf, typesCompatible } from '../schema/type-relations.js'
+import type { ElaboratedInput } from '../schema/elaborate.js'
 import type { TypeExpr } from '../schema/model.js'
 
 export interface BypassCandidate<D> {
@@ -36,6 +37,22 @@ export interface BypassCandidate<D> {
   readonly type: TypeExpr
   /** Whatever drives this input (opaque to the matcher). */
   readonly driver: D
+}
+
+/** Driven inputs in run-interface order; undriven inputs still occupy their wire index. */
+export function buildBypassCandidates<D>(
+  inputs: readonly ElaboratedInput[],
+  driverOf: (input: ElaboratedInput) => D | undefined,
+): BypassCandidate<D>[] {
+  const candidates: BypassCandidate<D>[] = []
+  let wireIndex = 0
+  for (const input of inputs) {
+    if (input.apiName === undefined || input.ancestry?.some((entry) => entry.synthetic) === true) continue
+    const index = wireIndex++
+    const driver = driverOf(input)
+    if (driver !== undefined) candidates.push({ index, type: input.spec.type, driver })
+  }
+  return candidates
 }
 
 const sameAtomSet = (a: TypeExpr, b: TypeExpr): boolean => {

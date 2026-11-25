@@ -45,6 +45,9 @@ export type DinksterRawMessage = DinksterRawJson | ArrayBuffer
 
 export const CURVE_HISTOGRAM_PREVIEW_CHANNEL = 'application/vnd.dinkster.curve-histogram+json'
 
+/** The preview stream of one curve's histogram, by the curve input's flattened id. */
+export const curveHistogramStream = (curve: string): string => `curve-histogram:${curve}`
+
 /**
  * Split one self-describing binary frame: 4-byte big-endian JSON-header
  * length, the JSON header (the event minus its blob), then the raw payload.
@@ -517,10 +520,11 @@ export class DinksterNormalizer implements EventNormalizer {
       ]
     }
     if (name === 'dinkster.curve.histogram') {
+      // The engine sends each curve the histogram at the input its widget names.
+      const curve = data['curve']
       const histogram = data['histogram']
-      if (nodeId === undefined || Object.keys(data).some((key) => key !== 'curve' && key !== 'histogram') ||
-        data['curve'] !== undefined && (typeof data['curve'] !== 'string' || data['curve'].length === 0) || !Array.isArray(histogram) ||
-        histogram.length !== 256 || histogram.some((value) =>
+      if (nodeId === undefined || Object.keys(data).length !== 2 || typeof curve !== 'string' || curve === '' ||
+        !Array.isArray(histogram) || histogram.length !== 256 || histogram.some((value) =>
           typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)) {
         return this.malformed('node_event dinkster.curve.histogram with malformed data')
       }
@@ -530,8 +534,8 @@ export class DinksterNormalizer implements EventNormalizer {
         timestamp,
         runtimeNodeId: nodeId,
         channel: CURVE_HISTOGRAM_PREVIEW_CHANNEL,
-        payload: { histogram: [...histogram] },
-        stream: 'curve-histogram',
+        payload: { curve, histogram: [...histogram] },
+        stream: curveHistogramStream(curve),
       }]
     }
     if (name === 'dinkster.compositor.state') {

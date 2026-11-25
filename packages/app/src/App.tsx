@@ -40,9 +40,10 @@ import { AppView } from './AppView.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
+import type { ShellNavigation } from './Shell.js'
 import { AccountControl, createAccountSession } from './AccountControl.js'
 import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
@@ -367,7 +368,10 @@ export function dispatchAppCommandKey(
 export function App(props: {
   app: AppState
   desktopWindow?: { readonly context: DesktopWindowContext; readonly layout: DesktopWindowLayout }
+  /** Under the always-on process: the projects page and project switches stay in this page. */
+  shell?: Pick<ShellNavigation, 'openProject' | 'showProjects'>
 }) {
+  useFieldFocus()
   const app = props.app
   onCleanup(() => app.dispose())
   const browserParams = new URLSearchParams(window.location.search)
@@ -2537,6 +2541,7 @@ export function App(props: {
   const switchProject = (projectId: string): void => {
     if (projectId === activeProjectId()) return
     app.flushPersistTabs()
+    if (props.shell) return props.shell.openProject(projectId)
     const desktop = desktopBridge()
     if (desktop) {
       // The shell rolls the binding back on failure; the window stays on the
@@ -3020,8 +3025,8 @@ export function App(props: {
                 onOpen={readProjectList}
                 onSwitch={switchProject}
                 onOpenWindow={openProjectWindow}
-                onAllProjects={() => openProjects(false)}
-                onNewProject={() => openProjects(true)}
+                onAllProjects={() => props.shell ? props.shell.showProjects() : openProjects(false)}
+                onNewProject={() => props.shell ? props.shell.showProjects({ newProject: true }) : openProjects(true)}
               />
             )}</Show>
           </Show>

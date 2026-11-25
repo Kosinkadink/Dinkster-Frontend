@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { loadDocument, parseDinksterSchema, type Json } from '@dinkster/core'
+import { asConnectionId, compile, loadDocument, parseDinksterSchema, type Json } from '@dinkster/core'
 import { buildScene, defaultTokens } from '@dinkster/canvas'
 import { AppState } from '../src/app-state.js'
 import { storedValueProblems } from '../src/CanvasHost.js'
@@ -91,5 +91,53 @@ describe('a hidden row with a problem', () => {
     // A muted or bypassed node does not run, so nothing is missing for it.
     expect(fieldRows({ w: 3 }, 'muted')).toEqual(['w'])
     expect(fieldRows({ w: 3 }, 'bypassed')).toEqual(['w'])
+  })
+
+  it('refuses a cleared required image and reveals it on a plain node and a whole-choice subgraph node', () => {
+    const png = { digest: `blake3:${'a'.repeat(64)}`, name: 'cat.png', size: 10, mediaType: 'image/png', virtualPath: 'input/cat.png' }
+    const schema = parseDinksterSchema('Images', {
+      schemaVersion: 2, nodeType: 'Images', outputNode: true,
+      body: [{ kind: 'choice', id: 'mode', required: true, options: [{ key: 'image', rows: [
+        { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['ASSET'] }, required: true,
+          widget: { type: 'ASSET', accept: ['image/png'] }, visible: { formula: '0 > 1' } },
+        { kind: 'input', id: 'defaulted', type: { kind: 'concrete', types: ['ASSET'] }, required: true, default: png,
+          widget: { type: 'ASSET', accept: ['image/png'] }, visible: { formula: '0 > 1' } },
+        { kind: 'input', id: 'optional', type: { kind: 'concrete', types: ['ASSET'] }, required: false,
+          widget: { type: 'ASSET', accept: ['image/png'] }, visible: { formula: '0 > 1' } },
+      ] }] }],
+    } as never).schema!
+    const registry = new AppState().widgetRegistry
+    for (const subgraph of [false, true]) for (const value of [null, png]) {
+      const values = { 'mode.image': value, 'mode.defaulted': value, 'mode.optional': null }
+      const node = { id: 'n', type: 'Images', values, dynamic: { mode: { selected: 'image' } } }
+      const document = loadDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'cleared-image', root: 'g',
+        graphs: {
+          g: { id: 'g', name: 'Root', nextOrdinal: 1, nodes: {
+            n: subgraph ? { id: 'n', type: '#body', values: {}, dynamic: { shown: { selected: 'image' } } } : node,
+          }, links: {}, nets: {}, reroutes: {} },
+          ...(subgraph ? { body: { id: 'body', name: 'Body', nextOrdinal: 1, nodes: { n: node }, links: {}, nets: {}, reroutes: {},
+            boundary: { inputs: [{ id: 'shown', binds: { kind: 'construct', node: 'n', port: 'mode' } }], outputs: [] },
+          } } : {}),
+        }, view: { graphs: {} },
+      }).document!
+      const resolve = (type: string) => type === 'Images' ? schema : undefined
+      const result = compile({ document, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'test' })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) continue
+      const problems = result.artifact.diagnostics.filter((problem) => problem.code === 'compile.input.missing')
+      expect(problems.map((problem) => [problem.anchor?.port?.port, problem.blocksExecution])).toEqual(
+        value === null ? [['mode.image', true], ['mode.defaulted', true]] : [],
+      )
+      expect(result.artifact.prompt[subgraph ? 'n.n' : 'n']!.inputs['mode.optional']).toBeNull()
+      const scene = buildScene({
+        document, graphId: document.root, resolve, tokens: defaultTokens,
+        measure: (text) => text.length * 7, widgetMeasure: () => ({ viewId: 'core.asset', rows: 1 }),
+        storedValueProblem: (row, stored) => storedValueProblems(registry, 'g', row, stored).some((problem) => problem.severity !== 'info'),
+      })
+      const prefix = subgraph ? 'shown' : 'mode'
+      expect(scene.nodes[0]!.layout.rows.flatMap((row) => row.kind === 'widget' && row.valueKey !== prefix ? [row.valueKey] : []))
+        .toEqual(value === null ? [`${prefix}.image`, `${prefix}.defaulted`] : [])
+    }
   })
 })

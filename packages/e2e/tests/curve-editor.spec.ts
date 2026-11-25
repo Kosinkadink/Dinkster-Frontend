@@ -78,8 +78,8 @@ test.beforeEach(async ({ page }, testInfo) => {
     detail: 'Engine healthy',
     progress: { done: 8, total: 8, phase: 'Engine healthy' },
   } }))
-  // A standalone engine has no supervisor's recorded node table endpoint.
-  await page.route('/api/nodes/provisional*', (route) => route.fulfill({ json: { ...table, provisional: true } }))
+  // The direct engine has no supervisor cache; seed it from the live catalog.
+  await page.route('/api/nodes/provisional*', (route) => route.fulfill({ json: table }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas
@@ -182,7 +182,8 @@ test('edits in the node, undoes, reloads, runs and draws the wired histogram of 
   const editor = await unfoldNodeEditor(page, 'editor', 'curve')
   await expect(editor.getByRole('button', { name: /^Interpolation/ })).toContainText('Monotone cubic')
   await expect(points(editor)).toHaveCount(2)
-  await expect(editor).toContainText('Histogram: not known yet')
+  await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
+  await expect(editor.locator('.dinkster-canvas-curve-histogram')).toHaveCount(0)
   expect(await storedCurve(page)).toBeUndefined()
   const revision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
 
@@ -273,10 +274,10 @@ test('edits in the node, undoes, reloads, runs and draws the wired histogram of 
       .find((candidate) => candidate.ref.prompt === target) as unknown as {
       previews?: Record<string, Record<string, { payload?: { histogram?: unknown[] } }>>
     }
-    return execution?.previews?.editor?.['curve-histogram']?.payload?.histogram?.length
+    return execution?.previews?.editor?.['curve-histogram:curve']?.payload?.histogram?.length
   }, prompt)).toBe(256)
 
-  await expect(shown).toContainText('Histogram from the selected run')
+  await expect(shown).toContainText('Histogram')
   await expect.poll(() => shown.locator('.dinkster-canvas-curve-histogram').count()).toBeGreaterThan(0)
   const screenshot = await shown.screenshot({ animations: 'disabled' })
   await testInfo.attach('native-curve-editor-histogram', { body: screenshot, contentType: 'image/png' })
