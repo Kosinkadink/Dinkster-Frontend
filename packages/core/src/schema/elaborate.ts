@@ -1090,6 +1090,15 @@ function elaboratePass(
     if (isLookupSpec(automatic)) {
       const args: Json[] = []
       for (const argument of automatic.args) {
+        // A file field with no file picked waits for one quietly; one fed by
+        // a wire can never be known here and gives the default, as a run does.
+        const file = fileArgument(argument, scope)
+        if (file !== undefined) {
+          if (file.value === UNKNOWN) return standIn('argument-unknown')
+          if (file.value === null) return { value: fallback, state: 'not-known', reason: 'argument-empty', ...(file.path === undefined ? {} : { waitingFor: file.path }) }
+          args.push(file.value)
+          continue
+        }
         readWaiting = false
         readEmpty = undefined
         const text = typeof argument === 'string' ? argument : argument.formula
@@ -1324,6 +1333,25 @@ function elaboratePass(
   }
 
   /**
+   * A lookup argument that names a file field, which a formula cannot read:
+   * the picked file as the node stores it, the same value the run sends.
+   * Null when no file is picked, unknown when a wire feeds the field or its
+   * option is not chosen; `path` is the field's flattened id when it is a
+   * row of this node. Undefined for a formula or any other name.
+   */
+  const fileArgument = (argument: LookupSpec['args'][number], scope: Scope): { readonly value: Json | Unknown; readonly path?: string } | undefined => {
+    if (typeof argument !== 'string') return undefined
+    const name = argument
+    if (!framesNamesOf(scope.formulaFrames.map((frame) => frame.rows)).assets.has(name)) return undefined
+    const { where, unknown, fixed } = namesAt(scope)
+    const constant = fixed.get(name)
+    if (constant !== undefined) return { value: constant.linked === true ? UNKNOWN : (constant.value ?? null) as Json }
+    const path = where.get(name)
+    if (path === undefined || unknown.has(name) || linked(path)) return { value: UNKNOWN, ...(path === undefined ? {} : { path }) }
+    return { value: (Object.hasOwn(node.values, path) ? node.values[path] : null) ?? null, path }
+  }
+
+  /**
    * A literal as itself; a formula's answer when it is of `type`. Undefined
    * when the formula is unknown or fails, so each caller gives the plan's
    * "while unknown" answer.
@@ -1379,6 +1407,13 @@ function elaboratePass(
     if (options.lookupAnswers === undefined) return { state: { state: 'off' } }
     const args: Json[] = []
     for (const argument of lookup.args) {
+      // A file field waits for its file to be picked, or for its wire.
+      const file = fileArgument(argument, scope)
+      if (file !== undefined) {
+        if (file.value === UNKNOWN || file.value === null) return { state: { state: 'waiting', input: file.path ?? (argument as string) } }
+        args.push(file.value)
+        continue
+      }
       const text = typeof argument === 'string' ? argument : argument.formula
       const outcome = evaluate(text, scope)
       if (outcome.kind === 'unknown') return { state: { state: 'waiting', input: waitingFor(text, scope) } }

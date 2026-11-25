@@ -57,15 +57,20 @@ no default that stores nothing, or stores null, such as an optional source
 rate not set yet - the field shows the default without a warning. For an
 empty field the side part reads "Waiting for source rate.", with that field's
 label, or "Waiting for a value." when the argument is not that one field.
-The editor does not yet send a file field as a lookup argument: a formula
-cannot read a file field, so such an argument is refused and the field shows
-the default with the warning, whether or not a file is picked.
+A lookup argument that names a file field, which no formula can read, is
+the picked file as the node stores it; the editor and the run send the same
+value, and the host checks the file before the lookup gets it. With no file
+picked the field waits the same way, with the file field's label: "Waiting
+for video.". The run then uses the default. A file field fed by a wire cannot
+be known in the editor and gives the default with the warning.
 
 A lookup's answer kept for the same arguments is shown as worked out, with no
 warning, while a newer one loads, after a refresh failed, or while the editing
 budget is spent. Offline, paused or waiting for a file to be checked, with no
 answer kept, the field shows the default with no warning: nothing is under
-way that the field can fix.
+way that the field can fix. A lookup that waited for its file to be checked
+is asked again when the host reports a change to its mounted files, so the
+answer comes once the file is checked.
 
 A whole-number field takes a whole number or a decimal that is exactly whole;
 a decimal field takes either; a choice is checked against its options only
