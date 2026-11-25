@@ -196,7 +196,7 @@ describe('canvas view controls', () => {
 })
 
 describe('canvas corner controls', () => {
-  it('sets a typed zoom percentage; Zoom in and out keep the menu open with the field following the zoom, and Reset closes it', () => {
+  it('steps the zoom with minus and plus, leaving the menu open; types a percentage over the number; Reset closes it', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const [menu, setMenu] = createSignal<CanvasCornerMenu | undefined>('zoom')
@@ -210,6 +210,7 @@ describe('canvas corner controls', () => {
         settings={{}}
         zoom={zoom()}
         menu={menu()}
+        shortcuts={{ zoomIn: 'alt+=', zoomOut: 'alt+-' }}
         onToggleMinimap={() => {}}
         onToggleSetting={() => {}}
         onOpenMenu={setMenu}
@@ -219,9 +220,20 @@ describe('canvas corner controls', () => {
         onZoomTo={zoomTo}
       />
     ), root)
-    expect(root.querySelector('[data-testid="canvas-zoom-level"]')?.textContent).toBe('37%')
+    const row = () => root.querySelector('[data-testid="canvas-zoom-row"]')!
+    const zoomOut = row().querySelector<HTMLButtonElement>('[aria-label="Zoom out"]')!
+    expect(zoomOut.dataset['tooltipDetail']).toBe('alt+-')
+    click(zoomOut)
+    click(row().querySelector('[aria-label="Zoom out"]')!)
+    expect(zoomBy).toHaveBeenCalledTimes(2)
+    expect(zoomBy).toHaveBeenLastCalledWith(1 / 1.2)
+    expect(menu()).toBe('zoom')
+    expect(row().querySelector('.dinkster-canvas-closed-row-value')?.textContent).toBe('26%')
+    expect(root.querySelector('[data-testid="canvas-zoom-input"]')).toBeNull()
+
+    click(row().querySelector('.dinkster-canvas-closed-row-open')!)
     const field = root.querySelector<HTMLInputElement>('[data-testid="canvas-zoom-input"]')!
-    expect(field.value).toBe('37')
+    expect(field.value).toBe('26')
     field.value = '150'
     field.dispatchEvent(new Event('input', { bubbles: true }))
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
@@ -229,12 +241,7 @@ describe('canvas corner controls', () => {
     expect(menu()).toBeUndefined()
 
     setMenu('zoom')
-    click(root.querySelector('[data-testid="canvas-zoom-out"]')!)
-    click(root.querySelector('[data-testid="canvas-zoom-out"]')!)
-    expect(zoomBy).toHaveBeenCalledTimes(2)
-    expect(zoomBy).toHaveBeenLastCalledWith(1 / 1.2)
-    expect(menu()).toBe('zoom')
-    expect(root.querySelector<HTMLInputElement>('[data-testid="canvas-zoom-input"]')!.value).toBe('26')
+    expect(root.querySelector('[data-testid="canvas-zoom-input"]')).toBeNull()
     click(root.querySelector('[data-testid="canvas-zoom-reset"]')!)
     expect(zoomTo).toHaveBeenLastCalledWith(1)
     expect(menu()).toBeUndefined()

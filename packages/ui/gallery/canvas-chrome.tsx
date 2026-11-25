@@ -103,7 +103,7 @@ const corners: readonly CornerExample[] = [
   { id: 'hidden', size: 'large', visible: false, caption: 'Minimap hidden: the same bar, its switch off.' },
   { id: 'settings', size: 'large', visible: true, menu: 'minimap', caption: 'The minimap settings, opened by the arrow beside the minimap switch, straight above the bar and over the dimmed minimap. Link Colors is on by default.' },
   { id: 'quiet', size: 'large', visible: true, switches: { ...defaultSwitches, linkColors: false }, caption: 'Link Colors off: wires in one grey and no title lines.' },
-  { id: 'zoom', size: 'large', visible: true, menu: 'zoom', caption: 'The zoom menu, opened by the percentage, above the bar: type a percentage, Zoom in, Zoom out, Reset to 100%.' },
+  { id: 'zoom', size: 'large', visible: true, menu: 'zoom', caption: 'The zoom menu, opened by the percentage, above the bar. Its top row is drawn like a node number row: minus and plus step the zoom and leave the menu open, and pressing the number types one. Reset to 100% closes it.' },
 ]
 
 /**
@@ -217,7 +217,7 @@ function ViewExampleCard(props: { readonly example: ViewExample }) {
 
 const runs = [
   { id: 'ready', canQueue: true, caption: 'Run keeps its green outline; the runs list beside it takes the subtle outline of the canvas bars.' },
-  { id: 'off', canQueue: false, caption: 'With nothing to run, the whole control is quiet.' },
+  { id: 'off', canQueue: false, caption: 'With nothing to run, only Run goes quiet: muted text, no fill. The runs list still works and keeps its look.' },
 ] as const
 
 function RunExampleCard(props: { readonly example: (typeof runs)[number] }) {

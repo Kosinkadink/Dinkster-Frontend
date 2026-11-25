@@ -40,8 +40,6 @@ test('minimap sizes persist with small as the default; the bar under it keeps it
   const bar = page.locator('.canvas-corner-bar')
   await expect(map).toHaveCSS('width', '160px')
   await expect(map).toHaveCSS('height', '96px')
-  await expect(page.getByTestId('canvas-zoom-in')).toBeHidden()
-  await expect(page.getByTestId('canvas-zoom-out')).toBeHidden()
   const before = await viewport(page)
   await map.hover()
   await page.mouse.wheel(0, -100)
@@ -371,30 +369,36 @@ test('the zoom menu is keyboard reachable, truthful, and preserves the document'
     expect(await worldCenter()).toEqual(expect.objectContaining({ x: expect.closeTo(center.x, 5), y: expect.closeTo(center.y, 5) }))
   const menu = page.getByTestId('canvas-zoom-menu')
   const field = page.getByTestId('canvas-zoom-input')
+  const number = menu.locator('.dinkster-canvas-closed-row-open')
 
-  // The percentage opens the menu with the keyboard in its field.
+  // The percentage opens the menu with the keyboard on its number.
   await level.focus()
   await page.keyboard.press('Enter')
   await expect(menu).toBeVisible()
   await expect(level).toHaveAttribute('aria-expanded', 'true')
-  await expect(field).toBeFocused()
-  await expect(field).toHaveValue(String(Math.round(initial.scale * 100)))
+  await expect(number).toBeFocused()
+  await expect(number).toHaveText(`${Math.round(initial.scale * 100)}%`)
 
-  // A menu choice acts once, closes the menu and returns the keyboard to the percentage.
-  await page.getByTestId('canvas-zoom-in').click()
-  await expect(menu).toBeHidden()
-  await expect(level).toBeFocused()
+  // Plus and minus step the zoom around the view's center and leave the menu open.
+  await menu.getByRole('button', { name: 'Zoom in' }).click()
+  await expect(menu).toBeVisible()
   const zoomed = await viewport(page)
   expect(zoomed.scale).toBeCloseTo(Math.min(4, initial.scale * 1.2), 5)
   await centered()
   await expect(level).toHaveText(`${Math.round(zoomed.scale * 100)}%`)
-  await level.click()
-  await page.getByTestId('canvas-zoom-out').click()
+  await expect(number).toHaveText(`${Math.round(zoomed.scale * 100)}%`)
+  await menu.getByRole('button', { name: 'Zoom out' }).click()
   expect((await viewport(page)).scale).toBeCloseTo(initial.scale, 5)
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(level).toBeFocused()
 
-  // A typed percentage sets that zoom around the view's center, within the canvas limits.
+  // Pressing the number types a percentage, which sets that zoom around the
+  // view's center, within the canvas limits, and closes the menu.
   for (const [typed, scale] of [['150', 1.5], ['1000', 4], ['1', 0.05]] as const) {
     await level.click()
+    await number.click()
+    await expect(field).toBeFocused()
     await field.fill(typed)
     await page.keyboard.press('Enter')
     await expect(menu).toBeHidden()

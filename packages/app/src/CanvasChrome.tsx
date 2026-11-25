@@ -5,6 +5,7 @@ import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from './editors.js'
 import { Icon } from './Icon.js'
 import { useAppMessage } from './locale.js'
 import { ProductButton, ProductTextInput } from './ProductControls.js'
+import { CanvasClosedRow } from '@dinkster/ui'
 import { ProductNotice } from './ProductForm.js'
 
 /**
@@ -190,23 +191,30 @@ export function CanvasCornerControls(props: {
   let menuElement: HTMLDivElement | undefined
   const percent = () => Math.round(props.zoom * 100)
   const [typed, setTyped] = createSignal(String(percent()))
-  // Opening a menu puts the keyboard in it; closing returns it to the
-  // button that opened it.
+  const [typing, setTyping] = createSignal(false)
+  // Opening a menu puts the keyboard in it (on the zoom menu, its number);
+  // closing returns it to the button that opened it.
   createEffect(on(() => props.menu, (menu, previous) => {
-    if (menu === 'zoom') setTyped(String(percent()))
+    setTyping(false)
     if (menu !== undefined) {
       queueMicrotask(() => {
-        const first = menuElement?.querySelector<HTMLElement>('input, button')
+        const first = menuElement?.querySelector<HTMLElement>('.dinkster-canvas-closed-row-open') ?? menuElement?.querySelector<HTMLElement>('button')
         first?.focus()
-        if (first instanceof HTMLInputElement) first.select()
       })
     } else if (previous !== undefined) {
       queueMicrotask(() => (previous === 'zoom' ? zoomTrigger : settingsTrigger)?.focus())
     }
   }, { defer: true }))
-  // Zoom in and Zoom out keep the menu open for further steps, and the
-  // field follows the zoom.
-  createEffect(on(() => props.zoom, () => { if (props.menu === 'zoom') setTyped(String(percent())) }, { defer: true }))
+  // Pressing the number lays a field over it, holding the number selected.
+  const startTyping = (): void => {
+    setTyped(String(percent()))
+    setTyping(true)
+    queueMicrotask(() => {
+      const field = menuElement?.querySelector<HTMLInputElement>('input')
+      field?.focus()
+      field?.select()
+    })
+  }
   const applyTyped = (): void => {
     const value = Number.parseFloat(typed().replace('%', '').trim())
     if (Number.isFinite(value) && value > 0) props.onZoomTo(value / 100)
@@ -280,24 +288,37 @@ export function CanvasCornerControls(props: {
         </Show>
         <Show when={props.menu === 'zoom'}>
           <div ref={menuElement} class="canvas-zoom-menu" role="menu" aria-label={message('canvas.corner.zoomOptions')} data-testid="canvas-zoom-menu">
-            <label class="canvas-zoom-field">
-              <ProductTextInput
-                inputMode="decimal"
-                data-testid="canvas-zoom-input"
-                aria-label={message('canvas.corner.zoomField')}
-                value={typed()}
-                onInput={(event) => setTyped(event.currentTarget.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    applyTyped()
-                  }
-                }}
-              />
-              <span aria-hidden="true">%</span>
-            </label>
-            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-in" onClick={() => props.onZoomBy(1.2)}><span>{message('canvas.corner.zoomIn')}</span><Show when={props.shortcuts?.zoomIn}>{(keys) => <kbd>{keys()}</kbd>}</Show></ProductButton>
-            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-out" onClick={() => props.onZoomBy(1 / 1.2)}><span>{message('canvas.corner.zoomOut')}</span><Show when={props.shortcuts?.zoomOut}>{(keys) => <kbd>{keys()}</kbd>}</Show></ProductButton>
+            <div class="canvas-zoom-row" data-testid="canvas-zoom-row">
+              <Show when={typing()} fallback={
+                <CanvasClosedRow
+                  label=""
+                  value={`${percent()}%`}
+                  onOpen={startTyping}
+                  onStep={(direction) => props.onZoomBy(direction > 0 ? 1.2 : 1 / 1.2)}
+                  steps={{
+                    decrease: { label: message('canvas.corner.zoomOut'), detail: props.shortcuts?.zoomOut },
+                    increase: { label: message('canvas.corner.zoomIn'), detail: props.shortcuts?.zoomIn },
+                  }}
+                />
+              }>
+                <label class="dinkster-canvas-field-row dinkster-canvas-closed-row canvas-zoom-field">
+                  <ProductTextInput
+                    inputMode="decimal"
+                    data-testid="canvas-zoom-input"
+                    aria-label={message('canvas.corner.zoomField')}
+                    value={typed()}
+                    onInput={(event) => setTyped(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        applyTyped()
+                      }
+                    }}
+                  />
+                  <span aria-hidden="true">%</span>
+                </label>
+              </Show>
+            </div>
             <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-reset" onClick={() => { props.onZoomTo(1); props.onCloseMenu() }}><span>{message('canvas.corner.zoomReset')}</span></ProductButton>
           </div>
         </Show>
