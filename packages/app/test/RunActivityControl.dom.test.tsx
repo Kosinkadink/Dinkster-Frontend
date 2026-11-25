@@ -5,7 +5,7 @@ import type { ExecutionState } from '@dinkster/client'
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { RunActivityControl } from '../src/RunControls.js'
+import { RunActivityControl, runAge } from '../src/RunControls.js'
 
 const job = (connection: string, prompt: string, lineage: string, status: ExecutionState['status']): ExecutionState => ({
   ref: { connection: asConnectionId(connection), prompt: asPromptId(prompt) },
@@ -32,7 +32,7 @@ const titles: Readonly<Record<string, string>> = { long: 'Long run', mixed: 'Mix
 afterEach(() => document.body.replaceChildren())
 
 describe('RunActivityControl', () => {
-  it('cancels the one running job from its X, opens the list instead while two run, and is absent while nothing runs', () => {
+  it('cancels the one running job from its X, opens the list instead while two run, keeps the queued count without an X while none runs, and is absent while nothing waits', () => {
     const cancel = vi.fn()
     const openList = vi.fn()
     const [executions, setExecutions] = createSignal<readonly ExecutionState[]>([
@@ -66,7 +66,20 @@ describe('RunActivityControl', () => {
     expect(cancel).toHaveBeenCalledOnce()
 
     setExecutions([job('local', 'waiting', 'mixed', 'queued'), job('local', 'done', 'long', 'completed')])
+    expect(root.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('0 running, 1 queued')
+    expect(root.querySelector('[data-testid="cancel-execution"]')).toBeNull()
+
+    setExecutions([job('local', 'done', 'long', 'completed')])
     expect(root.querySelector('[data-testid="run-activity-control"]')).toBeNull()
     unmount()
+  })
+})
+
+describe('runAge', () => {
+  it('reads "just now" for the whole first minute, then counts whole minutes', () => {
+    expect(runAge(100_000, 100_000)).toBe('just now')
+    expect(runAge(100_000, 159_000)).toBe('just now')
+    expect(runAge(100_000, 160_000)).toBe('1 minute ago')
+    expect(runAge(100_000, 100_000 + 61 * 60_000)).toBe('1 hour ago')
   })
 })

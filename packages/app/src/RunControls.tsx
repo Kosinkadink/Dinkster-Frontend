@@ -1,11 +1,11 @@
 import { Show, createSignal, onCleanup, type JSX } from 'solid-js'
 import type { ExecutionState } from '@dinkster/client'
-import { executionKey, formatRelativeTime } from '@dinkster/core'
+import { executionKey, formatRelativeTime, t } from '@dinkster/core'
 import { ProductCancelButton, ProductRunActivity } from '@dinkster/ui'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import Clock from 'lucide-solid/icons/clock'
 import { executionActivity } from './execution-activity.js'
-import { ExecutionOpenButton, executionProgress, executionStatusLabel } from './ExecutionActivityCard.js'
+import { ExecutionOpenButton, executionProgress, executionStatusLabel, type ExecutionProgress } from './ExecutionActivityCard.js'
 import { Icon } from './Icon.js'
 import { useAppMessage } from './locale.js'
 import { ProductButton } from './ProductControls.js'
@@ -32,8 +32,8 @@ export function placeInLine(entry: ExecutionState, all: Iterable<ExecutionState>
 /** How long ago a run ended, in the largest whole unit: "2 minutes ago". */
 export function runAge(endedAt: number, now: number): string {
   const seconds = Math.max(0, Math.round((now - endedAt) / 1000))
-  // Under a minute reads "now": the lists tick every half minute, so counting seconds would show stale, differing ages.
-  if (seconds < 60) return formatRelativeTime(0, 'second', { numeric: 'auto' })
+  // Under a minute reads "just now": the lists tick every half minute, so counting seconds would show stale, differing ages.
+  if (seconds < 60) return t('runs.row.justNow')
   const minutes = Math.floor(seconds / 60)
   if (minutes < 60) return formatRelativeTime(-minutes, 'minute')
   const hours = Math.floor(minutes / 60)
@@ -144,12 +144,35 @@ export function RunRow(props: {
       </div>
       <Show when={progress()}>
         {(current) => (
-          <progress class="run-row-bar" max="1" value={current().value}
-            aria-label={message('runs.row.progress', { name: props.workflow })} />
+          <RunProgress class="run-row-bar" progress={current()} label={message('runs.row.progress', { name: props.workflow })}
+            nodeLabel={message('runs.row.progress', { name: step() ?? props.workflow })} />
         )}
       </Show>
       {props.children}
     </article>
+  )
+}
+
+/**
+ * A run's progress as one 4 px bar of two 2 px lines: the whole workflow above,
+ * and below it the running node's own progress, empty while that node reports none.
+ */
+export function RunProgress(props: {
+  readonly progress: ExecutionProgress
+  readonly label: string
+  readonly nodeLabel: string
+  readonly class: string
+  readonly testId?: string | undefined
+}) {
+  return (
+    <span class={`run-progress ${props.class}`}>
+      <progress class="run-progress-workflow" data-testid={props.testId} max="1" value={props.progress.value}
+        aria-label={props.label}
+        aria-valuetext={`${Math.round(props.progress.value * 100)}%, ${props.progress.finished} of ${props.progress.total} nodes`} />
+      <progress class="run-progress-node" data-testid={props.testId === undefined ? undefined : `${props.testId}-node`}
+        max="1" value={props.progress.node ?? 0} aria-label={props.nodeLabel}
+        aria-hidden={props.progress.node === undefined ? 'true' : undefined} />
+    </span>
   )
 }
 
@@ -158,7 +181,7 @@ export function RunSection(props: { readonly title: string; readonly testId?: st
   return (
     <section class="run-section" data-testid={props.testId} aria-label={props.title}>
       <h3 class="run-section-title">{props.title}</h3>
-      <div class="run-section-rows dinkster-list-rows" role="list" aria-label={props.title}>{props.children}</div>
+      <div class="run-rows dinkster-list-rows" role="list" aria-label={props.title}>{props.children}</div>
     </section>
   )
 }
@@ -180,12 +203,12 @@ export function RunActivityControl(props: {
   const running = () => props.executions.filter((entry) => entry.status === 'running')
   const only = () => running().length === 1 ? running()[0] : undefined
   return (
-    <Show when={activity().running > 0}>
+    <Show when={activity().running > 0 || activity().waiting > 0}>
       <span class="run-activity-control" data-testid="run-activity-control">
         <ProductRunActivity {...activity()} label={message('runs.activity', activity())} />
-        <Show when={only()} fallback={
+        <Show when={only()} fallback={<Show when={activity().running > 0}>
           <ProductCancelButton label={message('runs.cancel.list')} data-testid="cancel-execution" onClick={() => props.onOpenList()} />
-        }>
+        </Show>}>
           {(entry) => (
             <ProductCancelButton
               label={message('runs.cancel.named', { name: props.title(entry()) })}

@@ -56,7 +56,7 @@ const thumbnail = (entry: ExecutionState): JSX.Element => {
   return index < 0 ? undefined : <span class="dinkster-run-controls-picture" data-tone={index} />
 }
 
-function Example(props: { readonly id: string; readonly caption: string; readonly shape?: string; readonly children: JSX.Element }) {
+function Example(props: { readonly id: string; readonly caption: string; readonly shape?: string | undefined; readonly children: JSX.Element }) {
   return (
     <figure class="dinkster-canvas-example" data-testid={`run-controls-${props.id}`}>
       <div class="dinkster-canvas-example-stage dinkster-run-controls-stage" data-shape={props.shape ?? 'bar'}>{props.children}</div>
@@ -68,13 +68,14 @@ function Example(props: { readonly id: string; readonly caption: string; readonl
 const topBars = [
   { id: 'top-one', caption: 'Top bar, one job running: the X cancels it and its tooltip names it.', executions: [running] },
   { id: 'top-queued', caption: 'Top bar, one running and two queued.', executions: [running, ...queued] },
+  { id: 'top-waiting', caption: 'Top bar, two queued and nothing running: the count without the X.', executions: [...queued] },
   { id: 'top-two', caption: 'Top bar, two jobs running on two engines: the X opens the list.', executions: [running, { ...running, ref: { ...running.ref, connection: asConnectionId('second') }, key: 'second:long-1' }] },
 ] as const
 
 const runBars = [
   { id: 'run-idle', caption: 'Nothing running: Run and the list button.', executions: [] },
   { id: 'run-running', caption: 'Running, 42%: the 2 px line along the bottom edge, the count, the X.', executions: [running] },
-  { id: 'run-queued', caption: 'Running, two more queued.', executions: [running, ...queued] },
+  { id: 'run-queued', caption: 'Running, two more queued; the count opens the list below the bar.', executions: [running, ...queued], shape: 'open' },
 ] as const
 
 /** The run controls: the top bar's item, the Run bar, the list beside Run and the Runs panel's rows. */
@@ -99,7 +100,7 @@ export function RunControlsGallery() {
         </Example>
       )}</For>
       <For each={runBars}>{(example) => (
-        <Example id={example.id} caption={example.caption}>
+        <Example id={example.id} caption={example.caption} shape={'shape' in example ? example.shape : undefined}>
           <div class="dinkster-canvas-chrome-toolbar" data-side="right">
             <WorkflowQueueControl
               owner={{ id: `gallery-${example.id}`, title: 'Long run', lineage: asLineageId('long') }}
@@ -115,9 +116,9 @@ export function RunControlsGallery() {
       )}</For>
       <Example id="list" shape="list" caption="The list beside Run, for this workflow: rows named by their state.">
         <div class="workflow-queue-popover dinkster-run-controls-list">
-          <header>Long run: 1 running, 2 queued</header>
+          <header><span class="workflow-queue-heading-name">Long run</span><span>1 running, 2 queued</span></header>
           <div class="workflow-queue-list">
-            <div class="run-section-rows" role="list" aria-label="Workflow jobs">
+            <div class="run-rows dinkster-list-rows" role="list" aria-label="Workflow jobs">
               {row(running, 'Running', false, 'run-controls-list-row')}
               <For each={queued}>{(entry) => row(entry, 'Queued', false, 'run-controls-list-row')}</For>
             </div>

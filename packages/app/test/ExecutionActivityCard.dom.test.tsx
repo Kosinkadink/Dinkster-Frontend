@@ -43,7 +43,7 @@ afterEach(() => document.body.replaceChildren())
 describe('ExecutionActivityCard', () => {
   it('presents status, progress, partial scope, node facts, full identity, and overlay relation as text', () => {
     const current = entry()
-    expect(executionProgress(current)).toEqual({ finished: 2, total: 4, value: 0.605 })
+    expect(executionProgress(current)).toEqual({ finished: 2, total: 4, value: 0.605, node: 0.42 })
     expect(executionNodeSummary(current)).toBe('1 done, 1 cached, 1 failed')
     const root = document.createElement('div')
     document.body.append(root)
@@ -76,7 +76,7 @@ describe('ExecutionActivityCard', () => {
       } as unknown as CompileArtifact,
     })
 
-    expect(executionProgress(current)).toEqual({ finished: 2, total: 6, value: 3.25 / 6 })
+    expect(executionProgress(current)).toEqual({ finished: 2, total: 6, value: 3.25 / 6, node: 0.25 })
   })
 
   it('uses region expansion counts and stays indeterminate until out-of-order expansion arrives', () => {
@@ -110,7 +110,7 @@ describe('ExecutionActivityCard', () => {
       artifact,
       nodes,
       regions: { region: { kind: 'map', binding: 'zip', iterations: 2 } },
-    }))).toEqual({ finished: 2, total: 3, value: 2.5 / 3 })
+    }))).toEqual({ finished: 2, total: 3, value: 2.5 / 3, node: 0.5 })
 
     const whileArtifact = {
       ...artifact,
@@ -138,7 +138,7 @@ describe('ExecutionActivityCard', () => {
       artifact: whileArtifact,
       nodes,
       regions: { region: { kind: 'while', binding: 'zip', iterations: null, finishedIterations: 2 } },
-    }))).toEqual({ finished: 2, total: 3, value: 2.5 / 3 })
+    }))).toEqual({ finished: 2, total: 3, value: 2.5 / 3, node: 0.5 })
   })
 
   it('shows fixed loop placeholders and live per-item lifecycle states', () => {

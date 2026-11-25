@@ -167,7 +167,7 @@ describe('WorkflowQueueControl', () => {
     unmount()
   })
 
-  it('draws the workflow progress as a line along the bottom edge of the Run bar and updates it from node events', () => {
+  it('draws the workflow progress and the running node\'s own progress as two lines along the bottom edge of the Run bar, updated from node events', () => {
     const alpha = owner('alpha', 'Alpha workflow')
     const running = execution(alpha, 'accepted-run', 'running', 1)
     const artifact = {
@@ -195,10 +195,14 @@ describe('WorkflowQueueControl', () => {
       />
     ), root)
 
-    const line = root.querySelector('.workflow-queue-buttons > [data-testid="workflow-progress"]')!
+    const line = root.querySelector('.workflow-queue-buttons [data-testid="workflow-progress"]')!
     expect(line.tagName).toBe('PROGRESS')
     expect(line.getAttribute('aria-valuetext')).toBe('63%, 2 of 4 nodes')
     expect(line.getAttribute('value')).toBe('0.625')
+    const node = () => root.querySelector('.workflow-queue-buttons [data-testid="workflow-progress-node"]')!
+    expect(node().tagName).toBe('PROGRESS')
+    expect(node().getAttribute('value')).toBe('0.5')
+    expect(node().hasAttribute('aria-hidden')).toBe(false)
     expect(root.textContent).not.toContain('of 4 nodes')
 
     setEntries([{
@@ -206,6 +210,13 @@ describe('WorkflowQueueControl', () => {
       nodes: { ...entries()[0]!.nodes, c: { state: 'running', value: 0.75, max: 20 } },
     }])
     expect(root.querySelector('[data-testid="workflow-progress"]')?.getAttribute('value')).toBe('0.6875')
+    expect(node().getAttribute('value')).toBe('0.75')
+
+    // A running node that reports no progress of its own leaves its line empty.
+    setEntries([{ ...entries()[0]!, nodes: { ...entries()[0]!.nodes, c: { state: 'done' }, d: { state: 'running' } } }])
+    expect(root.querySelector('[data-testid="workflow-progress"]')?.getAttribute('value')).toBe('0.75')
+    expect(node().getAttribute('value')).toBe('0')
+    expect(node().getAttribute('aria-hidden')).toBe('true')
     unmount()
   })
 
@@ -249,7 +260,7 @@ describe('WorkflowQueueControl', () => {
     unmount()
   })
 
-  it('names both controls, supports keyboard disclosure, and restores toggle focus on Escape', async () => {
+  it('names both controls, supports keyboard disclosure, drops the summary tooltip while the list is open, and restores toggle focus on Escape', async () => {
     const alpha = owner('alpha', 'Alpha workflow')
     const root = document.createElement('div')
     document.body.append(root)
@@ -266,12 +277,15 @@ describe('WorkflowQueueControl', () => {
     const toggle = root.querySelector<HTMLButtonElement>('[data-testid="workflow-queue-toggle"]')!
     expect(queue.getAttribute('aria-label')).toBe('Run Alpha workflow')
     expect(toggle.getAttribute('aria-label')).toBe('No active jobs: Show runs for Alpha workflow')
+    expect(toggle.dataset['tooltipLabel']).toBe('No active jobs')
     toggle.focus()
     toggle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(toggle.hasAttribute('data-tooltip-label')).toBe(false)
     root.querySelector('[role="region"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(toggle.dataset['tooltipLabel']).toBe('No active jobs')
     expect(document.activeElement).toBe(toggle)
     unmount()
   })

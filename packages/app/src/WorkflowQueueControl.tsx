@@ -9,7 +9,7 @@ import { useAppMessage } from './locale.js'
 import { executionProgress, executionStatusLabel } from './ExecutionActivityCard.js'
 import { Icon } from './Icon.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
-import { RunRow, RunSection, placeInLine, runIsPending, type RunNodeTitle } from './RunControls.js'
+import { RunProgress, RunRow, RunSection, placeInLine, runIsPending, type RunNodeTitle } from './RunControls.js'
 
 export interface WorkflowQueueOwner {
   readonly id: string
@@ -132,7 +132,8 @@ export function WorkflowQueueControl(props: {
           class="workflow-queue-toggle"
           data-testid="workflow-queue-toggle"
           aria-label={`${summary()}: ${open() ? 'Hide' : 'Show'} runs for ${props.owner.title}`}
-          data-tooltip-label={summary()}
+          // The summary tooltip would cover the open list's first row, which says the same.
+          data-tooltip-label={open() ? undefined : summary()}
           data-running={activity().running > 0}
           aria-expanded={open()}
           aria-controls={popoverId}
@@ -166,14 +167,8 @@ export function WorkflowQueueControl(props: {
         </Show>
         <Show when={progress()}>
           {(current) => (
-            <progress
-              class="workflow-queue-line"
-              data-testid="workflow-progress"
-              max="1"
-              value={current().value}
-              aria-label={`${props.owner.title} workflow progress`}
-              aria-valuetext={`${Math.round(current().value * 100)}%, ${current().finished} of ${current().total} nodes`}
-            />
+            <RunProgress class="workflow-queue-line" testId="workflow-progress" progress={current()}
+              label={`${props.owner.title} workflow progress`} nodeLabel={`${props.owner.title} node progress`} />
           )}
         </Show>
       </div>
@@ -190,7 +185,7 @@ export function WorkflowQueueControl(props: {
             }
           }}
         >
-          <header>{props.owner.title}: {summary()}</header>
+          <header><span class="workflow-queue-heading-name">{props.owner.title}</span><span>{summary()}</span></header>
           <Show when={props.executions.length > 0} fallback={<ProductEmptyState title="No jobs for this workflow." />}>
             <div
               ref={list}
@@ -209,7 +204,7 @@ export function WorkflowQueueControl(props: {
               }}
             >
               <Show when={rows().pending.length > 0}>
-                <div class="run-section-rows dinkster-list-rows" role="list" aria-label="Workflow jobs">
+                <div class="run-rows dinkster-list-rows" role="list" aria-label="Workflow jobs">
                   <For each={rows().pending}>{(entry) => <Row entry={entry} />}</For>
                 </div>
               </Show>

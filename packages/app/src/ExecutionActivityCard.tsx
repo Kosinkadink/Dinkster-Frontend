@@ -25,6 +25,8 @@ export interface ExecutionProgress {
   readonly finished: number
   readonly total: number
   readonly value: number
+  /** How far the running node is through its own work, when it reports that. */
+  readonly node?: number | undefined
 }
 
 export interface ExecutionRegionIterationRow {
@@ -84,12 +86,11 @@ export function executionProgress(entry: ExecutionState): ExecutionProgress | un
   if (total === 0) return undefined
   const nodes = [...scheduled].map((nodeId) => entry.nodes[nodeId]).filter((node) => node !== undefined)
   const finished = nodes.filter((node) => terminalNode(node.state)).length
-  const active = nodes.reduce((sum, node) =>
-    node.state === 'running' && node.value !== undefined && Number.isFinite(node.value)
-      ? sum + Math.min(1, Math.max(0, node.value))
-      : sum,
-  0)
-  return { finished, total, value: Math.min(1, (finished + active) / total) }
+  const reported = nodes
+    .filter((node) => node.state === 'running' && node.value !== undefined && Number.isFinite(node.value))
+    .map((node) => Math.min(1, Math.max(0, node.value!)))
+  const active = reported.reduce((sum, value) => sum + value, 0)
+  return { finished, total, value: Math.min(1, (finished + active) / total), node: reported[0] }
 }
 
 export function executionNodeSummary(entry: ExecutionState): string | undefined {

@@ -79,6 +79,7 @@
   "runs.row.grouped": "{count} 次运行",
   "runs.row.next": "下一个",
   "runs.row.inLine": "排第 {place}",
+  "runs.row.justNow": "刚刚",
   "runs.row.step": "{node}，第 {step}/{total} 步",
   "runs.row.progress": "{name} 进度",
   "runs.cancel.named": "取消 {name}",
