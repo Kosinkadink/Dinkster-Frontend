@@ -24,7 +24,7 @@ export function ProductNotice(props: {
 export function ProductErrorBanner(props: {
   children: JSX.Element
   onDismiss: () => void
-  /** A subtle outline and primary text, with only the icon in the danger colour. */
+  /** The danger colour on the text and icon, over a faint fill and a reduced-strength outline of it. */
   quiet?: boolean
 }) {
   const strings = useProductStrings()

@@ -168,8 +168,13 @@
 .dinkster-message > .dinkster-icon, .dinkster-field-error > .dinkster-icon { margin-block: calc((var(--dinkster-type-body-line) - var(--dinkster-icon-size)) / 2); }
 .dinkster-message > .dinkster-button { margin-block: calc((var(--dinkster-type-body-line) - var(--dinkster-control-compact-height)) / 2); }
 .dinkster-message[data-kind='error'] { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-background); }
-.dinkster-message[data-kind='error'][data-quiet] { color: var(--dinkster-text-primary); border-color: var(--dinkster-border-subtle); background: transparent; }
-.dinkster-message[data-kind='error'][data-quiet] > .dinkster-icon { color: var(--dinkster-danger-foreground); }
+/* A quiet error: text and icon in the danger colour, over a faint fill and a reduced-strength outline of that colour, drawn as layers so the danger token is the only colour. */
+.dinkster-message[data-kind='error'][data-quiet] { position: relative; isolation: isolate; border-color: transparent; background: transparent; }
+.dinkster-message[data-kind='error'][data-quiet]::before, .dinkster-message[data-kind='error'][data-quiet]::after { content: ''; position: absolute; inset: calc(-1 * var(--dinkster-border-width)); z-index: -1; border-radius: inherit; pointer-events: none; }
+.dinkster-message[data-kind='error'][data-quiet]::before { background: currentColor; opacity: 0.07; }
+.dinkster-message[data-kind='error'][data-quiet]::after { border: var(--dinkster-border-width) solid currentColor; opacity: 0.38; }
+.dinkster-message[data-kind='error'][data-quiet] .dinkster-text-button { color: var(--dinkster-text-primary); }
+.dinkster-message[data-kind='error'][data-quiet] > .dinkster-button { color: var(--dinkster-text-secondary); }
 .dinkster-message[data-kind='success'] { color: var(--dinkster-success-foreground); border-color: var(--dinkster-success-border); background: var(--dinkster-success-background); }
 .dinkster-message[data-kind='warning'] { color: var(--dinkster-warning-foreground); border-color: var(--dinkster-warning-border); background: var(--dinkster-warning-background); }
 .dinkster-toast { position: fixed; inset: auto var(--dinkster-space-24) var(--dinkster-space-24) auto; max-width: calc(100vw - var(--dinkster-space-32)); z-index: 2; }
