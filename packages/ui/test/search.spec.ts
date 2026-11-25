@@ -108,6 +108,8 @@ test('the typed words are marked in each result title', async ({ page }) => {
 
 test('the floating preview narrows to 240 px and is hidden when that does not fit beside the list in the window', async ({ page }) => {
   const seen: string[] = []
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
   for (const width of [1600, 1330, 1240]) {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/#search')
@@ -128,4 +130,5 @@ test('the floating preview narrows to 240 px and is hidden when that does not fi
     }
   }
   expect(seen).toEqual(['full', 'narrowed', 'hidden'])
+  expect(errors).toEqual([])
 })

@@ -25,6 +25,7 @@ import {
   createRegistryPainter,
   defaultTokens,
   layoutNode,
+  searchNodePreviewViewport,
   type TextMeasurer,
   type WidgetMeasure,
 } from '@dinkster/canvas'
@@ -181,11 +182,13 @@ function NodeDrawing(props: { schema: NodeSchema; registry: WidgetRegistry; subg
   createEffect(() => {
     const schema = props.schema
     let renderer: CanvasRenderer | undefined
+    let observer: ResizeObserver | undefined
     let disposed = false
     void document.fonts
       .load(`${canvasPaintTokens.type.semiboldWeight} ${defaultTokens.titleFontSize}px ${defaultTokens.fontFamily}`)
       .then(() => {
-        if (disposed) return
+        if (disposed || canvas.parentElement === null) return
+        const drawing = canvas.parentElement
         const tokens = { ...defaultTokens, colors: canvasColorsForTheme('dark'), ...canvasTypePaintForTheme('dark') }
         const context = document.createElement('canvas').getContext('2d')!
         const measure: TextMeasurer = (text, style) => {
@@ -206,9 +209,6 @@ function NodeDrawing(props: { schema: NodeSchema; registry: WidgetRegistry; subg
           title: schema.displayName,
         }
         const layout = layoutNode(schema, data, tokens, measure, widgetMeasure)
-        const inset = canvasPaintTokens.preview.palette.inset
-        canvas.style.width = `${Math.ceil(layout.width + inset * 2)}px`
-        canvas.style.height = `${Math.ceil(layout.height + inset * 2)}px`
         renderer = new CanvasRenderer(canvas, tokens, createRegistryPainter(props.registry))
         renderer.setReducedMotion(true)
         renderer.setGridVisible(false)
@@ -217,12 +217,21 @@ function NodeDrawing(props: { schema: NodeSchema; registry: WidgetRegistry; subg
           nodes: [{ id: data.id, x: 0, y: 0, node: data, layout, isSubgraph: props.subgraph === true }],
           links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
         })
-        renderer.setViewport({ x: inset, y: inset, scale: 1 })
-        renderer.renderNow()
-        canvas.dataset['ready'] = schema.type
+        const paint = () => {
+          const view = searchNodePreviewViewport(layout, drawing.clientWidth)
+          canvas.style.width = `${view.width}px`
+          canvas.style.height = `${view.height}px`
+          renderer!.setViewport(view)
+          renderer!.renderNow()
+          canvas.dataset['ready'] = schema.type
+        }
+        observer = new ResizeObserver(paint)
+        observer.observe(drawing)
+        paint()
       })
     onCleanup(() => {
       disposed = true
+      observer?.disconnect()
       renderer?.dispose()
       delete canvas.dataset['ready']
     })
