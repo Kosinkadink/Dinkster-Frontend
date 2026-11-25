@@ -2220,6 +2220,23 @@ export class DinksterConnection {
     return registry
   }
 
+  /**
+   * The node table the always-on process recorded from this project's engine
+   * at its last run, served whatever the engine's state; undefined when there
+   * is none or the backend does not serve one.
+   */
+  async fetchProvisionalSchemas(): Promise<DinksterNodesPayload | undefined> {
+    const query = this.project === undefined ? '' : `?${new URLSearchParams({ project: this.project })}`
+    try {
+      const res = await this.fetchFn(`${this.baseUrl}/api/nodes/provisional${query}`)
+      if (!res.ok) return undefined
+      const raw: unknown = await res.json()
+      return typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw as DinksterNodesPayload : undefined
+    } catch {
+      return undefined
+    }
+  }
+
   /** The registry the connection currently submits against (last committed
    * fetchSchemas result; a superseded fetch never overwrites a fresher one). */
   get currentRegistry(): SchemaRegistry | undefined {
