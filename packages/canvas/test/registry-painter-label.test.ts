@@ -445,8 +445,13 @@ describe('registry painter label/value split', () => {
     for (const cut of cuts) {
       expect(cut.label).toBe(label)
       expect(cut.empty === '' || cut.empty === empty || cut.empty.endsWith('...')).toBe(true)
-      if (cut.empty.endsWith('...')) expect(empty.startsWith(cut.empty.slice(0, -3))).toBe(true)
+      // A cut empty text keeps at least three letters before its ellipsis, or is not drawn.
+      if (cut.empty.endsWith('...')) {
+        expect(empty.startsWith(cut.empty.slice(0, -3))).toBe(true)
+        expect(cut.empty.slice(0, -3).replace(/\s/g, '').length).toBeGreaterThanOrEqual(3)
+      }
     }
+    expect(cuts.some((cut) => cut.empty.endsWith('...'))).toBe(true)
     expect(cuts[0]!.empty).not.toBe(empty)
     expect(cuts.at(-1)!.empty).toBe('')
     // Only a row too narrow for the label alone cuts the label.

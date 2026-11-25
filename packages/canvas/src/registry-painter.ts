@@ -448,8 +448,12 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               + (thumbnail !== undefined ? paint.valueThumbnail.size + paint.valueThumbnail.gap : 0)
             const iconReserve = markReserve + (marked ? wordReserve : 0)
             const fitWidth = Math.max(0, availableWidth - iconReserve)
-            const text = items !== undefined ? fitItems(ctx, items, fitWidth)
-              : ellipsize(ctx, run.split('\n')[0] ?? '', fitWidth)
+            const line = run.split('\n')[0] ?? ''
+            const fitted = items !== undefined ? fitItems(ctx, items, fitWidth) : ellipsize(ctx, line, fitWidth)
+            // An empty text cut to fewer than three letters before its
+            // ellipsis is not drawn at all.
+            const text = items === undefined && style['placeholder'] === true && fitted !== line
+              && fitted.slice(0, -'...'.length).replace(/\s/g, '').length < 3 ? '' : fitted
             // A folded curve's count sits beside its square, in the middle of the row.
             const centered = sketch !== undefined && style['role'] === 'widgetValue'
             const lineTop = centered ? chrome.y : y + ty * rowHeight + geometry.fieldInsetY
