@@ -1,17 +1,19 @@
-.setup-host { display: grid; place-content: center; min-height: 100%; min-width: 0; }
-.setup-form { display: flex; flex-direction: column; gap: var(--dinkster-space-24); width: min(100%, 780px); }
+.setup-host { display: grid; grid-template-columns: minmax(0, 560px); place-content: safe center; min-height: 100%; min-width: 0; }
+.setup-form { display: flex; flex-direction: column; gap: var(--dinkster-space-24); width: 100%; }
 .setup-facts { display: grid; grid-template-columns: 160px minmax(0, 1fr); align-items: baseline; gap: var(--dinkster-space-24); margin: 0; }
 .setup-facts dt { color: var(--dinkster-text-secondary); }
 .setup-facts dd { display: flex; align-items: baseline; justify-content: space-between; gap: var(--dinkster-space-24); min-width: 0; margin: 0; }
 .setup-facts dd > span { overflow-wrap: anywhere; }
+.setup-facts dd > div { min-width: 0; overflow-wrap: anywhere; }
 .setup-facts p { margin: var(--dinkster-space-4) 0 0; }
-.setup-facts dd > span > .dinkster-description { display: block; margin-top: var(--dinkster-space-4); }
 .editor-first-run-setup { position: absolute; inset: 0; padding: var(--dinkster-space-24); overflow: auto; pointer-events: none; }
 .editor-first-run-setup .setup-form, .editor-first-run-setup .dinkster-dialog { pointer-events: auto; }
 .setup-actions { justify-content: flex-end; }
-.setup-host[data-surface='editor'] .setup-form { align-items: center; text-align: center; }
-.setup-host[data-surface='editor'] .setup-facts { text-align: left; }
 .setup-arrival { animation: setup-arrival 200ms var(--dinkster-motion-easing); }
 @keyframes setup-arrival { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .setup-arrival { animation: none; } }
-@media (max-width: 640px) { .setup-facts { grid-template-columns: minmax(0, 1fr); gap: var(--dinkster-space-12); } }
+@media (max-width: 640px) {
+  .setup-facts { grid-template-columns: minmax(0, 1fr); gap: var(--dinkster-space-12); }
+  .setup-facts dd { flex-direction: column; align-items: stretch; gap: var(--dinkster-space-12); }
+  .setup-facts dd > button { align-self: flex-end; }
+}

@@ -1,6 +1,6 @@
 import { createSignal, For, Show } from 'solid-js'
 import { activeLocale } from '@dinkster/core'
-import { ProductBrandMark, ProductButton, ProductDialog, ProductErrorBanner, ProductField, ProductLoading, ProductSelect, ProductTextButton, ProductTextInput } from '@dinkster/ui'
+import { ProductBrandMark, ProductButton, ProductDialog, ProductErrorBanner, ProductField, ProductLoading, ProductNotice, ProductSelect, ProductTextButton, ProductTextInput } from '@dinkster/ui'
 import { createArrival } from './arrival.js'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { useAppMessage } from './locale.js'
@@ -23,14 +23,14 @@ export function SetupForm(props: {
   const [folderBusy, setFolderBusy] = createSignal(false)
   const [folderError, setFolderError] = createSignal<string>()
   const [dismissed, setDismissed] = createSignal<string>()
-  const problem = () => setup.error()?.message ?? folderError() ?? setup.job()?.error?.message ?? setup.plan()?.refusal?.message
+  const problem = () => setup.error()?.message ?? folderError() ?? setup.job()?.error?.message
   const busy = () => setup.changing() || setup.planning() || setupJobActive(setup.job()) || folderBusy()
   const bytes = (value: number) => formatBytes(value, activeLocale.get().tag)
   const download = () => {
     const plan = arrival.value()!
     return plan.downloadBytes !== null ? bytes(plan.downloadBytes)
       : plan.runtimeDownloadBytes !== null ? message('setup.runtimeBytes', { size: bytes(plan.runtimeDownloadBytes) })
-      : message('setup.downloadUnknown')
+      : undefined
   }
   const replanRoot = async (root: string) => {
     const plan = setup.plan()!
@@ -60,10 +60,13 @@ export function SetupForm(props: {
   const progress = () => {
     const value = setup.job()?.progress
     if (!value) return undefined
-    const completed = value.unit === 'bytes' ? bytes(value.completed) : String(value.completed)
-    const total = value.total === null ? undefined : value.unit === 'bytes' ? bytes(value.total) : String(value.total)
-    return total === undefined ? message('setup.progressMeasured', { stage: value.stage, completed })
-      : message('setup.progressTotal', { stage: value.stage, completed, total })
+    const key = `setup.stage.${value.stage}`
+    const translated = message(key)
+    const stage = translated === key ? message('setup.stage.unknown') : translated
+    if (value.unit !== 'bytes') return stage
+    const completed = bytes(value.completed)
+    return value.total === null ? message('setup.progressMeasured', { stage, completed })
+      : message('setup.progressTotal', { stage, completed, total: bytes(value.total) })
   }
 
   return (
@@ -80,29 +83,32 @@ export function SetupForm(props: {
           <h1 class="dinkster-title">{message(props.surface === 'editor' ? 'setup.editorTitle' : 'projects.setup.title')}</h1>
           <dl class="setup-facts">
             <dt>{message('setup.folder')}</dt>
-            <dd><span>{setupJobActive(setup.job()) ? setup.job()!.root : plan().root}</span><ProductTextButton label={message('setup.chooseFolder')} disabled={busy()} onClick={() => { setDismissed(undefined); void chooseFolder() }} /></dd>
-            <dt>{message('setup.build')}</dt>
-            <dd><div><span>{setupJobActive(setup.job()) && setup.job()!.variant !== plan().variant ? setup.job()!.variant : plan().buildLabel ?? message('setup.buildUnknown')}</span><Show when={plan().buildReason}><p class="dinkster-description">{plan().buildReason}</p></Show></div>
-              <Show when={(plan().choices?.length ?? 0) > 1}><ProductTextButton label={message('setup.changeBuild')} disabled={busy()} onClick={() => setChoosingBuild(!choosingBuild())} /></Show>
-            </dd>
-            <Show when={choosingBuild()}>
+            <dd><span>{setupJobActive(setup.job()) ? setup.job()!.root : plan().root}</span><Show when={!setupJobActive(setup.job())}><ProductTextButton label={message('setup.chooseFolder')} disabled={busy()} onClick={() => { setDismissed(undefined); void chooseFolder() }} /></Show></dd>
+            <Show when={plan().buildLabel || setupJobActive(setup.job())}><dt>{message('setup.build')}</dt>
+            <dd><div><span>{setupJobActive(setup.job()) && setup.job()!.variant !== plan().variant ? setup.job()!.variant : plan().buildLabel}</span><For each={plan().detectedCards ?? []}>{(card) => <p class="dinkster-description">{card.name}</p>}</For></div>
+              <Show when={!setupJobActive(setup.job()) && (plan().choices?.length ?? 0) > 1}><ProductTextButton label={message('setup.changeBuild')} disabled={busy()} onClick={() => setChoosingBuild(!choosingBuild())} /></Show>
+            </dd></Show>
+            <Show when={choosingBuild() && !setupJobActive(setup.job())}>
               <dt>{message('setup.chooseBuild')}</dt><dd><ProductSelect aria-label={message('setup.chooseBuild')} value={plan().variant ?? ''} disabled={busy()} onChange={(event) => {
                 void setup.refresh({ root: plan().root, channel: plan().channel, variant: event.currentTarget.value })
               }}><For each={plan().choices ?? []}>{(choice) => <option value={choice.variant} title={choice.reason}>{choice.label}</option>}</For></ProductSelect></dd>
             </Show>
-            <dt>{message('setup.download')}</dt><dd><span>{download()}<span class="dinkster-description">{message('setup.free', { size: bytes(plan().freeBytes) })}</span></span></dd>
+            <Show when={download()}>{(size) => <><dt>{message('setup.download')}</dt><dd><span>{message('setup.downloadSpace', { size: size(), free: bytes(plan().freeBytes) })}</span></dd></>}</Show>
           </dl>
-          <Show when={plan().downloadBytes === null}><p class="dinkster-description">{message('setup.totalUnknown')}</p></Show>
-          <Show when={plan().refusal?.code === 'library-held'}><p class="dinkster-description">{message('setup.libraryHeld')}</p></Show>
           <Show when={setup.job()}><div class="setup-job" role="status">
             <strong>{jobLine()}</strong>
             <Show when={progress()}><p class="dinkster-description">{progress()}</p></Show>
           </div></Show>
+          <Show when={plan().refusal}>{(refusal) => <ProductNotice tone="warning">
+            <Show when={refusal().code === 'library-held'} fallback={refusal().message}>
+              {message('setup.libraryHeld')}<br />{message('setup.libraryHeldAction')}
+            </Show>
+          </ProductNotice>}</Show>
           <div class="dinkster-actions setup-actions">
             <Show when={setupJobActive(setup.job())} fallback={
               <>
                 <Show when={setup.error() || plan().refusal}><ProductButton disabled={busy()} onClick={() => { setDismissed(undefined); void setup.refresh() }}>{message('setup.retry')}</ProductButton></Show>
-                <Show when={setup.job()?.state !== 'completed'}><ProductButton intent="add" fill="solid" disabled={!setup.canStart() || folderBusy()} onClick={() => { setDismissed(undefined); void setup.start() }}>{message('setup.start')}</ProductButton></Show>
+                <Show when={!plan().refusal && setup.job()?.state !== 'completed'}><ProductButton intent="add" fill="solid" disabled={!setup.canStart() || folderBusy()} onClick={() => { setDismissed(undefined); void setup.start() }}>{message('setup.start')}</ProductButton></Show>
               </>
             }><ProductButton disabled={setup.changing() || setup.job()?.state === 'cancelling'} onClick={() => void setup.cancel()}>{message('setup.cancel')}</ProductButton></Show>
           </div>

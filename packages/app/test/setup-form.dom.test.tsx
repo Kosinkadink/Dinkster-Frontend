@@ -33,11 +33,13 @@ it.each(['projects', 'editor'] as const)('starts the same process-owned job from
   dispose = render(() => <SetupForm surface={surface} />, document.body)
   await vi.advanceTimersByTimeAsync(0)
   expect(document.body.textContent).toContain('NVIDIA graphics card build')
-  expect(document.body.textContent).toContain('At least 2 kB for the runtime')
+  expect(document.body.textContent).toContain('At least 2 kB - 9 kB free')
+  expect(document.body.textContent).not.toContain('Supported graphics card')
   button('Set up').click()
   await vi.advanceTimersByTimeAsync(0)
   expect(fetch.mock.calls.find(([, init]) => init?.method === 'POST')?.[1]?.body).toBe('{"planId":"plan-1"}')
   expect(document.body.textContent).toContain('Setting up Dinkster')
+  expect([...document.querySelectorAll('button')].some((node) => node.textContent === 'Choose another folder')).toBe(false)
   button('Cancel').click()
   await vi.advanceTimersByTimeAsync(0)
   expect(document.body.textContent).toContain('Cancelling and cleaning up')
@@ -57,11 +59,27 @@ it('never presents unknown hardware or downloads as none, and refuses a held lib
   vi.stubGlobal('fetch', fetch)
   dispose = render(() => <SetupForm surface="projects" />, document.body)
   await vi.advanceTimersByTimeAsync(0)
-  expect(document.body.textContent).toContain('Size not available')
-  expect(document.body.textContent).toContain('Stop the other installation')
-  expect(button('Set up').disabled).toBe(true)
-  button('Set up').click()
+  expect(document.body.textContent).not.toContain('Download')
+  expect(document.body.textContent).not.toContain('0 B')
+  expect(document.querySelector('[role="note"]')?.textContent).toBe('Another Dinkster installation is running.Stop it, then check again.')
+  expect(document.querySelector('[role="alert"]')).toBeNull()
+  expect(button('Set up')).toBeUndefined()
+  expect(button('Check again').disabled).toBe(false)
   expect(fetch).toHaveBeenCalledTimes(1)
+})
+
+it.each([
+  ['downloading', 'bytes', 2048, 4096, 'Downloading Dinkster - 2 kB of 4.1 kB'],
+  ['checking-reviewed-inputs', 'items', 3, 12, 'Installing the standard node packs'],
+  ['future-stage', 'bytes', 2048, null, 'Setting up - 2 kB'],
+] as const)('shows plain progress for %s without raw stages or item counts', async (stage, unit, completed, total, expected) => {
+  vi.useFakeTimers()
+  vi.stubGlobal('fetch', async () => answer({ plan, activeJob: { ...job, progress: { stage, unit, completed, total } } }))
+  dispose = render(() => <SetupForm surface="projects" />, document.body)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(document.querySelector('[role="status"]')?.textContent).toContain(expected)
+  expect(document.body.textContent).not.toContain(stage)
+  expect(document.body.textContent).not.toContain('3 of 12')
 })
 
 it('delays the first loading sign and keeps it for the minimum before revealing facts', async () => {

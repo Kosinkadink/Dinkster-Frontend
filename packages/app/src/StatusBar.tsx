@@ -153,7 +153,9 @@ export function StatusBar(props: {
     backendTick()
     return noEngineOpen(props.backend().supervisor.get()) ? 'no-engine' : backendConnectionStatus(props.backend())
   }
-  const connectionWords = () => connection() === 'no-engine' ? message('shell.status.noEngine') : connection()
+  const connectionWords = () => connection() === 'no-engine'
+    ? message(props.backend().supervisor.get()?.installations === 0 ? 'shell.status.notSetUp' : 'shell.status.noEngine')
+    : connection()
   const connectionLabel = () => `${props.backend().label}: ${connectionWords()}`
   const backgroundLabel = () => allTasks().map((task) => `${task.backend}: ${task.text}`).join('; ')
   let footer!: HTMLElement
