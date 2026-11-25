@@ -731,6 +731,7 @@
   .minimap-switch > span { transition-duration: var(--dinkster-motion-reduced); }
 }
 .canvas-zoom-menu { width: 160px; min-width: 0; padding: var(--dinkster-space-4); gap: 2px; }
+.canvas-zoom-menu > button { justify-content: flex-start; gap: var(--dinkster-space-8); }
 /* The zoom row is drawn like a node's number row: minus, the percentage, plus, on the row's field; pressing the number lays a field over it. */
 .canvas-zoom-row > :is(.dinkster-canvas-closed-row, .canvas-zoom-field) { display: flex; align-items: center; height: 28px; font-variant-numeric: tabular-nums; }
 .canvas-zoom-menu .canvas-zoom-row button { width: auto; min-height: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; }

@@ -103,7 +103,7 @@ const corners: readonly CornerExample[] = [
   { id: 'hidden', size: 'large', visible: false, caption: 'Minimap hidden: the same bar, its switch off.' },
   { id: 'settings', size: 'large', visible: true, menu: 'minimap', caption: 'The minimap settings, opened by the arrow beside the minimap switch, straight above the bar and over the dimmed minimap. Link Colors is on by default.' },
   { id: 'quiet', size: 'large', visible: true, switches: { ...defaultSwitches, linkColors: false }, caption: 'Link Colors off: wires in one grey and no title lines.' },
-  { id: 'zoom', size: 'large', visible: true, menu: 'zoom', caption: 'The zoom menu, opened by the percentage, above the bar. Its top row is drawn like a node number row: minus and plus step the zoom and leave the menu open, and pressing the number types one. Reset to 100% closes it.' },
+  { id: 'zoom', size: 'large', visible: true, menu: 'zoom', caption: 'The zoom menu, opened by the percentage, above the bar. Its top row is drawn like a node number row: minus and plus step the zoom and leave the menu open, and pressing the number types one. Zoom in and Zoom out also leave it open; Reset to 100% closes it.' },
 ]
 
 /**
