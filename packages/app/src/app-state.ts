@@ -230,6 +230,7 @@ import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import type { CatalogNode } from './node-catalog.js'
 import { activeProjectId, migrateBrowserProjects, scopedSharedName, scopedStorageKey } from './projects.js'
+import { keepSchemas, keptRegistry, readKeptSchemas } from './kept-schemas.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
@@ -2259,6 +2260,12 @@ interface BackendBase {
   readonly label: string
   readonly baseUrl: string
   readonly registry: Signal<SchemaRegistry | undefined>
+  /**
+   * Built from the node table this browser kept from the backend's last
+   * answer. Only the canvas draws from it, and only until `registry` is held;
+   * nothing that needs the backend reads it.
+   */
+  readonly keptRegistry: Signal<SchemaRegistry | undefined>
   readonly comfyTranslations: Signal<readonly ComfyTranslation[]>
   readonly comfyTranslationsUnavailable: Signal<boolean>
   /** Execution locations advertised by the current native server life. */
@@ -4438,6 +4445,7 @@ export class AppState {
       label,
       baseUrl,
       registry,
+      keptRegistry: createSignal<SchemaRegistry | undefined>(undefined),
       comfyTranslations: createSignal<readonly ComfyTranslation[]>([]),
       comfyTranslationsUnavailable: createSignal(true),
       workerCatalog,
@@ -4548,6 +4556,7 @@ export class AppState {
         base.templatesEnabled.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.guidesAvailable.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.schemaState.subscribe(() => this.backendsTick.update((v) => v + 1)),
+        base.keptRegistry.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.replacementProblems.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.compatSkips.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.supervisor.subscribe(() => this.backendsTick.update((v) => v + 1)),
@@ -4557,8 +4566,10 @@ export class AppState {
     }
     {
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
-      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(),
+      const project = activeProjectId()
+      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project,
         registryStaticUrl: () => this.settings.get<string>('search.registryUrl'),
+        keepSchemas: (payload) => void keepSchemas(baseUrl, project, payload),
       })
       // Epoch-gated registry refresh (schema_changed / composition_complete
       // pings are invalidations, never deltas). Coalesced: one fetch in
@@ -5095,6 +5106,11 @@ export class AppState {
     // whatever registry the (possibly re-resolved) backend holds NOW.
     if (tab.execution) return this.registryForExecution(tab.execution)
     return this.backendForTab(tab).registry.get()
+  }
+
+  /** The kept node table the canvas draws from while `registryForTab` has none. */
+  keptRegistryForTab(tab: Tab): SchemaRegistry | undefined {
+    return tab.execution ? undefined : this.backendForTab(tab).keptRegistry.get()
   }
 
   /** Pane-local widget definitions, independent of the focused shell's world. */
@@ -7783,6 +7799,15 @@ export class AppState {
     this.packLocaleSources.set(localized, source)
     backend.registry.set(localized)
     backend.invalidateRemoteChoices()
+  }
+
+  /** Draw each backend's nodes from its kept node table until the backend answers. */
+  async loadKeptSchemas(): Promise<void> {
+    await Promise.all(this.backends.get().map(async (backend) => {
+      const kept = await readKeptSchemas(backend.baseUrl, activeProjectId())
+      if (kept === undefined || backend.registry.get() !== undefined) return
+      backend.keptRegistry.set(keptRegistry(backend.id, kept))
+    }))
   }
 
   async start(): Promise<void> {

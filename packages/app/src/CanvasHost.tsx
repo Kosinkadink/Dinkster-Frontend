@@ -1560,6 +1560,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const tab = activeTab()
     return tab ? props.app.registryForTab(tab) : props.app.registry.get()
   })
+  // What the scene draws from until the active tab's backend answers.
+  const keptRegistry = createMemo((): ReturnType<AppState['keptRegistryForTab']> => {
+    backendsTick()
+    tabTargets()
+    const tab = activeTab()
+    return tab ? props.app.keptRegistryForTab(tab) : undefined
+  })
   const widgetRegistry = createMemo(() => {
     registry()
     return props.app.widgetRegistryForTab(activeTab())
@@ -3075,7 +3082,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         demand.dispose()
         lookupDemands.delete(client)
       }
-      if (tab === undefined || lookups === undefined) return
+      // Nodes drawn from a kept node table ask nothing until the backend answers.
+      if (tab === undefined || lookups === undefined || props.app.registryForTab(tab) === undefined) return
       const viewport = renderer.getViewport()
       const width = canvasEl.clientWidth
       const height = canvasEl.clientHeight
@@ -3920,7 +3928,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (typeof nodeId !== 'string') return
         const node = m.tab.store.doc.graphs[m.graphId]?.nodes[nodeId]
         if (!node) return
-        const renameRegistry = props.app.registryForTab(m.tab)
+        const renameRegistry = props.app.registryForTab(m.tab) ?? props.app.keptRegistryForTab(m.tab)
         const renameResolve = renameRegistry ? documentResolver(m.tab.store.doc, renameRegistry.resolve) : undefined
         const originalTitle = renameResolve?.(node.type)?.displayName ?? node.type
         setNodePrompt({
@@ -4265,6 +4273,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       docTick() // track document + graph-stack changes
       const focusRequest = diagnosticFocus()
       const reg = registry()
+      const shown = reg ?? keptRegistry()
       const tab = activeTab()
       if (!tab) return
       const doc = tab.store.doc
@@ -4302,7 +4311,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const canReuseScene = previousBuild !== undefined &&
         previousBuild.key === key &&
         previousBuild.pathKey === pathKey &&
-        previousBuild.registry === reg &&
+        previousBuild.registry === shown &&
         previousBuild.extensionsGeneration === extensionsGeneration &&
         previousBuild.extensionRevision === currentExtensionRevision &&
         previousBuild.seedControllerEnabled === seedControllerEnabled &&
@@ -4310,7 +4319,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         previousBuild.lookups === lookups &&
         previousBuild.lookupGeneration === lookupGeneration
       const valuesUpdated = canReuseScene && path.length === 0
-        ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => reg?.resolve(type), lookupAnswers)
+        ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => shown?.resolve(type), lookupAnswers)
         : undefined
       const canReusePositions = canReuseScene &&
         previousBuild.graphNodes.size === graphNodes.size &&
@@ -4320,7 +4329,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         : undefined
       const built = valuesUpdated ?? repositioned ?? (() => {
         props.app.extensionRevision.get()
-        const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? reg?.resolve(type))
+        const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? shown?.resolve(type))
         const occurrenceView = occurrenceDynamicView(doc, resolve, path, path.length === 0 ? graphId : doc.root)
         const valueRegistry = widgetRegistry()
         return buildScene({
@@ -4364,7 +4373,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         graphNodes,
         key,
         pathKey,
-        registry: reg,
+        registry: shown,
         extensionsGeneration,
         extensionRevision: currentExtensionRevision,
         seedControllerEnabled,

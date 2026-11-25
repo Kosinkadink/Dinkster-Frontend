@@ -733,6 +733,8 @@ export interface DinksterConnectionConfig extends CollabCredentials {
   readonly clientId: string
   /** Immutable window project; folder preferences never change global priorities. */
   readonly project?: string
+  /** Receives each committed /api/nodes body once the backend has finished composing it. */
+  readonly keepSchemas?: (payload: DinksterNodesPayload) => void
   /** WS endpoint override; defaults to baseUrl with ws(s) scheme + /api/events. */
   readonly wsUrl?: string
   readonly fetchFn?: FetchLike
@@ -1901,6 +1903,7 @@ export class DinksterConnection {
   private readonly baseUrl: string
   private readonly clientId: string
   private readonly project: string | undefined
+  private readonly keepSchemas: ((payload: DinksterNodesPayload) => void) | undefined
   private readonly fetchFn: FetchLike
   private readonly registryFetchFn: FetchLike
   private readonly registryStaticUrl: () => string
@@ -1951,6 +1954,7 @@ export class DinksterConnection {
     this.baseUrl = config.baseUrl
     this.clientId = config.clientId
     this.project = config.project
+    this.keepSchemas = config.keepSchemas
     const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
     this.registryFetchFn = fetchFn
     this.registryStaticUrl = config.registryStaticUrl ?? (() => '')
@@ -2187,6 +2191,7 @@ export class DinksterConnection {
     if (generation === this.schemaRequestGeneration) {
       this.registry = registry
       if (extensionSnapshotPair) this.extensionSnapshots.set(extensionSnapshotPair.digest, extensionSnapshotPair.snapshot)
+      if (payload.composing !== true) this.keepSchemas?.(payload)
     }
     return registry
   }

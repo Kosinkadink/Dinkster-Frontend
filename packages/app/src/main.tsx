@@ -111,6 +111,9 @@ async function bootstrap(): Promise<void> {
     ? { context: await desktop.windowContext(), layout: await desktop.windowLayout() }
     : undefined
   for (const line of desktopLogs.slice(-500)) app.recordHostLog('info', 'Local engine', line)
+  // Restored tabs draw from the kept node tables on their first frame. The
+  // browser store is a cache, so a slow one only costs that, never startup.
+  await Promise.race([app.loadKeptSchemas(), new Promise((resolve) => setTimeout(resolve, 1000))])
   const started = app.start()
 
   if (import.meta.env.MODE === 'test') {
