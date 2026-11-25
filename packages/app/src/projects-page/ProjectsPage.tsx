@@ -468,7 +468,7 @@ export function ProjectsView(props: {
                         },
                       },
                       // The default project cannot be deleted, so it has no Delete.
-                      ...(project.id === DEFAULT_PROJECT_ID
+                      ...(!OFFER_DELETE || project.id === DEFAULT_PROJECT_ID
                         ? []
                         : [
                             'separator' as const,
@@ -793,6 +793,13 @@ export function ProjectsView(props: {
     </ProductProjectsView>
   )
 }
+
+/**
+ * Deleting a project today only hides it: its workflows can never be opened
+ * again and nothing is freed on disk. The menu offers Rename only until what
+ * Delete should do is decided; the dialog stays built behind this switch.
+ */
+const OFFER_DELETE = false
 
 const ENGINE_WORDS: Record<EngineState, string> = {
   stopped: 'shell.engine.notRunning',

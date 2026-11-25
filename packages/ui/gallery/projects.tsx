@@ -990,7 +990,7 @@ export function ProjectsGallery() {
           onDismiss={() => setDialog(undefined)}
         >
           <ProductConfirmation
-            consequence="The project is removed from this list. Its workflows and output files are kept on disk."
+            consequence="Not final: what deleting a project keeps is still being decided."
             actionLabel="Delete project"
             intent="remove"
             onConfirm={() => {

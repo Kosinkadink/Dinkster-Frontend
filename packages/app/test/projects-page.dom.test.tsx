@@ -145,14 +145,14 @@ const button = (label: string) => [...document.querySelectorAll('button')].find(
 const menuItem = (label: string) =>
   [...document.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === label) as HTMLElement | undefined
 
-it('renames and deletes the selected project at the revision it read, and never offers to delete the default', async () => {
+it('renames the selected project at the revision it read, and offers no Delete while deleting would lose its workflows', async () => {
   vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
-  const data = source([...projects, project('default', 'Default', hoursAgo(24 * 60))])
+  const data = source(projects)
   const renamed = vi.spyOn(data, 'renameProject')
-  const deleted = vi.spyOn(data, 'deleteProject')
   render(() => <ProjectsView shell={shell()} source={data} />, document.body)
   await settle()
   document.querySelector<HTMLButtonElement>('[aria-label="Project actions"]')!.click()
+  expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(['Rename'])
   menuItem('Rename')!.click()
   await settle()
   const input = document.querySelector<HTMLInputElement>('dialog input')!
@@ -162,20 +162,6 @@ it('renames and deletes the selected project at the revision it read, and never 
   await settle()
   expect(renamed).toHaveBeenCalledWith(expect.objectContaining({ id: 'p-film', revision: 1 }), 'Film grain')
   expect(rows()).toContain('Film grain' + 'Ran 2 hours ago')
-  // The renamed record (revision 2) is the one a delete must send.
-  document.querySelector<HTMLButtonElement>('[aria-label="Project actions"]')!.click()
-  menuItem('Delete')!.click()
-  await settle()
-  button('Delete project')!.click()
-  await settle()
-  expect(deleted).toHaveBeenCalledWith(expect.objectContaining({ id: 'p-film', revision: 2 }))
-  expect(rows().some((row) => row?.startsWith('Film'))).toBe(false)
-  ;[...document.querySelectorAll('[role="option"]')].find((row) => row.textContent?.startsWith('Default'))!
-    .dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await settle()
-  document.querySelector<HTMLButtonElement>('[aria-label="Project actions"]')!.click()
-  expect(menuItem('Rename')).not.toBeUndefined()
-  expect(menuItem('Delete')).toBeUndefined()
 })
 
 it('does not open a project when there is no installation to run it on', async () => {
