@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeTest, test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_SEARCH_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -25,12 +25,23 @@ test('opens universal search and runs a command', async ({ page }) => {
   await expect(page.getByTestId('modal-surface')).toHaveAttribute('data-modal', 'settings')
 })
 
-test('Ctrl+K opens from the canvas but remains suppressed while typing', async ({ page }) => {
+nativeTest('Ctrl+K opens from the canvas but remains suppressed while typing', async ({ page }) => {
   await page.goto('/')
   await page.getByTestId('graph-canvas').focus()
   await page.keyboard.press('Control+K')
   await expect(page.getByTestId('universal-search-input')).toBeFocused()
   await page.keyboard.press('Escape')
+  await expect(page.getByTestId('universal-search-input')).toHaveCount(0)
+
+  await page.getByTestId('graph-canvas').focus()
+  await page.keyboard.press('Control+K')
+  await page.getByTestId('universal-search-input').fill('image helpers')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('universal-search-input')).toHaveCount(0)
+  await page.getByTestId('library-toggle').click()
+  await expect(page.getByTestId('library-overlay')).toBeVisible()
+  await page.getByTestId('library-toggle').click()
+  await expect(page.getByTestId('library-overlay')).toHaveCount(0)
 
   await page.getByTestId('settings-button').click()
   const settingsSearch = page.locator('.settings-search')

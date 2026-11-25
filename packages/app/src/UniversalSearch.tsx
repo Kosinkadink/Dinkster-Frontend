@@ -297,6 +297,7 @@ export function UniversalSearch(props: { app: AppState }) {
           label={message('command.search.open')}
           placeholder={message('command.search.open')}
           query={query()}
+          onClose={() => props.app.searchOpen.set(false)}
           onQuery={(text) => {
             if (props.app.searchRegistry.list().some((provider) => provider.prefix === text.charAt(0))) setKind('all')
             setQuery(text)
