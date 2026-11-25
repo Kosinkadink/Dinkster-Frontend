@@ -29,6 +29,7 @@
       "canvas": "#0E1414",
       "surface": "#141C1D",
       "raised": "#1E292A",
+      "quiet": "#192223",
       "hover": "#283537"
     },
     "border": {
@@ -64,6 +65,7 @@
       "canvas": "#F7F8FA",
       "surface": "#FFFFFF",
       "raised": "#EDEFF2",
+      "quiet": "#F6F7F9",
       "hover": "#E4E8EC"
     },
     "border": {

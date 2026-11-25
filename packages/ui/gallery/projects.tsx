@@ -571,43 +571,47 @@ export function ProjectsGallery() {
       </Show>
       <ProductProjectFacts
         label="About this project"
-        items={[
-          {
-            label: 'Files',
-            value: project().path,
-            action: (
-              <ProductTextButton
-                label="Show in folder"
-                onClick={() => setActivity('Shown in folder')}
-              />
-            ),
-          },
-          {
-            label: 'Packs',
-            value: project().packs,
-            action: (
-              <ProductTextButton
-                label="Manage"
-                onClick={() => setActivity('Packs opened')}
-              />
-            ),
-          },
-          {
-            label: 'Runs on',
-            value: project().runsOn,
-            detail: 'this computer',
-            action: (
-              <ProductTextButton
-                label="Change"
-                onClick={() => setActivity('Change installation')}
-              />
-            ),
-          },
-          {
-            label: 'Size',
-            value: project().size,
-            detail: project().outputCount,
-          },
+        columns={[
+          [
+            {
+              label: 'Files',
+              value: project().path,
+              action: (
+                <ProductTextButton
+                  label="Show in folder"
+                  onClick={() => setActivity('Shown in folder')}
+                />
+              ),
+            },
+            {
+              label: 'Runs on',
+              value: project().runsOn,
+              detail: 'this computer',
+              action: (
+                <ProductTextButton
+                  label="Change"
+                  onClick={() => setActivity('Change installation')}
+                />
+              ),
+            },
+          ],
+          [
+            {
+              label: 'Packs',
+              value: project().packs,
+              action: (
+                <ProductTextButton
+                  label="Manage"
+                  onClick={() => setActivity('Packs opened')}
+                />
+              ),
+            },
+            {
+              label: 'Size',
+              value: project().size,
+              detail: project().outputCount,
+            },
+          ],
         ]}
       />
       <ProductProjectSection

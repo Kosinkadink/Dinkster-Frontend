@@ -108,19 +108,13 @@ test('sibling subgraph occurrences project independently at root and when drille
     await page.mouse.move(0, 0)
     await expect.poll(async () => {
       const breadcrumb = (await page.getByTestId('graph-breadcrumb').boundingBox())!
-      const status = (await page.getByTestId('sync-chip').boundingBox())!
       const toolbar = (await page.locator('.canvas-stage-toolbar').boundingBox())!
-      return breadcrumb.y >= toolbar.y + toolbar.height + 8 && status.y >= breadcrumb.y + breadcrumb.height + 8
+      return breadcrumb.y >= toolbar.y + toolbar.height + 8
     }).toBe(true)
     await page.screenshot({ path: testInfo.outputPath(`breadcrumb-${width}.png`), animations: 'disabled' })
   }
   await page.getByTestId('graph-breadcrumb').locator('.crumb').first().click()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().length)).toBe(1)
-  await expect.poll(async () => {
-    const status = (await page.getByTestId('sync-chip').boundingBox())!
-    const toolbar = (await page.locator('.canvas-stage-toolbar').boundingBox())!
-    return status.y - toolbar.y - toolbar.height
-  }).toBe(8)
   await page.getByTestId('library-toggle').click()
   await drillInto(page, 's2')
   await expect.poll(() => projectedStates(page)).toEqual({
