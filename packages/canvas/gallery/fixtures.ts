@@ -815,6 +815,21 @@ export function createCanvasGalleryFixture(
     const width = widget('width', 'INT', 512, { min: 16, max: 8192 })
     const height = widget('height', 'INT', 768, { min: 16, max: 8192 })
     const note = (text: string): NodeSchema['body'][number] => ({ kind: 'note', id: 'result', text })
+    const accessFields = [
+      width,
+      widget('strength', 'FLOAT', 0.65, { min: 0, max: 1, display: 'slider' }),
+      widget('enabled', 'BOOLEAN', true),
+      widget('color', 'INT', 0x31e6c5, { display: 'color' }),
+    ]
+    for (const [label, access] of [
+      ['Ordinary fields', {}],
+      ['Read-only fields', { readOnly: true }],
+      ['Disabled fields', { disabled: true, disabledReason: 'Preset controls these fields' }],
+      ['Read-only and disabled fields', { readOnly: true, disabled: true, disabledReason: 'Preset controls these fields' }],
+    ] as const) {
+      add(label, schema('Field access', accessFields.map((field) => ({ ...field, ...access }))))
+    }
+    add('Read-only fields, narrow', schema('Field access', accessFields.map((field) => ({ ...field, readOnly: true }))), {}, undefined, false, { width: 180 })
     add('Known note', schema('Resize image', [width, note('Result: 512 x 768, 1 image'), height]))
     add('Unknown note, supplied text', schema('Resize image', [width, {
       kind: 'note', id: 'result', text: { formula: 'missing_result' }, unknown: 'Result is not known yet',

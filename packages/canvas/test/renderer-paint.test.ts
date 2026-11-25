@@ -1226,6 +1226,27 @@ const nodeBorder = (calls: PaintCall[], node: SceneNode): PaintCall | undefined 
 const ERR = defaultTokens.colors.error
 
 describe('diagnostic paint on the live renderer', () => {
+  it.each([false, true])('dims a disabled field once with its problem outline at full strength (read-only %s)', (readOnly) => {
+    const base = nodeOf(fixtureScene('clean'), 'c1')
+    const node: SceneNode = { ...base, node: { ...base.node, values: { radius: 12 } }, layout: {
+      ...base.layout, width: 280, pins: [], rows: [{
+        kind: 'widget', y: base.layout.headerHeight, height: 24, inset: 10, inputId: 'radius', valueKey: 'radius',
+        address: { port: 'radius' }, label: 'Radius', type: typed('INT'), viewId: 'core.number', rows: 1,
+        spec: { widgetType: 'INT', options: {}, default: 12 }, disabled: true, inactive: true, ghost: true,
+        ...(readOnly ? { readOnly: true } : {}),
+      }],
+    } }
+    const calls = paintWith(emptyScene({ nodes: [node] }), (renderer) => {
+      renderer.setCompanions({ [node.id]: { radius: { value: 24 } } })
+      renderer.setRowMarks({ [node.id]: { radius: 'error' } })
+    })
+    expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Radius')?.globalAlpha)
+      .toBe(canvasPaintTokens.widget.inactiveOpacity)
+    expect(calls.find((call) => call.method === 'fillText' && call.args[0] === '24')?.globalAlpha)
+      .toBe(canvasPaintTokens.widget.inactiveOpacity)
+    expect(calls.some((call) => call.method === 'stroke' && call.strokeStyle === defaultTokens.colors.error && call.globalAlpha === 1)).toBe(true)
+  })
+
   it('a mismatch noodle strokes in error red; a healthy one keeps its type color', () => {
     const scene = fixtureScene()
     expect(scene.links.find((l) => l.id === 'bad')!.mismatch).toBe(true)

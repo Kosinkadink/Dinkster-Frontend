@@ -520,6 +520,7 @@ export const canvasPaintTokens = {
     opener: { iconSize: 12, iconInset: 6, trailingInset: 8, iconReserve: 20, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
     /** The subgraph icon before the name of a field shown on the subgraph node without a wire; `size` is drawn. */
     subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
+    readOnlyMark: { size: 14, gap: canvasSemanticTokens.space[4] },
     /**
      * A folded curve in the raised look: a square of its plot at the row's
      * start, `inset` inside the row and as tall as the row allows, `gap`

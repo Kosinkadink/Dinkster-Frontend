@@ -178,7 +178,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'core-rows':
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
   'declaration-rows':
-    'Declaration notes keep one quiet line, including unknown and empty text. Long and multiline text ellipsizes without stretching the row. Shared lines divide the visible fields, worded buttons and notes equally with a 4 px gap.',
+    'Read-only fields keep their contrast and show a lock; disabled fields are quiet without active fills. Both keep the lock. Declaration notes keep one quiet line, including unknown and empty text. Long and multiline text ellipsizes without stretching the row. Shared lines divide the visible fields, worded buttons and notes equally with a 4 px gap.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
   'row-automatic':

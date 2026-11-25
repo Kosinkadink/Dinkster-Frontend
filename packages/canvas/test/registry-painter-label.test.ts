@@ -346,6 +346,20 @@ describe('registry painter label/value split', () => {
     expect(painted.transforms[at + 1]).toEqual({ method: 'scale', x: 14 / 24, y: 14 / 24 })
   })
 
+  it('keeps the lock and promoted mark separate before a read-only field name', () => {
+    const painted = fakeCtx()
+    const row = { ...rowWith(5), label: 'Radius', readOnly: true as const, subgraphMark: { item: 'radius', label: 'Radius' } }
+    createRegistryPainter(registry)({
+      ctx: painted.ctx, row, value: 5, x: 10, y: 20, width: 200, rowHeight: 24, connected: false, tokens: defaultTokens,
+    })
+    const icons = painted.transforms.filter((call) => call.method === 'translate')
+    const name = painted.textCalls.find((call) => call.text === 'Radius')!
+    expect(icons).toHaveLength(2)
+    expect(icons[1]!.x - icons[0]!.x).toBe(18)
+    expect(name.x - icons[1]!.x).toBe(18)
+    expect(painted.texts).toContain('5')
+  })
+
   it('paints an empty multiline placeholder in muted italic type', () => {
     const painted = paintMultilineDetails(76, 160, '')
     const placeholder = painted.textCalls.find((call) => call.text === 'text' && call.y > 24)!
