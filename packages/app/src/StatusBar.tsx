@@ -181,7 +181,7 @@ export function StatusBar(props: {
         <Show when={props.transient()}>{(value) => <span class="transient-status">{value()}</span>}</Show>
         <ProductButton variant="ghost" size="compact" class="status-item status-connection" data-testid="status-connection"
           data-state={connection()} aria-label={connectionLabel()} data-tooltip-label={connectionLabel()} onClick={() => props.openPanel('backends')}>
-          <span class="status-connection-dot" aria-hidden="true" /><span class="status-connection-name">{props.backend().label}</span>
+          <span class="status-connection-dot" aria-hidden="true" /><span class="status-connection-name">{props.backend().label}{connection() === 'no-engine' ? ':' : ''}</span>
           <Show when={connection() !== 'connected'}><span>{connectionWords()}</span></Show>
         </ProductButton>
         <Show when={workflowTab()}>

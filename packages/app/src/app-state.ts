@@ -2313,8 +2313,6 @@ interface BackendBase {
    * a connection-failure render (supervisor Ask 1).
    */
   readonly supervisor: Signal<SupervisorStatus | undefined>
-  /** Why the supervisor refused the last start or restart, until the engine state changes. */
-  readonly engineRefusal: Signal<string | undefined>
   /**
    * Engine-level composition narration from /api/events
    * (composition_progress; cleared by composition_complete). Covers the
@@ -4445,7 +4443,6 @@ export class AppState {
       scopedClient,
       invalidateRemoteChoices,
       supervisor: createSignal<SupervisorStatus | undefined>(undefined),
-      engineRefusal: createSignal<string | undefined>(undefined),
       composition: createSignal<SupervisorProgress | undefined>(undefined),
     }
     // Shared wiring: events into the ONE store; every (re)connect reconciles
@@ -4541,7 +4538,6 @@ export class AppState {
         base.replacementProblems.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.compatSkips.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.supervisor.subscribe(() => this.backendsTick.update((v) => v + 1)),
-        base.engineRefusal.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.composition.subscribe(() => this.backendsTick.update((v) => v + 1)),
       ]
       return () => unsubs.forEach((u) => u())
@@ -8221,10 +8217,7 @@ export class AppState {
       probe: () => probeSupervisorStatus(backend.baseUrl, globalThis.fetch),
       connected: () => backend.connection.status.get() === 'connected',
       get: () => backend.supervisor.get(),
-      set: (status) => {
-        if (status?.state !== backend.supervisor.get()?.state) backend.engineRefusal.set(undefined)
-        backend.supervisor.set(status)
-      },
+      set: (status) => backend.supervisor.set(status),
       onReady: () => {
         // The 503 gate may have rejected the startup schema fetch; the
         // engine answering healthy is the moment to try again.
@@ -8249,7 +8242,6 @@ export class AppState {
     // prevents the retired request from cancelling or polling the new backend.
     if (!this.backends.get().includes(backend)) return
     if (!result.ok) {
-      backend.engineRefusal.set(result.error)
       this.log('error', backend.label, `engine restart failed: ${result.error}`)
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         diag('error', 'runtime', 'supervisor.restartFailed', `[${backend.label}] engine restart failed: ${result.error}`),

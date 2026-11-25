@@ -7,7 +7,7 @@ import { createEffect, createMemo, createSignal as createSolidSignal, For, Index
 import { BrandMark } from './BrandMark.js'
 import { StatusBar } from './StatusBar.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
-import { noEngineOpen, type DinksterValuesClient, type ExecutionState, type SupervisorStatus } from '@dinkster/client'
+import { noEngineOpen, type DinksterValuesClient, type ExecutionState } from '@dinkster/client'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Database from 'lucide-solid/icons/database'
 import FolderOpen from 'lucide-solid/icons/folder-open'
@@ -1180,13 +1180,6 @@ export function App(props: {
   const engineGate = () => {
     const sup = supervisorOf(activeBackend())
     return sup && sup.state !== 'ready' ? sup : undefined
-  }
-  /** No installation on this machine: there is no engine to start. */
-  const engineNotSetUp = (sup: SupervisorStatus) => noEngineOpen(sup) && sup.installations === 0
-  /** A refused start or restart explains itself before any supervisor detail. */
-  const engineBannerDetail = (sup: SupervisorStatus) => {
-    backendsTick()
-    return activeBackend().engineRefusal.get() ?? sup.detail
   }
 
   // The backend the ACTIVE tab works against (frozen: its execution's;
@@ -2968,21 +2961,19 @@ export function App(props: {
               <span class="engine-spinner" />
             </Show>
             <span class="engine-banner-text">
-              {engineNotSetUp(sup())
-                ? message('shell.engine.notSetUp')
-                : sup().state === 'starting'
-                  ? message('shell.engine.starting')
-                  : sup().state === 'failed'
-                    ? message('shell.engine.failed')
-                    : message('shell.engine.stopped')}
-              <Show when={engineBannerDetail(sup())}>{(detail) => ` - ${detail()}`}</Show>
+              {sup().state === 'starting'
+                ? message('shell.engine.starting')
+                : sup().state === 'failed'
+                  ? message('shell.engine.failed')
+                  : message('shell.engine.stopped')}
+              {sup().detail ? ` - ${sup().detail}` : ''}
             </span>
-            <Show when={(sup().state === 'failed' || sup().state === 'stopped') && !engineNotSetUp(sup())}>
+            <Show when={sup().state === 'failed' || sup().state === 'stopped'}>
               <ProductButton size="compact"
                 data-testid="engine-restart"
                 onClick={() => void app.restartEngine(activeBackend())}
               >
-                {message(noEngineOpen(sup()) ? 'shell.engine.start' : 'shell.engine.restart')}
+                {message('shell.engine.restart')}
               </ProductButton>
             </Show>
           </div>
