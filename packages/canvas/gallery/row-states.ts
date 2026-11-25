@@ -1,10 +1,13 @@
 import {
+  decodeStep,
   defaultValuesOf,
   loadDocument,
+  type AskRequest,
   type InputSpec,
   type Json,
   type NodeProgress,
   type NodeSchema,
+  type Step,
   type TypeExpr,
   type WidgetRepresentationsSpec,
 } from '@dinkster/core'
@@ -178,6 +181,7 @@ export interface RowStateExample {
   readonly focus?: { readonly button: string; readonly help?: string }
   readonly result?: { readonly button: string; readonly tone: 'info' | 'warn'; readonly message: string }
   readonly pick?: { readonly button: string; readonly state: 'ready' | 'empty' | 'failed' }
+  readonly ask?: { readonly button: string; readonly request: AskRequest }
 }
 
 /** The canvas examples of the page, by section, in the order it shows them. */
@@ -365,6 +369,20 @@ export function rowStateExamples(
         : { pick: { button: 'prepare', state } }),
     })),
   )
+  const askStep = { step: 'ask', title: 'Fill', rows: [
+    { id: 'start', type: { kind: 'concrete', types: ['FLOAT'] }, required: true, default: 0 },
+    { id: 'end', type: { kind: 'concrete', types: ['FLOAT'] }, required: true, default: 1 },
+    { id: 'count', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 5, widget: { type: 'NUMBER', min: 1 } },
+  ] } as const
+  const askRows = (decodeStep(askStep) as Extract<Step, { step: 'ask' }>).rows
+  buttons.push({
+    id: 'button-ask',
+    caption: 'Ask uses the existing side part. Start, end and count are ordinary fields; Cancel discards the answer and Apply returns it to the Button.',
+    scene: sceneOf([{ id: 'floats', schema: schema('Float list', [
+      { kind: 'button', id: 'fill', label: 'Fill', steps: [askStep] },
+    ]), x: 0, y: 0 }], [], tokens, measure, widgetMeasure),
+    ask: { button: 'fill', request: { target: { graphId: 'root', nodeId: 'floats' }, title: 'Fill', rows: askRows } },
+  })
   return { nothing, promoted, buttons }
 }
 

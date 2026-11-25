@@ -740,8 +740,12 @@ async function openMixed(page: Page, buttons = false, hostDisabled?: 'unknown' |
         ...(buttons ? [{ kind: 'button', id: 'ask', label: 'Choose pass', steps: [
           { step: 'ask', title: 'Choose pass settings', rows: [
             { id: 'enabled_pass', type: { kind: 'concrete', types: ['BOOLEAN'] }, required: true, default: true },
+            { id: 'start', type: { kind: 'concrete', types: ['FLOAT'] }, required: true, default: 0 },
+            { id: 'end', type: { kind: 'concrete', types: ['FLOAT'] }, required: true, default: 1 },
+            { id: 'count', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 5, widget: { type: 'NUMBER', min: 1 } },
           ] },
           { step: 'set', field: 'enabled', value: { formula: 'enabled_pass' } },
+          { step: 'set', field: 'steps', value: { formula: 'count' } },
         ] }] : []),
         ...(hostDisabled === 'unknown' ? [
           widget('incoming', 'INT', 7),
@@ -801,15 +805,42 @@ test('a keyboard-started Ask Button gives its form the keyboard and applies one 
   await page.keyboard.press(' ')
   await expect(page.getByTestId('button-ask-enabled_pass')).toHaveAttribute('aria-pressed', 'false')
   await page.keyboard.press('Tab')
+  await expect(page.getByTestId('button-ask-start')).toBeFocused()
+  await expect(page.getByTestId('button-ask-start')).toHaveText('start0.0')
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('button-ask-end')).toBeFocused()
+  await expect(page.getByTestId('button-ask-end')).toHaveText('end1.0')
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('button-ask-count')).toBeFocused()
+  await page.getByRole('button', { name: 'Increase count', exact: true }).click()
+  await expect(page.getByTestId('button-ask-count')).toHaveText('count6')
+  expect(await value(page, 'steps')).toBe(20)
+  expect(await value(page, 'enabled')).toBe(true)
+  await page.keyboard.press('Tab')
   await expect(page.getByTestId('button-ask-cancel')).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(page.getByTestId('button-ask-apply')).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('button-ask-form')).toHaveCount(0)
   await expect.poll(() => value(page, 'enabled')).toBe(false)
+  await expect.poll(() => value(page, 'steps')).toBe(6)
   await page.getByTestId('graph-canvas').focus()
   await page.keyboard.press('Control+z')
   await expect.poll(() => value(page, 'enabled')).toBe(true)
+  await expect.poll(() => value(page, 'steps')).toBe(20)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.canUndo)).toBe(false)
+  await page.mouse.click(steps.x, steps.y)
+  await page.keyboard.press('Shift+Tab')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('button-ask-enabled_pass')).toBeFocused()
+  await page.keyboard.press(' ')
+  await page.getByRole('button', { name: 'Increase count', exact: true }).click()
+  await expect(page.getByTestId('button-ask-count')).toHaveText('count6')
+  await page.getByTestId('button-ask-cancel').click()
+  await expect(page.getByTestId('button-ask-form')).toHaveCount(0)
+  expect(await value(page, 'enabled')).toBe(true)
+  expect(await value(page, 'steps')).toBe(20)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.canUndo)).toBe(false)
 })
 
 test('a failed Button keeps its warning until the next press and success is one undo step', async ({ page }, testInfo) => {

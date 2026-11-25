@@ -436,9 +436,6 @@
 /* An Ask step's form: the side part of its button's row, above the boxes and below the row editor it opens. */
 .palette-layer.button-ask-layer { z-index: 25; }
 .button-ask-frame .dinkster-canvas-field-side { pointer-events: auto; }
-.button-ask-form { width: calc(var(--dinkster-space-32) * 7); }
-.button-ask-title { margin: 0 0 var(--dinkster-space-4); }
-.button-ask-missing { margin: var(--dinkster-space-4) 0 0; color: var(--dinkster-text-secondary); }
 
 
 .node-editor-space-overlay {
