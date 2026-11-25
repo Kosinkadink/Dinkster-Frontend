@@ -35,7 +35,7 @@ export interface SaveTargetDraft {
 export function saveTargetDraft(input: SaveTargetDraftInput): SaveTargetDraft {
   const prefixUsable = isProjectDefaultTarget({ prefix: input.prefix })
   const mountGone = input.mount !== null && input.ready !== undefined && !input.ready.includes(input.mount)
-  const mountUsable = input.mount === null || input.ready?.includes(input.mount) === true
+  const mountUsable = input.ready !== undefined && (input.mount === null || input.ready.includes(input.mount))
   const value: Json | undefined = !mountUsable || !prefixUsable
     ? undefined
     : input.mount === null ? { prefix: input.prefix } : { mount: input.mount, prefix: input.prefix }

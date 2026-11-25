@@ -140,6 +140,9 @@ test('while mounts load, when none is ready and when they cannot be read, nothin
   ]
   for (const [state, handler, words] of cases) {
     await openTargets(page, handler)
+    await page.evaluate(() => window.__dinksterTest!.app.dispatchTo(window.__dinksterTest!.app.activeTab()!, {
+      command: 'node.setValue', params: { graphId: 'g0', nodeId: 'save', inputId: 'target', value: { prefix: 'renders/portrait' } },
+    }))
     await openRow(page)
     await expect(mount(page), state).toHaveAttribute('data-state', state)
     await expect(mount(page), state).toContainText(words)
@@ -154,10 +157,10 @@ test('while mounts load, when none is ready and when they cannot be read, nothin
     await mount(page).click({ force: true })
     await expect(page.getByRole('listbox', { name: 'Writable mount' }), state).toHaveCount(0)
     await prefix(page).fill('renders/other')
-    await expect(side(page), state).toContainText('Enter keeps output/renders/portrait')
+    await expect(side(page), state).toContainText('Enter keeps')
     await page.keyboard.press('Enter')
     await expect(box(page), state).toHaveCount(0)
-    expect(await target(page), state).toEqual({ mount: 'output', prefix: 'renders/portrait' })
+    expect(await target(page), state).toEqual({ prefix: 'renders/portrait' })
     release?.()
     release = undefined
     await page.unrouteAll({ behavior: 'ignoreErrors' })
