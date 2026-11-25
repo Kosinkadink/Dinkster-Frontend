@@ -136,6 +136,13 @@ export interface CompileArtifact {
    * is compared with the value recorded for that node.
    */
   readonly automaticTaps?: readonly AutomaticTap[]
+  /**
+   * The lookup call the editor worked out for each automatic field it left
+   * for the engine, so a run that records another value marks that call old.
+   * It depends on the answers this window holds, so the projection other
+   * windows compare against leaves it out; each window keeps its own.
+   */
+  readonly automaticCalls?: readonly AutomaticCall[]
   /** Warnings produced during a successful compile. */
   readonly diagnostics: readonly Diagnostic[]
 }
@@ -153,6 +160,15 @@ export interface AutomaticTap {
   /** The runtime node that got the value, and its name. */
   readonly receiverRuntimeId: string
   readonly receiver: string
+}
+
+/** A lookup-backed automatic field left for the engine, and the call the editor made for it. */
+export interface AutomaticCall {
+  /** The runtime node that owns the field, as the run records a node outside region bodies. */
+  readonly runtimeNodeId: string
+  readonly inputId: string
+  readonly lookup: string
+  readonly args: readonly Json[]
 }
 
 export interface WorkspaceProvenance {

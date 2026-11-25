@@ -129,6 +129,8 @@ export interface SemanticDesignTokens {
     readonly hoverOverlay: string
     readonly pressedOverlay: string
     readonly selectedOverlay: string
+    /** The active workflow tab's translucent tint at its top, fading into the canvas below. */
+    readonly activeTabTint: string
     readonly disabledOpacity: number
     readonly unfocusedOpacity: number
   }
@@ -215,6 +217,7 @@ export const semanticTokensForTheme = (
       hoverOverlay: colors.bg.hover,
       pressedOverlay: colors.bg.raised,
       selectedOverlay: colors.bg.hover,
+      activeTabTint: colors.bg.activeTabTint,
     },
     motion: components.motion,
     elevation: components.elevation,
@@ -399,6 +402,8 @@ export const semanticCssVariablesForTheme = (
       semanticDesignTokens.interaction.pressedOverlay,
     '--dinkster-interaction-selected':
       semanticDesignTokens.interaction.selectedOverlay,
+    '--dinkster-interaction-active-tab-tint':
+      semanticDesignTokens.interaction.activeTabTint,
     '--dinkster-interaction-disabled-opacity': String(
       semanticDesignTokens.interaction.disabledOpacity,
     ),
