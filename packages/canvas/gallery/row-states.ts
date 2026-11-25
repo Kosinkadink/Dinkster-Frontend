@@ -1,7 +1,10 @@
 import {
+  asNodeId,
   decodeStep,
   defaultValuesOf,
+  documentResolver,
   loadDocument,
+  occurrenceDynamicView,
   type AskRequest,
   type InputSpec,
   type Json,
@@ -171,6 +174,52 @@ function sceneOf(
   })
 }
 
+function promotedOccurrenceScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  inside: boolean,
+): Scene {
+  const document = loadDocument({
+    format: 'dinkster-workflow', formatVersion: 1,
+    lineage: 'gallery-promoted-occurrences', root: 'root',
+    graphs: {
+      root: {
+        id: 'root', name: 'Instances', nextOrdinal: 3,
+        nodes: {
+          first: { id: 'first', type: '#outer', title: 'Soften 12', values: { radius: 12 } },
+          second: { id: 'second', type: '#outer', title: 'Soften 24', values: { radius: 24 } },
+        }, links: {}, nets: {}, reroutes: {},
+      },
+      outer: {
+        id: 'outer', name: 'Soften', nextOrdinal: 2,
+        nodes: { nested: { id: 'nested', type: '#inner', values: { innerRadius: 6 } } },
+        links: {}, nets: {}, reroutes: {},
+        boundary: { inputs: [{ id: 'radius', binds: { kind: 'port', node: 'nested', port: 'innerRadius' }, promoted: true, wireHidden: true }], outputs: [] },
+      },
+      inner: {
+        id: 'inner', name: 'Inner soften', nextOrdinal: 2,
+        nodes: { soften: { id: 'soften', type: soften.type, values: { radius: 7, mix: 0.65 } } },
+        links: {}, nets: {}, reroutes: {},
+        boundary: { inputs: [{ id: 'innerRadius', displayName: 'Inner radius', binds: { kind: 'port', node: 'soften', port: 'radius' }, promoted: true, wireHidden: true }], outputs: [] },
+      },
+    },
+    view: { graphs: {
+      root: { nodes: { first: { position: { x: 0, y: 0 } }, second: { position: { x: 280, y: 0 } } } },
+      outer: { nodes: { nested: { position: { x: 350, y: 0 } } } },
+      inner: { nodes: { soften: { position: { x: 350, y: 0 } } } },
+    } },
+  }).document
+  if (!document) throw new Error('Invalid promoted occurrence gallery document')
+  const resolve = documentResolver(document, (type) => type === soften.type ? soften : undefined)
+  const path = inside ? [asNodeId('second'), asNodeId('nested')] : []
+  return buildScene({
+    document, graphId: inside ? 'inner' : 'root', resolve, tokens, measure, widgetMeasure,
+    ...(inside ? { occurrence: { owner: { instancePath: [asNodeId('second')], node: asNodeId('nested') }, plannerAvailable: false } } : {}),
+    occurrenceView: occurrenceDynamicView(document, resolve, path),
+  })
+}
+
 /** One drawn example of the page: a scene with its run states, row marks and overlay. */
 export interface RowStateExample {
   readonly id: string
@@ -266,16 +315,18 @@ export function rowStateExamples(
   const promoted: RowStateExample[] = [
     {
       id: 'promoted-inside',
-      caption: 'Inside a subgraph. strength has no drawn wire: the cyan subgraph icon sits before its name and the value of the entered instance is quiet. radius has a drawn wire from the Inputs panel: the ordinary wired look, no icon. Two levels deep the same mark names only the boundary of the graph being looked at; there is no depth badge.',
+      caption: 'Inside a subgraph. strength has no drawn wire: the cyan subgraph icon sits before its name and the value of the entered instance is quiet. radius has a drawn wire from the Inputs panel: the ordinary wired look, no icon.',
       scene: structuralGalleryScene(tokens, measure, widgetMeasure, true),
     },
     {
       id: 'promoted-outside',
-      caption: 'Outside, on the subgraph node. A subgraph is an ordinary node from outside: radius carries no promotion mark.',
-      scene: (() => {
-        const scene = sceneOf([{ id: 'soften-node', schema: soften, x: 0, y: 0 }], [], tokens, measure, widgetMeasure)
-        return { ...scene, nodes: scene.nodes.map((node) => ({ ...node, isSubgraph: true })) }
-      })(),
+      caption: 'Outside, on two instances of the same subgraph. Each radius shows its own stored value, 12 or 24, with no promotion mark. These are real subgraph occurrences, not ordinary nodes with a subgraph badge.',
+      scene: promotedOccurrenceScene(tokens, measure, widgetMeasure, false),
+    },
+    {
+      id: 'promoted-nested',
+      caption: 'Two levels deep, entered through Soften 24. Inner radius and the quiet inner field show 24, not the nested definition 6 or leaf default 7. The cyan mark names only this graph boundary, Inner radius; there is no depth badge.',
+      scene: promotedOccurrenceScene(tokens, measure, widgetMeasure, true),
     },
   ]
   const buttonNode = schema('Prepare image', [
