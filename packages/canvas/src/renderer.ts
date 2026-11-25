@@ -3896,10 +3896,6 @@ export class CanvasRenderer {
         } else if (row.kind === 'editorSpace') {
           this.paintEditorSpace(ctx, node.x, rowY, row, l.width)
         } else if (row.kind === 'note') {
-          // A formula note's text is unknown until formulas are evaluated, so
-          // it draws dimmed like any other offer that is not settled yet.
-          const rowAlpha = ctx.globalAlpha
-          if (row.unknown) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
           const width = row.width ?? l.width - row.inset * 2
           const textX = node.x + row.inset + canvasPaintTokens.widget.labelInset
           const room = width - canvasPaintTokens.widget.labelInset * 2
@@ -3907,7 +3903,6 @@ export class CanvasRenderer {
           ctx.textAlign = 'left'
           const unit = row.lookup === undefined ? row.height : row.height / noteLookupRows(row.lookup)
           ctx.fillText(fitText(ctx, row.text.replace(/[\r\n]+/g, ' '), Math.max(0, room)), textX, rowY + unit / 2)
-          ctx.globalAlpha = rowAlpha
           if (row.lookup !== undefined) this.paintNoteLookup(ctx, row.lookup, textX, rowY + unit, unit, room,
             this.overlay.hoveredButton?.nodeId === node.id && this.overlay.hoveredButton.key === `lookup:${row.noteId}`)
         } else if (row.kind === 'button') {
