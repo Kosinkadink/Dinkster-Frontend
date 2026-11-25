@@ -191,6 +191,74 @@ for (const width of [1280, 390]) {
   }
 }
 
+test('setup feedback exposes known fractions, unknown progress and non-dismissable notice tones', async ({ page }) => {
+  for (const theme of ['dark', 'light']) {
+    await page.goto(`/?theme=${theme}#setup-components`)
+    await page.evaluate((theme) => { document.documentElement.dataset.theme = theme }, theme)
+    for (const [label, fraction] of [['Not started', 0], ['Downloading', 0.37], ['Complete', 1]] as const) {
+      const progress = page.getByRole('progressbar', { name: label, exact: true })
+      await expect(progress).toHaveAttribute('aria-valuemin', '0')
+      await expect(progress).toHaveAttribute('aria-valuemax', '1')
+      await expect(progress).toHaveAttribute('aria-valuenow', String(fraction))
+      const box = await progress.boundingBox()
+      const fill = await progress.locator('rect').boundingBox()
+      expect(box!.height).toBe(4)
+      expect(fill!.width / box!.width).toBeCloseTo(fraction, 2)
+    }
+    const unknown = page.getByRole('progressbar', { name: 'Preparing', exact: true })
+    await expect(unknown).not.toHaveAttribute('aria-valuenow')
+    const notices = page.getByRole('heading', { name: 'Standing notices' }).locator('..')
+    await expect(notices.getByRole('note')).toHaveCount(2)
+    await expect(notices.getByRole('alert')).toHaveText('Setup failed. Check the connection, then try again.')
+    await expect(notices.getByRole('button')).toHaveCount(0)
+    for (const motion of ['no-preference', 'reduce'] as const) {
+      await page.emulateMedia({ reducedMotion: motion })
+      await expect(unknown.locator('svg')).toHaveCSS('animation-name', motion === 'reduce' ? 'none' : 'dinkster-progress-sweep')
+      const widths = await unknown.evaluate((element) => [element.getBoundingClientRect().width, element.querySelector('svg')!.getBoundingClientRect().width])
+      expect(widths[1]! / widths[0]!).toBeCloseTo(motion === 'reduce' ? 1 : 0.36, 2)
+      await expect(page).toHaveScreenshot(`setup-feedback-${theme}-${motion}.png`, { fullPage: true })
+    }
+    await expectNoAxeViolations(page)
+  }
+})
+
+test('described menu choices keep separate accessible descriptions, checks and ordinary item behavior', async ({ page }) => {
+  for (const theme of ['dark', 'light']) {
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 1000 })
+      await page.goto(`/?theme=${theme}#setup-components`)
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme }, theme)
+      const trigger = page.getByRole('button', { name: 'Change build', exact: true })
+      await trigger.scrollIntoViewIfNeeded()
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+      await trigger.click()
+      const selected = page.getByRole('menuitemcheckbox', { name: 'Recommended build', exact: true })
+      const alternative = page.getByRole('menuitemcheckbox', { name: 'Alternative build', exact: true })
+      const plain = page.getByRole('menuitem', { name: 'View build information', exact: true })
+      await expect(selected).toBeChecked()
+      await expect(selected).toHaveAccessibleDescription('Matches the detected graphics card.')
+      await expect(alternative).not.toBeChecked()
+      await expect(alternative).toHaveAccessibleDescription('Use this build when your driver requires an earlier runtime.')
+      await expect(plain).not.toHaveAttribute('aria-describedby')
+      await expect(plain).toHaveAccessibleName('View build information')
+      const text = alternative.locator('.dinkster-menu-item-description')
+      const row = await alternative.boundingBox()
+      const description = await text.boundingBox()
+      expect(description!.y + description!.height).toBeLessThanOrEqual(row!.y + row!.height)
+      await expect(page).toHaveScreenshot(`setup-menu-${theme}-${width}.png`, { fullPage: true })
+      await page.keyboard.press('ArrowDown')
+      await expect(alternative).toBeFocused()
+      await page.keyboard.press('Enter')
+      await expect(page.getByRole('menu', { name: 'Change build' })).toHaveCount(0)
+      await expect(trigger).toBeFocused()
+      await expect(page.getByRole('status', { exact: true }).filter({ hasText: 'Alternative build selected' })).toBeVisible()
+      await trigger.press('ArrowDown')
+      await page.keyboard.press('Escape')
+      await expect(trigger).toBeFocused()
+    }
+  }
+})
+
 test('account values copy exactly, history expands by keyboard and signed-out shell has no empty navigation', async ({
   page,
   context,

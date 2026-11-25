@@ -199,6 +199,13 @@
 .dinkster-menu-item[data-role='remove'] { color: var(--dinkster-danger-foreground); }
 .dinkster-menu-item[data-role='add'] { color: var(--dinkster-accent-foreground); }
 .dinkster-menu-item:not(:disabled):hover, .dinkster-menu-item:focus-visible { background: var(--dinkster-interaction-hover); }
+.dinkster-menu-item-copy { display: grid; min-width: 0; }
+.dinkster-menu-item-description { white-space: normal; overflow-wrap: anywhere; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
+.dinkster-product-progress { height: 4px; overflow: hidden; border-radius: 2px; background: var(--dinkster-surface-raised); }
+.dinkster-product-progress > svg { display: block; width: 100%; height: 100%; border-radius: inherit; fill: var(--dinkster-accent-foreground); }
+.dinkster-product-progress[data-indeterminate] > svg { width: 36%; animation: dinkster-progress-sweep 1.4s ease-in-out infinite alternate; }
+@keyframes dinkster-progress-sweep { from { transform: translateX(-100%); } to { transform: translateX(280%); } }
+@media (prefers-reduced-motion: reduce) { .dinkster-product-progress[data-indeterminate] > svg { width: 100%; animation: none; } }
 /* A message is coloured by what it means, quietly: text and icon in the meaning's colour, over that colour at 7% inside a 1 px outline of it at 38%. A link inside stays primary and the close button secondary, so the strip is not one colour. */
 .dinkster-message { display: flex; align-items: start; gap: var(--dinkster-space-12); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-info-quiet-border); border-radius: var(--dinkster-radius-control); background: var(--dinkster-info-quiet-background); color: var(--dinkster-info-foreground); }
 .dinkster-message > .dinkster-icon, .dinkster-field-error > .dinkster-icon { margin-block: calc((var(--dinkster-type-body-line) - var(--dinkster-icon-size)) / 2); }
@@ -615,6 +622,7 @@
 [data-density='site'] .dinkster-menu-identity { gap: 0; padding: var(--dinkster-site-menu-identity-padding-top) var(--dinkster-site-menu-identity-padding-inline) calc(var(--dinkster-site-menu-identity-padding-bottom) + var(--dinkster-space-4)); margin-bottom: var(--dinkster-space-4); }
 [data-density='site'] .dinkster-menu-identity strong { font-weight: var(--dinkster-weight-regular); }
 [data-density='site'] .dinkster-menu-item { height: var(--dinkster-site-menu-row-height); padding-inline: var(--dinkster-space-12); }
+[data-density='site'] .dinkster-menu-item[data-description] { height: auto; min-height: var(--dinkster-site-menu-row-height); }
 [data-density='site'] .dinkster-menu-item:hover, [data-density='site'] .dinkster-menu-item:focus-visible { background: var(--dinkster-surface-raised); }
 [data-density='site'] .dinkster-menu-trigger[data-account] { width: var(--dinkster-site-account-button-size); height: var(--dinkster-site-account-button-size); padding: 0; border: 0; background: transparent; }
 [data-density='site'] .dinkster-menu-trigger[data-account]:is(:hover, [aria-expanded='true']) { background: var(--dinkster-surface-raised); }
