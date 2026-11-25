@@ -18,15 +18,7 @@ function TabRow(props: { active: number; theme: 'dark' | 'light' }) {
           <div class="workflow-tablist">
             <For each={tabs}>
               {(tab, index) => (
-                <div
-                  class={
-                    index() === props.active
-                      ? 'tab active'
-                      : tab.frozen
-                        ? 'tab frozen'
-                        : 'tab'
-                  }
-                >
+                <div class={index() === props.active ? 'tab active' : 'tab'}>
                   <span class="tab-select">
                     <ProductRunIcon icon={tab.frozen ? Snowflake : Workflow} />
                     <span class="tab-title">{tab.title}</span>
@@ -52,7 +44,7 @@ export function WorkflowTabsGallery() {
     <div class="dinkster-stack">
       <For each={['dark', 'light'] as const}>
         {(theme) => (
-          <For each={[0, 1, 2]}>
+          <For each={[0, 1, 2, 3]}>
             {(active) => <TabRow active={active} theme={theme} />}
           </For>
         )}

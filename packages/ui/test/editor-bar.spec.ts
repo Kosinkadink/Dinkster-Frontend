@@ -193,7 +193,7 @@ test('the active workflow tab fades into the canvas and curves out at its feet',
 }) => {
   await page.goto('/#editor-bar')
   const rows = page.locator('.dinkster-workflow-tabs-preview')
-  await expect(rows).toHaveCount(6)
+  await expect(rows).toHaveCount(8)
   // The tint and the feet differ from the frame by a few levels, below the
   // default per-pixel threshold. The first tab's left foot shows although the
   // tab row clips its content.

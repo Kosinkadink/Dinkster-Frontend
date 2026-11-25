@@ -394,7 +394,8 @@ export function EditorBarGallery() {
         <p role="status">{activity()}</p>
         <h2 class="dinkster-heading">Workflow tabs</h2>
         <p class="dinkster-description">
-          The first, middle and last tab active, in the dark and light themes.
+          Each tab active in turn, in the dark and light themes; the last is a
+          frozen run, marked by its snowflake.
         </p>
         <WorkflowTabsGallery />
       </ProductPage>

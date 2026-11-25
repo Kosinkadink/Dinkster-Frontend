@@ -375,8 +375,6 @@
   content: '';
 }
 
-.tab.frozen { border-color: var(--dinkster-border-subtle); }
-
 .tab-select {
   display: flex;
   align-items: center;
