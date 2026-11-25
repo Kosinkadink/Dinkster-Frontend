@@ -41,6 +41,16 @@ test('a post-ready engine death surfaces restart and returns to ready', async ({
   await expect(engine).toHaveAttribute('data-state', 'failed', { timeout: 7000 })
   await expect(page.getByTestId('engine-banner')).toHaveCount(0)
   expect(await editor.boundingBox()).toEqual(readyBounds)
+  const failureColors = await page.getByTestId('status-connection').evaluate((element) => ({
+    words: getComputedStyle(element).color,
+    dot: getComputedStyle(element.querySelector('.status-connection-dot')!).backgroundColor,
+    action: getComputedStyle(document.querySelector('[data-testid="engine-failed"]')!).backgroundColor,
+    restart: getComputedStyle(document.querySelector('[data-testid="engine-restart"]')!).backgroundColor,
+  }))
+  expect(failureColors.words).toBe(failureColors.action)
+  expect(failureColors.dot).toBe(failureColors.action)
+  expect(failureColors.action).toMatch(/^rgb\(/)
+  expect(failureColors.restart).toMatch(/^rgb\(/)
   await page.getByTestId('engine-failed').click()
   await expect(page.getByRole('dialog', { name: 'Engine failed' })).toContainText('Engine exited with code 3')
   await page.screenshot({ path: evidencePath('issue-92', 'desktop-engine-recovery.png'), fullPage: true })
@@ -94,6 +104,7 @@ test('with no engine open the status bar and Run say so until an engine opens', 
   await expect(connection).toContainText('No engine is running')
   await expect(page.getByTestId('status-bar')).not.toContainText('Loading schemas')
   await expect(page.getByTestId('engine-start')).toHaveText('Start engine')
+  expect(await page.getByTestId('engine-start').evaluate((element) => getComputedStyle(element).backgroundColor)).toMatch(/^rgb\(/)
   await expect(page.getByTestId('queue-button')).toHaveCount(0)
   await expect(page.getByTestId('workflow-queue-toggle')).toBeVisible()
 

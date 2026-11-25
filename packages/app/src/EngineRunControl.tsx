@@ -91,17 +91,17 @@ export function EngineRunControl(props: {
           </span>
         </Match>
         <Match when={props.status.state === 'stopped'}>
-          <ProductButton data-testid="engine-start" pending={restarting()} onClick={() => void restart()}>
+          <ProductButton fill="solid" data-testid="engine-start" pending={restarting()} onClick={() => void restart()}>
             <ProductIcon icon={Power} />{message('shell.engine.start')}
           </ProductButton>
         </Match>
         <Match when={props.status.state === 'failed'}>
-          <ProductButton ref={trigger} intent="remove" data-testid="engine-failed"
+          <ProductButton ref={trigger} intent="remove" fill="solid" data-testid="engine-failed"
             aria-expanded={reasonOpen()} aria-controls={reasonId} aria-haspopup="dialog"
             onClick={() => setReasonOpen((open) => !open)}>
             <ProductIcon icon={CircleAlert} />{message('shell.engine.failed')}
           </ProductButton>
-          <ProductButton data-testid="engine-restart" pending={restarting()} onClick={() => void restart()}>
+          <ProductButton fill="solid" data-testid="engine-restart" pending={restarting()} onClick={() => void restart()}>
             <ProductIcon icon={RotateCw} />{message('shell.engine.restartShort')}
           </ProductButton>
         </Match>

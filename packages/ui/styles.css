@@ -1345,7 +1345,7 @@
 
 .engine-run-control { position: relative; display: inline-flex; align-items: stretch; }
 .engine-run-control > .dinkster-button, .engine-run-starting { min-height: calc(var(--dinkster-space-32) + var(--dinkster-space-4)); }
-.engine-run-starting { display: inline-flex; align-items: center; gap: var(--dinkster-space-8); box-sizing: border-box; padding: var(--dinkster-space-4) var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-panel); white-space: nowrap; }
+.engine-run-starting { display: inline-flex; align-items: center; gap: var(--dinkster-space-8); box-sizing: border-box; padding: var(--dinkster-space-4) var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-secondary); background: transparent; white-space: nowrap; }
 .engine-run-control[data-state='stopped'] > .dinkster-button, .engine-run-starting { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .engine-run-control[data-state='failed'] > .dinkster-button:first-of-type { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .engine-run-control[data-state='failed'] > .dinkster-button + .dinkster-button { margin-inline-start: calc(-1 * var(--dinkster-border-width)); border-top-left-radius: 0; border-bottom-left-radius: 0; }
