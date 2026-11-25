@@ -37,16 +37,23 @@ import {
   type Scene,
 } from '@dinkster/canvas'
 import {
+  asNodeId,
+  asPortId,
   buildGraphConnectivity,
+  diag,
   deriveGlslMirrorBindings,
   deriveMirrorEstimates,
+  documentPrimitiveResolver,
   elabInputsOf,
   elaborateInterface,
   isDeprecated,
   outputsOf,
   parseOccurrenceKey,
+  primitiveOf,
   supportsOutputRepresentation,
+  withPrimitiveValue,
   effectiveWidgetDefault,
+  documentIdentityOf,
   occurrencesForView,
   runtimeIdsFor,
   subgraphDefIdOf,
@@ -55,6 +62,8 @@ import {
   type Diagnostic,
   type GraphDef,
   type Json,
+  type NodeData,
+  type NodeId,
   type NodeProgress,
   type NodeSchema,
   type NodeDecoration,
@@ -138,6 +147,162 @@ const digestOutputs = (outputs: ExecutionState['outputs'][string]) => {
   const retained = Object.fromEntries(Object.entries(outputs)
     .filter(([, descriptor]) => imageAssetRefsOf(descriptor).length > 0))
   return Object.keys(retained).length > 0 ? retained : undefined
+}
+
+type RecordedAutomatic = NonNullable<ExecutionState['automaticValues']>[number]
+
+/** Calls `visit` for each automatic row of the viewed scene that the run recorded a value for. */
+function eachRecordedAutomaticRow(
+  scene: Scene,
+  execution: Pick<ExecutionState, 'artifact' | 'automaticValues'> | undefined,
+  instancePath: readonly string[] | undefined,
+  keep: (record: RecordedAutomatic) => boolean,
+  visit: (node: Scene['nodes'][number], row: Extract<Scene['nodes'][number]['layout']['rows'][number], { kind: 'widget' }>, record: RecordedAutomatic) => void,
+): void {
+  const records = execution?.automaticValues?.filter(keep) ?? []
+  const artifact = execution?.artifact
+  if (records.length === 0 || artifact === undefined || instancePath === undefined) return
+  const toSource = artifact.provenance.toSource
+  const view = occurrencesForView({ instancePath, runtimeIds: records.map((record) => record.runtimeNodeId), toSource })
+  // A field promoted to a subgraph node is recorded on the inner node that
+  // ran, under the inner input; the run's own document says which boundary
+  // item reaches it, through every subgraph in between.
+  const graphs = artifact.snapshot.graphs
+  const defOf = (graphId: string | undefined, nodeId: string): string | undefined => {
+    const type = graphId === undefined ? undefined : graphs[graphId]?.nodes[nodeId]?.type
+    return type === undefined ? undefined : subgraphDefIdOf(type)
+  }
+  let viewedGraph: string | undefined = artifact.snapshot.root
+  for (const instance of instancePath) viewedGraph = defOf(viewedGraph, instance)
+  const boundaryItemOf = (defId: string | undefined, hops: readonly string[], inputId: string): string | undefined => {
+    const [hop, ...rest] = hops
+    const inputs = defId === undefined ? undefined : graphs[defId]?.boundary?.inputs
+    if (inputs === undefined || hop === undefined) return undefined
+    const port = rest.length === 0 ? inputId : boundaryItemOf(defOf(defId, hop), rest, inputId)
+    return inputs.find((item) => item.binds.kind === 'port' && item.binds.node === hop && item.binds.port === port)?.id
+  }
+  const keyOf = (node: Scene['nodes'][number], record: RecordedAutomatic): string | undefined => {
+    if ((view.own.get(node.id) ?? []).includes(record.runtimeNodeId)) return record.inputId
+    if (!(view.inner.get(node.id) ?? []).includes(record.runtimeNodeId)) return undefined
+    const occurrence = documentIdentityOf(record.runtimeNodeId, toSource)?.occurrence
+    if (occurrence === undefined) return undefined
+    const hops = [...occurrence.instancePath.slice(instancePath.length + 1), occurrence.node]
+    return boundaryItemOf(defOf(viewedGraph, node.id), hops, record.inputId)
+  }
+  for (const node of scene.nodes) {
+    const recorded = records.flatMap((record) => {
+      const key = keyOf(node, record)
+      return key === undefined ? [] : [{ key, record }]
+    })
+    if (recorded.length === 0) continue
+    for (const row of node.layout.rows) {
+      if (row.kind !== 'widget' || row.automatic === undefined) continue
+      const found = recorded.find((item) => item.key === row.valueKey)
+      if (found !== undefined) visit(node, row, found.record)
+    }
+  }
+}
+
+const shownValue = (value: Json): string => typeof value === 'string' ? value : JSON.stringify(value)
+
+/**
+ * The fields the viewed graph's last run filled with their default because
+ * it could not work out their automatic value, while the editor works one
+ * out now, and the fields whose value a node got at compile time differs
+ * from the one the run worked out for the field's own node: warnings
+ * anchored to the field and listed in Problems. A field that is fixed or
+ * wired is not automatic, so its warnings go; a later run replaces the
+ * records.
+ */
+export function lastRunAutomaticDiagnostics(args: {
+  readonly scene: Scene
+  readonly execution: Pick<ExecutionState, 'artifact' | 'automaticValues'> | undefined
+  readonly instancePath: readonly string[] | undefined
+}): readonly Diagnostic[] {
+  const out: Diagnostic[] = []
+  eachRecordedAutomaticRow(args.scene, args.execution, args.instancePath, (record) => !record.workedOut, (node, row, record) => {
+    if (row.automatic?.state !== 'worked-out') return
+    out.push(diag('warning', 'runtime', 'automatic.lastRunDefault',
+      `The last run could not work out ${row.label} and used the default, ${shownValue(record.value)}.`, {
+        anchor: { port: { node: asNodeId(node.id), port: asPortId(row.inputId) } },
+        data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
+      }))
+  })
+  // A node that got the field's value copied in at compile time ran with
+  // that value, while the field's own node was worked out again when queued.
+  const taps = args.execution?.artifact?.automaticTaps ?? []
+  const differing = (record: RecordedAutomatic) => taps.filter((tap) =>
+    tap.runtimeNodeId === record.runtimeNodeId && tap.inputId === record.inputId && !sameJson(tap.value, record.value))
+  eachRecordedAutomaticRow(args.scene, args.execution, args.instancePath, (record) => differing(record).length > 0, (node, row, record) => {
+    // A compile passes one value on for a field, so the nodes that got it
+    // share one warning; a group per value keeps any other value apart.
+    const byValue = new Map<string, Map<string, string>>()
+    for (const tap of differing(record)) {
+      const key = JSON.stringify(tap.value)
+      let receivers = byValue.get(key)
+      if (receivers === undefined) byValue.set(key, (receivers = new Map()))
+      receivers.set(tap.receiverRuntimeId, tap.receiver)
+    }
+    for (const [key, receivers] of byValue) {
+      const names = [...receivers.values()]
+      const who = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.length} nodes`
+      out.push(diag('warning', 'runtime', 'automatic.lastRunTapDiffers',
+        `The last run used ${shownValue(record.value)} for ${row.label}, but ${who} got ${shownValue(JSON.parse(key) as Json)}.`, {
+          anchor: { port: { node: asNodeId(node.id), port: asPortId(row.inputId) } },
+          data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
+        }))
+    }
+  })
+  return out
+}
+
+const sameJson = (a: Json, b: Json): boolean => JSON.stringify(a) === JSON.stringify(b)
+
+/**
+ * A frozen view of a past run: each automatic row shows the value that run
+ * recorded, not one worked out now, and warns only where the run used the
+ * default.
+ */
+export function withRecordedAutomaticValues(
+  scene: Scene,
+  execution: Pick<ExecutionState, 'artifact' | 'automaticValues'> | undefined,
+  instancePath: readonly string[] | undefined,
+): Scene {
+  const recorded = new Map<string, Map<string, RecordedAutomatic>>()
+  eachRecordedAutomaticRow(scene, execution, instancePath, () => true, (node, row, record) => {
+    let rows = recorded.get(node.id)
+    if (rows === undefined) recorded.set(node.id, (rows = new Map()))
+    rows.set(row.valueKey, record)
+  })
+  if (recorded.size === 0) return scene
+  const diagnostics = scene.diagnostics.filter((d) => {
+    const port = d.anchor?.port
+    return d.code !== 'automatic.default' || port === undefined ||
+      !recorded.get(port.node)?.has(String(d.data?.['input'] ?? port.port))
+  })
+  const nodes = scene.nodes.map((node) => {
+    const rows = recorded.get(node.id)
+    if (rows === undefined) return node
+    return {
+      ...node,
+      layout: {
+        ...node.layout,
+        rows: node.layout.rows.map((row) => {
+          const record = row.kind === 'widget' ? rows.get(row.valueKey) : undefined
+          if (record === undefined || row.kind !== 'widget') return row
+          if (!record.workedOut) {
+            diagnostics.push(diag('warning', 'runtime', 'automatic.default',
+              `Could not work out ${row.label}. Using the default, ${shownValue(record.value)}.`, {
+                anchor: { port: { node: asNodeId(node.id), port: asPortId(row.inputId) } },
+                data: { input: row.valueKey, runtimeId: record.runtimeNodeId },
+              }))
+          }
+          return { ...row, automatic: { value: record.value, state: record.workedOut ? 'worked-out' as const : 'default' as const } }
+        }),
+      },
+    }
+  })
+  return { ...scene, nodes, diagnostics }
 }
 
 /**
@@ -695,8 +860,13 @@ export function deriveSceneOverlays(args: {
       if (args.runChanged(n.id, failed.size > 0 ? [...failed] : ids)) lastRunNodes.add(n.id)
     }
   }
-  const shownStates = lastRunNodes.size === 0 ? states : Object.fromEntries(
-    Object.entries(states).filter(([id, progress]) => !(lastRunNodes.has(id) && progress.state === 'error')))
+  // Once a run has ended, the live editor keeps only its errors; what ran,
+  // came from cache or was skipped is drawn in the frozen view.
+  const ended = exec !== undefined && exec.status !== 'queued' && exec.status !== 'running'
+  const shownStates = Object.fromEntries(Object.entries(states).filter(([id, progress]) =>
+    progress.state === 'error'
+      ? !lastRunNodes.has(id)
+      : args.frozen || !ended || (progress.state !== 'done' && progress.state !== 'cached' && progress.state !== 'skipped')))
   let rowProblems = args.rowProblems ?? {}
   if (lastRunNodes.size > 0) {
     const rows: Record<string, Readonly<Record<string, ProblemKind>>> = { ...rowProblems }
@@ -715,14 +885,26 @@ export function deriveSceneOverlays(args: {
   // Resolve tap defaults from the elaborated interface, not only top-level
   // schema items: a persisted dynamic member is a real widget source too.
   // Cache one elaboration per source node for this overlay pass.
+  // A primitive's value field takes the widget its own row draws, so a field
+  // it feeds shows the value an empty primitive passes on in a run. An
+  // automatic field passes on the value its own row has in use, as a run does.
   const tapDefaults = new Map<string, ReadonlyMap<string, Json | undefined>>()
   let connectivity: ReturnType<typeof buildGraphConnectivity> | undefined
+  let resolvePrimitive: ReturnType<typeof documentPrimitiveResolver> | undefined
+  const tapSchemaOf = (node: NodeData): NodeSchema | undefined => {
+    const schema = args.resolveSchema?.(node.type)
+    const shape = schema && args.doc !== undefined ? primitiveOf(schema) : undefined
+    if (schema === undefined || shape === undefined) return schema
+    resolvePrimitive ??= documentPrimitiveResolver(args.doc!, args.resolveSchema!)
+    const effective = resolvePrimitive(gid, node, instancePath as readonly NodeId[] | undefined)
+    return effective === undefined ? schema : withPrimitiveValue(schema, shape, effective)
+  }
   const tapValueOf = (nodeId: string, inputId: string) => {
     let defaults = tapDefaults.get(nodeId)
     if (defaults === undefined) {
       const resolved = new Map<string, Json | undefined>()
       const node = args.def?.nodes[nodeId]
-      const schema = node === undefined ? undefined : args.resolveSchema?.(node.type)
+      const schema = node === undefined ? undefined : tapSchemaOf(node)
       if (node !== undefined && schema !== undefined) {
         const items = elabInputsOf(elaborateInterface(
           schema,
@@ -730,8 +912,14 @@ export function deriveSceneOverlays(args: {
           (connectivity ??= buildGraphConnectivity(args.def!))(node.id),
           { promoteGhosts: false },
         ))
+        const rows = args.scene.nodes.find((candidate) => candidate.id === nodeId)?.layout.rows ?? []
         for (const item of items) {
-          if (item.spec.widget !== undefined) resolved.set(valueKeyOf(item), effectiveWidgetDefault(item.spec.widget))
+          if (item.spec.widget === undefined) continue
+          const key = valueKeyOf(item)
+          const row = rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === key)
+          resolved.set(key, row?.kind === 'widget' && row.automatic !== undefined
+            ? row.automatic.value
+            : effectiveWidgetDefault(item.spec.widget))
         }
       }
       defaults = resolved

@@ -82,7 +82,7 @@ describe('a primitive works out its value widget', () => {
     expect([...effective.derived].sort()).toEqual(['default', 'max', 'min', 'step'])
     expect(effective.label).toBeUndefined()
     expect(effective.diagnostics).toEqual([])
-    // The fields share a default of 4, so Reset goes there, and the empty Default field shows it dimmed.
+    // Reset goes to the default of the first field it feeds, 4, and the empty Default field shows it dimmed.
     expect(effective.spec?.default).toBe(4)
     const drawn = documentNodeResolver(doc, resolve, documentPrimitiveResolver(doc, resolve))('g0', doc.graphs['g0']!.nodes['prim'] as NodeData, [])!
     expect(inputsOf(drawn).find((row) => row.id === 'default')!.widget).toMatchObject({ default: 4, automatic: true })
@@ -319,7 +319,7 @@ describe('a primitive\'s range from its menu', () => {
     expect(store.doc.graphs['g0']!.nodes['prim']!.values).toEqual({ value: 6, minimum: 4, maximum: 7, step: 2 })
   })
 
-  it('resets the value to its own Default, and otherwise to the default the fed fields share', () => {
+  it('resets the value to its own Default, and otherwise to the default of the first field it feeds', () => {
     const withDefault = storeOf({ value: 6, default: 5 })
     run(withDefault, widgetReset!.resolve(menu(withDefault.doc))[0]!)
     expect(withDefault.doc.graphs['g0']!.nodes['prim']!.values['value']).toBe(5)

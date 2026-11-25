@@ -57,7 +57,7 @@ test('Problems presents five ordered sections with one-line rows and debug-only 
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
       type: 'PanelSampler', displayName: 'Sampler', category: 'test', source: 'v3',
-      isOutputNode: false, items: [],
+      isOutputNode: false, body: [],
     }])
     await app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'problems-sections', root: 'g0',

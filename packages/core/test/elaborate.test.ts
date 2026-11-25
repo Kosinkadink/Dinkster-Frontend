@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GraphDef } from '../src/format/document.js'
 import { asNodeId } from '../src/ids.js'
-import { buildGraphConnectivity, elabInputsOf, elabOutputsOf, elaborateInterface, EMPTY_CONNECTIVITY, inGoneMember, type Connectivity, type LookupAnswerState } from '../src/schema/elaborate.js'
+import { buildGraphConnectivity, elabInputsOf, elabOutputsOf, elaborateInterface, EMPTY_CONNECTIVITY, inGoneMember, lookupSitesOf, type Connectivity, type LookupAnswerState } from '../src/schema/elaborate.js'
 import { checkBody, initialDynamicStateOf } from '../src/schema/body.js'
 import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeChoiceSpec } from '../src/schema/model.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
@@ -1036,6 +1036,189 @@ describe('formulas', () => {
     expect(census({ ...start, 'g.z.c': { selected: 'y' } })).toEqual(["Shrunk: 'g.z.c' is no longer part of this node. What was stored for it is kept in the file."])
     const active = elaborateInterface(schema!, { values: { n: 2 }, dynamic: { ...start, 'g.4.c': { selected: 'y' } } } as never)
     expect(elabInputsOf(active).map((input) => input.spec.id)).toEqual(['n', 'g.1.c', 'g.2.c'])
+  })
+})
+
+describe('automatic values', () => {
+  const rate = intInput('rate', { widget: { widgetType: 'INT', options: {}, default: 48 } })
+  const fps = intInput('fps', {
+    automatic: { lookup: 'video.rate_of', args: ['rate'] },
+    widget: { widgetType: 'INT', options: {}, default: 24 },
+  })
+  const automaticOf = (lookupAnswers?: (lookup: string, args: readonly unknown[]) => unknown, values: Record<string, unknown> = { rate: 50 }) => {
+    const elaborated = elaborateInterface(schemaOf([rate, fps]), { values: values as never }, EMPTY_CONNECTIVITY,
+      lookupAnswers === undefined ? {} : { lookupAnswers: lookupAnswers as never })
+    return {
+      automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'fps')!.automatic,
+      warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default'),
+      sites: lookupSitesOf(elaborated.items),
+      openSites: lookupSitesOf(elaborated.items, 'fps'),
+    }
+  }
+
+  it('asks for the lookup with arguments worked out from the values and waits on it with the default', () => {
+    const asked: unknown[] = []
+    const { automatic, warned, sites } = automaticOf((lookup, args) => { asked.push([lookup, args]); return undefined })
+    expect(asked).toContainEqual(['video.rate_of', [50]])
+    expect(automatic).toEqual({ value: 24, state: 'loading', call: { lookup: 'video.rate_of', args: [50] } })
+    expect(warned).toBe(false)
+    // The node on screen asks for the call; an answer of any kind arrives,
+    // so one that is not a value of the field warns as the run does.
+    expect(sites.map((site) => site.call)).toEqual([{ lookup: 'video.rate_of', args: [50] }])
+    expect(sites[0]!.accepts('not a rate')).toBe(true)
+    // A typed value asks, for what emptying the field would give, only while its field is open.
+    const typed = automaticOf(() => undefined, { rate: 50, fps: 30 })
+    expect(typed.sites).toEqual([])
+    expect(typed.openSites.map((site) => site.call)).toEqual([{ lookup: 'video.rate_of', args: [50] }])
+  })
+
+  it('uses an answer and a kept answer, and refuses a decimal that is not whole for a whole-number field', () => {
+    expect(automaticOf(() => ({ state: 'ready', answer: 25 })).automatic).toEqual({ value: 25, state: 'worked-out', call: { lookup: 'video.rate_of', args: [50] } })
+    expect(automaticOf(() => ({ state: 'loading', answer: 26 })).automatic).not.toHaveProperty('kept')
+    expect(automaticOf(() => ({ state: 'stale', answer: 30, reason: 'failed' }))).toMatchObject({ automatic: { value: 30, state: 'worked-out', kept: 'stale' }, warned: false })
+    expect(automaticOf(() => ({ state: 'paused', answer: 31 }))).toMatchObject({ automatic: { value: 31, state: 'worked-out', kept: 'paused' }, warned: false })
+    // Paused with nothing kept, or waiting for a file to be checked: the default, not loading, and no warning.
+    expect(automaticOf(() => ({ state: 'paused' }))).toMatchObject({ automatic: { value: 24, state: 'not-known', reason: 'paused' }, warned: false })
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'file-unchecked' }))).toMatchObject({
+      automatic: { value: 24, state: 'not-known', reason: 'file-unchecked' }, warned: false,
+    })
+    expect(automaticOf(() => ({ state: 'ready', answer: 25.5 })).automatic).toMatchObject({ value: 24, state: 'default', reason: 'wrong-type' })
+  })
+
+  it('uses the default with a warning when the lookup fails or runs out of time, and without one offline', () => {
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'timeout' }))).toMatchObject({
+      automatic: { value: 24, state: 'default', reason: 'lookup-timeout' }, warned: true,
+    })
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'wrong-shape' })).automatic?.reason).toBe('lookup-failed')
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'offline' }))).toMatchObject({
+      automatic: { value: 24, state: 'not-known', reason: 'offline' }, warned: false,
+    })
+  })
+
+  it('waits without a warning while an argument reads an automatic field still waiting, and warns for one never known', () => {
+    const base = intInput('base', {
+      automatic: { lookup: 'video.base_of', args: ['rate'] },
+      widget: { widgetType: 'INT', options: {}, default: 10 },
+    })
+    const reads = intInput('reads', {
+      automatic: { lookup: 'video.rate_of', args: ['base'] },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const doubled = intInput('doubled', {
+      automatic: { formula: 'base * 2' },
+      widget: { widgetType: 'INT', options: {}, default: 0 },
+    })
+    const elaborate = (answers: (lookup: string) => unknown, connectivity: Connectivity = EMPTY_CONNECTIVITY) => {
+      const elaborated = elaborateInterface(schemaOf([rate, base, reads, doubled]), { values: { rate: 50 } }, connectivity, { lookupAnswers: answers as never })
+      return {
+        automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'reads')!.automatic,
+        doubled: elabInputsOf(elaborated).find((input) => input.spec.id === 'doubled')!.automatic?.state,
+        warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default' && d.message.includes('reads')),
+      }
+    }
+    expect(elaborate(() => undefined)).toMatchObject({ automatic: { value: 24, state: 'not-known', reason: 'argument-unknown' }, warned: false })
+    // A paused field with nothing kept is still waiting: what reads it does not read its default.
+    expect(elaborate((lookup) => lookup === 'video.base_of' ? { state: 'paused' } : { state: 'ready', answer: 30 }))
+      .toMatchObject({ automatic: { value: 24, state: 'not-known', reason: 'argument-unknown' }, doubled: 'default', warned: false })
+    expect(elaborate((lookup) => lookup === 'video.base_of' ? { state: 'ready', answer: 12 } : { state: 'ready', answer: 30 }))
+      .toMatchObject({ automatic: { value: 30, state: 'worked-out', call: { lookup: 'video.rate_of', args: [12] } }, doubled: 'worked-out', warned: false })
+    // A wired argument is never known in the editor; the run gives the default, so the field warns.
+    const wired: Connectivity = { isInputConnected: (port) => port === 'rate', isOutputConnected: () => false }
+    const elaborated = elaborateInterface(schemaOf([rate, base]), { values: {} }, wired, { lookupAnswers: (() => ({ state: 'ready', answer: 12 })) as never })
+    expect(elabInputsOf(elaborated).find((input) => input.spec.id === 'base')!.automatic)
+      .toEqual({ value: 10, state: 'default', reason: 'argument-unknown' })
+    expect(elaborated.diagnostics.some((d) => d.code === 'automatic.default')).toBe(true)
+  })
+
+  it('waits quietly for an argument field left empty, and warns for a stored value that does not fit', () => {
+    const video = intInput('video', { type: { kind: 'concrete', name: 'STRING' }, displayName: 'Video', optional: true, widget: { widgetType: 'STRING', options: {} } })
+    const delay = intInput('delay', { widget: { widgetType: 'INT', options: {}, default: 0 } })
+    const lookupRate = (args: readonly (string | { readonly formula: string })[]) => intInput('fps', {
+      automatic: { lookup: 'video.rate_of', args: args as never },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const elaborate = (args: readonly (string | { readonly formula: string })[], values: Record<string, unknown>) => {
+      const asked: unknown[] = []
+      const elaborated = elaborateInterface(schemaOf([video, delay, lookupRate(args)]), { values: values as never }, EMPTY_CONNECTIVITY,
+        { lookupAnswers: ((lookup: string, called: unknown) => { asked.push([lookup, called]); return { state: 'ready', answer: 30 } }) as never })
+      return {
+        automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'fps')!.automatic,
+        warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default'),
+        asked,
+      }
+    }
+    // A new node stores nothing; clearing a file field stores null. Both wait for the field by its label.
+    for (const values of [{}, { video: null }]) {
+      expect(elaborate(['video'], values)).toEqual({
+        automatic: { value: 24, state: 'not-known', reason: 'argument-empty', waitingFor: 'Video' }, warned: false, asked: [],
+      })
+    }
+    // An argument that is not one plain field waits for a value.
+    expect(elaborate([{ formula: 'video if delay == 0 else video' }], {}).automatic)
+      .toEqual({ value: 24, state: 'not-known', reason: 'argument-empty' })
+    // A field with a default that stores null holds a value that does not fit: the default, with the warning.
+    expect(elaborate(['delay'], { delay: null })).toEqual({
+      automatic: { value: 24, state: 'default', reason: 'argument-unknown' }, warned: true, asked: [],
+    })
+    expect(elaborate(['video'], { video: 'clip.mp4' }).automatic).toMatchObject({ value: 30, state: 'worked-out' })
+  })
+
+  it('hands a lookup argument that names a file field the picked file as stored, and waits quietly for one', () => {
+    const video = socketInput('video', 'ASSET', { displayName: 'Video', optional: true })
+    const fpsOf = intInput('fps', {
+      automatic: { lookup: 'video.rate_of', args: ['video'] },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const picked = { digest: `blake3:${'a'.repeat(64)}`, name: 'clip_25fps.mp4', size: 12, mediaType: 'video/mp4', virtualPath: '' }
+    const local = { verification: 'unverified', localBinding: 'b1', name: 'clip.mp4', size: 12, virtualPath: 'mounts/m/clip.mp4' }
+    const elaborate = (values: Record<string, unknown>, held: (args: readonly unknown[]) => unknown, connectivity = EMPTY_CONNECTIVITY) => {
+      const asked: unknown[] = []
+      const elaborated = elaborateInterface(schemaOf([video, fpsOf]), { values: values as never }, connectivity,
+        { lookupAnswers: ((_lookup: string, args: readonly unknown[]) => { asked.push(args); return held(args) }) as never })
+      return {
+        automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'fps')!.automatic,
+        warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default'),
+        asked: [...new Set(asked.map((args) => JSON.stringify(args)))].map((args) => JSON.parse(args) as unknown),
+      }
+    }
+    const answered = () => ({ state: 'ready', answer: 25 })
+    // Nothing picked, or cleared: wait for the file field by its label, without a call or a warning.
+    for (const values of [{}, { video: null }]) {
+      expect(elaborate(values, answered)).toEqual({
+        automatic: { value: 24, state: 'not-known', reason: 'argument-empty', waitingFor: 'Video' }, warned: false, asked: [],
+      })
+    }
+    // A picked file is sent as the node stores it, the same value a run sends.
+    expect(elaborate({ video: picked }, answered)).toEqual({
+      automatic: { value: 25, state: 'worked-out', call: { lookup: 'video.rate_of', args: [picked] } }, warned: false, asked: [[picked]],
+    })
+    // A local file the host has not checked yet waits for it, still without a warning.
+    expect(elaborate({ video: local }, () => ({ state: 'unavailable', reason: 'file-unchecked' }))).toMatchObject({
+      automatic: { value: 24, state: 'not-known', reason: 'file-unchecked', call: { args: [local] } }, warned: false,
+    })
+    // A wired file is never known in the editor; the run gives the default, so the field warns.
+    const wired: Connectivity = { isInputConnected: (port) => port === 'video', isOutputConnected: () => false }
+    expect(elaborate({ video: picked }, answered, wired)).toEqual({
+      automatic: { value: 24, state: 'default', reason: 'argument-unknown' }, warned: true, asked: [],
+    })
+  })
+
+  it('works out a fixed field only for its open field, without a warning, while the fixed value stays in use', () => {
+    const doubled = intInput('doubled', {
+      automatic: { formula: 'rate * 2' },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const reads = intInput('reads', {
+      automatic: { formula: 'doubled + 1' },
+      widget: { widgetType: 'INT', options: {}, default: 0 },
+    })
+    const elaborated = elaborateInterface(schemaOf([rate, doubled, reads]), { values: { rate: 50, doubled: 7 } }, EMPTY_CONNECTIVITY)
+    const inputs = elabInputsOf(elaborated)
+    const fixed = inputs.find((input) => input.spec.id === 'doubled')!
+    expect(fixed.automatic).toBeUndefined()
+    expect(fixed.automaticIfEmptied).toEqual({ value: 100, state: 'worked-out' })
+    expect(inputs.find((input) => input.spec.id === 'reads')!.automatic).toEqual({ value: 8, state: 'worked-out' })
+    expect(elaborated.diagnostics.some((d) => d.code === 'automatic.default')).toBe(false)
   })
 })
 

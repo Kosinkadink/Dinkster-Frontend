@@ -47,7 +47,7 @@ export function registerCoreSearchProviders(app: AppState): readonly (() => void
     }))) },
     { id: 'core.nodes', label: 'Nodes', prefix: '@', priority: 20, query: (q) => {
       const tab = app.activeTab()
-      const registry = tab && tab.execution === undefined && app.canvasBridge.get() ? app.registryForTab(tab) : undefined
+      const registry = tab && tab.execution === undefined && app.canvasBridge.get() ? app.registryForTab(tab) ?? app.keptRegistryForTab(tab) : undefined
       const external = tab === undefined || tab.execution !== undefined || !app.canvasBridge.get() ? [] : app.searchCatalog.get().filter((entry) =>
         !registry?.schemas.has(entry.schema.type) && !registry?.packs?.has(entry.pack.name))
       const externalByType = new Map(external.map((entry) => [entry.schema.type, entry]))
@@ -114,7 +114,7 @@ export function searchNodeSchema(app: AppState, action: SearchAction): NodeSchem
   if (decoded === undefined || (decoded.action !== 'node.armPlacement' && decoded.action !== 'node.previewInstall')) return undefined
   const tab = app.activeTab()
   if (tab === undefined || tab.execution !== undefined || app.backendForTab(tab).id !== decoded.params.backendId) return undefined
-  const installed = app.registryForTab(tab)?.resolve(decoded.params.type)
+  const installed = (app.registryForTab(tab) ?? app.keptRegistryForTab(tab))?.resolve(decoded.params.type)
   if (decoded.action === 'node.armPlacement') return installed !== undefined && placementSchemaKey(installed) === decoded.params.schemaKey ? installed : undefined
   if (installed !== undefined) return undefined
   const entry = app.searchCatalog.get().find((entry) => entry.schema.type === decoded.params.type)

@@ -3,7 +3,7 @@ import { asGraphDefId, asLineageId, asNodeId, asPortId, coreCommandRegistry, Doc
 import type { OccurrenceLinkEndpoint } from '@dinkster/core'
 
 vi.mock('lucide-solid', () => ({
-  ArrowDown: {}, ArrowUp: {}, Ban: {}, Camera: {}, Check: {}, Circle: {}, CirclePlay: {}, Copy: {}, CopyPlus: {}, Dice5: {}, Eye: {},
+  ArrowDown: {}, ArrowUp: {}, Ban: {}, Camera: {}, Check: {}, Circle: {}, CirclePlay: {}, CircleSlash2: {}, Frame: {}, MessageCircleWarning: {}, Route: {}, Copy: {}, CopyPlus: {}, Dice5: {}, Eye: {},
   FolderOpen: {}, Group: {}, Lock: {}, Maximize2: {}, Minimize2: {}, Palette: {}, Pencil: {}, Play: {}, RotateCcw: {}, SlidersHorizontal: {}, Square: {}, SquareDashed: {}, Trash2: {}, Ungroup: {}, VolumeX: {}, X: {},
 }))
 

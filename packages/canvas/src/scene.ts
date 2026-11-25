@@ -280,6 +280,8 @@ export interface SceneNode {
   readonly unrecognized?: true
   /** Set when the node's schema could not be resolved (rendered as an error shell). */
   readonly missingSchema?: boolean
+  /** Set instead of the two marks above while no node definitions are held yet. */
+  readonly schemaPending?: true
 }
 
 /**
@@ -730,6 +732,11 @@ export interface BuildSceneInput {
   /** Graph definition to render (the root, or a subgraph being edited). */
   readonly graphId: string
   readonly resolve: SchemaResolver
+  /**
+   * No node definitions are held yet, so a node that resolves to no schema
+   * may still have one: it is marked `schemaPending`, not missing.
+   */
+  readonly schemasPending?: boolean
   readonly renderVirtualNode?: (node: NodeData) => VirtualNodeRenderModel | undefined
   readonly tokens: DesignTokens
   readonly measure: TextMeasurer
@@ -1179,6 +1186,9 @@ export function buildScene(input: BuildSceneInput): Scene {
 
   const nodes: SceneNode[] = []
   const byId = new Map<string, SceneNode>()
+  // An automatic value that cannot be worked out: the field's warning, also
+  // listed in Problems, where picking it moves to the field.
+  const automaticDiagnostics: Diagnostic[] = []
   let fallbackY = 0
   for (const node of Object.values(def.nodes)) {
     const view = viewNodes[node.id]
@@ -1201,6 +1211,11 @@ export function buildScene(input: BuildSceneInput): Scene {
     const elaborated = schema
       ? elaborateShown(schema, occurrenceNode, connectivityOf(node.id), node.id, problemPorts.get(node.id), view?.views)
       : undefined
+    for (const diagnostic of elaborated?.diagnostics ?? []) {
+      const port = diagnostic.data?.['input']
+      if (diagnostic.code !== 'automatic.default' || typeof port !== 'string') continue
+      automaticDiagnostics.push({ ...diagnostic, anchor: { port: { node: asNodeId(node.id), port: asPortId(port) } } })
+    }
     const baseLayout = schema
       ? layoutNode(schema, occurrenceNode, input.tokens, measure, input.widgetMeasure, {
           ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
@@ -1223,6 +1238,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           missingConnections(def, node.id),
           view?.size,
           view?.collapsed === true,
+          input.schemasPending === true,
         )
     // A promoted boundary input owns the value and editable menu of the
     // inner row it binds; edits on that row write to the owning instance.
@@ -1326,7 +1342,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(view?.color !== undefined ? { color: view.color } : {}),
       isSubgraph: subgraphDefIdOf(node.type) !== undefined,
       ...(node.region !== undefined ? { regionKind: node.region.kind } : {}),
-      ...(schema ? {} : { unrecognized: true, missingSchema: true }),
+      ...(schema ? {} : input.schemasPending === true ? { schemaPending: true } : { unrecognized: true, missingSchema: true }),
     }
     nodes.push(sceneNode)
     byId.set(node.id, sceneNode)
@@ -2012,7 +2028,7 @@ export function buildScene(input: BuildSceneInput): Scene {
 
   const result: Scene = {
     graphId: input.graphId, nodes, links, reroutes, netStubs, groups, boundaryNodes,
-    diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? [])],
+    diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? []), ...automaticDiagnostics],
     ...(input.occurrence !== undefined ? { occurrence: { owner: input.occurrence.owner, bodyGraph: def.id } } : {}),
   }
   if (input.layoutGeneration !== undefined && input.occurrence === undefined && input.occurrenceView === undefined && view !== undefined) {
@@ -2097,9 +2113,15 @@ function missingLayout(
   connections: { inputs: readonly PortRef[]; outputs: readonly PortRef[]; taps: readonly string[] },
   sizeOverride?: SizeOverride,
   minimized = false,
+  pending = false,
 ): NodeLayout {
   const titleRenamed = node.title !== undefined && node.title !== node.type
-  const title = node.title ?? node.type
+  // A node waiting for definitions shows its type id without the pack part,
+  // as written. A missing node keeps the whole id: the pack part says what to
+  // install.
+  const lastDot = node.type.lastIndexOf('.')
+  const shortType = pending && lastDot >= 0 && lastDot < node.type.length - 1 ? node.type.slice(lastDot + 1) : node.type
+  const title = node.title ?? shortType
   const unknownType = { kind: 'wildcard' } as const
   const rows: LayoutRow[] = []
   const pins: PinLayout[] = []

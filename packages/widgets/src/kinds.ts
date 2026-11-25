@@ -312,14 +312,6 @@ export const colorKind: WidgetKind<string> = {
   defaultView: () => 'core.color',
 }
 
-export const colorsKind: WidgetKind<string[]> = {
-  type: 'COLORS',
-  valueSchema: { version: 1, validate: (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string') },
-  defaultValue: (spec) => colorsKind.valueSchema.validate(spec.default) ? [...spec.default] : [],
-  validate: () => [],
-  defaultView: () => 'core.colors',
-}
-
 export interface CurvePoint {
   readonly position: number
   readonly value: number
@@ -872,18 +864,6 @@ export const integerColorView: WidgetView<IntegerWidgetValue> = {
   },
 }
 
-export const colorsView: WidgetView<string[]> = {
-  ...makeCompactView<string[]>('core.colors', 'COLORS'),
-  drawCompact(ctx, value, _spec, state) {
-    ctx.rect(0, 0, 1, 1, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
-    // `swatches` asks the painter for as many color squares as fit, then a count of the rest.
-    ctx.text(1, 0, value.length === 0 ? 'No colors' : `${value.length} colors`, {
-      role: 'widgetValue', align: 'right', width: 1, truncated: state.truncated ?? false,
-      ...(value.length === 0 ? { placeholder: true } : { swatches: value }),
-    })
-    if (!state.readonly) ctx.hitRegion(0, 0, 1, 1, 'widget.edit')
-  },
-}
 export const curveView: WidgetView<Json> = {
   id: 'core.curve',
   kind: 'CURVE',
@@ -1085,11 +1065,11 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
   for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
-    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, colorsKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, painterKind, cameraAngleKind, resolutionKind, saveTargetKind]) {
+    listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, painterKind, cameraAngleKind, resolutionKind, saveTargetKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, colorsView, audioRecordView, webcamView, boundingBoxView, imageCompareView, painterView, cameraAngleView, resolutionView, saveTargetView]) {
+    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, audioRecordView, webcamView, boundingBoxView, imageCompareView, painterView, cameraAngleView, resolutionView, saveTargetView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

@@ -80,6 +80,7 @@ export const canvasGalleryPages = [
   ['widgets', 'Widget kinds'],
   ['core-rows', 'Core widget rows'],
   ['row-editing', 'Editing in the row proposal'],
+  ['row-automatic', 'Automatic values proposal'],
   ['row-lists', 'Lists in the row proposal'],
   ['lookups', 'Lookup states'],
   ['color-editing', 'Color in the row'],
@@ -150,6 +151,9 @@ const sample = schema('Sampling', [
   }),
 ])
 
+/** Widget kinds of the editors shown in the node. */
+const EDITOR_KINDS = new Set(['CURVE', 'AUDIO_RECORD', 'WEBCAM', 'LOAD_3D', 'IMAGECOMPARE', 'CAMERA_ANGLE_VIEW'])
+
 export const galleryWidgetInputs: readonly InputSpec[] = [
   widget('integer', 'INT', 20, { min: 1, max: 10000 }),
   sample.body[2] as InputSpec,
@@ -184,7 +188,6 @@ export const galleryWidgetInputs: readonly InputSpec[] = [
     },
   },
   widget('color', 'COLOR', '#3366cc80'),
-  widget('colors', 'COLORS', ['#32E6C5', '#FF7468', '#FFD166']),
   widget('curve', 'CURVE', {
     points: [
       { position: 0, value: 0 },
@@ -238,6 +241,7 @@ interface BoxedNode {
   }
   readonly textLines?: Readonly<Record<string, number>>
   readonly height?: number
+  readonly width?: number
 }
 
 export interface CanvasGalleryFixture {
@@ -635,7 +639,7 @@ export function createCanvasGalleryFixture(
                 : {}),
               [id]: {
                 position: { x, y },
-                size: { width: id === 'Narrow' ? 112 : id === 'Suffix narrow' ? 200 : 280, height: extra.height ?? 0 },
+                size: { width: extra.width ?? (id === 'Narrow' ? 112 : id === 'Suffix narrow' ? 200 : 280), height: extra.height ?? 0 },
                 ...(extra.textLines !== undefined ? { textLines: extra.textLines } : {}),
                 ...(id.startsWith('Minimized') || id === 'Long minimized'
                   ? { collapsed: true }
@@ -686,27 +690,18 @@ export function createCanvasGalleryFixture(
   }
   if (page === 'collection-rows') {
     const collection = galleryWidgetInputs.filter((item) =>
-      ['multi_choice', 'list', 'colors', 'curve'].includes(item.id),
+      ['multi_choice', 'list', 'curve'].includes(item.id),
     )
     const definition = schema('Collection widgets', collection)
     add('Selected values', definition)
     add('Empty and minimal values', definition, {
       multi_choice: [],
       list: [],
-      colors: [],
       curve: { points: [{ position: 0, value: 0.25 }] },
     })
     add('Long and varied values', definition, {
       multi_choice: ['red', 'green', 'blue', 'alpha'],
       list: [0.125, 1.5, 12.75, 256.25, 4096.875],
-      colors: [
-        '#32e6c5',
-        '#ff7468',
-        '#ffd166',
-        '#3366cc80',
-        '#cc66ff',
-        '#ffffff',
-      ],
       curve: {
         interpolation: 'monotone_cubic',
         points: [
@@ -753,7 +748,6 @@ export function createCanvasGalleryFixture(
         'save_target',
         'video_edit',
         'list',
-        'colors',
         'curve',
         'camera_angle',
         'resolution',
@@ -798,7 +792,7 @@ export function createCanvasGalleryFixture(
       save_target: { mount: 'output', prefix: 'portraits/take' },
       video_edit: { trim: { start_time: 2, duration: 5 } },
     })
-    add('Empty values', definition, {
+    const empty = {
       checkpoint: null,
       asset: null,
       recording: null,
@@ -806,14 +800,16 @@ export function createCanvasGalleryFixture(
       save_target: null,
       video_edit: {},
       list: [],
-      colors: [],
       curve: {
         points: [
           { position: 0, value: 0 },
           { position: 1, value: 1 },
         ],
       },
-    })
+    }
+    add('Empty values', definition, empty)
+    add('Empty values, narrow node', definition, empty, undefined, false, { width: 180 })
+    add('Empty values, narrower node', definition, empty, undefined, false, { width: 140 })
   } else if (page === 'core-rows') {
     const core = galleryWidgetInputs.filter((item) =>
       [
@@ -894,9 +890,11 @@ export function createCanvasGalleryFixture(
             item.id,
             {
               value: (item.widget?.default ?? null) as Json,
-              state: (['expected', 'cached', 'estimate', 'stale'] as const)[
-                i % 4
-              ]!,
+              // An editor shown in the node is passed a value only by a
+              // Primitive or a widget tap, which is always known exactly.
+              state: EDITOR_KINDS.has(item.widget?.widgetType ?? '')
+                ? 'expected'
+                : (['expected', 'cached', 'estimate', 'stale'] as const)[i % 4]!,
             },
           ]),
         )

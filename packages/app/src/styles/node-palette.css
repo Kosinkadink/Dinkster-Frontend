@@ -72,7 +72,8 @@
   cursor: pointer;
 }
 .palette-type-trigger:hover,
-.palette-type-trigger[aria-expanded='true'] { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); border-color: var(--dinkster-border-strong); }
+.palette-type-trigger[aria-expanded='true'] { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); border-color: var(--dinkster-border-hover); }
+.palette-type-trigger[aria-expanded='true'] { border-color: var(--dinkster-border-strong); }
 .palette-type-trigger:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .palette-type-caret {
   flex: none;
@@ -128,7 +129,7 @@
   width: var(--dinkster-space-12);
   height: var(--dinkster-space-12);
   box-sizing: border-box;
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-small);
 }
 .palette-type-options > button[aria-checked='true'] .palette-type-check {
@@ -235,7 +236,7 @@
   min-width: 150px;
   padding: 4px;
   background: var(--dinkster-surface-panel);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: 6px;
   box-shadow: var(--dinkster-elevation-high);
 }
@@ -403,12 +404,13 @@
   padding: var(--dinkster-space-8);
   color: var(--dinkster-text-primary);
   background: var(--dinkster-surface-inset);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
   font: inherit;
   outline: none;
   resize: none;
 }
+.widget-editor input:where(:not(.product-text-input)):where(:hover:not(:disabled)), .widget-editor textarea:where(:not(.product-text-area)):where(:hover:not(:disabled)), .widget-editor select:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .widget-editor input:where(:not(.product-text-input)):focus-visible,
 .widget-editor textarea:where(:not(.product-text-area)):focus-visible,
 .widget-editor select:focus-visible { border-color: var(--dinkster-border-focus); box-shadow: 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-interaction-selected); }

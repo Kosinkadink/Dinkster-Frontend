@@ -9,7 +9,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, on, onCleanup, onMount, Show, For, Index, untrack, type JSX } from 'solid-js'
-import type { ExecutionLogEntry, LookupClient } from '@dinkster/client'
+import type { ExecutionLogEntry, ExecutionState, LookupClient } from '@dinkster/client'
 import {
   buildScene,
   boundarySceneId,
@@ -113,6 +113,7 @@ import {
   type CommandInvocation,
   type CommandOutcome,
   type ControllerMode,
+  type AutomaticState,
   type Diagnostic,
   type EditorSizing,
   type ElaboratedInterface,
@@ -135,8 +136,9 @@ import {
   type WidgetView,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { AppWindow, Bookmark, Check, CheckCircle2, ChevronDown, CircleSlash2, Dice5, FileUp, Frame, Layers, LoaderCircle, Lock, Map as MapIcon, Maximize2, MessageCircleWarning, Minus, Palette, Plus, Route, Settings2, Snowflake, TriangleAlert, X } from 'lucide-solid'
-import { executionProgress } from './ExecutionActivityCard.js'
+import { Check, CheckCircle2, Dice5, FileUp, LoaderCircle, Lock, Minus, Plus, Snowflake, TriangleAlert, X } from 'lucide-solid'
+import { executionProgress, executionStatusLabel } from './ExecutionActivityCard.js'
+import { runClock } from './execution-activity.js'
 import { controllerAdvancementPlan, currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
 import { LookupDemand, lookupAnswersOf, rowListLookupOf } from './lookup-demand.js'
 import { provideRowListLookups } from './editors/InRowListEditor.js'
@@ -152,7 +154,7 @@ import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive } from '.
 import { RowFocusOverlay, type RowFocusState } from './editors/RowFocusOverlay.js'
 import type { RowBox } from './editors/row-placement.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
-import { applyNodeDecorations, deriveSceneOverlays, retainProvenExecution, type SelectedInputPreview } from './scene-overlays.js'
+import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, retainProvenExecution, withRecordedAutomaticValues, type SelectedInputPreview } from './scene-overlays.js'
 import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
 import { problemBoxLines, problemBoxRows, type ProblemBoxLine } from './problem-box.js'
 import { NodeProblemBox } from './NodeProblemBox.js'
@@ -166,7 +168,8 @@ import { isNativeTextScopeTarget, shortcutSuppressed } from './settings.js'
 import { bookmarkJumpMode, bookmarkJumpPlan, bookmarkMarkerWorldPoint, bookmarkSaveMode, bookmarkViewFromViewport, bookmarkViewportForView, createCameraAnimator, viewportCenteredOnNode, type BookmarkJumpPlan } from './bookmark-camera.js'
 import { Icon } from './Icon.js'
 import { autoSpecialization } from './dynamic-slot.js'
-import { minimapMenuPlacement, setupMinimap, type MinimapMarker, type MinimapMenuPlacement } from './minimap.js'
+import { cornerMenuMaxHeight, setupMinimap, type MinimapMarker } from './minimap.js'
+import { CanvasCornerControls, MINIMAP_SWITCHES, type CanvasCornerMenu } from './CanvasChrome.js'
 import { NodePalette, type PaletteAnchor, type PaletteEntry } from './NodePalette.js'
 import { ContextMenu } from './ContextMenu.js'
 import { canvasMenuContext, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
@@ -175,7 +178,7 @@ import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
 import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type EditorTarget, type WidgetEditorState } from './WidgetEditor.js'
-import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
+import { GLSL_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
 import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
 import type { LatentMetadata } from './latent-metadata.js'
@@ -351,7 +354,7 @@ export const clipboardSceneEndpointTypes = (source: Scene): ReadonlyMap<string, 
     // flip the type representation and falsely reject a stub.
     for (const pin of node.layout.pins) {
       if (pin.widgetTap === true) {
-        if (node.missingSchema !== true)
+        if (node.missingSchema !== true && node.schemaPending !== true)
           result.set(clipboardEndpointKey('tap', node.id, pin.address.port), JSON.stringify(pin.type))
         continue
       }
@@ -586,128 +589,6 @@ export function linkDropPaletteGhost(context: LinkDropContext, worldX: number, w
   return context.seeking === 'in'
     ? { x1: context.anchorX, y1: context.anchorY, x2: worldX, y2: worldY, ...presentation }
     : { x1: worldX, y1: worldY, x2: context.anchorX, y2: context.anchorY, ...presentation }
-}
-
-export function CanvasViewControls(props: {
-  readonly drilled: boolean
-  readonly disabled: boolean
-  readonly activeView: string
-  readonly appViewEnabled: boolean
-  readonly activeLens: { readonly id: string; readonly label: string }
-  readonly lenses: readonly { readonly id: string; readonly label: string; readonly description: string }[]
-  readonly viewMenuOpen: boolean
-  readonly lensMenuOpen: boolean
-  readonly onToggleViewMenu: () => void
-  readonly onToggleLensMenu: () => void
-  readonly onSelectView: (kind: string) => void
-  readonly onSelectLens: (id: string) => void
-  readonly commandScope?: unknown
-  readonly onSetAllNetsDisplay: (mode: 'noodle' | 'tags' | 'guide') => CommandOutcome | Promise<CommandOutcome | undefined> | undefined
-}) {
-  const message = useAppMessage()
-  const [pending, setPending] = createSolidSignal(false)
-  const [refusal, setRefusal] = createSolidSignal<string>()
-  let generation = 0
-  let scopeGeneration = 0
-  let live = true
-  let viewTrigger: HTMLButtonElement | undefined
-  onCleanup(() => { live = false; generation++ })
-  createEffect(() => {
-    props.commandScope
-    props.disabled
-    scopeGeneration++
-    generation++
-    setPending(false)
-    setRefusal(undefined)
-  })
-  createEffect(() => {
-    props.viewMenuOpen
-    generation++
-    setRefusal(undefined)
-  })
-  const setAllNetsDisplay = async (mode: 'noodle' | 'tags' | 'guide'): Promise<void> => {
-    if (pending() || props.disabled || !props.viewMenuOpen) return
-    const owner = generation
-    const scope = scopeGeneration
-    setPending(true)
-    setRefusal(undefined)
-    try {
-      const outcome = await props.onSetAllNetsDisplay(mode)
-      if (!live || owner !== generation) return
-      if (outcome?.ok) {
-        props.onToggleViewMenu()
-        viewTrigger?.focus()
-      } else if (outcome !== undefined) {
-        setRefusal(outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
-      }
-    } catch (error) {
-      if (live && owner === generation) setRefusal(error instanceof Error ? error.message : String(error))
-    } finally {
-      if (live && scope === scopeGeneration) setPending(false)
-    }
-  }
-  const viewLabel = () => message(`canvas.viewControls.active.${props.activeView === APP_EDITOR_KIND ? 'app' : 'graph'}`)
-  return (
-    <div class="canvas-view-controls" classList={{ drilled: props.drilled }}>
-      <div class="canvas-view-control">
-        <ProductButton size="compact"
-          ref={viewTrigger}
-          type="button"
-          data-testid="views-switcher"
-          data-tooltip-label={props.viewMenuOpen ? undefined : message('canvas.viewControls.view.tooltip')}
-          aria-haspopup="menu"
-          aria-expanded={props.viewMenuOpen}
-          disabled={props.disabled}
-          onClick={props.onToggleViewMenu}
-        ><Icon icon={AppWindow} /> {viewLabel()} <Icon icon={ChevronDown} /></ProductButton>
-        <Show when={props.viewMenuOpen}>
-          <div class="lens-menu view-menu" role="menu" aria-busy={pending()}>
-            <Show when={refusal()}>{(text) => <ProductNotice tone="error" testId="net-display-error">{text()}</ProductNotice>}</Show>
-            <div class="lens-menu-heading">{message('canvas.viewControls.heading.views')}</div>
-            <ProductButton variant="ghost" size="compact" role="menuitemradio" aria-checked={props.activeView === GRAPH_EDITOR_KIND} onClick={() => props.onSelectView(GRAPH_EDITOR_KIND)}><strong>{message('canvas.viewControls.active.graph')}</strong></ProductButton>
-            <Show when={props.appViewEnabled}>
-              <ProductButton variant="ghost" size="compact" role="menuitemradio" aria-checked={props.activeView === APP_EDITOR_KIND} onClick={() => props.onSelectView(APP_EDITOR_KIND)}><strong>{message('canvas.viewControls.view.app')}</strong></ProductButton>
-            </Show>
-            <div class="lens-menu-heading">{message('canvas.viewControls.heading.namedNets')}</div>
-            <ProductButton variant="ghost" size="compact"
-              role="menuitem"
-              data-testid="net-display-all-noodle"
-              disabled={pending()}
-              onClick={() => { void setAllNetsDisplay('noodle') }}
-            ><strong>{message('canvas.viewControls.namedNets.noodles.label')}</strong><small>{message('canvas.viewControls.namedNets.noodles.description')}</small></ProductButton>
-            <ProductButton variant="ghost" size="compact"
-              role="menuitem"
-              data-testid="net-display-all-tags"
-              disabled={pending()}
-              onClick={() => { void setAllNetsDisplay('tags') }}
-            ><strong>{message('canvas.viewControls.namedNets.tags.label')}</strong><small>{message('canvas.viewControls.namedNets.tags.description')}</small></ProductButton>
-            <ProductButton variant="ghost" size="compact"
-              role="menuitem"
-              data-testid="net-display-all-guide"
-              disabled={pending()}
-              onClick={() => { void setAllNetsDisplay('guide') }}
-            ><strong>{message('canvas.viewControls.namedNets.guides.label')}</strong><small>{message('canvas.viewControls.namedNets.guides.description')}</small></ProductButton>
-          </div>
-        </Show>
-      </div>
-      <div class="canvas-view-control">
-        <ProductButton size="compact"
-          type="button"
-          data-testid="lens-switcher"
-          data-tooltip-label={props.lensMenuOpen ? undefined : message('canvas.viewControls.lens.tooltip')}
-          aria-haspopup="menu"
-          aria-expanded={props.lensMenuOpen}
-          onClick={props.onToggleLensMenu}
-        ><Icon icon={Layers} /> {props.activeLens.label} <Icon icon={ChevronDown} /></ProductButton>
-        <Show when={props.lensMenuOpen}>
-          <div class="lens-menu" role="menu">
-            <div class="lens-menu-heading">{message('canvas.viewControls.heading.lenses')}</div>
-            <For each={props.lenses}>{(lens) => <ProductButton variant="ghost" size="compact" role="menuitemradio" aria-checked={props.activeLens.id === lens.id} onClick={() => props.onSelectLens(lens.id)}><strong>{lens.label}</strong><small>{lens.description}</small></ProductButton>}</For>
-          </div>
-        </Show>
-      </div>
-    </div>
-  )
 }
 
 /** Turn toolbar menu buttons into the same node target used by right-click. */
@@ -1095,6 +976,8 @@ export function NodeMediaOverlay(props: {
  * keeps few WebGL contexts (16 in Chromium), so the rest show a still picture.
  */
 const LIVE_MODEL_VIEWS = 8
+/** Space the frozen line keeps from the canvas controls beside it, in CSS pixels. */
+const FROZEN_LINE_CLEARANCE = 8
 
 /**
  * Orbit viewport for a model3d node preview. The canvas paints the poster;
@@ -1566,6 +1449,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     tabTargets()
     const tab = activeTab()
     return tab ? props.app.registryForTab(tab) : props.app.registry.get()
+  })
+  // What the scene draws from until the active tab's backend answers.
+  const keptRegistry = createMemo((): ReturnType<AppState['keptRegistryForTab']> => {
+    backendsTick()
+    tabTargets()
+    const tab = activeTab()
+    return tab ? props.app.keptRegistryForTab(tab) : undefined
   })
   const widgetRegistry = createMemo(() => {
     registry()
@@ -2070,39 +1960,40 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // the partial-scope preview effect keys off it.
   const [selVersion, setSelVersion] = createSolidSignal(0)
   const [stack, setStack] = createSolidSignal<readonly string[]>([])
-  const [minimapMenu, setMinimapMenu] = createSolidSignal(false)
-  const [minimapMenuPose, setMinimapMenuPose] = createSolidSignal<MinimapMenuPlacement>({ above: false })
-  let minimapSettingsEl!: HTMLButtonElement
+  const [cornerMenu, setCornerMenu] = createSolidSignal<CanvasCornerMenu>()
+  const [cornerMenuHeight, setCornerMenuHeight] = createSolidSignal<number>()
   let cornerControlsEl!: HTMLDivElement
-  const measureMinimapMenu = (): void => {
+  const measureCornerMenu = (): void => {
     const stageEl = cornerControlsEl.offsetParent
     const stage = stageEl?.getBoundingClientRect()
     // The popover may reach up to the stage top, but not into the floating
     // top toolbar row when one is present.
     const toolbar = stageEl?.querySelector('.canvas-stage-toolbar')?.getBoundingClientRect()
     const top = Math.max(stage?.top ?? 0, toolbar?.bottom ?? 0)
-    setMinimapMenuPose(minimapMenuPlacement(cornerControlsEl.getBoundingClientRect(), { left: stage?.left ?? 0, top }))
+    const bar = cornerControlsEl.querySelector('.canvas-corner-bar')?.getBoundingClientRect()
+    setCornerMenuHeight(bar === undefined ? undefined : cornerMenuMaxHeight(bar.top, top))
   }
-  const openMinimapMenu = (): void => {
-    measureMinimapMenu()
-    setMinimapMenu(true)
-    queueMicrotask(() => document.querySelector<HTMLElement>('.minimap-menu .minimap-setting-row')?.focus())
+  const openCornerMenu = (menu: CanvasCornerMenu): void => {
+    measureCornerMenu()
+    setCornerMenu(menu)
   }
   createEffect(() => {
-    if (!minimapMenu()) return
-    window.addEventListener('resize', measureMinimapMenu)
-    onCleanup(() => window.removeEventListener('resize', measureMinimapMenu))
+    if (cornerMenu() === undefined) return
+    window.addEventListener('resize', measureCornerMenu)
+    onCleanup(() => window.removeEventListener('resize', measureCornerMenu))
   })
-  const closeMinimapMenu = (): void => {
-    setMinimapMenu(false)
-    queueMicrotask(() => minimapSettingsEl?.focus())
-  }
+  const closeCornerMenu = (): void => { setCornerMenu(undefined) }
   const minimapVisible = (): boolean => (settingsTick(), props.app.settings.get<boolean>('canvas.minimap.visible'))
+  const minimapSwitches = createMemo(() => {
+    settingsTick()
+    return Object.fromEntries([...MINIMAP_SWITCHES.map((item) => item.id), 'bookmarks'].map((id) =>
+      [id, props.app.settings.get<boolean>(`canvas.minimap.${id}`)]))
+  })
   const toggleMinimap = (): void => {
     const next = !props.app.settings.get<boolean>('canvas.minimap.visible')
     props.app.settings.set('canvas.minimap.visible', next)
     if (next) repaintMinimap?.()
-    else setMinimapMenu(false)
+    else if (cornerMenu() === 'minimap') setCornerMenu(undefined)
   }
   const [embeddedDropChoice, setEmbeddedDropChoice] = createSolidSignal<{
     readonly loadImage: () => void
@@ -2121,7 +2012,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   /** Set in onMount; canvas chrome delegates to the mounted renderer. */
   let repaintMinimap: (() => void) | undefined
   let zoomCanvas: ((factor: number) => void) | undefined
-  let resetCanvasZoom: (() => void) | undefined
+  let zoomCanvasTo: ((scale: number) => void) | undefined
   let fitCanvas: (() => void) | undefined
 
   const frozen = (): boolean => activeTab()?.execution !== undefined
@@ -2515,7 +2406,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         fields: nodeSearchFields(kind.schema),
       })
     }
-    const reg = registry()
+    const reg = registry() ?? keptRegistry()
     if (reg) {
       for (const s of reg.schemas.values()) {
         // Deprecated (structured, legacy, or explicit demotion) and hidden
@@ -2598,8 +2489,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   createEffect(() => {
     const paletteOpen = palette() !== undefined
     const editorOpen = editor() !== undefined
-    const minimapOpen = minimapMenu()
-    if (!paletteOpen && !editorOpen && !minimapOpen) return
+    const cornerOpen = cornerMenu() !== undefined
+    if (!paletteOpen && !editorOpen && !cornerOpen) return
 
     const isInside = (event: Event, selector: string): boolean =>
       event.composedPath().some((item) => item instanceof Element && item.matches(selector))
@@ -2657,8 +2548,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
         return
       }
-      if (minimapOpen) {
-        if (!isInside(event, '.minimap-menu')) dismiss(event, closeMinimapMenu)
+      if (cornerOpen) {
+        if (!isInside(event, '.minimap-menu, .canvas-zoom-menu')) dismiss(event, closeCornerMenu)
       }
     }
     // Consuming pointerdown does not stop the browser's synthesized click,
@@ -2727,7 +2618,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           })
         })
       }
-      else if (minimapOpen) dismiss(event, closeMinimapMenu)
+      else if (cornerOpen) dismiss(event, closeCornerMenu)
     }
     window.addEventListener('pointerdown', onWindowPointerDown, true)
     // auxclick covers middle-click activation (tab close), dblclick covers
@@ -2780,9 +2671,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
     const zoomBy = (factor: number) => zoomTo(renderer.getViewport().scale * factor)
     zoomCanvas = zoomBy
-    // Setting the scale directly keeps the reset exact; scale * (1 / scale)
-    // does not round-trip to 1 in floating point.
-    resetCanvasZoom = () => zoomTo(1)
+    // Setting the scale directly keeps a typed zoom and the reset exact;
+    // scale * (1 / scale) does not round-trip to 1 in floating point.
+    zoomCanvasTo = zoomTo
     const fitView = () => renderer.fitToScene()
     fitCanvas = fitView
     const endpointPin = (end: unknown, direction: 'in' | 'out') => {
@@ -3123,6 +3014,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ctx,
           scopes?.upTo !== undefined,
           tab.execution === undefined,
+          props.app.engineOffReason(tab, message),
         ),
         ...selectionLifecycleMenuGroups(target, {
           group: '15-subgraph-lifecycle',
@@ -3245,7 +3137,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         demand.dispose()
         lookupDemands.delete(client)
       }
-      if (tab === undefined || lookups === undefined) return
+      // Nodes drawn from a kept node table ask nothing until the backend answers.
+      if (tab === undefined || lookups === undefined || props.app.registryForTab(tab) === undefined) return
       const viewport = renderer.getViewport()
       const width = canvasEl.clientWidth
       const height = canvasEl.clientHeight
@@ -3254,12 +3147,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const top = -viewport.y / viewport.scale
       const right = left + width / viewport.scale
       const bottom = top + height / viewport.scale
+      const open = untrack(editor)
+      const openField = open?.inRow?.automatic === undefined || open.tab.id !== tab.id ? undefined : open.target
       lookupDemandFor(lookups).show(renderer.getScene().nodes.flatMap((node) =>
         node.elaborated === undefined || node.x > right || node.y > bottom ||
           node.x + node.layout.width < left || node.y + node.layout.height < top
           ? []
-          : [{ nodeType: node.node.type, node: lookupNodeKey(tab, node.id), items: node.elaborated.items }]))
+          : [{
+              nodeType: node.node.type,
+              node: lookupNodeKey(tab, node.id),
+              items: node.elaborated.items,
+              ...(openField?.nodeId === node.id ? { openField: openField.valueKey } : {}),
+            }]))
     }
+    // Opening or closing a field changes which fixed automatic field asks what emptying it would give.
+    createEffect(on(editor, () => showLookups(), { defer: true }))
     // A choice row edited in its row lists the options its lookup gave.
     provideRowListLookups((editor) => {
       const lookups = editor.editor.ed.inRow?.lookups
@@ -4127,7 +4029,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (typeof nodeId !== 'string') return
         const node = m.tab.store.doc.graphs[m.graphId]?.nodes[nodeId]
         if (!node) return
-        const renameRegistry = props.app.registryForTab(m.tab)
+        const renameRegistry = props.app.registryForTab(m.tab) ?? props.app.keptRegistryForTab(m.tab)
         const renameResolve = renameRegistry ? documentResolver(m.tab.store.doc, renameRegistry.resolve) : undefined
         const originalTitle = renameResolve?.(node.type)?.displayName ?? node.type
         setNodePrompt({
@@ -4272,7 +4174,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         void insertBlueprint(tab, entry.blueprint, p, graphId)
         return
       }
-      const reg = registry()
+      const reg = registry() ?? keptRegistry()
       // Predict through the session so solo and actor-scoped allocation use
       // the same cursor and formatting rules as node.add.
       const expectedId = tab.store.predictedNodeId(graphId)
@@ -4495,9 +4397,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly extensionRevision: number
       readonly seedControllerEnabled: boolean
       readonly plannerAvailable: boolean
+      readonly recordedAutomatic: ExecutionState['automaticValues']
       readonly lookups: LookupClient | undefined
       readonly lookupGeneration: number
     } | undefined
+    // A frozen tab's run records what its automatic fields used; the record
+    // arrives with the finished job, after the snapshot's first scene.
+    const frozenAutomatic = createMemo(() => {
+      executions()
+      const tab = activeTab()
+      return tab?.execution === undefined ? undefined : props.app.executionForTab(tab)?.automaticValues
+    })
     let sceneViewportOwner: { readonly tabId: string; readonly graphId: string } | undefined
     let pendingViewport: { readonly tabId: string; readonly graphId: string; readonly viewport: ReturnType<CanvasRenderer['getViewport']> } | undefined
     let viewportPause: ReturnType<typeof setTimeout> | undefined
@@ -4534,6 +4444,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       docTick() // track document + graph-stack changes
       const focusRequest = diagnosticFocus()
       const reg = registry()
+      const shown = reg ?? keptRegistry()
       const tab = activeTab()
       if (!tab) return
       const doc = tab.store.doc
@@ -4559,6 +4470,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         node: asNodeId(path[path.length - 1]!),
       }
       const plannerAvailable = occurrenceOwner !== undefined && occurrencePlanner() !== undefined
+      const recordedAutomatic = frozenAutomatic()
       // A frozen view of a run calls no lookups.
       const lookupBackend = tab.execution === undefined ? props.app.backendForTab(tab) : undefined
       const lookups = lookupBackend?.lookups
@@ -4571,15 +4483,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const canReuseScene = previousBuild !== undefined &&
         previousBuild.key === key &&
         previousBuild.pathKey === pathKey &&
-        previousBuild.registry === reg &&
+        previousBuild.registry === shown &&
         previousBuild.extensionsGeneration === extensionsGeneration &&
         previousBuild.extensionRevision === currentExtensionRevision &&
         previousBuild.seedControllerEnabled === seedControllerEnabled &&
         previousBuild.plannerAvailable === plannerAvailable &&
+        previousBuild.recordedAutomatic === recordedAutomatic &&
         previousBuild.lookups === lookups &&
         previousBuild.lookupGeneration === lookupGeneration
       const valuesUpdated = canReuseScene && path.length === 0
-        ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => reg?.resolve(type), lookupAnswers)
+        ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => shown?.resolve(type), lookupAnswers)
         : undefined
       const canReusePositions = canReuseScene &&
         previousBuild.graphNodes.size === graphNodes.size &&
@@ -4589,15 +4502,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         : undefined
       const built = valuesUpdated ?? repositioned ?? (() => {
         props.app.extensionRevision.get()
-        const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? reg?.resolve(type))
+        const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? shown?.resolve(type))
         const occurrenceView = occurrenceDynamicView(doc, resolve, path, path.length === 0 ? graphId : doc.root)
         const valueRegistry = widgetRegistry()
-        return buildScene({
+        const fresh = buildScene({
           document: doc,
           seedControllerEnabled,
           ...(lookupAnswers === undefined ? {} : { lookupAnswers }),
           graphId,
           resolve,
+          schemasPending: reg === undefined,
           // A hidden row shows while its stored value has a problem, as Problems lists it.
           storedValueProblem: (row, value) =>
             storedValueProblems(valueRegistry, graphId, row, value).some((d) => d.severity !== 'info'),
@@ -4610,6 +4524,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             occurrence: { owner: occurrenceOwner, plannerAvailable },
           } : {}),
         })
+        return recordedAutomatic === undefined ? fresh
+          : withRecordedAutomaticValues(fresh, untrack(() => props.app.executionForTab(tab)), path)
       })()
       const graphView = doc.view.graphs[graphId]
       sceneBuildContext = {
@@ -4632,11 +4548,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         graphNodes,
         key,
         pathKey,
-        registry: reg,
+        registry: shown,
         extensionsGeneration,
         extensionRevision: currentExtensionRevision,
         seedControllerEnabled,
         plannerAvailable,
+        recordedAutomatic,
         lookups,
         lookupGeneration,
       }
@@ -4826,6 +4743,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // and the dormant stored value must survive untouched underneath.
     let companionInputs: CompanionSourceMap = new Map()
     let companionDisplays: CompanionMap = {}
+    // The last run's automatic fields that used their default, derived with
+    // the overlays from the tab's latest run against the installed scene.
+    let lastRunAutomatic: readonly Diagnostic[] = []
+    let lastRunAutomaticKey = '[]'
     // What the wires bring, before a row's own rules, such as dropping a
     // color's opacity, decide what it shows.
     let arrivingCompanions: CompanionMap = {}
@@ -4873,7 +4794,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         (elaborated?.diagnostics ?? [])
           .filter((d) => d.code === 'node.rule.failed')
           .map((d): Diagnostic => ({ ...d, origin: 'compile', refs: ruleProblemRefs(d, scene.graphId, node.id) })))
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags]
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags, ...lastRunAutomatic]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
     }
@@ -4917,6 +4838,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
       const boundExec = props.app.executionForTab(tab)
       const gid = currentGraphId(tab)
+      const frozenView = tab.execution !== undefined
+      const lastRun = frozenView ? [] : lastRunAutomaticDiagnostics({ scene, execution: boundExec, instancePath: viewInstancePath(tab) })
+      const lastRunKey = canonicalJson(lastRun.map((d) => [d.message, d.anchor?.port ?? null]))
+      if (lastRunKey !== lastRunAutomaticKey) {
+        lastRunAutomatic = lastRun
+        lastRunAutomaticKey = lastRunKey
+        // Replaces the scene diagnostics, which reruns these overlays once.
+        refreshSceneDiagnostics(tab)
+      }
 
       // On live tabs, a producer value sheds its stale mark only when a
       // cached comparison compile of the CURRENT document proves the
@@ -5444,7 +5374,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const value =
         hit.row.derivedValue !== undefined
           ? hit.row.derivedValue
-          : stored !== undefined ? stored : effectiveWidgetDefault(spec)
+          : stored !== undefined ? stored : hit.row.automatic?.value ?? effectiveWidgetDefault(spec)
       const reg = registry()
       const resolve = reg ? documentResolver(tab.store.doc, reg.resolve) : () => undefined
       const schema = resolve(hit.node.node.type)
@@ -5479,6 +5409,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const fieldInsetY = tokens.rowGeometry.fieldInsetY
       const inputItem = schema?.body.find((item) => item.kind === 'input' && item.id === hit.row.inputId)
       const help = inputItem?.kind === 'input' ? inputItem.tooltip : undefined
+      const automaticAtOpen = hit.row.automatic ?? hit.row.automaticIfEmptied
+      const rowValueKey = hit.row.valueKey
+      const automatic = automaticAtOpen === undefined ? undefined : (): AutomaticState => {
+        sceneVersion()
+        const row = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)?.layout.rows
+          .find((candidate) => candidate.kind === 'widget' && candidate.valueKey === rowValueKey)
+        return (row?.kind === 'widget' ? row.automatic ?? row.automaticIfEmptied : undefined) ?? automaticAtOpen
+      }
 
       // Keep the graph as the focus origin before an optional editor takes
       // focus. ASSET uses native modal restoration; other families open an
@@ -5530,6 +5468,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ...(help === undefined ? {} : { help }),
           ...(caret === undefined || hit.row.viewId !== 'core.line' ? {} : { caret }),
           ...(hit.row.controllerMode === undefined ? {} : { controllerMode: hit.row.controllerMode }),
+          ...(automatic === undefined ? {} : { automatic }),
           ...(rowLookups === undefined ? {} : { lookups: rowLookups }),
         } } : {}),
         initial: widgetKind === undefined ? JSON.stringify(value, null, 2) : value,
@@ -6681,7 +6620,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     onCleanup(() => {
       zoomCanvas = undefined
-      resetCanvasZoom = undefined
+      zoomCanvasTo = undefined
       fitCanvas = undefined
       boundChannel?.blur() // host unmount: peers see us leave
       presenceProjector.dispose()
@@ -6746,6 +6685,37 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     return tab?.store.doc.graphs[graphId]?.name ?? graphId
   }
 
+  /**
+   * The frozen line sits centred on the row of the view and lens controls,
+   * and drops to the next row, still centred, only when it would touch a
+   * control on that row.
+   */
+  const placeFrozenLine = (line: HTMLDivElement): void => {
+    onMount(() => {
+      const stage = line.closest<HTMLElement>('.canvas-stage')
+      const toolbar = stage?.querySelector<HTMLElement>('.canvas-stage-toolbar')
+      if (!stage || !toolbar) return
+      const place = (): void => {
+        const area = stage.getBoundingClientRect()
+        const half = line.offsetWidth / 2 + FROZEN_LINE_CLEARANCE
+        const centre = area.left + area.width / 2
+        const controls = [...toolbar.children].map((child) => child.getBoundingClientRect()).filter((box) => box.width > 0)
+        const firstRow = Math.min(...controls.map((box) => box.top))
+        const touches = controls.some((box) => box.top === firstRow && box.left < centre + half && box.right > centre - half)
+        line.dataset['row'] = touches || line.offsetWidth > area.width - 2 * FROZEN_LINE_CLEARANCE ? 'below' : 'top'
+      }
+      const observer = new ResizeObserver(place)
+      for (const element of [stage, toolbar, line, ...toolbar.children]) observer.observe(element)
+      const children = new MutationObserver(() => {
+        for (const child of toolbar.children) observer.observe(child)
+        place()
+      })
+      children.observe(toolbar, { childList: true })
+      place()
+      onCleanup(() => { observer.disconnect(); children.disconnect() })
+    })
+  }
+
   /** Frozen-tab banner data: execution identity, status, live-sync verdict. */
   const frozenInfo = () => {
     executions()
@@ -6760,22 +6730,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       progress: state?.status === 'running' ? executionProgress(state) : undefined,
       queuedAt: state?.queuedAt,
       sync: props.app.frozenSyncStatus(tab),
+      tooltip: message('frozen.runTooltip', { id: tab.execution.prompt.slice(0, 8),
+        state: state === undefined ? '' : executionStatusLabel(state.status).toLocaleLowerCase() }),
       live: props.app.liveTabFor(tab.store.doc.lineage),
       // The compile-time registry is gone (e.g. app restarted, backend
       // removed before it was retained): the snapshot renders without node
       // definitions. Say so - never silently resolve with other schemas.
       schemasUnavailable: !registry(),
     }
-  }
-
-  /** Live-tab chip: how the document relates to its overlay execution. */
-  const liveSync = () => {
-    executions()
-    overlayPins()
-    docTick()
-    const tab = activeTab()
-    if (!tab || tab.execution) return undefined
-    return props.app.liveSyncStatus(tab)
   }
 
   // Badge popover content: reactive wrappers binding the framework-free
@@ -7347,68 +7309,71 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           </div>
         )}
       </Show>
-      <Show when={minimapMenu()}>
+      <Show when={cornerMenu() !== undefined}>
         <div
           class="canvas-popover-backdrop"
           data-testid="canvas-popover-backdrop"
           onPointerDown={(event) => {
             event.preventDefault()
             event.stopPropagation()
-            closeMinimapMenu()
+            closeCornerMenu()
           }}
         />
       </Show>
-      <div ref={cornerControlsEl} class="canvas-corner-controls" data-minimap-size={(settingsTick(), props.app.settings.get<string>('canvas.minimap.size'))}>
-        <canvas ref={minimapEl} class="minimap" classList={{ hidden: (settingsTick(), !props.app.settings.get<boolean>('canvas.minimap.visible')) }} data-testid="minimap" data-node-colors={props.app.settings.get<boolean>('canvas.minimap.nodes')} data-bypass={props.app.settings.get<boolean>('canvas.minimap.bypass')} data-links={props.app.settings.get<boolean>('canvas.minimap.noodles')} data-groups={props.app.settings.get<boolean>('canvas.minimap.groups')} data-reroutes={props.app.settings.get<boolean>('canvas.minimap.reroutes')} data-errors={props.app.settings.get<boolean>('canvas.minimap.errors')} data-bookmarks={props.app.settings.get<boolean>('canvas.minimap.bookmarks')} />
-        <div class="canvas-corner-bar">
-          <div class="minimap-bar-controls" role="group" aria-label="Minimap controls">
-            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button" data-testid="minimap-toggle" data-tooltip-label={minimapVisible() ? 'Hide minimap' : 'Show minimap'} aria-label={minimapVisible() ? 'Hide minimap' : 'Show minimap'} aria-pressed={minimapVisible()} onClick={toggleMinimap}><Icon icon={MapIcon} /></ProductButton>
-            <ProductButton variant="ghost" size="compact" ref={minimapSettingsEl} type="button" class="canvas-corner-button" data-testid="minimap-settings" data-tooltip-label="Minimap settings" aria-label="Minimap settings" aria-expanded={minimapMenu()} onClick={() => minimapMenu() ? closeMinimapMenu() : openMinimapMenu()}><Icon icon={Settings2} /></ProductButton>
-          </div>
-          <div class="canvas-zoom-controls" role="group" aria-label="Canvas view controls">
-            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button" data-testid="canvas-zoom-out" data-tooltip-label="Zoom out" aria-label="Zoom out (Alt+-)" onClick={() => zoomCanvas?.(1 / 1.2)}><Icon icon={Minus} /></ProductButton>
-            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button canvas-zoom-level" data-testid="canvas-zoom-level" data-tooltip-label="Reset zoom to 100%" aria-label={`Reset zoom to 100%. Current zoom ${Math.round(editorViewport().scale * 100)}%`} onClick={() => resetCanvasZoom?.()}>{Math.round(editorViewport().scale * 100)}%</ProductButton>
-            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button" data-testid="canvas-zoom-in" data-tooltip-label="Zoom in" aria-label="Zoom in (Alt+=)" onClick={() => zoomCanvas?.(1.2)}><Icon icon={Plus} /></ProductButton>
-            <ProductButton variant="ghost" size="compact" type="button" class="canvas-corner-button" data-testid="canvas-fit-view" data-tooltip-label="Fit graph to view" aria-label="Fit graph to view (.)" onClick={() => fitCanvas?.()}><Icon icon={Maximize2} /></ProductButton>
-          </div>
-        </div>
-        <Show when={minimapMenu()}><div classList={{ 'minimap-menu': true, above: minimapMenuPose().above }} style={minimapMenuPose().above ? { 'max-height': `${minimapMenuPose().maxHeight}px` } : undefined}>
-            <For each={[["nodes", "Node Colors", Palette], ["bypass", "Render Bypass State", CircleSlash2], ["noodles", "Show Links", Route], ["groups", "Show Frames/Groups", Frame], ["reroutes", "Reroutes", CircleSlash2], ["errors", "Render Error State", MessageCircleWarning]] as const}>{([id, label, icon]) => {
-              const setting = `canvas.minimap.${id}`
-              const enabled = () => (settingsTick(), props.app.settings.get<boolean>(setting))
-              return <ProductButton variant="ghost" size="compact" type="button" role="switch" class="minimap-setting-row" data-testid={`minimap-toggle-${id}`} aria-label={label} aria-checked={enabled()} onClick={() => { props.app.settings.set(setting, !enabled()); repaintMinimap?.() }}><Icon icon={icon} /><span>{label}</span><span class="minimap-switch" aria-hidden="true"><span /></span></ProductButton>
-            }}</For>
-            <ProductButton variant="ghost" size="compact" type="button" role="switch" class="minimap-setting-row" data-testid="minimap-marker-toggle" aria-checked={(settingsTick(), props.app.settings.get<boolean>('canvas.minimap.bookmarks'))} data-tooltip-label="Show bookmark numbers on the minimap" aria-label="Bookmarks. Show bookmark numbers on the minimap" onClick={() => { props.app.settings.set('canvas.minimap.bookmarks', !props.app.settings.get<boolean>('canvas.minimap.bookmarks')); repaintMinimap?.() }}><Icon icon={Bookmark} /><span>Bookmarks</span><span class="minimap-switch" aria-hidden="true"><span /></span></ProductButton>
-          </div></Show>
-      </div>
+      <CanvasCornerControls
+        ref={(element) => { cornerControlsEl = element }}
+        minimapRef={(element) => { minimapEl = element }}
+        size={(settingsTick(), props.app.settings.get<string>('canvas.minimap.size'))}
+        minimapVisible={minimapVisible()}
+        settings={minimapSwitches()}
+        zoom={editorViewport().scale}
+        menu={cornerMenu()}
+        menuMaxHeight={cornerMenuHeight()}
+        shortcuts={(settingsTick(), {
+          zoomIn: props.app.keybindings.combo('view.zoomIn'),
+          zoomOut: props.app.keybindings.combo('view.zoomOut'),
+        })}
+        onToggleMinimap={toggleMinimap}
+        onToggleSetting={(id) => {
+          const setting = `canvas.minimap.${id}`
+          props.app.settings.set(setting, !props.app.settings.get<boolean>(setting))
+          repaintMinimap?.()
+        }}
+        onOpenMenu={openCornerMenu}
+        onCloseMenu={closeCornerMenu}
+        onFit={() => fitCanvas?.()}
+        onZoomBy={(factor) => zoomCanvas?.(factor)}
+        onZoomTo={(scale) => zoomCanvasTo?.(scale)}
+      />
 
       <Show when={frozenInfo()}>
         {(f) => (
-          <div class="frozen-banner" data-testid="frozen-banner" data-sync={f().sync}>
-            <Icon icon={Snowflake} />
-            <span class="frozen-label">{message('frozen.label')}</span>
-            <span class="frozen-sync">
-              {f().status === 'running'
-                ? `Running${f().progress === undefined ? '' : ` ${Math.round(f().progress!.value * 100)}%`}.`
-                : f().status === 'queued'
-                  ? 'Queued.'
-                  : `Ran${f().queuedAt === undefined ? '' : ` ${new Date(f().queuedAt!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`} (${f().status}).`}
-              {' '}{f().sync === 'in-sync' ? 'Matches live.' : f().sync === 'diverged' ? 'Live changed.' : 'No live tab.'}
-            </span>
-            <Show when={f().schemasUnavailable}>
-              <span class="frozen-schema-warning" data-testid="frozen-schema-missing">
-                schemas from this run are unavailable - nodes render without definitions
+          <div ref={placeFrozenLine} class="frozen-banner" data-testid="frozen-banner" data-sync={f().sync}>
+            <span class="frozen-words" data-tooltip-label={f().tooltip}>
+              <Icon icon={Snowflake} />
+              <span class="frozen-label">{message('frozen.label')}</span>
+              <span class="frozen-sync">
+                {f().status === 'running'
+                  ? message('frozen.running', { percent: Math.round((f().progress?.value ?? 0) * 100) })
+                  : f().status === 'queued'
+                    ? message('frozen.queued')
+                    : f().queuedAt === undefined ? '' : message('frozen.ran', { time: runClock(f().queuedAt!) })}
+                {' '}{message(f().sync === 'in-sync' ? 'frozen.sync.inSync' : f().sync === 'diverged' ? 'frozen.sync.diverged' : 'frozen.sync.noLive')}
               </span>
-            </Show>
-            <ProductButton size="compact"
-              class="banner-button"
+              <Show when={f().schemasUnavailable}>
+                <span class="frozen-schema-warning" data-testid="frozen-schema-missing">
+                  schemas from this run are unavailable - nodes render without definitions
+                </span>
+              </Show>
+            </span>
+            <span class="canvas-chrome-divider" aria-hidden="true" />
+            <ProductButton variant="ghost" type="button" class="canvas-chrome-button frozen-action"
               data-testid="frozen-open-copy"
               onClick={() => { void props.app.duplicateTab(f().tab.id, true) }}
             >{message('frozen.openCopy')}</ProductButton>
             <Show when={f().live}>
               {(live) => (
-                <ProductButton size="compact"
-                  class="banner-button"
+                <ProductButton variant="ghost" type="button" class="canvas-chrome-button frozen-action"
                   data-testid="frozen-go-live"
                   onClick={() => props.app.activeTabId.set(live().id)}
                 >
@@ -7416,43 +7381,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 </ProductButton>
               )}
             </Show>
-          </div>
-        )}
-      </Show>
-
-      <Show when={liveSync()}>
-        {(s) => (
-          <div
-            class="sync-chip"
-            data-testid="sync-chip"
-            data-sync={s().inSync ? 'in-sync' : 'diverged'}
-            data-overlay-mode={s().mode}
-          >
-            <span>
-              {s().mode === 'pinned' ? 'pinned: ' : ''}
-              {s().inSync
-                ? `execution ${s().ref.prompt.slice(0, 8)}: ${s().status}`
-                : `edited since execution ${s().ref.prompt.slice(0, 8)} (${s().status})`}
-            </span>
-            <Show when={s().mode === 'pinned'}>
-              <ProductButton size="compact"
-                class="banner-button"
-                data-testid="sync-chip-follow-latest"
-                onClick={() => {
-                  const tab = activeTab()
-                  if (tab) props.app.followLatestExecution(tab.id)
-                }}
-              >
-                Follow Latest
-              </ProductButton>
-            </Show>
-            <ProductButton size="compact"
-              class="banner-button"
-              data-testid="sync-chip-open"
-              onClick={() => { void props.app.openExecutionView(s().ref) }}
-            >
-              View Frozen
-            </ProductButton>
           </div>
         )}
       </Show>

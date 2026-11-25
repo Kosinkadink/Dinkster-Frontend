@@ -68,6 +68,7 @@ import type {
   WidgetSpec,
 } from './model.js'
 import { isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
+import { readWhenUnset, sentSpecOf } from './widget-defaults.js'
 import { normalizeComboOption } from './combo-options.js'
 import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
 
@@ -227,6 +228,10 @@ export interface ElaboratedInput {
   readonly derivedValue?: Json
   /** Member state to persist before writing or wiring this row. */
   readonly materialize?: readonly MaterializeFrame[]
+  /** A field that declares `automatic` with nothing stored and no wire: the value in use. */
+  readonly automatic?: AutomaticState
+  /** A field that declares `automatic` and holds a fixed value: what it would work out to if emptied. */
+  readonly automaticIfEmptied?: AutomaticState
   /** Keys of the boxes the node draws around this row, outermost first. */
   readonly boxes?: readonly string[]
   /** The rows its widget's `writes` and `reads` name, when it names any. */
@@ -245,6 +250,12 @@ export interface ElaboratedInput {
    * each. The answers in use are already in `spec.widget`.
    */
   readonly looked?: Readonly<Partial<Record<LookedWidgetField, LookedState>>>
+  /**
+   * Not drawn because of where it sits: its `visible` is false, or a hidden
+   * choice or group holds it. Its `spec.hidden` is set, but the run is sent
+   * what it would be sent if shown, unlike a field declared `hidden`.
+   */
+  readonly hiddenByScope?: true
 }
 
 /**
@@ -273,6 +284,37 @@ export interface ElaboratedEditor {
   readonly materialize?: readonly MaterializeFrame[]
   /** Keys of the boxes the node draws around this row, outermost first. */
   readonly boxes?: readonly string[]
+}
+
+/** Why an automatic value could not be worked out, so the default is used. */
+export type AutomaticReason = 'unknown' | 'failed' | 'wrong-type' | 'argument-unknown' | 'argument-empty' | 'lookup-failed' | 'lookup-timeout' | 'offline' | 'paused' | 'file-unchecked'
+
+/**
+ * The value an automatic field has in use. Working it out never writes the
+ * document: `value` is shown, and the run works it out again when queued.
+ */
+export interface AutomaticState {
+  /** The worked-out value, or the field's default. */
+  readonly value: Json
+  /**
+   * 'loading' while a lookup's answer is to come, and 'not-known' while
+   * nothing is under way that the field can wait on: the editor is offline,
+   * the editing budget is spent, the lookup waits for a file to be checked,
+   * an argument reads a value not known yet, or an argument reads a field
+   * left empty. `value` is then the default, with no warning. 'default' is
+   * a value that cannot be worked out, with the warning.
+   */
+  readonly state: 'worked-out' | 'default' | 'loading' | 'not-known'
+  readonly reason?: AutomaticReason
+  /** The label of the empty field an 'argument-empty' value waits for, when the argument is that one field. */
+  readonly waitingFor?: string
+  readonly call?: LookupCallSpec
+  /**
+   * A lookup's answer kept for these same arguments, shown because a newer
+   * one did not come: the newest call failed ('stale') or the editing
+   * budget is spent ('paused').
+   */
+  readonly kept?: 'stale' | 'paused'
 }
 
 export interface ElaboratedOutput {
@@ -446,14 +488,24 @@ export interface LookupSite {
   readonly accepts: (answer: unknown) => boolean
 }
 
-/** The calls the lookup fields and notes of an elaborated node are loading for, or hold an answer for. */
-export function lookupSitesOf(items: readonly ElaboratedItem[]): LookupSite[] {
+/**
+ * The calls the lookup fields, automatic fields and notes of an elaborated
+ * node are loading for, or hold an answer for. A fixed automatic field's
+ * call is made only while that field is open (`openField`, its value key),
+ * where it shows what emptying it would give; it comes last, so the other
+ * sites keep their places.
+ */
+export function lookupSitesOf(items: readonly ElaboratedItem[], openField?: string): LookupSite[] {
   const sites: LookupSite[] = []
   for (const item of items) {
     if (item.kind === 'note' && item.lookup !== undefined && 'call' in item.lookup && item.lookup.call !== undefined) {
       sites.push({ call: item.lookup.call, accepts: (answer) => typeof answer === 'string' })
     }
-    if (item.kind !== 'input' || item.looked === undefined) continue
+    if (item.kind !== 'input') continue
+    // An automatic field takes any answer: one that is not a value of the
+    // field gives its default with the warning, as the run does.
+    if (item.automatic?.call !== undefined) sites.push({ call: item.automatic.call, accepts: () => true })
+    if (item.looked === undefined) continue
     const widget = item.spec.widget
     if (widget === undefined) continue
     for (const [field, state] of Object.entries(item.looked) as [LookedWidgetField, LookedState][]) {
@@ -461,6 +513,9 @@ export function lookupSitesOf(items: readonly ElaboratedItem[]): LookupSite[] {
       sites.push({ call: state.call, accepts: (answer) => lookedAnswerValue(widget, field, answer) !== undefined })
     }
   }
+  const open = openField === undefined ? undefined
+    : items.find((item): item is ElaboratedInput => item.kind === 'input' && valueKeyOf(item) === openField)
+  if (open?.automaticIfEmptied?.call !== undefined) sites.push({ call: open.automaticIfEmptied.call, accepts: () => true })
   return sites
 }
 
@@ -767,7 +822,58 @@ function formulaValueOf(raw: unknown, kind: FormulaNameKind): FormulaValue | Unk
   return UNKNOWN
 }
 
-const defaultOf = (row: InputSpec): unknown => row.widget?.default ?? row.ext?.['default']
+type AutomaticKind = 'int' | 'float' | 'number' | 'text' | 'choice' | 'bool'
+
+const PLAIN_NAME = /^\s*[A-Za-z_][A-Za-z0-9_]*\s*$/
+
+/** A lookup-backed field whose value is still to come: what reads it reads unknown, not its default. */
+function waiting(outcome: AutomaticState): boolean {
+  return outcome.state === 'loading' || outcome.state === 'not-known'
+}
+
+/** The kind of field an automatic value fills (the engine's `automatic_kind`). */
+function automaticKindOf(type: TypeExpr): AutomaticKind | undefined {
+  if (type.kind === 'union') {
+    return type.names.length === 2 && type.names.includes('INT') && type.names.includes('FLOAT') ? 'number' : undefined
+  }
+  if (type.kind !== 'concrete') return undefined
+  return ({ INT: 'int', FLOAT: 'float', STRING: 'text', COMBO: 'choice', BOOLEAN: 'bool' } as const)[type.name as 'INT']
+}
+
+/**
+ * A worked-out value as the field stores it, or undefined when it is not a
+ * value of the field: a decimal fills a whole-number field only when it is
+ * exactly whole, a whole number fills a decimal one, and a choice is one of
+ * its static options.
+ */
+function automaticValueOf(kind: AutomaticKind, value: FormulaValue | Json, row: InputSpec): Json | undefined {
+  if (kind === 'bool') return typeof value === 'boolean' ? value : undefined
+  if (kind === 'text' || kind === 'choice') {
+    if (typeof value !== 'string') return undefined
+    const widget = row.widget
+    const options = kind === 'choice' && widget !== undefined && widget.remote === undefined && !widget.editableOptions ? widget.options['options'] : undefined
+    if (Array.isArray(options) && !options.some((option) => normalizeComboOption(option)?.value === value)) return undefined
+    return value
+  }
+  if (typeof value === 'bigint') return Number.isSafeInteger(Number(value)) ? Number(value) : undefined
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return kind !== 'int' || Number.isInteger(value) ? value : undefined
+}
+
+/** Formula values worked out only when the formula reads them. */
+class LazyValues extends Map<string, FormulaValue | Unknown> {
+  private readonly thunks = new Map<string, () => FormulaValue | Unknown>()
+  setLazy(name: string, thunk: () => FormulaValue | Unknown): void {
+    this.thunks.set(name, thunk)
+  }
+  override get(name: string): FormulaValue | Unknown | undefined {
+    if (!super.has(name) && this.thunks.has(name)) super.set(name, this.thunks.get(name)!())
+    return super.get(name)
+  }
+}
+
+const sameInUse = (a: ReadonlyMap<string, Json | Unknown>, b: ReadonlyMap<string, Json | Unknown>): boolean =>
+  a.size === b.size && [...a].every(([key, value]) => b.has(key) && JSON.stringify(b.get(key)) === JSON.stringify(value) && (value === UNKNOWN) === (b.get(key) === UNKNOWN))
 
 /** Passes a node's choice keys take to settle; a longer chain of formulas is refused. */
 const MAX_CHOICE_PASSES = 8
@@ -802,11 +908,14 @@ function settle(
   connectivity: Connectivity,
   options: ElaborateOptions,
 ): { readonly elaborated: ElaboratedInterface; readonly problems: ReadonlySet<string>; readonly hid: boolean } {
+  // The values in use of automatic fields settle the same way as the keys: a
+  // count or a leader reads the values the previous pass worked out.
   let settled: ReadonlyMap<string, string | null> = new Map()
+  let inUse: ReadonlyMap<string, Json | Unknown> = new Map()
   for (let pass = 1; ; pass++) {
-    const result = elaboratePass(schema, node, connectivity, options, settled)
+    const result = elaboratePass(schema, node, connectivity, options, settled, inUse)
     const unsettled = [...result.early].filter((path) => (result.chosen.get(path) ?? null) !== (settled.get(path) ?? null))
-    if (unsettled.length === 0) return result
+    if (unsettled.length === 0 && (sameInUse(result.inUse, inUse) || pass === MAX_CHOICE_PASSES)) return result
     if (pass === MAX_CHOICE_PASSES) {
       return {
         ...result,
@@ -818,6 +927,7 @@ function settle(
       }
     }
     settled = result.chosen
+    inUse = result.inUse
   }
 }
 
@@ -827,10 +937,12 @@ function elaboratePass(
   connectivity: Connectivity,
   options: ElaborateOptions,
   settled: ReadonlyMap<string, string | null>,
+  previousInUse: ReadonlyMap<string, Json | Unknown>,
 ): {
   readonly elaborated: ElaboratedInterface
   readonly chosen: ReadonlyMap<string, string | null>
   readonly early: ReadonlySet<string>
+  readonly inUse: ReadonlyMap<string, Json | Unknown>
   /** Rows this pass reported a problem on, and whether it hid any row. */
   readonly problems: ReadonlySet<string>
   readonly hid: boolean
@@ -849,6 +961,8 @@ function elaboratePass(
   const groupPaths = new Set<string>()
   const diagnostics: Diagnostic[] = []
   const emittedInputs = new Set<string>()
+  /** What a formula reads for each emitted input with nothing stored, from the spec compile sends it by. */
+  const unsetReads = new Map<string, unknown>()
   const emittedOutputs = new Set<string>()
   // A dormant census visits every option and variant, so a row they share, or
   // a row id two variants both declare, is emitted once per visit. Only rows
@@ -929,7 +1043,137 @@ function elaboratePass(
       if (key !== undefined) return key
     }
     if (linked(path)) return UNKNOWN
-    return formulaValueOf(Object.hasOwn(node.values, path) ? node.values[path] : fallback, kind)
+    if (!Object.hasOwn(node.values, path)) {
+      const automatic = automaticInUse(path)
+      if (automatic !== undefined) return automatic === UNKNOWN ? UNKNOWN : formulaValueOf(automatic, kind)
+    }
+    // A field already emitted reads what compile sends for its elaborated
+    // spec; one read before the walk reaches it reads its declaration.
+    const unset = unsetReads.has(path) ? unsetReads.get(path) : fallback
+    const raw = Object.hasOwn(node.values, path) ? node.values[path] : unset
+    // A field the run is sent nothing for, or that stores the null clearing
+    // stores with nothing else to read, is empty: nothing is chosen yet.
+    if ((raw === undefined || raw === null) && (unset === undefined || unset === null)) readEmpty = path
+    return formulaValueOf(raw, kind)
+  }
+
+  // -- Automatic values -------------------------------------------------------
+
+  /** Fields that declare `automatic` with nothing stored and no wire, and the scope each sits in. */
+  const sites = new Map<string, { readonly row: InputSpec; readonly scope: Scope }>()
+  /** Fields that declare `automatic` and hold a fixed value, worked out for what emptying them would give. */
+  const fixedSites = new Map<string, { readonly row: InputSpec; readonly scope: Scope }>()
+  const outcomes = new Map<string, AutomaticState>()
+  const working = new Set<string>()
+  /** Set once the walk has found every site: formulas then work sites out as they read them. */
+  let resolving = false
+  /** Set when a formula read an automatic field that is still waiting on its lookup. */
+  let readWaiting = false
+  /** The last field a formula read that is empty, with nothing chosen and no default. */
+  let readEmpty: string | undefined
+
+  /**
+   * What a formula reads for an automatic field with nothing stored: its
+   * worked-out value, its default when it cannot be worked out, unknown
+   * while its lookup waits or when reading it goes round in a circle.
+   * Undefined for any other field.
+   */
+  const automaticInUse = (path: string): Json | Unknown | undefined => {
+    if (!resolving) return previousInUse.get(path)
+    if (!sites.has(path)) return undefined
+    const outcome = automaticOutcome(path)
+    if (outcome === undefined) return UNKNOWN
+    if (!waiting(outcome)) return outcome.value
+    readWaiting = true
+    return UNKNOWN
+  }
+
+  const automaticOutcome = (path: string): AutomaticState | undefined => {
+    const known = outcomes.get(path)
+    if (known !== undefined) return known
+    if (working.has(path)) return undefined
+    working.add(path)
+    const outer = readWaiting
+    const outerEmpty = readEmpty
+    try {
+      const outcome = workOutAutomatic(sites.get(path)!)
+      outcomes.set(path, outcome)
+      return outcome
+    } finally {
+      working.delete(path)
+      readWaiting = outer
+      readEmpty = outerEmpty
+    }
+  }
+
+  const workOutAutomatic = ({ row, scope }: { readonly row: InputSpec; readonly scope: Scope }): AutomaticState => {
+    const automatic = row.automatic!
+    const fallback = (readWhenUnset(row) ?? null) as Json
+    const kind = automaticKindOf(row.type)
+    const standIn = (reason: AutomaticReason, call?: LookupCallSpec): AutomaticState =>
+      ({ value: fallback, state: 'default', reason, ...(call !== undefined ? { call } : {}) })
+    if (kind === undefined) return standIn('wrong-type')
+    let found: FormulaValue | Json
+    let call: LookupCallSpec | undefined
+    let kept: AutomaticState['kept']
+    if (isLookupSpec(automatic)) {
+      const args: Json[] = []
+      for (const argument of automatic.args) {
+        // A file field with no file picked waits for one quietly; one fed by
+        // a wire can never be known here and gives the default, as a run does.
+        const file = fileArgument(argument, scope)
+        if (file !== undefined) {
+          if (file.value === UNKNOWN) return standIn('argument-unknown')
+          if (file.value === null) return { value: fallback, state: 'not-known', reason: 'argument-empty', ...(file.path === undefined ? {} : { waitingFor: file.path }) }
+          args.push(file.value)
+          continue
+        }
+        readWaiting = false
+        readEmpty = undefined
+        const text = typeof argument === 'string' ? argument : argument.formula
+        const outcome = evaluate(text, scope)
+        // An argument that reads another automatic field still waiting on
+        // its lookup waits too, without a warning. One that can never be
+        // known here, such as a wired input, gives the default, as a run does.
+        if (outcome.kind === 'unknown' && readWaiting) return { value: fallback, state: 'not-known', reason: 'argument-unknown' }
+        // A lookup takes no None argument, so none is sent. One that is None
+        // because it reads a field left empty waits for that field quietly;
+        // a stored value that does not fit warns.
+        if (outcome.kind === 'value' && outcome.value === null && readEmpty !== undefined) {
+          const field = PLAIN_NAME.test(text) ? readEmpty : undefined
+          return { value: fallback, state: 'not-known', reason: 'argument-empty', ...(field === undefined ? {} : { waitingFor: field }) }
+        }
+        if (outcome.kind !== 'value' || outcome.value === null) return standIn('argument-unknown')
+        const value = outcome.value
+        args.push(Array.isArray(value)
+          ? value.map((item) => (typeof item === 'bigint' ? Number(item) : item))
+          : typeof value === 'bigint' ? Number(value) : value as Json)
+      }
+      call = { lookup: automatic.lookup, args }
+      const held = options.lookupAnswers?.(call.lookup, call.args)
+      // The last answer stands while a newer one loads, after a refresh
+      // failed or while the budget is spent. With none, the field waits on
+      // the call; offline, paused or before a file is checked nothing is
+      // under way, which is no failure of the lookup.
+      if (held !== undefined && 'answer' in held && held.answer !== undefined) {
+        found = held.answer
+        if (held.state === 'stale' || held.state === 'paused') kept = held.state
+      } else if (held?.state === 'unavailable' && (held.reason === 'offline' || held.reason === 'file-unchecked')) {
+        return { value: fallback, state: 'not-known', reason: held.reason, call }
+      } else if (held?.state === 'paused') {
+        return { value: fallback, state: 'not-known', reason: 'paused', call }
+      } else if (held?.state === 'unavailable') {
+        return standIn(held.reason === 'timeout' ? 'lookup-timeout' : 'lookup-failed', call)
+      } else return { value: fallback, state: 'loading', call }
+    } else {
+      const outcome = evaluate(automatic.formula, scope)
+      if (outcome.kind === 'unknown') return standIn('unknown')
+      if (outcome.kind === 'failed') return standIn('failed')
+      found = outcome.value
+    }
+    const value = automaticValueOf(kind, found, row)
+    if (value === undefined) return standIn('wrong-type', call)
+    return { value, state: 'worked-out', ...(call !== undefined ? { call } : {}), ...(kept !== undefined ? { kept } : {}) }
   }
 
   /** Member keys a formula counts for a group: the stored ones, or a count group's own. */
@@ -969,7 +1213,7 @@ function elaboratePass(
       } else if (row.kind === 'section' || row.kind === 'row') {
         defaultsUnder(row.rows, prefix, found, shared)
       } else if (row.kind === 'input') {
-        found.set(prefix + row.id, defaultOf(row))
+        found.set(prefix + row.id, readWhenUnset(row))
       } else if (row.kind === 'state') {
         found.set(prefix + row.id, row.default)
       } else if (row.kind === 'choice') {
@@ -987,7 +1231,7 @@ function elaboratePass(
       } else if (row.kind === 'group') {
         const path = prefix + row.id
         for (const key of membersFor(path)) {
-          if (row.value !== undefined) found.set(`${path}.${key}`, row.value.kind === 'input' ? defaultOf(row.value) : undefined)
+          if (row.value !== undefined) found.set(`${path}.${key}`, row.value.kind === 'input' ? readWhenUnset(row.value) : undefined)
           else defaultsUnder(row.member ?? [], `${path}.${key}.`, found)
         }
       }
@@ -1059,11 +1303,11 @@ function elaboratePass(
       for (const row of scopeRowsOf(frame.rows)) {
         if (row.kind !== 'input' && row.kind !== 'state') continue
         const path = frame.prefix + row.id
-        if (!defaults.has(path)) defaults.set(path, row.kind === 'input' ? defaultOf(row) : row.default)
+        if (!defaults.has(path)) defaults.set(path, row.kind === 'input' ? readWhenUnset(row) : row.default)
       }
     }
     const member = [...scope.formulaFrames].reverse().find((frame) => frame.index !== undefined)
-    const values = new Map<string, FormulaValue | Unknown>()
+    const values = new LazyValues()
     const wired = new Map<string, boolean>()
     const sizes = new Map<string, number>()
     for (const [name, kind] of names.names) {
@@ -1074,7 +1318,7 @@ function elaboratePass(
         if (names.inputs.has(name)) wired.set(name, constant.linked === true)
       } else if (unknown.has(name)) {
         // A group's size with no entry in `sizes` reads unknown.
-        if (kind !== 'opaque' && kind !== 'group') values.set(name, UNKNOWN)
+        if (kind !== 'opaque' && kind !== 'group') values.setLazy(name, () => UNKNOWN)
         if (names.inputs.has(name)) wired.set(name, false)
       } else if (kind === 'group') {
         sizes.set(name, membersFor(path).length)
@@ -1082,16 +1326,17 @@ function elaboratePass(
         const dot = path.lastIndexOf('.')
         const group = path.slice(0, dot)
         const row = path.slice(dot + 1)
-        const list: (bigint | number | boolean | string | null)[] = []
-        let unknown = false
-        for (const key of membersFor(group)) {
-          const value = valueFor(`${group}.${key}.${row}`, kind.slice(0, -2) as FormulaNameKind, defaults.get(`${group}.${key}.${row}`))
-          if (value === UNKNOWN || Array.isArray(value)) unknown = true
-          else list.push(value as bigint | number | boolean | string | null)
-        }
-        values.set(name, unknown ? UNKNOWN : list)
+        values.setLazy(name, () => {
+          const list: (bigint | number | boolean | string | null)[] = []
+          for (const key of membersFor(group)) {
+            const value = valueFor(`${group}.${key}.${row}`, kind.slice(0, -2) as FormulaNameKind, defaults.get(`${group}.${key}.${row}`))
+            if (value === UNKNOWN || Array.isArray(value)) return UNKNOWN
+            list.push(value as bigint | number | boolean | string | null)
+          }
+          return list
+        })
       } else {
-        if (kind !== 'opaque') values.set(name, valueFor(path, kind, defaults.get(path)))
+        if (kind !== 'opaque') values.setLazy(name, () => valueFor(path, kind, defaults.get(path)))
         if (names.inputs.has(name)) wired.set(name, linked(path))
       }
     }
@@ -1124,6 +1369,25 @@ function elaboratePass(
       if (error instanceof FormulaRefused) return { kind: 'failed', reason: error.message }
       throw error
     }
+  }
+
+  /**
+   * A lookup argument that names a file field, which a formula cannot read:
+   * the picked file as the node stores it, the same value the run sends.
+   * Null when no file is picked, unknown when a wire feeds the field or its
+   * option is not chosen; `path` is the field's flattened id when it is a
+   * row of this node. Undefined for a formula or any other name.
+   */
+  const fileArgument = (argument: LookupSpec['args'][number], scope: Scope): { readonly value: Json | Unknown; readonly path?: string } | undefined => {
+    if (typeof argument !== 'string') return undefined
+    const name = argument
+    if (!framesNamesOf(scope.formulaFrames.map((frame) => frame.rows)).assets.has(name)) return undefined
+    const { where, unknown, fixed } = namesAt(scope)
+    const constant = fixed.get(name)
+    if (constant !== undefined) return { value: constant.linked === true ? UNKNOWN : (constant.value ?? null) as Json }
+    const path = where.get(name)
+    if (path === undefined || unknown.has(name) || linked(path)) return { value: UNKNOWN, ...(path === undefined ? {} : { path }) }
+    return { value: (Object.hasOwn(node.values, path) ? node.values[path] : null) ?? null, path }
   }
 
   /**
@@ -1182,6 +1446,13 @@ function elaboratePass(
     if (options.lookupAnswers === undefined) return { state: { state: 'off' } }
     const args: Json[] = []
     for (const argument of lookup.args) {
+      // A file field waits for its file to be picked, or for its wire.
+      const file = fileArgument(argument, scope)
+      if (file !== undefined) {
+        if (file.value === UNKNOWN || file.value === null) return { state: { state: 'waiting', input: file.path ?? (argument as string) } }
+        args.push(file.value)
+        continue
+      }
       const text = typeof argument === 'string' ? argument : argument.formula
       const outcome = evaluate(text, scope)
       if (outcome.kind === 'unknown') return { state: { state: 'waiting', input: waitingFor(text, scope) } }
@@ -1371,19 +1642,30 @@ function elaboratePass(
     const looked = declared?.looked === undefined ? undefined : lookedWidget({ ...declared, looked: declared.looked }, lookupScope)
     if (looked !== undefined) spec = { ...spec, widget: looked.widget }
     const parts = row.widget === undefined ? undefined : partsAt(row.widget, scope)
+    // A field that is not sent is drawn and edited but never reaches the run.
+    const sent = !(scope.ghost || scope.dormant || row.sent === false)
+    const hiddenByScope = scope.hidden && row.hidden !== true
+    // A census also visits rows not chosen; they never replace a chosen row's entry.
+    if (!scope.dormant || !unsetReads.has(path)) unsetReads.set(path, readWhenUnset(sent ? sentSpecOf(spec, hiddenByScope) : { ...spec, sent: false }))
     push({
       kind: 'input',
       address: { port: path },
-      // A field that is not sent is drawn and edited but never reaches the run.
-      ...(scope.ghost || scope.dormant || row.sent === false ? {} : { apiName: path }),
+      ...(sent ? { apiName: path } : {}),
       spec,
       ...common(scope),
       ...(parts !== undefined ? { parts } : {}),
       ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
       ...(boxedLabel ? { ownLabel: own } : {}),
       ...(looked !== undefined && Object.keys(looked.states).length > 0 ? { looked: looked.states } : {}),
+      ...(hiddenByScope ? { hiddenByScope: true as const } : {}),
       ...extra,
     })
+    if (row.automatic !== undefined && !scope.dormant && !linked(path)) {
+      // On a subgraph node it is worked out in the inner node's scope.
+      const site = { row: spec, scope: lookupScope }
+      if (Object.hasOwn(node.values, path)) fixedSites.set(path, site)
+      else sites.set(path, site)
+    }
   }
 
   const emitOutput = (row: OutputSpec, path: string, scope: Scope, label?: string): void => {
@@ -2257,7 +2539,7 @@ function elaboratePass(
       const spec = selector === undefined ? undefined : scopeRowsOf(schema.body).find((row) => row.kind === 'input' && row.id === selector)
       const index = selector === undefined
         ? type.index
-        : Object.hasOwn(node.values, selector) ? node.values[selector] : (spec?.kind === 'input' ? defaultOf(spec) : undefined)
+        : Object.hasOwn(node.values, selector) ? node.values[selector] : (spec?.kind === 'input' ? readWhenUnset(spec) : undefined)
       if (element === undefined || typeof index !== 'number' || !Number.isSafeInteger(index) || (selector !== undefined && linked(selector))) {
         report('elab.tuple.literalIndex', 'Tuple selection requires a stored integer index and a declared tuple input.', selector)
         return type
@@ -2284,6 +2566,37 @@ function elaboratePass(
       items[index] = { ...item, spec }
     }
   }
+  resolving = true
+  const inUse = new Map<string, Json | Unknown>()
+  for (const path of sites.keys()) {
+    const outcome = automaticOutcome(path)!
+    inUse.set(path, waiting(outcome) ? UNKNOWN : outcome.value)
+  }
+  // The empty field an argument waits for is named by its label.
+  const labelled = (outcome: AutomaticState): AutomaticState => {
+    if (outcome.waitingFor === undefined) return outcome
+    const field = items.find((other): other is ElaboratedInput => other.kind === 'input' && other.address.port === outcome.waitingFor)
+    return { ...outcome, waitingFor: field?.spec.displayName ?? field?.spec.id ?? outcome.waitingFor }
+  }
+  for (const [index, item] of items.entries()) {
+    const fixed = item.kind === 'input' ? fixedSites.get(item.address.port) : undefined
+    if (fixed !== undefined && item.kind === 'input') {
+      items[index] = { ...item, automaticIfEmptied: labelled(workOutAutomatic(fixed)) }
+      continue
+    }
+    const found = item.kind === 'input' ? outcomes.get(item.address.port) : undefined
+    if (found === undefined || item.kind !== 'input') continue
+    const outcome = labelled(found)
+    items[index] = { ...item, automatic: outcome }
+    if (outcome.state === 'default') {
+      const shown = typeof outcome.value === 'string' ? outcome.value : JSON.stringify(outcome.value)
+      diagnostics.push(diag('warning', 'schema', 'automatic.default',
+        `Could not work out ${item.spec.displayName ?? item.spec.id}. Using the default, ${shown}.`, {
+          ...(options.nodeId !== undefined ? { anchor: { port: { node: options.nodeId, port: asPortId(item.address.port) } } } : {}),
+          data: { input: item.address.port, reason: outcome.reason ?? 'unknown' },
+        }))
+    }
+  }
   const elaborated: ElaboratedInterface = {
     items,
     submissionValues: [],
@@ -2300,7 +2613,7 @@ function elaboratePass(
     ...(suffix ? { titleSuffix: suffix } : {}),
     diagnostics,
   }
-  return { elaborated, chosen, early, problems, hid }
+  return { elaborated, chosen, early, inUse, problems, hid }
 }
 
 // ---------------------------------------------------------------------------

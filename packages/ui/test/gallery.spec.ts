@@ -750,3 +750,84 @@ test('context menus keep 12 px sides, one label column and a check column only w
     page.getByRole('heading', { name: 'Context menus' }).locator('xpath=ancestor::section[1]'),
   ).toHaveScreenshot('context-menus.png')
 })
+
+test('the canvas corner bar keeps one width right-justified under the minimap, its menus open straight above it, and the runs list beside Run takes the outline of the bars', async ({
+  page,
+}) => {
+  await page.goto('/#canvas-chrome')
+  await page.evaluate(() => document.fonts.ready)
+  await expect(page.getByTestId('canvas-chrome-gallery')).toHaveAttribute('data-ready', 'true')
+  const corners = await page.evaluate(() =>
+    Object.fromEntries([...document.querySelectorAll<HTMLElement>('[data-testid^="canvas-chrome-corner-"]')].map((figure) => {
+      const box = (selector: string) => figure.querySelector(selector)?.getBoundingClientRect()
+      const bar = box('.canvas-corner-bar')!
+      const map = figure.querySelector<HTMLElement>('.minimap')!
+      const menu = box('.minimap-menu, .canvas-zoom-menu')
+      return [figure.dataset['testid']!.replace('canvas-chrome-corner-', ''), {
+        barWidth: Math.round(bar.width),
+        barHeight: Math.round(bar.height),
+        barRightToMap: map.offsetParent === null ? null : Math.round(map.getBoundingClientRect().right - bar.right),
+        menuGap: menu === undefined ? null : Math.round(bar.top - menu.bottom),
+        menuRight: menu === undefined ? null : Math.round(bar.right - menu.right),
+        mapOpacity: getComputedStyle(map).opacity,
+      }]
+    })),
+  )
+  const width = corners['small']!.barWidth
+  expect(corners).toEqual({
+    small: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    medium: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    large: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    hidden: { barWidth: width, barHeight: 36, barRightToMap: null, menuGap: null, menuRight: null, mapOpacity: '1' },
+    settings: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
+    quiet: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
+    zoom: { barWidth: width, barHeight: 36, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
+  })
+  const outlines = await page.evaluate(() => {
+    const style = (selector: string) => getComputedStyle(document.querySelector(selector)!)
+    const run = (id: string) => ({
+      run: style(`[data-testid="canvas-chrome-run-${id}"] .workflow-queue-submit`).borderTopColor,
+      list: style(`[data-testid="canvas-chrome-run-${id}"] .workflow-queue-toggle`).borderTopColor,
+      runBackground: style(`[data-testid="canvas-chrome-run-${id}"] .workflow-queue-submit`).backgroundColor,
+      listBackground: style(`[data-testid="canvas-chrome-run-${id}"] .workflow-queue-toggle`).backgroundColor,
+    })
+    return {
+      bar: style('[data-testid="canvas-chrome-corner-small"] .canvas-corner-bar').borderTopColor,
+      menu: style('[data-testid="canvas-chrome-corner-settings"] .minimap-menu').borderTopColor,
+      fitColor: style('[data-testid="canvas-chrome-corner-small"] [data-testid="canvas-fit-view"]').color,
+      listColor: style('[data-testid="canvas-chrome-run-ready"] .workflow-queue-toggle').color,
+      ready: run('ready'),
+      off: run('off'),
+    }
+  })
+  expect(outlines.ready.list).toBe(outlines.bar)
+  expect(outlines.menu).toBe(outlines.bar)
+  expect(outlines.listColor).toBe(outlines.fitColor)
+  expect(outlines.ready.run).not.toBe(outlines.bar)
+  expect(outlines.off.list).toBe(outlines.ready.list)
+  expect(outlines.off.listBackground).toBe(outlines.ready.listBackground)
+  expect(outlines.off.run).toBe(outlines.bar)
+  expect(outlines.off.runBackground).toBe('rgba(0, 0, 0, 0)')
+  expect(Math.round((await page.getByTestId('canvas-chrome-run-off').locator('.workflow-queue-buttons').boundingBox())!.height)).toBe(36)
+  await expect(
+    page.getByRole('heading', { name: 'Canvas corner, view bar and Run' }).locator('xpath=ancestor::section[1]'),
+  ).toHaveScreenshot('canvas-chrome.png')
+
+  const zoomCell = page.getByTestId('canvas-chrome-corner-zoom')
+  const zoomMenu = zoomCell.getByTestId('canvas-zoom-menu')
+  await zoomMenu.getByRole('button', { name: 'Zoom in' }).click()
+  await expect(zoomMenu).toBeVisible()
+  await expect(zoomCell.getByTestId('canvas-zoom-level')).toHaveText('45%')
+  await zoomMenu.getByRole('button', { name: 'Zoom: 45%' }).click()
+  await expect(zoomCell.getByTestId('canvas-zoom-input')).toBeFocused()
+  await expect(zoomCell.getByTestId('canvas-zoom-input')).toHaveValue('45')
+  await page.keyboard.press('Escape')
+  await expect(zoomCell.getByTestId('canvas-zoom-menu')).toBeHidden()
+  const settingsCell = page.getByTestId('canvas-chrome-corner-settings')
+  await page.getByRole('heading', { name: 'Canvas corner, view bar and Run' }).click()
+  await expect(settingsCell.locator('.minimap-menu')).toBeHidden()
+  await page.getByTestId('canvas-chrome-corner-small').getByTestId('minimap-settings').click()
+  await expect(page.getByTestId('canvas-chrome-corner-small').getByTestId('minimap-toggle-nodes')).toBeInViewport()
+  await page.getByTestId('canvas-chrome-corner-small').getByTestId('minimap-toggle-nodes').click()
+  await expect(page.getByTestId('canvas-chrome-corner-small').getByTestId('minimap-toggle-nodes')).toHaveAttribute('aria-checked', 'false')
+})

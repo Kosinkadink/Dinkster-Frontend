@@ -56,7 +56,7 @@ import {
 } from './toolbox.js'
 import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
 import { isButtonIcon, paintButtonIcon } from './button-icons.js'
-import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, canvasPaintTokens, defaultTokens, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
+import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
 import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
 
 /**
@@ -310,6 +310,22 @@ export interface CompanionDisplay {
   readonly state?: 'expected' | 'cached' | 'stale' | 'estimate'
   /** Compatibility for existing callers; new retained values use state. */
   readonly stale?: boolean
+}
+
+/**
+ * Whether a row draws a value arriving by wire with its own view, as it draws
+ * what a run brought, rather than in the shared read-only style of a field.
+ * In the raised look an editor shown in the node does when the value is
+ * known exactly, so its look does not depend on how the value became known;
+ * an estimated, unproven or cached value keeps the shared style and its cue.
+ */
+export function drawsPassedValueAsEditor(
+  row: Extract<LayoutRow, { kind: 'widget' }>,
+  companion: CompanionDisplay,
+  tokens: DesignTokens,
+): boolean {
+  return tokens.widgetRowLook === 'raised-editors' && IN_NODE_EDITORS[row.viewId] !== undefined &&
+    companion.stale !== true && (companion.state === undefined || companion.state === 'expected')
 }
 
 /** node id -> widget row valueKey -> companion. Derived, never stored. */
@@ -1363,7 +1379,9 @@ export class CanvasRenderer {
 
   /** Whether a field row paints a value arriving by wire in place of its own (WidgetPaintArgs.companion). */
   showsArrivingValue(nodeId: string, row: Extract<LayoutRow, { kind: 'widget' }>): boolean {
-    return this.panelFieldValues.has(`${nodeId}\u0000${row.inputId}`) || this.companions[nodeId]?.[row.valueKey] !== undefined
+    const panelKey = `${nodeId}\u0000${row.inputId}`
+    const arriving = this.panelFieldValues.has(panelKey) ? { value: this.panelFieldValues.get(panelKey)! } : this.companions[nodeId]?.[row.valueKey]
+    return arriving !== undefined && !drawsPassedValueAsEditor(row, arriving, this.tokens)
   }
 
   getDesignTokens(): DesignTokens {
@@ -4436,7 +4454,7 @@ export class CanvasRenderer {
       ...(drag !== undefined ? { dragging: true } : {}),
       ...(companion !== undefined ? { companion } : {}),
       ...(companion !== undefined ? { companionAlpha } : {}),
-      ...(companion === undefined && this.editorSummaries[sceneNode.id]?.[row.valueKey] !== undefined
+      ...(this.editorSummaries[sceneNode.id]?.[row.valueKey] !== undefined
         ? { editorSummary: this.editorSummaries[sceneNode.id]![row.valueKey]! } : {}),
       ...(row.subgraphMark !== undefined ? { markAlpha: companionAlpha } : {}),
       x: node.x + row.inset,
@@ -5179,43 +5197,13 @@ export function fitItems(ctx: CanvasRenderingContext2D, items: readonly string[]
 }
 
 /**
- * As many color squares as fit in `maxWidth` ending at `right`, then "+N"
- * for the rest in `textColor`. Returns the left edge of what was drawn.
- */
-export function paintSwatchRow(ctx: CanvasRenderingContext2D, colors: readonly string[], right: number, centerY: number, maxWidth: number, tokens: DesignTokens, textColor: string): number {
-  const { size, listGap } = canvasPaintTokens.widget.valueSwatch
-  const count = (shown: number) => shown < colors.length ? `+${colors.length - shown}` : ''
-  const widthFor = (shown: number) => shown * size + Math.max(0, shown - 1) * listGap
-    + (shown < colors.length ? (shown > 0 ? listGap : 0) + measureWidth(ctx, count(shown)) : 0)
-  let shown = colors.length
-  while (shown > 0 && widthFor(shown) > maxWidth) shown--
-  let left = right
-  const rest = count(shown)
-  if (rest !== '') {
-    const align = ctx.textAlign
-    ctx.fillStyle = textColor
-    ctx.textAlign = 'right'
-    ctx.fillText(rest, right, centerY)
-    ctx.textAlign = align
-    left -= measureWidth(ctx, rest) + listGap
-  }
-  for (let index = shown - 1; index >= 0; index--) {
-    left -= size
-    paintValueSwatch(ctx, colors[index]!, left, centerY - size / 2, tokens)
-    left -= listGap
-  }
-  return left + listGap
-}
-
-/**
  * The text a row's own view shows for a value, with the color square before
- * it, the list items it fits, or the color squares it draws instead.
+ * it or the list items it fits.
  */
 export interface CompanionSummary {
   readonly text: string
   readonly swatch?: string
   readonly items?: readonly string[]
-  readonly swatches?: readonly string[]
 }
 
 /**
@@ -5251,13 +5239,9 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
   ctx.font = `italic ${prevFont}`
   ctx.globalAlpha = companionAlpha ?? prevAlpha
   const textY = y + rowHeight / 2
-  // Squares stand in for the text; the prefix, if any, sits before them.
-  const squaresLeft = summary?.swatches === undefined
-    ? undefined
-    : paintSwatchRow(ctx, summary.swatches, x + field.right, textY, Math.max(0, availableWidth - measureWidth(ctx, prefix)), tokens, color)
-  const textRight = squaresLeft === undefined ? x + field.right : squaresLeft - (prefix === '' ? 0 : canvasPaintTokens.widget.valueSwatch.listGap)
-  const displayText = squaresLeft !== undefined ? prefix
-    : summary?.items !== undefined ? prefix + fitItems(ctx, summary.items, Math.max(0, availableWidth - measureWidth(ctx, prefix)))
+  const textRight = x + field.right
+  const displayText = summary?.items !== undefined
+    ? prefix + fitItems(ctx, summary.items, Math.max(0, availableWidth - measureWidth(ctx, prefix)))
     : fitText(ctx, text, availableWidth)
   ctx.fillStyle = color
   ctx.textAlign = 'right'
@@ -5266,7 +5250,7 @@ export function paintCompanionValue({ ctx, row, companion, companionAlpha, x, y,
     const { size, gap } = canvasPaintTokens.widget.valueSwatch
     paintValueSwatch(ctx, swatch, textRight - measureWidth(ctx, displayText) - gap - size, textY - size / 2, tokens)
   }
-  if (unproven && (displayText.length > 0 || squaresLeft !== undefined)) {
+  if (unproven && displayText.length > 0) {
     ctx.save()
     ctx.strokeStyle = color
     ctx.lineWidth = canvasPaintTokens.widget.companion.stroke

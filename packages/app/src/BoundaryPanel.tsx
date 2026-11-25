@@ -409,14 +409,15 @@ export function BoundaryPanel(props: { app: AppState }) {
                   </div>
                 }
               >
-                <div class="boundary-items">
+                <div class="boundary-items dinkster-list-rows">
                   <For each={sideItems(side)}>
                     {(item) => (
                   <div
-                    class="boundary-item"
+                    class="boundary-item dinkster-list-row"
                     data-testid="boundary-item"
                     data-boundary-id={item.id}
                     data-selected={focusedItem() === item.id ? '' : undefined}
+                    aria-current={focusedItem() === item.id ? 'true' : undefined}
                     ref={(element) => createEffect(() => {
                       const focus = boundaryFocus()
                       if (focus === scrolledFocus || untrack(focusedItem) !== item.id) return

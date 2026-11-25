@@ -291,7 +291,7 @@ test('extract commits immediately with deterministic collision-safe names and un
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'SubgraphLifecycleE2E', displayName: 'Subgraph Lifecycle', category: 'test', source: 'v3', isOutputNode: false,
-      items: [],
+      body: [],
     }])
     await test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'subgraph-lifecycle-e2e', root: 'root',
@@ -346,14 +346,14 @@ test('extracts an Int widget-output fan-out and flattens it back to exact taps',
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'LifecycleInt', displayName: 'Int', category: 'test', source: 'v3', isOutputNode: false,
-      items: [{
+      body: [{
         kind: 'input', id: 'value', displayName: 'Value',
         type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: {}, default: 0 },
       }],
     }, {
       type: 'LifecycleMathExpression', displayName: 'Math Expression', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'a', displayName: 'A', type: { kind: 'concrete', name: 'INT' }, optional: false },
         { kind: 'input', id: 'b', displayName: 'B', type: { kind: 'concrete', name: 'INT' }, optional: false },
       ],
@@ -632,7 +632,7 @@ test('region occurrence flatten refusal is displayed with its code and anchor', 
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'RegionLifecycleE2E', displayName: 'Region lifecycle', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         { kind: 'input', id: 'item', type: { kind: 'concrete', name: 'FLOAT' }, optional: true },
         { kind: 'output', id: 'result', type: { kind: 'concrete', name: 'FLOAT' }, list: false },
       ],

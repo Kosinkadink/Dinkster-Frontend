@@ -2,7 +2,6 @@ import type { WidgetRegistry } from '@dinkster/core'
 import { AssetWidgetEditor } from './AssetWidgetEditor.js'
 import { BoundingBoxWidgetEditor } from './BoundingBoxWidgetEditor.js'
 import { ColorWidgetEditor } from './ColorWidgetEditor.js'
-import { ColorsWidgetEditor } from './ColorsWidgetEditor.js'
 import { ComboWidgetEditor } from './ComboWidgetEditor.js'
 import { MultiComboWidgetEditor } from './MultiComboWidgetEditor.js'
 import { MarkdownWidgetEditor } from './MarkdownWidgetEditor.js'
@@ -20,7 +19,6 @@ const coreWidgetEditors = new Map<string, unknown>([
   ['MARKDOWN', MarkdownWidgetEditor],
   ['LIST', ScalarWidgetEditor],
   ['COLOR', ColorWidgetEditor],
-  ['COLORS', ColorsWidgetEditor],
   ['COMBO', ComboWidgetEditor],
   ['MULTI_COMBO', MultiComboWidgetEditor],
   ['ASSET', AssetWidgetEditor],

@@ -73,7 +73,7 @@ async function openauditInteractionFixture(page: Page): Promise<void> {
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'auditPlacementTest', displayName: 'audit KSampler', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input', id: 'steps', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: { widgetType: 'INT', options: { min: 1, max: 100 }, default: 20 },
@@ -192,7 +192,7 @@ test('Ctrl+empty-canvas drag sweeps a marquee that selects covered nodes', async
       y: rect.top + wy * vp.scale + vp.y,
     })
     const from = toPage(minX - 20, minY - 20)
-    const control = document.querySelector('.canvas-view-control')?.getBoundingClientRect()
+    const control = document.querySelector('.canvas-view-controls')?.getBoundingClientRect()
     if (control && from.x < control.right + 4 && from.y < control.bottom + 4) {
       throw new Error('marquee start would land on the canvas views control; fixture layout changed')
     }

@@ -266,7 +266,7 @@ test(`shows transparent pixels without changing source bytes, server conversion 
     await page.keyboard.press('Escape')
   }
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   const preview = page.getByTestId('app-preview-image')
   await expect(preview).toBeVisible()
   await expect(preview).toHaveCSS('background-image', /conic-gradient/)

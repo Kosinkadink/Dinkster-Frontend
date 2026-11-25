@@ -17,6 +17,7 @@ import {
   asPromptId,
   canonicalJson,
   canonicalTypeIdOf,
+  automaticValuesOfJob,
   companionSourcesOf,
   compile,
   documentResolver,
@@ -136,6 +137,7 @@ import {
   type Vec2,
   type CompileArtifact,
 } from '@dinkster/core'
+import { lookupAnswersOf, recordRunAnswers } from './lookup-demand.js'
 import {
   DINKSTER_GRAPH_FEATURE_PLACEMENT,
   DinksterConnection,
@@ -147,6 +149,7 @@ import {
   type LookupClient,
   discoverBackend,
   hydrateDinksterCompletedExecution,
+  noEngineOpen,
   probeSupervisorStatus,
   reconcileDinksterExecutions,
   restartSupervisorEngine,
@@ -193,6 +196,7 @@ import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 import type { CanvasLens } from './data-lens.js'
 import { registerLocaleSetting } from './locale.js'
+import { runClock } from './execution-activity.js'
 import { registerThemeSetting } from './theme.js'
 import {
   assetGuessCandidateToRef,
@@ -230,6 +234,7 @@ import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import type { CatalogNode } from './node-catalog.js'
 import { activeProjectId, migrateBrowserProjects, scopedSharedName, scopedStorageKey } from './projects.js'
+import { keepSchemas, keptRegistry, newerKeptTable, readKeptSchemas } from './kept-schemas.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
@@ -2259,6 +2264,12 @@ interface BackendBase {
   readonly label: string
   readonly baseUrl: string
   readonly registry: Signal<SchemaRegistry | undefined>
+  /**
+   * Built from the node table this browser kept from the backend's last
+   * answer. Only the canvas draws from it, and only until `registry` is held;
+   * nothing that needs the backend reads it.
+   */
+  readonly keptRegistry: Signal<SchemaRegistry | undefined>
   readonly comfyTranslations: Signal<readonly ComfyTranslation[]>
   readonly comfyTranslationsUnavailable: Signal<boolean>
   /** Execution locations advertised by the current native server life. */
@@ -2484,6 +2495,8 @@ export class AppState {
   readonly menuRegistry = createMenuRegistry()
   readonly searchRegistry = createSearchRegistry()
   readonly searchOpen = createSignal(false)
+  /** Incremented to open the top bar's layout menu from a command. */
+  readonly layoutMenuRequests = createSignal(0)
   readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
   readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
@@ -3089,10 +3102,8 @@ export class AppState {
     this.settings.register({ id: 'canvas.minimap.bookmarks', get name() { return t('settings.canvas.minimap.bookmarks') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.visible', get name() { return t('settings.canvas.minimap.visible') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.nodes', get name() { return t('settings.canvas.minimap.nodes') }, type: 'boolean', defaultValue: true })
-    this.settings.register({ id: 'canvas.minimap.bypass', get name() { return t('settings.canvas.minimap.bypass') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.noodles', get name() { return t('settings.canvas.minimap.noodles') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.groups', get name() { return t('settings.canvas.minimap.groups') }, type: 'boolean', defaultValue: true })
-    this.settings.register({ id: 'canvas.minimap.reroutes', get name() { return t('settings.canvas.minimap.reroutes') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.errors', get name() { return t('settings.canvas.minimap.errors') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
@@ -3241,7 +3252,7 @@ export class AppState {
     register('view.fitSelection', 'command.view.fitSelection', '.', () => this.canvasBridge.get()?.fitSelection(), () => this.canvasBridge.get() !== undefined)
     this.frontendDoors.command('layout.customize', {
       get label() { return t('command.layout.customize') },
-      run: () => this.modalPanel.set('customize-layout'),
+      run: () => this.layoutMenuRequests.update((count) => count + 1),
     })
     this.frontendDoors.command('backend.open', {
       get label() { return t('command.backend.open') },
@@ -3325,6 +3336,20 @@ export class AppState {
       }
       if ([...executions.values()].some((execution) => execution.status === 'completed' &&
         this.store.canRestoreCompleted(execution.ref))) this.refreshPersistedExecutionResults()
+    })
+    // Once per run: a recorded lookup answer the editor does not hold makes that call old.
+    // Reconnects and restores hand over the same records again as new arrays.
+    const recordedRuns = new Set<string>()
+    this.store.executions.subscribe((executions) => {
+      for (const key of recordedRuns) if (!executions.has(key)) recordedRuns.delete(key)
+      for (const [key, execution] of executions) {
+        const records = execution.automaticValues
+        const calls = execution.artifact?.automaticCalls
+        if (records === undefined || calls === undefined || recordedRuns.has(key)) continue
+        recordedRuns.add(key)
+        const lookups = this.backendFor(execution.ref.connection)?.lookups
+        if (lookups !== undefined) recordRunAnswers(lookups, calls, records)
+      }
     })
     let previousProblems: readonly OwnedDiagnostic[] = []
     this.problems.subscribe((problems) => {
@@ -4436,6 +4461,7 @@ export class AppState {
       label,
       baseUrl,
       registry,
+      keptRegistry: createSignal<SchemaRegistry | undefined>(undefined),
       comfyTranslations: createSignal<readonly ComfyTranslation[]>([]),
       comfyTranslationsUnavailable: createSignal(true),
       workerCatalog,
@@ -4546,6 +4572,7 @@ export class AppState {
         base.templatesEnabled.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.guidesAvailable.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.schemaState.subscribe(() => this.backendsTick.update((v) => v + 1)),
+        base.keptRegistry.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.replacementProblems.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.compatSkips.subscribe(() => this.backendsTick.update((v) => v + 1)),
         base.supervisor.subscribe(() => this.backendsTick.update((v) => v + 1)),
@@ -4555,8 +4582,10 @@ export class AppState {
     }
     {
       let nativeBackend: Backend & { readonly protocol: 'dinkster' }
-      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project: activeProjectId(),
+      const project = activeProjectId()
+      const connection = new DinksterConnection({ id, baseUrl, clientId, wsUrl, project,
         registryStaticUrl: () => this.settings.get<string>('search.registryUrl'),
+        keepSchemas: (payload) => void keepSchemas(baseUrl, project, payload),
       })
       // Epoch-gated registry refresh (schema_changed / composition_complete
       // pings are invalidations, never deltas). Coalesced: one fetch in
@@ -4771,6 +4800,8 @@ export class AppState {
       )
       const disposeMountHealth = connection.mountError.subscribe(() => this.backendsTick.update((v) => v + 1))
       const disposeLookupChanges = connection.onLookupsChanged((functions) => lookups.invalidate(functions))
+      // A mount's scan commits as a mount ping; a local file a lookup waited on may be checked now.
+      const disposeLookupFiles = connection.onMountsChanged(() => lookups.filesChanged())
       const disposeLibraryChanges = connection.onLibraryChanged(() => {
         for (const tab of this.tabs.get()) {
           if (tab.execution || this.backendForTab(tab) !== nativeBackend) continue
@@ -4816,6 +4847,7 @@ export class AppState {
           disposeLibraryChanges()
           disposeMountHealth()
           disposeLookupChanges()
+          disposeLookupFiles()
           disposeConnection()
           scopedClient.dispose()
           lookups.dispose()
@@ -5093,6 +5125,19 @@ export class AppState {
     // whatever registry the (possibly re-resolved) backend holds NOW.
     if (tab.execution) return this.registryForExecution(tab.execution)
     return this.backendForTab(tab).registry.get()
+  }
+
+  /** The kept node table the canvas draws from while `registryForTab` has none. */
+  keptRegistryForTab(tab: Tab): SchemaRegistry | undefined {
+    return tab.execution ? undefined : this.backendForTab(tab).keptRegistry.get()
+  }
+
+  /** Why what the engine answers is off for this tab: no engine is open, or its real node table has not arrived. */
+  engineOffReason(tab: Tab, message: (key: string) => string): string | undefined {
+    const backend = this.backendForTab(tab)
+    if (noEngineOpen(backend.supervisor.get())) return message('shell.engine.notRunning')
+    if (tab.execution || this.registryForTab(tab) !== undefined) return undefined
+    return message(backend.schemaState.get().status === 'error' ? 'shell.engine.notAnswering' : 'shell.engine.stillStarting')
   }
 
   /** Pane-local widget definitions, independent of the focused shell's world. */
@@ -5535,9 +5580,8 @@ export class AppState {
   async duplicateTab(tabId: string, replaceFrozen = false): Promise<Tab | undefined> {
     const source = this.tabs.get().find((candidate) => candidate.id === tabId)
     if (!source || ![GRAPH_EDITOR_KIND, APP_EDITOR_KIND].includes(source.editorKind)) return undefined
-    const title = source.execution
-      ? source.title.slice(0, -` @ ${source.execution.prompt.slice(0, 8)}`.length)
-      : source.title
+    const suffix = source.execution === undefined ? '' : this.frozenTitleSuffix(source.execution)
+    const title = suffix !== '' && source.title.endsWith(suffix) ? source.title.slice(0, -suffix.length) : source.title
     const titles = new Set(this.tabs.get().map((tab) => tab.title))
     let copyTitle = `${title} copy`
     for (let ordinal = 2; titles.has(copyTitle); ordinal++) copyTitle = `${title} copy ${ordinal}`
@@ -5925,7 +5969,7 @@ export class AppState {
     if (!backend) return false
     if (!stillWanted()) return false
     this.store.retain(ref)
-    const title = `${this.tabTitleFor(ref)} @ ${ref.prompt.slice(0, 8)}`
+    const title = `${this.tabTitleFor(ref)}${this.frozenTitleSuffix(ref)}`
     const tab = this.makeTab(artifact.snapshot, title, ref)
     this.tabs.update((tabs) => [...tabs, tab])
     this.activeTabId.set(id)
@@ -7783,6 +7827,22 @@ export class AppState {
     backend.invalidateRemoteChoices()
   }
 
+  /**
+   * Draw each backend's nodes from a kept node table until the backend
+   * answers: this browser's copy or the table the always-on process recorded
+   * from the engine, whichever was recorded last.
+   */
+  async loadKeptSchemas(): Promise<void> {
+    await Promise.all(this.backends.get().map(async (backend) => {
+      const kept = newerKeptTable(...await Promise.all([
+        readKeptSchemas(backend.baseUrl, activeProjectId()),
+        backend.connection.fetchProvisionalSchemas(),
+      ]))
+      if (kept === undefined || backend.registry.get() !== undefined) return
+      backend.keptRegistry.set(keptRegistry(backend.id, kept))
+    }))
+  }
+
   async start(): Promise<void> {
     await Promise.all(this.backends.get().map((b) => this.startBackend(b)))
     // After the backends: rejoin probes talk to the same servers, and a
@@ -7914,6 +7974,7 @@ export class AppState {
       outputs,
       artifacts: job.artifacts ?? [],
       ...(result.submittedBy === undefined ? {} : { submittedBy: result.submittedBy }),
+      automaticValues: automaticValuesOfJob(job),
       jobRef: result.jobRef,
       sourceDocument: result.sourceDocument,
       queuedAt: result.queuedAt,
@@ -8188,6 +8249,9 @@ export class AppState {
       // Capability-negotiated graph wire forms (e.g. $typed) are gated on
       // the TARGET backend's advertised features, exactly like the registry.
       ...(registry.graphFeatures ? { graphFeatures: registry.graphFeatures } : {}),
+      // An automatic lookup field copied into another node passes on the
+      // answer its row shows; a frozen view of a run calls no lookups.
+      ...(tab.execution === undefined ? { lookupAnswers: lookupAnswersOf(backend.lookups) } : {}),
     }
   }
 
@@ -8814,9 +8878,12 @@ export class AppState {
       if (!result.ok) continue
       const artifact = projectWorkspaceCompileArtifact(result.artifact)
       if (canonicalJson(artifact) !== canonicalJson(registration.artifact)) continue
-      this.retainedRegistries.set(artifact, registry)
+      // The lookup calls depend on this window's answers, so they are compared
+      // nowhere; kept on the run, this window still asks again where it differs.
+      const registered = result.artifact.automaticCalls === undefined ? artifact : { ...artifact, automaticCalls: result.artifact.automaticCalls }
+      this.retainedRegistries.set(registered, registry)
       this.hydrated.delete(key)
-      this.store.register(registration.ref, artifact, registration.timestamp, {
+      this.store.register(registration.ref, registered, registration.timestamp, {
         ...(registration.jobRef === undefined ? {} : { jobRef: registration.jobRef }),
         ...(registration.sourceDocument === undefined ? {} : { sourceDocument: registration.sourceDocument }),
       })
@@ -9634,28 +9701,10 @@ export class AppState {
     return this.semanticHashOfTab(live) === artifact.semanticHash ? 'in-sync' : 'diverged'
   }
 
-  /**
-   * For a LIVE tab: how its document relates to the execution its overlay
-   * shows (pinned run when pinned, else the lineage's latest). `inSync:
-   * false` means edits landed after that submission - progress overlays may
-   * not match what actually runs; the frozen view is the truth.
-   */
-  liveSyncStatus(tab: Tab): {
-    ref: ExecutionRef
-    status: ExecutionStatus
-    inSync: boolean
-    mode: 'latest' | 'pinned'
-  } | undefined {
-    if (tab.execution) return undefined
-    const pinned = this.pinnedExecutionFor(tab)
-    const shown = pinned ?? this.latestExecutionFor(tab.store.doc.lineage)
-    if (!shown?.artifact) return undefined
-    return {
-      ref: shown.ref,
-      status: shown.status,
-      inSync: this.semanticHashOfTab(tab) === shown.artifact.semanticHash,
-      mode: pinned ? 'pinned' : 'latest',
-    }
+  /** A frozen tab is named by its workflow and the time the run was queued, such as "Portrait, 14:02". */
+  private frozenTitleSuffix(ref: ExecutionRef): string {
+    const state = this.store.get(ref)
+    return state === undefined ? '' : `, ${runClock(state.queuedAt)}`
   }
 
   tabTitleFor(ref: ExecutionRef): string {

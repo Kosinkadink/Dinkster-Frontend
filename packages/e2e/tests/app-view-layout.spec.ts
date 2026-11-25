@@ -36,7 +36,7 @@ async function registerSchema(page: Page): Promise<void> {
 async function selectAppView(page: Page): Promise<void> {
   if (await page.getByTestId('app-view').count()) return
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
 }
 
 async function enterArrange(page: Page): Promise<void> {
