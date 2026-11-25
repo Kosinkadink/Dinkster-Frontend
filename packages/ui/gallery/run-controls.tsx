@@ -74,7 +74,7 @@ const topBars = [
 
 const runBars = [
   { id: 'run-idle', caption: 'Nothing running: Run and the list button.', executions: [] },
-  { id: 'run-running', caption: 'Running, 42%: the 2 px line along the bottom edge, the count, the X.', executions: [running] },
+  { id: 'run-running', caption: 'Running, 42%: the workflow line and, under it, the node line along the bottom edge; the count; the X.', executions: [running] },
   { id: 'run-queued', caption: 'Running, two more queued; the count opens the list below the bar.', executions: [running, ...queued], shape: 'open' },
 ] as const
 
