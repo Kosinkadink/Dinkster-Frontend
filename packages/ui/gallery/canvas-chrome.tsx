@@ -16,6 +16,8 @@ import {
   type CanvasCornerMenu,
 } from '../../app/src/CanvasChrome.js'
 import { GRAPH_EDITOR_KIND } from '../../app/src/editors.js'
+import { WorkflowQueueControl } from '../../app/src/WorkflowQueueControl.js'
+import type { LineageId } from '@dinkster/core'
 
 /**
  * A real 19-node test graph captured from the editor, with the camera the
@@ -187,7 +189,31 @@ function ViewExampleCard(props: { readonly example: ViewExample }) {
   )
 }
 
-/** The app's canvas corner and top-left view bar, drawn over a piece of canvas. */
+const runs = [
+  { id: 'ready', canQueue: true, caption: 'Run keeps its green outline; the runs list beside it takes the subtle outline of the canvas bars.' },
+  { id: 'off', canQueue: false, caption: 'With nothing to run, the whole control is quiet.' },
+] as const
+
+function RunExampleCard(props: { readonly example: (typeof runs)[number] }) {
+  return (
+    <figure class="dinkster-canvas-example" data-testid={`canvas-chrome-run-${props.example.id}`}>
+      <div class="dinkster-canvas-example-stage dinkster-canvas-chrome-stage" data-shape="bar">
+        <div class="dinkster-canvas-chrome-toolbar" data-side="right">
+          <WorkflowQueueControl
+            owner={{ id: `gallery-${props.example.id}`, title: 'Workflow', lineage: 'gallery' as LineageId }}
+            executions={[]}
+            canQueue={props.example.canQueue}
+            onQueue={() => undefined}
+            onOpenExecution={() => undefined}
+          />
+        </div>
+      </div>
+      <figcaption class="dinkster-metadata">{props.example.caption}</figcaption>
+    </figure>
+  )
+}
+
+/** The app's canvas corner the top-left view bar and Run, drawn over a piece of canvas. */
 export function CanvasChromeGallery() {
   registerCatalog('en', english)
   let root: HTMLDivElement | undefined
@@ -196,6 +222,7 @@ export function CanvasChromeGallery() {
     <div ref={root} class="dinkster-canvas-examples" data-testid="canvas-chrome-gallery">
       <For each={corners}>{(example) => <CornerExampleCard example={example} />}</For>
       <For each={views}>{(example) => <ViewExampleCard example={example} />}</For>
+      <For each={runs}>{(example) => <RunExampleCard example={example} />}</For>
     </div>
   )
 }

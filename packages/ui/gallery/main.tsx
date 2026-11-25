@@ -313,7 +313,7 @@ function Gallery() {
               <CanvasGallery />
             </Match>
             <Match when={route() === '#canvas-chrome'}>
-              <Section title="Canvas corner and view bar" components="CanvasCornerControls, CanvasViewControls">
+              <Section title="Canvas corner, view bar and Run" components="CanvasCornerControls, CanvasViewControls, WorkflowQueueControl">
                 <CanvasChromeGallery />
               </Section>
             </Match>

@@ -741,8 +741,60 @@
 .lens-menu-heading { margin-top: 5px; padding: 7px; color: var(--dinkster-text-disabled); border-top: 1px solid var(--dinkster-border-strong); font-size: var(--dinkster-type-metadata-size); text-transform: uppercase; }
 .lens-menu > .lens-menu-heading:first-child { margin-top: 0; border-top: 0; }
 /* A gallery frame holding the canvas chrome over a piece of canvas. */
+/* Run keeps its green outline; the runs list beside it takes the canvas bars' subtle outline, and the whole control is quiet when Run is off. */
+.workflow-queue-control {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  margin-left: auto;
+}
+.workflow-queue-buttons { display: flex; align-items: stretch; }
+.workflow-queue-submit,
+.workflow-queue-toggle {
+  min-height: var(--dinkster-control-compact-height);
+  color: var(--dinkster-text-primary);
+  border: 1px solid var(--dinkster-border-strong);
+  background: var(--dinkster-surface-raised);
+  font: inherit;
+  cursor: pointer;
+}
+.workflow-queue-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dinkster-space-8);
+  padding: var(--dinkster-space-8) var(--dinkster-space-12);
+  color: var(--dinkster-success-foreground);
+  border-color: var(--dinkster-success-border);
+  border-radius: var(--dinkster-radius-control) 0 0 var(--dinkster-radius-control);
+  background: var(--dinkster-success-background);
+}
+.workflow-queue-submit svg { width: 15px; height: 15px; }
+.workflow-queue-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dinkster-space-4);
+  min-width: var(--dinkster-control-compact-height);
+  padding: var(--dinkster-space-4) var(--dinkster-space-8);
+  border-color: var(--dinkster-border-subtle);
+  border-left: 0;
+  border-radius: 0 var(--dinkster-radius-control) var(--dinkster-radius-control) 0;
+  color: var(--dinkster-text-secondary);
+  background: var(--dinkster-surface-panel);
+  font-size: var(--dinkster-type-metadata-size);
+}
+.workflow-queue-submit:hover:not(:disabled),
+.workflow-queue-toggle:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
+.workflow-queue-submit:focus-visible,
+.workflow-queue-toggle:focus-visible { z-index: 1; outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
+.workflow-queue-submit:disabled { color: var(--dinkster-text-muted); border-color: var(--dinkster-border-subtle); background: var(--dinkster-surface-panel); opacity: 1; cursor: default; }
+.workflow-queue-toggle svg { width: 15px; height: 15px; }
+.workflow-queue-submit:disabled + .workflow-queue-toggle:not(:hover, [data-running='true']) { color: var(--dinkster-text-muted); }
+.workflow-queue-toggle[data-running='true'] { color: var(--dinkster-accent-foreground); }
 .dinkster-canvas-chrome-stage { width: 320px; height: 240px; }
 .dinkster-canvas-chrome-stage[data-shape='tall'] { width: 320px; height: 440px; }
 .dinkster-canvas-chrome-stage[data-shape='top'] { width: 380px; height: 420px; }
 .dinkster-canvas-chrome-stage[data-shape='bar'] { width: 380px; height: 120px; }
 .dinkster-canvas-chrome-toolbar { position: absolute; top: 8px; left: 8px; display: flex; }
+.dinkster-canvas-chrome-toolbar[data-side='right'] { right: 8px; left: auto; }

@@ -751,7 +751,7 @@ test('context menus keep 12 px sides, one label column and a check column only w
   ).toHaveScreenshot('context-menus.png')
 })
 
-test('the canvas corner bar keeps one width right-justified under the minimap, and its menus open straight above it', async ({
+test('the canvas corner bar keeps one width right-justified under the minimap, its menus open straight above it, and the runs list beside Run takes the outline of the bars', async ({
   page,
 }) => {
   await page.goto('/#canvas-chrome')
@@ -782,7 +782,20 @@ test('the canvas corner bar keeps one width right-justified under the minimap, a
     quiet: { barWidth: width, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
     zoom: { barWidth: width, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
   })
+  const outlines = await page.evaluate(() => {
+    const style = (selector: string) => getComputedStyle(document.querySelector(selector)!)
+    const run = (id: string) => ({
+      run: style(`[data-testid="canvas-chrome-run-${id}"] .workflow-queue-submit`).borderTopColor,
+      list: style(`[data-testid="canvas-chrome-run-${id}"] .workflow-queue-toggle`).borderTopColor,
+      runBackground: style(`[data-testid="canvas-chrome-run-${id}"] .workflow-queue-submit`).backgroundColor,
+      listBackground: style(`[data-testid="canvas-chrome-run-${id}"] .workflow-queue-toggle`).backgroundColor,
+    })
+    return { bar: style('[data-testid="canvas-chrome-corner-small"] .canvas-corner-bar').borderTopColor, ready: run('ready'), off: run('off') }
+  })
+  expect(outlines.ready.list).toBe(outlines.bar)
+  expect(outlines.ready.run).not.toBe(outlines.bar)
+  expect(outlines.off).toEqual({ run: outlines.bar, list: outlines.bar, runBackground: outlines.off.listBackground, listBackground: outlines.off.listBackground })
   await expect(
-    page.getByRole('heading', { name: 'Canvas corner and view bar' }).locator('xpath=ancestor::section[1]'),
+    page.getByRole('heading', { name: 'Canvas corner, view bar and Run' }).locator('xpath=ancestor::section[1]'),
   ).toHaveScreenshot('canvas-chrome.png')
 })
