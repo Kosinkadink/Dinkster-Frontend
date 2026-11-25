@@ -11,6 +11,7 @@ import {
 } from '@dinkster/core'
 import { outputRowKey } from '@dinkster/canvas'
 import { composeCanvasProblemDiagnostics, deriveNodeProblems, deriveProblemProjection, groupProblemDiagnostics, problemDisplay } from '../src/problem-display.js'
+import { problemBoxLines } from '../src/problem-box.js'
 
 const schema: NodeSchema = {
   type: 'Sampler',
@@ -98,8 +99,17 @@ describe('problemDisplay', () => {
       data: { nodeMessage: 'Model input needs MODEL, but Load image sends an image.' },
     })
     expect(problemDisplay(d, document('My sampler'), registry)).toBe(d.message)
+    const ordinary = diag('error', 'validation', 'field.invalid', 'Model is missing.', { refs: d.refs!, data: { nodeMessage: 3 } })
+    const projection = deriveProblemProjection({ diagnostics: [d, ordinary], graphId: 'g0', instancePath: [] })
     expect(deriveProblemProjection({ diagnostics: [d], graphId: 'g0', instancePath: [] }).rows)
       .toEqual({ 'n5-a1b2': { model: 'warning' } })
+    const lines = problemBoxLines(projection.nodes['n5-a1b2']!, [{ key: 'model', name: 'Model input', field: true }], (row) => row,
+      (line) => problemDisplay(line.diagnostic, document('My sampler'), registry))
+    expect(lines).toMatchObject([
+      { kind: 'error', row: 'model', rowName: 'Model input', message: problemDisplay(ordinary, document('My sampler'), registry), actions: ['edit-field'] },
+      { kind: 'warning', row: 'model', message: d.data!['nodeMessage'], actions: ['edit-field'] },
+    ])
+    expect(lines[1]?.rowName).toBeUndefined()
   })
 
 })
