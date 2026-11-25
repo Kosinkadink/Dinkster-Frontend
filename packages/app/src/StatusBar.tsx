@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js'
-import type { MemoryStatus } from '@dinkster/client'
+import { noEngineOpen, type MemoryStatus } from '@dinkster/client'
 import { ProductRunActivity, ProductRunIcon } from '@dinkster/ui'
 import Workflow from 'lucide-solid/icons/workflow'
 import Snowflake from 'lucide-solid/icons/snowflake'
@@ -149,8 +149,12 @@ export function StatusBar(props: {
   const runTitle = () => props.tab()?.execution !== undefined ? message('shell.status.frozen')
     : busy() ? props.tab()!.title : message('shell.status.idle')
   const runLabel = () => `${props.tab()?.title}: ${busy() ? activityLabel() : message('shell.status.noActivity')}${props.tab()?.execution === undefined ? '' : ` - ${message('shell.status.frozen')}`}${runWords() === '' ? '' : ` - ${runWords()}`}`
-  const connection = () => { backendTick(); return backendConnectionStatus(props.backend()) }
-  const connectionLabel = () => `${props.backend().label}: ${connection()}`
+  const connection = () => {
+    backendTick()
+    return noEngineOpen(props.backend().supervisor.get()) ? 'no-engine' : backendConnectionStatus(props.backend())
+  }
+  const connectionWords = () => connection() === 'no-engine' ? message('shell.status.noEngine') : connection()
+  const connectionLabel = () => `${props.backend().label}: ${connectionWords()}`
   const backgroundLabel = () => allTasks().map((task) => `${task.backend}: ${task.text}`).join('; ')
   let footer!: HTMLElement
   let row!: HTMLDivElement
@@ -178,7 +182,7 @@ export function StatusBar(props: {
         <ProductButton variant="ghost" size="compact" class="status-item status-connection" data-testid="status-connection"
           data-state={connection()} aria-label={connectionLabel()} data-tooltip-label={connectionLabel()} onClick={() => props.openPanel('backends')}>
           <span class="status-connection-dot" aria-hidden="true" /><span class="status-connection-name">{props.backend().label}</span>
-          <Show when={connection() !== 'connected'}><span>{connection()}</span></Show>
+          <Show when={connection() !== 'connected'}><span>{connectionWords()}</span></Show>
         </ProductButton>
         <Show when={workflowTab()}>
           <ProductButton variant="ghost" size="compact" class="status-item status-run" data-testid="status-run"
@@ -199,7 +203,7 @@ export function StatusBar(props: {
           <Icon icon={Download} /><span class="status-background-description">{allTasks().length === 1 ? allTasks()[0]!.text : message('shell.status.tasks', { count: allTasks().length })}</span>
           <span class="status-background-count" aria-hidden="true">{allTasks().length}</span>
         </ProductButton></Show>
-        <Show when={(backendTick(), props.backend().schemaState.get().status !== 'ready')}>
+        <Show when={connection() !== 'no-engine' && props.backend().schemaState.get().status !== 'ready'}>
           <span class="status-catalog">{props.backend().schemaState.get().status === 'error' ? message('backendsPanel.schema.unavailable') : message('shell.status.loadingSchemas')}</span>
         </Show>
         <span class="status-extensions" data-testid="status-trailing">{props.extensions}</span>

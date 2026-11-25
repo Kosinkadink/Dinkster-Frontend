@@ -3,6 +3,7 @@ import type { MenuActionItem, MenuItem, ResolvedMenuGroup } from '@dinkster/core
 import ChevronDown from 'lucide-solid/icons/chevron-down'
 import X from 'lucide-solid/icons/x'
 import PanelLeft from 'lucide-solid/icons/panel-left'
+import Settings from 'lucide-solid/icons/settings'
 import { ContextMenu } from './ContextMenu.js'
 import { Icon } from './Icon.js'
 import {
@@ -152,6 +153,43 @@ export function ActivityBarButton(props: {
     >
       <span class="sidebar-button-icon" aria-hidden="true"><Icon icon={props.icon ?? PanelLeft} /></span>
     </button>
+  )
+}
+
+/**
+ * The left icon bar: the logo when the caller gives one, the place buttons,
+ * the account and Settings. The editor and the projects page draw the same
+ * bar, so it stays in place when one view fades into the other.
+ */
+export function IconBar(props: {
+  readonly hidden: boolean
+  /** Draws the logo at the top of the bar; the caller decides when it belongs here. */
+  readonly logo?: (() => JSX.Element) | undefined
+  /** The bar's place buttons, as ActivityBarButtons. */
+  readonly children: JSX.Element
+  readonly account: JSX.Element
+  readonly onSettings: () => void
+}) {
+  const message = useAppMessage()
+  return (
+    <nav class="left-sidebar" aria-label={message('shell.primaryNavigation')} data-tooltip-session="left-rail" hidden={props.hidden}>
+      <Show when={props.logo}>{(logo) => <div class="sidebar-logo">{logo()()}</div>}</Show>
+      <div class="sidebar-toggle-stack">
+        <div class="sidebar-toggle-group" data-testid="dock-toggle-group">{props.children}</div>
+      </div>
+      <div class="sidebar-account">{props.account}</div>
+      <ActivityBarButton
+        icon={Settings}
+        label={message('shell.panel.settings.title')}
+        accessibleName={message('shell.panel.settings.title')}
+        tooltip={message('shell.panel.settings.title')}
+        tooltipDetail="Ctrl+,"
+        pressed={undefined}
+        testId="settings-button"
+        class="sidebar-settings-button"
+        onActivate={props.onSettings}
+      />
+    </nav>
   )
 }
 

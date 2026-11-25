@@ -3509,6 +3509,60 @@ describe('workflow library wire', () => {
     await expect(stale.renameProject('p-film', 'Other', 6)).rejects.toThrow('changed elsewhere')
   })
 
+  it('reads sanitized account choices and links or unlinks only the revision-selected local project', async () => {
+    const accountId = '48bb018e-5b17-4e68-bd81-c6412c4bcd72'
+    const issuer = 'https://identity.example.test'
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 8, deleted: false }
+    const { conn, requests } = submitHarness((_url, init) => {
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(init.body as string) as { accountProject: string | null }
+        return jsonResponse(200, { project: { ...project, accountProject: body.accountProject === null ? null : { issuer, id: accountId, privateField: 'not-public' } } })
+      }
+      return jsonResponse(200, { issuer, privateField: 'not-public', projects: [{ id: accountId, displayName: 'Film cloud', privateField: 'not-public' }, { id: 'ffffffff-ffff-4fff-bfff-ffffffffffff', displayName: null }] })
+    })
+    const controller = new AbortController()
+    expect(await conn.accountProjects(controller.signal)).toEqual({ issuer, projects: [{ id: accountId, displayName: 'Film cloud' }, { id: 'ffffffff-ffff-4fff-bfff-ffffffffffff', displayName: null }] })
+    expect(requests[0]).toEqual({ url: 'http://test/api/account/projects', init: { method: 'GET', cache: 'no-store', signal: controller.signal } })
+    expect(await conn.setProjectAccountLink('p-film', accountId, 7, controller.signal)).toEqual({ ...project, accountProject: { issuer, id: accountId } })
+    expect(requests[1]?.url).toBe('http://test/api/account/projects/p-film')
+    expect(requests[1]?.init).toEqual({ method: 'PUT', cache: 'no-store', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: 7, accountProject: accountId }) })
+    expect(await conn.setProjectAccountLink('p-film', null, 8)).toEqual({ ...project, accountProject: null })
+    expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 8, accountProject: null })
+    for (const [status, error] of [[409, 'project-changed'], [403, 'operator-required'], [503, 'account-projects-unavailable']] as const) {
+      const { conn: refused, requests: attempts } = submitHarness(() => jsonResponse(status, { error }))
+      await expect(refused.setProjectAccountLink('p-film', accountId, 7)).rejects.toThrow(error)
+      expect(attempts).toHaveLength(1)
+    }
+    const { conn: wrongProject } = submitHarness(() => jsonResponse(200, { project: { ...project, id: 'other', accountProject: null } }))
+    await expect(wrongProject.setProjectAccountLink('p-film', null, 8)).rejects.toThrow('another project')
+    for (const accountProject of [undefined, null, { issuer, id: 'ffffffff-ffff-4fff-bfff-ffffffffffff' }]) {
+      const { conn: wrongLink } = submitHarness(() => jsonResponse(200, { project: { ...project, accountProject } }))
+      await expect(wrongLink.setProjectAccountLink('p-film', accountId, 7)).rejects.toThrow('another account link')
+    }
+    const { conn: empty } = submitHarness(() => jsonResponse(200, { issuer, projects: [] }))
+    expect(await empty.accountProjects()).toEqual({ issuer, projects: [] })
+  })
+
+  it.each([
+    {}, { issuer: '', projects: [] }, { issuer: 'https://identity.test', projects: null },
+    { issuer: 'https://identity.test', projects: [{ id: 'not-a-uuid', displayName: 'Film' }] },
+    { issuer: 'https://identity.test', projects: [{ id: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', displayName: 1 }] },
+  ])('refuses malformed account choices rather than offering an invalid link', async (body) => {
+    const { conn } = submitHarness(() => jsonResponse(200, body))
+    await expect(conn.accountProjects()).rejects.toThrow('Malformed account project choices')
+  })
+
+  it.each([undefined, null, { issuer: 'https://identity.test', id: '48bb018e-5b17-4e68-bd81-c6412c4bcd72' }])('preserves explicit account links and older missing fields in project reads (%j)', async (accountProject) => {
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false, ...(accountProject === undefined ? {} : { accountProject }) }
+    const { conn } = submitHarness(() => jsonResponse(200, { project }))
+    expect(await conn.getProject('p-film')).toEqual(project)
+  })
+
+  it.each([[], 'not-a-link', { issuer: 'https://identity.test', id: 'bad-id' }, { issuer: '', id: '48bb018e-5b17-4e68-bd81-c6412c4bcd72' }])('rejects malformed saved account links instead of treating them as unlinked', async (accountProject) => {
+    const { conn } = submitHarness(() => jsonResponse(200, { project: { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false, accountProject } }))
+    await expect(conn.getProject('p-film')).rejects.toThrow('Malformed library project account link')
+  })
+
   it('reads project needs without dropping unknown workflows and enables only the revision-reviewed project', async () => {
     const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false }
     const needs = { packs: [{ pack: 'tools-a', version: '1.2.3' }, { pack: 'tools-b', version: null }], installed: [{ pack: 'tools-a', version: '1.0.0' }, { pack: 'tools-c', version: null }], extra: ['extra-c'], unknown: [{ scope: 'local', id: 'unreadable' }] }

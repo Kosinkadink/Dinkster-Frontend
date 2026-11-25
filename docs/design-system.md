@@ -39,6 +39,10 @@ from that vector and packages the 16-256px PNGs into ICO without resizing.
 The dark palette uses cyan-tinted greys: canvas `#0E1414`, panel `#141C1D`,
 raised `#1E292A`, hover `#283537`, and subtle border `#324143`. The frame role
 is `#090D0D`, exposed as `surface.frame` and `--dinkster-surface-frame`.
+The active workflow tab's top tint, `rgba(120, 205, 210, 0.08)` in both
+themes, is the translucent `interaction.activeTabTint`
+(`--dinkster-interaction-active-tab-tint`); it is not a surface, because text
+never sits on it alone.
 Light-theme colors remain unchanged. The app grid uses the light palette's
 `#D3D9DE` dots rather than retaining the dark constructor color. Queued and
 skipped node outlines keep their existing light values through dedicated
@@ -191,8 +195,9 @@ every core tab once.
   `ProductRunIcon` keeps a supplied Lucide kind icon visible while running,
   breathing in cyan over a 2.4-second cycle. Reduced motion leaves it still
   and cyan. Queued work stays cyan without motion. Its optional
-  `finished`/`failed` result adds a lower-right cyan or
-  coral dot, hidden while running. Tabs and the status bar use this same export.
+  `finished`/`failed` result adds a 6 px lower-right cyan or coral dot with a
+  2 px ring in the colour behind it, hidden while running. Tabs and the status
+  bar use this same export.
   `ProductRunActivity` shows separate numeric running and waiting activity:
   a turning cyan ring always carries the running count, including one, and a
   still secondary-text clock always carries the waiting count. Zero counts
@@ -1015,8 +1020,11 @@ screenshot baselines do not use fallback text.
 ## Desktop information
 
 `ProductWindowChrome` reserves the native title-bar overlay area and the
-macOS traffic-light inset, uses the shared 44px bar and palette, and marks
-its empty background draggable while its contents remain non-draggable.
+macOS traffic-light inset (neither when the host passes `fullScreen`, since
+full screen hides the window buttons), uses the shared 44px bar and palette,
+and marks its empty background draggable while its contents remain
+non-draggable. The shared toolbar does the same: its grid cells are
+draggable and the controls inside them are not.
 The host supplies the exact title and platform. Optional `qa` and `development`
 flags add `ProductWindowIdentity` inside the bar. The visible Development label
 has the full unpublished-project explanation as its title. QA and development
@@ -1068,11 +1076,24 @@ execution, account and project-name changes. In the expanded row Search takes
 spare grid width and gives it back first. Search keeps an unfilled outline, is
 capped at the 480px `toolbarSearchMaxWidth`, and centers on the window when the
 surrounding controls leave room; otherwise it stays within its available grid
-slot. The app-menu button uses the D symbol and chevron at every width, not a
-wordmark or a three-line menu icon. Its accessible name is unchanged. Project labels compose
-`.dinkster-window-project-label` through `labelContent`, with a folder icon and
-`.dinkster-window-project-name` limiting visible text to 160px with an end ellipsis; the required full `label` retains the accessible
-name and tooltip. Service and development become a single
+slot. The app-menu button uses the D symbol alone at every width, with no
+chevron, not a wordmark or a three-line menu icon. Its accessible name is
+unchanged. Off macOS it is centred over the 48px `iconBarWidth` column of the
+editor's left icon bar, and the next control in the brand slot starts at that
+column's edge, where the panels start. On macOS the editor moves it to the top
+of the left icon bar, below the bar's row, and the project follows the window
+buttons; while the left bar is hidden it returns to the bar after the window
+buttons. The editor reads the platform from the bar's `data-platform`, which
+Desktop sets.
+The brand slot may follow it with `ProductProjectMenu`: a folder, the project's
+name and a chevron at every width. The chevron uses the muted text color at rest
+and the normal color on hover, keyboard focus and while the menu is open. The name shows at most 160px and shortens to 64px
+before anything else in the slot gives way, ending in an ellipsis; the full
+name is the trigger's accessible name and tooltip. Its menu lists the current
+project checked, up to 8 other projects in the order given, each with an
+open-in-window action shown on hover and keyboard focus, then All projects and
+New project; it opens at once and the other projects fill in when they arrive,
+or one muted line says they could not be loaded. Service and development become a single
 bold warning-colored marking after actions, before the account slot: QA, Custom,
 Dev, QA Dev or Custom Dev. `serviceKind` supplies the stable QA/custom meaning
 independently of the localized full `service` label. Full words remain in the
@@ -1087,17 +1108,18 @@ An optional `labelContent` replaces the expanded visible label. The required
 string `label` still owns the accessible name and title; rich content must be
 non-interactive. Compact mode clips action content and shows the action's icon
 without changing activation or menu ownership, except for the app-menu brand
-slot, which retains its D symbol and chevron at every width. Pending toolbar
+slot, which retains its D symbol at every width. Pending toolbar
 actions retain their exact non-pending width and shared disabled/focus behavior.
 The spinner replaces the compact icon, the leading icon in an expanded rich
-label, or the app-menu D symbol while keeping its chevron.
+label, or the app-menu D symbol.
 For a text-only expanded label, it replaces the drawn text at the center while
 the label continues to supply the accessible name. No other control moves when
 an action becomes pending. Ordinary ProductButton presentation is unchanged.
 The actions slot also accepts a render function receiving a reactive `narrow`
-accessor. It switches below the fixed 460px available-content token
+accessor. It switches below the fixed 406px available-content token
 `toolbarFullRowWidth`, after native reservations, independently of account or
-execution state. The layout menu then holds the left, bottom and right panel
+execution state; 406px is the widest gallery row's measured need with the
+project in the brand slot and no account. The layout menu then holds the left, bottom and right panel
 switches together, followed by left bar, status bar and Reset layout. In the full
 row the three panel switches stay in the bar and are not repeated in the menu.
 `ProductMenuItem.checked` draws the shared checkmark and exposes
@@ -1106,7 +1128,9 @@ navigation and dismissal. The host owns visibility and commands in either place.
 Compact and narrow brand triggers show the bundled 22px color D symbol inside
 32px controls, with the accessible name Dinkster menu. Toolbar icon buttons are
 unboxed at rest; hover and pressed use shared interaction fills. Cancel run
-retains its coral outline. Collaboration uses the two-person Users icon.
+retains its coral outline. Collaboration uses the two-person Users icon and
+comes before the layout menu and the panel switches, which then sit next to the
+window buttons on every platform.
 `ProductMenu.triggerName` separates the accessible trigger name from its drawn
 label and menu name when needed.
 
@@ -1122,7 +1146,9 @@ Cancel sign-in. Changing pending state closes the menu. A host-provided
 The host supplies authoritative account availability and owns all network,
 start/cancel/popup and error handling. ProductButton pending activation remains
 unchanged. Signed-in account triggers use the shared 28px filled avatar in this
-toolbar, with existing name/email/person fallbacks.
+toolbar, with existing name/email/person fallbacks. With `rail`, both account
+controls draw the same circle in a side bar, as the app's left bar does above
+Settings, and their menus open beside the trigger with bottom edges aligned.
 
 The gallery's Window toolbar page demonstrates plain menu and rich brand
 presentations across production and QA/custom services, all three platforms,

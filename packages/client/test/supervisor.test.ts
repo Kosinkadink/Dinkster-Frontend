@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { asConnectionId } from '@dinkster/core'
-import { DinksterConnection, EngineNotReadyError, probeSupervisorStatus, restartSupervisorEngine, type FetchLike } from '../src/index.js'
+import { DinksterConnection, EngineNotReadyError, noEngineOpen, parseSupervisorStatus, probeSupervisorStatus, restartSupervisorEngine, type FetchLike } from '../src/index.js'
 
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -40,7 +40,31 @@ describe('probeSupervisorStatus', () => {
   })
 })
 
+describe('parseSupervisorStatus from the always-on process', () => {
+  it('keeps role, installations and the open engine', () => {
+    const status = parseSupervisorStatus({
+      protocol: 1, state: 'starting', role: 'home', installations: 2, open: { root: '/r', engine: 'default' },
+    })
+    expect(status).toEqual({ protocol: 1, state: 'starting', role: 'home', installations: 2, open: { root: '/r', engine: 'default' } })
+    expect(noEngineOpen(status)).toBe(false)
+  })
+
+  it('reads no open engine only from the home role', () => {
+    const home = parseSupervisorStatus({ protocol: 1, state: 'stopped', role: 'home', installations: 0, open: null })
+    expect(home).toEqual({ protocol: 1, state: 'stopped', role: 'home', installations: 0 })
+    expect(noEngineOpen(home)).toBe(true)
+    expect(noEngineOpen(parseSupervisorStatus({ protocol: 1, state: 'stopped' }))).toBe(false)
+  })
+})
+
 describe('restartSupervisorEngine', () => {
+
+  it('shows the message a refusal gives in place of its code', async () => {
+    const result = await restartSupervisorEngine('http://test', async () =>
+      jsonResponse(409, { error: 'restart-unavailable', message: 'More than one installation exists and none is the default.' }),
+    )
+    expect(result).toEqual({ ok: false, error: 'More than one installation exists and none is the default.' })
+  })
 
   it('maps the 409 restart-unavailable body to ok: false', async () => {
     const result = await restartSupervisorEngine('http://test', async () =>

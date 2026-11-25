@@ -17,7 +17,7 @@ import {
   DinksterAppMenu,
   dispatchAppCommandKey,
 } from '../src/App.js'
-import { ActivityBarButton, DockZoneHost, FloatingPanelHost, ShellResizeHandle } from '../src/ShellChrome.js'
+import { ActivityBarButton, DockZoneHost, FloatingPanelHost, IconBar, ShellResizeHandle } from '../src/ShellChrome.js'
 import { CanvasViewControls } from '../src/CanvasHost.js'
 import { ContextMenu } from '../src/ContextMenu.js'
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from '../src/editors.js'
@@ -106,6 +106,43 @@ function canvasViewControlsFixture(appViewEnabled = true) {
   ), root)
   return { root, selectView, selectLens, setAllNetsDisplay, setViewMenuOpen, setLensMenuOpen, dispose }
 }
+
+describe('icon bar', () => {
+  it('keeps the left bar hooks the editor and its tests rely on, and draws the logo only when given', () => {
+    const [hidden, setHidden] = createSignal(false)
+    const [logo, setLogo] = createSignal(false)
+    const settings = vi.fn()
+    const place = vi.fn()
+    render(() => (
+      <IconBar
+        hidden={hidden()}
+        logo={logo() ? () => <button type="button">Dinkster</button> : undefined}
+        account={<span data-testid="account" />}
+        onSettings={settings}
+      >
+        <ActivityBarButton label="Projects" accessibleName="Projects" tooltip="Projects" pressed={true} testId="place" onActivate={place} />
+      </IconBar>
+    ), document.body)
+    const bar = document.querySelector<HTMLElement>('nav.left-sidebar')!
+    expect(bar.getAttribute('aria-label')).toBe('Primary navigation')
+    expect(bar.dataset['tooltipSession']).toBe('left-rail')
+    expect(bar.querySelector('.sidebar-logo')).toBeNull()
+    expect(bar.querySelector('.sidebar-toggle-stack > [data-testid="dock-toggle-group"] [data-testid="place"]')).not.toBeNull()
+    expect(bar.querySelector('.sidebar-account > [data-testid="account"]')).not.toBeNull()
+    const settingsButton = bar.querySelector<HTMLButtonElement>('[data-testid="settings-button"]')!
+    expect(settingsButton.classList.contains('sidebar-settings-button')).toBe(true)
+    expect(settingsButton.dataset['tooltipDetail']).toBe('Ctrl+,')
+    click(settingsButton)
+    expect(settings).toHaveBeenCalledTimes(1)
+    expect(place).not.toHaveBeenCalled()
+
+    setLogo(true)
+    expect(bar.firstElementChild?.matches('.sidebar-logo')).toBe(true)
+    expect(bar.querySelector('.sidebar-logo')?.textContent).toBe('Dinkster')
+    setHidden(true)
+    expect(bar.hidden).toBe(true)
+  })
+})
 
 describe('canvas view controls', () => {
   it('omits App View when its feature is disabled without hiding graph controls', () => {

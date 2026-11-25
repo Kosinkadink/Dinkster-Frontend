@@ -3,7 +3,7 @@
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AccountStatus } from '@dinkster/client'
-import { TopBarAccount } from '../src/TopBarAccount.js'
+import { AccountControl, createAccountSession } from '../src/AccountControl.js'
 
 const signedOut: AccountStatus = {
   available: true, canStartSignIn: true, signInUnavailableReason: null,
@@ -23,7 +23,10 @@ function mount(initial: AccountStatus) {
   }
   const root = document.createElement('div')
   document.body.append(root)
-  const dispose = render(() => <TopBarAccount connection={connection} />, root)
+  const dispose = render(() => {
+    const session = createAccountSession(() => connection)
+    return <AccountControl session={session} />
+  }, root)
   return {
     root, connection, dispose,
     become(next: AccountStatus) { current = next },
@@ -32,7 +35,7 @@ function mount(initial: AccountStatus) {
 
 const settle = () => vi.advanceTimersByTimeAsync(0)
 
-describe('top bar account control', () => {
+describe('account control', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
