@@ -9676,30 +9676,6 @@ export class AppState {
     return this.semanticHashOfTab(live) === artifact.semanticHash ? 'in-sync' : 'diverged'
   }
 
-  /**
-   * For a LIVE tab: how its document relates to the execution its overlay
-   * shows (pinned run when pinned, else the lineage's latest). `inSync:
-   * false` means edits landed after that submission - progress overlays may
-   * not match what actually runs; the frozen view is the truth.
-   */
-  liveSyncStatus(tab: Tab): {
-    ref: ExecutionRef
-    status: ExecutionStatus
-    inSync: boolean
-    mode: 'latest' | 'pinned'
-  } | undefined {
-    if (tab.execution) return undefined
-    const pinned = this.pinnedExecutionFor(tab)
-    const shown = pinned ?? this.latestExecutionFor(tab.store.doc.lineage)
-    if (!shown?.artifact) return undefined
-    return {
-      ref: shown.ref,
-      status: shown.status,
-      inSync: this.semanticHashOfTab(tab) === shown.artifact.semanticHash,
-      mode: pinned ? 'pinned' : 'latest',
-    }
-  }
-
   tabTitleFor(ref: ExecutionRef): string {
     const state = this.store.executions.get().get(executionKey(ref))
     const lineage = state?.artifact?.snapshot.lineage

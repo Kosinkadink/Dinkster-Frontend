@@ -451,8 +451,7 @@
   overflow-y: auto;
 }
 
-.frozen-banner,
-.sync-chip {
+.frozen-banner {
   position: absolute;
   top: calc(var(--canvas-toolbar-bottom, 0px) + var(--dinkster-space-8) + var(--canvas-breadcrumb-height, 0px) + var(--canvas-breadcrumb-gap, 0px));
   left: var(--dinkster-space-8);
@@ -502,11 +501,6 @@
 }
 
 .frozen-schema-warning {
-  color: var(--dinkster-warning-foreground);
-}
-
-.sync-chip[data-sync='diverged'] {
-  border-color: var(--dinkster-warning-border);
   color: var(--dinkster-warning-foreground);
 }
 

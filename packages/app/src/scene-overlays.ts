@@ -831,8 +831,13 @@ export function deriveSceneOverlays(args: {
       if (args.runChanged(n.id, failed.size > 0 ? [...failed] : ids)) lastRunNodes.add(n.id)
     }
   }
-  const shownStates = lastRunNodes.size === 0 ? states : Object.fromEntries(
-    Object.entries(states).filter(([id, progress]) => !(lastRunNodes.has(id) && progress.state === 'error')))
+  // Once a run has ended, the live editor keeps only its errors; what ran,
+  // came from cache or was skipped is drawn in the frozen view.
+  const ended = exec !== undefined && exec.status !== 'queued' && exec.status !== 'running'
+  const shownStates = Object.fromEntries(Object.entries(states).filter(([id, progress]) =>
+    progress.state === 'error'
+      ? !lastRunNodes.has(id)
+      : args.frozen || !ended || (progress.state !== 'done' && progress.state !== 'cached' && progress.state !== 'skipped')))
   let rowProblems = args.rowProblems ?? {}
   if (lastRunNodes.size > 0) {
     const rows: Record<string, Readonly<Record<string, ProblemKind>>> = { ...rowProblems }

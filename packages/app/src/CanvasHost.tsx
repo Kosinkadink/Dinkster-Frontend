@@ -6553,16 +6553,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
   }
 
-  /** Live-tab chip: how the document relates to its overlay execution. */
-  const liveSync = () => {
-    executions()
-    overlayPins()
-    docTick()
-    const tab = activeTab()
-    if (!tab || tab.execution) return undefined
-    return props.app.liveSyncStatus(tab)
-  }
-
   // Badge popover content: reactive wrappers binding the framework-free
   // badge-info resolvers to document and registry state.
   // Presentation lives in BadgePopover.tsx.
@@ -7201,43 +7191,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 </ProductButton>
               )}
             </Show>
-          </div>
-        )}
-      </Show>
-
-      <Show when={liveSync()}>
-        {(s) => (
-          <div
-            class="sync-chip"
-            data-testid="sync-chip"
-            data-sync={s().inSync ? 'in-sync' : 'diverged'}
-            data-overlay-mode={s().mode}
-          >
-            <span>
-              {s().mode === 'pinned' ? 'pinned: ' : ''}
-              {s().inSync
-                ? `execution ${s().ref.prompt.slice(0, 8)}: ${s().status}`
-                : `edited since execution ${s().ref.prompt.slice(0, 8)} (${s().status})`}
-            </span>
-            <Show when={s().mode === 'pinned'}>
-              <ProductButton size="compact"
-                class="banner-button"
-                data-testid="sync-chip-follow-latest"
-                onClick={() => {
-                  const tab = activeTab()
-                  if (tab) props.app.followLatestExecution(tab.id)
-                }}
-              >
-                Follow Latest
-              </ProductButton>
-            </Show>
-            <ProductButton size="compact"
-              class="banner-button"
-              data-testid="sync-chip-open"
-              onClick={() => { void props.app.openExecutionView(s().ref) }}
-            >
-              View Frozen
-            </ProductButton>
           </div>
         )}
       </Show>
