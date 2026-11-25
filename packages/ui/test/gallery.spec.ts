@@ -110,6 +110,42 @@ const token = (page: Page, name: string) =>
     return color
   }, name)
 
+test('solid buttons keep readable text from the first enabled frame', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.goto('/#controls')
+  const luminance = (color: string) => {
+    const channels = color.match(/[\d.]+/g)!.slice(0, 3).map((channel) => {
+      const value = Number(channel) / 255
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+    })
+    return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
+  }
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((value) => { document.documentElement.dataset.theme = value }, theme)
+    for (const role of ['Add', 'Remove', 'Neutral']) {
+      const button = page.getByRole('button', { name: `${role} solid disabled`, exact: true })
+      await expect(button).toBeDisabled()
+      const samples = await button.evaluate(async (element: HTMLButtonElement) => {
+        const samples: { color: string; background: string }[] = []
+        // Flush the disabled style before enabling, then include the same frame.
+        getComputedStyle(element).backgroundColor
+        element.disabled = false
+        for (let frame = 0; frame < 10; frame++) {
+          const style = getComputedStyle(element)
+          samples.push({ color: style.color, background: style.backgroundColor })
+          await new Promise(requestAnimationFrame)
+        }
+        element.disabled = true
+        return samples
+      })
+      for (const sample of samples) {
+        const colors = [luminance(sample.color), luminance(sample.background)]
+        expect((Math.max(...colors) + 0.05) / (Math.min(...colors) + 0.05), `${theme} ${role}: ${JSON.stringify(sample)}`).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  }
+})
+
 for (const width of [1280, 390]) {
   for (const section of [
     'controls',
