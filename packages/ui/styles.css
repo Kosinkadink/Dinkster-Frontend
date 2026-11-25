@@ -163,8 +163,10 @@
 .dinkster-list-row-name { min-width: 0; color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-bold); overflow-wrap: anywhere; }
 .dinkster-list-row-detail { display: flex; align-items: center; gap: var(--dinkster-space-4); min-width: 0; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); overflow-wrap: anywhere; }
 .dinkster-list-row[data-state='failed'] .dinkster-list-row-detail { color: var(--dinkster-warning-foreground); }
-/* Opening: a thin progress line along the row's bottom; the host sets --dinkster-list-row-progress from 0 to 1. */
-.dinkster-list-row[data-state='opening']::after { position: absolute; right: var(--dinkster-space-12); bottom: var(--dinkster-space-4); left: var(--dinkster-space-12); height: 2px; border-radius: var(--dinkster-radius-capsule); background: linear-gradient(to right, var(--dinkster-accent-foreground) calc(var(--dinkster-list-row-progress, 0.3) * 100%), var(--dinkster-border-subtle) 0); content: ''; }
+/* Opening: a short segment slides along a thin line at the row's bottom, since opening has no known fraction. */
+.dinkster-list-row[data-state='opening']::after { position: absolute; right: var(--dinkster-space-12); bottom: var(--dinkster-space-4); left: var(--dinkster-space-12); height: 2px; border-radius: var(--dinkster-radius-capsule); background-color: var(--dinkster-border-subtle); background-image: linear-gradient(var(--dinkster-accent-foreground), var(--dinkster-accent-foreground)); background-repeat: no-repeat; background-size: 36% 100%; animation: dinkster-list-row-opening calc(var(--dinkster-motion-standard) * 6) ease-in-out infinite alternate; content: ''; }
+@keyframes dinkster-list-row-opening { from { background-position: 0% 0; } to { background-position: 100% 0; } }
+@media (prefers-reduced-motion: reduce) { .dinkster-list-row[data-state='opening']::after { animation: none; } }
 .dinkster-row { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-16); padding: var(--dinkster-space-16); }
 .dinkster-row + .dinkster-row { border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
 .dinkster-row-copy { display: grid; min-width: 0; gap: var(--dinkster-space-4); overflow-wrap: anywhere; }
