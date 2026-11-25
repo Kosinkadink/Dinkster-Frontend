@@ -200,7 +200,7 @@ export function UniversalSearch(props: { app: AppState }) {
     const notInstalled = hostAction(item)?.action === 'node.previewInstall'
     return (
       <ProductSearchNodePreview
-        {...(schema === undefined ? {} : { drawing: <SchemaPreview schema={schema} widgets={props.app.widgetRegistryForTab(props.app.activeTab())} /> })}
+        {...(schema === undefined ? {} : { drawing: <SchemaPreview schema={schema} widgets={props.app.widgetRegistryForTab(props.app.activeTab())} maximize subgraph={hostAction(item)?.action === 'blueprint.armPlacement'} /> })}
         title={item.preview?.title ?? item.title}
         {...(item.preview?.description === undefined ? {} : { description: item.preview.description })}
         {...(place === undefined ? {} : { place })}

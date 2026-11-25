@@ -1,4 +1,5 @@
-import { decodeSearchHostAction, nodeSearchFields, rankSearch, scoreMatch, searchVisibilityOf, sha256Hex, t, type NodeSchema, type PackInfo, type SearchAction, type SearchProvider, type SearchResult } from '@dinkster/core'
+import { decodeSearchHostAction, nodeSearchFields, rankSearch, scoreMatch, searchVisibilityOf, sha256Hex, t, typeExprFromTypeId, type NodeSchema, type PackInfo, type SearchAction, type SearchProvider, type SearchResult } from '@dinkster/core'
+import { typeIdDisplayLabel } from '@dinkster/canvas'
 import { LIBRARY_SCOPE, WORKFLOW_LABEL, type AppState } from './app-state.js'
 import { RemoteNodeCatalog, type CatalogNode } from './node-catalog.js'
 import { placementSchemaKey } from './palette-node-preview.js'
@@ -150,9 +151,27 @@ export function bindSearchCatalog(app: AppState): () => void {
 
 export function searchNodeSchema(app: AppState, action: SearchAction): NodeSchema | undefined {
   const decoded = decodeSearchHostAction(action)
-  if (decoded === undefined || (decoded.action !== 'node.armPlacement' && decoded.action !== 'node.previewInstall')) return undefined
+  if (decoded === undefined || (decoded.action !== 'node.armPlacement' && decoded.action !== 'node.previewInstall' && decoded.action !== 'blueprint.armPlacement')) return undefined
   const tab = app.activeTab()
   if (tab === undefined || tab.execution !== undefined || app.backendForTab(tab).id !== decoded.params.backendId) return undefined
+  if (decoded.action === 'blueprint.armPlacement') {
+    const entry = app.canvasBridge.get()?.blueprintEntries?.().find((item) => item.type === decoded.params.type)
+    if (entry === undefined) return undefined
+    if (entry.schema !== undefined) return entry.schema
+    const descriptor = entry.blueprint?.descriptor
+    return {
+      type: entry.type, displayName: entry.name, category: entry.category,
+      source: 'v3', isOutputNode: false,
+      body: [
+        ...(descriptor?.boundaryInputs ?? []).map((type, index) => ({
+          kind: 'input' as const, id: `in-${index}`, displayName: typeIdDisplayLabel(type), type: typeExprFromTypeId(type), optional: false,
+        })),
+        ...(descriptor?.boundaryOutputs ?? []).map((type, index) => ({
+          kind: 'output' as const, id: `out-${index}`, displayName: typeIdDisplayLabel(type), type: typeExprFromTypeId(type),
+        })),
+      ],
+    }
+  }
   const installed = (app.registryForTab(tab) ?? app.keptRegistryForTab(tab))?.resolve(decoded.params.type)
   if (decoded.action === 'node.armPlacement') return installed !== undefined && placementSchemaKey(installed) === decoded.params.schemaKey ? installed : undefined
   if (installed !== undefined) return undefined

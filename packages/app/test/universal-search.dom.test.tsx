@@ -4,9 +4,10 @@ import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SearchProvider, SearchResult } from '@dinkster/core'
+import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { AppState } from '../src/app-state.js'
 import { UniversalSearch, UniversalSearchTrigger, shortcutKeys } from '../src/UniversalSearch.js'
-import { recordSearchRecent, searchRecents } from '../src/universal-search.js'
+import { recordSearchRecent, registerCoreSearchProviders, searchRecents } from '../src/universal-search.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.useRealTimers() })
 
@@ -230,6 +231,27 @@ describe('UniversalSearch', () => {
     expect(current(root)?.textContent).toContain('tab')
     expect(preview()).toBeNull()
     dispose()
+  })
+
+  it('draws the selected blueprint from its catalog entry', () => {
+    const app = prepareWorkflowApp(new AppState())
+    app.canvasBridge.set({
+      selectedNodes: () => [],
+      blueprintEntries: () => [{
+        type: 'blueprint:pack/upscale', name: 'Upscale blueprint', category: 'Image tools', kind: 'blueprint', fields: [],
+        blueprint: { packId: 'pack', descriptor: {
+          id: 'upscale', name: 'Upscale blueprint', digest: `sha256:${'a'.repeat(64)}`,
+          boundaryInputs: ['comfy.IMAGE'], boundaryOutputs: ['comfy.IMAGE'],
+        } },
+      }],
+    } as never)
+    const unregister = registerCoreSearchProviders(app)
+    const { root, dispose } = fixture([], app)
+    type(input(root), 'Upscale blueprint')
+    expect(root.querySelector('[data-testid="search-preview"] canvas')?.getAttribute('aria-label')).toBe('Upscale blueprint preview')
+    dispose()
+    unregister.forEach((stop) => stop())
+    app.dispose()
   })
 
   it('renders manifest-gated extension providers as kinds of their own without extension-owned markup', async () => {
