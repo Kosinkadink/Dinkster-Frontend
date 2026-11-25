@@ -128,6 +128,7 @@ const representationExample = (
     readonly views?: Record<string, string>
     readonly focus?: true
     readonly expanded?: true
+    readonly listRoom?: number
   } = {},
 ): RowExample => ({
   id,
@@ -137,6 +138,7 @@ const representationExample = (
   node: { x: MARGIN, y: MARGIN },
   ...(options.focus ? { focus: field } : { open: field }),
   representation: options.expanded ? 'expanded' : 'closed',
+  ...(options.listRoom === undefined ? {} : { listRoom: options.listRoom }),
   build: {
     scene: (tokens, measure, widgetMeasure, position, width) =>
       createRepresentationScene(tokens, measure, widgetMeasure, position, width, options.views ?? {}, [field]),
@@ -153,6 +155,12 @@ const representationExamples: readonly RowExample[] = [
   representationExample(
     'representation-open',
     'Representation list open. Choosing changes the row\'s look, never 0.65; Escape closes the list without a change. A draft is stored or refused by the field\'s own rules before the look switches.',
+    'mix',
+    { expanded: true, listRoom: 120 },
+  ),
+  representationExample(
+    'representation-open-above',
+    'At the bottom edge, the same list opens above the Representation line because there is no room below.',
     'mix',
     { expanded: true },
   ),

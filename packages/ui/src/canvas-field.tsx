@@ -734,6 +734,29 @@ export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
   const [position, setPosition] = createSignal({ x: 0, y: 0, width: 0, scale: 1, listPlace: 'below' as 'below' | 'above', listMaxHeight: 0 })
   let line!: HTMLDivElement
   let popup: HTMLDivElement | undefined
+  createEffect(() => {
+    const labels = props.choices.map((choice) => choice.label)
+    let disposed = false
+    const size = (): void => {
+      if (disposed || !line) return
+      const label = line.querySelector<HTMLElement>('.dinkster-canvas-field-label')!
+      const value = line.querySelector<HTMLElement>('.dinkster-canvas-closed-row-value')!
+      const chevron = line.querySelector<HTMLElement>('.dinkster-canvas-closed-row-chevron')!
+      const context = document.createElement('canvas').getContext('2d')!
+      const font = getComputedStyle(value)
+      context.font = `${font.fontWeight} ${font.fontSize} ${font.fontFamily}`
+      const widest = Math.max(...labels.map((text) => context.measureText(text).width))
+      const row = getComputedStyle(label.parentElement!)
+      const inset = parseFloat(row.borderLeftWidth) + parseFloat(row.borderRightWidth) +
+        parseFloat(row.paddingLeft) + parseFloat(row.paddingRight)
+      // The shared row reserves at most half its width for the label.
+      line.style.minWidth = `${Math.ceil(inset + Math.max(label.scrollWidth * 2,
+        label.scrollWidth + widest + parseFloat(font.paddingLeft) + parseFloat(font.paddingRight) + chevron.offsetWidth))}px`
+    }
+    queueMicrotask(size)
+    void document.fonts.ready.then(size)
+    onCleanup(() => { disposed = true })
+  })
   const choices = () => props.choices.filter((choice) => choice.label.toLowerCase().includes(query().toLowerCase()))
   const close = (restoreFocus = true): void => {
     setOpen(false)

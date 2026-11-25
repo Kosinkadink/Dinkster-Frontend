@@ -29,9 +29,16 @@ const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
 
 test('Representation filters declared looks and dismisses without changing the field', async ({ page }) => {
   await openPage(page, 'row-states')
+  const labels = page.locator('.dinkster-canvas-side-representation-line .dinkster-canvas-field-label')
+  await expect(labels.first()).toBeVisible()
+  await expect.poll(() => labels.evaluateAll((elements) => elements.every((element) =>
+    element.scrollWidth <= element.clientWidth))).toBe(true)
   const stage = page.getByTestId('row-states-representation-open').locator('..')
   const popup = stage.locator('.dinkster-canvas-side-representation-list')
   const filter = popup.getByRole('combobox', { name: 'Representation', exact: true })
+  await expect(popup.locator('.dinkster-canvas-field')).toHaveAttribute('data-panel', 'below')
+  const above = page.getByTestId('row-states-representation-open-above').locator('..')
+  await expect(above.locator('.dinkster-canvas-side-representation-list .dinkster-canvas-field')).toHaveAttribute('data-panel', 'above')
   const draft = stage.locator('input:not([role="combobox"])')
   const trigger = stage.getByRole('button', { name: 'Representation Number', exact: true })
   await expect(draft).toHaveValue('0.65')

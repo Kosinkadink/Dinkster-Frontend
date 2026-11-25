@@ -87,6 +87,8 @@ export interface RowExample {
   }
   /** The side part ends in the Representation control, its list shown open when expanded. */
   readonly representation?: 'closed' | 'expanded'
+  /** Room below the side part for the shared list's ordinary placement. */
+  readonly listRoom?: number
 }
 
 export const NODE_WIDTH = 280
@@ -576,7 +578,7 @@ export function RowEditingExample(props: {
       current.screen.height,
       (current.sideTop + (current.sideMaxHeight ?? sideSize().height)) * zoom,
     )
-    stage.style.height = `${Math.max(canvas.clientHeight, current.screen.y + sideBottom + MARGIN)}px`
+    stage.style.height = `${Math.max(canvas.clientHeight, current.screen.y + sideBottom + MARGIN) + (props.example.listRoom ?? 0)}px`
   })
   return (
     <figure class="dinkster-canvas-example">
