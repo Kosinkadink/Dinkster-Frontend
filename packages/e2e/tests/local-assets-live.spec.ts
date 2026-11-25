@@ -85,8 +85,7 @@ test('reopened workflow checks exact asset presence without acquiring or rewriti
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(0)
   let finishLocation: (() => Promise<void>) | undefined
-  await page.route('**/api/mounts/locations*', async (route) => {
-    if (new URL(route.request().url()).searchParams.get('digest') !== available.digest) return route.continue()
+  await page.route((url) => url.pathname === '/api/mounts/locations' && url.searchParams.get('digest') === available.digest, async (route) => {
     const response = await route.fetch()
     const body = await response.json() as { locations: { path: string }[] }
     finishLocation = async () => {
@@ -94,7 +93,7 @@ test('reopened workflow checks exact asset presence without acquiring or rewriti
       expect(body.locations.length).toBeGreaterThan(0)
       for (const location of body.locations) await expect(page.getByTestId('asset-file-location')).toContainText(location.path)
     }
-  })
+  }, { times: 1 })
   await problem.getByRole('button', { name: 'Locate or replace', exact: true }).click()
   await editor.getByTestId('collection-search').fill(available.name)
   await editor.getByTestId('collection-entry').filter({ hasText: available.name }).click()
