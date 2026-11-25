@@ -871,7 +871,9 @@ export function ProjectsView(props: {
               rows: (gone() ?? []).map((project) => ({
                 id: project.id,
                 name: project.name,
-                detail: message('projects.deleted.when', { when: when(deletedAt(project)) }),
+                detail: Date.now() - deletedAt(project) < 60_000
+                  ? message('projects.deleted.justNow')
+                  : message('projects.deleted.when', { when: when(deletedAt(project)) }),
               })),
               onRestore: (id) => {
                 const project = gone()?.find((entry) => entry.id === id)

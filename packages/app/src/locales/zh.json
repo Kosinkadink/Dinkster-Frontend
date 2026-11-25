@@ -1733,7 +1733,7 @@
   "projects.delete.title": "删除 {project}？",
   "projects.delete.consequence": "它会连同工作流和输出移到此列表底部的“已删除的项目”中。你可以从那里恢复它。不会删除任何文件。",
   "projects.delete.action": "删除项目",
-  "projects.open.noInstallation": "此项目没有可运行的安装。",
+  "projects.open.noInstallation": "尚无安装",
   "projects.unreadable": "无法读取项目。",
   "projects.workflows.unreadable": "无法读取此项目的工作流。",
   "projects.outputs.unreadable": "无法读取此项目的最新输出。",
@@ -1746,6 +1746,7 @@
   "projects.setup.platforms": "在 Windows 上使用 win-cpu，在 Apple Silicon 上使用 mac-arm64。",
   "projects.setup.after": "安装完成后，此页面会列出该安装。",
   "projects.deleted.title": "已删除的项目（{count}）",
+  "projects.deleted.justNow": "刚刚删除",
   "projects.deleted.when": "{when}删除",
   "projects.deleted.restore": "恢复",
   "projects.restore.failed": "无法恢复 {project}。"

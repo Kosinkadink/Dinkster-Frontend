@@ -168,7 +168,7 @@ it('renames the selected project at the revision it read', async () => {
 
 it('moves a deleted project under Deleted projects, selects the next one, and restores it selected', async () => {
   vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
-  const old = { ...project('p-old', 'Old storyboard', hoursAgo(24 * 40)), deleted: true, revision: 3, modified: hoursAgo(3) }
+  const old = { ...project('p-old', 'Old storyboard', hoursAgo(24 * 40)), deleted: true, revision: 3, modified: new Date(NOW - 60_000).toISOString() }
   const data = source([...projects, old])
   const restored = vi.spyOn(data, 'restoreProject')
   render(() => <ProjectsView shell={shell()} source={data} />, document.body)
@@ -176,7 +176,7 @@ it('moves a deleted project under Deleted projects, selects the next one, and re
   const deletedRows = () => [...document.querySelectorAll('[data-testid="deleted-projects"] li')].map((row) => row.textContent)
   expect(rows()).toEqual(['Film grain testsRan 2 hours ago', 'Valley matte paintingsCreated yesterday', 'Bookshop diorama' + 'Created 3 days ago'])
   expect(document.querySelector('summary')?.textContent).toBe('Deleted projects (1)')
-  expect(deletedRows()).toEqual(['Old storyboardDeleted 3 hours agoRestore'])
+  expect(deletedRows()).toEqual(['Old storyboardDeleted 1 minute agoRestore'])
 
   document.querySelector<HTMLButtonElement>('[aria-label="Project actions"]')!.click()
   expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(['Rename', 'Delete'])
@@ -187,7 +187,7 @@ it('moves a deleted project under Deleted projects, selects the next one, and re
   await settle()
   expect(rows().map((row) => row?.split(/Ran|Created/)[0])).toEqual(['Valley matte paintings', 'Bookshop diorama'])
   expect(document.querySelector('h2')?.textContent).toBe('Valley matte paintings')
-  expect(deletedRows()).toEqual(['Film grain testsDeleted nowRestore', 'Old storyboardDeleted 3 hours agoRestore'])
+  expect(deletedRows()).toEqual(['Film grain testsDeleted just nowRestore', 'Old storyboardDeleted 1 minute agoRestore'])
 
   ;[...document.querySelectorAll<HTMLButtonElement>('[data-testid="deleted-projects"] button')][1]!.click()
   await settle()
@@ -195,7 +195,7 @@ it('moves a deleted project under Deleted projects, selects the next one, and re
   expect(rows().map((row) => row?.split(/Ran|Created/)[0])).toContain('Old storyboard')
   expect(document.querySelector('h2')?.textContent).toBe('Old storyboard')
   expect(document.querySelector('[role="option"][aria-selected="true"]')?.textContent).toContain('Old storyboard')
-  expect(deletedRows()).toEqual(['Film grain testsDeleted nowRestore'])
+  expect(deletedRows()).toEqual(['Film grain testsDeleted just nowRestore'])
 })
 
 it('offers no Delete for the default project', async () => {
@@ -216,7 +216,7 @@ it('does not open a project when the process cannot say which installation it ru
   expect(document.querySelector('[data-testid="projects-first-run"]')).toBeNull()
   const open = document.querySelector<HTMLButtonElement>('[data-testid="projects-open"]')!
   expect(open.getAttribute('aria-disabled')).toBe('true')
-  expect(open.getAttribute('data-tooltip-label')).toBe('This project has no installation to run on.')
+  expect(open.getAttribute('data-tooltip-label')).toBe('No installation yet')
   open.click()
   expect(navigation.openProject).not.toHaveBeenCalled()
 })
@@ -256,7 +256,7 @@ it('keeps projects readable and restorable without an installation, but cannot o
   expect(document.querySelector('[data-testid="projects-open"]')?.getAttribute('aria-disabled')).toBe('true')
   const tile = document.querySelector<HTMLButtonElement>('.dinkster-tile')!
   expect(tile.disabled).toBe(true)
-  expect(tile.getAttribute('data-tooltip-label')).toBe('This project has no installation to run on.')
+  expect(tile.getAttribute('data-tooltip-label')).toBe('No installation yet')
   tile.click()
   expect(navigation.openProject).not.toHaveBeenCalled()
   button('Restore')!.click()

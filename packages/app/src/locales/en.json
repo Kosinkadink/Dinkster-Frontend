@@ -1733,7 +1733,7 @@
   "projects.delete.title": "Delete {project}?",
   "projects.delete.consequence": "It moves to Deleted projects at the bottom of this list, with its workflows and outputs. You can restore it from there. No files are removed.",
   "projects.delete.action": "Delete project",
-  "projects.open.noInstallation": "This project has no installation to run on.",
+  "projects.open.noInstallation": "No installation yet",
   "projects.unreadable": "Could not read the projects.",
   "projects.workflows.unreadable": "Could not read this project's workflows.",
   "projects.outputs.unreadable": "Could not read this project's latest outputs.",
@@ -1746,6 +1746,7 @@
   "projects.setup.platforms": "Use win-cpu on Windows or mac-arm64 on Apple Silicon.",
   "projects.setup.after": "This page lists the installation when setup is done.",
   "projects.deleted.title": "Deleted projects ({count})",
+  "projects.deleted.justNow": "Deleted just now",
   "projects.deleted.when": "Deleted {when}",
   "projects.deleted.restore": "Restore",
   "projects.restore.failed": "{project} could not be restored."
