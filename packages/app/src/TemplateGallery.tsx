@@ -143,7 +143,7 @@ export function TemplateGallery(props: {
             <p>{message('templateGallery.description')}</p>
           </div>
           <ProductActionFooter class="template-gallery-actions">
-            <ProductButton type="button" variant="primary" class="primary" onClick={props.onClose}>{message('templateGallery.blankCanvas')}</ProductButton>
+            <ProductButton type="button" variant="accent" onClick={props.onClose}>{message('templateGallery.blankCanvas')}</ProductButton>
           </ProductActionFooter>
         </header>
         <div class="template-gallery-body">

@@ -189,7 +189,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'collection-rows':
     'Multi-choice, list and curve rows; After raises the rows that open an editor and draws the curve in its row.',
   'editor-rows':
-    'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for.',
+    'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for. On a narrow node an empty row keeps its label whole and cuts what it asks for first.',
   'in-node-editors':
     'The audio recorder, webcam, 3D viewer, image comparison, camera angle and curve fold out inside the node under their editor button row, and the rows below move down; clicking the row again folds them back. A folded row says what the editor holds. A palette is a group of color rows: it grows as colors are added and shows a limit only when its group declares one.',
   'widget-driven':
