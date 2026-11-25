@@ -181,20 +181,31 @@ describe('pairing', () => {
 
   it.each([undefined, 'rotate-ccw'])('puts a member cross only after its trailing button (icon %s)', (icon) => {
     const schema = schemaOf([{
-      kind: 'group', id: 'files', grows: 'filled', minMembers: 1,
+      kind: 'group', id: 'files', grows: 'filled', minMembers: 1, reorderable: true,
       keys: { kind: 'numbered', prefix: 'file', start: 0, pad: 0 },
       member: [{ kind: 'row', rows: [widget('path'), {
         kind: 'button', id: 'reset', label: 'Reset', steps: [], ...(icon === undefined ? {} : { icon }),
       }] }],
     }])
-    const layoutWith = (members: string[]) => layoutNode(schema,
+    const layoutWith = (members: string[], width?: number) => layoutNode(schema,
       { ...nodeData, dynamic: { files: { members } } },
-      { ...defaultTokens, memberRemoveCross: true }, measure, widgetMeasure)
+      { ...defaultTokens, memberRemoveCross: true }, measure, widgetMeasure,
+      width === undefined ? {} : { size: { width, height: 200 } })
     const cells = layoutWith(['file0', 'file1']).rows.filter((row) => row.kind === 'widget' || row.kind === 'button')
     expect(cells.map((row) => row.kind)).toEqual(['widget', 'button', 'widget', 'button'])
     expect(cells.map((row) => row.crossInset !== undefined)).toEqual([false, true, false, true])
     expect(cells[1]).toMatchObject({ remove: { construct: 'files', member: 'file0' } })
     expect(cells[3]).toMatchObject({ remove: { construct: 'files', member: 'file1' } })
+    for (const width of [undefined, 817]) {
+      const layout = layoutWith(['file0', 'file1'], width)
+      const line = layout.rows.filter((row) => row.kind === 'widget' || row.kind === 'button').slice(0, 2)
+      const first = line[0]!
+      const last = line[1]!
+      expect(last.inset - first.inset - first.width!).toBeCloseTo(4)
+      expect(layout.width - last.inset - last.width! - last.crossInset! - canvasPaintTokens.node.box.cross.size).toBeCloseTo(4)
+      if (icon === undefined) expect(last.width).toBeCloseTo(first.width!)
+      else expect(last.width).toBe(last.height - defaultTokens.rowGeometry.fieldInsetY * 2)
+    }
     const least = layoutWith(['file0']).rows.find((row) => row.kind === 'button')!
     expect(least).toMatchObject({ remove: {
       construct: 'files', member: 'file0', disabledReason: 'The group already has its fewest members.',

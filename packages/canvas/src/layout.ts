@@ -2099,7 +2099,7 @@ export function layoutNode(
     const last = rows[rowIndex.get(line.at(-1)!)!] as typeof first
     const gripRoom = first.kind === 'widget' && (first.reorder !== undefined || line[0]!.gripSpace)
       ? box.cross.fieldGap * 2 + box.gripWidth - box.fieldGap : 0
-    const crossRoom = last.kind === 'widget' && last.crossInset !== undefined
+    const crossRoom = (last.kind === 'widget' || last.kind === 'button') && last.crossInset !== undefined
       ? last.crossInset + box.cross.size + box.cross.fieldGap - inset : 0
     const pinned = pinnedCells(line)
     const icons = new Set(pinned.length === 0 ? [] : line.filter((row) => row.button?.icon !== undefined))
@@ -2131,12 +2131,12 @@ export function layoutNode(
     row.gripSpace && lines.get(row)![0] === row ? [rowIndex.get(row)] : []))
   const gap = box.cross.fieldGap
   for (const [index, row] of rows.entries()) {
-    if (row.kind !== 'widget' && row.kind !== 'ports') continue
-    const gripRoom = row.reorder === undefined && !gripSpaces.has(index) ? 0 : gap + box.gripWidth + gap - box.fieldGap
+    if (row.kind !== 'widget' && row.kind !== 'ports' && row.kind !== 'button') continue
+    const gripRoom = row.kind === 'button' || (row.reorder === undefined && !gripSpaces.has(index)) ? 0 : gap + box.gripWidth + gap - box.fieldGap
     if (row.crossInset === undefined && gripRoom === 0) continue
     // The inner side of the group's outline.
-    const outline = (row.kind === 'widget' ? row.inset : fieldInset(rowDepth[index]!)) - box.fieldGap
-    const reorder = row.reorder === undefined ? {} : { reorder: { ...row.reorder, gripX: outline + gap + box.gripWidth / 2 } }
+    const outline = (row.kind === 'ports' ? fieldInset(rowDepth[index]!) : row.inset) - box.fieldGap
+    const reorder = row.kind === 'button' || row.reorder === undefined ? {} : { reorder: { ...row.reorder, gripX: outline + gap + box.gripWidth / 2 } }
     if (row.kind === 'ports') {
       rows[index] = { ...row, nameInset: (row.nameInset ?? 0) + gripRoom, ...reorder }
       continue
