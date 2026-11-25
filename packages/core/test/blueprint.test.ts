@@ -4,7 +4,7 @@
  * atomic reject paths (malformed defs, id collisions, dangling refs).
  */
 import { describe, expect, it } from 'vitest'
-import { materializeBlueprint } from '../src/blueprint.js'
+import { blueprintFromSubgraph, materializeBlueprint } from '../src/blueprint.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
@@ -204,5 +204,44 @@ describe('subgraph.import', () => {
     })
     expect(out.ok).toBe(false)
     if (!out.ok) expect(out.diagnostics.some((d) => d.code === 'doc.subgraph.dangling')).toBe(true)
+  })
+})
+
+describe('blueprintFromSubgraph', () => {
+  const promoted = {
+    inputs: [{ id: 'steps', binds: { kind: 'port' as const, node: asNodeId('k'), port: 'steps' as never }, promoted: true }],
+    outputs: [],
+  }
+  const source = (): WorkflowDocument => ({
+    ...doc({
+      g0: graph({ id: 'g0', nodes: { n5: { id: asNodeId('n5'), type: '#gA', values: { steps: 30 } } } }),
+      gA: graph({ id: 'gA', name: 'Two-pass sampler', boundary: promoted, nodes: { k: { id: asNodeId('k'), type: 'KSampler', values: { steps: 20, cfg: 7 } }, s: node('s', '#gB') } }),
+      gB: graph({ id: 'gB', boundary, nodes: { e: node('e', 'EmptyImage') } }),
+      gC: graph({ id: 'gC', boundary, nodes: {} }),
+    }),
+    view: { graphs: { gA: { nodes: { k: { position: { x: 3, y: 4 } } } } } },
+  })
+
+  it('makes a detached body rooted at the subgraph, keeping the node values as its starting values', () => {
+    const before = source()
+    const out = blueprintFromSubgraph(before, 'g0', 'n5', asLineageId('bp1'))
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    const body = out.document
+    expect(body.root).toBe('gA')
+    expect(Object.keys(body.graphs).sort()).toEqual(['gA', 'gB'])
+    expect(body.graphs['gA']!.nodes['k']!.values).toEqual({ steps: 30, cfg: 7 })
+    expect(body.view.graphs['gA']!.nodes['k']!.position).toEqual({ x: 3, y: 4 })
+    // The source keeps its own inner value: the body is a copy, not a view.
+    expect(before.graphs['gA']!.nodes['k']!.values).toEqual({ steps: 20, cfg: 7 })
+    // The body places like any blueprint: fresh ids in the target.
+    const placed = materializeBlueprint(before, body)
+    expect(placed.ok && Object.keys(placed.graphs).sort()).toEqual(['g1', 'g2'])
+  })
+
+  it('refuses a node that is not a subgraph', () => {
+    const plain = doc({ g0: graph({ id: 'g0', nodes: { n1: node('n1') } }) })
+    const out = blueprintFromSubgraph(plain, 'g0', 'n1', asLineageId('bp2'))
+    expect(!out.ok && out.diagnostics[0]!.code).toBe('blueprint.notSubgraph')
   })
 })

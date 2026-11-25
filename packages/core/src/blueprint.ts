@@ -16,9 +16,85 @@
  */
 
 import { diag, type Diagnostic } from './diagnostics.js'
-import type { GraphDef, GraphViewState, WorkflowDocument } from './format/document.js'
-import type { GraphDefId } from './ids.js'
+import { FORMAT_VERSION, type GraphDef, type GraphViewState, type Json, type WorkflowDocument } from './format/document.js'
+import type { GraphDefId, LineageId } from './ids.js'
 import { subgraphDefIdOf } from './invariants.js'
+
+/** The definition ids `rootId` reaches through '#<id>' node types, root first. */
+function definitionCone(graphs: Readonly<Record<string, GraphDef>>, rootId: string): string[] {
+  const cone: string[] = []
+  const visited = new Set<string>()
+  const visit = (defId: string): void => {
+    if (visited.has(defId)) return
+    visited.add(defId)
+    const def = graphs[defId]
+    if (!def) return // dangling ref: validated docs cannot have one; skip
+    cone.push(defId)
+    for (const node of Object.values(def.nodes)) {
+      const ref = subgraphDefIdOf(node.type)
+      if (ref !== undefined) visit(ref)
+    }
+  }
+  visit(rootId)
+  return cone
+}
+
+/**
+ * The blueprint body for one subgraph node: a standalone document whose
+ * root is the node's definition, carrying the definitions it uses inside
+ * and their node positions. A detached copy - nothing links it back to the
+ * source document.
+ *
+ * The values set on the node itself become the blueprint's starting values:
+ * each promoted input's value is written into the inner field it is bound
+ * to, which is where a placed subgraph reads its default from. Occurrence-
+ * local link overlays belong to the source document's linked copies and are
+ * not carried.
+ */
+export function blueprintFromSubgraph(
+  source: WorkflowDocument,
+  graphId: string,
+  nodeId: string,
+  lineage: LineageId,
+): { readonly ok: true; readonly document: WorkflowDocument } | BlueprintRejection {
+  const node = source.graphs[graphId]?.nodes[nodeId]
+  const rootId = node === undefined ? undefined : subgraphDefIdOf(node.type)
+  const rootDef = rootId === undefined ? undefined : source.graphs[rootId]
+  if (node === undefined || rootId === undefined || rootDef?.boundary === undefined) {
+    return {
+      ok: false,
+      diagnostics: [diag('error', 'command', 'blueprint.notSubgraph', `node '${nodeId}' is not a subgraph node with a boundary`)],
+    }
+  }
+  const graphs: Record<string, GraphDef> = {}
+  const view: Record<string, GraphViewState> = {}
+  for (const defId of definitionCone(source.graphs, rootId)) {
+    graphs[defId] = source.graphs[defId]!
+    const gv = source.view.graphs[defId]
+    if (gv !== undefined) view[defId] = gv
+  }
+  const innerNodes = { ...rootDef.nodes }
+  for (const item of rootDef.boundary.inputs) {
+    if (item.binds.kind !== 'port' || item.promoted !== true || !Object.hasOwn(node.values, item.id)) continue
+    const inner = innerNodes[item.binds.node]
+    if (inner === undefined) continue
+    innerNodes[item.binds.node] = { ...inner, values: { ...inner.values, [item.binds.port]: node.values[item.id] as Json } }
+  }
+  graphs[rootId] = { ...rootDef, nodes: innerNodes }
+  return {
+    ok: true,
+    document: {
+      format: 'dinkster-workflow',
+      formatVersion: FORMAT_VERSION,
+      lineage,
+      root: rootId as GraphDefId,
+      graphs,
+      view: { graphs: view },
+      ...(source.environment !== undefined ? { environment: source.environment } : {}),
+      meta: { title: rootDef.name },
+    },
+  }
+}
 
 export interface BlueprintMaterialization {
   readonly ok: true
@@ -64,20 +140,7 @@ export function materializeBlueprint(
   // Root cone: the root def plus everything reachable through '#<id>' node
   // types. Cycles cannot occur in a validated document (no-recursion
   // invariant) but the visited set keeps this robust regardless.
-  const cone: string[] = []
-  const visited = new Set<string>()
-  const visit = (defId: string): void => {
-    if (visited.has(defId)) return
-    visited.add(defId)
-    const def = blueprint.graphs[defId]
-    if (!def) return // dangling ref: validated docs cannot have one; skip
-    cone.push(defId)
-    for (const node of Object.values(def.nodes)) {
-      const ref = subgraphDefIdOf(node.type)
-      if (ref !== undefined) visit(ref)
-    }
-  }
-  visit(blueprint.root)
+  const cone = definitionCone(blueprint.graphs, blueprint.root)
 
   // Fresh ids: smallest unused g<n> in the target, in cone discovery order
   // (root first). Deterministic given (target, blueprint).
