@@ -7,8 +7,8 @@
   max-width: none;
   max-height: none;
   margin: 0;
-  /* Clear the 44px top bar so the field opens just under the top bar's search field. */
-  padding: calc(var(--dinkster-space-32) + var(--dinkster-space-16)) var(--dinkster-space-16) var(--dinkster-space-16);
+  /* UniversalSearch sets --search-top and --search-shift so the panel opens over the top bar's search box. */
+  padding: var(--search-top, var(--dinkster-space-8)) var(--dinkster-space-16) var(--dinkster-space-16);
   border: 0;
   background: transparent;
   justify-content: center;
@@ -17,12 +17,11 @@
 .search-dialog-host[open] { display: flex; }
 .search-dialog-host::backdrop { background: color-mix(in srgb, var(--dinkster-surface-canvas) 72%, transparent); }
 .search-dialog {
-  /* Under the top bar's search field, shifted left by half the floating preview's room so list and preview sit centred as a pair. */
   display: flex;
   width: min(620px, calc(100vw - var(--dinkster-space-32)));
-  margin-right: 332px;
+  translate: var(--search-shift, 0) 0;
 }
-.search-dialog > .dinkster-search { width: 100%; max-height: calc(100vh - var(--dinkster-space-32) * 2); }
+.search-dialog > .dinkster-search { width: 100%; max-height: calc(100vh - var(--search-top, var(--dinkster-space-8)) - var(--dinkster-space-16)); }
 
 .search-input-shell {
   display: flex;
@@ -174,11 +173,6 @@
 @keyframes search-progress-spin { to { transform: rotate(360deg); } }
 .search-announcement { position: absolute; inset-inline: var(--dinkster-space-8); width: auto; height: 1px; overflow: hidden; clip-path: inset(50%); overflow-wrap: anywhere; }
 
-/* Without room for the floating preview beside the list, the list keeps the width and the preview is left out. */
-@media (max-width: 1000px) {
-  .search-dialog { margin-right: 0; }
-  .search-dialog .dinkster-search-preview[data-place='floating'] { display: none; }
-}
 @media (max-width: 720px) {
   .search-dialog-host { padding: var(--dinkster-space-8); align-items: stretch; }
   .search-dialog { width: 100%; max-height: calc(100vh - var(--dinkster-space-16)); }

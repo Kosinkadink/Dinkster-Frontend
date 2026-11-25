@@ -207,8 +207,21 @@ export function UniversalSearch(props: { app: AppState }) {
       />
     )
   }
-  onMount(() => { dialog.showModal() })
-  onCleanup(() => { live = false; unsubscribeOpen(); unsubscribeTab(); session.dispose(); dialog.close() })
+  /** Opens over the top bar's search box, which it hides: at the box's top, centred on it, kept inside the window. */
+  const placeOverTrigger = () => {
+    const box = document.querySelector('[data-testid="topbar-search"]')?.getBoundingClientRect()
+    const panel = dialog.querySelector<HTMLElement>('.search-dialog')
+    if (box === undefined || panel === null) return
+    const room = Math.max(0, (window.innerWidth - panel.offsetWidth) / 2 - 16)
+    dialog.style.setProperty('--search-top', `${box.top}px`)
+    dialog.style.setProperty('--search-shift', `${Math.min(room, Math.max(-room, box.left + box.width / 2 - window.innerWidth / 2))}px`)
+  }
+  onMount(() => {
+    dialog.showModal()
+    placeOverTrigger()
+    window.addEventListener('resize', placeOverTrigger)
+  })
+  onCleanup(() => { live = false; window.removeEventListener('resize', placeOverTrigger); unsubscribeOpen(); unsubscribeTab(); session.dispose(); dialog.close() })
   const activate = async (key: string): Promise<void> => {
     if (activating()) return
     const ref = refs().get(key)
