@@ -258,29 +258,29 @@ export function ProductSearch(props: {
         ?.scrollIntoView?.({ block: 'nearest' }),
     )
   })
-  /** The floating preview starts level with the current row and stays beside the surface. */
+  /**
+   * The floating preview's top stays level with the top of the results, so
+   * it never moves while the current row changes. It is hidden, never moved,
+   * when it does not fit beside the list inside the window.
+   */
   const placeFloating = () => {
     const panel = floating
-    const key = current()
-    if (panel === undefined || key === undefined) return
-    const row = list?.querySelector<HTMLElement>(`#${CSS.escape(optionId(key))}`)
-    if (!row) return
+    if (panel === undefined || list === undefined) return
     const box = root.getBoundingClientRect()
-    const rowTop = row.getBoundingClientRect().top - box.top
-    const lowest = Math.max(0, box.height - panel.offsetHeight)
-    panel.style.top = `${Math.min(Math.max(0, rowTop - 16), lowest)}px`
+    const results = list.querySelector<HTMLElement>('.dinkster-search-group') ?? list
+    panel.style.top = `${results.getBoundingClientRect().top - box.top}px`
+    panel.dataset['fits'] = String(panel.getBoundingClientRect().left + panel.offsetWidth <= document.documentElement.clientWidth)
   }
-  createEffect(() => {
-    current()
-    if (props.preview !== undefined && props.previewPlace === 'floating')
-      queueMicrotask(placeFloating)
-  })
   onMount(() => {
     if (props.autofocus) queueMicrotask(() => input.focus())
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(placeFloating)
     observer.observe(root)
-    onCleanup(() => observer.disconnect())
+    window.addEventListener('resize', placeFloating)
+    onCleanup(() => {
+      observer.disconnect()
+      window.removeEventListener('resize', placeFloating)
+    })
   })
   const Row = (rowProps: { row: ProductSearchRow }) => {
     const row = rowProps.row
