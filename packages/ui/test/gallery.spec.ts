@@ -424,6 +424,7 @@ test('quiet text menus keep shared focus, checked selection and dismissal withou
     await expect(any).toBeChecked()
     await expect(any).toBeFocused()
     await any.hover()
+    await expect(any).toHaveCSS('background-color', await token(page, '--dinkster-surface-raised'))
     await expect(trigger).toHaveCSS('background-color', await token(page, '--dinkster-interaction-hover'))
     await expect(page).toHaveScreenshot(`quiet-menu-${theme}-open.png`)
     await page.keyboard.press('Escape')
