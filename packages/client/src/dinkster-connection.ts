@@ -4250,7 +4250,8 @@ export class DinksterConnection {
     const res = await this.fetchFn(`${this.baseUrl}/api/library`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(args),
+      // A new record belongs to this window's project; without it the engine files it in Default.
+      body: JSON.stringify({ ...args, ...(this.project !== undefined ? { project: this.project } : {}) }),
     })
     if (!res.ok) throw new Error(`POST /api/library failed: ${res.status}`)
     const payload: unknown = await res.json()

@@ -275,3 +275,39 @@ test('failed new save surfaces a Problem, stays dirty, and retries successfully'
   await openWorkflows(page)
   await expect(workflowRow(page, title)).toHaveCount(1)
 })
+
+test.describe('project of a saved workflow', () => {
+  test.use({ seedWorkflows: false })
+
+  test('a workflow saved in a project other than Default is recorded in that project, and saving again keeps it there', async ({ page }) => {
+    const project = `p-${uniqueName('save-project')}`.slice(0, 64).toLowerCase()
+    const registered = await fetch(`${NATIVE_BACKEND}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: project, name: 'Saved elsewhere' }),
+    })
+    expect(registered.ok).toBe(true)
+    const ids = async (scope: string) => {
+      const response = await fetch(`${NATIVE_BACKEND}/api/library?scope=local&project=${scope}`)
+      return ((await response.json()) as { records: { id: string }[] }).records.map((record) => record.id)
+    }
+    // Ctrl+S, as a user saves; each save waits for the library's answer.
+    const save = async (method: 'POST' | 'PATCH') => {
+      const answered = page.waitForResponse((response) =>
+        new URL(response.url()).pathname.startsWith('/api/library') && response.request().method() === method)
+      await page.keyboard.press('Control+s')
+      expect((await answered).ok()).toBe(true)
+    }
+    await page.goto(`/?dinksterProject=${project}`)
+    await targetNativeBackend(page)
+    await save('POST')
+    const saved = await ids(project)
+    expect(saved).toHaveLength(1)
+    expect(await ids('default')).not.toContain(saved[0])
+
+    // A second save patches the same record, which stays in the project.
+    await save('PATCH')
+    expect(await ids(project)).toEqual(saved)
+    expect(await ids('default')).not.toContain(saved[0])
+  })
+})
