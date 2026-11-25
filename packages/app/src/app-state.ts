@@ -4786,6 +4786,8 @@ export class AppState {
       )
       const disposeMountHealth = connection.mountError.subscribe(() => this.backendsTick.update((v) => v + 1))
       const disposeLookupChanges = connection.onLookupsChanged((functions) => lookups.invalidate(functions))
+      // A mount's scan commits as a mount ping; a local file a lookup waited on may be checked now.
+      const disposeLookupFiles = connection.onMountsChanged(() => lookups.filesChanged())
       const disposeLibraryChanges = connection.onLibraryChanged(() => {
         for (const tab of this.tabs.get()) {
           if (tab.execution || this.backendForTab(tab) !== nativeBackend) continue
@@ -4831,6 +4833,7 @@ export class AppState {
           disposeLibraryChanges()
           disposeMountHealth()
           disposeLookupChanges()
+          disposeLookupFiles()
           disposeConnection()
           scopedClient.dispose()
           lookups.dispose()
