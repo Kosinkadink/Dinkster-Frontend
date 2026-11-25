@@ -11,7 +11,7 @@
 
 import type { Diagnostic } from '../diagnostics.js'
 import type { Json } from '../format/document.js'
-import type { WidgetSpec } from '../schema/model.js'
+import type { WidgetRepresentationsSpec, WidgetSpec } from '../schema/model.js'
 import type { HostUiProviderV1 } from '../ui/contribution.js'
 
 // ---------------------------------------------------------------------------
@@ -48,6 +48,8 @@ export interface WidgetKind<V extends Json = Json> {
   validate(value: V, spec: WidgetSpec): readonly Diagnostic[]
   /** Default view chosen from schema hints (multiline, display: slider, ...). */
   defaultView(spec: WidgetSpec): string
+  /** Compatible looks offered when the schema has no explicit representation set. */
+  representations?(spec: WidgetSpec): WidgetRepresentationsSpec | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +69,11 @@ export interface CompactState {
   readonly readonly: boolean
   /** Content is truncated: view MUST render the truncation affordance. */
   readonly truncated?: boolean
+  /**
+   * What the host knows about this machine, keyed by widget kind, such as
+   * the mounts a SAVE_TARGET row reads to name the mount a run would use.
+   */
+  readonly hostFacts?: Readonly<Record<string, Json>>
 }
 
 export interface EditorSizing {

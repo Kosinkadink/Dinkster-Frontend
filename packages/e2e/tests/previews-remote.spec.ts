@@ -351,14 +351,17 @@ test('a slow response for a closed remote editor never hijacks the next combo (s
   await expect(dropdown).toHaveAttribute('data-remote', 'loading')
   await page.keyboard.press('Escape')
   await page.mouse.click(...xy(await widgetPoint(page, 's0', 'mode')))
-  await expect(dropdown).toHaveAttribute('data-remote', 'static')
+  // The static choice opens as a list in its row.
+  const list = page.locator('[data-editor-surface="in-row-list"]')
+  await expect(list).toHaveAttribute('data-lookup', 'static')
 
   // The late response lands now. The request token was invalidated when the
   // static editor opened, so the result must be dropped, not published.
   release()
   await page.waitForTimeout(150)
-  await expect(dropdown).toHaveAttribute('data-remote', 'static')
-  await expect(dropdown.getByRole('option')).toHaveText(['alpha', 'beta'])
+  await expect(list).toHaveAttribute('data-lookup', 'static')
+  await expect(list.getByRole('option')).toHaveText(['alpha', 'beta'])
+  await expect(dropdown).toHaveCount(0)
 })
 
 test('an empty remote payload is READY with zero options, not an error', async ({ page }) => {

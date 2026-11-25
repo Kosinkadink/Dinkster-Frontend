@@ -10,7 +10,9 @@ import {
   effectiveWidgetDefault,
   formatWidgetValue,
   numericStepConstraints,
+  widgetRepresentationChoices,
   type Json,
+  type NodeSchema,
   type WidgetRegistry,
   type WidgetSpec,
 } from '@dinkster/core'
@@ -72,6 +74,21 @@ export interface RowExample {
    * it. Otherwise the example grows to show the whole side part.
    */
   readonly edge?: boolean
+  /** The node to draw instead of the page's own, and the schema its help comes from. */
+  readonly build?: {
+    readonly scene: (
+      tokens: DesignTokens,
+      measure: TextMeasurer,
+      widgetMeasure: WidgetMeasure,
+      position: { x: number; y: number },
+      width: number,
+    ) => Scene
+    readonly schema: NodeSchema
+  }
+  /** The side part ends in the Representation control, its list shown open when expanded. */
+  readonly representation?: 'closed' | 'expanded'
+  /** Room below the side part for the shared list's ordinary placement. */
+  readonly listRoom?: number
 }
 
 export const NODE_WIDTH = 280
@@ -371,12 +388,14 @@ export function RowEditingExample(props: {
             ? { viewId: view.id, rows: view.measure(spec).rows }
             : undefined
         }
+        widgetMeasure.representations = (spec) => props.registry.kind(spec.widgetType)?.representations?.(spec)
         const built = (
-          example.special === true
+          example.build?.scene ??
+          (example.special === true
             ? createRowSpecialScene
             : example.focus === undefined
               ? createRowEditingScene
-              : createRowFocusScene
+              : createRowFocusScene)
         )(
           tokens,
           measure,
@@ -385,8 +404,8 @@ export function RowEditingExample(props: {
           example.nodeWidth ?? NODE_WIDTH,
         )
         const node = built.nodes[0]!
-        const height =
-          (example.node.y + node.layout.height + MARGIN) * example.scale
+        const bottom = Math.max(...built.nodes.map((drawn) => drawn.y + drawn.layout.height))
+        const height = (bottom + MARGIN) * example.scale
         canvas.style.width = `${example.width}px`
         canvas.style.height = `${height}px`
         renderer = new CanvasRenderer(
@@ -427,11 +446,12 @@ export function RowEditingExample(props: {
     )
     if (!row) return undefined
     const schema =
-      props.example.special === true
+      props.example.build?.schema ??
+      (props.example.special === true
         ? rowSpecialSchema
         : props.example.focus === undefined
           ? rowEditingSchema
-          : rowFocusSchema
+          : rowFocusSchema)
     const item = schema.body.find(
       (item) => item.kind === 'input' && item.id === row.inputId,
     )
@@ -447,11 +467,27 @@ export function RowEditingExample(props: {
     const target = openRow()
     if (!target) return undefined
     const { row, help, facts } = target
+    const looks =
+      props.example.representation === undefined
+        ? undefined
+        : widgetRepresentationChoices(row.spec, row.representationId)
+    const representation =
+      looks === undefined
+        ? {}
+        : {
+            representation: {
+              ...looks,
+              expanded: props.example.representation === 'expanded',
+              onChoose: () => undefined,
+            },
+          }
     if (props.example.focus !== undefined) {
       const declared = effectiveWidgetDefault(row.spec)
-      if (declared === undefined && help === undefined) return undefined
+      if (declared === undefined && help === undefined && looks === undefined)
+        return undefined
       return (
         <CanvasSidePart
+          {...representation}
           facts={
             declared === undefined
               ? []
@@ -466,9 +502,11 @@ export function RowEditingExample(props: {
         />
       )
     }
-    if (facts.length === 0 && help === undefined) return undefined
+    if (facts.length === 0 && help === undefined && looks === undefined)
+      return undefined
     return (
       <CanvasSidePart
+        {...representation}
         {...(row.controllerMode !== undefined
           ? {
               children: (
@@ -540,7 +578,7 @@ export function RowEditingExample(props: {
       current.screen.height,
       (current.sideTop + (current.sideMaxHeight ?? sideSize().height)) * zoom,
     )
-    stage.style.height = `${Math.max(canvas.clientHeight, current.screen.y + sideBottom + MARGIN)}px`
+    stage.style.height = `${Math.max(canvas.clientHeight, current.screen.y + sideBottom + MARGIN) + (props.example.listRoom ?? 0)}px`
   })
   return (
     <figure class="dinkster-canvas-example">

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Hit } from '@dinkster/canvas'
-import { coreCommandRegistry, createLocalSession, createMenuRegistry, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { coreCommandRegistry, createLocalSession, createMenuRegistry, resolveWidgetRepresentation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { intKind } from '@dinkster/widgets'
 import { toolboxMenuRequest } from '../src/CanvasHost.js'
 import { canvasMenuContext, memberRemovalInvocation, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
 
@@ -234,6 +235,19 @@ describe('widgetRepresentationMenuGroup', () => {
           representations: [spec.representations!.representations[1]!],
         },
       },
+    })).toBeUndefined()
+  })
+
+  it('offers Color and Number for a whole number shown as a color', () => {
+    const tint: WidgetSpec = { widgetType: 'INT', options: { min: 0, max: 0xffffff, display: 'color' } }
+    const color = widgetRepresentationMenuGroup({
+      graphId: 'g0', nodeId: 'n1', inputId: 'tint', selected: 'color',
+      spec: resolveWidgetRepresentation(tint, undefined, intKind.representations?.(tint)).spec,
+    })!
+    expect(color.items[0]?.children?.map((entry) => [entry.label, entry.checked])).toEqual([['Color', true], ['Number', false]])
+    expect(widgetRepresentationMenuGroup({
+      graphId: 'g0', nodeId: 'n1', inputId: 'count',
+      spec: { widgetType: 'INT', options: { min: 0, max: 10 } },
     })).toBeUndefined()
   })
 

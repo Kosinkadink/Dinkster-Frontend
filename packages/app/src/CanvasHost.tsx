@@ -72,7 +72,7 @@ import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
-import { CanvasColorArriving } from '@dinkster/ui'
+import { CanvasColorArriving, CanvasRowAbsence } from '@dinkster/ui'
 import {
   defaultValuesOf,
   initialDynamicStateOf,
@@ -136,6 +136,7 @@ import {
   type WidgetSpec,
   type WidgetView,
   type WorkflowDocument,
+  widgetRepresentationChoices,
 } from '@dinkster/core'
 import { Check, CheckCircle2, Dice5, FileUp, LoaderCircle, Lock, Minus, Plus, Snowflake, TriangleAlert, X } from 'lucide-solid'
 import { executionProgress, executionStatusLabel } from './ExecutionActivityCard.js'
@@ -152,7 +153,7 @@ import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
 import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
 import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
-import { RowFocusOverlay, type RowFocusState } from './editors/RowFocusOverlay.js'
+import { RowFocusOverlay, type RowFocusState, type RowRepresentation } from './editors/RowFocusOverlay.js'
 import type { RowBox } from './editors/row-placement.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
 import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, retainProvenExecution, withRecordedAutomaticValues, type SelectedInputPreview } from './scene-overlays.js'
@@ -1872,6 +1873,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   let moveEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _direction: 1 | -1): void => {}
   let editsRowsInPlace = (): boolean => false
   let focusEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }): void => {}
+  let rowRepresentationOf = (_tab: Tab, _node: SceneNode, _row: WidgetLayoutRow): RowRepresentation | undefined => undefined
   let showRowNote = (_from: { readonly nodeId: string; readonly valueKey: string }, _note: JSX.Element): void => {}
   interface ControllerMenuState {
     readonly x: number
@@ -2495,7 +2497,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     const isInside = (event: Event, selector: string): boolean =>
       event.composedPath().some((item) => item instanceof Element && item.matches(selector))
-    const EDITOR_SURFACES = '.widget-editor, .widget-in-row-field, .combo-dropdown, .color-editor, .asset-editor, .product-select-listbox, .suggestion-surface, .modal-surface[data-modal^="widget-"]'
+    const EDITOR_SURFACES = '.widget-editor, .widget-in-row-field, .combo-dropdown, .color-editor, .asset-editor, .product-select-listbox, .dinkster-canvas-side-representation-list, .suggestion-surface, .modal-surface[data-modal^="widget-"]'
     const AUDIO_SLIDER = '.node-media-overlay .product-slider'
     // An editor can refuse host dismissal while an effect is in flight (an
     // asset upload batch must not keep uploading into a closed overlay).
@@ -2587,6 +2589,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // An expanded product listbox owns the first Escape. Its trigger keeps
       // DOM focus, so the capture-phase host must defer to the target handler.
       if (editorOpen && isInside(event, '.product-select[aria-expanded="true"]')) return
+      if (editorOpen && isInside(event, '.dinkster-canvas-side-representation-list')) return
+      // So does the open mount list in a save target's box: it closes before the box.
+      if (editorOpen && isInside(event, '.dinkster-canvas-target-choice[aria-expanded="true"]')) return
       // An expanded palette type filter owns the first Escape and restores its trigger focus.
       if (paletteOpen && isInside(event, '.palette-type-filter[data-expanded="true"]')) return
       // A suggestion surface is part of the live text editor, not a
@@ -2663,6 +2668,33 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const onReducedMotionChange = (event: MediaQueryListEvent) => renderer.setReducedMotion(event.matches)
     renderer.setReducedMotion(reducedMotionQuery?.matches ?? false)
     reducedMotionQuery?.addEventListener('change', onReducedMotionChange)
+    // Closed save target rows name this machine's mounts: the project's
+    // default output mount and the ready writable ones.
+    const factsBackend = createMemo(() => {
+      const tab = activeTab()
+      return tab === undefined ? undefined : props.app.backendForTab(tab)
+    })
+    createEffect(() => {
+      const backend = factsBackend()
+      renderer.setWidgetFacts({})
+      if (backend?.protocol !== 'dinkster') return
+      const connection = backend.connection
+      let live = true
+      const read = (): void => {
+        void connection.fetchMountSettings().then((settings) => {
+          if (!live) return
+          // A run saves to the project's output mount and never falls back to the machine's.
+          const projectMount = settings.activeOutputMount
+          renderer.setWidgetFacts({ SAVE_TARGET: {
+            ready: settings.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready').map((mount) => mount.id),
+            ...(projectMount === undefined ? {} : { projectMount }),
+          } })
+        }).catch(() => { if (live) renderer.setWidgetFacts({}) })
+      }
+      read()
+      const stop = connection.onMountsChanged(read)
+      onCleanup(() => { live = false; stop() })
+    })
     const zoomTo = (target: number) => {
       const vp = renderer.getViewport()
       const cx = canvasEl.clientWidth / 2
@@ -3280,6 +3312,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       onWiredWidgetActivate: (hit) => {
         const color = usedWiredColor(hit.row, arrivingCompanions[hit.node.id]?.[hit.row.valueKey]?.value)
         if (color !== undefined) showRowNote({ nodeId: hit.node.id, valueKey: hit.row.valueKey }, <CanvasColorArriving arriving={color.arriving} used={color.used} />)
+        const state = color === undefined ? renderer.fieldCompanion(hit.node.id, hit.row.valueKey)?.state : undefined
+        if (state === 'nothing' || state === 'unknown') {
+          const values = hit.node.node.values ?? {}
+          const stored = Object.hasOwn(values, hit.row.valueKey) ? values[hit.row.valueKey] : effectiveWidgetDefault(hit.row.spec)
+          showRowNote(
+            { nodeId: hit.node.id, valueKey: hit.row.valueKey },
+            <CanvasRowAbsence state={state} stored={formatWidgetValue(stored, hit.row.spec)} />,
+          )
+        }
       },
       onWidgetRowAffordanceActivate: (hit) => {
         const tab = activeTab()
@@ -3422,7 +3463,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (target.kind !== 'badge') {
           let tooltipTarget: unknown = target
           if (target.kind === 'widget' || target.kind === 'controller') {
-            const companion = companionDisplays[target.hit.node.id]?.[target.hit.row.valueKey]
+            const companion = target.kind === 'widget'
+              ? renderer.fieldCompanion(target.hit.node.id, target.hit.row.valueKey)
+              : companionDisplays[target.hit.node.id]?.[target.hit.row.valueKey]
             const linked = companionInputs.get(target.hit.node.id)?.has(target.hit.row.inputId) || scene.links.some((link) =>
               link.to.kind === 'port' && link.to.node === target.hit.node.id &&
               link.to.port === target.hit.row.inputId &&
@@ -5508,6 +5551,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ...(help === undefined ? {} : { help }),
           ...(caret === undefined || hit.row.viewId !== 'core.line' ? {} : { caret }),
           ...(hit.row.controllerMode === undefined ? {} : { controllerMode: hit.row.controllerMode }),
+          ...(rowRepresentationOf(tab, hit.node, hit.row) === undefined ? {} : { representation: rowRepresentationOf(tab, hit.node, hit.row)! }),
           ...(automatic === undefined ? {} : { automatic }),
           ...(rowLookups === undefined ? {} : { lookups: rowLookups }),
         } } : {}),
@@ -5537,7 +5581,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (renderer.getDesignTokens().widgetEditing !== 'in-row') return false
       // The select view belongs to COMBO alone.
       const choice = row.viewId === 'core.select' && row.spec.remote === undefined
-      if (!['core.number', 'core.slider', 'core.line', 'core.color', 'core.integerColor'].includes(row.viewId) && !choice) return false
+      if (!['core.number', 'core.slider', 'core.line', 'core.color', 'core.integerColor', 'core.saveTarget'].includes(row.viewId) && !choice) return false
       if (widgetRegistry().kind(row.spec.widgetType) === undefined) return false
       if (widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi !== undefined) return false
       // Single-line text that holds a line break opens in the multiline editor,
@@ -5609,6 +5653,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
     }
 
+    // A field's switchable looks for the side part, unless the view is a
+    // finished run's, which stays locked, or the row is only offered.
+    rowRepresentationOf = (tab: Tab, node: SceneNode, row: WidgetLayoutRow): RowRepresentation | undefined => {
+      if (tab.execution !== undefined || row.ghost === true || row.materialize !== undefined) return undefined
+      const choices = widgetRepresentationChoices(row.spec, row.representationId)
+      if (choices === undefined) return undefined
+      return {
+        graphId: row.familyOwner?.graphId ?? currentGraphId(tab),
+        nodeId: row.familyOwner?.nodeId ?? node.id,
+        inputId: row.familyOwner?.valueKey ?? row.valueKey,
+        ...choices,
+      }
+    }
+
     const rowFocusAt = (tab: Tab, node: SceneNode, row: WidgetLayoutRow): RowFocusState => {
       const tokens = renderer.getDesignTokens()
       const inset = tokens.rowGeometry.fieldInsetY
@@ -5632,6 +5690,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         nodeBottom: node.y + node.layout.height,
         ...(declared === undefined ? {} : { defaultText: formatWidgetValue(declared, row.spec) }),
         ...(help === undefined ? {} : { help }),
+        ...(rowRepresentationOf(tab, node, row) === undefined ? {} : { representation: rowRepresentationOf(tab, node, row)! }),
       }
     }
 
@@ -6600,6 +6659,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         // it restores focus to whatever opened the search. Re-focus the
         // canvas afterwards so the armed placement answers Escape and rides
         // the cursor without a first canvas click.
+        if (armed) queueMicrotask(() => canvasEl.focus())
+        return armed
+      },
+      blueprintEntries: () => paletteEntries().filter((entry) => entry.kind === 'blueprint'),
+      armBlueprintPlacement: (type, backendId) => {
+        const tab = activeTab()
+        const entry = paletteEntries().find((candidate) => candidate.kind === 'blueprint' && candidate.type === type)
+        if (!entry || !tab || props.app.backendForTab(tab).id !== backendId) {
+          clearArmedPlacement()
+          return false
+        }
+        const armed = armPaletteEntry(entry)
         if (armed) queueMicrotask(() => canvasEl.focus())
         return armed
       },
@@ -7650,7 +7721,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       </Show>
 
       <Show when={rowFocus()}>
-        {(focus) => <RowFocusOverlay focus={focus()} viewport={editorViewport} boundary={canvasEl.parentElement!} />}
+        {(focus) => <RowFocusOverlay focus={focus()} viewport={editorViewport} boundary={canvasEl.parentElement!} onRepresentation={(id) => {
+          const representation = focus().representation
+          const tab = activeTab()
+          if (representation === undefined || tab === undefined || tab.id !== focus().tabId) return
+          void props.app.dispatchTo(tab, { command: 'view.setWidgetRepresentation', params: {
+            graphId: representation.graphId,
+            nodeId: representation.nodeId,
+            inputId: representation.inputId,
+            representation: id,
+          } })
+        }} />}
       </Show>
 
       <Show when={editor()} keyed>

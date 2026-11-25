@@ -46,8 +46,10 @@ import { NodeLookGallery } from './node-look.js'
 import { ColorEditingGallery } from './color-editing.js'
 import { InNodeEditorsGallery } from './in-node-editors.js'
 import { RowEditingGallery } from './row-editing.js'
+import { RowStatesGallery } from './row-states.js'
 import { RowAutomaticGallery } from './row-automatic.js'
 import { RowListsGallery } from './row-lists.js'
+import { SaveTargetBoxGallery } from './save-target-box.js'
 import { LookupsGallery } from './lookups.js'
 import { ProblemBoxGallery } from './problem-box.js'
 
@@ -80,10 +82,12 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'core-rows',
         'declaration-rows',
         'row-editing',
+        'row-states',
         'row-automatic',
         'row-lists',
         'lookups',
         'color-editing',
+        'save-target-box',
         'collection-rows',
         'editor-rows',
         'in-node-editors',
@@ -181,6 +185,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Read-only fields keep their contrast and show a lock; disabled fields are quiet without active fills. Both keep the lock. Declaration notes keep one quiet line, including unknown and empty text. Long and multiline text ellipsizes without stretching the row. Shared lines divide the visible fields, worded buttons and notes equally with a 4 px gap.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
+  'row-states':
+    'What a row shows when a finished run proved that nothing arrives, for a skipped node, while a wired value is not known, for a promoted field, and the control at the end of the side part that switches how a field is drawn.',
   'row-automatic':
     'A number whose value is automatic: closed, opened, stepped, while a lookup loads, and when it cannot be worked out.',
   'row-lists':
@@ -189,6 +195,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Fields and notes a pack fills from a declared lookup, in every state, worked out by the production elaboration and drawn by the production renderer. Only an answer for exactly the current arguments is used; a closed row always shows its stored value, and nothing a lookup gives is ever stored.',
   'color-editing':
     'A color row becomes its own field when clicked, with a picker under it and what Enter stores beside it. Nothing is stored until the field is left. The saved color is a line in the side part beside the field, read here as the tooltip asked for, while the draft differs from it; nothing marks it by the name.',
+  'save-target-box':
+    'A save target row opens a box under it with the mount dropdown and the filename prefix. Nothing is stored until the box is left; Escape keeps the stored target.',
   'collection-rows':
     'Multi-choice, list and curve rows; After raises the rows that open an editor and draws the curve in its row.',
   'editor-rows':
@@ -196,7 +204,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'in-node-editors':
     'The audio recorder, webcam, 3D viewer, image comparison, camera angle and curve fold out inside the node under their editor button row, and the rows below move down; clicking the row again folds them back. A folded row says what the editor holds. A palette is a group of color rows: it grows as colors are added and shows a limit only when its group declares one.',
   'widget-driven':
-    'A row whose value comes from a wire is dimmed and its stored value is struck through.',
+    'A wired row is dimmed and keeps its own widget look, with its stored value struck through until its arriving value is known.',
   'widget-offered':
     'Rows a node offers but does not have yet are dimmed until they are added.',
   'widget-companions':
@@ -617,7 +625,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box') return
+    if (currentPage === 'row-editing' || currentPage === 'row-states' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'save-target-box') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -716,6 +724,9 @@ export function CanvasGallery() {
         <Show when={fontsReady() && page() === 'row-editing'}>
           <RowEditingGallery theme={theme()} />
         </Show>
+        <Show when={fontsReady() && page() === 'row-states'}>
+          <RowStatesGallery theme={theme()} />
+        </Show>
         <Show when={fontsReady() && page() === 'row-lists'}>
           <RowListsGallery theme={theme()} />
         </Show>
@@ -724,6 +735,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'color-editing'}>
           <ColorEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'save-target-box'}>
+          <SaveTargetBoxGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'row-automatic'}>
           <RowAutomaticGallery theme={theme()} />

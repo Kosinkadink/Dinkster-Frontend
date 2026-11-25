@@ -5,12 +5,22 @@ and open the color picker. The picker accepts six-digit `#rrggbb` colors and
 commits the corresponding integer, retaining the INT socket and numeric saved
 value. Numeric bounds still apply. App View retains its numeric input.
 
-SAVE_TARGET opens a ready writable mount selector and relative filename prefix.
-The writer adds the descriptor's suffix and numbering; no host path is stored
-in the graph. Empty, absolute, dot-segment and backslash prefixes cannot apply.
-Unavailable current mounts stay visible but cannot apply. The optional gallery
-destination also offers Clear destination; required save targets do not.
-Mount grants are checked again by the backend when it writes.
+SAVE_TARGET opens a box under its row with a mount dropdown and a relative
+filename prefix; the row shows them together as they would be stored. The
+dropdown's first entry is Project default, stored as `{"prefix": ...}` with
+no mount, so each project saves it to its own default output mount; the
+other entries are this machine's ready writable mounts. An empty target opens
+on Project default with the input's default name. Enter, Tab or a click
+outside store mount and prefix as one value; Escape stores nothing. The
+writer adds the descriptor's suffix and numbering; no host path is stored in
+the graph. Empty, absolute, dot-segment and backslash prefixes cannot be
+stored, nor can a target while the mounts load, when none is ready or
+when they cannot be read. The closed row names the mount Project default
+means here, the project's active output mount, in italics. A stored mount
+this machine lacks is struck through on the closed row, followed by that
+mount in italics, and stays stored until another entry or Use project
+default is picked. Mount grants are checked again by the backend when it
+writes.
 
 RESOLUTION_PREVIEW opens a proportional rectangle and exact pixel dimensions
 from the node's aspect ratio, megapixels and rounding multiple. The named
@@ -1040,11 +1050,16 @@ also offers Single line.
 
 An ordinary STRING without an explicit representation set receives compatible
 Single line and Multiline views automatically. Its `multiline` hint chooses the
-default, not the only available editor. An explicit representation set remains
+default, not the only available editor. A whole number declared with
+`display: color` likewise offers Color, its default, and Number, the ordinary
+number row with steppers. These integer alternatives come from the registered
+`WidgetKind.representations(spec)` hook; FLOAT and STRING retain their automatic
+choices. An explicit representation set remains
 authoritative: omitting an alternative restricts it, and setting
 `userSwitchable` to `false` locks the declared default. Switchable rows expose
-their choices only through the **Representation** submenu in the right-click
-context menu; they do not paint a dedicated switch button.
+their choices through the **Representation** control at the end of the open
+row's side part and the **Representation** submenu in the right-click context
+menu. Frozen run views do not offer the side-part control.
 
 The `core.text` compact representation has a two-line natural minimum made of
 one 18px floating-label band, two 20px content lines, and 6px top/bottom content

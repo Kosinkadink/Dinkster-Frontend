@@ -41,7 +41,7 @@ export function auditLayout(page: Page, rootSelector: string): Promise<LayoutFin
       if (style.display === 'none') continue
       // Screen-reader descriptions are deliberately clipped to a 1px box and
       // have no visual layout to audit.
-      if (style.clip !== 'auto' && el.clientWidth <= 1 && el.clientHeight <= 1) continue
+      if ((style.clip !== 'auto' || style.clipPath !== 'none') && el.clientWidth <= 1 && el.clientHeight <= 1) continue
       if (el !== root && style.overflowX === 'visible') continue
       if (el.scrollWidth > el.clientWidth + 2 && el.clientWidth > 0) {
         findings.push({ element: describe(el), finding: `horizontal overflow: content is ${el.scrollWidth}px wide inside ${el.clientWidth}px` })

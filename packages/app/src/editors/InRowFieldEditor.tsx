@@ -6,6 +6,7 @@ import { placeRow, rowPlacement, visibleCanvas } from './row-placement.js'
 import type { WidgetEditorImplementationProps } from '../WidgetEditorController.js'
 import { resolveTextCommit, resolveTypedNumber, stepTypedNumber, storedNumberNote, widgetCommitError } from '../widget-commit.js'
 import { createTextCompletions } from './text-completions.js'
+import type { RowRepresentation } from './RowFocusOverlay.js'
 import { useAppMessage } from '../locale.js'
 
 /**
@@ -107,6 +108,23 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     setDraft(String(randomNumericValue(numericStepConstraints(spec))))
     input?.focus()
     input?.select()
+  }
+
+  // Switching the look first settles the field by its own rules: a draft
+  // that can be stored is stored as the value edit it is, and a draft that
+  // cannot keeps the field open with its problem and nothing switches. The
+  // switch itself writes view state only, never the value.
+  const chooseRepresentation = (representation: RowRepresentation, id: string): void => {
+    if (id === representation.selected) return
+    void commit().then((closed) => {
+      if (!closed) return
+      void host.app.dispatchTo(ed.tab, { command: 'view.setWidgetRepresentation', params: {
+        graphId: representation.graphId,
+        nodeId: representation.nodeId,
+        inputId: representation.inputId,
+        representation: id,
+      } })
+    })
   }
 
   const commitText = (value: string): Promise<boolean> => {
@@ -296,10 +314,17 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     const blocked = props.commitError() ?? invalid()
     const line = shownProblem() ?? automaticWarning()
     const result = blocked === undefined && resolved?.kind === 'store' ? resolved.result : undefined
+    const representation = inRow.representation
     const noteLine = lookupNote()
-    if (facts.length === 0 && line === undefined && result === undefined && inRow.help === undefined && inRow.controllerMode === undefined && noteLine === undefined) return undefined
+    if (facts.length === 0 && line === undefined && result === undefined && inRow.help === undefined && inRow.controllerMode === undefined && representation === undefined && noteLine === undefined) return undefined
     return (
       <CanvasSidePart
+        {...(representation === undefined ? {} : { representation: {
+          choices: representation.choices,
+          selected: representation.selected,
+          ...(representation.note === undefined ? {} : { note: representation.note }),
+          onChoose: (id: string) => chooseRepresentation(representation, id),
+        } })}
         {...(inRow.controllerMode === undefined && noteLine === undefined ? {} : {
           children: (
             <>
