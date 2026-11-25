@@ -54,6 +54,8 @@ export interface SemanticDesignTokens {
     readonly inset: string
     readonly raised: string
     readonly selected: string
+    /** The active workflow tab's tint at its top, fading into the canvas below. */
+    readonly activeTabTint: string
   }
   readonly text: {
     readonly primary: string
@@ -134,6 +136,7 @@ export const semanticTokensForTheme = (
       inset: colors.bg.canvas,
       raised: colors.bg.raised,
       selected: colors.bg.hover,
+      activeTabTint: colors.bg.activeTabTint,
     },
     text: {
       primary: colors.text.primary,
@@ -285,6 +288,8 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-surface-inset': semanticDesignTokens.surface.inset,
     '--dinkster-surface-raised': semanticDesignTokens.surface.raised,
     '--dinkster-surface-selected': semanticDesignTokens.surface.selected,
+    '--dinkster-surface-active-tab-tint':
+      semanticDesignTokens.surface.activeTabTint,
     '--dinkster-text-primary': semanticDesignTokens.text.primary,
     '--dinkster-text-secondary': semanticDesignTokens.text.secondary,
     '--dinkster-text-muted': semanticDesignTokens.text.muted,

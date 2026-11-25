@@ -187,3 +187,18 @@ test('the logo sits over the left bar and the panel switches sit at the right en
   await project.hover()
   await expect(arrow).not.toHaveCSS('color', rest)
 })
+
+test('the active workflow tab fades into the canvas and curves out at its feet', async ({
+  page,
+}) => {
+  await page.goto('/#editor-bar')
+  const rows = page.locator('.dinkster-workflow-tabs-preview')
+  await expect(rows).toHaveCount(6)
+  // The tint and the feet differ from the frame by a few levels, below the
+  // default per-pixel threshold. The first tab's left foot shows although the
+  // tab row clips its content.
+  await expect(rows.first().locator('..')).toHaveScreenshot(
+    'workflow-tabs.png',
+    { threshold: 0 },
+  )
+})

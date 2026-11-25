@@ -295,6 +295,14 @@
   overflow-y: hidden;
 }
 
+/* Both clip their content, so they reach into the strip's padding to show the
+   first tab's left foot when it is active; the tabs do not move. */
+.workflow-tabs,
+.workflow-tablist {
+  margin-inline-start: calc(-1 * (var(--dinkster-border-width) + var(--dinkster-radius-control)));
+  padding-inline-start: calc(var(--dinkster-border-width) + var(--dinkster-radius-control));
+}
+
 .tab,
 .tab-new {
   display: inline-flex;
@@ -323,11 +331,31 @@
   max-width: 220px;
 }
 
+/* The active tab opens into the canvas: a faint tint at its top fades out by
+   two thirds of its height, and its bottom corners curve outward with the
+   same radius as its top corners. */
 .tab.active {
   position: relative;
   z-index: 1;
   color: var(--dinkster-text-primary);
-  background: var(--dinkster-surface-canvas);
+  background-color: var(--dinkster-surface-canvas);
+  background-image: linear-gradient(var(--dinkster-surface-active-tab-tint), transparent 66%);
+}
+
+.tab.active::after {
+  position: absolute;
+  bottom: 0;
+  left: calc(-1 * (var(--dinkster-border-width) + var(--dinkster-radius-control)));
+  right: calc(-1 * (var(--dinkster-border-width) + var(--dinkster-radius-control)));
+  height: var(--dinkster-radius-control);
+  background-image:
+    radial-gradient(circle at 0 0, transparent calc(var(--dinkster-radius-control) - 0.5px), var(--dinkster-surface-canvas) calc(var(--dinkster-radius-control) + 0.5px)),
+    radial-gradient(circle at 100% 0, transparent calc(var(--dinkster-radius-control) - 0.5px), var(--dinkster-surface-canvas) calc(var(--dinkster-radius-control) + 0.5px));
+  background-position: left, right;
+  background-size: var(--dinkster-radius-control) var(--dinkster-radius-control);
+  background-repeat: no-repeat;
+  pointer-events: none;
+  content: '';
 }
 
 .tab.dragging {
