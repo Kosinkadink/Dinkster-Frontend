@@ -72,7 +72,7 @@ export function ProductProjectList(props: {
         <h1 id={heading} class="dinkster-title">
           {props.title}
         </h1>
-        <ProductButton intent="add" onClick={() => props.onNew()}>
+        <ProductButton onClick={() => props.onNew()}>
           <ProductIcon icon={Plus} />
           {props.newLabel}
         </ProductButton>

@@ -24,10 +24,17 @@ export function ProductNotice(props: {
 export function ProductErrorBanner(props: {
   children: JSX.Element
   onDismiss: () => void
+  /** A subtle outline and primary text, with only the icon in the danger colour. */
+  quiet?: boolean
 }) {
   const strings = useProductStrings()
   return (
-    <div class="dinkster-message" data-kind="error" role="alert">
+    <div
+      class="dinkster-message"
+      data-kind="error"
+      data-quiet={props.quiet ? '' : undefined}
+      role="alert"
+    >
       <ProductIcon icon={CircleAlert} />
       <span class="dinkster-message-copy">{props.children}</span>
       <ProductIconButton

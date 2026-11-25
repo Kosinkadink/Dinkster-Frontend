@@ -25,12 +25,11 @@ import {
 import { registerCatalog } from '@dinkster/core'
 import english from '../../app/src/locales/en.json'
 import {
-  CanvasRenderer,
   canvasColorsForTheme,
   canvasPaintTokens,
   canvasTypePaintForTheme,
-  createRegistryPainter,
   defaultTokens,
+  drawMinimapGraph,
   type DesignTokens,
   type TextMeasurer,
   type WidgetMeasure,
@@ -251,7 +250,10 @@ const states = {
 type State = keyof typeof states
 type Place = 'projects' | 'installations' | 'models' | 'docs'
 
-/** Draws one mock workflow with the editor's canvas renderer, fitted to its tile. */
+/**
+ * Draws one mock workflow as the minimap draws a graph: node boxes and wires,
+ * no text, the whole graph fitted inside the tile.
+ */
 function WorkflowPicture(props: { scene: CanvasGalleryPage }) {
   let canvas!: HTMLCanvasElement
   onMount(() => {
@@ -280,44 +282,45 @@ function WorkflowPicture(props: { scene: CanvasGalleryPage }) {
           ? { viewId: view.id, rows: view.measure(spec).rows }
           : undefined
       }
-      const fixture = createCanvasGalleryFixture(
+      const { scene } = createCanvasGalleryFixture(
         props.scene,
         tokens,
         measure,
         widgetMeasure,
       )
-      const nodes = fixture.scene.nodes
-      const left = Math.min(...nodes.map((node) => node.x))
-      const top = Math.min(...nodes.map((node) => node.y))
-      const right = Math.max(...nodes.map((node) => node.x + node.layout.width))
-      const bottom = Math.max(
-        ...nodes.map((node) => node.y + node.layout.height),
-      )
-      const inset = 16
-      // A small graph stays small, as in the minimap, instead of filling the tile.
-      const scale = Math.min(
-        0.35,
-        (width - inset * 2) / (right - left),
-        (height - inset * 2) / (bottom - top),
-      )
-      const renderer = new CanvasRenderer(
-        canvas,
+      const ratio = window.devicePixelRatio || 1
+      canvas.width = Math.round(width * ratio)
+      canvas.height = Math.round(height * ratio)
+      const graphics = canvas.getContext('2d')!
+      graphics.setTransform(ratio, 0, 0, ratio, 0, 0)
+      drawMinimapGraph(graphics, {
+        width,
+        height,
         tokens,
-        createRegistryPainter(widgets),
-      )
-      try {
-        renderer.setReducedMotion(true)
-        renderer.setGridVisible(false)
-        renderer.setScene(fixture.scene)
-        renderer.setViewport({
-          x: (width - (right - left) * scale) / 2 - left * scale,
-          y: (height - (bottom - top) * scale) / 2 - top * scale,
-          scale,
-        })
-        renderer.renderNow()
-      } finally {
-        renderer.dispose()
-      }
+        nodes: scene.nodes.map((node) => ({
+          x: node.x,
+          y: node.y,
+          width: node.layout.width,
+          height: node.layout.height,
+          bypassed: node.node.mode === 'bypassed',
+          ...(node.color !== undefined ? { color: node.color } : {}),
+        })),
+        groups: scene.groups.map((group) => ({
+          x: group.x,
+          y: group.y,
+          width: group.width,
+          height: group.height,
+          ...(group.color !== undefined ? { color: group.color } : {}),
+        })),
+        links: scene.links
+          .filter((link) => link.hidden !== true)
+          .map((link) => ({
+            from: { x: link.x1, y: link.y1 },
+            to: { x: link.x2, y: link.y2 },
+            ...(link.typeName !== undefined ? { typeName: link.typeName } : {}),
+          })),
+        reroutes: scene.reroutes.map((point) => ({ x: point.x, y: point.y })),
+      })
     }
     void fonts.then(paint)
     const observer = new ResizeObserver(() => void fonts.then(paint))
@@ -381,6 +384,8 @@ export function ProjectsGallery() {
   const [iconBar, setIconBar] = createSignal(true)
   const [many, setMany] = createSignal(false)
   const [previews, setPreviews] = createSignal(true)
+  // "Template" is offered only while the engine's templates are on.
+  const [templates, setTemplates] = createSignal(false)
   const [place, setPlace] = createSignal<Place>('projects')
   const [selected, setSelected] = createSignal('film-grain-tests')
   const [hidden, setHidden] = createSignal<ReadonlySet<string>>(new Set())
@@ -555,7 +560,7 @@ export function ProjectsGallery() {
         }
       />
       <Show when={state() === 'failed' && banner()}>
-        <ProductErrorBanner onDismiss={() => setBanner(false)}>
+        <ProductErrorBanner quiet onDismiss={() => setBanner(false)}>
           Nightly did not start, so Bookshop diorama could not open. Stable is
           running again.{' '}
           <ProductTextButton
@@ -740,7 +745,9 @@ export function ProjectsGallery() {
             onChange={setStartWith}
             options={[
               { value: 'empty', label: 'Empty' },
-              { value: 'template', label: 'Template' },
+              ...(templates()
+                ? [{ value: 'template', label: 'Template' }]
+                : []),
               { value: 'file', label: 'Workflow file' },
               { value: 'copy', label: 'Copy of a project' },
             ]}
@@ -846,7 +853,7 @@ export function ProjectsGallery() {
           brand={<Show when={!logoInBar()}>{logoMenu()}</Show>}
           search={
             <ProductWindowAction
-              label="Search"
+              label={english['command.search.open']}
               icon={Search}
               shortcut="Ctrl+K"
               onClick={() => setActivity('Search opened')}
@@ -935,7 +942,10 @@ export function ProjectsGallery() {
           </div>
         </div>
         <footer class="dinkster-editor-preview-status">
-          <span>Local</span>
+          <span class="dinkster-editor-preview-connection">
+            <span class="dinkster-connection-dot" aria-hidden="true" />
+            Local
+          </span>
           <span>{engineStatus()}</span>
           <span>
             {state() === 'first-run' || state() === 'loading'
@@ -1036,6 +1046,11 @@ export function ProjectsGallery() {
           label="Workflow previews drawn"
           checked={previews()}
           onChange={(event) => setPreviews(event.currentTarget.checked)}
+        />
+        <ProductCheckbox
+          label="Engine templates on"
+          checked={templates()}
+          onChange={(event) => setTemplates(event.currentTarget.checked)}
         />
         <p role="status">{activity()}</p>
       </ProductPage>
