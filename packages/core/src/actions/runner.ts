@@ -25,6 +25,7 @@ import type { CommandDefinition, CommandExecutionContext, CommandInvocation } fr
 import { predictAllocatedId } from '../commands/alloc.js'
 import type { DocumentSession } from '../commands/session.js'
 import { DocumentStore } from '../commands/store.js'
+import { occurrenceMemberReferenced } from '../compile/effective-topology.js'
 import type { ControllerMode, GraphDef, Json, NodeData, WorkflowDocument } from '../format/document.js'
 import type { LinkEndpoint, PortRef } from '../ids.js'
 import { resolveDynamicAddress } from '../format/document.js'
@@ -399,7 +400,8 @@ function memberWired(view: View, group: string, member: string): boolean {
   ]
   // A wire leaving a member field's output is a widget tap named by the field's flattened id.
   return ends.some((end) => 'node' in end && end.node === view.node.id &&
-    (('port' in end && end.port !== undefined && under(String(end.port))) || ('tap' in end && end.tap !== undefined && under(String(end.tap)))))
+    (('port' in end && end.port !== undefined && under(String(end.port))) || ('tap' in end && end.tap !== undefined && under(String(end.tap))))) ||
+    occurrenceMemberReferenced(view.doc, graph.id, view.node.id, group, member)
 }
 
 // ---------------------------------------------------------------------------

@@ -80,6 +80,69 @@ describe('direct member removal', () => {
     } } } }
     expect(memberRemovalInvocation(least, schema, 'sub', 'n1', 'items', 'm1')).toBeUndefined()
   })
+
+  it.each(['body input', 'body tap', 'boundary port', 'boundary tap', 'boundary construct', 'instance address'])(
+    'refuses removal used by an occurrence-local %s without changing any member or wire', (kind) => {
+      const initial = document()
+      const target = kind === 'body input'
+        ? { kind: 'body', endpoint: { node: 'n1', port: 'items.m1.value' } }
+        : kind === 'body tap'
+          ? { kind: 'body', endpoint: { node: 'n1', tap: 'items.m1.value' } }
+          : { kind: 'boundary', occurrence: { instancePath: [], node: 'a' },
+            address: { port: kind === 'instance address' ? 'items.m1.value' : kind === 'boundary tap' ? 'output' : 'input' },
+            route: [{ graph: 'sub', boundaryId: kind === 'boundary tap' ? 'output' : 'input', binding: kind === 'boundary tap'
+              ? { kind: 'widgetTap', node: 'n1', tap: 'items.m1.value' }
+              : { kind: kind === 'boundary construct' ? 'construct' : 'port', node: 'n1', port: 'items.m1.value' } }] }
+      const before = { ...initial, graphs: { ...initial.graphs, g0: { ...initial.graphs.g0!, nodes: {
+        a: { id: 'a', type: '#sub', values: {}, dynamic: { items: { members: ['m0', 'm1', 'm10'], seq: 11 } } },
+      } } }, occurrenceTopologies: { a: { owner: { instancePath: [], node: 'a' }, bodyGraph: 'sub', nextOrdinal: 1,
+        links: { local: { id: 'local', ...(kind.endsWith('tap')
+          ? { from: target, to: { kind: 'body', endpoint: { node: 'n2', port: 'items.m0.value' } } }
+          : { from: { kind: 'body', endpoint: { node: 'n2', tap: 'items.m0.value' } }, to: target }) } },
+      } } } as unknown as WorkflowDocument
+      const session = createLocalSession(before, coreCommandRegistry())
+      const graphId = kind === 'instance address' ? 'g0' : 'sub'
+      const nodeId = kind === 'instance address' ? 'a' : 'n1'
+      const invocation = memberRemovalInvocation(before, schema, graphId, nodeId, 'items', 'm1')!
+      expect(invocation).toBeDefined()
+      const result = session.dispatch(invocation)
+      expect(result.ok).toBe(false)
+      expect(result.diagnostics[0]).toMatchObject({ code: 'occurrence.topology.definitionReferenced',
+        message: 'A wire in one use of this subgraph still uses this member.' })
+      expect(session.doc).toEqual(before)
+      expect(session.canUndo).toBe(false)
+    })
+
+  it.each(['body sibling', 'boundary sibling', 'other body graph', 'other route graph', 'other instance graph'])(
+    'allows removal with an unrelated occurrence-local reference: %s', (kind) => {
+      const initial = document()
+      const graph = kind === 'other body graph' || kind === 'other route graph' ? 'other' : 'sub'
+      const target = kind === 'body sibling' || kind === 'other body graph'
+        ? { kind: 'body', endpoint: { node: 'n1', port: kind === 'body sibling' ? 'items.m10.value' : 'items.m1.value' } }
+        : { kind: 'boundary', occurrence: { instancePath: [], node: kind === 'other instance graph' ? 'n1' : 'a' },
+          address: { port: kind === 'other instance graph' ? 'items.m1.value' : 'input' },
+          route: [{ graph, boundaryId: kind === 'other instance graph' ? 'items.m1.value' : 'input', binding: { kind: 'port', node: 'n1',
+            port: kind === 'other route graph' ? 'items.m1.value' : 'items.m10.value' } }] }
+      const before = { ...initial, graphs: { ...initial.graphs, g0: { ...initial.graphs.g0!, nextOrdinal: 100, nodes: {
+        a: { id: 'a', type: `#${graph}`, values: {} }, n1: { id: 'n1', type: '#sub', values: {} },
+      } }, sub: { ...initial.graphs.sub!, boundary: { ...initial.graphs.sub!.boundary,
+        inputs: [...initial.graphs.sub!.boundary!.inputs, { id: 'items.m1.value', binds: { kind: 'port', node: 'n1', port: 'items.m10.value' } }],
+      } }, other: { ...initial.graphs.sub!, id: 'other', links: {}, nets: {} } },
+      occurrenceTopologies: { [kind === 'other instance graph' ? 'n1' : 'a']: {
+        owner: { instancePath: [], node: kind === 'other instance graph' ? 'n1' : 'a' }, bodyGraph: graph, nextOrdinal: 1,
+        links: { local: { id: 'local', from: { kind: 'body', endpoint: { node: 'n2', tap: 'items.m0.value' } },
+          to: target } },
+      } } } as unknown as WorkflowDocument
+      const session = createLocalSession(before, coreCommandRegistry())
+      const invocation = memberRemovalInvocation(before, schema, 'sub', 'n1', 'items', 'm1')!
+      const result = session.dispatch(invocation)
+      expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+      expect(session.doc.graphs.sub!.nodes.n1!.dynamic!.items!.members).toEqual(['m0', 'm10'])
+      expect(session.doc.occurrenceTopologies).toEqual(before.occurrenceTopologies)
+      session.undo()
+      expect(session.doc).toEqual(before)
+      expect(session.canUndo).toBe(false)
+    })
 })
 
 describe('menuFlat', () => {

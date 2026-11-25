@@ -12,6 +12,7 @@
 
 import { diag, type Diagnostic } from '../diagnostics.js'
 import type { DynamicPortState, Json, JsonObject } from '../format/document.js'
+import { occurrenceMemberReferenced } from '../compile/effective-topology.js'
 import type { CommandDefinition } from './contract.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
@@ -35,6 +36,10 @@ const dynamicRemoveMember: CommandDefinition = {
     const state = node.dynamic?.[construct]
     if (state?.members?.includes(member) !== true) {
       return [err('dynamic.memberMissing', `dynamic.removeMember: group '${construct}' stores no member '${member}'`)]
+    }
+
+    if (occurrenceMemberReferenced(doc, graphId, nodeId, construct, member)) {
+      return [err('occurrence.topology.definitionReferenced', 'A wire in one use of this subgraph still uses this member.')]
     }
 
     const nodePath = ['graphs', graphId, 'nodes', nodeId]
