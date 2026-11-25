@@ -337,6 +337,24 @@ test('An open row\'s side part draws its rules and keys in the node\'s divider a
 })
 
 for (const theme of ['dark', 'light'] as const) {
+  test(`Solver problems name their node once on each surface, ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await openPage(page, 'problem-box', theme)
+    await cardsReady(page, 'problem-box', theme)
+    for (const [id, title, sentence, kind] of [
+      ['type-warning', 'Decode', 'Samples needs latent data, but Load image sends an image.', 'warning'],
+      ['type-list-error', 'Blur image', 'Image needs one image, but Load images sends a list of images.', 'error'],
+    ] as const) {
+      const card = page.locator('figure.dinkster-canvas-example', { has: page.getByTestId(`problem-box-${id}`) })
+      const box = card.getByRole('dialog', { name: `Problems of ${title}`, exact: true })
+      await expect(box.locator('.problem-box-text')).toHaveText(sentence)
+      await expect(box).toHaveAttribute('data-kind', kind)
+      await expect(card.locator('.problems-group-title')).toHaveText('This workflow')
+      await expect(card.locator('.problem-message')).toHaveText(`${title}: ${sentence}`)
+      await expect(card.locator('.problem')).toHaveAttribute('data-severity', kind)
+    }
+  })
+
   test(`Canvas text input preserves shared behavior at compact density, ${theme}`, async ({
     page,
   }) => {

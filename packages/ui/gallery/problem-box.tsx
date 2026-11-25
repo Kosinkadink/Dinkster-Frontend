@@ -29,8 +29,6 @@ import { deriveProblemProjection } from '../../app/src/problem-display.js'
 import { problemBoxLines, problemBoxRows } from '../../app/src/problem-box.js'
 import { ProblemsPanel } from '../../app/src/ProblemsPanel.js'
 import type { AppState } from '../../app/src/app-state.js'
-import '../../app/src/styles/activity.css'
-import '../../app/src/styles/product-controls.css'
 
 /** Room under the nodes for their tabs, and under the lowest box, in px. */
 const TAB_ROOM = 24
