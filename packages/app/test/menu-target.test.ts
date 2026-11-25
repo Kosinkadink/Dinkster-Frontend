@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Hit } from '@dinkster/canvas'
-import { createMenuRegistry, type MenuContext, type MenuItem, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { coreCommandRegistry, createLocalSession, createMenuRegistry, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
 import { toolboxMenuRequest } from '../src/CanvasHost.js'
-import { canvasMenuContext, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
+import { canvasMenuContext, memberRemovalInvocation, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
 
 const item = (id: string): MenuItem => ({
   id,
@@ -13,6 +13,73 @@ const item = (id: string): MenuItem => ({
 const group = (name: string, ...ids: string[]): ResolvedMenuGroup => ({
   group: name,
   items: ids.map(item),
+})
+
+describe('direct member removal', () => {
+  const schema: NodeSchema = {
+    type: 'Stack', displayName: 'Stack', category: 'test', source: 'v3', isOutputNode: false,
+    body: [{ kind: 'group', id: 'items', keys: { kind: 'numbered', prefix: 'm', start: 0, pad: 0 },
+      grows: 'button', minMembers: 1, member: [
+        { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } },
+      ] }],
+  }
+  const document = (): WorkflowDocument => ({
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'lin1', root: 'g0', view: { graphs: {} },
+    graphs: { g0: { id: 'g0', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 }, sub: {
+      id: 'sub', name: 'sub', nextOrdinal: 100, reroutes: {},
+      nodes: {
+        n1: { id: 'n1', type: 'Stack', values: { 'items.m0.value': 7, 'items.m1.value': 19, 'items.m10.value': 31 },
+          dynamic: { items: { members: ['m0', 'm1', 'm10'], seq: 11 } } },
+        n2: { id: 'n2', type: 'Stack', values: {}, dynamic: { items: { members: ['m0', 'm1', 'm10'], seq: 11 } } },
+      },
+      links: {
+        incoming: { id: 'incoming', from: { node: 'n2', tap: 'items.m0.value' }, to: { node: 'n1', port: 'items.m1.value' } },
+        outgoing: { id: 'outgoing', from: { node: 'n1', tap: 'items.m1.value' }, to: { node: 'n2', port: 'items.m0.value' } },
+        kept: { id: 'kept', from: { node: 'n1', tap: 'items.m10.value' }, to: { node: 'n2', port: 'items.m10.value' } },
+      },
+      nets: {
+        sourced: { id: 'sourced', source: { node: 'n1', port: 'items.m1.out' }, sinks: [{ node: 'n2', port: 'items.m1.net' }] },
+        shared: { id: 'shared', source: { node: 'n2', port: 'items.m1.out' }, sinks: [{ node: 'n1', port: 'items.m1.net' }, { node: 'n1', port: 'items.m10.net' }] },
+      },
+      boundary: {
+        inputs: [{ id: 'input', binds: { kind: 'port', node: 'n1', port: 'items.m1.value' }, alsoBinds: [
+          { kind: 'port', node: 'n1', port: 'items.m1.extra' }, { kind: 'port', node: 'n1', port: 'items.m10.value' },
+        ] }],
+        outputs: [{ id: 'output', binds: { kind: 'widgetTap', node: 'n1', tap: 'items.m1.value' } }],
+      },
+    } },
+  } as unknown as WorkflowDocument)
+
+  it.each(['button', 'filled', 'link'] as const)('removes a %s-grown member and its wires in one undo step, preserving a similarly named sibling', (grows) => {
+    const before = document()
+    const session = createLocalSession(before, coreCommandRegistry())
+    const grown = { ...schema, body: schema.body.map((row) => row.kind === 'group' ? { ...row, grows } : row) }
+    const invocation = memberRemovalInvocation(session.doc, grown, 'sub', 'n1', 'items', 'm1')!
+    expect(session.dispatch(invocation).ok).toBe(true)
+    const after = session.doc
+    const graph = after.graphs.sub!
+    expect(graph.nodes.n1!.dynamic!.items).toEqual({ members: ['m0', 'm10'], seq: 11 })
+    expect(graph.nodes.n1!.values).toEqual({ 'items.m0.value': 7, 'items.m10.value': 31 })
+    expect(Object.keys(graph.links)).toEqual(['kept'])
+    expect(Object.keys(graph.nets)).toEqual(['shared'])
+    expect(graph.nets.shared!.sinks).toEqual([{ node: 'n1', port: 'items.m10.net' }])
+    expect(graph.boundary).toEqual({ inputs: [{ id: 'input', binds: { kind: 'port', node: 'n1', port: 'items.m10.value' } }], outputs: [] })
+    session.undo()
+    expect(session.doc).toEqual(before)
+    expect(session.canUndo).toBe(false)
+    session.redo()
+    expect(session.doc).toEqual(after)
+  })
+
+  it('offers no removal for the least count or a member the document does not store', () => {
+    const before = document()
+    expect(memberRemovalInvocation(before, schema, 'sub', 'n1', 'items', 'm2')).toBeUndefined()
+    const node = before.graphs.sub!.nodes.n1!
+    const least = { ...before, graphs: { ...before.graphs, sub: { ...before.graphs.sub!, nodes: {
+      ...before.graphs.sub!.nodes, n1: { ...node, dynamic: { items: { members: ['m1'], seq: 11 } } },
+    } } } }
+    expect(memberRemovalInvocation(least, schema, 'sub', 'n1', 'items', 'm1')).toBeUndefined()
+  })
 })
 
 describe('menuFlat', () => {

@@ -4486,13 +4486,41 @@ describe('moving a member by its grip', () => {
       expect(row.reorder!.alone).toBeUndefined()
     }
     // Without the cross the field runs to where any field in the group ends.
-    const bare = sceneWith(['lora0', 'lora1'], defaultTokens)
+    const bare = sceneWith(['lora0', 'lora1'], { ...defaultTokens, memberRemoveCross: false })
     for (const row of gripRows(bare)) {
       expect(row.crossInset).toBeUndefined()
       expect(inner.right - (row.inset + row.width!)).toBe(box.fieldGap)
     }
     // A group's only member has a grip that does nothing.
     expect(gripRows(sceneWith(['lora0']))[0]!.reorder).toMatchObject({ member: 'lora0', alone: true })
+  })
+
+  it('removes on a cross click, but not after a drag or at the least count', () => {
+    const scene = sceneWith(['lora0', 'lora1'])
+    const row = gripRows(scene)[1]!
+    const x = scene.nodes[0]!.layout.width - row.crossInset! - canvasPaintTokens.node.box.cross.size / 2
+    const y = row.y + defaultTokens.rowHeight / 2
+    const remove = vi.fn()
+    const harness = interactionHarness(scene, { onMemberRemove: remove })
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointerup', x, y)
+    expect(remove).toHaveBeenCalledOnce()
+    expect(remove.mock.calls[0]![0]).toMatchObject({ kind: 'memberRemove', remove: { construct: 'loras', member: 'lora1' } })
+    harness.fire('pointerdown', x, y)
+    harness.fire('pointermove', x + 30, y)
+    harness.fire('pointerup', x + 30, y)
+    expect(remove).toHaveBeenCalledOnce()
+    expect(harness.dispatched).toEqual([])
+
+    const least = sceneWith(['lora0'])
+    const leastRow = gripRows(least)[0]!
+    const disabled = interactionHarness(least, { onMemberRemove: remove })
+    const leastX = least.nodes[0]!.layout.width - leastRow.crossInset! - canvasPaintTokens.node.box.cross.size / 2
+    const leastY = leastRow.y + defaultTokens.rowHeight / 2
+    disabled.fire('pointerdown', leastX, leastY)
+    disabled.fire('pointerup', leastX, leastY)
+    expect(remove).toHaveBeenCalledOnce()
+    expect(disabled.dispatched).toEqual([])
   })
 
   it('drops the first member after the last, and the last before the first, as one command each', () => {

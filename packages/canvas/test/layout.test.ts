@@ -1086,36 +1086,53 @@ describe('sections', () => {
     expect(layout().rows.find((r) => r.kind === 'section')).not.toHaveProperty('hiddenPorts')
   })
 
-  it('ends each one-row member of a group grown by hand with a remove cross, once the cross is on', () => {
-    const group = (grows: 'button' | 'link'): NodeSchema['body'][number] => ({
+  it.each(['button', 'filled', 'link'] as const)('gives stored %s-grown members crosses, dimmed at the minimum, but none on offered members', (grows) => {
+    const group: NodeSchema['body'][number] = {
       kind: 'group',
       id: 'prompts',
       value: widget('prompt'),
       keys: { kind: 'numbered', prefix: 'prompt', start: 0, pad: 0 },
       grows,
       minMembers: 2,
-    })
-    const fields = (grows: 'button' | 'link', tokens = { ...defaultTokens, memberRemoveCross: true }) => {
-      const l = layoutNode(schemaOf([widget('top'), group(grows)]), nodeData, tokens, measure, widgetMeasure)
+    }
+    const fields = (members: string[], tokens = defaultTokens) => {
+      const node = { ...nodeData, dynamic: { prompts: { members } }, values: Object.fromEntries(members.map((key) => [`prompts.${key}`, 7])) }
+      const l = layoutNode(schemaOf([widget('top'), group]), node, tokens, measure, widgetMeasure)
       const outline = l.boxes!.find((b) => b.id === 'group:prompts')!
       // From the inner side of the group's outline to the node's right edge.
       const outlineRight = l.width - (outline.x + outline.width - canvasPaintTokens.node.box.stroke)
       return l.rows.flatMap((r) => r.kind === 'widget'
-        ? [{ id: r.inputId, inset: r.inset, cross: r.crossInset, right: l.width - r.inset - (r.width ?? l.width - r.inset * 2), outlineRight }]
+        ? [{ id: r.inputId, inset: r.inset, cross: r.crossInset, remove: r.remove, right: l.width - r.inset - (r.width ?? l.width - r.inset * 2), outlineRight }]
         : [])
     }
     const cross = canvasPaintTokens.node.box.cross
-    const [top, ...members] = fields('button')
+    const [top, ...members] = fields(['prompt0', 'prompt1', 'prompt2'])
     expect(top).toMatchObject({ id: 'top', cross: undefined, right: top!.inset })
-    expect(members.map((m) => m.id)).toEqual(['prompts.prompt0', 'prompts.prompt1'])
-    for (const member of members) {
+    expect(members.filter((m) => m.remove !== undefined).map((m) => m.id)).toEqual(['prompts.prompt0', 'prompts.prompt1', 'prompts.prompt2'])
+    for (const member of members.filter((m) => m.remove !== undefined)) {
       // The cross stands as far inside the outline as before the field's end.
       expect(member.cross! - member.outlineRight).toBe(cross.fieldGap)
       expect(member.right - (member.cross! + cross.size)).toBe(cross.fieldGap)
+      expect(member.remove!.disabledReason).toBeUndefined()
     }
-    expect(fields('link').every((field) => field.cross === undefined)).toBe(true)
-    // The editor draws no cross until pressing it removes the member.
-    expect(fields('button', defaultTokens).every((field) => field.cross === undefined && field.right === field.inset)).toBe(true)
+    expect(members.filter((m) => m.remove === undefined).map((m) => m.id)).toEqual(grows === 'button' ? [] : ['prompts.prompt3'])
+    expect(fields(['prompt0']).filter((m) => m.remove !== undefined).map((m) => m.remove!.disabledReason))
+      .toEqual(['The group already has its fewest members.'])
+    expect(fields(['prompt0', 'prompt1'], { ...defaultTokens, memberRemoveCross: false }).every((field) => field.cross === undefined && field.right === field.inset)).toBe(true)
+  })
+
+  it('puts the remove cross on an output-only member, but not a count-driven member', () => {
+    const group = {
+      kind: 'group' as const, id: 'items', value: output('value'),
+      keys: { kind: 'numbered' as const, prefix: 'm', start: 0, pad: 0 }, grows: 'link' as const, minMembers: 0,
+    }
+    const node = { ...nodeData, dynamic: { items: { members: ['m0', 'm1'], seq: 2 } } }
+    const layout = layoutNode(schemaOf([group]), node, defaultTokens, measure, widgetMeasure)
+    const rows = layout.rows.filter((row) => row.kind === 'ports')
+    expect(rows.flatMap((row) => row.remove === undefined ? [] : [row.remove.member])).toEqual(['m0', 'm1'])
+    expect(rows.filter((row) => row.remove !== undefined).every((row) => row.crossInset !== undefined)).toBe(true)
+    const counted = layoutNode(schemaOf([{ ...group, grows: { count: '2' } }]), node, defaultTokens, measure, widgetMeasure)
+    expect(counted.rows.filter((row) => row.kind === 'ports').every((row) => row.remove === undefined && row.crossInset === undefined)).toBe(true)
   })
 
   it('draws no box for a group hidden by its visible, and its box again while a member is wired', () => {

@@ -32,6 +32,7 @@ import {
   updateSceneNodePositions,
   updateSceneNodeValues,
   memberAt,
+  memberRemovalAt,
   IN_NODE_EDITORS,
   type Hit,
   type GhostLink,
@@ -172,7 +173,7 @@ import { cornerMenuMaxHeight, setupMinimap, type MinimapMarker } from './minimap
 import { CanvasCornerControls, MINIMAP_SWITCHES, type CanvasCornerMenu } from './CanvasChrome.js'
 import { NodePalette, type PaletteAnchor, type PaletteEntry } from './NodePalette.js'
 import { ContextMenu } from './ContextMenu.js'
-import { canvasMenuContext, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
+import { canvasMenuContext, memberRemovalInvocation, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
 import { BadgePopover, type BadgeAnchor } from './BadgePopover.js'
 import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
@@ -3173,6 +3174,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       lookupDemands.clear()
     })
 
+    const removeMember = (tab: Tab, graphId: string, nodeId: string, construct: string, member: string): void => {
+      if (tab.execution !== undefined || refuseFrozenEdit()) return
+      const reg = props.app.registryForTab(tab)
+      const node = tab.store.doc.graphs[graphId]?.nodes[nodeId]
+      const schema = node && reg && documentResolver(tab.store.doc, reg.resolve)(node.type)
+      if (schema === undefined) return
+      const invocation = memberRemovalInvocation(tab.store.doc, schema, graphId, nodeId, construct, member)
+      if (invocation !== undefined) dispatchGesture(tab, invocation)
+    }
     controller = editorPictureHeights = new InteractionController(canvasEl, renderer, {
       dispatch: (invocation) => {
         const tab = activeTab()
@@ -3262,6 +3272,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
         setButtonHover(undefined)
         void buttonPresses.press(place)
+      },
+      onMemberRemove: (hit) => {
+        const tab = activeTab()
+        if (tab) removeMember(tab, currentGraphId(tab), hit.node.id, hit.remove.construct, hit.remove.member)
       },
       onWiredWidgetActivate: (hit) => {
         const color = usedWiredColor(hit.row, arrivingCompanions[hit.node.id]?.[hit.row.valueKey]?.value)
@@ -3566,6 +3580,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         // down, through the same command as dragging its grip.
         const memberNode = 'node' in hit && !('bnode' in hit && hit.bnode !== undefined) ? hit.node : undefined
         const member = memberNode === undefined ? undefined : memberAt(memberNode.layout, worldY - memberNode.y)
+        const removal = memberNode === undefined ? undefined : memberRemovalAt(memberNode.layout, worldY - memberNode.y)
+        if (memberNode !== undefined && removal !== undefined) {
+          additionalGroups.push({ group: '45-member-remove', items: [{
+            id: 'core.member.remove', label: 'Remove', disabled: tab.execution !== undefined || removal.disabledReason !== undefined,
+            ...(removal.disabledReason === undefined ? {} : { disabledReason: removal.disabledReason }),
+            action: { kind: 'host', action: 'removeMember', params: { nodeId: memberNode.id, construct: removal.construct, member: removal.member } },
+          }] })
+        }
         if (memberNode !== undefined && member !== undefined) {
           const move = (index: number): CommandInvocation => ({
             command: 'dynamic.moveMember',
@@ -3927,6 +3949,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         })
       },
       extractSubgraph: () => { beginExtractSubgraph() },
+      removeMember: (params, m) => {
+        if (!params || typeof params !== 'object' || Array.isArray(params)) return
+        const { nodeId, construct, member } = params as JsonObject
+        if (typeof nodeId === 'string' && typeof construct === 'string' && typeof member === 'string') removeMember(m.tab, m.graphId, nodeId, construct, member)
+      },
       pressNodeMenuButton: (params, m) => {
         if (!params || typeof params !== 'object' || Array.isArray(params)) return
         const { nodeId, button } = params as JsonObject

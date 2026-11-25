@@ -26,6 +26,7 @@
  */
 
 import {
+  constructsOf,
   elaborateInterface,
   groupBoxKey,
   lineKeyOf,
@@ -181,6 +182,13 @@ export interface MemberGrip {
   readonly alone?: true
 }
 
+/** Direct removal of a stored member; absent on offered and count-driven members. */
+export interface MemberRemoval {
+  readonly construct: string
+  readonly member: string
+  readonly disabledReason?: string
+}
+
 export type LayoutRow =
   | {
       readonly kind: 'ports'
@@ -195,6 +203,7 @@ export type LayoutRow =
        * cross ends it, its right edge this far from the node's right edge.
        */
       readonly crossInset?: number
+      readonly remove?: MemberRemoval
       /** The row is a whole member that can be moved: its grip. */
       readonly reorder?: MemberGrip
     }
@@ -213,6 +222,7 @@ export type LayoutRow =
        * cross ends it, its right edge this far from the node's right edge.
        */
       readonly crossInset?: number
+      readonly remove?: MemberRemoval
       /** The row is a whole member that can be moved: its grip. */
       readonly reorder?: MemberGrip
       readonly inputId: string
@@ -431,6 +441,8 @@ export type LayoutRow =
       readonly ghost?: true
       readonly inset: number
       readonly top: number
+      readonly remove?: MemberRemoval
+      readonly crossInset?: number
       /** The member can be moved: its grip in the header. */
       readonly reorder?: MemberGrip
     }
@@ -597,6 +609,19 @@ export function memberAt(layout: NodeLayout, y: number): { construct: string; me
   if (best === undefined) return undefined
   const { height: _height, ...found } = best
   return found
+}
+
+/** The innermost removable member under node-local `y`, including its whole box. */
+export function memberRemovalAt(layout: NodeLayout, y: number): MemberRemoval | undefined {
+  let best: { remove: MemberRemoval; height: number } | undefined
+  for (const row of layout.rows) {
+    if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports') || row.remove === undefined) continue
+    const box = row.kind === 'member' ? layout.boxes?.find((box) => box.id === row.memberId) : undefined
+    const top = box?.y ?? row.y
+    const height = box?.height ?? row.height
+    if (y >= top && y < top + height && (best === undefined || height < best.height)) best = { remove: row.remove, height }
+  }
+  return best?.remove
 }
 
 /** Shared visible bounds for registry widget chrome and its overlay states. */
@@ -1123,6 +1148,7 @@ export function layoutNode(
     input?: PortSlot
     output?: PortSlot & { index: number }
     removable?: true
+    remove?: MemberRemoval
     reorder?: PendingGrip
     /** The spare member of a group that can be reordered: room where a grip would stand, none drawn. */
     gripSpace?: true
@@ -1143,6 +1169,8 @@ export function layoutNode(
   const outputs: {
     slot: PortSlot & { index: number }
     boxes: readonly string[]
+    remove?: MemberRemoval
+    removable?: true
   }[] = []
 
   const elaborated = options.elaborated ?? elaborateInterface(schema, node)
@@ -1223,10 +1251,24 @@ export function layoutNode(
   const closedAt = (chain: readonly string[]): string | undefined =>
     options.minimized === true ? undefined : chain.find((id) => decls.get(id)!.closed)
   const isHidden = (chain: readonly string[]): boolean => closedAt(chain) !== undefined
-  /** A row that is a whole member of a group growing by hand, with no member box of its own. */
-  const removable = (item: ElaboratedInput, chain: readonly string[]): boolean =>
-    tokens.memberRemoveCross && item.origin.kind === 'member' && chain.at(-1) === groupBoxKey(item.origin.construct) &&
-    decls.get(chain.at(-1)!)!.byHand === true
+  const constructs = constructsOf(schema, node.dynamic)
+  const removalOf = (construct: string, member: string): MemberRemoval | undefined => {
+    const spec = constructs.get(construct)
+    const members = node.dynamic?.[construct]?.members ?? []
+    if (spec?.kind !== 'group' || typeof spec.grows !== 'string' || !members.includes(member)) return undefined
+    return { construct, member, ...(members.length <= spec.minMembers ? { disabledReason: 'The group already has its fewest members.' } : {}) }
+  }
+  const rowRemoval = (item: ElaboratedInput | ElaboratedOutput, chain: readonly string[]): { remove?: MemberRemoval } => {
+    if (item.kind === 'input' && item.kept !== undefined || item.origin.kind !== 'member' || item.origin.ghost === true || chain.at(-1) !== groupBoxKey(item.origin.construct)) return {}
+    const remove = removalOf(item.origin.construct, item.origin.key)
+    return remove === undefined ? {} : { remove }
+  }
+  /** Reserve the cross's place on offered members too, so their fields align. */
+  const removable = (item: ElaboratedInput | ElaboratedOutput, chain: readonly string[]): boolean => {
+    if (!tokens.memberRemoveCross || item.kind === 'input' && item.kept !== undefined || item.origin.kind !== 'member' || chain.at(-1) !== groupBoxKey(item.origin.construct)) return false
+    const spec = constructs.get(item.origin.construct)
+    return spec?.kind === 'group' && typeof spec.grows === 'string'
+  }
   /** A stored member of a group that can be reordered, from its group's declaration. */
   const gripOf = (construct: string, member: string): PendingGrip | undefined => {
     const group = decls.get(groupBoxKey(construct))
@@ -1413,6 +1455,8 @@ export function layoutNode(
       }
       outputs.push({
         boxes: chain,
+        ...rowRemoval(item, chain),
+        ...(removable(item, chain) ? { removable: true as const } : {}),
         slot: {
           portId: spec.id,
           ...rowLabels(item),
@@ -1472,6 +1516,7 @@ export function layoutNode(
           ...annotate(item),
         },
         ...(removable(item, chain) ? { removable: true as const } : {}),
+        ...rowRemoval(item, chain),
         ...withGrip(rowGrip(item, chain)),
         ...spareGrip(item, chain),
       })
@@ -1500,6 +1545,7 @@ export function layoutNode(
       kind: 'widget',
       boxes: chain,
       ...(removable(item, chain) ? { removable: true as const } : {}),
+      ...rowRemoval(item, chain),
       ...withGrip(rowGrip(item, chain)),
       ...spareGrip(item, chain),
       widget: {
@@ -1548,7 +1594,10 @@ export function layoutNode(
     const rest = list.slice(next)
     if (rest.length === 0) continue
     const chain = rest[0]!.boxes
-    const extra = rest.map((output): PendingRow => ({ kind: 'ports', boxes: chain, output: output.slot }))
+    const extra = rest.map((output): PendingRow => ({ kind: 'ports', boxes: chain, output: output.slot,
+      ...(output.remove === undefined ? {} : { remove: output.remove }),
+      ...(output.removable ? { removable: true as const } : {}),
+    }))
     if (chain.length === 0) {
       // A node's own outputs beyond its pin rows get rows of their own after
       // every row, but before the boxes ending the node that hold only outputs.
@@ -1772,9 +1821,12 @@ export function layoutNode(
           const top = headerTop()
           const height = top + box.stroke + headerHeight - y
           const grip = decl.member !== undefined && !decl.ghost ? gripOf(decl.construct!, decl.member) : undefined
+          const remove = decl.member === undefined || decl.ghost ? undefined : removalOf(decl.construct!, decl.member)
           push({
             kind: 'member', y, height, construct: decl.construct!, memberId: decl.id, label: decl.label,
             ordinal: decl.ordinal ?? 0, ...(decl.ghost ? { ghost: true as const } : {}), inset: outlineX(depth), top,
+            ...(remove === undefined ? {} : { remove }),
+            ...(tokens.memberRemoveCross && remove !== undefined ? { crossInset: outlineX(depth) + box.stroke + box.cross.fieldGap } : {}),
             ...(grip ? { reorder: { ...grip, gripX: outlineX(depth) + box.stroke + box.labelGap + box.gripWidth / 2 } } : {}),
           }, depth)
           open.push({ decl, top, first: index })
@@ -1864,7 +1916,8 @@ export function layoutNode(
           ...(depth > 0 ? { nameInset: nameInset(depth) } : {}),
           ...(row.input ? { input: row.input } : {}),
           ...(row.output ? { output: row.output } : {}),
-          ...(row.removable && !row.output ? { crossInset: crossInset(depth) } : {}),
+          ...(row.removable ? { crossInset: crossInset(depth) } : {}),
+          ...(row.remove === undefined ? {} : { remove: row.remove }),
           // The grip's place on the row is set once the node's width is known.
           ...(row.reorder && !row.output ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
         }, depth)
@@ -1889,6 +1942,7 @@ export function layoutNode(
         const line = lines.get(row)!
         push({
           kind: 'widget', y, height, inset, ...w, ...(row.removable && line.at(-1) === row ? { crossInset: crossInset(depth) } : {}),
+          ...(row.remove === undefined ? {} : { remove: row.remove }),
           ...(row.reorder && line[0] === row ? { reorder: { ...row.reorder, gripX: 0 } } : {}),
         }, depth)
         // Socketless controls keep their editor and outgoing value tap; an

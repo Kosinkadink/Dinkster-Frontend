@@ -5,7 +5,7 @@
  */
 
 import type { TypeExpr } from '@dinkster/core'
-import type { LayoutRow, MemberGrip, PinLayout } from './layout.js'
+import type { LayoutRow, MemberGrip, MemberRemoval, PinLayout } from './layout.js'
 import { canvasPaintTokens, defaultTokens, type CanvasDetailLevel } from './tokens.js'
 import { noteLookupRows } from './layout.js'
 import {
@@ -113,6 +113,11 @@ export type Hit =
       readonly kind: 'grip'
       readonly node: SceneNode
       readonly grip: MemberGrip
+    }
+  | {
+      readonly kind: 'memberRemove'
+      readonly node: SceneNode
+      readonly remove: MemberRemoval
     }
   /** A lookup note's Try again: asks for the note's call again. */
   | {
@@ -279,6 +284,20 @@ export function gripAt(node: SceneNode, wx: number, wy: number): MemberGrip | un
   return undefined
 }
 
+/** The remove cross at a member line's end or in its box header. */
+function memberRemoveAt(node: SceneNode, wx: number, wy: number): MemberRemoval | undefined {
+  const box = canvasPaintTokens.node.box
+  for (const row of node.layout.rows) {
+    if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports') || row.crossInset === undefined || row.remove === undefined) continue
+    const right = node.x + node.layout.width - row.crossInset
+    const cy = node.y + (row.kind === 'member'
+      ? row.top + (defaultTokens.rowHeight - defaultTokens.rowGeometry.fieldInsetY * 2) / 2
+      : row.y + defaultTokens.rowHeight / 2)
+    if (wx >= right - box.cross.size - box.cross.fieldGap / 2 && wx <= right + box.cross.fieldGap / 2 && Math.abs(wy - cy) <= defaultTokens.rowHeight / 2) return row.remove
+  }
+  return undefined
+}
+
 /** The minimize arrow's square target at the left end of a node's title bar. */
 export function minimizeArrowRect(node: SceneNode): { x: number; y: number; width: number; height: number } {
   const { left, target } = canvasPaintTokens.node.minimizeArrow
@@ -408,6 +427,8 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
       if (previewCaptionAt(node, wx, wy) && nodeResizeHandle(node, wx, wy, opts?.scale) === undefined) {
         return { kind: 'preview-caption', node }
       }
+      const remove = memberRemoveAt(node, wx, wy)
+      if (remove !== undefined) return { kind: 'memberRemove', node, remove }
       const grip = gripAt(node, wx, wy)
       if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const row of l.rows) {
@@ -449,6 +470,8 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     if (!inside && !minimizedProxy) continue
     if (wy <= node.y + l.headerHeight) return { kind: 'header', node }
     if (contentDetail) {
+      const remove = memberRemoveAt(node, wx, wy)
+      if (remove !== undefined) return { kind: 'memberRemove', node, remove }
       const grip = gripAt(node, wx, wy)
       if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const row of l.rows) {

@@ -793,10 +793,7 @@ export interface DesignTokens {
    * curve described in text and a passed structured value shown as code.
    */
   readonly widgetRowLook: 'inset-raised' | 'raised-editors'
-  /**
-   * A remove cross on each member of a group that grows by hand. Off until
-   * pressing it removes the member: nothing is drawn that does nothing.
-   */
+  /** A remove cross on each stored member of a group that grows by hand. */
   readonly memberRemoveCross: boolean
   /**
    * How number, single-line text and seed rows are edited: in a card under
@@ -997,7 +994,7 @@ export const defaultTokens: DesignTokens = {
   fontSize: 12,
   titleFontSize: 13,
   widgetRowLook: 'raised-editors',
-  memberRemoveCross: false,
+  memberRemoveCross: true,
   widgetEditing: 'in-row',
   nodeLook: 'flat-title',
   crispEdges: true,

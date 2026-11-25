@@ -435,6 +435,7 @@ export interface InteractionHost {
   onWiredWidgetActivate?(hit: Extract<Hit, { kind: 'widget' }>): void
   /** Click on a declared button; the client point is where the press happened. */
   onButtonActivate?(hit: Extract<Hit, { kind: 'button' }>, screenX: number, screenY: number): void
+  onMemberRemove?(hit: Extract<Hit, { kind: 'memberRemove' }>): void
   /** Click on the active lens's registered widget-row affordance. */
   onWidgetRowAffordanceActivate?(hit: Extract<Hit, { kind: 'widget' }>): void
   /** Click on the active lens's preview-surface affordance. */
@@ -510,6 +511,7 @@ export type CanvasHoverTarget =
   | { readonly kind: 'widgetTap'; readonly hit: Extract<Hit, { kind: 'widgetTap' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'widget'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'button'; readonly hit: Extract<Hit, { kind: 'button' }>; readonly x: number; readonly y: number }
+  | { readonly kind: 'memberRemove'; readonly hit: Extract<Hit, { kind: 'memberRemove' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'controller'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'subgraphMark'; readonly mark: { readonly item: string; readonly label: string }; readonly x: number; readonly y: number }
   | { readonly kind: 'header'; readonly hit: Extract<Hit, { kind: 'header' }>; readonly x: number; readonly y: number }
@@ -726,6 +728,7 @@ type Gesture =
       moved: boolean
     }
   | { readonly kind: 'button'; readonly hit: Extract<Hit, { kind: 'button' }>; moved: boolean }
+  | { readonly kind: 'memberRemove'; readonly hit: Extract<Hit, { kind: 'memberRemove' }>; moved: boolean }
   | {
       readonly kind: 'resize'
       readonly nodeId: string
@@ -1814,6 +1817,9 @@ export class InteractionController {
       case 'button':
         this.gesture = { kind: 'button', hit, moved: false }
         this.pushOverlay({ pressedButton: { nodeId: hit.node.id, key: `button:${hit.row.buttonId}` } })
+        return
+      case 'memberRemove':
+        this.gesture = { kind: 'memberRemove', hit, moved: false }
         return
       case 'lookupRetry':
         this.host.retryLookup?.(hit.node, hit.row.lookup!.retry!)
@@ -3089,7 +3095,7 @@ export class InteractionController {
         ? { kind: 'controller', hit, x: clientX, y: clientY }
       : subgraphMark
         ? { kind: 'subgraphMark', mark: subgraphMark, x: clientX, y: clientY }
-      : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'button' || hit.kind === 'header' || hit.kind === 'reroute' ||
+      : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'button' || hit.kind === 'memberRemove' || hit.kind === 'header' || hit.kind === 'reroute' ||
         hit.kind === 'link' && hit.link.mismatch === true)
         ? { kind: hit.kind, hit, x: clientX, y: clientY } as CanvasHoverTarget
         : undefined)
@@ -3272,6 +3278,7 @@ export class InteractionController {
         return
       case 'growth':
       case 'button':
+      case 'memberRemove':
         // A press that moves away does not add or press: the button stops looking pressed.
         if (passed && !g.moved) {
           g.moved = true
@@ -3589,6 +3596,10 @@ export class InteractionController {
       case 'button':
         this.pushOverlay()
         if (!g.moved) this.host.onButtonActivate?.(g.hit, clientX, clientY)
+        return
+      case 'memberRemove':
+        this.pushOverlay()
+        if (!g.moved && g.hit.remove.disabledReason === undefined) this.host.onMemberRemove?.(g.hit)
         return
       case 'node': {
         if (!g.moved) {
@@ -4380,6 +4391,8 @@ export class InteractionController {
         return j('lookupRetry', hit.node.id, hit.row.noteId)
       case 'grip':
         return j('grip', hit.node.id, hit.grip.construct, hit.grip.member)
+      case 'memberRemove':
+        return j('memberRemove', hit.node.id, hit.remove.construct, hit.remove.member)
       case 'button':
         return j('button', hit.node.id, hit.row.buttonId)
       case 'header':

@@ -3757,9 +3757,11 @@ export class CanvasRenderer {
         ctx.fill()
       }
       /** A remove cross centered on `cy`, its right edge at `right`. */
-      const paintCross = (right: number, cy: number): void => {
+      const paintCross = (right: number, cy: number, disabled: boolean): void => {
         const cross = boxPaint.cross
         const cx = right - cross.size / 2
+        const alpha = ctx.globalAlpha
+        if (disabled) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
         ctx.strokeStyle = t.colors.boxCount
         ctx.lineWidth = cross.stroke
         ctx.beginPath()
@@ -3768,6 +3770,7 @@ export class CanvasRenderer {
         ctx.moveTo(cx + cross.size / 2, cy - cross.size / 2)
         ctx.lineTo(cx - cross.size / 2, cy + cross.size / 2)
         ctx.stroke()
+        ctx.globalAlpha = alpha
       }
       /** Six dots in two columns: a member's grip, centered on (`cx`, `cy`). */
       const paintGrip = (grip: MemberGrip, cx: number, cy: number): void => {
@@ -3802,8 +3805,8 @@ export class CanvasRenderer {
         ctx.globalAlpha = dragged !== undefined && rowTop >= dragged.top && rowTop < dragged.bottom
           ? rowsAlpha * canvasPaintTokens.widget.inactiveOpacity
           : rowsAlpha
-        if ((row.kind === 'widget' || row.kind === 'ports') && row.crossInset !== undefined) {
-          paintCross(node.x + l.width - row.crossInset, rowY + t.rowHeight / 2)
+        if ((row.kind === 'widget' || row.kind === 'ports') && row.crossInset !== undefined && row.remove !== undefined) {
+          paintCross(node.x + l.width - row.crossInset, rowY + t.rowHeight / 2, row.remove.disabledReason !== undefined)
         }
         if ((row.kind === 'widget' || row.kind === 'ports') && row.reorder !== undefined) {
           paintGrip(row.reorder, node.x + row.reorder.gripX, rowY + t.rowHeight / 2)
@@ -3882,7 +3885,7 @@ export class CanvasRenderer {
           // the cross as far from the outline as a one-row member's does.
           const textX = left + boxPaint.stroke + boxPaint.labelGap + boxPaint.gripWidth + boxPaint.labelGap
           if (row.reorder !== undefined) paintGrip(row.reorder, node.x + row.reorder.gripX, cy)
-          if (t.memberRemoveCross) paintCross(right - boxPaint.stroke - boxPaint.cross.fieldGap, cy)
+          if (row.crossInset !== undefined && row.remove !== undefined) paintCross(node.x + l.width - row.crossInset, cy, row.remove.disabledReason !== undefined)
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
           ctx.fillText(fitText(ctx, row.label, Math.max(0, right - boxPaint.cross.reserve - textX)), textX, cy)
@@ -3961,7 +3964,10 @@ export class CanvasRenderer {
           if (row.output) {
             if (row.output.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
             ctx.fillStyle = t.colors.label
-            paintPinLabel(ctx, t, row.output.label, node.x + l.width - t.rowGeometry.portLabelInset - (row.nameInset ?? 0), rowY + row.height / 2, 'right')
+            const right = row.crossInset === undefined
+              ? node.x + l.width - t.rowGeometry.portLabelInset - (row.nameInset ?? 0)
+              : node.x + l.width - row.crossInset - boxPaint.cross.size - boxPaint.cross.fieldGap
+            paintPinLabel(ctx, t, row.output.label, right, rowY + row.height / 2, 'right')
             ctx.globalAlpha = rowAlpha
           }
         } else {
