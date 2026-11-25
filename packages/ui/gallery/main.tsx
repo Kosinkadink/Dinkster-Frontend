@@ -896,7 +896,7 @@ function Gallery() {
                   />
                   <ProductMenu
                     label={`Type: ${quietType().toLowerCase()}`}
-                    appearance="quiet"
+                    fill="quiet"
                     items={['Any type', 'Image', 'String'].map((type) => ({
                       label: type,
                       checked: type === quietType(),

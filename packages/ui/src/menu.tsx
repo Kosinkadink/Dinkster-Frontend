@@ -80,7 +80,7 @@ function Menu(props: {
   rail?: boolean | undefined
   project?: boolean
   iconOnly?: boolean | undefined
-  appearance?: 'quiet' | undefined
+  fill?: 'quiet' | undefined
   busy?: boolean
   title?: string
   attention?: ProductAttention | undefined
@@ -199,7 +199,7 @@ function Menu(props: {
       <button
         ref={trigger}
         class="dinkster-button dinkster-menu-trigger"
-        data-fill={props.appearance}
+        data-fill={props.fill}
         data-account={props.account ? '' : undefined}
         data-rail={props.rail ? '' : undefined}
         data-project={props.project ? '' : undefined}
@@ -390,7 +390,7 @@ export function ProductMenu(props: {
   icon?: LucideIcon
   iconOnly?: boolean
   /** A borderless text trigger; absent keeps the outlined trigger. */
-  appearance?: 'quiet'
+  fill?: 'quiet'
   /** Shown on the trigger's corner and read after its name. */
   attention?: ProductAttention | undefined
 }) {
@@ -401,7 +401,7 @@ export function ProductMenu(props: {
       items={props.items}
       identity={props.identity}
       iconOnly={props.iconOnly}
-      appearance={props.appearance}
+      fill={props.fill}
       attention={props.attention}
     >
       <Show when={props.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>
