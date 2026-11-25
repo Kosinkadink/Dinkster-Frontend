@@ -53,6 +53,7 @@ import {
   supportsOutputRepresentation,
   withPrimitiveValue,
   effectiveWidgetDefault,
+  documentIdentityOf,
   occurrencesForView,
   runtimeIdsFor,
   subgraphDefIdOf,
@@ -159,16 +160,45 @@ function eachRecordedAutomaticRow(
   visit: (node: Scene['nodes'][number], row: Extract<Scene['nodes'][number]['layout']['rows'][number], { kind: 'widget' }>, record: RecordedAutomatic) => void,
 ): void {
   const records = execution?.automaticValues?.filter(keep) ?? []
-  const toSource = execution?.artifact?.provenance.toSource
-  if (records.length === 0 || toSource === undefined || instancePath === undefined) return
-  const own = occurrencesForView({ instancePath, runtimeIds: records.map((record) => record.runtimeNodeId), toSource }).own
+  const artifact = execution?.artifact
+  if (records.length === 0 || artifact === undefined || instancePath === undefined) return
+  const toSource = artifact.provenance.toSource
+  const view = occurrencesForView({ instancePath, runtimeIds: records.map((record) => record.runtimeNodeId), toSource })
+  // A field promoted to a subgraph node is recorded on the inner node that
+  // ran, under the inner input; the run's own document says which boundary
+  // item reaches it, through every subgraph in between.
+  const graphs = artifact.snapshot.graphs
+  const defOf = (graphId: string | undefined, nodeId: string): string | undefined => {
+    const type = graphId === undefined ? undefined : graphs[graphId]?.nodes[nodeId]?.type
+    return type === undefined ? undefined : subgraphDefIdOf(type)
+  }
+  let viewedGraph: string | undefined = artifact.snapshot.root
+  for (const instance of instancePath) viewedGraph = defOf(viewedGraph, instance)
+  const boundaryItemOf = (defId: string | undefined, hops: readonly string[], inputId: string): string | undefined => {
+    const [hop, ...rest] = hops
+    const inputs = defId === undefined ? undefined : graphs[defId]?.boundary?.inputs
+    if (inputs === undefined || hop === undefined) return undefined
+    const port = rest.length === 0 ? inputId : boundaryItemOf(defOf(defId, hop), rest, inputId)
+    return inputs.find((item) => item.binds.kind === 'port' && item.binds.node === hop && item.binds.port === port)?.id
+  }
+  const keyOf = (node: Scene['nodes'][number], record: RecordedAutomatic): string | undefined => {
+    if ((view.own.get(node.id) ?? []).includes(record.runtimeNodeId)) return record.inputId
+    if (!(view.inner.get(node.id) ?? []).includes(record.runtimeNodeId)) return undefined
+    const occurrence = documentIdentityOf(record.runtimeNodeId, toSource)?.occurrence
+    if (occurrence === undefined) return undefined
+    const hops = [...occurrence.instancePath.slice(instancePath.length + 1), occurrence.node]
+    return boundaryItemOf(defOf(viewedGraph, node.id), hops, record.inputId)
+  }
   for (const node of scene.nodes) {
-    const runtimeIds = new Set(own.get(node.id) ?? [])
-    if (runtimeIds.size === 0) continue
+    const recorded = records.flatMap((record) => {
+      const key = keyOf(node, record)
+      return key === undefined ? [] : [{ key, record }]
+    })
+    if (recorded.length === 0) continue
     for (const row of node.layout.rows) {
       if (row.kind !== 'widget' || row.automatic === undefined) continue
-      const record = records.find((item) => runtimeIds.has(item.runtimeNodeId) && item.inputId === row.valueKey)
-      if (record !== undefined) visit(node, row, record)
+      const found = recorded.find((item) => item.key === row.valueKey)
+      if (found !== undefined) visit(node, row, found.record)
     }
   }
 }

@@ -477,8 +477,14 @@ export interface LookupSite {
   readonly accepts: (answer: unknown) => boolean
 }
 
-/** The calls the lookup fields, automatic fields and notes of an elaborated node are loading for, or hold an answer for. */
-export function lookupSitesOf(items: readonly ElaboratedItem[]): LookupSite[] {
+/**
+ * The calls the lookup fields, automatic fields and notes of an elaborated
+ * node are loading for, or hold an answer for. A fixed automatic field's
+ * call is made only while that field is open (`openField`, its value key),
+ * where it shows what emptying it would give; it comes last, so the other
+ * sites keep their places.
+ */
+export function lookupSitesOf(items: readonly ElaboratedItem[], openField?: string): LookupSite[] {
   const sites: LookupSite[] = []
   for (const item of items) {
     if (item.kind === 'note' && item.lookup !== undefined && 'call' in item.lookup && item.lookup.call !== undefined) {
@@ -487,9 +493,7 @@ export function lookupSitesOf(items: readonly ElaboratedItem[]): LookupSite[] {
     if (item.kind !== 'input') continue
     // An automatic field takes any answer: one that is not a value of the
     // field gives its default with the warning, as the run does.
-    for (const automatic of [item.automatic, item.automaticIfEmptied]) {
-      if (automatic?.call !== undefined) sites.push({ call: automatic.call, accepts: () => true })
-    }
+    if (item.automatic?.call !== undefined) sites.push({ call: item.automatic.call, accepts: () => true })
     if (item.looked === undefined) continue
     const widget = item.spec.widget
     if (widget === undefined) continue
@@ -498,6 +502,9 @@ export function lookupSitesOf(items: readonly ElaboratedItem[]): LookupSite[] {
       sites.push({ call: state.call, accepts: (answer) => lookedAnswerValue(widget, field, answer) !== undefined })
     }
   }
+  const open = openField === undefined ? undefined
+    : items.find((item): item is ElaboratedInput => item.kind === 'input' && valueKeyOf(item) === openField)
+  if (open?.automaticIfEmptied?.call !== undefined) sites.push({ call: open.automaticIfEmptied.call, accepts: () => true })
   return sites
 }
 
@@ -1010,7 +1017,7 @@ function elaboratePass(
 
   /** Fields that declare `automatic` with nothing stored and no wire, and the scope each sits in. */
   const sites = new Map<string, { readonly row: InputSpec; readonly scope: Scope }>()
-  /** Fields that declare `automatic` and hold a fixed value: worked out only for the open field. */
+  /** Fields that declare `automatic` and hold a fixed value, worked out for what emptying them would give. */
   const fixedSites = new Map<string, { readonly row: InputSpec; readonly scope: Scope }>()
   const outcomes = new Map<string, AutomaticState>()
   const working = new Set<string>()

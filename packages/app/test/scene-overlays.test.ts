@@ -1894,8 +1894,8 @@ describe('last run automatic warnings', () => {
         },
       })),
     }) as unknown as Scene
-  const run = (toSource: Record<string, string>, automaticValues: readonly unknown[]) =>
-    ({ artifact: { provenance: { toSource } }, automaticValues }) as unknown as ExecutionState
+  const run = (toSource: Record<string, string>, automaticValues: readonly unknown[], graphs: Record<string, unknown> = {}) =>
+    ({ artifact: { provenance: { toSource }, snapshot: { root: 'g0', graphs } }, automaticValues }) as unknown as ExecutionState
 
   it('warns on a field the run filled with its default only while the editor works it out', () => {
     const view = automaticScene({
@@ -1926,6 +1926,26 @@ describe('last run automatic warnings', () => {
     expect(lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: ['sub'] }).map((d) => d.message))
       .toEqual(['The last run could not work out frame rate and used the default, 24.'])
     expect(lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: [] })).toEqual([])
+  })
+
+  it('finds a field promoted to a subgraph node through each boundary it crosses', () => {
+    const view = { ...automaticScene({ sub: { fps: 'worked-out', frame_rate: 'worked-out' } }), diagnostics: [] } as unknown as Scene
+    const port = (id: string, node: string, inner: string) => ({ id, binds: { kind: 'port', node, port: inner } })
+    const execution = run({ r1: 'sub.mid.inner' }, [
+      { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, workedOut: false },
+    ], {
+      g0: { nodes: { sub: { type: '#outer' } } },
+      outer: { nodes: { mid: { type: '#middle' } }, boundary: { inputs: [port('fps', 'mid', 'rate')] } },
+      middle: { nodes: { inner: { type: 'Video' } }, boundary: { inputs: [port('rate', 'inner', 'frame_rate')] } },
+    })
+
+    expect(lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: [] }).map((d) => d.anchor?.port))
+      .toEqual([{ node: 'sub', port: 'fps' }])
+    const rows = withRecordedAutomaticValues(view, execution, []).nodes[0]!.layout.rows as readonly { valueKey: string; automatic?: unknown }[]
+    expect(Object.fromEntries(rows.map((row) => [row.valueKey, row.automatic]))).toEqual({
+      fps: { value: 24, state: 'default' },
+      frame_rate: { value: 30, state: 'worked-out' },
+    })
   })
 
   it('shows in a frozen view the value each field used in its run, not one worked out now', () => {

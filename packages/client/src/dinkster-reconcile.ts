@@ -68,9 +68,10 @@ export async function hydrateDinksterCompletedExecution(
       store.hydrateOutputs(ref, outputs as Readonly<Record<string, Readonly<Record<string, unknown>>>>)
     }
     if (job.artifacts !== undefined) store.hydrateArtifacts(ref, job.artifacts)
-    const automaticValues = automaticValuesOfJob(job)
-    if (automaticValues.length > 0) store.hydrateAutomaticValues(ref, automaticValues)
   }
+  // A failed or cancelled run also records the automatic values it used.
+  const automaticValues = job === undefined ? [] : automaticValuesOfJob(job)
+  if (automaticValues.length > 0) store.hydrateAutomaticValues(ref, automaticValues)
 }
 
 // Generation-tracked like the V1 reconciler: overlapping reconnects coalesce,

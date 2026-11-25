@@ -1052,6 +1052,7 @@ describe('automatic values', () => {
       automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'fps')!.automatic,
       warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default'),
       sites: lookupSitesOf(elaborated.items),
+      openSites: lookupSitesOf(elaborated.items, 'fps'),
     }
   }
 
@@ -1065,8 +1066,10 @@ describe('automatic values', () => {
     // so one that is not a value of the field warns as the run does.
     expect(sites.map((site) => site.call)).toEqual([{ lookup: 'video.rate_of', args: [50] }])
     expect(sites[0]!.accepts('not a rate')).toBe(true)
-    // A typed value still asks, for what emptying the field would give.
-    expect(automaticOf(() => undefined, { rate: 50, fps: 30 }).sites.map((site) => site.call)).toEqual([{ lookup: 'video.rate_of', args: [50] }])
+    // A typed value asks, for what emptying the field would give, only while its field is open.
+    const typed = automaticOf(() => undefined, { rate: 50, fps: 30 })
+    expect(typed.sites).toEqual([])
+    expect(typed.openSites.map((site) => site.call)).toEqual([{ lookup: 'video.rate_of', args: [50] }])
   })
 
   it('uses an answer and a kept answer, and refuses a decimal that is not whole for a whole-number field', () => {

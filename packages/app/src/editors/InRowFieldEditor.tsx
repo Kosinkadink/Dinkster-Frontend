@@ -23,13 +23,19 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   const message = useAppMessage()
   const numeric = spec.widgetType === intKind.type || spec.widgetType === floatKind.type
   // An automatic field is empty while its value is automatic, with the value
-  // in use as its hint; emptying a fixed one makes it automatic again.
-  const automatic = inRow.automatic
+  // in use as its hint; emptying a fixed one makes it automatic again. The
+  // value in use follows lookup answers that arrive while the field is open.
+  const automaticNow = inRow.automatic
+  const automatic = automaticNow === undefined ? undefined : createMemo(automaticNow)
   const unfixed = automatic !== undefined && inRow.storedAtOpen === null
+  // Typing and stepping start from the stored value, or from the value in use
+  // while the field is automatic.
+  const base = (): IntegerWidgetValue => (unfixed ? automatic!().value : ed.initial) as IntegerWidgetValue
   // The field holds the full stored value, not the row's formatted text.
   const initialText = unfixed || ed.initial === undefined || ed.initial === null ? '' : String(ed.initial)
   const [draft, setDraft] = createSignal(initialText)
-  const emptied = (): boolean => automatic !== undefined && draft().trim() === ''
+  // Emptied by the user: a fixed text field that stores '' is not emptied until it is edited.
+  const emptied = (): boolean => automatic !== undefined && draft().trim() === '' && (unfixed || draft() !== initialText)
   const [sideSize, setSideSize] = createSignal({ width: 0, height: 0 })
   const bounds = visibleCanvas(host.boundary)
   let live = true
@@ -55,7 +61,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   })
 
   const typed = createMemo(() =>
-    numeric && draft() !== initialText && !emptied() ? resolveTypedNumber(draft(), spec, ed.initial as IntegerWidgetValue) : undefined)
+    numeric && draft() !== initialText && !emptied() ? resolveTypedNumber(draft(), spec, base(), unfixed) : undefined)
   const note = (): string | undefined =>
     numeric && !unfixed && draft() === initialText ? storedNumberNote(spec, ed.initial as IntegerWidgetValue) : undefined
   const problemId = createUniqueId()
@@ -74,7 +80,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   const fill = createMemo<number | undefined>((previous) => {
     if (range === undefined) return undefined
     const at = (value: number): number => (value - range.min) / (range.max - range.min)
-    if (draft() === initialText) return at(Number(ed.initial))
+    if (draft() === initialText) return at(Number(base()))
     const result = typed()
     if (result?.kind !== 'store') return previous
     const value = Number(result.value)
@@ -142,7 +148,8 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     let value: Json
     if (numeric) {
       const result = typed()
-      if (result === undefined || result.kind === 'keep' || jsonSameValue(result.value as Json, ed.initial ?? null)) return { kind: 'close' }
+      // Any typed number fixes an automatic field, even the value it has in use.
+      if (result === undefined || result.kind === 'keep' || (!unfixed && jsonSameValue(result.value as Json, ed.initial ?? null))) return { kind: 'close' }
       value = result.value as Json
     } else value = draft()
     const problem = widgetCommitError(host.app.widgetRegistryForTab(ed.tab).kind(spec.widgetType), value, spec)
@@ -182,7 +189,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     if (numeric && (event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.ctrlKey && !event.metaKey && !event.altKey) {
       // Up and Down step what is typed, as the minus and plus do; Shift is ten steps.
       event.preventDefault()
-      setDraft(stepTypedNumber(draft(), spec, ed.initial as IntegerWidgetValue, event.key === 'ArrowUp' ? 1 : -1, event.shiftKey))
+      setDraft(stepTypedNumber(draft(), spec, base(), event.key === 'ArrowUp' ? 1 : -1, event.shiftKey))
     } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault()
       const queue = host.app.commands.get('workflow.queue')
@@ -232,30 +239,32 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     setDraft(automatic !== undefined || defaultValue === undefined || defaultValue === null ? '' : String(defaultValue))
     void commit()
   }
-  const automaticText = automatic === undefined ? undefined
-    : typeof automatic.value === 'string' ? automatic.value : JSON.stringify(automatic.value)
+  const automaticText = (): string | undefined => {
+    const value = automatic?.().value
+    return automatic === undefined ? undefined : typeof value === 'string' ? value : JSON.stringify(value)
+  }
   const defaultLink = (text: string): JSX.Element => automatic === undefined
     ? <CanvasSideLink onClick={storeDefault}>{text}</CanvasSideLink>
     : (
         <span class="dinkster-canvas-side-loading">
-          {automatic.state === 'loading' ? <ProductSpinner /> : null}
+          {automatic().state === 'loading' ? <ProductSpinner /> : null}
           <CanvasSideLink onClick={storeDefault}>
-            {automatic.state === 'worked-out'
-              ? message('automaticField.defaultLine', { value: automaticText! })
+            {automatic().state === 'worked-out'
+              ? message('automaticField.defaultLine', { value: automaticText()! })
               : message('automaticField.notKnown')}
           </CanvasSideLink>
         </span>
       )
   // While the field is empty: the warning when the default is used, or one
   // plain line saying why a lookup's answer is not fresh.
-  const automaticWarning = (): string | undefined => automatic?.state === 'default' && emptied()
-    ? message('automaticField.warning', { field: ed.label, value: automaticText! })
+  const automaticWarning = (): string | undefined => automatic?.().state === 'default' && emptied()
+    ? message('automaticField.warning', { field: ed.label, value: automaticText()! })
     : undefined
   const lookupNote = (): string | undefined => {
     if (!emptied()) return undefined
-    if (automatic?.kept === 'stale') return message('automaticField.couldNotRefresh')
-    if (automatic?.kept === 'paused') return message('automaticField.paused')
-    return automatic?.state === 'not-known' ? message('automaticField.offline') : undefined
+    if (automatic?.().kept === 'stale') return message('automaticField.couldNotRefresh')
+    if (automatic?.().kept === 'paused') return message('automaticField.paused')
+    return automatic?.().state === 'not-known' ? message('automaticField.offline') : undefined
   }
   const side = createMemo(() => {
     // A limit from a lookup follows the answers as they come, for the row's current arguments.
@@ -355,11 +364,11 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
           queueMicrotask(() => placeCursor(element))
         }}
         inputLabel={ed.label}
-        {...(automaticText !== undefined ? { placeholder: automaticText }
+        {...(automatic !== undefined ? { placeholder: automaticText()! }
           : typeof spec.options['placeholder'] === 'string' ? { placeholder: spec.options['placeholder'] } : {})}
         {...(numeric ? {
           onStep: (direction: -1 | 1, fast: boolean) => {
-            setDraft(stepTypedNumber(draft(), spec, ed.initial as IntegerWidgetValue, direction, fast))
+            setDraft(stepTypedNumber(draft(), spec, base(), direction, fast))
             input?.focus()
           },
         } : {})}

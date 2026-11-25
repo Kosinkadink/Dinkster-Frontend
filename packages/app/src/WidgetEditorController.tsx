@@ -155,10 +155,11 @@ export interface WidgetEditorState {
     readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
     /**
      * A field that declares `automatic`: the value it has in use, or for a
-     * fixed value, what it would work out to if emptied. An empty field
-     * stores nothing, which makes the value automatic.
+     * fixed value, what it would work out to if emptied, read from the scene
+     * as it is rebuilt. An empty field stores nothing, which makes the value
+     * automatic.
      */
-    readonly automatic?: AutomaticState
+    readonly automatic?: () => AutomaticState
     /** Where a click opened a text row, in client coordinates. */
     readonly caret?: { readonly x: number; readonly y: number }
     /** The editor now shows a popover instead of the row, so the canvas draws the row again. */

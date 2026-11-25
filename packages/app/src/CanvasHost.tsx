@@ -107,6 +107,7 @@ import {
   type CommandInvocation,
   type CommandOutcome,
   type ControllerMode,
+  type AutomaticState,
   type Diagnostic,
   type EditorSizing,
   type ElaboratedInterface,
@@ -3084,12 +3085,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const top = -viewport.y / viewport.scale
       const right = left + width / viewport.scale
       const bottom = top + height / viewport.scale
+      const open = untrack(editor)
+      const openField = open?.inRow?.automatic === undefined || open.tab.id !== tab.id ? undefined : open.target
       lookupDemandFor(lookups).show(renderer.getScene().nodes.flatMap((node) =>
         node.elaborated === undefined || node.x > right || node.y > bottom ||
           node.x + node.layout.width < left || node.y + node.layout.height < top
           ? []
-          : [{ nodeType: node.node.type, node: lookupNodeKey(tab, node.id), items: node.elaborated.items }]))
+          : [{
+              nodeType: node.node.type,
+              node: lookupNodeKey(tab, node.id),
+              items: node.elaborated.items,
+              ...(openField?.nodeId === node.id ? { openField: openField.valueKey } : {}),
+            }]))
     }
+    // Opening or closing a field changes which fixed automatic field asks what emptying it would give.
+    createEffect(on(editor, () => showLookups(), { defer: true }))
     // A choice row edited in its row lists the options its lookup gave.
     provideRowListLookups((editor) => {
       const lookups = editor.editor.ed.inRow?.lookups
@@ -5234,7 +5244,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const fieldInsetY = tokens.rowGeometry.fieldInsetY
       const inputItem = schema?.body.find((item) => item.kind === 'input' && item.id === hit.row.inputId)
       const help = inputItem?.kind === 'input' ? inputItem.tooltip : undefined
-      const automatic = hit.row.automatic ?? hit.row.automaticIfEmptied
+      const automaticAtOpen = hit.row.automatic ?? hit.row.automaticIfEmptied
+      const rowValueKey = hit.row.valueKey
+      const automatic = automaticAtOpen === undefined ? undefined : (): AutomaticState => {
+        sceneVersion()
+        const row = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)?.layout.rows
+          .find((candidate) => candidate.kind === 'widget' && candidate.valueKey === rowValueKey)
+        return (row?.kind === 'widget' ? row.automatic ?? row.automaticIfEmptied : undefined) ?? automaticAtOpen
+      }
 
       // Keep the graph as the focus origin before an optional editor takes
       // focus. ASSET uses native modal restoration; other families open an

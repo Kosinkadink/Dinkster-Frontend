@@ -19,6 +19,8 @@ export interface LookupDemandNode {
   readonly nodeType: string
   readonly node: string
   readonly items: readonly ElaboratedItem[]
+  /** The value key of the node's field open for editing. */
+  readonly openField?: string
 }
 
 /**
@@ -35,8 +37,8 @@ export class LookupDemand {
   /** Ask for what `nodes` show and have no current answer for, and drop every other demand. */
   show(nodes: readonly LookupDemandNode[]): void {
     const wanted = new Set<string>()
-    for (const { nodeType, node, items } of nodes) {
-      lookupSitesOf(items).forEach((site, index) => {
+    for (const { nodeType, node, items, openField } of nodes) {
+      lookupSitesOf(items, openField).forEach((site, index) => {
         const key = `${node}\u0000${index}`
         const call = { nodeType, node, function: site.call.lookup, args: site.call.args }
         const callKey = JSON.stringify([site.call.lookup, site.call.args])

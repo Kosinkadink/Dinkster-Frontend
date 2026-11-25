@@ -1951,7 +1951,12 @@ function compileImpl(
     // Schema default, then the widget kind's intrinsic value - a tapped INT
     // widget showing 0 taps as 0; only kinds with no intrinsic value (ASSET,
     // remote COMBO, ...) leave the tap valueless.
-    // An automatic field with nothing stored taps the value it has in use.
+    // An automatic field with nothing stored taps the value its formula
+    // works out to. A lookup's answer is only known when the node runs, so
+    // a lookup field, or a formula waiting on one, has no value to pass on.
+    const automatic = input.input.automatic
+    if (automatic !== undefined && (automatic.state === 'loading' || automatic.state === 'not-known' ||
+      (input.input.spec.automatic !== undefined && 'lookup' in input.input.spec.automatic))) return undefined
     const widget = input.input.spec.widget
     const fallback = input.input.automatic?.value ?? (widget ? effectiveWidgetDefault(widget) : undefined)
     return fallback === undefined ? undefined : { value: fallback, typeId: assetSourceTypeOf(input.input, fallback) ?? typeId }

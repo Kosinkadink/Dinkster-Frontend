@@ -437,6 +437,7 @@ export class ExecutionStore {
     readonly outputs: Readonly<Record<string, Readonly<Record<string, unknown>>>>
     readonly artifacts: readonly ExecutionArtifact[]
     readonly submittedBy?: ExecutionSubmitter
+    readonly automaticValues?: readonly AutomaticValueRecord[]
     readonly jobRef: string
     readonly sourceDocument: string
     readonly queuedAt: number
@@ -465,6 +466,7 @@ export class ExecutionStore {
       logsDropped: 0,
       errors: [],
       ...(state.submittedBy === undefined ? {} : { submittedBy: state.submittedBy }),
+      ...(state.automaticValues === undefined || state.automaticValues.length === 0 ? {} : { automaticValues: state.automaticValues }),
       jobRef: state.jobRef,
       sourceDocument: state.sourceDocument,
       queuedAt: state.queuedAt,
