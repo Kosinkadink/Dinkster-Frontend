@@ -344,7 +344,7 @@ export const clipboardSceneEndpointTypes = (source: Scene): ReadonlyMap<string, 
     // flip the type representation and falsely reject a stub.
     for (const pin of node.layout.pins) {
       if (pin.widgetTap === true) {
-        if (node.missingSchema !== true)
+        if (node.missingSchema !== true && node.schemaPending !== true)
           result.set(clipboardEndpointKey('tap', node.id, pin.address.port), JSON.stringify(pin.type))
         continue
       }
@@ -4329,6 +4329,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           ...(lookupAnswers === undefined ? {} : { lookupAnswers }),
           graphId,
           resolve,
+          schemasPending: reg === undefined,
           // A hidden row shows while its stored value has a problem, as Problems lists it.
           storedValueProblem: (row, value) =>
             storedValueProblems(valueRegistry, graphId, row, value).some((d) => d.severity !== 'info'),

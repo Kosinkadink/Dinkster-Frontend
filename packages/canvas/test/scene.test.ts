@@ -264,6 +264,27 @@ describe('buildScene', () => {
     expect(same.layout).toMatchObject({ title: 'TotallyUnknownNode', titleRenamed: false })
   })
 
+  it('a node waiting for definitions shows its type id without the pack part', () => {
+    const doc = structuredClone(
+      loadDocument(readJson('fixtures/workflows/exec-basic.json')).document,
+    ) as WorkflowDocument
+    const node = doc.graphs.g0!.nodes.n0! as { type: string; title?: string }
+    const titleOf = (type: string, schemasPending: boolean) => {
+      node.type = type
+      return buildScene({
+        document: doc, graphId: 'g0', resolve: () => undefined, schemasPending,
+        tokens: defaultTokens, measure, widgetMeasure,
+      }).nodes.find((candidate) => candidate.id === 'n0')!.layout
+    }
+    expect(titleOf('dinkster.video.save_video', true)).toMatchObject({ title: 'save_video', titleRenamed: false })
+    expect(titleOf('KSampler', true).title).toBe('KSampler')
+    expect(titleOf('visual.', true).title).toBe('visual.')
+    // A missing node keeps the whole id, which names the pack to install.
+    expect(titleOf('dinkster.video.save_video', false).title).toBe('dinkster.video.save_video')
+    node.title = 'Custom'
+    expect(titleOf('dinkster.video.save_video', true)).toMatchObject({ title: 'Custom', titleRenamed: true })
+  })
+
   it('an unresolved node keeps its stored values as read-only fallback rows', () => {
     const doc = structuredClone(
       loadDocument(readJson('fixtures/workflows/exec-basic.json')).document,
