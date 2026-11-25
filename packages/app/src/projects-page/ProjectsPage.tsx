@@ -691,6 +691,7 @@ export function ProjectsView(props: {
             </Show>
           </Show>
         </ProductProjectSection>
+        <Show when={data()}><div class="projects-page-arrival">
         <ProductProjectSection
           title={message('projects.outputs.title')}
           aside={
@@ -717,7 +718,6 @@ export function ProjectsView(props: {
             </Show>
           }
         >
-          <Show when={data()}>
           <Show
             when={(outputs()?.length ?? 0) > 0}
             fallback={
@@ -748,8 +748,8 @@ export function ProjectsView(props: {
               </ProductTileGrid>
             </Show>
           </Show>
-          </Show>
         </ProductProjectSection>
+        </div></Show>
         <Show when={dialog() === 'rename'}>
           <ProductDialog title={message('projects.rename.title')} onDismiss={closeDialog} pending={busy()}>
             <form
