@@ -3560,6 +3560,15 @@ describe('workflow library wire', () => {
     await expect(conn.registerProject('p-film', 'Film')).rejects.toThrow('another project')
   })
 
+  it('listLibrary asks for the named project, not the connection\'s own', async () => {
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { records: [] }), 'p-open')
+    await conn.listLibrary({ scope: 'local', label: 'workflow', project: 'p-film' })
+    await conn.listLibrary({ scope: 'local' })
+    const queries = requests.map((request) => new URL(request.url).searchParams)
+    expect(queries[0]!.get('project')).toBe('p-film')
+    expect(queries[1]!.has('project')).toBe(false)
+  })
+
   it('listLibrary throws on a rejected cursor (restart from page one)', async () => {
     const { conn } = submitHarness(() => jsonResponse(400, { error: 'cursor-query-mismatch' }))
     await expect(conn.listLibrary({ scope: 'local', cursor: 'stale' })).rejects.toThrow('400')

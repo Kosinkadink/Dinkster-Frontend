@@ -3883,12 +3883,15 @@ export class DinksterConnection {
     readonly scope: string
     readonly query?: string
     readonly label?: string
+    /** Only this project's records, such as the projects page's workflow list for a project that is not open. */
+    readonly project?: string
     readonly limit?: number
     readonly cursor?: string
   }): Promise<LibraryPage> {
     const params = new URLSearchParams({ scope: req.scope })
     if (req.query !== undefined && req.query !== '') params.set('q', req.query)
     if (req.label !== undefined) params.set('label', req.label)
+    if (req.project !== undefined) params.set('project', req.project)
     if (req.limit !== undefined) params.set('limit', String(req.limit))
     if (req.cursor !== undefined) params.set('cursor', req.cursor)
     const res = await this.fetchFn(`${this.baseUrl}/api/library?${params.toString()}`)
