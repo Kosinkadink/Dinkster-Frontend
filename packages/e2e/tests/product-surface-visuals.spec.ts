@@ -663,6 +663,114 @@ test('A reopened workflow shows no missing node until the node definitions arriv
   })
 })
 
+test('A reopened workflow draws from the kept node definitions until the real ones arrive', async ({ page }) => {
+  const image = { kind: 'concrete', types: ['comfy.IMAGE'] }
+  const node = (nodeType: string, displayName: string, body: readonly unknown[]) => ({
+    schemaVersion: 2, nodeType, displayName, category: 'visual', pack: 'visual', signature: `${nodeType}:${body.length}`, body,
+  })
+  const table = (nodes: Record<string, unknown>) => ({
+    schemaVersion: 1, epoch: 7, dinkster: { version: 'visual-fixture', schemaWire: 2 }, packs: { visual: { displayName: 'Visual' } }, nodes,
+  })
+  const source = node('visual.Source', 'Source', [{ kind: 'output', id: 'image', type: image }])
+  // The kept copy: Sink has one input and Gone still exists; Late is unknown.
+  const kept = table({
+    'visual.Source': source,
+    'visual.Sink': node('visual.Sink', 'Sink', [{ kind: 'input', id: 'image', type: image }]),
+    'visual.Gone': node('visual.Gone', 'Gone', [{ kind: 'input', id: 'image', type: image }]),
+  })
+  // The real table: Sink gained a field row, Gone was removed and Late was added.
+  const real = table({
+    'visual.Source': source,
+    'visual.Sink': node('visual.Sink', 'Sink', [
+      { kind: 'input', id: 'strength', type: { kind: 'concrete', types: ['FLOAT'] }, default: 1 },
+      { kind: 'input', id: 'image', type: image },
+    ]),
+    'visual.Late': node('visual.Late', 'Late', [{ kind: 'input', id: 'image', type: image }]),
+  })
+  let answer = kept
+  let held: Promise<void> | undefined
+  let release!: () => void
+  await page.route('/api/nodes*', async (route) => {
+    if (held !== undefined) await held
+    await route.fulfill({ json: answer })
+  })
+  const link = (id: string, to: string) => ({ id, from: { node: 'source', port: 'image' }, to: { node: to, port: 'image' } })
+  const workflow = {
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'kept-definitions', root: 'g0',
+    graphs: { g0: { id: 'g0', name: 'root', nodes: {
+      source: { id: 'source', type: 'visual.Source', values: {} },
+      sink: { id: 'sink', type: 'visual.Sink', values: {} },
+      gone: { id: 'gone', type: 'visual.Gone', values: {} },
+      late: { id: 'late', type: 'visual.Late', values: {} },
+    }, links: { l0: link('l0', 'sink'), l1: link('l1', 'gone'), l2: link('l2', 'late') }, nets: {}, reroutes: {}, nextOrdinal: 4 } },
+    view: { graphs: { g0: { nodes: {
+      source: { position: { x: 160, y: 220 } },
+      sink: { position: { x: 480, y: 100 } },
+      gone: { position: { x: 480, y: 240 } },
+      late: { position: { x: 480, y: 380 } },
+    } } } },
+  }
+  await page.addInitScript((doc) => {
+    if (localStorage.getItem('dinkster.openTabs') !== null) return
+    localStorage.setItem('dinkster.openTabs', JSON.stringify({
+      v: 1, active: doc.lineage, tabs: [{ title: 'Kept definitions', doc, documentRevision: 0 }],
+    }))
+  }, workflow)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  const keptNodeTypes = () => page.evaluate(() => new Promise<readonly string[]>((resolve) => {
+    const request = indexedDB.open('dinkster-kept-schemas')
+    request.onsuccess = () => {
+      const database = request.result
+      if (!database.objectStoreNames.contains('tables')) { database.close(); return resolve([]) }
+      const all = database.transaction('tables').objectStore('tables').getAll()
+      all.onsuccess = () => {
+        database.close()
+        resolve(all.result.flatMap((payload: { nodes: Record<string, unknown> }) => Object.keys(payload.nodes)).sort())
+      }
+    }
+    request.onerror = () => resolve([])
+  }))
+  await expect.poll(keptNodeTypes).toEqual(['visual.Gone', 'visual.Sink', 'visual.Source'])
+
+  answer = real
+  held = new Promise<void>((resolve) => { release = resolve })
+  await page.reload()
+  const drawn = () => page.evaluate(() => {
+    const tab = window.__dinksterTest!.app.activeTab()!
+    const backend = window.__dinksterTest!.app.backendForTab(tab)
+    return {
+      schemas: backend.schemaState.get().status,
+      registry: backend.registry.get() !== undefined,
+      run: (document.querySelector('[data-testid=queue-button]') as HTMLButtonElement | null)?.disabled,
+      nodes: Object.fromEntries((window.__dinksterTest?.renderer?.getScene().nodes ?? []).map((node) => [
+        node.id,
+        node.unrecognized === true ? 'missing' : node.schemaPending === true ? 'pending' : node.layout.title,
+      ])),
+      rows: (window.__dinksterTest?.renderer?.getScene().nodes ?? []).find((node) => node.id === 'sink')?.layout.rows.length,
+      problems: window.__dinksterTest!.app.problems.get().filter((problem) => problem.code === 'schema.unresolvedType').length,
+    }
+  })
+  // The first scene after the reload already draws from the kept copy.
+  await page.waitForFunction(() => (window.__dinksterTest?.renderer?.getScene().nodes.length ?? 0) === 4)
+  const first = await drawn()
+  expect(first.nodes).toEqual({ source: 'Source', sink: 'Sink', gone: 'Gone', late: 'pending' })
+  await expect.poll(drawn).toEqual({
+    schemas: 'loading', registry: false, run: true, problems: 0, rows: first.rows,
+    nodes: { source: 'Source', sink: 'Sink', gone: 'Gone', late: 'pending' },
+  })
+  await expect(page.getByTestId('graph-canvas')).toHaveScreenshot('node-definitions-kept-1440.png', {
+    animations: 'disabled',
+    maxDiffPixelRatio: 0.002,
+  })
+  release()
+  await expect.poll(drawn).toEqual({
+    schemas: 'ready', registry: true, run: false, problems: 1, rows: first.rows! + 1,
+    nodes: { source: 'Source', sink: 'Sink', gone: 'missing', late: 'Late' },
+  })
+})
+
 test('Storage settings distinguish accounting policy and permission failures', async ({ page }) => {
   let state: 'ready' | 'unavailable' | 'forbidden' = 'ready'
   await page.route('**/api/library/storage', (route) => state === 'forbidden'

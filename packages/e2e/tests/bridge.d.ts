@@ -12,6 +12,7 @@ interface DinksterBridgeSceneNode {
   unrecognized?: true
   schemaPending?: true
   layout: {
+    title: string
     width: number
     height: number
     minWidth: number
