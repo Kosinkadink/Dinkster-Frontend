@@ -19,7 +19,7 @@
 .runs-output-thumbnails .output-thumbnail { padding: 0; }
 .runs-output-thumbnails .output-thumbnail-preview { min-height: 0; aspect-ratio: 1; }
 .runs-output-thumbnails > [data-state] { width: 100%; font-size: var(--dinkster-type-metadata-size); color: var(--dinkster-text-muted); }
-.runs-panel .collection-entry { grid-template-columns: minmax(0, 1fr); }
+.runs-panel .collection-entry { display: grid; grid-template-columns: minmax(0, 1fr); }
 /* Stored runs sit in the same quiet boxes as the run rows above them. */
 .runs-panel .collection-items.list { gap: var(--dinkster-space-4); }
 .runs-panel .collection-entry.dinkster-list-row { border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-quiet); }
