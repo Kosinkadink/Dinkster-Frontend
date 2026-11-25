@@ -346,19 +346,25 @@ test('a slow response for a closed remote editor never hijacks the next combo (s
   await openRemoteWorkflow(page)
 
   // Open the remote combo: stuck loading. Close it and open the STATIC one.
+  const requested = page.waitForRequest((request) => request.url().includes(REMOTE_ROUTE))
   await page.mouse.click(...xy(await widgetPoint(page, 'r0', 'model')))
+  const request = await requested
   const dropdown = page.getByTestId('combo-dropdown')
   await expect(dropdown).toHaveAttribute('data-remote', 'loading')
   await page.keyboard.press('Escape')
   await page.mouse.click(...xy(await widgetPoint(page, 's0', 'mode')))
-  await expect(dropdown).toHaveAttribute('data-remote', 'static')
+  const staticList = page.locator('[data-editor-surface="in-row-list"]')
+  await expect(staticList.getByRole('combobox', { name: 'mode', exact: true })).toBeFocused()
+  await expect(staticList.getByRole('option')).toHaveText(['alpha', 'beta'])
 
   // The late response lands now. The request token was invalidated when the
   // static editor opened, so the result must be dropped, not published.
   release()
-  await page.waitForTimeout(150)
-  await expect(dropdown).toHaveAttribute('data-remote', 'static')
-  await expect(dropdown.getByRole('option')).toHaveText(['alpha', 'beta'])
+  const response = await request.response()
+  if (response !== null) await response.finished()
+  await expect(dropdown).not.toBeVisible()
+  await expect(staticList.getByRole('combobox', { name: 'mode', exact: true })).toBeFocused()
+  await expect(staticList.getByRole('option')).toHaveText(['alpha', 'beta'])
 })
 
 test('an empty remote payload is READY with zero options, not an error', async ({ page }) => {
