@@ -5,12 +5,22 @@ and open the color picker. The picker accepts six-digit `#rrggbb` colors and
 commits the corresponding integer, retaining the INT socket and numeric saved
 value. Numeric bounds still apply. App View retains its numeric input.
 
-SAVE_TARGET opens a ready writable mount selector and relative filename prefix.
-The writer adds the descriptor's suffix and numbering; no host path is stored
-in the graph. Empty, absolute, dot-segment and backslash prefixes cannot apply.
-Unavailable current mounts stay visible but cannot apply. The optional gallery
-destination also offers Clear destination; required save targets do not.
-Mount grants are checked again by the backend when it writes.
+SAVE_TARGET opens a box under its row with a mount dropdown and a relative
+filename prefix; the row shows them together as they would be stored. The
+dropdown's first entry is Project default, stored as `{"prefix": ...}` with
+no mount, so each project saves it to its own default output mount; the
+other entries are this machine's ready writable mounts. An empty target opens
+on Project default with the input's default name. Enter, Tab or a click
+outside store mount and prefix as one value; Escape stores nothing. The
+writer adds the descriptor's suffix and numbering; no host path is stored in
+the graph. Empty, absolute, dot-segment and backslash prefixes cannot be
+stored, nor can a target while the mounts load, when none is ready or
+when they cannot be read. The closed row names the mount Project default
+means here, the project's active output mount, in italics. A stored mount
+this machine lacks is struck through on the closed row, followed by that
+mount in italics, and stays stored until another entry or Use project
+default is picked. Mount grants are checked again by the backend when it
+writes.
 
 RESOLUTION_PREVIEW opens a proportional rectangle and exact pixel dimensions
 from the node's aspect ratio, megapixels and rounding multiple. The named
@@ -683,10 +693,10 @@ and hit testing derive from the same rectangle. Companion-driven rows keep the
 shared read-only companion treatment and omit the chevron. Every row keeps its
 compact value preview. Compact rows preserve a short complete value by shrinking and
 ellipsizing the label first; values too long to fit beside the 44px label floor
-retain proportional sharing. The ASSET `no asset` placeholder uses muted italic
-text and remains complete at ordinary and minimum node widths. Its measured
-text and padding take priority over the label floor after opener icons reserve
-their space; the label may disappear if even its ellipsis cannot fit. Long asset
+retain proportional sharing. An empty row's text ("Choose image", "Choose model")
+uses muted italic type. The row's label keeps its whole width while it fits and
+the empty text takes what is left, cut with an ellipsis and down to nothing on
+a narrow node; the label is cut only when it alone does not fit. Long asset
 names retain the ordinary proportional split and ellipsize within the row. Activating the
 row body opens optional expanded controls only when
 more deliberate editing is useful. INT, FLOAT and single-line STRING are

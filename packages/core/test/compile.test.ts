@@ -461,6 +461,30 @@ describe('value handling', () => {
     expect(loaded.document!.graphs[base.root]!.nodes.n0!.values).toEqual({ width: 37, height: 91, mode: 'nearest' })
   })
 
+  it('leaves an empty save target out so its declared default applies, and sends Project default as stored', () => {
+    const schema: NodeSchema = {
+      type: 'Save', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
+      body: [{ kind: 'input', id: 'target', type: { kind: 'concrete', name: 'SAVE_TARGET' }, optional: true,
+        widget: { widgetType: 'SAVE_TARGET', options: {}, default: { prefix: 'ComfyUI' } } }],
+    }
+    const sent = (target: Json) => {
+      const loaded = loadDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'save-target', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'root', nodes: { n0: { id: 'n0', type: 'Save', values: { target } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+        view: { graphs: { g0: { nodes: { n0: { position: { x: 0, y: 0 } } } } } },
+      })
+      expect(loaded.document, JSON.stringify(loaded)).toBeDefined()
+      const result = compile(compileInput(loaded.document!, { kind: 'full' }, () => schema))
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) throw new Error('save target workflow must compile')
+      return result.artifact.prompt['n0']!.inputs['target']
+    }
+    expect(sent(null)).not.toBeNull()
+    expect(sent(null)).toEqual({ prefix: 'ComfyUI' })
+    expect(sent({ prefix: 'renders/portrait' })).toEqual({ prefix: 'renders/portrait' })
+    expect(sent({ mount: 'archive', prefix: 'renders/portrait' })).toEqual({ mount: 'archive', prefix: 'renders/portrait' })
+  })
+
   it('unknown value keys warn and are dropped', () => {
     const doc = mutableWorkflow('exec-basic')
     const nodes = ((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable
@@ -1757,6 +1781,25 @@ describe('dynamic interfaces', () => {
       inputs: { slot: ['source', 0], 'slot.x': 3 },
       slotVariants: { slot: 'selected' },
     })
+  })
+
+  it('omits a disconnected stored type choice from a run but still refuses a required pin', () => {
+    const doc = dynDoc({ nodes: {
+      target: { type: 'SpecializedSlot', dynamic: { slot: { selected: 'selected' } }, values: { 'slot.x': 7 } },
+    } })
+    const optional = dynCompile(doc)
+    expect(optional.ok, JSON.stringify(!optional.ok && optional.diagnostics)).toBe(true)
+    if (optional.ok) expect(optional.artifact.prompt['target']).toEqual({
+      class_type: 'SpecializedSlot', inputs: {}, outputIds: [],
+    })
+    const schema = dynSchemas['SpecializedSlot']!
+    const required = compile({ ...compileInput(doc), resolve: (type) => type === schema.type ? {
+      ...schema, body: schema.body.map((row) => row.kind === 'typeChoice' ? { ...row, required: true } : row),
+    } : dynSchemas[type] })
+    expect(required.ok ? required.artifact.diagnostics : required.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'compile.input.missing', blocksExecution: true,
+      anchor: expect.objectContaining({ port: expect.objectContaining({ port: 'slot' }) }),
+    }))
   })
 
   it('emits slotVariants for a connected variant with no rows (the key travels even with no dependents)', () => {

@@ -159,7 +159,7 @@ every core tab once.
   messages are off; field problems are shown by `ProductField`.
   Changing to another record mounts a new form.
 - `ProductMenu` owns click, outside-click, focus-leave and Escape dismissal,
-  keyboard item movement and opener focus restoration. Items keep their buttons
+  keyboard item movement and opener focus restoration; `fill="quiet"` gives its text trigger the shared borderless quiet fill and retains its hover fill while open, while absent preserves the outlined trigger. Items keep their buttons
   by position, so a host that passes new item objects while the menu is open
   (a count arriving) does not move focus or close it. Disabled items are
   skipped; a disabled-only menu remains keyboard-dismissable. The menu aligns
@@ -540,7 +540,7 @@ not grow. This inventory is a migration queue, not a second component system.
 | Surface     | canvas, panel, inset, raised, selected                                                          |
 | Text        | primary, secondary, muted, disabled, inverse, on-selected                                       |
 | Border      | subtle, hover, strong, focus, selected                                                          |
-| Meaning     | accent, success, warning, danger, info; each has foreground, background, border, quiet border, quiet background, wash and pressed wash |
+| Meaning     | accent, success, warning, danger, info; each has foreground, background, border, rest border, quiet border, quiet background, wash and pressed wash |
 | Shape       | 4 px small, 6 px control, 8 px card/panel, capsule for tags and removable active filters only   |
 | Interaction | 32 px compact control, 40 px primary input, 24 px canvas input, 2 px focus ring, hover, pressed, selected, disabled |
 | Motion      | fast, standard, reduced-motion duration, one product easing curve                               |
@@ -557,9 +557,17 @@ hover). No pressed fill is weaker than its hover. A neutral outline follows
 the same order: subtle at rest, the hover outline under the pointer and
 strong only while pressed or open. A control whose outline is a meaning
 colour (an add or remove outline button, Run, an outlined danger action)
-keeps its text and outline colour and fills with a quiet wash of that colour:
-12% under the pointer (`wash`) and 20% while pressed (`wash-pressed`). Plain
-controls keep the neutral hover grey, and solid buttons keep their own fill.
+keeps its text in full colour. Its outline rests at 55% of that colour
+(`rest-border`) and is full strength under the pointer and while pressed,
+where it also fills with a quiet wash of that colour: 12% under the pointer
+(`wash`) and 20% while pressed (`wash-pressed`). Plain controls keep the
+neutral hover grey, and solid buttons keep their own fill. A disabled solid
+button turns neutral: the raised fill, the subtle outline and secondary text.
+
+Each screen and each dialog shows at most one solid coloured button, the one
+that does its main job. Its other actions are outline buttons of their role.
+A popover or dialog counts on its own, and so does a confirmation step that
+replaces the button that opened it.
 
 Every scrolling surface in the app, the gallery and the site uses one scrollbar
 from the shared stylesheet: `scrollbar-size` (8 px) with no track or arrows, so

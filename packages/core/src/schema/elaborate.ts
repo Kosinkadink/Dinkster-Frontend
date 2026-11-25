@@ -67,8 +67,8 @@ import type {
   UseSpec,
   WidgetSpec,
 } from './model.js'
-import { isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
-import { readWhenUnset, sentSpecOf } from './widget-defaults.js'
+import { isAssetWidgetInput, isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
+import { readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
 import { normalizeComboOption } from './combo-options.js'
 import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
 
@@ -623,6 +623,22 @@ export const elabOutputsOf = (e: Pick<ElaboratedInterface, 'items'>): readonly E
  * flattened id. The one rule compile, the canvas and the app share.
  */
 export const valueKeyOf = (i: ElaboratedInput): string => i.address.port
+
+/**
+ * A run refuses this input when it has no usable value and no wire
+ * (`compile.input.missing`): it is required, reaches the run, and has no
+ * value to be sent in its place, such as an asset field or a choice whose
+ * options all come from the server. A cleared asset stores null, not a file.
+ */
+export function missingInputValue(i: ElaboratedInput, value: unknown): boolean {
+  const spec = i.spec
+  if (i.apiName === undefined || spec.optional) return false
+  if (i.origin.kind === 'member' && i.origin.ghost === true) return false
+  if (spec.hidden === true && i.hiddenByScope !== true) return false
+  if (value !== undefined) return value === null && isAssetWidgetInput(spec) && spec.widget?.selection !== true
+  if (spec.automatic !== undefined || spec.widget?.automatic === true) return false
+  return spec.widget === undefined || sentWhenUnset(sentSpecOf(spec, i.hiddenByScope)) === undefined
+}
 
 /**
  * A Switch's member inputs that take part in the run (not the offered add
@@ -2320,13 +2336,14 @@ function elaboratePass(
     if (variant === undefined && row.required && !view && !scope.ghost && !scope.dormant) {
       report('prompt.missing_dynamic_choice', `required type choice '${path}' has no stored variant`, path)
     }
+    const active = stored(path)
     const inRun = !scope.ghost && !scope.dormant
-    if (variant !== undefined && inRun) choices[path] = variant.key
-    if (variant !== undefined || row.required || view || census || linked(path)) {
+    if (variant !== undefined && active && inRun) choices[path] = variant.key
+    if ((variant !== undefined && active) || row.required || view || census || linked(path)) {
       emitInput(
-        { ...base, type: variant?.type ?? base.type, optional: variant === undefined ? !row.required : false },
+        { ...base, type: variant?.type ?? base.type, optional: variant === undefined || !active ? !row.required : false },
         path,
-        variant === undefined && !census && !linked(path) ? { ...scope, dormant: true } : scope,
+        (variant === undefined && !census && !linked(path)) || (!active && !row.required) ? { ...scope, dormant: true } : scope,
         undefined,
         {
           origin: {
@@ -2339,9 +2356,15 @@ function elaboratePass(
         },
       )
     }
-    if (variant !== undefined) dependents([...row.rows, ...variant.rows], variant.key, false)
+    const disconnectedReason = `Not used while ${label} has no wire. Its wire gives nothing.`
+    if (variant !== undefined) {
+      if (active || census) dependents([...row.rows, ...variant.rows], variant.key, !active)
+      else keep(() => dependents([...row.rows, ...variant.rows], variant.key, true, disconnectedReason))
+    }
     // After the current type's rows: rows of other types that keep a wire.
-    const keptReason = `Not used while ${label} is ${variant === undefined ? 'not set' : variant.key}. Its wire gives nothing.`
+    const keptReason = active
+      ? `Not used while ${label} is ${variant === undefined ? 'not set' : variant.key}. Its wire gives nothing.`
+      : disconnectedReason
     keep(() => {
       for (const item of row.variants!) {
         if (item !== variant) dependents([...(variant === undefined ? row.rows : []), ...item.rows], item.key, true, keptReason)

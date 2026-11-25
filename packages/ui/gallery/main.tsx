@@ -21,7 +21,6 @@ import {
   PanelRight,
   MousePointer,
   Search,
-  Square,
   Plus,
   Settings,
   SlidersHorizontal,
@@ -55,6 +54,7 @@ import {
   ProductIcon,
   ProductRunIcon,
   ProductRunActivity,
+  ProductCancelButton,
   ProductIconButton,
   ProductLink,
   ProductList,
@@ -88,9 +88,12 @@ import {
 } from './canvas.js'
 import { ContextMenuGallery } from './context-menus.js'
 import { CanvasChromeGallery } from './canvas-chrome.js'
+import { RunControlsGallery } from './run-controls.js'
 import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
 import { ProjectsGallery } from './projects.js'
+import { TemplatesGallery } from './templates.js'
+import { SearchGallery } from './search.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -126,6 +129,7 @@ function Gallery() {
   const [toast, setToast] = createSignal<{ readonly message: string }>()
   const [error, setError] = createSignal(true)
   const [dialog, setDialog] = createSignal(false)
+  const [wideDialog, setWideDialog] = createSignal(false)
   const [pending, setPending] = createSignal(false)
   const [fail, setFail] = createSignal(false)
   const [invalid, setInvalid] = createSignal(false)
@@ -133,6 +137,7 @@ function Gallery() {
   const [nameTaken, setNameTaken] = createSignal(false)
   const [activity, setActivity] = createSignal('No action yet')
   const [loading, setLoading] = createSignal(false)
+  const [quietType, setQuietType] = createSignal('Any type')
   let navigationTimer: number | undefined
   onCleanup(() => window.clearTimeout(navigationTimer))
   const navigate = (href: string) => {
@@ -165,7 +170,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={route() === '#canvas' || route() === '#canvas-chrome' ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -181,14 +186,14 @@ function Gallery() {
           route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              (route() === '#resource-usage' ? 'Resource usage' : 'Buttons and fields'))
+              (route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
         }
         description={
           route() === '#canvas'
             ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
             : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
         }
-        table={route() === '#lists' || route() === '#canvas'}
+        table={route() === '#lists' || route() === '#canvas' || route() === '#search'}
       >
         <Show
           when={!loading()}
@@ -253,6 +258,7 @@ function Gallery() {
                   Inspect the editor bar and left bar
                 </ProductLink>
                 <ProductLink href="#projects">Inspect the projects page</ProductLink>
+                <ProductLink href="#templates">Inspect the templates page</ProductLink>
                 <For each={['win32', 'linux', 'darwin'] as const}>
                   {(platform) => {
                     const [error, setError] = createSignal(true)
@@ -322,6 +328,14 @@ function Gallery() {
             <Match when={route() === '#canvas-chrome'}>
               <Section title="Canvas corner, view bar and Run" components="CanvasCornerControls, CanvasViewControls, WorkflowQueueControl">
                 <CanvasChromeGallery />
+              </Section>
+            </Match>
+            <Match when={route() === '#search'}>
+              <SearchGallery />
+            </Match>
+            <Match when={route() === '#run-controls'}>
+              <Section title="Run controls" components="RunActivityControl, WorkflowQueueControl, RunRow, RunSection, ProductCancelButton">
+                <RunControlsGallery />
               </Section>
             </Match>
             <Match when={route() === '#context-menus'}>
@@ -881,6 +895,15 @@ function Gallery() {
                     email="alex@example.test"
                     onSignOut={() => complete('Signed out')}
                   />
+                  <ProductMenu
+                    label={`Type: ${quietType().toLowerCase()}`}
+                    fill="quiet"
+                    items={['Any type', 'Image', 'String'].map((type) => ({
+                      label: type,
+                      checked: type === quietType(),
+                      onSelect: () => setQuietType(type),
+                    }))}
+                  />
                 </div>
               </Section>
               <Section
@@ -1032,6 +1055,9 @@ function Gallery() {
                 <ProductButton intent="remove" onClick={() => setDialog(true)}>
                   Review removal
                 </ProductButton>
+                <ProductButton onClick={() => setWideDialog(true)}>
+                  Open wide dialog
+                </ProductButton>
               </Section>
               <Section
                 title="Replaced built-in text"
@@ -1079,6 +1105,18 @@ function Gallery() {
               complete('Item removed')
             }}
             onCancel={() => setDialog(false)}
+          />
+        </ProductDialog>
+      </Show>
+      <Show when={wideDialog()}>
+        <ProductDialog
+          title="Diagnostics"
+          size="wide"
+          onDismiss={() => setWideDialog(false)}
+        >
+          <ProductCodeBlock
+            label="Output"
+            value="Startup complete. All services are available and ready to accept requests."
           />
         </ProductDialog>
       </Show>
@@ -1365,20 +1403,22 @@ function WindowToolbarGallery() {
                       }
                       actions={(narrow) => (
                         <>
-                          <Show when={runCounts().running > 0}>
-                            <ProductRunActivity
-                              {...runCounts()}
-                              label={runSummary()}
-                            />
-                          </Show>
-                          <Show when={state() !== 'idle'}>
-                            <ProductWindowAction
-                              label="Cancel run"
-                              icon={Square}
-                              intent="remove"
-                              pending={state() === 'pending'}
-                              onClick={() => setActivity('Run cancelled')}
-                            />
+                          <Show when={runCounts().running > 0 || state() !== 'idle'}>
+                            <span class="run-activity-control">
+                              <Show when={runCounts().running > 0}>
+                                <ProductRunActivity
+                                  {...runCounts()}
+                                  label={runSummary()}
+                                />
+                              </Show>
+                              <Show when={state() !== 'idle'}>
+                                <ProductCancelButton
+                                  label="Cancel Long run"
+                                  pending={state() === 'pending'}
+                                  onClick={() => setActivity('Run cancelled')}
+                                />
+                              </Show>
+                            </span>
                           </Show>
                           <ProductIconButton
                             label="Collaboration"
@@ -1458,7 +1498,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#window-toolbar', '#editor-bar', '#projects'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#window-toolbar', '#editor-bar', '#projects', '#templates'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'
@@ -1486,6 +1526,9 @@ function GalleryRoot() {
           </Match>
           <Match when={route() === '#projects'}>
             <ProjectsGallery />
+          </Match>
+          <Match when={route() === '#templates'}>
+            <TemplatesGallery />
           </Match>
         </Switch>
       }

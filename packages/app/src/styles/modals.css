@@ -12,6 +12,9 @@
 .desktop-mount-form { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--dinkster-space-8); }
 .desktop-mount-form input { min-width: 0; min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-primary); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); font: inherit; }
 .desktop-mount-form input:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
+.desktop-mount-form input:focus { border-color: var(--dinkster-border-subtle); }
+:where(:root[data-field-focus='pointer']) .desktop-mount-form input:focus { border-color: var(--dinkster-border-focus); }
+:root[data-field-focus='pointer'] .desktop-mount-form input:focus-visible { outline: 0; }
 .desktop-mount-form code { grid-column: 1 / -1; padding: var(--dinkster-space-8); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-inset); border-radius: var(--dinkster-radius-control); overflow-wrap: anywhere; }
 
 @media (max-width: 720px) {
@@ -148,6 +151,10 @@
 .product-field-control > input:not(.product-text-input),
 .binding-capture { min-width: 0; min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); color: var(--dinkster-text-primary); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); font: inherit; }
 .product-field-control > input:not(.product-text-input):where(:hover:not(:disabled)), .binding-capture:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
+.product-field-control > input:not(.product-text-input):focus,
+.binding-capture:focus { border-color: var(--dinkster-border-subtle); }
+:where(:root[data-field-focus='pointer']) :is(.product-field-control > input:not(.product-text-input), .binding-capture):focus { border-color: var(--dinkster-border-focus); }
+:root[data-field-focus='pointer'] :is(.product-field-control > input:not(.product-text-input), .binding-capture):focus-visible { outline: 0; }
 .binding-capture { width: 100%; cursor: pointer; }
 .product-field-actions { grid-area: actions; display: flex; align-items: center; justify-content: flex-end; gap: var(--dinkster-space-4); }
 .product-field-message { grid-area: message; margin: 0; color: var(--dinkster-danger-foreground); font-size: var(--dinkster-type-metadata-size); font-weight: var(--dinkster-weight-regular); line-height: var(--dinkster-type-metadata-line); }
@@ -157,6 +164,7 @@
 .product-field-invalid .product-number,
 .product-field-invalid .product-select { border-color: var(--dinkster-danger-border); }
 .product-field-invalid .product-number:focus-within { box-shadow: inset 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-danger-border); }
+:root[data-field-focus='pointer'] .product-field-invalid .product-number:focus-within { box-shadow: none; }
 .product-field[data-layout='stack'] { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'copy actions' 'control control' 'message message'; }
 .product-field[data-layout='stack'] .product-field-control { justify-content: stretch; }
 .product-field[data-layout='compact'] { grid-template-columns: minmax(calc(var(--dinkster-space-32) * 2.5), auto) minmax(0, 1fr) auto; grid-template-areas: 'copy control actions' '. message message'; min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-4) 0; border-bottom: 0; }
@@ -174,12 +182,12 @@
 .product-action-buttons button:not(.product-button):hover:not(:disabled) { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .product-action-buttons button:not(.product-button):focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .product-action-buttons button:not(.product-button):disabled { color: var(--dinkster-text-disabled); cursor: not-allowed; opacity: var(--dinkster-interaction-disabled-opacity); }
-.product-action-buttons button:not(.product-button).primary { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); }
-.product-action-buttons button:not(.product-button).danger { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-border); }
-.product-action-buttons button:not(.product-button).primary:hover:not(:disabled) { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-wash); }
-.product-action-buttons button:not(.product-button).primary:active:not(:disabled) { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-wash-pressed); }
-.product-action-buttons button:not(.product-button).danger:hover:not(:disabled) { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-wash); }
-.product-action-buttons button:not(.product-button).danger:active:not(:disabled) { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-wash-pressed); }
+.product-action-buttons button:not(.product-button).primary { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-rest-border); }
+.product-action-buttons button:not(.product-button).danger { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-rest-border); }
+.product-action-buttons button:not(.product-button).primary:hover:not(:disabled) { color: var(--dinkster-accent-foreground); border-color: var(--dinkster-accent-border); background: var(--dinkster-accent-wash); }
+.product-action-buttons button:not(.product-button).primary:active:not(:disabled) { color: var(--dinkster-accent-foreground); border-color: var(--dinkster-accent-border); background: var(--dinkster-accent-wash-pressed); }
+.product-action-buttons button:not(.product-button).danger:hover:not(:disabled) { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash); }
+.product-action-buttons button:not(.product-button).danger:active:not(:disabled) { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash-pressed); }
 
 .queue-button {
   background: var(--dinkster-action-primary-bg);
@@ -193,7 +201,7 @@
 
 .queue-button:disabled {
   background: var(--dinkster-surface-raised);
-  color: var(--dinkster-text-disabled);
+  color: var(--dinkster-text-secondary);
   cursor: default;
 }
 
