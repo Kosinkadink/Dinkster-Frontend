@@ -55,3 +55,46 @@ it('keeps standalone review free of Run once even when locally ready, but retain
     vi.restoreAllMocks()
   }
 })
+
+it.each([false, true])('blocks downloads only for the duplicate model in standalone=%s review', async (standalone) => {
+  const assetConsent = createSignal<AssetConsentRequest | undefined>(undefined)
+  const models = [
+    { name: 'repeated.safetensors', kind: 'model/vae' },
+    { name: 'available.safetensors', kind: 'model/vae' },
+  ]
+  const connection = {
+    planModelDownload: async (model: { name: string; kind: string }) => model.name === models[0]!.name
+      ? { status: 'duplicate' as const }
+      : { ...model, status: 'local' as const },
+    startModelDownload: vi.fn(), fetchModelDownloads: async () => ({ instance: 'one', jobs: [] }),
+    fetchModelDownload: vi.fn(), cancelModelDownload: vi.fn(),
+  }
+  const root = document.createElement('div')
+  document.body.append(root)
+  const unmount = render(() => <AssetConsentDialog app={{ assetConsent } as AppState} />, root)
+  try {
+    const options = { slot: assetConsent, modelDownloads: { connection, project: 'default' } }
+    if (standalone) installAssetConsent({ ...options, models })
+    else installAssetConsent({ ...options,
+      result: { ok: false, diagnostics: [], assetsMissing: { error: 'assets-missing', assets: [], models }, retryWithAssets: vi.fn() },
+      onSubmitted: vi.fn(), onRejected: vi.fn(), onTransportError: vi.fn(), onSuperseded: vi.fn(),
+    })
+    await assetConsent.get()!.reviewModel!(0)
+    await assetConsent.get()!.reviewModel!(1)
+    await Promise.resolve()
+    const rows = root.querySelectorAll('[data-testid="model-consent-row"]')
+    expect(rows[0]!.textContent).toContain('Two files with this name')
+    expect(rows[0]!.textContent).toContain("Two files named repeated.safetensors are in this project's model folders.")
+    expect(rows[0]!.textContent).not.toContain('Review source')
+    expect(rows[0]!.querySelector('[data-testid="model-consent-download"]')).toBeNull()
+    expect(rows[0]!.querySelector('[data-testid="model-consent-source"]')).toBeNull()
+    expect(rows[1]!.textContent).toContain('Review source')
+    expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')?.disabled ?? true).toBe(true)
+    expect(connection.startModelDownload).not.toHaveBeenCalled()
+  } finally {
+    assetConsent.set(undefined)
+    unmount()
+    root.remove()
+    vi.restoreAllMocks()
+  }
+})
