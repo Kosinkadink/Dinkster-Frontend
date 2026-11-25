@@ -953,8 +953,11 @@ screenshot baselines do not use fallback text.
 ## Desktop information
 
 `ProductWindowChrome` reserves the native title-bar overlay area and the
-macOS traffic-light inset, uses the shared 44px bar and palette, and marks
-its empty background draggable while its contents remain non-draggable.
+macOS traffic-light inset (none when the host passes `fullScreen`, since macOS
+hides the traffic lights in full screen), uses the shared 44px bar and palette,
+and marks its empty background draggable while its contents remain
+non-draggable. The shared toolbar does the same: its grid cells are
+draggable and the controls inside them are not.
 The host supplies the exact title and platform. Optional `qa` and `development`
 flags add `ProductWindowIdentity` inside the bar. The visible Development label
 has the full unpublished-project explanation as its title. QA and development

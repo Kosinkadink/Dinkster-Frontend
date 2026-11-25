@@ -23,6 +23,7 @@ import {
   Square,
   Plus,
   Settings,
+  SlidersHorizontal,
   Trash2,
   User,
   Users,
@@ -1310,7 +1311,7 @@ function WindowToolbarGallery() {
                           />
                           <ProductMenu
                             label="Customize layout"
-                            icon={Settings}
+                            icon={SlidersHorizontal}
                             attention={
                               narrow() ? rightPanelAttention() : undefined
                             }
