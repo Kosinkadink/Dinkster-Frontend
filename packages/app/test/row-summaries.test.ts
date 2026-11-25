@@ -253,6 +253,28 @@ describe('pointing at a row reads out its whole value without changing it', () =
     expect(readout(stringList, ['saved'], { value: items(4), state: 'expected' }, 1)).toEqual([])
   })
 
+  it('fits complete wrapped items and keeps both remainder counts visible', () => {
+    const target = {
+      kind: 'widget', connected: true,
+      hit: { node: { node: { type: 'Node', values: { v: ['saved a', 'saved b', 'saved c'] } } }, row: rowOf(stringList) },
+      companion: { state: 'expected', value: ['long first item', 'long second item', 'short third item', 'last item'] },
+    }
+    const tip = resolveCanvasTooltip(target, { detailed: false }, context)!
+    const measure = (text: string) => text.includes('long ') ? 4 : text.startsWith('Dormant stored') ? 2 : 1
+    expect(tip.fit!(10, measure).lines).toEqual([
+      'Current expected value: 4 items', '1. long first item', 'and 3 more',
+      'Dormant stored value under connection: 3 items', 'and 3 more',
+    ])
+    expect(tip.fit!(14, measure).lines).toEqual([
+      'Current expected value: 4 items', '1. long first item', '2. long second item', 'and 2 more',
+      'Dormant stored value under connection: 3 items', 'and 3 more',
+    ])
+    expect(tip.fit!(6, measure).lines).toEqual([
+      'Current expected value: 4 items', 'and 4 more',
+      'Dormant stored value under connection: 3 items', 'and 3 more',
+    ])
+  })
+
   it('never writes out the object of a row that only opens an editor', () => {
     expect(readout(specOf('LOAD_3D'), { camera: { fov: 35 } })).toEqual([])
     expect(readout(specOf('CAMERA_ANGLE_VIEW'), 'front')).toEqual([])

@@ -17,13 +17,17 @@ import { aggregatePanelIndicators, type PanelDescriptor, type PanelIndicator } f
 import { ProductTabs, type ProductTab } from './ProductTabs.js'
 import type { ShellRegion } from './shell-layout.js'
 import { useAppMessage } from './locale.js'
-import type { VisibleTooltip } from './tooltips.js'
+import type { TooltipContent, VisibleTooltip } from './tooltips.js'
 
 export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   const message = useAppMessage()
   let element!: HTMLElement
   let content!: HTMLDivElement
+  let readoutHeight: number | undefined
+  const [fitted, setFitted] = createSignal<TooltipContent>()
+  const displayed = () => fitted() ?? props.tip
   const position = (): void => {
+    if (!element.isConnected) return
     const tip = props.tip
     const rect = tip.element?.getBoundingClientRect()
     // A menu row's tooltip below it would cover the next row.
@@ -31,13 +35,39 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
     element.style.setProperty('--tooltip-available-width', `${window.innerWidth - (beside ? rect.right + 16 : 16)}px`)
     content.style.removeProperty('-webkit-line-clamp')
     const naturalHeight = element.getBoundingClientRect().height
+    if (tip.fit !== undefined) readoutHeight ??= naturalHeight
     let available = window.innerHeight - 16
     let above = false
     if (rect !== undefined && !beside) {
       const belowSpace = window.innerHeight - rect.bottom - 16
       const aboveSpace = rect.top - 16
-      above = naturalHeight > belowSpace && aboveSpace > belowSpace
+      above = (readoutHeight ?? naturalHeight) > belowSpace && aboveSpace > belowSpace
       available = above ? aboveSpace : belowSpace
+    }
+    if (tip.fit !== undefined) {
+      const lineHeight = Number.parseFloat(getComputedStyle(content).lineHeight)
+      const chromeHeight = naturalHeight - content.getBoundingClientRect().height
+      const title = content.querySelector<HTMLElement>('.app-tooltip-title')
+      const margins = (title === null ? 0 : Number.parseFloat(getComputedStyle(title).marginBottom)) +
+        Array.from(content.querySelectorAll<HTMLElement>('.app-tooltip-detail'))
+          .reduce((sum, detail) => sum + Number.parseFloat(getComputedStyle(detail).marginTop), 0)
+      const probe = document.createElement('div')
+      probe.style.position = 'absolute'
+      probe.style.visibility = 'hidden'
+      probe.style.width = `${content.getBoundingClientRect().width}px`
+      content.append(probe)
+      const next = tip.fit(Math.max(0, (available - chromeHeight - margins) / lineHeight), (text) => {
+        if (title !== null && text === tip.title) return title.getBoundingClientRect().height / lineHeight
+        probe.textContent = text
+        return probe.getBoundingClientRect().height / lineHeight
+      })
+      probe.remove()
+      const current = displayed().lines
+      if (next.lines.length !== current.length || next.lines.some((line, index) => line !== current[index])) {
+        setFitted(next)
+        queueMicrotask(position)
+        return
+      }
     }
     if (naturalHeight > available) {
       const chromeHeight = naturalHeight - content.getBoundingClientRect().height
@@ -68,7 +98,12 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
     element.style.left = `${Math.max(8, Math.min(left, window.innerWidth - width - 8))}px`
     element.style.top = `${Math.max(8, Math.min(top, window.innerHeight - height - 8))}px`
   }
-  createEffect(position)
+  const resetFit = (): void => {
+    readoutHeight = undefined
+    setFitted(undefined)
+    queueMicrotask(position)
+  }
+  createEffect(on(() => props.tip, resetFit))
   const observer = new ResizeObserver(position)
   // The anchor moves when a neighbour changes size (the project button widening when the
   // project's name loads), which resizes the anchor's container but not the anchor.
@@ -80,20 +115,20 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   })
   onMount(() => {
     observer.observe(element)
-    window.addEventListener('resize', position)
+    window.addEventListener('resize', resetFit)
     window.addEventListener('scroll', position, true)
     onCleanup(() => {
       observer.disconnect()
-      window.removeEventListener('resize', position)
+      window.removeEventListener('resize', resetFit)
       window.removeEventListener('scroll', position, true)
     })
   })
   return (
     <aside ref={element} class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip">
       <div ref={content} role="tooltip">
-        <Show when={props.tip.title}><div class="app-tooltip-title">{props.tip.title}</div></Show>
-        <For each={props.tip.lines}>{(line) => <div>{line}</div>}</For>
-        <Show when={props.tip.detailed}><For each={props.tip.detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
+        <Show when={displayed().title}><div class="app-tooltip-title">{displayed().title}</div></Show>
+        <For each={displayed().lines}>{(line) => <div>{line}</div>}</For>
+        <Show when={props.tip.detailed}><For each={displayed().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
       </div>
     </aside>
   )

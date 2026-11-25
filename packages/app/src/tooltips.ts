@@ -6,6 +6,8 @@ export interface TooltipContent {
   readonly title?: string
   readonly lines: readonly string[]
   readonly detail?: readonly string[]
+  /** Refit whole readout items using the rendered width and available height. */
+  readonly fit?: (lines: number, measure: (text: string) => number) => TooltipContent
 }
 
 export interface TooltipResolveOptions { readonly detailed: boolean }
@@ -139,6 +141,7 @@ export interface CanvasTooltipContext {
   readonly widgetReadout?: (row: { readonly viewId: string; readonly spec: WidgetSpec }, value: Json) => readonly string[] | undefined
   /** Text lines the tooltip holds while staying wholly on screen. */
   readonly tooltipLines?: number
+  readonly measureLine?: (text: string) => number
 }
 
 /** Items a widget readout lists before it says how many more there are. */
@@ -150,19 +153,23 @@ export const WIDGET_READOUT_ITEMS = 20
  * a long list never runs off screen. Empty when the row has no value of its
  * own to read.
  */
-function widgetValueLines(row: { readonly viewId: string; readonly spec: WidgetSpec }, value: Json, context: CanvasTooltipContext, room: number): readonly string[] {
-  if (room < 1) return []
-  const readout = context.widgetReadout?.(row, value)
-  if (readout === undefined) return [formatWidgetValue(value, row.spec)]
+function widgetValueLines(readout: readonly string[], context: CanvasTooltipContext, room: number, prefix: string): readonly string[] {
+  const measure = context.measureLine ?? (() => 1)
   const [head, ...items] = readout
   if (head === undefined) return []
-  if (room < 2) return [head]
-  const shown = items.length <= Math.min(WIDGET_READOUT_ITEMS, room - 1)
-    ? items.length
-    : Math.max(0, Math.min(WIDGET_READOUT_ITEMS, room - 2))
-  return shown === items.length
-    ? readout
-    : [head, ...items.slice(0, shown), translate('widgetSummary.more', { count: items.length - shown })]
+  const heading = `${prefix}${head}`
+  let used = measure(heading)
+  if (used > room) return []
+  let shown = 0
+  while (shown < Math.min(items.length, WIDGET_READOUT_ITEMS)) {
+    const next = measure(items[shown]!)
+    const remainder = shown + 1 < items.length ? measure(translate('widgetSummary.more', { count: items.length - shown - 1 })) : 0
+    if (used + next + remainder > room) break
+    used += next
+    shown++
+  }
+  const more = translate('widgetSummary.more', { count: items.length - shown })
+  return [heading, ...items.slice(0, shown), ...(shown < items.length && used + measure(more) <= room ? [more] : [])]
 }
 
 const joinedPorts = (ports: readonly string[] | undefined): string => ports?.join(', ') || 'its inputs'
@@ -352,31 +359,40 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       ...['min', 'max', 'step'].filter((key) => options[key] !== undefined).map((key) => `${key}: ${options[key]}`),
       ...(input?.tooltip ? [input.tooltip] : []),
     ]
-    // The title and any detail lines take their room first.
-    const room = (context.tooltipLines ?? Infinity) - 1 - (opts.detailed ? detail.length : 0)
-    // Keep room for the stored summary and its remainder before listing
-    // incoming items. On a very short window the summaries take priority.
-    const storedRoom = t.companion && t.connected ? Math.min(2, Math.max(0, room - 1)) : 0
-    const [text, ...more] = widgetValueLines(row, t.companion?.value ?? value, context, room - storedRoom)
+    const measure = context.measureLine ?? (() => 1)
+    const room = (context.tooltipLines ?? Infinity) - measure(row.name ?? row.label) -
+      (opts.detailed ? detail.reduce((sum, line) => sum + measure(line), 0) : 0)
     const state = t.companion?.state ?? (t.companion?.stale ? 'stale' : t.companion ? 'expected' : undefined)
-    const line = state === 'expected'
-      ? `Current expected value: ${text}`
+    const prefix = state === 'expected'
+      ? 'Current expected value: '
       : state === 'cached'
-        ? `Retained last-resolved value: ${text}`
+        ? 'Retained last-resolved value: '
         : state === 'stale'
-          ? `Stale/unproven value: ${text}`
+          ? 'Stale/unproven value: '
           : state === 'estimate'
-            ? `Mirrored estimate (computed locally, not executed): ${text}`
+            ? 'Mirrored estimate (computed locally, not executed): '
             : t.connected
-              ? `Dormant stored value under connection: ${text}`
-              : `Value: ${text}`
-    const [storedText, ...storedMore] = t.companion && t.connected
-      ? widgetValueLines(row, value, context, room - (text === undefined ? 0 : 1 + more.length)) : []
-    const stored = storedText === undefined ? [] : [`Dormant stored value under connection: ${storedText}`, ...storedMore]
+              ? 'Dormant stored value under connection: '
+              : 'Value: '
+    const storedPrefix = 'Dormant stored value under connection: '
+    const incomingValue = t.companion?.value ?? value
+    const incomingReadout = context.widgetReadout?.(row, incomingValue) ?? [formatWidgetValue(incomingValue, row.spec)]
+    const storedReadout = t.companion && t.connected
+      ? context.widgetReadout?.(row, value) ?? [formatWidgetValue(value, row.spec)] : []
+    const storedMinimum = storedReadout.length === 0 ? 0 : measure(`${storedPrefix}${storedReadout[0]}`) +
+      (storedReadout.length > 1 ? measure(translate('widgetSummary.more', { count: storedReadout.length - 1 })) : 0)
+    const incomingMinimum = incomingReadout.length === 0 ? 0 : measure(`${prefix}${incomingReadout[0]}`)
+    // Reserve the stored summary and remainder before spending room on incoming items.
+    const storedRoom = Math.min(storedMinimum, Math.max(0, room - incomingMinimum))
+    const incoming = widgetValueLines(incomingReadout, context, room - storedRoom, prefix)
+    const stored = t.companion && t.connected
+      ? widgetValueLines(storedReadout, context, room - incoming.reduce((sum, line) => sum + measure(line), 0), storedPrefix) : []
     return {
       title: row.name ?? row.label,
-      lines: [...(text === undefined ? [] : [line, ...more]), ...stored],
+      lines: [...incoming, ...stored],
       ...(opts.detailed && detail.length ? { detail } : {}),
+      ...(context.measureLine === undefined && (incomingReadout.length > 1 || storedReadout.length > 1) ? { fit: (lines: number, measureLine: (text: string) => number) =>
+        resolveCanvasTooltip(target, opts, { ...context, tooltipLines: lines, measureLine })! } : {}),
     }
   }
   if (t.kind === 'header') {
