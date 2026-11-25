@@ -102,6 +102,12 @@ describe('canvas tooltip provider', () => {
   }
   const context = { resolveSchema: () => schema, resolvePack: () => ({ displayName: 'Sampling Pack' }) }
 
+  it('reads the original multiline note without adding an editable field label', () => {
+    const text = 'Result: 512 x 768, 128 images\nfrom the selected batch'
+    expect(resolveCanvasTooltip({ kind: 'note', row: { text } }, { detailed: false })).toEqual({ lines: [text] })
+    expect(resolveCanvasTooltip({ kind: 'note', row: { text: '' } }, { detailed: false })).toBeUndefined()
+  })
+
   it('shows toolbox labels and disabled reasons', () => {
     const enabled = { kind: 'toolbox', button: { button: { label: 'Execute up to' } } }
     const disabled = {

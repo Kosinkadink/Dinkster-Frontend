@@ -143,6 +143,13 @@ describe('pairing', () => {
     expect(layout.pins.filter((pin) => pin.direction === 'in').map((pin) => pin.portId)).toEqual(['w', 'after'])
     // The only field of the shared line keeps the line's height and its socket sits at the middle.
     expect(layout.pins.find((pin) => pin.portId === 'w')!.y).toBe(w!.y + w!.height / 2)
+    for (const value of [note('intro', { formula: 'missing' }, 'Waiting'), note('intro', ''), note('intro', 'Plain text')]) {
+      const changed = doLayout([value, widget('after')])
+      const known = doLayout([note('intro', 'Plain text'), widget('after')])
+      expect(changed.rows.map((row) => [row.y, row.height])).toEqual(known.rows.map((row) => [row.y, row.height]))
+      expect(changed.pins).toEqual(known.pins)
+      expect(changed.height).toBe(known.height)
+    }
   })
 
   it('splits a Row of only buttons evenly and keeps an icon button square beside a field', () => {

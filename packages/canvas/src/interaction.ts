@@ -511,6 +511,7 @@ export type CanvasHoverTarget =
   | { readonly kind: 'widgetTap'; readonly hit: Extract<Hit, { kind: 'widgetTap' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'widget'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'button'; readonly hit: Extract<Hit, { kind: 'button' }>; readonly x: number; readonly y: number }
+  | { readonly kind: 'note'; readonly row: Extract<LayoutRow, { kind: 'note' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'memberRemove'; readonly hit: Extract<Hit, { kind: 'memberRemove' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'controller'; readonly hit: Extract<Hit, { kind: 'widget' }>; readonly x: number; readonly y: number }
   | { readonly kind: 'subgraphMark'; readonly mark: { readonly item: string; readonly label: string }; readonly x: number; readonly y: number }
@@ -3087,6 +3088,10 @@ export class InteractionController {
     const wiredPanelMark = this.wiredPanelMarkAt(hit, w.x, w.y)
     const subgraphMark = hit?.kind === 'widget' && this.subgraphMarkContains(hit) ? hit.row.subgraphMark
       : wiredPanelMark?.row.subgraphMark
+    const note = !overview && hit?.kind === 'body' ? hit.node.layout.rows.find((row): row is Extract<LayoutRow, { kind: 'note' }> =>
+      row.kind === 'note' && row.text !== '' &&
+      w.y >= hit.node.y + row.y && w.y < hit.node.y + row.y + row.height &&
+      w.x >= hit.node.x + row.inset && w.x < hit.node.x + row.inset + (row.width ?? hit.node.layout.width - row.inset * 2)) : undefined
     this.host.onHoverTarget?.(toolboxButton
       ? { kind: 'toolbox', button: toolboxButton, x: clientX, y: clientY }
       : badge
@@ -3095,6 +3100,8 @@ export class InteractionController {
         ? { kind: 'controller', hit, x: clientX, y: clientY }
       : subgraphMark
         ? { kind: 'subgraphMark', mark: subgraphMark, x: clientX, y: clientY }
+      : note
+        ? { kind: 'note', row: note, x: clientX, y: clientY }
       : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'button' || hit.kind === 'memberRemove' || hit.kind === 'header' || hit.kind === 'reroute' ||
         hit.kind === 'link' && hit.link.mismatch === true)
         ? { kind: hit.kind, hit, x: clientX, y: clientY } as CanvasHoverTarget

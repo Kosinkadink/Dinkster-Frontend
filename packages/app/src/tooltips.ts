@@ -255,6 +255,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     }
   }
   if (t.kind === 'button') return { lines: [t.hit.row.label, ...(t.hit.row.tooltip ? [t.hit.row.tooltip] : [])] }
+  if (t.kind === 'note') return t.row.text === '' ? undefined : { lines: [t.row.text] }
   if (t.kind === 'memberRemove') return { lines: [t.hit.remove.disabledReason ?? 'Remove member'] }
   if (t.kind === 'reroute') {
     const rerouteTypeName: string | undefined = t.hit.reroute.typeName

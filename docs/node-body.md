@@ -22,6 +22,9 @@ non-empty legacy `interface` list.
   and worded buttons share the width equally; a declared-icon button beside
   a field is a field-high square. Member grips and remove crosses keep
   their space outside those equal shares.
+- **Note**: one quiet text row with no field fill, pin or opener, kept even
+  when empty. Line breaks read as spaces and long text ends in an ellipsis;
+  pointing at the note gives the original text in its readout.
 - **Button**: a full-width raised row (the face an editor's opener row has,
   a lit top edge and a dark line under it), its label centered and an
   optional icon from the engine's list, on its own line or as a cell of a

@@ -687,6 +687,23 @@ describe('canvas hover targets', () => {
     expect(harness.overlays.at(-1)).not.toHaveProperty('hoveredPin')
   })
 
+  it('exposes a note original text only within its own shared-line cell', () => {
+    const base = interactionScene()
+    const node = base.nodes[0]!
+    const note = { kind: 'note' as const, noteId: 'result', y: 20, height: 24, inset: 10, width: 40, text: 'First\nsecond line' }
+    const scene = { ...base, nodes: [{ ...node, layout: { ...node.layout, rows: [note] } }] }
+    const targets: (CanvasHoverTarget | undefined)[] = []
+    const harness = interactionHarness(scene, { onHoverTarget: (target) => targets.push(target) })
+    harness.fire('pointermove', 40, 40)
+    expect(targets.at(-1)).toMatchObject({ kind: 'note', row: { text: 'First\nsecond line' } })
+    harness.fire('pointermove', 61, 40)
+    expect(targets.at(-1)).toBeUndefined()
+    harness.fire('pointermove', 40, 40)
+    harness.replaceScene({ ...scene, nodes: [{ ...node, layout: { ...node.layout, rows: [{ ...note, text: '' }] } }] })
+    harness.controller.refreshHover()
+    expect(targets.at(-1)).toBeUndefined()
+  })
+
   it('uses the full multiline row rectangle for widget hover', () => {
     const scene = sceneWithPins() as any
     // Leave ordinary node body below the row so the outside sample proves

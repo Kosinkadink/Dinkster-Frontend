@@ -559,6 +559,17 @@ describe('canvas hover affordance paint', () => {
     } as unknown as SceneNode],
   })
 
+  it('ellipsizes a multiline note instead of squeezing it and leaves its original text intact', () => {
+    const scene = hoverScene()
+    const node = scene.nodes[0]!
+    const text = 'First\nsecond\r\nthird'
+    const note = { kind: 'note' as const, noteId: 'result', y: 20, height: 24, inset: 10, width: 80, text }
+    const calls = paint({ ...scene, nodes: [{ ...node, layout: { ...node.layout, rows: [note] } }] })
+    const rendered = calls.find((call) => call.method === 'fillText' && call.args[0] === 'First se...')
+    expect(rendered?.args).toEqual(['First se...', 116, 132])
+    expect(note.text).toBe(text)
+  })
+
   it('leaves only the row whose field is open unpainted', () => {
     const scene = hoverScene()
     const node = scene.nodes[0]!

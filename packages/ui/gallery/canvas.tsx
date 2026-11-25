@@ -78,6 +78,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
       [
         'widgets',
         'core-rows',
+        'declaration-rows',
         'row-editing',
         'row-automatic',
         'row-lists',
@@ -176,6 +177,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'One row of every widget kind, with its default value; After raises the rows that open an editor and puts a color in an inset field.',
   'core-rows':
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
+  'declaration-rows':
+    'Declaration notes keep one quiet line, including unknown and empty text. Long and multiline text ellipsizes without stretching the row. Shared lines divide the visible fields, worded buttons and notes equally with a 4 px gap.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
   'row-automatic':

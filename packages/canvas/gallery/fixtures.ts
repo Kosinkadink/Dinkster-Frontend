@@ -79,6 +79,7 @@ export const canvasGalleryPages = [
   ['wire-looks', 'Wire looks'],
   ['widgets', 'Widget kinds'],
   ['core-rows', 'Core widget rows'],
+  ['declaration-rows', 'Declaration notes and lines'],
   ['row-editing', 'Editing in the row proposal'],
   ['row-automatic', 'Automatic values proposal'],
   ['row-lists', 'Lists in the row proposal'],
@@ -810,6 +811,24 @@ export function createCanvasGalleryFixture(
     add('Empty values', definition, empty)
     add('Empty values, narrow node', definition, empty, undefined, false, { width: 180 })
     add('Empty values, narrower node', definition, empty, undefined, false, { width: 140 })
+  } else if (page === 'declaration-rows') {
+    const width = widget('width', 'INT', 512, { min: 16, max: 8192 })
+    const height = widget('height', 'INT', 768, { min: 16, max: 8192 })
+    const note = (text: string): NodeSchema['body'][number] => ({ kind: 'note', id: 'result', text })
+    add('Known note', schema('Resize image', [width, note('Result: 512 x 768, 1 image'), height]))
+    add('Unknown note, supplied text', schema('Resize image', [width, {
+      kind: 'note', id: 'result', text: { formula: 'missing_result' }, unknown: 'Result is not known yet',
+    }, height]))
+    add('Empty note keeps its row', schema('Resize image', [width, note(''), height]))
+    add('Long multiline note, narrow', schema('Resize image', [width,
+      note('Result: 512 x 768, 128 images\nfrom the selected batch'), height]), {}, undefined, false, { width: 180 })
+    add('Two fields', schema('Resize image', [{ kind: 'row', rows: [width, height] }]), {}, undefined, false, { width: 600 })
+    add('Three fields', schema('Offset', [{ kind: 'row', rows: [
+      widget('x', 'INT', 8), widget('y', 'INT', 12), widget('z', 'INT', 0),
+    ] }]), {}, undefined, false, { width: 817 })
+    add('Field, worded button and note', schema('Resize image', [{ kind: 'row', rows: [
+      width, { kind: 'button', id: 'reset', label: 'Reset width', steps: [] }, { kind: 'note', id: 'units', text: 'px' },
+    ] }]), {}, undefined, false, { width: 817 })
   } else if (page === 'core-rows') {
     const core = galleryWidgetInputs.filter((item) =>
       [
