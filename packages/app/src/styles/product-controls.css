@@ -18,6 +18,9 @@
 .product-button[data-variant='ghost'] { border-color: transparent; background: transparent; }
 .product-button:hover:not(:disabled) { background: var(--dinkster-interaction-hover); }
 .product-button:active:not(:disabled) { background: var(--dinkster-interaction-pressed); }
+/* A danger outline fills with its own colour, quietly: 12% under the pointer and 20% while pressed. */
+.product-button[data-variant='danger']:hover:not(:disabled) { background: var(--dinkster-danger-wash); }
+.product-button[data-variant='danger']:active:not(:disabled) { background: var(--dinkster-danger-wash-pressed); }
 /* A secondary or ghost outline is subtle at rest, the hover outline under the pointer and strong only while pressed or open; primary and danger keep their own. */
 .product-button:is([data-variant='secondary'], [data-variant='ghost']):hover:not(:disabled) { border-color: var(--dinkster-border-hover); }
 .product-button:is([data-variant='secondary'], [data-variant='ghost']):is(:active, [aria-expanded='true']):not(:disabled) { border-color: var(--dinkster-border-strong); }

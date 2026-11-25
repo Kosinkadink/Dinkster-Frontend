@@ -29,10 +29,9 @@
 .subgraph-definitions h2 { margin: 0 0 var(--dinkster-space-8); color: var(--dinkster-text-primary); font-size: var(--dinkster-type-section-size); font-weight: var(--dinkster-weight-bold); line-height: var(--dinkster-type-section-line); }
 .subgraph-cleanup-intro { margin: 0 0 var(--dinkster-space-12); color: var(--dinkster-text-secondary); line-height: var(--dinkster-type-body-line); overflow-wrap: anywhere; }
 .subgraph-definition-list-hint { margin: 0 0 var(--dinkster-space-8); color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
-.subgraph-definition-list { display: grid; gap: var(--dinkster-space-8); max-height: 380px; margin: 0; padding: var(--dinkster-space-4); overflow: auto; overscroll-behavior: contain; background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); scrollbar-gutter: stable; list-style: none; touch-action: pan-y; }
+.subgraph-definition-list { display: grid; max-height: 380px; margin: 0; padding: var(--dinkster-space-4); overflow: auto; overscroll-behavior: contain; background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); scrollbar-gutter: stable; list-style: none; touch-action: pan-y; }
 .subgraph-definition-list:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 2px; }
-.subgraph-definition-row { display: grid; gap: var(--dinkster-space-12); min-width: 0; padding: var(--dinkster-space-12); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-subtle); border-left: 3px solid var(--dinkster-warning-border); border-radius: var(--dinkster-radius-control); }
-.subgraph-retained-definitions .subgraph-definition-row { border-left-color: var(--dinkster-success-border); }
+.subgraph-definition-row { display: grid; gap: var(--dinkster-space-12); min-width: 0; }
 .subgraph-definition-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--dinkster-space-12); min-width: 0; }
 .subgraph-definition-identity { display: grid; gap: var(--dinkster-space-4); min-width: 0; }
 .subgraph-definition-identity strong { color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-bold); overflow-wrap: anywhere; }
@@ -177,6 +176,10 @@
 .product-action-buttons button:not(.product-button):disabled { color: var(--dinkster-text-disabled); cursor: not-allowed; opacity: var(--dinkster-interaction-disabled-opacity); }
 .product-action-buttons button:not(.product-button).primary { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); }
 .product-action-buttons button:not(.product-button).danger { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-border); }
+.product-action-buttons button:not(.product-button).primary:hover:not(:disabled) { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-wash); }
+.product-action-buttons button:not(.product-button).primary:active:not(:disabled) { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-wash-pressed); }
+.product-action-buttons button:not(.product-button).danger:hover:not(:disabled) { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-wash); }
+.product-action-buttons button:not(.product-button).danger:active:not(:disabled) { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-wash-pressed); }
 
 .queue-button {
   background: var(--dinkster-action-primary-bg);

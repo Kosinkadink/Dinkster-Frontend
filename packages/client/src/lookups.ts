@@ -92,6 +92,11 @@ export interface LookupClient {
    * checked now: those calls are asked again when next shown.
    */
   filesChanged(): void
+  /**
+   * A run got `value` from these arguments. When the kept answer differs,
+   * that one call is old and is asked again when next shown.
+   */
+  answerRecorded(call: Pick<LookupCall, 'function' | 'args'>, value: unknown): void
   /** A different backend, catalog or user: drop every answer and call. */
   setPartition(partition: LookupPartition): void
   dispose(): void
@@ -362,6 +367,12 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     },
     filesChanged() {
       makeOld((_key, entry) => 'reason' in entry.state && entry.state.reason === 'file-unchecked')
+    },
+    answerRecorded(call, value) {
+      const entry = kept.get(keyOf(call))
+      if (entry?.answer === undefined || entry.old || lookupArgsJson(entry.answer.value) === lookupArgsJson(value)) return
+      entry.old = true
+      notify()
     },
     setPartition(next) {
       if (

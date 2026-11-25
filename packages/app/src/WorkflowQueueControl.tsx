@@ -155,7 +155,7 @@ export function WorkflowQueueControl(props: {
           <Show when={props.executions.length > 0} fallback={<ProductEmptyState title="No jobs for this workflow." />}>
             <div
               ref={list}
-              class="workflow-queue-list"
+              class="workflow-queue-list dinkster-list-rows"
               role="list"
               aria-label="Workflow jobs"
               onKeyDown={(event) => {

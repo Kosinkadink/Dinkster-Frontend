@@ -359,7 +359,6 @@
 .workflow-queue-list {
   display: flex;
   flex-direction: column;
-  gap: var(--dinkster-space-8);
   max-height: min(420px, calc(100vh - 140px));
   overflow-y: auto;
 }

@@ -68,7 +68,7 @@ import type {
   WidgetSpec,
 } from './model.js'
 import { isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
-import { readWhenUnset } from './widget-defaults.js'
+import { readWhenUnset, sentSpecOf } from './widget-defaults.js'
 import { normalizeComboOption } from './combo-options.js'
 import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
 
@@ -250,6 +250,12 @@ export interface ElaboratedInput {
    * each. The answers in use are already in `spec.widget`.
    */
   readonly looked?: Readonly<Partial<Record<LookedWidgetField, LookedState>>>
+  /**
+   * Not drawn because of where it sits: its `visible` is false, or a hidden
+   * choice or group holds it. Its `spec.hidden` is set, but the run is sent
+   * what it would be sent if shown, unlike a field declared `hidden`.
+   */
+  readonly hiddenByScope?: true
 }
 
 /**
@@ -1609,8 +1615,9 @@ function elaboratePass(
     const parts = row.widget === undefined ? undefined : partsAt(row.widget, scope)
     // A field that is not sent is drawn and edited but never reaches the run.
     const sent = !(scope.ghost || scope.dormant || row.sent === false)
+    const hiddenByScope = scope.hidden && row.hidden !== true
     // A census also visits rows not chosen; they never replace a chosen row's entry.
-    if (!scope.dormant || !unsetReads.has(path)) unsetReads.set(path, readWhenUnset(sent ? spec : { ...spec, sent: false }))
+    if (!scope.dormant || !unsetReads.has(path)) unsetReads.set(path, readWhenUnset(sent ? sentSpecOf(spec, hiddenByScope) : { ...spec, sent: false }))
     push({
       kind: 'input',
       address: { port: path },
@@ -1621,6 +1628,7 @@ function elaboratePass(
       ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
       ...(boxedLabel ? { ownLabel: own } : {}),
       ...(looked !== undefined && Object.keys(looked.states).length > 0 ? { looked: looked.states } : {}),
+      ...(hiddenByScope ? { hiddenByScope: true as const } : {}),
       ...extra,
     })
     if (row.automatic !== undefined && !scope.dormant && !linked(path)) {
