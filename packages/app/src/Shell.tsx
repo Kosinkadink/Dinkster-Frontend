@@ -75,6 +75,10 @@ const nameOf = (installation: ShellInstallation): string =>
 const sameInstallation = (a: ProjectInstallation | undefined, b: ProjectInstallation): boolean =>
   a?.root === b.root && a.engine === b.engine
 const detailOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+/** Records that a project opened; a failure never touches the open. Survives leaving the page. */
+const recordOpened = (projectId: string): void => {
+  void fetch(`/api/projects/${encodeURIComponent(projectId)}/opened`, { method: 'POST', keepalive: true }).catch(() => undefined)
+}
 
 async function postJson(path: string, body: unknown): Promise<HomeStatus & { message?: string; error?: string }> {
   const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -178,6 +182,7 @@ export function Shell(props: {
       const target = urlForView(new URL(status.installationFrontend + '/'), { kind: 'editor', projectId })
       // That editor keeps its own settings; this keeps its loading colour the one on screen now.
       target.searchParams.set('dinksterTheme', document.documentElement.dataset['theme'] ?? 'dark')
+      recordOpened(projectId)
       ;(props.navigate ?? ((url) => location.assign(url)))(target.href)
     } catch (error) {
       if (run === attempt) setOpening(failedOpening(base, installation, error))
@@ -202,6 +207,7 @@ export function Shell(props: {
     await mount(projectId)
     if (run !== attempt) return
     push({ kind: 'editor', projectId })
+    recordOpened(projectId)
     setOpening(undefined)
     if (fromEditor) await cover(false)
     else await fadePage(false)

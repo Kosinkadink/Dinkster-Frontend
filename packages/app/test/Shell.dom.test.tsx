@@ -19,6 +19,7 @@ const installations: Record<string, InstallationFrontend> = {
 function mount(home: HomeStatus = { role: 'home', state: 'stopped' }) {
   let status: HomeStatus = { ...home }
   const opened: unknown[] = []
+  const recorded: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
     const path = String(input)
     if (path === '/supervisor/installations') {
@@ -33,6 +34,12 @@ function mount(home: HomeStatus = { role: 'home', state: 'stopped' }) {
       return Response.json(status)
     }
     if (path.startsWith('http://127.0.0.1:3637/')) return new Response('')
+    const record = /^\/api\/projects\/([^/]+)\/opened$/.exec(path)
+    if (record !== null && init?.method === 'POST') {
+      recorded.push(decodeURIComponent(record[1]!))
+      // An engine without the route answers 404; the open goes on.
+      return new Response('{}', { status: 404 })
+    }
     throw new Error(`unexpected fetch ${path}`)
   }))
   const editors: string[] = []
@@ -58,7 +65,7 @@ function mount(home: HomeStatus = { role: 'home', state: 'stopped' }) {
     navigate={(url) => navigated.push(url)}
   />, root)
   return {
-    root, editors, disposed, navigated, opened, dispose,
+    root, editors, disposed, navigated, opened, recorded, dispose,
     get shell() { return shell },
     become(next: Partial<HomeStatus>) { status = { ...status, ...next } },
     page: () => root.querySelector<HTMLElement>('[data-testid="app-shell-page"]'),
@@ -98,6 +105,7 @@ describe('the one app shell', () => {
     expect(view.disposed).toEqual(['film'])
     expect(view.opened).toHaveLength(1)
     expect(view.navigated).toEqual([])
+    await vi.waitFor(() => expect(view.recorded).toEqual(['film', 'teapot']))
   })
 
   it('opens an installation on another wire version at its own address once its engine is ready', async () => {
@@ -114,6 +122,7 @@ describe('the one app shell', () => {
     await vi.waitFor(() => expect(view.navigated).toEqual(['http://127.0.0.1:3637/?dinksterProject=bookshop&dinksterTheme=light']))
     expect(view.root.querySelector('[data-testid="app-shell-cover"]')?.classList.contains('app-shell-covered')).toBe(true)
     expect(view.editors).toEqual([])
+    expect(view.recorded).toEqual(['bookshop'])
   })
 
   it('sends a development frontend to its own address and reports a failed start', async () => {
@@ -135,6 +144,8 @@ describe('the one app shell', () => {
     expect(view.root.querySelector('[data-testid="line"]')?.getAttribute('title')).toBe('port 3639 is taken')
     expect(view.editors).toEqual([])
     expect(view.page()).not.toBeNull()
+    // A failed open never counts as opened.
+    expect(view.recorded).toEqual([])
   })
 
   it('says so when an installation has no editor this build can open', async () => {
