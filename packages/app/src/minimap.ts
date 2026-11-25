@@ -141,7 +141,9 @@ export function setupMinimap(deps: {
         links: settings.get<boolean>('canvas.minimap.noodles') ? sc.links.filter((link) => link.hidden !== true).map((link) => ({
           from: { x: link.x1, y: link.y1 },
           to: { x: link.x2, y: link.y2 },
+          ...(link.typeName !== undefined ? { typeName: link.typeName } : {}),
         })) : [],
+        linkColors: settings.get<boolean>('canvas.minimap.linkColors'),
         reroutes: settings.get<boolean>('canvas.minimap.reroutes') ? sc.reroutes.map((r) => ({ x: r.x, y: r.y })) : [],
         viewport: {
           ...renderer.getViewport(),

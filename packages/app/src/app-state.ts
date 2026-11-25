@@ -3102,6 +3102,7 @@ export class AppState {
     this.settings.register({ id: 'canvas.minimap.nodes', get name() { return t('settings.canvas.minimap.nodes') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.bypass', get name() { return t('settings.canvas.minimap.bypass') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.noodles', get name() { return t('settings.canvas.minimap.noodles') }, type: 'boolean', defaultValue: true })
+    this.settings.register({ id: 'canvas.minimap.linkColors', get name() { return t('settings.canvas.minimap.linkColors') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.groups', get name() { return t('settings.canvas.minimap.groups') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.reroutes', get name() { return t('settings.canvas.minimap.reroutes') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.errors', get name() { return t('settings.canvas.minimap.errors') }, type: 'boolean', defaultValue: true })

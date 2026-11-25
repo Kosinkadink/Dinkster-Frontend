@@ -18,7 +18,7 @@ import {
   dispatchAppCommandKey,
 } from '../src/App.js'
 import { ActivityBarButton, DockZoneHost, FloatingPanelHost, ShellResizeHandle } from '../src/ShellChrome.js'
-import { CanvasViewControls } from '../src/CanvasHost.js'
+import { CanvasViewControls } from '../src/CanvasChrome.js'
 import { ContextMenu } from '../src/ContextMenu.js'
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from '../src/editors.js'
 import { AppState, workflowExportFilename } from '../src/app-state.js'
