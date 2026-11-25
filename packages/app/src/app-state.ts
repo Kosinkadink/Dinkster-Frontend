@@ -6,6 +6,7 @@
  */
 
 import { desktopSaveBridge } from './desktop-bridge.js'
+import type { PaletteEntry } from './NodePalette.js'
 import {
   CORE_VIRTUAL_NODE_KINDS,
   activeLocale,
@@ -1181,6 +1182,10 @@ export interface CanvasBridge {
     type: string,
     expected?: { readonly schemaKey: string; readonly backendId: string },
   ) => boolean
+  /** The blueprints node search lists, so Ctrl+K finds the same ones. */
+  readonly blueprintEntries?: () => readonly PaletteEntry[]
+  /** Arms the placement ghost for the blueprint entry of that type, as node search does. */
+  readonly armBlueprintPlacement?: (type: string, backendId: string) => boolean
   readonly createEmptySubgraph?: (position?: Vec2) => boolean | Promise<boolean>
   /** Extracts the captured selection and group contents with the default name. */
   readonly extractSubgraph?: () => boolean | Promise<boolean>

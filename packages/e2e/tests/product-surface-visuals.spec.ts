@@ -1,4 +1,4 @@
-import { expect, nativeAppViewTest as test, subgraphMarkPoint, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeAppViewTest as test, subgraphMarkPoint, waitForWorkspaceReady, type Page, chooseRunScope } from './fixtures.js'
 import type { Route } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
@@ -300,13 +300,12 @@ test('stored run outputs load only after selection and retain their original ide
   await boot(page)
   await closeGallery(page)
   await openRail(page, 'Runs')
-  await page.getByTestId('runs-scope').click()
-  await page.getByRole('option', { name: 'All workflows', exact: true }).click()
+  await chooseRunScope(page, 'all')
   const rows = page.getByTestId('collection-entry')
   await expect(rows).toHaveCount(3)
   expect(jobs).toEqual([])
   await expect(page.locator('.runs-output-thumbnails')).toHaveCount(0)
-  const good = rows.filter({ hasText: 'shared-j' }).nth(0)
+  const good = rows.nth(0)
   await good.click()
   await expect(good).toContainText('Loading retained outputs...')
   await page.mouse.move(600, 400)
@@ -333,10 +332,8 @@ test('stored run outputs load only after selection and retain their original ide
   await page.keyboard.press('Escape')
   await page.screenshot({ path: testInfo.outputPath('stored-run-error.png'), animations: 'disabled' })
   await page.route('**/api/history?*', (route) => route.fulfill({ json: { records: [] } }))
-  await page.getByTestId('runs-scope').click()
-  await page.getByRole('option', { name: 'This workflow', exact: true }).click()
-  await page.getByTestId('runs-scope').click()
-  await page.getByRole('option', { name: 'All workflows', exact: true }).click()
+  await chooseRunScope(page, 'workflow')
+  await chooseRunScope(page, 'all')
   const empty = page.getByTestId('runs-panel').getByTestId('collection-empty')
   await expect(empty).toHaveText('No finished runs are stored')
   await page.screenshot({ path: testInfo.outputPath('stored-runs-empty.png'), animations: 'disabled' })
@@ -799,7 +796,7 @@ test('A reopened workflow draws from the kept node definitions until the real on
   // Search lists the copy's types, and placing one adds it with the copy's defaults.
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('@ Pick')
-  await page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]', { hasText: 'Pick' }).click()
+  await page.locator('[data-group="core.nodes"] [role="option"]', { hasText: 'Pick' }).click()
   const canvas = (await page.getByTestId('graph-canvas').boundingBox())!
   await page.mouse.click(canvas.x + 900, canvas.y + 160)
   const placed = () => page.evaluate(() => Object.values(window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes)

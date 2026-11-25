@@ -579,7 +579,8 @@ export function CollectionPanel(props: {
       role="option"
       aria-selected={highlighted(p.entry)}
       aria-disabled={props.pick !== undefined && p.entry.folder === undefined && !props.pick.pickable(p.entry) ? 'true' : undefined}
-      data-tooltip-label={`${p.entry.title}${p.entry.subtitle ? `\n${p.entry.subtitle}` : ''}`}
+      // A host that draws its own entry content already shows these facts, and the tooltip would cover the rows under it.
+      data-tooltip-label={props.entryContent === undefined ? `${p.entry.title}${p.entry.subtitle ? `\n${p.entry.subtitle}` : ''}` : undefined}
       tabindex={p.entry.id === rovingId() ? '0' : '-1'}
       onClick={() => activate(p.entry)}
     >

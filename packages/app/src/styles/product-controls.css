@@ -14,14 +14,17 @@
 }
 .product-button[data-size='compact'] { min-height: var(--dinkster-control-compact-height); padding-inline: var(--dinkster-space-8); }
 .product-button[data-variant='primary'] { border-color: var(--dinkster-accent-border); color: var(--dinkster-action-primary-text); background: var(--dinkster-action-primary-bg); }
-.product-button[data-variant='danger'] { border-color: var(--dinkster-danger-border); color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); }
+.product-button[data-variant='accent'] { border-color: var(--dinkster-accent-rest-border); color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); }
+.product-button[data-variant='danger'] { border-color: var(--dinkster-danger-rest-border); color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); }
 .product-button[data-variant='ghost'] { border-color: transparent; background: transparent; }
 .product-button:hover:not(:disabled) { background: var(--dinkster-interaction-hover); }
 .product-button:active:not(:disabled) { background: var(--dinkster-interaction-pressed); }
-/* A danger outline fills with its own colour, quietly: 12% under the pointer and 20% while pressed. */
-.product-button[data-variant='danger']:hover:not(:disabled) { background: var(--dinkster-danger-wash); }
-.product-button[data-variant='danger']:active:not(:disabled) { background: var(--dinkster-danger-wash-pressed); }
-/* A secondary or ghost outline is subtle at rest, the hover outline under the pointer and strong only while pressed or open; primary and danger keep their own. */
+/* An accent or danger outline fills with its own colour, quietly: 12% under the pointer and 20% while pressed. */
+.product-button[data-variant='accent']:hover:not(:disabled) { border-color: var(--dinkster-accent-border); background: var(--dinkster-accent-wash); }
+.product-button[data-variant='accent']:active:not(:disabled) { border-color: var(--dinkster-accent-border); background: var(--dinkster-accent-wash-pressed); }
+.product-button[data-variant='danger']:hover:not(:disabled) { border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash); }
+.product-button[data-variant='danger']:active:not(:disabled) { border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash-pressed); }
+/* A secondary or ghost outline is subtle at rest, the hover outline under the pointer and strong only while pressed or open; primary, accent and danger keep their own. */
 .product-button:is([data-variant='secondary'], [data-variant='ghost']):hover:not(:disabled) { border-color: var(--dinkster-border-hover); }
 .product-button:is([data-variant='secondary'], [data-variant='ghost']):is(:active, [aria-expanded='true']):not(:disabled) { border-color: var(--dinkster-border-strong); }
 .product-button[data-variant='primary']:is(:hover, :active):not(:disabled) { color: var(--dinkster-action-primary-text); background: var(--dinkster-action-primary-bg); }
@@ -41,8 +44,12 @@
   font: inherit;
 }
 .product-text-area { resize: vertical; }
-.product-text-input:hover:not(:disabled),
-.product-text-area:hover:not(:disabled) { border-color: var(--dinkster-border-hover); }
+.product-text-input:where(:hover:not(:disabled)),
+.product-text-area:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
+.product-text-input:focus,
+.product-text-area:focus { border-color: var(--dinkster-border-subtle); }
+:where(:root[data-field-focus='pointer']) :is(.product-text-input, .product-text-area):focus { border-color: var(--dinkster-border-focus); }
+:root[data-field-focus='pointer'] :is(.product-text-input, .product-text-area, .product-color-popover input):focus-visible { outline: 0; }
 .product-text-input[aria-invalid='true'],
 .product-text-area[aria-invalid='true'] { border-color: var(--dinkster-danger-border); }
 .product-text-input:disabled,
@@ -236,9 +243,13 @@
   overflow: hidden;
   background: var(--dinkster-surface-inset);
 }
-.product-number:hover:not(:has(:disabled)) { border-color: var(--dinkster-border-hover); }
-.product-number:focus-within { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
+.product-number:where(:hover:not(:has(:disabled))) { border-color: var(--dinkster-border-hover); }
+.product-number:focus-within { border-color: var(--dinkster-border-subtle); }
+:where(:root[data-field-focus='pointer']) .product-number:focus-within { border-color: var(--dinkster-border-focus); }
+.product-number:has(:focus-visible) { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
+:root[data-field-focus='pointer'] .product-number:has(:focus-visible) { outline: 0; }
 .product-number-field { appearance: none; min-width: 0; width: 100%; padding: var(--dinkster-space-4) var(--dinkster-space-8); border: 0; outline: 0; color: var(--dinkster-text-primary); background: transparent; font: inherit; }
+.product-number .product-number-field:focus-visible { outline: 0; }
 .product-number-field:disabled { color: var(--dinkster-text-disabled); }
 .product-number-steppers { display: flex; flex: none; border-left: 1px solid var(--dinkster-border-subtle); }
 .product-number-steppers button { min-width: var(--dinkster-control-compact-height); min-height: var(--dinkster-control-compact-height); padding: 0; border: 0; color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); line-height: 1; cursor: pointer; }
@@ -259,5 +270,6 @@
 .product-color-popover { position: fixed; z-index: 1002; width: calc(var(--dinkster-space-32) * 6.5); padding: var(--dinkster-space-12); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); box-shadow: var(--dinkster-elevation-high); }
 .product-color-popover label { display: grid; gap: var(--dinkster-space-4); font-size: var(--dinkster-type-metadata-size); }
 .product-color-popover input { min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: var(--dinkster-surface-inset); font: inherit; }
+:where(:root[data-field-focus='pointer']) .product-color-popover input:focus { border-color: var(--dinkster-border-focus); }
 .product-color-grid { display: grid; grid-template-columns: repeat(4, var(--dinkster-space-32)); gap: var(--dinkster-space-8); margin: var(--dinkster-space-12) 0; }
 .product-color-grid button { width: var(--dinkster-space-32); height: var(--dinkster-space-32); border: 1px solid var(--dinkster-border-strong); border-radius: var(--dinkster-radius-control); cursor: pointer; }
