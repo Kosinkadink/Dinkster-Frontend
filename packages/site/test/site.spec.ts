@@ -140,6 +140,13 @@ for (const width of [1280, 1440, 1920, 390]) {
     await expect(
       page.getByRole('button', { name: 'Save', exact: true }),
     ).toBeEnabled()
+    await page
+      .getByRole('button', { name: 'Save', exact: true })
+      .evaluate(async (button) => {
+        await Promise.all(
+          button.getAnimations().map((animation) => animation.finished),
+        )
+      })
     await page.addScriptTag({ content: axe.source })
     expect(
       await page.evaluate(
