@@ -1615,8 +1615,8 @@ function elaboratePass(
     const parts = row.widget === undefined ? undefined : partsAt(row.widget, scope)
     // A field that is not sent is drawn and edited but never reaches the run.
     const sent = !(scope.ghost || scope.dormant || row.sent === false)
-    // A census also visits rows not chosen; they never replace a chosen row's entry.
     const hiddenByScope = scope.hidden && row.hidden !== true
+    // A census also visits rows not chosen; they never replace a chosen row's entry.
     if (!scope.dormant || !unsetReads.has(path)) unsetReads.set(path, readWhenUnset(sent ? sentSpecOf(spec, hiddenByScope) : { ...spec, sent: false }))
     push({
       kind: 'input',

@@ -60,8 +60,9 @@ fails:
 A row whose `visible` is false is not drawn and is still stored and sent to
 the run; with nothing stored it is sent what it would be sent if shown, so
 showing or hiding a row never changes what a run receives. A box whose
-`visible` is false hides every row in it. A row with a wire on its pin or its field's output shows anyway, and so does a box that
-holds one at any depth. A row with a problem shows the same way, and hides
+`visible` is false hides every row in it. A row with a wire on its pin or
+its field's output shows anyway, and so does a box that holds one at any
+depth. A row with a problem shows the same way, and hides
 again once the problem is gone: an error or a warning that elaboration or
 the type solver finds on it, a failed rule that reads only that field, or a
 stored value its widget refuses, such as a number out of range. A note whose text is a lookup shows its `unknown` text. A group's
