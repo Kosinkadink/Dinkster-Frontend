@@ -218,8 +218,16 @@
   flex-direction: column;
   gap: var(--dinkster-space-12);
   box-sizing: border-box;
-  overflow-y: auto;
   pointer-events: auto;
+}
+.asset-editor.widget-modal-editor { overflow: hidden; }
+.asset-editor-scroll {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--dinkster-space-12);
+  overflow-y: auto;
 }
 .asset-editor-context {
   display: flex;
