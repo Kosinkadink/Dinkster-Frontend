@@ -2177,6 +2177,10 @@ export class CanvasRenderer {
     // Visible world rect for culling.
     const view = { x: -vx / scale, y: -vy / scale, w: w / scale, h: h / scale }
     this.drawCanvasLayers('background', ctx, view, scale)
+    if (this.graphTileSurface?.getContext('2d')?.isContextLost()) {
+      this.clearGraphTiles()
+      this.graphTileSurface = undefined
+    }
     if (
       typeof OffscreenCanvas !== 'undefined' &&
       typeof OffscreenCanvas.prototype.transferToImageBitmap === 'function' &&
