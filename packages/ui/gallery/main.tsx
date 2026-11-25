@@ -21,7 +21,6 @@ import {
   PanelRight,
   MousePointer,
   Search,
-  Square,
   Plus,
   Settings,
   SlidersHorizontal,
@@ -55,6 +54,7 @@ import {
   ProductIcon,
   ProductRunIcon,
   ProductRunActivity,
+  ProductCancelButton,
   ProductIconButton,
   ProductLink,
   ProductList,
@@ -88,10 +88,12 @@ import {
 } from './canvas.js'
 import { ContextMenuGallery } from './context-menus.js'
 import { CanvasChromeGallery } from './canvas-chrome.js'
+import { RunControlsGallery } from './run-controls.js'
 import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
 import { ProjectsGallery } from './projects.js'
 import { TemplatesGallery } from './templates.js'
+import { SearchGallery } from './search.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -166,7 +168,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={route() === '#canvas' || route() === '#canvas-chrome' ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -182,14 +184,14 @@ function Gallery() {
           route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              (route() === '#resource-usage' ? 'Resource usage' : 'Buttons and fields'))
+              (route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
         }
         description={
           route() === '#canvas'
             ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
             : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
         }
-        table={route() === '#lists' || route() === '#canvas'}
+        table={route() === '#lists' || route() === '#canvas' || route() === '#search'}
       >
         <Show
           when={!loading()}
@@ -324,6 +326,14 @@ function Gallery() {
             <Match when={route() === '#canvas-chrome'}>
               <Section title="Canvas corner, view bar and Run" components="CanvasCornerControls, CanvasViewControls, WorkflowQueueControl">
                 <CanvasChromeGallery />
+              </Section>
+            </Match>
+            <Match when={route() === '#search'}>
+              <SearchGallery />
+            </Match>
+            <Match when={route() === '#run-controls'}>
+              <Section title="Run controls" components="RunActivityControl, WorkflowQueueControl, RunRow, RunSection, ProductCancelButton">
+                <RunControlsGallery />
               </Section>
             </Match>
             <Match when={route() === '#context-menus'}>
@@ -1367,20 +1377,22 @@ function WindowToolbarGallery() {
                       }
                       actions={(narrow) => (
                         <>
-                          <Show when={runCounts().running > 0}>
-                            <ProductRunActivity
-                              {...runCounts()}
-                              label={runSummary()}
-                            />
-                          </Show>
-                          <Show when={state() !== 'idle'}>
-                            <ProductWindowAction
-                              label="Cancel run"
-                              icon={Square}
-                              intent="remove"
-                              pending={state() === 'pending'}
-                              onClick={() => setActivity('Run cancelled')}
-                            />
+                          <Show when={runCounts().running > 0 || state() !== 'idle'}>
+                            <span class="run-activity-control">
+                              <Show when={runCounts().running > 0}>
+                                <ProductRunActivity
+                                  {...runCounts()}
+                                  label={runSummary()}
+                                />
+                              </Show>
+                              <Show when={state() !== 'idle'}>
+                                <ProductCancelButton
+                                  label="Cancel Long run"
+                                  pending={state() === 'pending'}
+                                  onClick={() => setActivity('Run cancelled')}
+                                />
+                              </Show>
+                            </span>
                           </Show>
                           <ProductIconButton
                             label="Collaboration"
@@ -1460,7 +1472,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#window-toolbar', '#editor-bar', '#projects', '#templates'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#window-toolbar', '#editor-bar', '#projects', '#templates'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'

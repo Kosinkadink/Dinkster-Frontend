@@ -577,6 +577,8 @@ export interface WidgetPaintArgs {
   /** The row is being dragged; `value` is the value under the pointer, not yet stored. */
   readonly dragging?: boolean
   readonly tokens: DesignTokens
+  /** What the host knows about this machine, keyed by widget kind; see `setWidgetFacts`. */
+  readonly facts?: Readonly<Record<string, Json>>
 }
 
 /** A row the pointer is dragging, painted with the value under the pointer until release stores it. */
@@ -1231,6 +1233,18 @@ export class CanvasRenderer {
   /** Companion (propagated) values per node/valueKey. Derived, never stored. */
   setCompanions(companions: CompanionMap): void {
     this.updateNodePaint(this.companions, companions, () => { this.companions = companions })
+  }
+
+  private widgetFacts: Readonly<Record<string, Json>> = {}
+
+  /**
+   * What the host knows about this machine, keyed by widget kind, handed to
+   * every closed row's view, such as the mounts a save target row names.
+   */
+  setWidgetFacts(facts: Readonly<Record<string, Json>>): void {
+    if (structuralEqual(this.widgetFacts, facts)) return
+    this.widgetFacts = facts
+    this.invalidate()
   }
 
   private editorSummaries: EditorSummaryMap = {}
@@ -4424,6 +4438,7 @@ export class CanvasRenderer {
     this.paintWidget({
       ctx,
       row,
+      facts: this.widgetFacts,
       // Selector rows (DynamicCombo) carry their value on the row itself;
       // everything else persists under the row's value key.
       value: drag !== undefined ? drag.value
