@@ -125,6 +125,8 @@ export interface SemanticDesignTokens {
     readonly canvasInputHeight: number
     readonly focusRingWidth: number
     readonly hoverOverlay: string
+    /** A row under the pointer in a list that draws its rows without boxes: between the panel and raised surfaces, fainter than the selected row's raised fill. */
+    readonly quietHoverOverlay: string
     readonly pressedOverlay: string
     readonly selectedOverlay: string
     readonly disabledOpacity: number
@@ -210,6 +212,7 @@ export const semanticTokensForTheme = (
     interaction: {
       ...components.interaction,
       hoverOverlay: colors.bg.hover,
+      quietHoverOverlay: colors.bg.quietHover,
       pressedOverlay: colors.bg.raised,
       selectedOverlay: colors.bg.hover,
     },
@@ -391,6 +394,8 @@ export const semanticCssVariablesForTheme = (
     ),
     '--dinkster-interaction-hover':
       semanticDesignTokens.interaction.hoverOverlay,
+    '--dinkster-interaction-quiet-hover':
+      semanticDesignTokens.interaction.quietHoverOverlay,
     '--dinkster-interaction-pressed':
       semanticDesignTokens.interaction.pressedOverlay,
     '--dinkster-interaction-selected':
