@@ -136,7 +136,8 @@
 .dinkster-button:where(:not(:disabled, [aria-disabled='true']):active, [aria-expanded='true']) { border-color: var(--dinkster-border-strong); }
 .dinkster-button[data-role='add'] { color: var(--dinkster-accent-foreground); border-color: var(--dinkster-accent-rest-border); }
 .dinkster-button[data-role='remove'] { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-rest-border); }
-.dinkster-button[data-fill='solid'] { color: var(--dinkster-action-primary-text); background: var(--dinkster-action-primary-bg); border-color: var(--dinkster-action-primary-bg); }
+/* Solid fill and label switch together so enabling or disabling never interpolates through an unreadable pair. */
+.dinkster-button[data-fill='solid'] { color: var(--dinkster-action-primary-text); background: var(--dinkster-action-primary-bg); border-color: var(--dinkster-action-primary-bg); transition: none; }
 .dinkster-button[data-role='remove'][data-fill='solid'] { color: var(--dinkster-action-remove-text); background: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); }
 .dinkster-button[data-fill='quiet'] { border-color: transparent; }
 .dinkster-button[data-icon-only] { width: var(--dinkster-control-compact-height); padding: 0; }
