@@ -2,11 +2,16 @@ import { For } from 'solid-js'
 import { Plus, Snowflake, Workflow } from 'lucide-solid'
 import { ProductIcon, ProductRunIcon } from '../src/index.js'
 
-const tabs = [
-  { title: 'Untitled', dirty: true },
-  { title: 'Diner shot', dirty: true },
+const tabs: readonly {
+  title: string
+  dirty: boolean
+  frozen?: boolean
+  result?: 'finished' | 'failed'
+}[] = [
+  { title: 'Untitled', dirty: true, result: 'finished' },
+  { title: 'Diner shot', dirty: true, result: 'failed' },
   { title: 'Teapot shots', dirty: false },
-  { title: 'Frozen run', dirty: false, frozen: true },
+  { title: 'Frozen run', dirty: false, frozen: true, result: 'finished' },
 ]
 
 /** The app's workflow tab row, drawn with its classes over a strip of canvas. */
@@ -20,7 +25,10 @@ function TabRow(props: { active: number; theme: 'dark' | 'light' }) {
               {(tab, index) => (
                 <div class={index() === props.active ? 'tab active' : 'tab'}>
                   <span class="tab-select">
-                    <ProductRunIcon icon={tab.frozen ? Snowflake : Workflow} />
+                    <ProductRunIcon
+                      icon={tab.frozen ? Snowflake : Workflow}
+                      result={tab.result}
+                    />
                     <span class="tab-title">{tab.title}</span>
                   </span>
                   <span class="tab-affordance">

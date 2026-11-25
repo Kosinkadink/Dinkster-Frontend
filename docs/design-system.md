@@ -189,8 +189,9 @@ foreground against their actual fill, including the hovered fill.
   `ProductRunIcon` keeps a supplied Lucide kind icon visible while running,
   breathing in cyan over a 2.4-second cycle. Reduced motion leaves it still
   and cyan. Queued work stays cyan without motion. Its optional
-  `finished`/`failed` result adds a lower-right cyan or
-  coral dot, hidden while running. Tabs and the status bar use this same export.
+  `finished`/`failed` result adds a 6 px lower-right cyan or coral dot with a
+  2 px ring in the colour behind it, hidden while running. Tabs and the status
+  bar use this same export.
   `ProductRunActivity` shows separate numeric running and waiting activity:
   a turning cyan ring always carries the running count, including one, and a
   still secondary-text clock always carries the waiting count. Zero counts
