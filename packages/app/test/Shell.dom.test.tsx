@@ -93,6 +93,73 @@ describe('the one app shell', () => {
     document.body.replaceChildren()
   })
 
+  it.each(['showProjects', 'popstate'])('keeps the projects page visible through %s during the outgoing fade', async (action) => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false }))
+    const view = mount()
+    view.shell.openProject('film', { root: '/same', engine: 'main' })
+    await vi.waitFor(() => expect(view.page()?.classList.contains('app-shell-faded')).toBe(true))
+    if (action === 'showProjects') view.shell.showProjects()
+    else {
+      history.replaceState(null, '', '/')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(location.search).toBe('')
+    expect(view.page()).not.toBeNull()
+    expect(view.page()!.classList.contains('app-shell-faded')).toBe(false)
+    view.dispose()
+  })
+
+  it('disposes an editor whose asynchronous mount completes after the shell closes', async () => {
+    const view = mount()
+    let drawn!: () => void
+    view.gates.set('film', new Promise((resolve) => { drawn = resolve }))
+    view.shell.openProject('film', { root: '/same', engine: 'main' })
+    await vi.waitFor(() => expect(view.editors).toEqual(['film']))
+    view.dispose()
+    drawn()
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(view.disposed).toEqual(['film'])
+    expect(view.recorded).toEqual([])
+  })
+
+  it('finishes disposing a superseded mount before starting the next project', async () => {
+    const view = mount()
+    let drawn!: () => void
+    view.gates.set('film', new Promise((resolve) => { drawn = resolve }))
+    view.shell.openProject('film', { root: '/same', engine: 'main' })
+    await vi.waitFor(() => expect(view.editors).toEqual(['film']))
+    view.shell.openProject('teapot')
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(view.editors).toEqual(['film'])
+    drawn()
+    await vi.waitFor(() => expect(view.page()).toBeNull())
+    expect(view.disposed).toEqual(['film'])
+    expect(view.recorded).toEqual(['teapot'])
+    expect(view.text('app-shell-editor')).toContain('editor teapot')
+    expect(new URL(location.href).searchParams.get(PROJECT_URL_PARAM)).toBe('teapot')
+    view.dispose()
+    expect(view.disposed).toEqual(['film', 'teapot'])
+  })
+
+  it('uncovers the projects page when returning during a pending editor switch', async () => {
+    const view = mount()
+    view.shell.openProject('film', { root: '/same', engine: 'main' })
+    await vi.waitFor(() => expect(view.page()).toBeNull())
+    let drawn!: () => void
+    view.gates.set('teapot', new Promise((resolve) => { drawn = resolve }))
+    view.shell.openProject('teapot')
+    await vi.waitFor(() => expect(view.editors).toEqual(['film', 'teapot']))
+    view.shell.showProjects()
+    drawn()
+    await vi.waitFor(() => expect(view.disposed).toEqual(['film', 'teapot']))
+    expect(view.page()).not.toBeNull()
+    expect(view.root.querySelector('[data-testid="app-shell-cover"]')?.classList.contains('app-shell-covered')).toBe(false)
+    expect(view.root.querySelector('[data-testid="app-shell-held"]')?.childElementCount).toBe(0)
+    expect(view.recorded).toEqual(['film'])
+    view.dispose()
+  })
+
   it('opens a project on this wire version in the same page and keeps its editor behind the page', async () => {
     const view = mount()
     view.shell.openProject('film', { root: '/same', engine: 'main' })

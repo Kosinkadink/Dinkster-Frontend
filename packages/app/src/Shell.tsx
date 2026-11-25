@@ -105,6 +105,8 @@ export function Shell(props: {
   let openInstallation: ProjectInstallation | undefined = props.home.open
   let facts: Promise<ReadonlyMap<string, InstallationFrontend>> | undefined
   let attempt = 0
+  let pageFade = 0
+  let mounting: Promise<void> = Promise.resolve()
 
   const factsFor = async (root: string | undefined): Promise<InstallationFrontend | undefined> => {
     if (root === undefined) return undefined
@@ -119,13 +121,15 @@ export function Shell(props: {
   }
 
   const fadePage = async (shown: boolean): Promise<void> => {
+    const fade = ++pageFade
     if (shown) {
       setPageShown(true)
       await new Promise(requestAnimationFrame)
     }
+    if (fade !== pageFade) return
     setPageOpaque(shown)
     await wait(reducedMotion() ? 0 : 200)
-    if (!shown) setPageShown(false)
+    if (fade === pageFade && !shown) setPageShown(false)
   }
 
   const cover = async (on: boolean): Promise<void> => {
@@ -158,16 +162,16 @@ export function Shell(props: {
     copy.setAttribute('inert', '')
     copy.setAttribute('aria-hidden', 'true')
     heldHost.replaceChildren(copy)
-    return () => heldHost.replaceChildren()
+    return () => copy.remove()
   }
 
   /**
    * The new top bar names its project once the library answers. The arrival waits for that, a
    * second at most, so the name arrives with the icons rather than appearing on its own.
    */
-  const projectNamed = async (): Promise<void> => {
+  const projectNamed = async (run: number): Promise<void> => {
     const until = performance.now() + 1000
-    while (editorHost.querySelector('.dinkster-project-name') === null && performance.now() < until) {
+    while (run === attempt && editorHost.querySelector('.dinkster-project-name') === null && performance.now() < until) {
       await new Promise(requestAnimationFrame)
     }
   }
@@ -180,7 +184,7 @@ export function Shell(props: {
   }
 
   /** Brings the hidden parts in, in the mock's order, the canvas ``start`` ms from now. */
-  const arrive = async (start: number): Promise<void> => {
+  const arrive = async (start: number, run: number): Promise<void> => {
     if (editorHost.dataset['stage'] !== 'hidden') return
     editorHost.style.setProperty('--app-shell-stage-start', `${start}ms`)
     // Commit the hidden state so the parts transition from it.
@@ -188,6 +192,7 @@ export function Shell(props: {
     editorHost.dataset['stage'] = 'arrive'
     // The status bar is last: 160 ms after the canvas from the page, 200 ms on a switch.
     await wait(start + (editorHost.dataset['stageScope'] === 'all' ? 160 : 200) + 240)
+    if (run !== attempt) return
     delete editorHost.dataset['stage']
     delete editorHost.dataset['stageScope']
   }
@@ -201,18 +206,27 @@ export function Shell(props: {
     coverElement.style.clipPath = ''
   }
 
-  const mount = async (projectId: string): Promise<void> => {
-    if (editorProject() === projectId) return
-    disposeEditor?.()
-    disposeEditor = undefined
-    setEditorProject(projectId)
-    try {
-      disposeEditor = await props.mountEditor(projectId, editorHost, navigation)
-    } catch (error) {
+  const mount = async (projectId: string, run: number): Promise<void> => {
+    // A project scope cannot overlap the editor still being built for an older open.
+    await mounting.catch(() => undefined)
+    if (run !== attempt || editorProject() === projectId) return
+    mounting = (async () => {
+      disposeEditor?.()
+      disposeEditor = undefined
       setEditorProject(undefined)
-      editorHost.replaceChildren()
-      throw error
-    }
+      try {
+        const dispose = await props.mountEditor(projectId, editorHost, navigation)
+        if (run !== attempt) dispose()
+        else {
+          disposeEditor = dispose
+          setEditorProject(projectId)
+        }
+      } catch (error) {
+        editorHost.replaceChildren()
+        throw error
+      }
+    })()
+    await mounting
   }
 
   const failedOpening = (opening: ProjectOpening, installation: ShellInstallation, error: unknown): ProjectOpening => {
@@ -283,11 +297,12 @@ export function Shell(props: {
     if (switching) {
       shapeCoverAroundBars()
       await cover(true)
+      if (run !== attempt) return
       release = holdOldEditor()
     }
     try {
-      await mount(projectId)
-      await projectNamed()
+      await mount(projectId, run)
+      await projectNamed(run)
     } catch (error) {
       if (run !== attempt) return
       push({ kind: 'projects', newProject: false })
@@ -305,13 +320,13 @@ export function Shell(props: {
     if (switching) {
       hideForArrival('centre')
       uncoverAtOnce()
-      await arrive(0)
+      await arrive(0, run)
     } else if (fromEditor) {
       await cover(false)
     } else {
       // The page's panels fade out while the editor's parts come in behind them, the canvas first.
       hideForArrival('all')
-      await Promise.all([fadePage(false), arrive(100)])
+      await Promise.all([fadePage(false), arrive(100, run)])
     }
   }
 
@@ -340,6 +355,7 @@ export function Shell(props: {
       setOpening(undefined)
       push({ kind: 'projects', newProject: options?.newProject === true })
       if (!pageShown() || !pageOpaque()) void fadePage(true)
+      if (covered()) void cover(false)
     },
     cancelOpening: () => {
       attempt += 1
@@ -356,6 +372,7 @@ export function Shell(props: {
       setOpening(undefined)
       setView(next)
       if (!pageShown() || !pageOpaque()) void fadePage(true)
+      if (covered()) void cover(false)
     }
   }
 
@@ -370,6 +387,8 @@ export function Shell(props: {
     }
     window.addEventListener('pageshow', restored)
     onCleanup(() => {
+      attempt += 1
+      pageFade += 1
       window.removeEventListener('popstate', follow)
       window.removeEventListener('pageshow', restored)
       disposeEditor?.()
