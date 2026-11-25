@@ -2,11 +2,11 @@
  * Interrupted durable-history records through the production Runs panel,
  * against a fully route-stubbed page-origin backend (no live server):
  *
- * - restart-swept records (state 'interrupted', Dinkster #556) render with the
- *   sweep phase ('was running' / 'never started') as a badge and detail row;
- * - only a STAMPED interrupted record offers 'Resubmit'; an unstamped one
- *   (no sourceDocument) has nothing to resubmit and must not offer it;
- * - 'Resubmit' reopens the exact producing document and queues it through
+ * - a chosen restart-swept record (state 'interrupted', Dinkster #556) says in
+ *   one line whether the engine stopped while it ran or before it started;
+ * - only a STAMPED interrupted record offers 'Run again'; an unstamped one
+ *   (no sourceDocument) has nothing to run again and must not offer it;
+ * - 'Run again' reopens the exact producing document and queues it through
  *   the normal compile/submit pipeline as a FRESH submission: the POST
  *   /api/jobs body carries a NEW job identity, never the interrupted one.
  *   Nothing auto-resumes, by contract.
@@ -217,7 +217,7 @@ test('unseen stored image/video rows show thumbnails without loading jobs, absen
   }
   await page.setViewportSize({ width: 1440, height: 1000 })
   await row('Image output').click()
-  await expect(row('Image output').getByTestId('collection-action').filter({ hasText: 'Delete record' })).toBeVisible()
+  await expect(row('Image output').getByTestId('chosen-run')).toBeVisible()
   await expect.poll(() => hydrated.length).toBe(1)
   await expect(row('Image output').getByTestId('run-thumbnail')).toBeVisible()
 
@@ -270,13 +270,21 @@ test('unseen stored image/video rows show thumbnails without loading jobs, absen
   if (proof) await page.screenshot({ path: join(proof, 'owning-backend-thumbnails-1440.png'), animations: 'disabled' })
 })
 
-test('Resubmit reopens the producing document and queues a FRESH submission', async ({ page }) => {
+test('Run again reopens the producing document and queues a FRESH submission', async ({ page }) => {
   const fixture = await installFixture(page)
   await bootAndOpenRuns(page)
 
+  // Swept before it started and unstamped: the reason, but nothing to run again or open.
+  const unstamped = entryFor(page, 'job-int-queued-2')
+  await unstamped.click()
+  await expect(unstamped.locator('.run-chosen-reason')).toHaveText('The engine stopped before this started.')
+  await expect(unstamped.getByTestId('chosen-run-again')).toHaveCount(0)
+  await expect(unstamped.getByTestId('chosen-run-open')).toHaveCount(0)
+
   const stamped = entryFor(page, INTERRUPTED_JOB_ID)
   await stamped.click()
-  await stamped.locator('[data-testid=collection-action][data-action=resubmit]').click()
+  await expect(stamped.locator('.run-chosen-reason')).toHaveText('The engine stopped while this was running.')
+  await stamped.getByTestId('chosen-run-again').click()
 
   // Runs stays available while the producing document opens in the active tab.
   await expect(page.getByTestId('runs-panel')).toBeVisible()

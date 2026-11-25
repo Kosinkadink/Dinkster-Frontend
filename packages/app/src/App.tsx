@@ -25,7 +25,7 @@ import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, coreOccurrencePlanner } from './CanvasHost.js'
 import { CanvasViewControls } from './CanvasChrome.js'
 import { ContextMenu } from './ContextMenu.js'
-import { historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
+import { formatCollectionDate, historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
 import { ExecutionActivityCard, ExecutionOpenButton, executionStatusLabel } from './ExecutionActivityCard.js'
 import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
@@ -115,7 +115,7 @@ import {
 } from './panel-drag.js'
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
-import { RunActivityControl, RunRow, RunSection, placeInLine, runAge, runIsPending, useNow } from './RunControls.js'
+import { ChosenRun, RunActivityControl, RunRow, tookText, type ChosenRunFact, RunSection, placeInLine, runAge, runIsPending, useNow } from './RunControls.js'
 import { ExecutedImageFacts, ExecutedImageViewer, SavedOutputFiles, ViewerImage, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { executedImageInventory, executedImageLabel, executionThumbnail, type ExecutedImage } from './executed-image-inventory.js'
 import { RunThumbnail } from './RunThumbnail.js'
@@ -1444,7 +1444,7 @@ export function App(props: {
       ? execution.key === entry.id
       : execution.ref.connection === entry.owner && execution.jobRef === runIdOfEntry(entry))
   }
-  const StoredRun = (p: { entry: CollectionEntry; selected: () => boolean; actions: JSX.Element }) => {
+  const StoredRun = (p: { entry: CollectionEntry; selected: () => boolean }) => {
     const [loaded, setLoaded] = createSolidSignal<{ execution: ExecutionState; values: DinksterValuesClient }>()
     const [loadError, setLoadError] = createSolidSignal<string>()
     const [loading, setLoading] = createSolidSignal(false)
@@ -1513,9 +1513,6 @@ export function App(props: {
       return asset !== undefined && backend?.protocol === 'dinkster'
         ? { url: backend.connection.assetUrl(asset.digest), mediaType: asset.mediaType } : undefined
     }
-    const Facts = () => <>
-      <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
-    </>
     const known = () => storedExecution(p.entry)
     const record = () => historyRunOfEntry(p.entry)
     const now = useNow()
@@ -1534,6 +1531,32 @@ export function App(props: {
       ]
       return parts.join(', ')
     }
+    const [detailsOpen, setDetailsOpen] = createSolidSignal(false)
+    const facts = (): ChosenRunFact[] => {
+      const run = record()
+      if (run === undefined) return []
+      backendsTick()
+      const backend = app.backends.get().find((candidate) => candidate.id === p.entry.owner)
+      return [
+        { label: message('runs.chosen.finished'), text: formatCollectionDate(run.finishedAt * 1000) },
+        ...(run.startedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText(run.finishedAt - run.startedAt) }]),
+        { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', { ran: run.executed, cached: run.cached }) },
+        ...(backend === undefined ? [] : [{ label: message('runs.chosen.ranOn'), text: backend.label }]),
+      ]
+    }
+    // An interrupted run says when the engine stopped; a failed one says why.
+    const reason = (): string | undefined => {
+      const run = record()
+      if (run?.state === 'interrupted') return message(run.error?.['phase'] === 'running' ? 'runs.chosen.wasRunning' : 'runs.chosen.neverStarted')
+      return run?.state === 'failed' ? run.error?.message : undefined
+    }
+    const act = (actionId: 'resubmit' | 'open' | 'delete') => () => libraryEntryAction('runs', p.entry, actionId)
+    const chosen = () => <ChosenRun name={known() ? app.tabTitleFor(known()!.ref) : p.entry.title} reason={reason()} facts={facts()}
+      detailsOpen={detailsOpen()} onDetails={setDetailsOpen}
+      onRunAgain={record()?.state === 'interrupted' && record()?.sourceDocument !== undefined ? act('resubmit') : undefined}
+      onOpenWorkflow={record()?.sourceDocument !== undefined ? act('open') : undefined}
+      onCopyJobId={() => { const jobId = record()?.jobId; if (jobId !== undefined) void navigator.clipboard?.writeText(jobId) }}
+      onDelete={act('delete')} />
     return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
       <div class="run-row-line">
         <span class="run-row-thumbnail" aria-hidden="true">
@@ -1548,16 +1571,13 @@ export function App(props: {
         }</Show>
       </div>
       <Show when={p.selected()}>
-        <p>{p.entry.subtitle}</p>
-        <div class="collection-badges"><For each={p.entry.badges}>{(badge) => <span class="collection-badge">{badge}</span>}</For></div>
         <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
         <Show when={loadError()}>{(error) => <p role="status" title={message('runs.loadError', { error: error() })}>{message('runs.loadError', { error: error() })}</p>}</Show>
-        <Show when={known()} fallback={<Show when={loaded()} fallback={<details class="runs-details" onClick={(event) => event.stopPropagation()}>
-          <summary>{message('runs.details')}</summary><Facts />
-        </details>}>{(source) => <Outputs app={app} execution={source().execution} source={source()} details={<Facts />} />}</Show>}>
-          {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} />}
+        <Show when={known()} fallback={<Show when={loaded()} fallback={chosen()}>{(source) =>
+          <Outputs app={app} execution={source().execution} source={source()} chosen={chosen()} />
+        }</Show>}>
+          {(execution) => <Outputs app={app} execution={execution()} chosen={chosen()} />}
         </Show>
-        {p.actions}
       </Show>
     </div>
   }
@@ -1602,7 +1622,7 @@ export function App(props: {
           listOnly refreshTick={libraryTick} searchLabel={message('runs.search')}
           renderState={(state) => state.kind === 'empty' && activeBackend().protocol === 'dinkster'
             ? <ProductEmptyState title={message('runs.stored.empty')} /> : undefined}
-          entryContent={(entry, selected, actions) => <StoredRun entry={entry()} selected={selected} actions={actions} />}
+          entryContent={(entry, selected) => <StoredRun entry={entry()} selected={selected} />}
           onAction={libraryEntryAction}
           sourceActions={[{ sourceId: 'runs', id: 'clear', label: message(clearArmed() ? 'runs.clear.confirm' : 'runs.clear.action') }]}
           onSourceAction={librarySourceAction} />
@@ -3416,9 +3436,14 @@ function outputIterationGroup(runtimeId: string, workflowLabel: string): { reado
   }
 }
 
+/**
+ * A run's pictures and, behind a Details fold, what else it made and where.
+ * Given `chosen`, it is a chosen stored run instead: four pictures, then
+ * `chosen`, its actions and plain facts.
+ */
 function Outputs(props: { app: AppState; execution: ExecutionState; details?: JSX.Element; source?: {
   values: DinksterValuesClient
-} }) {
+}; chosen?: JSX.Element }) {
   const message = useAppMessage()
   const backendTick = useSignal(props.app.backendsTick)
   const [viewerIndex, setViewerIndex] = createSolidSignal<number>()
@@ -3468,9 +3493,10 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
     values: values(),
   }))
+  const shown = (): number => props.chosen === undefined ? 3 : 4
   const imageGroups = createMemo(() => {
     const groups = new Map<string, { readonly label: string; readonly images: { readonly image: ExecutedImage; readonly index: number }[] }>()
-    for (const [index, image] of images().slice(0, 3).entries()) {
+    for (const [index, image] of images().slice(0, shown()).entries()) {
       const { key, label } = outputIterationGroup(image.runtimeId, 'Workflow outputs')
       const group = groups.get(key) ?? { label, images: [] }
       group.images.push({ image, index })
@@ -3515,6 +3541,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
   }
   return (
     <>
+      <Show when={props.chosen === undefined}>
       <details class="runs-details" onClick={(event) => event.stopPropagation()}
         onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
         <summary>{message('runs.details')}</summary>
@@ -3546,10 +3573,11 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
       <For each={images()}>{(image) => <ExecutedImageFacts image={image} availability={availability(image.key)} />}</For>
         </Show>
       </details>
-      <div class="outputs runs-output-thumbnails" aria-label={`${images().length} execution images`}>
-        <For each={imageGroups()} fallback={
+      </Show>
+      <div class="outputs runs-output-thumbnails" data-chosen={props.chosen !== undefined} aria-label={`${images().length} execution images`}>
+        <For each={imageGroups()} fallback={<Show when={props.chosen === undefined || emptyState().state !== 'empty'}>
           <span data-state={emptyState().state} role="status" title={emptyState().detail}>{emptyState().title}</span>
-        }>
+        </Show>}>
           {(group) => (
             <section class="output-iteration-group" aria-label={group.label}>
               <h3>{group.label}</h3>
@@ -3575,11 +3603,12 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
             </section>
           )}
         </For>
-        <Show when={images().length > 3}>
+        <Show when={images().length > shown()}>
           <ProductButton size="compact" aria-label={message('runs.outputs.all', { count: images().length })}
-            onClick={(event) => { event.stopPropagation(); setViewerGrid(true); setViewerIndex(0) }}>+{images().length - 3}</ProductButton>
+            onClick={(event) => { event.stopPropagation(); setViewerGrid(true); setViewerIndex(0) }}>+{images().length - shown()}</ProductButton>
         </Show>
       </div>
+      {props.chosen}
       <Show when={viewerIndex() !== undefined}>
         <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} initialMode={viewerGrid() ? 'grid' : 'single'} provenance={provenance()} backendUrl={props.app.backendFor(props.execution.ref.connection)?.baseUrl} onRequestClose={() => setViewerIndex(undefined)} />
       </Show>

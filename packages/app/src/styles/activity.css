@@ -19,6 +19,17 @@
 .runs-output-thumbnails .output-thumbnail { padding: 0; }
 .runs-output-thumbnails .output-thumbnail-preview { min-height: 0; aspect-ratio: 1; }
 .runs-output-thumbnails > [data-state] { width: 100%; font-size: var(--dinkster-type-metadata-size); color: var(--dinkster-text-muted); }
+/* A chosen stored run: four pictures, its actions, then Details. */
+.runs-output-thumbnails[data-chosen='true'] [role='listitem'], .runs-output-thumbnails[data-chosen='true'] > .product-button { flex: 1; min-width: 0; max-width: 20%; }
+.runs-output-thumbnails[data-chosen='true'] > .product-button { aspect-ratio: 1; height: auto; }
+.run-chosen { display: grid; min-width: 0; gap: var(--dinkster-space-8); }
+.run-chosen-reason { margin: 0; color: var(--dinkster-danger-foreground); }
+.run-chosen-actions { display: flex; align-items: center; min-width: 0; gap: var(--dinkster-space-8); }
+.run-chosen-menu { margin-left: auto; }
+.run-chosen-facts { display: grid; min-width: 0; gap: var(--dinkster-space-4); margin: 0; padding-top: var(--dinkster-space-8); border-top: 1px solid var(--dinkster-border-subtle); font-size: var(--dinkster-type-metadata-size); }
+.run-chosen-facts > div { display: grid; min-width: 0; grid-template-columns: 88px minmax(0, 1fr); gap: var(--dinkster-space-8); }
+.run-chosen-facts dt { color: var(--dinkster-text-muted); }
+.run-chosen-facts dd { min-width: 0; margin: 0; color: var(--dinkster-text-secondary); overflow-wrap: anywhere; }
 .runs-panel .collection-entry { display: grid; grid-template-columns: minmax(0, 1fr); }
 /* Stored runs sit in the same quiet boxes as the run rows above them. */
 .runs-panel .collection-items.list { gap: var(--dinkster-space-4); }
