@@ -1345,6 +1345,32 @@ export interface LibraryProject {
   ) | null
 }
 
+/** One row of an asset list (`assets.list`): an identity with its aliases and every observation in `project`. */
+function decodeAssetCatalogEntry(raw: unknown, project: string, endpoint: string): LocalAssetCatalogEntry {
+  const asset = uploadedAssetRef(raw, undefined, endpoint)
+  const row = raw as Record<string, unknown>
+  if (!Array.isArray(row['aliases']) || !row['aliases'].every((alias) => typeof alias === 'string') ||
+      !Array.isArray(row['observations'])) throw new Error(`${endpoint}: malformed response`)
+  const observations = row['observations'].map((value): AssetObservation => {
+    const ref = uploadedAssetRef(value, undefined, endpoint)
+    const observation = value as Record<string, unknown>
+    const origin = observation['origin']
+    if (ref.digest !== asset.digest || typeof observation['id'] !== 'string' ||
+        typeof observation['originalName'] !== 'string' || typeof observation['kind'] !== 'string' ||
+        observation['project'] !== project || typeof observation['created'] !== 'number' ||
+        !Number.isFinite(observation['created']) || observation['created'] < 0 ||
+        typeof origin !== 'object' || origin === null || Array.isArray(origin) ||
+        !Object.values(origin).every((field) => typeof field === 'string')) {
+      throw new Error(`${endpoint}: malformed observation`)
+    }
+    return {
+      id: observation['id'], asset: ref, originalName: observation['originalName'], kind: observation['kind'],
+      origin: { ...origin } as Record<string, string>, project, created: observation['created'],
+    }
+  })
+  return { asset, aliases: [...row['aliases']] as string[], observations }
+}
+
 function decodeLibraryProject(value: unknown): LibraryProject {
   if (typeof value !== 'object' || value === null) throw new Error('Malformed library project')
   const row = value as Record<string, unknown>
@@ -3004,30 +3030,32 @@ export class DinksterConnection {
         (payload.cursor !== undefined && (typeof payload.cursor !== 'string' || payload.cursor === ''))) {
       throw new Error(`${endpoint}: malformed response`)
     }
-    const assets = payload.assets.map((raw): LocalAssetCatalogEntry => {
-      const asset = uploadedAssetRef(raw, undefined, endpoint)
-      const row = raw as Record<string, unknown>
-      if (!Array.isArray(row['aliases']) || !row['aliases'].every((alias) => typeof alias === 'string') ||
-          !Array.isArray(row['observations'])) throw new Error(`${endpoint}: malformed response`)
-      const observations = row['observations'].map((value): AssetObservation => {
-        const ref = uploadedAssetRef(value, undefined, endpoint)
-        const observation = value as Record<string, unknown>
-        const origin = observation['origin']
-        if (ref.digest !== asset.digest || typeof observation['id'] !== 'string' ||
-            typeof observation['originalName'] !== 'string' || typeof observation['kind'] !== 'string' ||
-            observation['project'] !== project || typeof observation['created'] !== 'number' ||
-            !Number.isFinite(observation['created']) || observation['created'] < 0 ||
-            typeof origin !== 'object' || origin === null || Array.isArray(origin) ||
-            !Object.values(origin).every((field) => typeof field === 'string')) {
-          throw new Error(`${endpoint}: malformed observation`)
-        }
-        return {
-          id: observation['id'], asset: ref, originalName: observation['originalName'], kind: observation['kind'],
-          origin: { ...origin } as Record<string, string>, project, created: observation['created'],
-        }
-      })
-      return { asset, aliases: [...row['aliases']] as string[], observations }
+    const assets = payload.assets.map((raw) => decodeAssetCatalogEntry(raw, project, endpoint))
+    return { assets, ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}) }
+  }
+
+  /** What one project's runs produced, newest first: the projects page's latest outputs. */
+  async listProjectOutputs(project: string, options: {
+    readonly limit?: number
+    readonly cursor?: string
+    readonly signal?: AbortSignal
+  } = {}): Promise<LocalAssetCatalogPage> {
+    const endpoint = 'GET /api/projects/{id}/outputs'
+    const query = new URLSearchParams()
+    if (options.limit !== undefined) query.set('limit', String(options.limit))
+    if (options.cursor !== undefined) query.set('cursor', options.cursor)
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(project)}/outputs?${query}`, {
+      cache: 'no-store',
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
+    if (!res.ok) throw new Error(`${endpoint} failed: ${res.status}`)
+    const payload = await res.json() as { assets?: unknown; cursor?: unknown } | null
+    // The last page carries a null cursor.
+    if (!payload || !Array.isArray(payload.assets) ||
+        (payload.cursor !== null && (typeof payload.cursor !== 'string' || payload.cursor === ''))) {
+      throw new Error(`${endpoint}: malformed response`)
+    }
+    const assets = payload.assets.map((raw) => decodeAssetCatalogEntry(raw, project, endpoint))
     return { assets, ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}) }
   }
 

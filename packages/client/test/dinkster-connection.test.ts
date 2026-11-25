@@ -944,6 +944,26 @@ describe('local asset catalog and availability', () => {
     await expect(conn.listLocalAssets({ scope: 'local' })).rejects.toThrow('403')
   })
 
+  it('lists any project\'s outputs by its id, newest page first, ending on a null cursor', async () => {
+    const { conn, requests, reply } = harness()
+    const produced = { ...observation, id: 'run-1', origin: { kind: 'produced' }, project: 'music' }
+    const row = { asset, aliases: ['final.png'], observations: [produced] }
+    reply({ assets: [row], cursor: 'page/2' })
+    const first = await conn.listProjectOutputs('music', { limit: 6 })
+    expect(requests.at(-1)?.url).toBe('http://native/api/projects/music/outputs?limit=6')
+    expect(first).toEqual({ assets: [{ asset, aliases: ['final.png'], observations: [produced] }], cursor: 'page/2' })
+    reply({ assets: [], cursor: null })
+    expect(await conn.listProjectOutputs('music', { cursor: 'page/2' })).toEqual({ assets: [] })
+    expect(requests.at(-1)?.url).toBe('http://native/api/projects/music/outputs?cursor=page%2F2')
+    // A row observed in another project, or a missing cursor, is not this project's answer.
+    for (const payload of [{ assets: [row] }, { assets: [{ ...row, observations: [{ ...produced, project: 'film' }] }], cursor: null }]) {
+      reply(payload)
+      await expect(conn.listProjectOutputs('music')).rejects.toThrow('malformed')
+    }
+    reply({ error: 'missing' }, 404)
+    await expect(conn.listProjectOutputs('absent')).rejects.toThrow('404')
+  })
+
   it('checks each exact digest once without project, names, acquisition or writes', async () => {
     const { conn, requests, reply } = harness()
     reply({ assets: [{ digest: other, status: 'missing' }, { digest, status: 'available' }] })
