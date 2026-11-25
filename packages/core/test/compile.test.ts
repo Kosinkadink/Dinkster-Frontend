@@ -11,6 +11,7 @@ import { semanticHashOf, sha256Hex } from '../src/compile/hash.js'
 import type { ExecutionScope } from '../src/compile/artifact.js'
 import type { WorkflowDocument } from '../src/format/document.js'
 import type { Diagnostic } from '../src/diagnostics.js'
+import type { LookupAnswerState } from '../src/schema/elaborate.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
@@ -505,34 +506,49 @@ describe('value handling', () => {
     expect(result.artifact.diagnostics.some((d) => d.code === 'compile.input.missing' || d.code === 'automatic.default')).toBe(false)
   })
 
-  it('passes on a tapped automatic formula field, but not a lookup field only the run can answer', () => {
+  it('passes on what a tapped automatic field shows, warning on the field only when that is its default', () => {
     const resolve: CompileInput['resolve'] = (type) => {
       const schema = backendResolve(type)
       if (type !== 'EmptyImage' || schema === undefined) return schema
+      const automatic: Record<string, unknown> = {
+        color: { formula: 'width * 2' },
+        batch_size: { lookup: 'sizes.batch', args: ['width'] },
+        height: { formula: 'missing_name' },
+      }
       const body = schema.body.map((row) =>
-        row.kind !== 'input' || (row.id !== 'batch_size' && row.id !== 'color') ? row
-          : { ...row, automatic: row.id === 'color' ? { formula: 'width * 2' } : { lookup: 'sizes.batch', args: ['width'] } })
-      return { ...schema, body }
+        row.kind !== 'input' || automatic[row.id] === undefined ? row : { ...row, automatic: automatic[row.id] })
+      return { ...schema, body } as NodeSchema
     }
-    const tapped = (tap: string) => {
+    const tapped = (tap: string, lookupAnswers?: CompileInput['lookupAnswers']) => {
       const doc = mutableWorkflow('exec-basic')
       const graph = (doc['graphs'] as Mutable)['g0'] as Mutable
       const nodes = graph['nodes'] as Mutable
-      ;(nodes['n0'] as Mutable)['values'] = { width: 24, height: 64 }
-      nodes['n2'] = { id: 'n2', type: 'EmptyImage', values: { width: 8, height: 64, batch_size: 1, color: 0 } }
+      ;(nodes['n0'] as Mutable)['values'] = { width: 24 }
+      nodes['n2'] = { id: 'n2', type: 'EmptyImage', title: 'Retime 2', values: { width: 8, height: 64, batch_size: 1, color: 0 } }
       graph['links'] = {
         l2: { id: 'l2', from: { node: 'n2', port: 'out0' }, to: { node: 'n1', port: 'images' } },
-        l3: { id: 'l3', from: { node: 'n0', tap }, to: { node: 'n2', port: 'height' } },
+        l3: { id: 'l3', from: { node: 'n0', tap }, to: { node: 'n2', port: 'width' } },
       }
-      return compile(compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve))
+      const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), ...(lookupAnswers !== undefined ? { lookupAnswers } : {}) })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) return undefined
+      return {
+        width: result.artifact.prompt['n2']!.inputs['width'],
+        warnings: result.artifact.diagnostics.filter((d) => d.code === 'automatic.tapDefault').map((d) => [d.message, d.anchor?.port]),
+      }
     }
-    const formula = tapped('color')
-    expect(formula.ok, JSON.stringify(!formula.ok && formula.diagnostics)).toBe(true)
-    if (formula.ok) expect(formula.artifact.prompt['n2']!.inputs['height']).toBe(48)
-    // The editor holds the lookup's default here, not what the run will answer.
-    const lookup = tapped('batch_size')
-    expect(lookup.ok).toBe(false)
-    if (!lookup.ok) expect(lookup.diagnostics.map((d) => d.code)).toContain('compile.tap.novalue')
+    const answer = (state: LookupAnswerState): CompileInput['lookupAnswers'] => (lookup, args) =>
+      lookup === 'sizes.batch' && JSON.stringify(args) === '[24]' ? state : undefined
+    const batchDefault = [['Could not work out batch_size. Retime 2 gets the default, 1.', { node: 'n0', port: 'batch_size' }]]
+    expect(tapped('color')).toEqual({ width: 48, warnings: [] })
+    // A kept answer is what the row shows, fresh or not.
+    expect(tapped('batch_size', answer({ state: 'ready', answer: 3 }))).toEqual({ width: 3, warnings: [] })
+    expect(tapped('batch_size', answer({ state: 'stale', answer: 4, reason: 'failed' }))).toEqual({ width: 4, warnings: [] })
+    // Loading, no editor answers at all, and a failed lookup pass on the default.
+    expect(tapped('batch_size', answer({ state: 'loading' }))).toEqual({ width: 1, warnings: batchDefault })
+    expect(tapped('batch_size')).toEqual({ width: 1, warnings: batchDefault })
+    expect(tapped('batch_size', answer({ state: 'unavailable', reason: 'failed' }))).toEqual({ width: 1, warnings: batchDefault })
+    expect(tapped('height')?.warnings.map(([message]) => message)).toEqual([expect.stringMatching(/^Could not work out height\. Retime 2 gets the default, \d+\.$/)])
   })
 })
 

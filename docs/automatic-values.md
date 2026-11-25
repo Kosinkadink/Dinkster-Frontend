@@ -68,6 +68,15 @@ any cache lookup, uses the default when it cannot, and records for each such
 field the value used and whether it was worked out or was the default
 (`automaticValues` on the job). A run is never blocked by an automatic value.
 
+An automatic field with nothing stored whose value is copied into another
+node, through a widget tap or from a node that does not run, passes on the
+value its row shows: the worked-out value, the lookup answer the editor
+holds, or the default when there is neither. When that is the default, the
+field carries the warning "Could not work out frame rate. Retime 2 gets the
+default, 24.", listed in Problems in place of the field's own warning. The
+engine still works out the owning node's own value when the run is queued,
+so it can differ from the value passed on.
+
 When the latest run of the open workflow used the default for a field that
 the editor works out now, the field carries the warning "The last run could
 not work out frame rate and used the default, 24.", also listed in Problems.
