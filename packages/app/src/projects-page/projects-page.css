@@ -13,5 +13,5 @@
 .projects-page-arrival { animation: projects-page-arrival 200ms var(--dinkster-motion-easing); }
 .projects-page-content .dinkster-project-row,
 .projects-page-detail .dinkster-project-fact-value,
-.projects-page-detail .dinkster-project-section > :not(header) { animation: projects-page-arrival 200ms var(--dinkster-motion-easing); }
+.projects-page-detail > .dinkster-project-section > :not(header) { animation: projects-page-arrival 200ms var(--dinkster-motion-easing); }
 @keyframes projects-page-arrival { from { opacity: 0; } to { opacity: 1; } }
