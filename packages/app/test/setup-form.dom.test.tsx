@@ -13,7 +13,7 @@ const plan: SetupPlan = {
   buildLabel: 'NVIDIA graphics card build', buildReason: 'Supported graphics card',
   engineRelease: 'release-1', baseId: 'base-1', detectedCards: [], choices: [
     { variant: 'linux-nvidia', label: 'NVIDIA graphics', reason: 'Needs NVIDIA driver 580 or newer.' },
-    { variant: 'linux-cpu', label: 'Linux with CPU only', reason: 'Does not use the graphics card and is much slower.' },
+    { variant: 'linux-cpu', label: 'CPU only', reason: 'Does not use the graphics card and is much slower.' },
   ], gpus: ['0'],
   downloadBytes: null, runtimeDownloadBytes: 2048, freeBytes: 9000, refusal: null,
 }
@@ -55,7 +55,7 @@ it.each(['projects', 'editor'] as const)('starts the same process-owned job from
   expect(button('Set up').disabled).toBe(false)
 })
 
-it.each(['win-nvidia-cu126', 'unlisted-build'])('labels a running %s job without exposing identifiers and groups matching cards', async (variant) => {
+it.each(['win-nvidia-cu126', 'linux-cpu', 'unlisted-build'])('labels a running %s job without exposing identifiers and groups matching cards', async (variant) => {
   vi.useFakeTimers()
   const card = { id: '0', name: 'NVIDIA GeForce RTX 4090', driver: '595.84', computeCapability: '8.9', memoryMiB: 24564 }
   const current = { ...plan, detectedCards: [card, { ...card, id: '1', name: 'NVIDIA GeForce RTX 3090' }, { ...card, id: '2' }],
@@ -64,7 +64,7 @@ it.each(['win-nvidia-cu126', 'unlisted-build'])('labels a running %s job without
   dispose = render(() => <SetupForm surface="projects" />, document.body)
   await vi.advanceTimersByTimeAsync(0)
   const facts = document.querySelector('.setup-facts')!
-  expect([...facts.querySelectorAll('p')].map((node) => node.textContent)).toEqual(['2 x NVIDIA GeForce RTX 4090', 'NVIDIA GeForce RTX 3090'])
+  expect([...facts.querySelectorAll('p')].map((node) => node.textContent)).toEqual(variant === 'linux-cpu' ? [] : ['2 x NVIDIA GeForce RTX 4090', 'NVIDIA GeForce RTX 3090'])
   expect(facts.textContent).not.toContain(variant)
   expect(facts.textContent).not.toContain(plan.buildLabel)
   expect(facts.textContent?.includes('NVIDIA graphics, older drivers')).toBe(variant === 'win-nvidia-cu126')
@@ -72,37 +72,42 @@ it.each(['win-nvidia-cu126', 'unlisted-build'])('labels a running %s job without
 
 it.each([
   ['win-nvidia-cu126', 'NVIDIA graphics, older drivers'],
-  ['win-cpu', 'Windows with CPU only'],
+  ['win-cpu', 'CPU only'],
 ])('selects %s explicitly without changing the recommended default or adding a facts row', async (variant, label) => {
   vi.useFakeTimers()
   const choices = [
     { variant: 'win-nvidia', label: 'NVIDIA graphics', reason: 'Needs NVIDIA driver 580 or newer.' },
     { variant: 'win-nvidia-cu126', label: 'NVIDIA graphics, older drivers', reason: 'Needs NVIDIA driver 525 or newer.' },
-    { variant: 'win-cpu', label: 'Windows with CPU only', reason: 'Does not use the graphics card and is much slower.' },
+    { variant: 'win-cpu', label: 'CPU only', reason: 'Does not use the graphics card and is much slower.' },
   ]
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === 'POST') return answer({ ...job, variant }, 202)
     const selected = choices.find((choice) => choice.variant === new URL(url, location.href).searchParams.get('variant')) ?? choices[0]!
     return answer({ plan: { ...plan, id: selected.variant, variant: selected.variant, buildLabel: selected.label, choices,
+      detectedCards: [{ id: '0', name: 'NVIDIA GeForce RTX 4090', driver: '595.84', computeCapability: '8.9', memoryMiB: 24564 }],
       gpus: selected.variant === 'win-cpu' ? [] : ['0'] }, activeJob: null })
   })
   vi.stubGlobal('fetch', fetch)
   dispose = render(() => <SetupForm surface="projects" />, document.body)
   await vi.advanceTimersByTimeAsync(0)
   button('Change build').click()
-  expect([...document.querySelectorAll('[role="menuitemcheckbox"]')].map((node) => [node.textContent, node.getAttribute('aria-checked')])).toEqual([
-    ['NVIDIA graphics', 'true'], ['NVIDIA graphics, older drivers', 'false'], ['Windows with CPU only', 'false'],
+  expect([...document.querySelectorAll('[role="menuitemcheckbox"]')].map((node) => [node.getAttribute('aria-label'), node.getAttribute('aria-checked')])).toEqual([
+    ['NVIDIA graphics', 'true'], ['NVIDIA graphics, older drivers', 'false'], ['CPU only', 'false'],
   ])
+  for (const entry of document.querySelectorAll('[role="menuitemcheckbox"]')) {
+    expect(document.getElementById(entry.getAttribute('aria-describedby')!)?.textContent).toBe(choices.find((choice) => choice.label === entry.getAttribute('aria-label'))?.reason)
+  }
   expect(document.querySelector('select')).toBeNull()
   expect(document.querySelectorAll('dt').length).toBe(3)
-  const alternate = [...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')].find((node) => node.textContent === label)!
+  const alternate = [...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')].find((node) => node.getAttribute('aria-label') === label)!
   alternate.click()
   await vi.advanceTimersByTimeAsync(0)
   expect(fetch.mock.calls.at(-1)?.[0]).toContain(`variant=${variant}`)
   expect(document.querySelector('[role="menu"]')).toBeNull()
   expect(document.querySelector('.setup-facts')?.textContent).toContain(label)
+  expect(document.querySelector('.setup-facts')?.textContent?.includes('NVIDIA GeForce RTX 4090')).toBe(variant !== 'win-cpu')
   button('Change build').click()
-  expect(document.querySelector('[role="menuitemcheckbox"][aria-checked="true"]')?.textContent).toBe(label)
+  expect(document.querySelector('[role="menuitemcheckbox"][aria-checked="true"]')?.getAttribute('aria-label')).toBe(label)
   document.querySelector('[role="menu"]')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   expect(document.querySelector('[role="menu"]')).toBeNull()
   button('Set up').click()
@@ -157,6 +162,7 @@ it.each([false, true])('refuses a held library while preserving only known facts
 })
 
 it.each([
+  ['downloading', 'bytes', 0, 4096, 'Downloading Dinkster - 0 byte of 4.1 kB'],
   ['downloading', 'bytes', 2048, 4096, 'Downloading Dinkster - 2 kB of 4.1 kB'],
   ['checking-reviewed-inputs', 'items', 3, 12, 'Installing the standard node packs'],
   ['future-stage', 'bytes', 2048, null, 'Setting up - 2 kB'],
@@ -168,6 +174,18 @@ it.each([
   expect(document.querySelector('[role="status"]')?.textContent).toContain(expected)
   expect(document.body.textContent).not.toContain(stage)
   expect(document.body.textContent).not.toContain('3 of 12')
+  expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe(total === null ? null : String(completed / total))
+})
+
+it('keeps a failed setup error visible without a dismiss action and removes active progress', async () => {
+  vi.useFakeTimers()
+  vi.stubGlobal('fetch', async () => answer({ plan, activeJob: { ...job, state: 'failed', error: { code: 'download-failed', message: 'The download stopped. Try again.' } } }))
+  dispose = render(() => <SetupForm surface="projects" />, document.body)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe('The download stopped. Try again.')
+  expect(document.querySelector('[role="alert"] button')).toBeNull()
+  expect(document.querySelector('[role="progressbar"]')).toBeNull()
+  expect(button('Set up').disabled).toBe(false)
 })
 
 it('delays the first loading sign and keeps it for the minimum before revealing facts', async () => {
