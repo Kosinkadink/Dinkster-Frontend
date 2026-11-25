@@ -25,6 +25,18 @@ export function SetupForm(props: {
   const problem = () => setup.error()?.message ?? folderError() ?? setup.job()?.error?.message
   const busy = () => setup.changing() || setup.planning() || setupJobActive(setup.job()) || folderBusy()
   const bytes = (value: number) => formatBytes(value, activeLocale.get().tag)
+  const buildLabel = () => {
+    const plan = arrival.value()
+    const job = setup.job()
+    return setupJobActive(job) && job!.variant !== plan?.variant
+      ? plan?.choices?.find((choice) => choice.variant === job!.variant)?.label
+      : plan?.buildLabel
+  }
+  const cardNames = () => {
+    const counts = new Map<string, number>()
+    for (const card of arrival.value()?.detectedCards ?? []) counts.set(card.name, (counts.get(card.name) ?? 0) + 1)
+    return [...counts].map(([name, count]) => count > 1 ? `${count} x ${name}` : name)
+  }
   const download = () => {
     const plan = arrival.value()!
     return plan.downloadBytes !== null ? bytes(plan.downloadBytes)
@@ -85,7 +97,7 @@ export function SetupForm(props: {
             <dt>{message('setup.folder')}</dt>
             <dd><span>{setupJobActive(setup.job()) ? setup.job()!.root : plan().root}</span><Show when={!setupJobActive(setup.job())}><ProductTextButton label={message('setup.chooseFolder')} disabled={busy()} onClick={() => { setDismissed(undefined); void chooseFolder() }} /></Show></dd>
             <Show when={plan().buildLabel || setupJobActive(setup.job())}><dt>{message('setup.build')}</dt>
-            <dd><div><span>{setupJobActive(setup.job()) && setup.job()!.variant !== plan().variant ? setup.job()!.variant : plan().buildLabel}</span><For each={plan().detectedCards ?? []}>{(card) => <p class="dinkster-description">{card.name}</p>}</For></div>
+            <dd><div><Show when={buildLabel()}>{(label) => <span>{label()}</span>}</Show><For each={cardNames()}>{(name) => <p class="dinkster-description">{name}</p>}</For></div>
               <Show when={!setupJobActive(setup.job()) && (plan().choices?.length ?? 0) > 1}><ProductMenu fill="quiet" label={message('setup.changeBuild')} items={(plan().choices ?? []).map((choice) => ({
                 label: choice.label,
                 checked: choice.variant === plan().variant,

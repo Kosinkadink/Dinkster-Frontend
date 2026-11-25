@@ -52,6 +52,21 @@ it.each(['projects', 'editor'] as const)('starts the same process-owned job from
   expect(button('Set up').disabled).toBe(false)
 })
 
+it.each(['win-nvidia-cu126', 'unlisted-build'])('labels a running %s job without exposing identifiers and groups matching cards', async (variant) => {
+  vi.useFakeTimers()
+  const card = { id: '0', name: 'NVIDIA GeForce RTX 4090', driver: '595.84', computeCapability: '8.9', memoryMiB: 24564 }
+  const current = { ...plan, detectedCards: [card, { ...card, id: '1', name: 'NVIDIA GeForce RTX 3090' }, { ...card, id: '2' }],
+    choices: [...plan.choices!, { variant: 'win-nvidia-cu126', label: 'NVIDIA graphics, older drivers', reason: 'Needs NVIDIA driver 525 or newer.' }] }
+  vi.stubGlobal('fetch', async () => answer({ plan: current, activeJob: { ...job, variant } }))
+  dispose = render(() => <SetupForm surface="projects" />, document.body)
+  await vi.advanceTimersByTimeAsync(0)
+  const facts = document.querySelector('.setup-facts')!
+  expect([...facts.querySelectorAll('p')].map((node) => node.textContent)).toEqual(['2 x NVIDIA GeForce RTX 4090', 'NVIDIA GeForce RTX 3090'])
+  expect(facts.textContent).not.toContain(variant)
+  expect(facts.textContent).not.toContain(plan.buildLabel)
+  expect(facts.textContent?.includes('NVIDIA graphics, older drivers')).toBe(variant === 'win-nvidia-cu126')
+})
+
 it('changes builds through a checked menu without adding a facts row', async () => {
   vi.useFakeTimers()
   const choices = [{ variant: 'win-nvidia', label: 'NVIDIA', reason: 'Detected card' }, { variant: 'win-nvidia-cu126', label: 'NVIDIA CUDA 12.6', reason: 'Compatible card' }]
