@@ -282,10 +282,14 @@ export function TemplatesGallery() {
           )),
     )
   }
-  const current = () =>
-    state() === 'loading'
-      ? undefined
-      : all().find((template) => template.id === selected())
+  // The detail always explains a tile that is shown: when the group or the
+  // search hides the selected template, the first shown one takes its place.
+  const current = () => {
+    const visible = shown()
+    return (
+      visible?.find((template) => template.id === selected()) ?? visible?.[0]
+    )
+  }
   const open = (id: string) =>
     setActivity(
       `Opened ${all().find((template) => template.id === id)?.name ?? id}`,
@@ -296,7 +300,7 @@ export function TemplatesGallery() {
       <div class="dinkster-templates-frame dinkster-root" data-theme="dark">
         <ProductTemplatesPage
           title="Templates"
-          groups={groups()}
+          groups={state() === 'loading' ? [] : groups()}
           group={group()}
           onGroup={setGroup}
           searchLabel="Search templates"
@@ -308,7 +312,7 @@ export function TemplatesGallery() {
             </ProductButton>
           }
           templates={shown()}
-          selected={selected()}
+          selected={current()?.id}
           onSelect={(id) => {
             setSelected(id)
             setView('result')

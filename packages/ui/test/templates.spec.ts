@@ -42,6 +42,8 @@ test('a group and the search narrow the tiles, and each group counts its templat
 
   await makes.getByRole('option', { name: /Video/ }).click()
   await expect(tiles.getByRole('option')).toHaveText([/Text to video/, /Image to video/])
+  // The selected template is hidden by the group, so the first shown one is explained.
+  await expect(page.getByRole('heading', { level: 2 }).first()).toHaveText('Text to video')
   await page.keyboard.press('ArrowDown')
   await expect(makes.getByRole('option', { name: /Audio/ })).toHaveAttribute('aria-selected', 'true')
   await expect(tiles.getByRole('option')).toHaveText([/Song from lyrics/])
