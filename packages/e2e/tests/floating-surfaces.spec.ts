@@ -128,7 +128,7 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole('button', { name: 'Hide minimap' }).click()
 })
 
-test('menus, selects, and widget popovers share contained semantic chrome', async ({ page }, testInfo) => {
+test('menus and selects share contained semantic chrome, and a choice row list stays in the canvas', async ({ page }, testInfo) => {
   for (const viewport of viewports) {
     await page.setViewportSize(viewport)
     if (viewport.width === 360) {
@@ -138,13 +138,12 @@ test('menus, selects, and widget popovers share contained semantic chrome', asyn
 
     const widgetPoint = await nodePoint(page, 'widget')
     await page.mouse.click(widgetPoint.x, widgetPoint.y)
-    const widget = page.getByTestId('combo-dropdown')
+    const widget = page.locator('[data-editor-surface="in-row-list"] .dinkster-canvas-field')
     await expect(widget).toBeVisible()
-    const search = page.getByTestId('combo-search')
+    const search = widget.locator('input')
     for (let index = 0; index < 13; index += 1) await search.press('ArrowDown')
     await expectContained(page, widget, true)
-    await expect(widget).toHaveClass(/floating-surface/)
-    await capture(page, testInfo, `${viewport.name}-widget-popover`)
+    await capture(page, testInfo, `${viewport.name}-row-list`)
     await search.press('Escape')
     await expect(page.getByTestId('graph-canvas')).toBeFocused()
 

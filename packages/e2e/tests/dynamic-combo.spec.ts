@@ -39,8 +39,8 @@ async function clickRow(page: Page, inputId: string): Promise<void> {
 
 async function selectOption(page: Page, option: string): Promise<void> {
   await clickRow(page, 'size')
-  const dropdown = page.getByTestId('combo-dropdown')
-  await expect(dropdown).toBeVisible()
+  const dropdown = page.locator('[data-editor-surface="in-row-list"]')
+  await expect(dropdown.locator('input')).toBeVisible()
   await dropdown.getByRole('option', { name: option, exact: true }).click()
 }
 
