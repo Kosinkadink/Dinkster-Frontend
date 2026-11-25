@@ -16,6 +16,11 @@ export const defaultProductStrings = {
   openSignInPage: 'Open the sign-in page',
   cancelSignIn: 'Cancel sign-in',
   signOut: 'Sign out',
+  projects: 'Projects',
+  allProjects: 'All projects',
+  newProject: 'New project',
+  openInNewWindow: 'Open in a new window',
+  projectsUnavailable: 'Projects could not be loaded',
   dismissError: 'Dismiss error',
   dismissNotification: 'Dismiss notification',
   close: 'Close',
@@ -27,6 +32,7 @@ export const defaultProductStrings = {
   version: 'Version',
   copy: 'Copy',
   copyFailed: 'Could not copy. Select and copy the value instead.',
+  statusSeparator: ', ',
 }
 
 export type ProductStrings = Readonly<

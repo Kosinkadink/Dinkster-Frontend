@@ -215,7 +215,6 @@ describe('companion value painting', () => {
       return { texts: painted.calls.map((call) => call.text), fills }
     }
     const curve = { points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }
-    expect(paintPassed(curveView, curve, 'raised-editors').texts).toContain('2 points')
     expect(paintPassed(curveView, curve, 'inset-raised').texts.some((text) => text.startsWith('{"points"'))).toBe(true)
     const color = paintPassed(colorView, '#3366cc80', 'raised-editors')
     expect(color.texts).toContain('#3366cc80')

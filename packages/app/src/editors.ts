@@ -27,9 +27,6 @@ export const GRAPH_EDITOR_KIND = 'graph'
  */
 export const APP_EDITOR_KIND = 'app'
 
-/** Built-in editor for one CURVE input. */
-export const CURVE_EDITOR_KIND = 'curve'
-
 /** Built-in editor for one first-party GLSL Shader source input. */
 export const GLSL_EDITOR_KIND = 'glsl'
 

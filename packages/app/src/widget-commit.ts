@@ -60,18 +60,19 @@ export function parseNumericCommit(raw: string, widgetType: 'INT' | 'FLOAT', rou
  * `result` is the outcome of typed arithmetic ("= 48"); `problem` says what
  * Enter corrects or keeps. Typing is never refused: a number past a limit or
  * off a whole-number step is corrected, and anything that is not a number
- * keeps the stored value. Text today's parser accepts is read by it, so
- * exact 64-bit integers and forms like 1e-3 behave as in every other field.
+ * keeps the stored value, or leaves an automatic field automatic. Text
+ * today's parser accepts is read by it, so exact 64-bit integers and forms
+ * like 1e-3 behave as in every other field.
  */
 export type TypedNumber =
   | { readonly kind: 'store'; readonly value: IntegerWidgetValue; readonly result?: string; readonly problem?: string }
   | { readonly kind: 'keep'; readonly problem: string }
 
-export function resolveTypedNumber(raw: string, spec: WidgetSpec, stored: IntegerWidgetValue): TypedNumber {
+export function resolveTypedNumber(raw: string, spec: WidgetSpec, stored: IntegerWidgetValue, automatic = false): TypedNumber {
   const constraints = numericStepConstraints(spec)
   const widgetType = constraints.integer ? 'INT' : 'FLOAT'
   const keep = (reason: string): TypedNumber =>
-    ({ kind: 'keep', problem: `${reason} Enter keeps ${formatWidgetValue(stored, spec)}.` })
+    ({ kind: 'keep', problem: `${reason} ${automatic ? 'Enter keeps it automatic' : `Enter keeps ${formatWidgetValue(stored, spec)}`}.` })
   const trimmed = raw.trim()
   const direct = parseNumericCommit(trimmed, widgetType, spec.options['round'], spec.options['precision'])
   let typed: bigint | number
@@ -128,9 +129,10 @@ export function resolveTypedNumber(raw: string, spec: WidgetSpec, stored: Intege
   }
   // Whole numbers snap to the step counted from the field's offset (its lower
   // limit when none is declared), as the stepper does; a value that rounds
-  // past a limit steps back inside it.
-  const step = constraints.step
-  const base = constraints.offset
+  // past a limit steps back inside it. While a worked-out offset is not known
+  // there is no grid, so a whole number is kept.
+  const step = constraints.offset === undefined ? 1n : constraints.step
+  const base = constraints.offset ?? 0n
   const distance = value - base
   const remainder = ((distance % step) + step) % step
   let snapped = base + distance - remainder + (remainder * 2n >= step ? step : 0n)

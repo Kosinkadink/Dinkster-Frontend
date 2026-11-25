@@ -4,6 +4,7 @@ import { importLitegraph, resolveImportedAssetLiterals } from '../src/format/imp
 import { asConnectionId, asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 import { DINKSTER_SCHEMA_WIRE_VERSION, parseDinksterNodes, parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { inputsOf } from '../src/schema/model.js'
+import { PRIMITIVE_SCHEMAS, withPrimitives } from './fixtures/primitive-schemas.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 
 const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
@@ -124,6 +125,40 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('keeps options, completions and number limits given by a formula or a lookup apart from the literals', () => {
+    const lookup = (name: string, ...args: string[]) => ({ lookup: `pack.${name}`, args })
+    const { schema, diagnostics } = parseDinksterSchema('Picker', { body: [
+      { kind: 'input', id: 'category', type: concrete('COMBO'), pin: false, sent: false, widget: { type: 'COMBO', options: ['sd', 'sdxl'] } },
+      { kind: 'input', id: 'lora', type: concrete('COMBO'), widget: { type: 'COMBO', options: lookup('loras_in', 'category') } },
+      { kind: 'input', id: 'frames', type: concrete('INT'),
+        widget: { type: 'NUMBER', min: 0, max: { formula: 'count * 4' }, step: 4, offset: lookup('frame_start', 'category') } },
+      { kind: 'input', id: 'trigger', type: concrete('STRING'), widget: { type: 'STRING', completions: lookup('words', 'lora') } },
+    ] } as never)
+    expect(diagnostics).toEqual([])
+    const [category, lora, frames, trigger] = inputsOf(schema!)
+    expect(category).toMatchObject({ socketless: true, sent: false })
+    expect(lora!.widget).toMatchObject({ widgetType: 'COMBO', options: {}, looked: { options: { lookup: 'pack.loras_in', args: ['category'] } } })
+    expect(frames!.widget).toMatchObject({
+      options: { min: 0, step: 4 },
+      looked: { max: { formula: 'count * 4' }, offset: { lookup: 'pack.frame_start', args: ['category'] } },
+    })
+    expect(frames!.widget!.options).not.toHaveProperty('max')
+    expect(trigger!.widget).toMatchObject({ looked: { completions: { lookup: 'pack.words', args: ['lora'] } } })
+    expect(trigger!.widget).not.toHaveProperty('textCompletions')
+    // The field that is not sent is drawn but never reaches the run.
+    const inputs = elabInputsOf(elaborateInterface(schema!, { values: {} }))
+    expect(inputs.map((input) => [input.spec.id, input.apiName])).toEqual([
+      ['category', undefined], ['lora', 'lora'], ['frames', 'frames'], ['trigger', 'trigger'],
+    ])
+    // A field that is not sent cannot have a pin; a looked list takes no other option source.
+    expect(parseDinksterSchema('Bad', { body: [
+      { kind: 'input', id: 'x', type: concrete('INT'), sent: false },
+    ] } as never).schema).toBeUndefined()
+    expect(parseDinksterSchema('Bad', { body: [
+      { kind: 'input', id: 'x', type: concrete('COMBO'), widget: { type: 'COMBO', options: lookup('f'), remote: { route: '/api/choices/x' } } },
+    ] } as never).schema).toBeUndefined()
+  })
+
   it('keeps an editor row and the rows a widget writes and reads, apart from its params', () => {
     const { schema, diagnostics } = parseDinksterSchema('Viewport', { body: [
       { kind: 'input', id: 'model_file', type: concrete('STRING'),
@@ -204,11 +239,11 @@ describe('Dinkster schema wire', () => {
         const linked = importLitegraph({ nodes: [
           { id: 1, type: 'SourceSelection', inputs: [{ name: 'source', type: 'COMBO', link: 7 }], widgets_values: [source, 'ordinary.vae'] },
           { id: 2, type: 'PrimitiveNode', outputs: [{ name: 'COMBO', type: 'COMBO', links: [7] }], widgets_values: [source] },
-        ], links: [[7, 2, 0, 1, 0, 'COMBO']] }, (nodeType) => nodeType === 'SourceSelection' ? result.schema : undefined)
+        ], links: [[7, 2, 0, 1, 0, 'COMBO']] }, withPrimitives(resolve), undefined, [], PRIMITIVE_SCHEMAS)
         expect(linked.document).toBeDefined()
-        const linkedResolved = resolveImportedAssetLiterals(linked.document!, resolve, () => descriptor)
+        const linkedResolved = resolveImportedAssetLiterals(linked.document!, withPrimitives(resolve), () => descriptor)
         expect(linkedResolved.unresolved).toEqual([])
-        expect(Object.values(linkedResolved.document.graphs.g0!.valueSources!)[0]!.value).toBe(source)
+        expect(linkedResolved.document.graphs.g0!.nodes.n2!.values).toEqual({ value: source })
       }
     }
   })
@@ -604,6 +639,28 @@ describe('Dinkster schema wire', () => {
       expect(rejected.diagnostics).toEqual([expect.objectContaining({
         severity: 'error', message: expect.stringContaining('outputStrip must be two lower-case #rrggbb colors'),
       })])
+    }
+  })
+
+  it('carries the input a curve names as its histogram to its widget options', () => {
+    const curve = (id: string, widget: Record<string, unknown>) =>
+      ({ kind: 'input', id, type: concrete('CURVE'), required: true, widget: { type: 'CURVE', ...widget } })
+    const decoded = parseDinksterSchema('Curves', {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      body: [
+        curve('tied', { histogram: 'bins', inputStrip: ['#000000', '#ffffff'] }),
+        curve('plain', {}),
+        { kind: 'input', id: 'bins', type: concrete('HISTOGRAM'), required: false },
+      ],
+    })
+    expect(decoded.diagnostics).toEqual([])
+    const [tied, plain] = inputsOf(decoded.schema!)
+    expect(tied!.widget!.options).toEqual({ inputStrip: ['#000000', '#ffffff'], histogram: 'bins' })
+    expect(plain!.widget!.options).toEqual({})
+    for (const bad of ['', 3]) {
+      const rejected = parseDinksterSchema('BadCurve', { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('c', { histogram: bad })] })
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error', message: expect.stringContaining('histogram must name an input') })])
     }
   })
 

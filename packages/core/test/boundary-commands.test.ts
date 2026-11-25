@@ -504,7 +504,7 @@ describe('showing a field on the subgraph node', () => {
     const entries = (store: DocumentStore, graphId: string, nodeId: string, port: string, construct?: true) => registry.resolve({
       doc: store.doc, graphId,
       target: { kind: 'widget', nodeId, inputId: port, address: { port }, ...(construct ? { construct } : {}) },
-      selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] }, worldX: 0, worldY: 0,
+      selection: { nodes: [], links: [], reroutes: [] }, worldX: 0, worldY: 0,
     }).flatMap((group) => group.items).filter((item) => item.id.startsWith('core.widget.subgraphNode')) as MenuActionItem[]
     const run = (store: DocumentStore, item: MenuActionItem) => {
       if (item.action.kind !== 'command') throw new Error('expected a command')
@@ -538,7 +538,7 @@ describe('showing a field on the subgraph node', () => {
     const entries = () => registry.resolve({
       doc: store.doc, graphId: 'sub', resolve,
       target: { kind: 'growth', nodeId: 'weigh', construct: 'weights' },
-      selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] }, worldX: 0, worldY: 0,
+      selection: { nodes: [], links: [], reroutes: [] }, worldX: 0, worldY: 0,
     }).flatMap((group) => group.items) as MenuActionItem[]
     const run = (item: MenuActionItem) => {
       if (item.action.kind !== 'command') throw new Error('expected a command')

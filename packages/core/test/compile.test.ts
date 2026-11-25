@@ -9,13 +9,14 @@ import { describe, expect, it } from 'vitest'
 import { compile, scopeClosure, type CompileInput } from '../src/compile/compile.js'
 import { semanticHashOf, sha256Hex } from '../src/compile/hash.js'
 import type { ExecutionScope } from '../src/compile/artifact.js'
-import type { WorkflowDocument } from '../src/format/document.js'
+import type { Json, WorkflowDocument } from '../src/format/document.js'
 import type { Diagnostic } from '../src/diagnostics.js'
+import type { LookupAnswerState } from '../src/schema/elaborate.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
-import { DINKSTER_GRAPH_FEATURE_ABSENT_INPUT, DINKSTER_GRAPH_FEATURE_DECIMAL_INT } from '../src/compile/dinkster-graph.js'
+import { DINKSTER_GRAPH_FEATURE_ABSENT_INPUT, DINKSTER_GRAPH_FEATURE_DECIMAL_INT, DINKSTER_GRAPH_FEATURE_REGIONS } from '../src/compile/dinkster-graph.js'
 import { coreVirtualNodeKind } from '../src/virtual-node.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
@@ -482,6 +483,156 @@ describe('value handling', () => {
     expect(inputs['batch_size']).toBeDefined()
     expect(inputs['color']).toBeDefined()
   })
+
+  it('leaves an automatic field with nothing stored for the engine to work out', () => {
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      const body = schema.body.map((row) =>
+        row.kind !== 'input' || (row.id !== 'batch_size' && row.id !== 'color') ? row
+          // batch_size cannot be worked out: that warning is the canvas's, not the compile's.
+          : { ...row, automatic: { formula: row.id === 'color' ? 'width' : 'missing_name' } })
+      return { ...schema, body }
+    }
+    const doc = mutableWorkflow('exec-basic')
+    const nodes = ((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable
+    ;(nodes['n0'] as Mutable)['values'] = { width: 64, height: 64, color: 5 }
+    const result = compile(compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const inputs = result.artifact.prompt['n0']!.inputs
+    expect(inputs['batch_size']).toBeUndefined()
+    expect(inputs['color']).toBe(5)
+    expect(result.artifact.diagnostics.some((d) => d.code === 'compile.input.missing' || d.code === 'automatic.default')).toBe(false)
+  })
+
+  it('keeps the lookup call it made for each automatic field it leaves for the engine', () => {
+    const callsOf = (values: Record<string, unknown>, hidden = false) => {
+      const resolve: CompileInput['resolve'] = (type) => {
+        const schema = backendResolve(type)
+        if (type !== 'EmptyImage' || schema === undefined) return schema
+        const automatic: Record<string, unknown> = { batch_size: { lookup: 'sizes.batch', args: ['width'] }, color: { formula: 'width * 2' } }
+        return { ...schema, body: schema.body.map((row) => row.kind !== 'input' || automatic[row.id] === undefined ? row
+          : { ...row, automatic: automatic[row.id], ...(hidden ? { visible: { formula: 'width > 100' } } : {}) }) } as NodeSchema
+      }
+      const doc = mutableWorkflow('exec-basic')
+      ;((((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable)['n0'] as Mutable)['values'] = values
+      const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers: () => ({ state: 'ready', answer: 3 }) })
+      return result.ok ? result.artifact.automaticCalls : 'failed'
+    }
+    const kept = [{ runtimeNodeId: 'n0', inputId: 'batch_size', lookup: 'sizes.batch', args: [24] }]
+    // A formula makes no call; a stored value is not automatic; a field its visible hides is still worked out by the run.
+    expect(callsOf({ width: 24, height: 64 })).toEqual(kept)
+    expect(callsOf({ width: 24, height: 64, batch_size: 2 })).toBeUndefined()
+    expect(callsOf({ width: 24, height: 64 }, true)).toEqual(kept)
+  })
+
+  it('passes on what a tapped automatic field shows, warning on the field only when that is its default', () => {
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      const automatic: Record<string, unknown> = {
+        color: { formula: 'width * 2' },
+        batch_size: { lookup: 'sizes.batch', args: ['width'] },
+        height: { formula: 'missing_name' },
+      }
+      const body = schema.body.map((row) =>
+        row.kind !== 'input' || automatic[row.id] === undefined ? row : { ...row, automatic: automatic[row.id] })
+      return { ...schema, body } as NodeSchema
+    }
+    const tapped = (tap: string, lookupAnswers?: CompileInput['lookupAnswers']) => {
+      const doc = mutableWorkflow('exec-basic')
+      const graph = (doc['graphs'] as Mutable)['g0'] as Mutable
+      const nodes = graph['nodes'] as Mutable
+      ;(nodes['n0'] as Mutable)['values'] = { width: 24 }
+      nodes['n2'] = { id: 'n2', type: 'EmptyImage', title: 'Retime 2', values: { width: 8, height: 64, batch_size: 1, color: 0 } }
+      graph['links'] = {
+        l2: { id: 'l2', from: { node: 'n2', port: 'out0' }, to: { node: 'n1', port: 'images' } },
+        l3: { id: 'l3', from: { node: 'n0', tap }, to: { node: 'n2', port: 'width' } },
+      }
+      const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), ...(lookupAnswers !== undefined ? { lookupAnswers } : {}) })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) return undefined
+      return {
+        width: result.artifact.prompt['n2']!.inputs['width'],
+        warnings: result.artifact.diagnostics.filter((d) => d.code === 'automatic.tapDefault').map((d) => [d.message, d.anchor?.port]),
+        taps: result.artifact.automaticTaps,
+      }
+    }
+    const answer = (state: LookupAnswerState): CompileInput['lookupAnswers'] => (lookup, args) =>
+      lookup === 'sizes.batch' && JSON.stringify(args) === '[24]' ? state : undefined
+    const batchDefault = [['Could not work out batch_size. Retime 2 gets the default, 1.', { node: 'n0', port: 'batch_size' }]]
+    // Every value passed on is kept with the run, keyed as the run records the field's own node.
+    const tapOf = (inputId: string, value: Json) => [{ runtimeNodeId: 'n0', inputId, value, receiverRuntimeId: 'n2', receiver: 'Retime 2' }]
+    expect(tapped('color')).toEqual({ width: 48, warnings: [], taps: tapOf('color', 48) })
+    // A kept answer is what the row shows, fresh or not.
+    expect(tapped('batch_size', answer({ state: 'ready', answer: 3 }))).toEqual({ width: 3, warnings: [], taps: tapOf('batch_size', 3) })
+    expect(tapped('batch_size', answer({ state: 'stale', answer: 4, reason: 'failed' }))).toEqual({ width: 4, warnings: [], taps: tapOf('batch_size', 4) })
+    // Loading, no editor answers at all, and a failed lookup pass on the default.
+    expect(tapped('batch_size', answer({ state: 'loading' }))).toEqual({ width: 1, warnings: batchDefault, taps: tapOf('batch_size', 1) })
+    expect(tapped('batch_size')).toEqual({ width: 1, warnings: batchDefault, taps: tapOf('batch_size', 1) })
+    expect(tapped('batch_size', answer({ state: 'unavailable', reason: 'failed' }))).toEqual({ width: 1, warnings: batchDefault, taps: tapOf('batch_size', 1) })
+    // A stored value is not automatic: nothing is kept.
+    expect(tapped('width')?.taps).toBeUndefined()
+    expect(tapped('height')?.warnings.map(([message]) => message)).toEqual([expect.stringMatching(/^Could not work out height\. Retime 2 gets the default, \d+\.$/)])
+  })
+
+  it('has a formula read for a field with no default what the run is sent for it', () => {
+    const field = (id: string, name: string, widget: Record<string, unknown>, optional = false) =>
+      ({ kind: 'input', id, type: { kind: 'concrete', name }, optional, widget })
+    const read = ['num', 'text', 'pick', 'opt', 'hid', 'hid_def', 'secret', 'boxed', 'boxed_secret', 'limited', 'many', 'authored']
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      const body = [
+        ...schema.body,
+        field('num', 'INT', { widgetType: 'INT', options: { min: 16, max: 64 } }),
+        field('text', 'STRING', { widgetType: 'STRING', options: {} }),
+        field('pick', 'COMBO', { widgetType: 'COMBO', options: { options: ['slow', 'fast'] } }),
+        field('opt', 'INT', { widgetType: 'INT', options: { min: 5 } }, true),
+        // Looked-up limits, authored options and members past an optional minimum change what compile sends.
+        // A row its visible hides is sent what it would be sent if shown; a field declared hidden only what it stores.
+        { ...field('hid', 'INT', { widgetType: 'INT', options: { min: 7 } }), visible: { formula: 'width > 100' } },
+        { ...field('hid_def', 'INT', { widgetType: 'INT', options: { min: 7 }, default: 9 }), visible: { formula: 'width > 100' } },
+        { ...field('secret', 'INT', { widgetType: 'INT', options: { min: 4 } }), hidden: true },
+        { kind: 'section', id: 'box', visible: { formula: 'width > 100' }, rows: [
+          field('boxed', 'INT', { widgetType: 'INT', options: { min: 6 } }),
+          { ...field('boxed_secret', 'INT', { widgetType: 'INT', options: { min: 5 } }), hidden: true },
+        ] },
+        field('limited', 'INT', { widgetType: 'INT', options: {}, looked: { min: { formula: 'width + 1' } } }),
+        field('authored', 'COMBO', { widgetType: 'COMBO', options: { options: ['declared'] }, editableOptions: true }),
+        {
+          kind: 'group', id: 'many', minMembers: 1, optionalAfterMinimum: true, grows: 'button',
+          keys: { kind: 'numbered', prefix: 'm', start: 0, pad: 0 },
+          member: [field('entry', 'INT', { widgetType: 'INT', options: { min: 3 } })],
+        },
+        ...read.map((id) => ({ ...field(`reads_${id}`, 'INT', { widgetType: 'INT', options: {}, default: 0 }), automatic: { lookup: `probe.${id}`, args: [id === 'many' ? 'many.entry' : id] } })),
+      ]
+      return { ...schema, body } as NodeSchema
+    }
+    const doc = mutableWorkflow('exec-basic')
+    const nodes = ((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable
+    ;(nodes['n0'] as Mutable)['values'] = { width: 64, height: 64, batch_size: 1, color: 0 }
+    ;(nodes['n0'] as Mutable)['dynamic'] = { many: { members: ['m0', 'm1'] }, authored: { options: ['first', 'second'] } }
+    const asked: Record<string, unknown> = {}
+    const lookupAnswers: CompileInput['lookupAnswers'] = (lookup, args) => {
+      asked[lookup.slice('probe.'.length)] = args[0]
+      return { state: 'ready', answer: 1 }
+    }
+    const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    const inputs = result.artifact.prompt['n0']!.inputs
+    // A required field reads its widget's start: the minimum, an empty text, the first option.
+    const sent = Object.fromEntries(['num', 'text', 'pick', 'opt', 'hid', 'hid_def', 'secret', 'boxed', 'boxed_secret', 'limited', 'authored', 'many.m0.entry', 'many.m1.entry'].map((id) => [id, inputs[id]]))
+    expect(sent).toEqual({ num: 16, text: '', pick: 'slow', opt: undefined, hid: 7, hid_def: 9, secret: undefined, boxed: 6, boxed_secret: undefined, limited: 65, authored: 'first', 'many.m0.entry': 3, 'many.m1.entry': undefined })
+    // The lookup is called with what the run is sent; a field sent nothing waits.
+    expect(asked).toEqual({ num: 16, text: '', pick: 'slow', hid: 7, hid_def: 9, boxed: 6, limited: 65, authored: 'first', many: [3, null] })
+    // Shown, the same rows are sent the same values.
+    ;(nodes['n0'] as Mutable)['values'] = { width: 200, height: 64, batch_size: 1, color: 0 }
+    const shown = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers })
+    expect(shown.ok && ['hid', 'hid_def', 'secret', 'boxed', 'boxed_secret'].map((id) => shown.artifact.prompt['n0']!.inputs[id])).toEqual([7, 9, undefined, 6, undefined])
+  })
 })
 
 describe('semantic hash', () => {
@@ -753,6 +904,7 @@ const dynSchemas: Record<string, NodeSchema> = {
   },
   SamplerSink: dynSchemaOf('SamplerSink', [dynInput('sampler', { type: { kind: 'concrete', name: 'COMBO' }, widget: { widgetType: 'COMBO', options: { options: ['euler', 'dpm'] } } })]),
   IntSrc: { ...dynSchemaOf('IntSrc', [{ kind: 'output', id: 'out', type: INT }]), isOutputNode: false },
+  AnyValue: dynSchemaOf('AnyValue', [dynInput('value', { type: { kind: 'variable', templateId: 'T' }, optional: true })]),
   IntSink: dynSchemaOf('IntSink', [dynInput('steps', { type: INT, widget: { widgetType: 'INT', options: {}, default: 20 } })]),
   Switch: {
     ...dynSchemaOf('Switch', [
@@ -800,24 +952,22 @@ type DynNode = {
   dynamic?: Record<string, unknown>
   controllers?: Record<string, string>
   mode?: 'active' | 'muted' | 'bypassed'
+  title?: string
 }
 type DynEnd =
   | [node: string, port: string]
   | { reroute: string }
   | { node: string; tap: string }
-  | { valueSource: string }
 const dynDoc = (parts: {
   nodes: Record<string, DynNode>
   links?: [from: DynEnd, to: DynEnd][]
   reroutes?: string[]
-  valueSources?: Record<string, unknown>
   nets?: [name: string, source: [node: string, port: string], sinks: [node: string, port: string][]][]
   boundary?: { inputs?: unknown[]; outputs?: unknown[] }
   subgraphs?: Record<string, {
     nodes: Record<string, DynNode>
     links?: [from: DynEnd, to: DynEnd][]
     reroutes?: string[]
-    valueSources?: Record<string, unknown>
     boundary: { inputs?: unknown[]; outputs?: unknown[] }
   }>
 }): WorkflowDocument => {
@@ -830,14 +980,13 @@ const dynDoc = (parts: {
     links: [DynEnd, DynEnd][],
     boundary?: { inputs?: unknown[]; outputs?: unknown[] },
     reroutes: readonly string[] = [],
-    valueSources: Record<string, unknown> = {},
   ): unknown => ({
     id,
     name: id,
     nodes: Object.fromEntries(
       Object.entries(nodes).map(([nid, n]) => [
         nid,
-        { id: nid, type: n.type, values: n.values ?? {}, ...(n.dynamic ? { dynamic: n.dynamic } : {}), ...(n.controllers ? { controllers: n.controllers } : {}), ...(n.mode ? { mode: n.mode } : {}) },
+        { id: nid, type: n.type, values: n.values ?? {}, ...(n.dynamic ? { dynamic: n.dynamic } : {}), ...(n.controllers ? { controllers: n.controllers } : {}), ...(n.mode ? { mode: n.mode } : {}), ...(n.title ? { title: n.title } : {}) },
       ]),
     ),
     links: Object.fromEntries(links.map((l, i) => [`l${i}`, { id: `l${i}`, from: end(l[0]), to: end(l[1]) }])),
@@ -845,19 +994,14 @@ const dynDoc = (parts: {
       name, source: end(source), sinks: sinks.map((sink) => end(sink)),
     }])) : {},
     reroutes: Object.fromEntries(reroutes.map((reroute) => [reroute, { id: reroute }])),
-    valueSources: Object.fromEntries(Object.entries(valueSources).map(([sourceId, value]) => [sourceId, {
-      id: sourceId,
-      value,
-      spec: { widgetType: 'IMAGE' },
-    }])),
     nextOrdinal: 100,
     ...(boundary ? { boundary: { inputs: boundary.inputs ?? [], outputs: boundary.outputs ?? [] } } : {}),
   })
   const graphs: Record<string, unknown> = {
-    g0: defOf('g0', parts.nodes, parts.links ?? [], undefined, parts.reroutes, parts.valueSources),
+    g0: defOf('g0', parts.nodes, parts.links ?? [], undefined, parts.reroutes),
   }
   for (const [id, sub] of Object.entries(parts.subgraphs ?? {})) {
-    graphs[id] = defOf(id, sub.nodes, sub.links ?? [], sub.boundary, sub.reroutes, sub.valueSources)
+    graphs[id] = defOf(id, sub.nodes, sub.links ?? [], sub.boundary, sub.reroutes)
   }
   return {
     format: 'dinkster-workflow',
@@ -1997,6 +2141,136 @@ describe('muted endpoints skip port validation', () => {
 
 })
 
+describe("a muted node's outputs give nothing", () => {
+  const target = { type: 'ItemGroup', dynamic: { items: { members: ['item0'] } } }
+  const marked = (doc: WorkflowDocument, features: string[] = []) => {
+    const result = compile({ ...compileInput(doc), resolve: dynResolve, graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT, ...features] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return undefined
+    expect(result.artifact.diagnostics.map((d) => d.code)).not.toContain('compile.link.dropped')
+    return result.artifact.prompt
+  }
+  const absent = (reason: string) => ({ 'items.item0': { $absent: { reason } } })
+  const inner = (mode?: 'muted') => ({
+    nodes: { loader: { type: 'ImageSrc', title: 'Inner loader', ...(mode ? { mode } : {}) } },
+    boundary: { outputs: [{ id: 'image', binds: { kind: 'port', node: 'loader', port: 'out' } }] },
+  })
+
+  it('sends $absent naming the muted node, directly, through a reroute, a net and a subgraph boundary', () => {
+    const source = { type: 'ImageSrc', title: 'Loader', mode: 'muted' as const }
+    expect(marked(dynDoc({ nodes: { source, target }, links: [[['source', 'out'], ['target', 'items.item0']]] }))?.['target']!.inputs)
+      .toEqual(absent("'Loader' is muted"))
+    expect(marked(dynDoc({ nodes: { source: { type: 'ImageSrc', mode: 'muted' }, target }, links: [[['source', 'out'], ['target', 'items.item0']]] }))?.['target']!.inputs)
+      .toEqual(absent("'ImageSrc' is muted"))
+    expect(marked(dynDoc({
+      nodes: { source, target },
+      reroutes: ['r'],
+      links: [[['source', 'out'], { reroute: 'r' }], [{ reroute: 'r' }, ['target', 'items.item0']]],
+    }))?.['target']!.inputs).toEqual(absent("'Loader' is muted"))
+    expect(marked(dynDoc({ nodes: { source, target }, nets: [['images', ['source', 'out'], [['target', 'items.item0']]]] }))?.['target']!.inputs)
+      .toEqual(absent("'Loader' is muted"))
+
+    const throughBoundary = marked(dynDoc({
+      nodes: { sub: { type: '#sub' }, target },
+      links: [[['sub', 'image'], ['target', 'items.item0']]],
+      subgraphs: { sub: inner('muted') },
+    }))
+    expect(throughBoundary?.['target']!.inputs).toEqual(absent("'Inner loader' is muted"))
+    expect(Object.keys(throughBoundary ?? {})).toEqual(['target'])
+
+    const mutedSubgraph = marked(dynDoc({
+      nodes: { sub: { type: '#sub', title: 'Image stage', mode: 'muted' }, target },
+      links: [[['sub', 'image'], ['target', 'items.item0']]],
+      subgraphs: { sub: inner() },
+    }))
+    expect(mutedSubgraph?.['target']!.inputs).toEqual(absent("'Image stage' is muted"))
+    expect(Object.keys(mutedSubgraph ?? {})).toEqual(['target'])
+
+    // A bypassed node hands on what it receives, here nothing; the reason names the muted node.
+    expect(marked(dynDoc({
+      nodes: { source, pass: { type: 'Passthrough', title: 'Pass', mode: 'bypassed' }, target },
+      links: [[['source', 'out'], ['pass', 'in']], [['pass', 'out'], ['target', 'items.item0']]],
+    }))?.['target']!.inputs).toEqual(absent("'Loader' is muted"))
+
+    // An input whose type is a variable takes the marker too: it is not a literal needing a type.
+    const anyValue = dynDoc({ nodes: { source, has: { type: 'AnyValue' } }, links: [[['source', 'out'], ['has', 'value']]] })
+    expect(marked(anyValue, [DINKSTER_GRAPH_FEATURE_REGIONS])?.['has']!.inputs)
+      .toEqual({ value: { $absent: { reason: "'Loader' is muted" } } })
+  })
+
+  it("sends $absent for a field's output on a muted node", () => {
+    const prompt = marked(dynDoc({
+      nodes: {
+        source: { type: 'TapChoice', title: 'Amounts', mode: 'muted', values: { 'mode.amount': 5 }, dynamic: { mode: { selected: 'a' } } },
+        sink: { type: 'TapGroup', dynamic: { items: { members: ['item0'] } } },
+      },
+      links: [[{ node: 'source', tap: 'mode.amount' }, ['sink', 'items.item0']]],
+    }))
+    expect(prompt?.['sink']!.inputs).toEqual(absent("'Amounts' is muted"))
+  })
+
+  it('leaves the input out with a warning on a server without $absent', () => {
+    const plain = dynCompile(dynDoc({
+      nodes: { source: { type: 'ImageSrc', mode: 'muted' }, target },
+      links: [[['source', 'out'], ['target', 'items.item0']]],
+    }))
+    expect(plain.ok && plain.artifact.prompt['target']!.inputs).toEqual({})
+    expect(plain.ok && plain.artifact.diagnostics.map((d) => d.code)).toContain('compile.link.dropped')
+  })
+
+  it('skips a node whose required input receives nothing, and what needs it, with a warning on the first', () => {
+    // k needs the muted image; after needs k's output; maybe takes it only if present.
+    const nodes = {
+      source: { type: 'ImageSrc', title: 'Loader', mode: 'muted' as const },
+      k: { type: 'Passthrough', title: 'Blur' },
+      after: { type: 'Sink', title: 'Save' },
+      maybe: target,
+      other: { type: 'ImageSrc' },
+    }
+    const links: [DynEnd, DynEnd][] = [
+      [['source', 'out'], ['k', 'in']], [['k', 'out'], ['after', 'in']], [['k', 'out'], ['maybe', 'items.item0']],
+    ]
+    const result = compile({ ...compileInput(dynDoc({ nodes, links })), resolve: dynResolve, graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt['k']!.inputs).toEqual({ in: { $absent: { reason: "'Loader' is muted" } } })
+    expect(result.artifact.diagnostics.filter((d) => d.code === 'compile.input.skipped').map((d) => [d.anchor?.occurrence?.node, d.anchor?.port?.port, d.severity, d.message])).toEqual([
+      ['k', 'in', 'warning', "Receives nothing because 'Loader' is muted, so this node is skipped in the run."],
+    ])
+    expect(result.artifact.diagnostics.map((d) => d.code)).not.toContain('compile.link.dropped')
+
+    // When every node the run asks for would be skipped, the run is not sent:
+    // after is skipped only because k is, so the refusal names no warning of its own.
+    const only = compile({
+      ...compileInput(dynDoc({ nodes, links }), { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('after') }] }),
+      resolve: dynResolve,
+      graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT],
+    })
+    expect(only.ok).toBe(false)
+    if (!only.ok) expect(only.diagnostics.map((d) => d.code)).toEqual(expect.arrayContaining(['compile.input.skipped', 'compile.run.allSkipped']))
+    // What such a run would include is still known, so the editor can offer it and say why it is refused.
+    const closure = scopeClosure({
+      ...compileInput(dynDoc({ nodes, links }), { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('after') }] }),
+      resolve: dynResolve,
+      graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT],
+    })
+    expect([...closure?.included ?? []].sort()).toEqual(['after', 'k'])
+  })
+
+  it('keeps a wire into a muted node as before', () => {
+    const into = compile({
+      ...compileInput(dynDoc({
+        nodes: { source: { type: 'ImageSrc' }, pass: { type: 'Passthrough', mode: 'muted' } },
+        links: [[['source', 'out'], ['pass', 'in']]],
+      })),
+      resolve: dynResolve,
+      graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT],
+    })
+    expect(into.ok && Object.keys(into.artifact.prompt)).toEqual(['source'])
+    expect(into.ok && into.artifact.diagnostics.map((d) => d.code)).toContain('compile.link.dropped')
+  })
+})
+
 describe('unresolved nodes outside the executed scope', () => {
   const unknownDiags = (diagnostics: readonly { code: string; severity: string }[]) =>
     diagnostics.filter((diagnostic) => diagnostic.code === 'compile.schema.unknown')
@@ -2334,17 +2608,26 @@ describe('Primitive and Switch as ordinary nodes', () => {
     expect(result.artifact.choices).toEqual([{ graph: 'route', selector: 'random.selector', policy: 'random', candidate: 'b' }])
   })
 
-  it('drops a link into the Primitive from a muted node and passes the Primitive\'s own value on', () => {
-    const result = dynCompile(dynDoc({
-      nodes: {
-        counter: { type: 'IntSrc', mode: 'muted' },
-        prim: { type: 'Primitive', values: { value: 11 } },
-        sink: { type: 'IntSink', values: { steps: 3 } },
-      },
-      links: [[['counter', 'out'], ['prim', 'value']], [['prim', 'INT'], ['sink', 'steps']]],
-    }))
-    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
-    if (result.ok) expect(result.artifact.prompt['sink']!.inputs).toEqual({ steps: 11 })
+  it('passes nothing on through the Primitive from a muted node, not the Primitive\'s own value', () => {
+    const doc = (sink: { type: string; values?: Record<string, unknown>; dynamic?: Record<string, unknown> }, port: string) => dynDoc({
+      nodes: { counter: { type: 'IntSrc', title: 'Counter', mode: 'muted' }, prim: { type: 'Primitive', values: { value: 11 } }, sink },
+      links: [[['counter', 'out'], ['prim', 'value']], [['prim', 'INT'], ['sink', port]]],
+    })
+    const marked = compile({
+      ...compileInput(doc({ type: 'TapGroup', dynamic: { items: { members: ['item0'] } } }, 'items.item0')),
+      resolve: dynResolve,
+      graphFeatures: [DINKSTER_GRAPH_FEATURE_ABSENT_INPUT],
+    })
+    expect(marked.ok, JSON.stringify(!marked.ok && marked.diagnostics)).toBe(true)
+    if (marked.ok) expect(marked.artifact.prompt['sink']!.inputs).toEqual({ 'items.item0': { $absent: { reason: "'Counter' is muted" } } })
+
+    // Without the marker the input is left out with a warning, and the field sends its own value.
+    const plain = dynCompile(doc({ type: 'IntSink', values: { steps: 3 } }, 'steps'))
+    expect(plain.ok, JSON.stringify(!plain.ok && plain.diagnostics)).toBe(true)
+    if (plain.ok) {
+      expect(plain.artifact.prompt['sink']!.inputs).toEqual({ steps: 3 })
+      expect(plain.artifact.diagnostics.map((d) => d.code)).toContain('compile.link.dropped')
+    }
   })
 })
 

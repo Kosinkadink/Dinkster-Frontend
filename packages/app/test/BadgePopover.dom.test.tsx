@@ -103,4 +103,12 @@ describe('BadgePopover log badge branches', () => {
     expect(onOpen).toHaveBeenCalledWith('sampler')
   })
 
+  it('opens the run details from the Last run tab under a line saying the node changed since', () => {
+    const root = mount({ badgeId: 'core.error.lastRun' })
+    const popover = root.querySelector('[data-testid="badge-popover"]')!
+    expect(popover.firstElementChild?.textContent).toBe('From the last run. Changed since.')
+    expect(root.querySelector('[data-testid="badge-error-detail"]')?.textContent).toContain('CUDA out of memory')
+    expect(mount({ badgeId: 'core.error' }).querySelector('[data-testid="badge-last-run"]')).toBeNull()
+  })
+
 })

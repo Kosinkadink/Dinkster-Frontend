@@ -40,7 +40,7 @@ async function setEntries(page: Page, value: readonly ProofLogEntry[]): Promise<
     app.registerSchemas([
       {
         type: 'EmptyImage', displayName: 'Empty Image', category: 'e2e', source: 'e2e', isOutputNode: false,
-        items: [
+        body: [
           ...['width', 'height', 'batch_size', 'color'].map((id) => ({
             kind: 'input', id, type: { kind: 'concrete', name: 'INT' }, optional: false,
           })),
@@ -49,7 +49,7 @@ async function setEntries(page: Page, value: readonly ProofLogEntry[]): Promise<
       },
       {
         type: 'PreviewImage', displayName: 'Preview Image', category: 'e2e', source: 'e2e', isOutputNode: true,
-        items: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
+        body: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
       },
     ])
     app.connection.disconnect()

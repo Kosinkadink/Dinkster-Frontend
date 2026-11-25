@@ -58,9 +58,11 @@ fails:
 | The node's `titleSuffix` | No suffix |
 
 A row whose `visible` is false is not drawn and is still stored and sent to
-the run. A box whose `visible` is false hides every row in it. A row with a
-wire on its pin or its field's output shows anyway, and so does a box that
-holds one at any depth. A row with a problem shows the same way, and hides
+the run; with nothing stored it is sent what it would be sent if shown, so
+showing or hiding a row never changes what a run receives. A box whose
+`visible` is false hides every row in it. A row with a wire on its pin or
+its field's output shows anyway, and so does a box that holds one at any
+depth. A row with a problem shows the same way, and hides
 again once the problem is gone: an error or a warning that elaboration or
 the type solver finds on it, a failed rule that reads only that field, or a
 stored value its widget refuses, such as a number out of range. A note whose text is a lookup shows its `unknown` text. A group's
@@ -135,8 +137,15 @@ across its members under such an option. An unknown count gives the group's
 `minMembers`; an unknown leader gives the choice's first option. A formula
 reads a choice's key the same whether the choice is declared before or after
 it, including a led choice or one with nothing stored yet. A field with
-nothing stored reads its default, also under the chosen option, in a stored
-member, or where a `Use` gives it another default.
+nothing stored reads what the run is sent for it, also under the chosen
+option, in a stored member, or where a `Use` gives it another default: its
+default, or for a required field with none, its widget's start value (the
+minimum or 0, an empty text, the first option), with looked-up limits and
+stored options applied. A field the run is sent nothing for reads its default,
+or None without one: an optional field or a member past an optional minimum
+with no default, a field declared hidden, or a choice whose options all come
+from the server. A formula that runs before the node's rows are all laid out, such as
+a count, reads a row it has not reached yet from its declaration.
 
 A group that grows by link, filled field or button has its first
 `minMembers` members stored whenever it is part of the node: on a new node,
@@ -247,17 +256,57 @@ unique, and labels are non-blank, at most 256 characters, without NUL. With
 (`elab.outputDescriptors.linkedSource`) and an invalid one reports
 `elab.outputDescriptors.invalid`.
 
-## Sections and Advanced
+## Boxes: sections, groups and choices
 
-Folding a section hides its rows and unconnected pins. Connected pins stay
-visible as proxies on the section header so their links stay attached, and
-the header marks hidden modified values. The open or closed state is view
-state (`view.setSectionCollapsed`) over the schema's start state.
+A section, a group and the chosen option of a choice are drawn as boxes
+(`packages/canvas/src/layout.ts`, painted by `renderer.ts`). Each item of the
+elaborated interface carries `boxes`, the keys of the boxes around it,
+outermost first: a section's flattened id, `group:<path>`,
+`member:<path>.<key>` and `option:<path>`. A box is layout only: ids, stored
+values and pin positions are the same with or without it.
 
-A top-level section with id `advanced` gets the Advanced enclosure
-(`packages/canvas/src/layout.ts`): it stays below every ordinary input and
-output row, its outputs pair with its own rows, and a tinted background and
-border enclose the expanded rows, including labels, controls and pins.
+- The outline sits past the pins: its inner side lines up with a field
+  outside any box, and a field in one box sits 3 px inside it, so it is
+  3 px narrower on each side. Each box inside a box steps in 7 px more. A pin row inside a box keeps its pin on
+  the node's edge; only its name moves in. The node's least width grows with
+  the nesting.
+- A section or group box opens from its own header row: an arrow, the name,
+  and for a group its member count. Closed, the box is one row at the same
+  place, so opening or closing it moves neither its name nor any row above
+  it. The closed row shows how many rows stand directly inside it (an inner
+  box counts one; for a group, how many members) and a dot when a value
+  inside is not its default. The whole row opens or closes the box and
+  highlights under the pointer; the right-click menu does the same.
+- A box declared with `openName: false` shows no header while open, only a
+  small tab on its top edge; closed, it is an ordinary closed row.
+- Closing a box hides its rows and unconnected pins. Connected pins gather
+  at the closed row, inputs on the left edge and outputs on the right. The
+  open or closed state is view state (`view.setSectionCollapsed`, keyed by
+  the box key) over the schema's start state; groups start open.
+- A wire dropped on a closed row takes the first port inside that fits, in
+  declared order, a free input before a wired one, and the box stays
+  closed. While the wire is held there, the row names that field in place
+  of its count. If nothing inside fits, the drop is an ordinary drop on the
+  node.
+- A member of a group of records that draws more than one row gets its own
+  box, headed by its grip when the group can be reordered, its label and a
+  remove cross. In a group that grows by hand, a member that is one row has
+  no box: the row ends in the remove cross and its field stops short of it.
+  In a group that can be reordered, a stored member that is one row starts
+  with its grip, and its field or name, and the spare member's, start after
+  the grip's room. Dragging a grip moves the member (`dynamic.moveMember`). The cross
+  does not remove the member by itself; unused members go with **Remove
+  unused dynamic inputs**. A group that grows by hand ends in an outlined
+  Add row. A group that grows by
+  plugging in shows its spare member last with a hollow pin and a dimmed
+  name.
+- A choice's dropdown reaches its box's outline and has its own outline; the
+  chosen option's rows sit in a box joined to its underside. An option with
+  no rows draws no box, and neither does a choice led by a formula.
+- Outputs pair only with rows inside the same boxes. A node's own outputs
+  left without a row get rows of their own after every row, but before the
+  boxes that end the node and hold only outputs. A top-level section with
+  id `advanced` stays below every other row.
 
 ## Run submission
 

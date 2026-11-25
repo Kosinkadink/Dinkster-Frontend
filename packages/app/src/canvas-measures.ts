@@ -1,8 +1,38 @@
-import type { WidgetRegistry } from '@dinkster/core'
+import { t, type WidgetRegistry } from '@dinkster/core'
 import { canvasPaintTokens, defaultTokens, type TextMeasurer, type WidgetMeasure } from '@dinkster/canvas'
 
-/** The scene and command paths must measure the same geometry. */
-export function canvasMeasures(registry: () => WidgetRegistry): {
+/**
+ * The height of the recorder's one sentence on a backend that cannot take
+ * uploads, wrapped at the narrowest editor space, as the editor draws it.
+ */
+const noUploadsHeights = new Map<string, number>()
+function noUploadsHeight(): number {
+  const sentence = t('audioRecordWidget.native')
+  const known = noUploadsHeights.get(sentence)
+  if (known !== undefined) return known
+  const space = canvasPaintTokens.node.editorSpace
+  const probe = document.createElement('div')
+  probe.className = 'dinkster-canvas-editor'
+  probe.style.left = '-10000px'
+  probe.style.width = `${space.minWidth - defaultTokens.rowGeometry.fieldInsetX * 2}px`
+  const note = document.createElement('div')
+  note.className = 'dinkster-canvas-editor-note'
+  note.dataset['wrap'] = 'true'
+  note.textContent = sentence
+  probe.append(note)
+  document.body.append(probe)
+  const height = note.offsetHeight
+  probe.remove()
+  // An unstyled page measures nothing; measure again once the styles are in.
+  if (height > 0) noUploadsHeights.set(sentence, height)
+  return height
+}
+
+/**
+ * The scene and command paths must measure the same geometry. `uploadsRefused`
+ * says the backend cannot take uploads, so a recorder is only its sentence.
+ */
+export function canvasMeasures(registry: () => WidgetRegistry, uploadsRefused?: () => boolean): {
   measure: TextMeasurer
   widgetMeasure: WidgetMeasure
 } {
@@ -20,7 +50,8 @@ export function canvasMeasures(registry: () => WidgetRegistry): {
     const viewId = kind.defaultView(spec)
     const view = registry().viewsFor(spec.widgetType).find((v) => v.id === viewId)
     if (!view) return undefined
-    return { viewId, rows: view.measure(spec).rows }
+    const rows = view.measure(spec).rows
+    return viewId === 'core.audioRecord' && uploadsRefused?.() === true ? { viewId, rows, editorControls: noUploadsHeight() } : { viewId, rows }
   }
   return { measure, widgetMeasure }
 }

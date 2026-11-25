@@ -49,7 +49,7 @@ test('cancels a running and a queued job while later jobs continue, including Ap
 
   await page.getByTestId('workflow-queue-toggle').click()
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   const placement = page.getByTestId('app-layout-queue')
   await expect(placement.getByRole('button', { name: 'Cancel run' })).toBeVisible()
   await placement.getByRole('button', { name: 'Cancel run' }).click()

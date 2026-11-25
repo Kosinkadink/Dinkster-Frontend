@@ -20,6 +20,7 @@ const arrangement = (page: Page) => page.evaluate(() => window.__dinksterTest!.a
 const graph = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0)
 const identityViewport = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
 const frozenTab = (page: Page) => page.getByTestId('tab-bar').locator('.tab.frozen')
+const liveTab = (page: Page) => page.getByTestId('tab-bar').locator('.tab:not(.frozen)').getByRole('tab', { name: /^Portrait,/ })
 const openRun = async (page: Page) => {
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
   await expect(page.getByTestId('frozen-banner')).toBeVisible()
@@ -79,7 +80,16 @@ test('frozen layout is temporary, edits are refused, and copies keep the arrange
   })
   await openRun(page)
   await expect(frozenTab(page).locator('svg.lucide-snowflake')).toBeVisible()
-  await expect(page.getByTestId('queue-button')).toBeDisabled()
+  // Named by the workflow and the time the run was queued; the job id and state are in the tooltip.
+  const queuedAt = await page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()][0]!.queuedAt)
+  const clock = (at: Date) => `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+  await expect(frozenTab(page).locator('.tab-title')).toHaveText(`Portrait, ${clock(new Date(queuedAt))}`)
+  await expect(frozenTab(page).getByRole('tab')).toHaveAttribute('data-tooltip-label', 'Frozen run frozen-p, completed')
+  // A frozen tab has no Run button; its run list stays.
+  await expect(page.getByTestId('queue-button')).toHaveCount(0)
+  await expect(page.getByTestId('workflow-queue-toggle')).toBeVisible()
+  await expect(page.getByTestId('status-run')).toHaveText(/^Frozen:\s*completed$/)
+  await expect(page.getByTestId('frozen-banner').locator('.frozen-sync')).toHaveText(`Ran ${clock(new Date(queuedAt))}. Matches the live workflow.`)
   const originalGraph = await graph(page)
   await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.renderer!.getInactiveNodes() ?? []])).toEqual(['n2'])
   await page.screenshot({ path: info.outputPath('frozen-idle.png') })
@@ -146,7 +156,7 @@ test('frozen layout is temporary, edits are refused, and copies keep the arrange
   expect((await graph(page))!.nodes.n0!.values.width).toBe(768)
   await page.screenshot({ path: info.outputPath('frozen-open-as-copy.png') })
 
-  await page.getByTestId('tab-bar').getByRole('tab', { name: /^Portrait,/ }).click()
+  await liveTab(page).click()
   await openRun(page)
   await expect.poll(() => arrangement(page)).toEqual({ position: { x: 100, y: 150 } })
   await page.evaluate(() => {
@@ -156,15 +166,44 @@ test('frozen layout is temporary, edits are refused, and copies keep the arrange
   await page.getByTestId('tab-bar').getByRole('tab', { name: /^Portrait copy,/ }).click()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())).toEqual({ x: 0, y: 0, scale: 1 })
   expect(await page.evaluate(() => [...window.__dinksterTest!.controller!.getSelection()])).not.toContain('n2')
-  await page.getByTestId('tab-bar').getByRole('tab', { name: /^Portrait,/ }).click()
+  await liveTab(page).click()
   await openRun(page)
   await page.getByTestId('frozen-open-copy').click()
   await expect(page.getByRole('tab', { name: /^Portrait copy 2,/ })).toBeVisible()
-  await page.getByTestId('tab-bar').getByRole('tab', { name: /^Portrait,/ }).click()
+  await liveTab(page).click()
   await openRun(page)
   await expect.poll(() => arrangement(page)).toEqual({ position: { x: 100, y: 150 } })
   expect(await graph(page)).toEqual(originalGraph)
   await expect(frozenTab(page).locator('.tab-dirty')).toHaveCount(0)
+})
+
+test('the frozen line sits centred on the row of the canvas controls and drops a row only when it would touch them', async ({ page }) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app, run = [...app.store.executions.get().values()][0]!
+    app.store.apply({ kind: 'completed', execution: run.ref, timestamp: Date.now() })
+  })
+  await openRun(page)
+  const line = page.getByTestId('frozen-banner')
+  for (const [width, row] of [[1440, 'top'], [640, 'below'], [1440, 'top']] as const) {
+    await page.setViewportSize({ width, height: 900 })
+    await expect(line).toHaveAttribute('data-row', row)
+    const stage = (await page.locator('.canvas-stage').boundingBox())!
+    const toolbar = (await page.locator('.canvas-stage-toolbar').boundingBox())!
+    const box = (await line.boundingBox())!
+    expect(Math.abs(box.x + box.width / 2 - (stage.x + stage.width / 2))).toBeLessThanOrEqual(1)
+    expect(box.x).toBeGreaterThanOrEqual(stage.x)
+    expect(box.x + box.width).toBeLessThanOrEqual(stage.x + stage.width)
+    if (row === 'top') {
+      expect(Math.abs(box.y - toolbar.y)).toBeLessThanOrEqual(1)
+      for (const control of await page.locator('.canvas-stage-toolbar button').all()) {
+        const other = (await control.boundingBox())!
+        expect(other.x + other.width <= box.x || other.x >= box.x + box.width).toBe(true)
+      }
+    } else {
+      expect(box.y - (toolbar.y + toolbar.height)).toBeGreaterThanOrEqual(8)
+    }
+    await page.screenshot({ path: test.info().outputPath(`frozen-line-${width}-${row}.png`) })
+  }
 })
 
 test('run rows expose one snowflake and retained runs keep their snapshot availability', async ({ page }, info) => {
@@ -212,7 +251,7 @@ test('queued and running jobs open frozen and follow only their submitted snapsh
     })
   })
   await openRun(page)
-  await expect(page.getByTestId('frozen-banner')).toContainText('Running 21%. Live changed.')
+  await expect(page.getByTestId('frozen-banner')).toContainText('Running 21%. Live workflow has changed.')
   expect((await graph(page))!.nodes.n0!.values.width).toBe(512)
   // The next scheduled node is not dimmed just because it has not started.
   await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.renderer!.getInactiveNodes() ?? []])).toEqual(['n2'])

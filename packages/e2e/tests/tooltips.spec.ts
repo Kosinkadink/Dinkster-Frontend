@@ -82,6 +82,7 @@ test('icon-only activity items show immediate name-first help on hover and focus
 })
 
 test('Settings keeps immediate help, Alt detail, and hover-out', async ({ page }) => {
+  await waitForWorkspaceReady(page)
   await page.evaluate(() => window.__dinksterTest!.app.settings.set('tooltips.delayMs', 3000))
   const settings = page.getByTestId('settings-button')
   await settings.hover()
@@ -97,7 +98,7 @@ test('Settings keeps immediate help, Alt detail, and hover-out', async ({ page }
 })
 
 test('top-right tooltip uses its real width and follows content changes', async ({ page }, testInfo) => {
-  const target = page.getByTestId('customize-layout-button')
+  const target = page.getByTestId('left-panel-toggle')
   const tooltip = page.getByTestId('app-tooltip')
   await target.focus()
   await expect(tooltip).toBeVisible()
@@ -110,6 +111,9 @@ test('top-right tooltip uses its real width and follows content changes', async 
       return Math.abs(box.x - expectedX) + Math.abs(box.y - anchor.y - anchor.height - 8)
     }).toBeLessThan(0.1)
   }
+  await assertPlacement()
+  // A neighbour widening in the same group moves the anchor.
+  await page.getByTestId('collab-button').evaluate((element) => { (element as HTMLElement).style.minWidth = '160px' })
   await assertPlacement()
   await target.evaluate((element) => { (element as HTMLElement).dataset['tooltipDetail'] = 'Additional layout information that changes the measured tooltip width.|Second detail line.' })
   await page.keyboard.down('Alt')
@@ -223,7 +227,7 @@ test('shell and minimap seams use product tooltips without document writes', asy
   await expect(shellToggle).toHaveAccessibleName('Toggle left panel')
   await expect(shellToggle).toHaveAttribute('aria-pressed', /true|false/)
   await proveTooltip(minimapToggle, 'Show bookmark numbers on the minimap')
-  await expect(minimapToggle).toHaveAccessibleName('Bookmarks. Show bookmark numbers on the minimap')
+  await expect(minimapToggle).toHaveAccessibleName('Bookmark numbers')
 
   const checked = await minimapToggle.getAttribute('aria-checked')
   await minimapToggle.click()

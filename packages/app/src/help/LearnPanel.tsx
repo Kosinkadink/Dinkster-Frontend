@@ -195,11 +195,11 @@ export function LearnPanel(props: {
         <Show when={listState().kind === 'error'}><ProductEmptyState tone="error" title={message('learn.state.error', { error: (listState() as Extract<ListState, { kind: 'error' }>).message })} /></Show>
         <Show when={loadedList()}>{(state) => (
           <Show when={state().guides.length > 0} fallback={<ProductEmptyState title={message('learn.state.empty')} />}>
-            <div class="learn-guide-list">
+            <div class="learn-guide-list dinkster-list-rows">
               <For each={state().guides}>{(descriptor) => {
                 const localized = () => selectedLocale(descriptor)
                 return (
-                  <ProductButton type="button" variant="ghost" class="learn-guide-card" onClick={() => setSelected(descriptor)}>
+                  <ProductButton type="button" variant="ghost" class="learn-guide-card dinkster-list-row" onClick={() => setSelected(descriptor)}>
                     <strong>{localized().page.title}</strong>
                     <span>{localized().page.summary}</span>
                     <small>{descriptor.pack}</small>

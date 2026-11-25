@@ -39,7 +39,7 @@ const schema: NodeSchema = {
   ],
 }
 
-const mountPanel = async (withWidgetTap = false, withValueSource = false) => {
+const mountPanel = async (withWidgetTap = false) => {
   const app = prepareWorkflowApp(new AppState())
   apps.push(app)
   const backend = app.backends.get()[0]!
@@ -72,12 +72,9 @@ const mountPanel = async (withWidgetTap = false, withValueSource = false) => {
         links: {},
         nets: {},
         reroutes: {},
-        ...(withValueSource ? { valueSources: { v0: { id: 'v0', title: 'Literal amount', value: 23 } } } : {}),
         boundary: {
           inputs: [{ id: 'items', displayName: 'Items', binds: { kind: 'port', node: 'n1', port: 'items.item1.image' } }],
-          outputs: withValueSource
-            ? [{ id: 'amount', displayName: 'Amount', binds: { kind: 'valueSource', valueSource: 'v0', type: { kind: 'concrete', name: 'INT' } } }]
-            : withWidgetTap
+          outputs: withWidgetTap
             ? [{ id: 'amount', displayName: 'Amount', binds: { kind: 'widgetTap', node: 'n1', tap: 'amount' } }]
             : [],
         },
@@ -219,20 +216,6 @@ describe('BoundaryPanel keyboard and accessibility', () => {
       anchor: { port: { node: 'n1', port: 'amount' } },
       portInstancePath: ['occ'],
     })
-    unmount()
-  })
-
-  it('names a literal binding and offers source navigation without editing the definition', async () => {
-    const { tab, root, unmount } = (await mountPanel(false, true))
-    const item = root.querySelector<HTMLElement>('[data-binding-kind="valueSource"]')!
-    expect(item.querySelector('.boundary-bind')?.textContent?.trim()).toBe('Literal amount (v0)')
-    const revision = tab.store.revision
-    const button = item.querySelector<HTMLButtonElement>('[data-testid="boundary-show-on-canvas"]')!
-    expect(button.disabled).toBe(false)
-    expect(button.getAttribute('aria-label')).toBe('Show Amount destination on canvas')
-    button.click()
-    expect(tab.store.revision).toBe(revision)
-    expect(tab.instancePath.get()).toEqual(['occ'])
     unmount()
   })
 

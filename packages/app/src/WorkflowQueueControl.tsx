@@ -23,7 +23,10 @@ export function WorkflowQueueControl(props: {
   readonly owner: WorkflowQueueOwner
   readonly executions: readonly ExecutionState[]
   readonly canQueue: boolean
-  readonly onQueue: () => void
+  /** Why Run is off, shown as its tooltip in place of the action and shortcut. */
+  readonly blockedReason?: string | undefined
+  /** Absent on a frozen tab, which has no Run button: only its run list and progress. */
+  readonly onQueue?: (() => void) | undefined
   readonly onOpenExecution: (ref: ExecutionRef) => void
 }) {
   const message = useAppMessage()
@@ -80,18 +83,18 @@ export function WorkflowQueueControl(props: {
       data-owner={props.owner.id}
     >
       <div class="workflow-queue-buttons">
-        <button
+        <Show when={props.onQueue}>{(onQueue) => <button
           type="button"
           class="workflow-queue-submit"
           data-testid="queue-button"
           aria-label={`Run ${props.owner.title}`}
-          data-tooltip-label={message('command.workflow.queue')}
-          data-tooltip-detail="Ctrl+Enter"
+          data-tooltip-label={props.blockedReason ?? message('command.workflow.queue')}
+          data-tooltip-detail={props.blockedReason === undefined ? 'Ctrl+Enter' : undefined}
           disabled={!props.canQueue}
-          onClick={props.onQueue}
+          onClick={() => onQueue()()}
         >
           <Icon icon={Play} /> {message('appView.queue')}
-        </button>
+        </button>}</Show>
         <button
           ref={toggle}
           type="button"
@@ -152,7 +155,7 @@ export function WorkflowQueueControl(props: {
           <Show when={props.executions.length > 0} fallback={<ProductEmptyState title="No jobs for this workflow." />}>
             <div
               ref={list}
-              class="workflow-queue-list"
+              class="workflow-queue-list dinkster-list-rows"
               role="list"
               aria-label="Workflow jobs"
               onKeyDown={(event) => {

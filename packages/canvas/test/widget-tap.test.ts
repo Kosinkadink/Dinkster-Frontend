@@ -28,7 +28,7 @@ function tapScene(options: { linked?: boolean; targetType?: string; kept?: strin
       to: { kind: 'port', node: 'sink', port: 'value' },
       x1: 110, y1: 42, x2: 200, y2: 42, typeName: 'FLOAT',
     }] : [],
-    reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [],
+    reroutes: [], netStubs: [], groups: [],
     boundaryNodes: [], diagnostics: [],
   } as unknown as Scene
 }

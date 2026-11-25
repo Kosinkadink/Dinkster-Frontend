@@ -1,25 +1,13 @@
-import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeTest as test, unfoldNodeEditor, waitForWorkspaceReady, type Locator } from './fixtures.js'
 
-async function openComparison(page: Page): Promise<void> {
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.some((entry) => entry.id === 'compare'))).toBe(true)
-  const point = await page.evaluate(() => {
-    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((entry) => entry.id === 'compare')!
-    const row = node.layout.rows.find((entry) => entry.kind === 'widget' && entry.inputId === 'compare_view')!
-    const bounds = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: bounds.left + node.x + node.layout.width / 2, y: bounds.top + node.y + row.y + row.height / 2 }
-  })
-  await page.mouse.click(point.x, point.y)
-  await expect(page.getByTestId('image-compare-editor')).toBeVisible()
-}
-
-test('compares real completed image batches with independent keyboard frame selection and local wipe state', async ({ page }, testInfo) => {
+test('compares real completed image batches in the node with independent keyboard frame selection and local wipe state', async ({ page }, testInfo) => {
   await page.goto('/')
   await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 20_000 })
   await waitForWorkspaceReady(page)
   const openDocument = async (single = false): Promise<void> => {
     await page.evaluate(async (single) => {
       const nodes: Record<string, unknown> = {
-        compare: { id: 'compare', type: 'dinkster.image.image_compare', values: { compare_view: null } },
+        compare: { id: 'compare', type: 'dinkster.image.image_compare', values: {} },
       }
       const links: Record<string, unknown> = {}
       for (const [id, color] of [['red', 0xff0000], ['green', 0x00ff00], ['blue', 0x0000ff], ['yellow', 0xffff00], ['cyan', 0x00ffff]] as const) {
@@ -51,50 +39,58 @@ test('compares real completed image batches with independent keyboard frame sele
     })
     await expect(page.getByTestId('execution-row').first().locator('.execution-status')).toHaveText('Completed', { timeout: 30_000 })
   }
-  const pixel = async (x: number): Promise<number[]> => page.locator('.image-compare-preview').evaluate((element, x) =>
-    [...(element as HTMLCanvasElement).getContext('2d')!.getImageData(x, 180, 1, 1).data], x)
+  let editor!: Locator
+  const picture = () => editor.getByRole('img', { name: 'Image A on the left and image B on the right of the wipe divider' })
+  // The color at a fraction of the picture's width, halfway down.
+  const pixel = async (at: number): Promise<number[]> => picture().evaluate((element, at) => {
+    const canvas = element as HTMLCanvasElement
+    return [...canvas.getContext('2d')!.getImageData(Math.round(canvas.width * at), Math.round(canvas.height / 2), 1, 1).data]
+  }, at)
   const capture = async (name: string): Promise<void> => {
     const path = testInfo.outputPath(`${name}.png`)
-    await page.getByTestId('image-compare-editor').screenshot({ path })
+    await editor.screenshot({ path })
     await testInfo.attach(name, { path, contentType: 'image/png' })
   }
   await openDocument()
-  await openComparison(page)
-  await expect(page.getByRole('slider', { name: 'Wipe divider' })).toHaveAttribute('aria-disabled', 'true')
-  await expect(page.getByRole('combobox', { name: 'Image A frame' })).toBeDisabled()
+  editor = await unfoldNodeEditor(page, 'compare', 'comparison')
+  await expect(picture()).toHaveAttribute('data-images', '0')
+  await expect(editor).toContainText('Run to compare')
+  await expect(editor.getByRole('button', { name: /^Image A frame/ })).toContainText('No images')
   await capture('compare-empty')
-  await page.getByRole('button', { name: 'Close', exact: true }).click()
   await run()
-  await openComparison(page)
-  await expect.poll(() => pixel(100)).toEqual([255, 0, 0, 255])
-  await expect.poll(() => pixel(500)).toEqual([0, 0, 255, 255])
-  const chooseFrame = async (side: string, end: boolean): Promise<void> => {
-    const choice = page.getByRole('combobox', { name: `Image ${side} frame` })
-    await choice.focus(); await page.keyboard.press('Enter')
-    await page.keyboard.press(end ? 'End' : 'Home'); await page.keyboard.press('Enter')
+  await expect(picture()).toHaveAttribute('data-images', '2')
+  await expect.poll(() => pixel(0.3)).toEqual([255, 0, 0, 255])
+  await expect.poll(() => pixel(0.7)).toEqual([0, 0, 255, 255])
+  // Opening a side's frame choice and stepping up from the first entry picks its last frame.
+  const chooseLastFrame = async (side: string): Promise<void> => {
+    await editor.getByRole('button', { name: new RegExp(`^Image ${side} frame`) }).click()
+    await expect(page.getByRole('listbox', { name: `Image ${side} frame options` })).toBeVisible()
+    await page.keyboard.press('ArrowUp'); await page.keyboard.press('Enter')
   }
-  await chooseFrame('A', true)
-  await expect.poll(() => pixel(100)).toEqual([0, 255, 0, 255])
-  await expect.poll(() => pixel(500)).toEqual([0, 0, 255, 255])
-  await chooseFrame('B', true)
-  await expect.poll(() => pixel(500)).toEqual([0, 255, 255, 255])
-  await expect(page.getByRole('combobox', { name: 'Image A frame' })).toContainText('Frame 2 of 2')
-  await expect(page.getByRole('combobox', { name: 'Image B frame' })).toContainText('Frame 3 of 3')
+  await chooseLastFrame('A')
+  await expect.poll(() => pixel(0.3)).toEqual([0, 255, 0, 255])
+  await expect.poll(() => pixel(0.7)).toEqual([0, 0, 255, 255])
+  await chooseLastFrame('B')
+  await expect.poll(() => pixel(0.7)).toEqual([0, 255, 255, 255])
+  await expect(editor.getByRole('button', { name: /^Image A frame/ })).toContainText('2 of 2')
+  await expect(editor.getByRole('button', { name: /^Image B frame/ })).toContainText('3 of 3')
   await capture('compare-paired')
-  const divider = page.getByRole('slider', { name: 'Wipe divider' })
-  await divider.focus(); await page.keyboard.press('Home')
-  await expect.poll(() => pixel(100)).toEqual([0, 255, 255, 255])
-  await page.keyboard.press('End')
-  await expect.poll(() => pixel(500)).toEqual([0, 255, 0, 255])
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.compare!.values.compare_view)).toBeNull()
+  const setDivider = async (value: number): Promise<void> => {
+    await editor.getByRole('button', { name: /^Wipe divider \(%\):/ }).click()
+    await page.keyboard.press('ControlOrMeta+A'); await page.keyboard.type(String(value)); await page.keyboard.press('Enter')
+  }
+  await setDivider(0)
+  await expect.poll(() => pixel(0.3)).toEqual([0, 255, 255, 255])
+  await setDivider(100)
+  await expect.poll(() => pixel(0.7)).toEqual([0, 255, 0, 255])
+  // The divider and the frames are not stored.
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.compare!.values)).toEqual({})
   expect(await page.evaluate(() => window.__dinksterTest!.app.problems.get().filter((problem) => problem.message.includes('IMAGECOMPARE')))).toEqual([])
-  await expect(page.locator('[data-editor-mode="raw"]')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Close', exact: true }).click()
   await openDocument(true)
   await run()
-  await openComparison(page)
-  await expect.poll(() => pixel(500)).toEqual([255, 0, 0, 255])
-  await expect(page.getByRole('slider', { name: 'Wipe divider' })).toHaveAttribute('aria-disabled', 'true')
-  await expect(page.getByRole('combobox', { name: 'Image B frame' })).toBeDisabled()
+  editor = await unfoldNodeEditor(page, 'compare', 'comparison')
+  await expect(picture()).toHaveAttribute('data-images', '1')
+  await expect.poll(() => pixel(0.7)).toEqual([255, 0, 0, 255])
+  await expect(editor.getByRole('button', { name: /^Image B frame/ })).toContainText('No images')
   await capture('compare-single')
 })

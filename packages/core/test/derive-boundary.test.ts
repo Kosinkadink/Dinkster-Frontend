@@ -8,10 +8,14 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
+import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
+import { compile } from '../src/compile/compile.js'
+import { asConnectionId } from '../src/ids.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
-import { inputsOf, outputsOf, type NodeSchema } from '../src/schema/model.js'
+import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
+import { inputsOf, outputsOf, type GroupSpec, type NodeSchema } from '../src/schema/model.js'
+import { MAX_GROUP_MEMBERS, memberLimitOf } from '../src/schema/body.js'
 
 /** Build a GraphDef from a plain literal (branded ids make literals noisy). */
 const asDef = (d: unknown): GraphDef => d as GraphDef
@@ -662,13 +666,26 @@ describe('whole constructs on the subgraph node', () => {
     // Type variables in the template stay the inner node's own.
     expect(elabInputsOf(elab).find((input) => input.spec.id === 'stack.item0.sub.sub0')!.spec.type)
       .toEqual({ kind: 'variable', templateId: 'n0:T' })
-    // The face numbers its own members after the two inside, which one quiet line names first.
-    expect(elab.items.filter((item) => item.kind === 'note')).toMatchObject([{ text: '1 to 2 are inside', quiet: true }])
-    expect(elabInputsOf(elab).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName))
-      .toEqual(['item 3 name', 'item 4 name'])
+    // The face numbers its own members from 1 and says nothing about the two inside.
+    const names = (e: typeof elab) => elabInputsOf(e).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName)
+    expect(elab.items.filter((item) => item.kind === 'note')).toEqual([])
+    expect(names(elab)).toEqual(['item 1 name', 'item 2 name'])
+    // A label worked out by a formula reads the same numbering.
+    const byFormula = elaborateInterface({ ...schema!, body: [{ ...row, memberLabel: { formula: 'str(index())' } } as typeof row, ...schema!.body.slice(1)] }, {
+      values: {}, dynamic: { stack: { members: ['item0', 'item1'] } },
+    })
+    expect(names(byFormula)).toEqual(['0 name', '1 name'])
+    // The header counts this node's members, and the add row stops at what it
+    // may hold: the limit of five less the two inside.
+    const header = (e: typeof elab) => e.items.find((item) => item.kind === 'box' && item.construct === 'stack')
+    expect(header(elab)).toMatchObject({ members: 2 })
+    expect(elab.items.some((item) => item.kind === 'growth')).toBe(true)
+    const full = elaborateInterface(schema!, { values: {}, dynamic: { stack: { members: ['item0', 'item1', 'item2'] } } })
+    expect(header(full)).toMatchObject({ members: 3 })
+    expect(full.items.some((item) => item.kind === 'growth')).toBe(false)
   })
 
-  it('a group shown again on an outer subgraph node counts the members inside every level', () => {
+  it('a group shown again on an outer subgraph node keeps the limit through every level and numbers its own from 1', () => {
     const inner = defWith(
       { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['item0', 'item1'] } } } },
       [{ id: 'stack', binds: { kind: 'construct', node: 'n0', port: 'items' } }],
@@ -684,9 +701,136 @@ describe('whole constructs on the subgraph node', () => {
     // Five at most: two in the definition and one on the inner subgraph node leave two.
     expect(schema!.body[0]).toMatchObject({ kind: 'group', maxMembers: 2, interiorMembers: 3 })
     const elab = elaborateInterface(schema!, { values: {}, dynamic: { again: { members: ['item0'] } } })
-    expect(elab.items.filter((item) => item.kind === 'note')).toMatchObject([{ text: '1 to 3 are inside' }])
+    // Each level counts its own members from 1.
+    expect(elab.items.filter((item) => item.kind === 'note')).toEqual([])
     expect(elabInputsOf(elab).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName))
-      .toEqual(['item 4 name'])
+      .toEqual(['item 1 name'])
+  })
+
+  it("a field's lookup on a subgraph node two levels out reads that node's rows, else the definition's values", () => {
+    const { schema: picker } = parseDinksterSchema('Picker', { body: [
+      { kind: 'input', id: 'category', type: { kind: 'concrete', types: ['COMBO'] }, pin: false, sent: false, widget: { type: 'COMBO', options: ['sd', 'sdxl'] } },
+      { kind: 'input', id: 'lora', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', options: { lookup: 'pack.loras', args: ['category'] } } },
+    ] } as never)
+    const port = (id: string, node: string, at: string) => ({ id, binds: { kind: 'port', node, port: at }, promoted: true })
+    const inner = defWith({ p0: { id: 'p0', type: 'Picker', values: { category: 'sd' } } }, [port('kind', 'p0', 'category'), port('pick', 'p0', 'lora')])
+    const innerSchema = deriveBoundarySchema(inner, (type) => (type === 'Picker' ? picker : resolve(type))).schema!
+    const outerOf = (shown: readonly unknown[]) => deriveBoundarySchema(asDef({
+      id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { s0: { id: 's0', type: '#gW', values: { kind: 'sdxl' } } },
+      boundary: { inputs: shown, outputs: [] },
+    }), (type) => (type === '#gW' ? innerSchema : resolve(type))).schema!
+    const callOf = (schema: NodeSchema, values: Record<string, Json>, wired: readonly string[] = []) => {
+      const elab = elaborateInterface(schema, { values }, {
+        isInputConnected: (id) => wired.includes(id), isOutputConnected: () => false, inputPorts: () => [...wired], outputPorts: () => [],
+      }, { lookupAnswers: () => undefined })
+      return elabInputsOf(elab).find((input) => input.spec.id === 'list')!.looked!.options
+    }
+    const both = outerOf([port('category', 's0', 'kind'), port('list', 's0', 'pick')])
+    // Two instances with their own category each ask for their own list; the face's row ids differ from the inner node's.
+    expect(callOf(both, { category: 'sd' })).toMatchObject({ state: 'loading', call: { args: ['sd'] } })
+    expect(callOf(both, { category: 'sdxl' })).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
+    // A wire into the category from outside is not known, so nothing is called.
+    expect(callOf(both, { category: 'sd' }, ['category'])).toMatchObject({ state: 'waiting' })
+    // Not shown on this node: the inner subgraph node's stored category is used.
+    expect(callOf(outerOf([port('list', 's0', 'pick')]), {})).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
+  })
+
+  it('an automatic field shown on a subgraph node is worked out in the inner node with this instance\'s values', () => {
+    const float = (id: string, extra: Record<string, unknown> = {}) =>
+      ({ kind: 'input', id, type: { kind: 'concrete', types: ['FLOAT'] }, default: 1, widget: { type: 'FLOAT' }, ...extra })
+    const { schema: retime } = parseDinksterSchema('Retime', { body: [
+      float('rate', { default: 48 }),
+      float('fps', { default: 24, automatic: { formula: 'rate / 4' } }),
+    ] } as never)
+    const port = (id: string, node: string, at: string) => ({ id, binds: { kind: 'port', node, port: at }, promoted: true })
+    const withRetime: SchemaResolver = (type) => (type === 'Retime' ? retime : resolve(type))
+    const faceOf = (stored: Record<string, Json>, shown: readonly unknown[], links: Record<string, unknown> = {}, nodes: Record<string, unknown> = {}) =>
+      deriveBoundarySchema(asDef({
+        id: 'gW', name: 'whole', links, nets: {}, nextOrdinal: 1, boundary: { inputs: shown, outputs: [] },
+        nodes: { r0: { id: 'r0', type: 'Retime', values: stored }, ...nodes },
+      }), withRetime).schema!
+    const fpsOf = (schema: NodeSchema, values: Record<string, Json>) => {
+      const elab = elaborateInterface(schema, { values })
+      return { row: elabInputsOf(elab).find((input) => input.spec.id === 'speed')!, warned: elab.diagnostics.some((d) => d.code === 'automatic.default') }
+    }
+    const both = faceOf({}, [port('pace', 'r0', 'rate'), port('speed', 'r0', 'fps')])
+    // Two instances each work out their own value from their own rate.
+    expect(fpsOf(both, { pace: 100 }).row.automatic).toEqual({ value: 25, state: 'worked-out' })
+    expect(fpsOf(both, { pace: 60 }).row.automatic).toEqual({ value: 15, state: 'worked-out' })
+    // A value on the instance is fixed; emptying it would give this instance's value.
+    const fixed = fpsOf(both, { pace: 100, speed: 30 }).row
+    expect(fixed.automatic).toBeUndefined()
+    expect(fixed.automaticIfEmptied).toEqual({ value: 25, state: 'worked-out' })
+    // Compiled, an instance with the field left out sends its inner node
+    // without it; that node, worked out as a plain node, gives the row's value.
+    const shownBoth = [port('pace', 'r0', 'rate'), port('speed', 'r0', 'fps')]
+    const compiled = compile({
+      document: {
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'automatic-instances', root: 'g0',
+        graphs: {
+          g0: { id: 'g0', name: 'root', links: {}, nets: {}, reroutes: {}, nextOrdinal: 3, nodes: {
+            a: { id: 'a', type: '#gW', values: { pace: 100 } },
+            b: { id: 'b', type: '#gW', values: { pace: 60 } },
+            c: { id: 'c', type: '#gW', values: { pace: 60, speed: 30 } },
+          } },
+          gW: { id: 'gW', name: 'whole', links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+            nodes: { r0: { id: 'r0', type: 'Retime', values: {} } }, boundary: { inputs: shownBoth, outputs: [] } },
+        },
+        view: { graphs: {} },
+      } as never,
+      revision: 1, resolve: withRetime, scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'test',
+    })
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) return
+    for (const [instance, pace] of [['a', 100], ['b', 60]] as const) {
+      const inputs = compiled.artifact.prompt[`${instance}.r0`]!.inputs
+      expect(inputs).not.toHaveProperty('fps')
+      const plain = elabInputsOf(elaborateInterface(retime!, { values: inputs as Record<string, Json> }))
+      expect(plain.find((input) => input.spec.id === 'fps')!.automatic).toEqual(fpsOf(both, { pace }).row.automatic)
+    }
+    expect(compiled.artifact.prompt['c.r0']!.inputs).toMatchObject({ fps: 30 })
+    // A rate not shown on the subgraph node is the definition's.
+    expect(fpsOf(faceOf({ rate: 80 }, [port('speed', 'r0', 'fps')]), {}).row.automatic).toEqual({ value: 20, state: 'worked-out' })
+    // A value the definition stores is the row's value, not automatic.
+    const stored = fpsOf(faceOf({ fps: 12 }, [port('speed', 'r0', 'fps')]), {}).row
+    expect(stored.automatic).toBeUndefined()
+    expect(stored.spec.widget?.default).toBe(12)
+    // A rate wired inside the definition is not known: the default, with the warning.
+    const wired = fpsOf(faceOf({}, [port('speed', 'r0', 'fps')],
+      { l0: { id: 'l0', from: { node: 'n0', port: 'out' }, to: { node: 'r0', port: 'rate' } } },
+      { n0: { id: 'n0', type: 'Retime', values: {} } }), {})
+    expect(wired.row.automatic).toMatchObject({ value: 24, state: 'default' })
+    expect(wired.warned).toBe(true)
+    // Two levels out, the outer subgraph node's rate decides.
+    const outer = deriveBoundarySchema(asDef({
+      id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { s0: { id: 's0', type: '#gW', values: {} } },
+      boundary: { inputs: [port('tempo', 's0', 'pace'), port('speed', 's0', 'speed')], outputs: [] },
+    }), (type) => (type === '#gW' ? both : withRetime(type))).schema!
+    expect(fpsOf(outer, { tempo: 200 }).row.automatic).toEqual({ value: 50, state: 'worked-out' })
+  })
+
+  it('a group with no declared maximum gets none on the subgraph node, and its members inside still share the cap', () => {
+    const { maxMembers: _declared, ...items } = innerSchemas['Stack']!.body[0] as GroupSpec
+    const open: SchemaResolver = (type) => (type === 'Stack' ? { ...innerSchemas['Stack']!, body: [items, ...innerSchemas['Stack']!.body.slice(1)] } : resolve(type))
+    const inner = defWith(
+      { n0: { id: 'n0', type: 'Stack', values: {}, dynamic: { items: { members: ['item0', 'item1'] } } } },
+      [{ id: 'stack', binds: { kind: 'construct', node: 'n0', port: 'items' } }],
+    )
+    const innerRow = deriveBoundarySchema(inner, open).schema!.body[0] as GroupSpec
+    // No maximum for a header to show; the add row stops where the run's cap does.
+    expect(innerRow.maxMembers).toBeUndefined()
+    expect(memberLimitOf(innerRow)).toBe(MAX_GROUP_MEMBERS - 2)
+    const outer = asDef({
+      id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { s0: { id: 's0', type: '#gW', values: {}, dynamic: { stack: { members: ['item0'] } } } },
+      boundary: { inputs: [{ id: 'again', binds: { kind: 'construct', node: 's0', port: 'stack' } }], outputs: [] },
+    })
+    const innerSchema = deriveBoundarySchema(inner, open).schema!
+    const outerRow = deriveBoundarySchema(outer, (type) => (type === '#gW' ? innerSchema : open(type))).schema!.body[0] as GroupSpec
+    expect(outerRow.maxMembers).toBeUndefined()
+    expect(memberLimitOf(outerRow)).toBe(MAX_GROUP_MEMBERS - 3)
   })
 
   it('a whole choice starts on the option the definition stores and carries every option', () => {

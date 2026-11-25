@@ -2,9 +2,8 @@ import { createEffect, createRoot, createSignal, createUniqueId, For, Index, get
 import type { MenuActionItem, MenuItem, ResolvedMenuGroup } from '@dinkster/core'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
 import X from 'lucide-solid/icons/x'
-import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import PanelLeft from 'lucide-solid/icons/panel-left'
-import { ProductIconButton } from '@dinkster/ui'
+import Settings from 'lucide-solid/icons/settings'
 import { ContextMenu } from './ContextMenu.js'
 import { Icon } from './Icon.js'
 import {
@@ -17,7 +16,6 @@ import {
 import { aggregatePanelIndicators, type PanelDescriptor, type PanelIndicator } from './panels.js'
 import { ProductTabs, type ProductTab } from './ProductTabs.js'
 import type { ShellRegion } from './shell-layout.js'
-import type { CommandRegistry } from './settings.js'
 import { useAppMessage } from './locale.js'
 import type { VisibleTooltip } from './tooltips.js'
 
@@ -28,7 +26,8 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   const position = (): void => {
     const tip = props.tip
     const rect = tip.element?.getBoundingClientRect()
-    const beside = rect !== undefined && Boolean(tip.element?.closest('.left-sidebar'))
+    // A menu row's tooltip below it would cover the next row.
+    const beside = rect !== undefined && Boolean(tip.element?.closest('.left-sidebar, .context-menu'))
     element.style.setProperty('--tooltip-available-width', `${window.innerWidth - (beside ? rect.right + 16 : 16)}px`)
     content.style.removeProperty('-webkit-line-clamp')
     const naturalHeight = element.getBoundingClientRect().height
@@ -66,8 +65,16 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
     element.style.top = `${Math.max(8, Math.min(top, window.innerHeight - height - 8))}px`
   }
   createEffect(position)
+  const observer = new ResizeObserver(position)
+  // The anchor moves when a neighbour changes size (the project button widening when the
+  // project's name loads), which resizes the anchor's container but not the anchor.
+  createEffect(() => {
+    const container = props.tip.element?.parentElement
+    if (container === null || container === undefined) return
+    observer.observe(container)
+    onCleanup(() => observer.unobserve(container))
+  })
   onMount(() => {
-    const observer = new ResizeObserver(position)
     observer.observe(element)
     window.addEventListener('resize', position)
     window.addEventListener('scroll', position, true)
@@ -93,19 +100,6 @@ export function TransientStatus(props: { readonly message: string | undefined })
     <span class="status-announcer" data-testid="transient-status" aria-live="polite" role="status">
       {props.message ?? ''}
     </span>
-  )
-}
-
-export function CustomizeLayoutButton(props: { readonly commands: CommandRegistry }) {
-  const message = useAppMessage()
-  return (
-    <ProductIconButton
-      label={message('command.layout.customize')}
-      icon={SlidersHorizontal}
-      data-testid="customize-layout-button"
-      data-tooltip-label={message('command.layout.customize')}
-      onClick={() => props.commands.get('layout.customize')?.run()}
-    />
   )
 }
 
@@ -160,6 +154,43 @@ export function ActivityBarButton(props: {
     >
       <span class="sidebar-button-icon" aria-hidden="true"><Icon icon={props.icon ?? PanelLeft} /></span>
     </button>
+  )
+}
+
+/**
+ * The left icon bar: the logo when the caller gives one, the place buttons,
+ * the account and Settings. The editor and the projects page draw the same
+ * bar, so it stays in place when one view fades into the other.
+ */
+export function IconBar(props: {
+  readonly hidden: boolean
+  /** Draws the logo at the top of the bar; the caller decides when it belongs here. */
+  readonly logo?: (() => JSX.Element) | undefined
+  /** The bar's place buttons, as ActivityBarButtons. */
+  readonly children: JSX.Element
+  readonly account: JSX.Element
+  readonly onSettings: () => void
+}) {
+  const message = useAppMessage()
+  return (
+    <nav class="left-sidebar" aria-label={message('shell.primaryNavigation')} data-tooltip-session="left-rail" hidden={props.hidden}>
+      <Show when={props.logo}>{(logo) => <div class="sidebar-logo">{logo()()}</div>}</Show>
+      <div class="sidebar-toggle-stack">
+        <div class="sidebar-toggle-group" data-testid="dock-toggle-group">{props.children}</div>
+      </div>
+      <div class="sidebar-account">{props.account}</div>
+      <ActivityBarButton
+        icon={Settings}
+        label={message('shell.panel.settings.title')}
+        accessibleName={message('shell.panel.settings.title')}
+        tooltip={message('shell.panel.settings.title')}
+        tooltipDetail="Ctrl+,"
+        pressed={undefined}
+        testId="settings-button"
+        class="sidebar-settings-button"
+        onActivate={props.onSettings}
+      />
+    </nav>
   )
 }
 
