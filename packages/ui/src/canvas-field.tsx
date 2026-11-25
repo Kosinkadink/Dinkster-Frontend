@@ -9,9 +9,9 @@ import {
   untrack,
   type JSX,
 } from 'solid-js'
-import { Dynamic } from 'solid-js/web'
+import { Dynamic, Portal } from 'solid-js/web'
 import { ArrowDown, ArrowUp, Dice5, Lock, Minus, Plus } from 'lucide-solid'
-import { ProductSelect } from './controls.js'
+import { CanvasRowList, canvasListLayout } from './canvas-list.js'
 
 /** A box in screen pixels. */
 export interface CanvasBox {
@@ -726,26 +726,125 @@ export function CanvasRowAbsence(props: { state: 'nothing' | 'unknown'; stored: 
  * drawn, such as Number or Slider. It changes the view only, never the value.
  */
 export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
-  const id = createUniqueId()
+  const [open, setOpen] = createSignal(props.expanded === true)
+  const [query, setQuery] = createSignal('')
+  const [highlight, setHighlight] = createSignal<number>()
+  const [listHeight, setListHeight] = createSignal(0)
+  const [mount, setMount] = createSignal<HTMLElement>()
+  const [position, setPosition] = createSignal({ x: 0, y: 0, width: 0, scale: 1, listPlace: 'below' as 'below' | 'above', listMaxHeight: 0 })
+  let line!: HTMLDivElement
+  let popup: HTMLDivElement | undefined
+  const choices = () => props.choices.filter((choice) => choice.label.toLowerCase().includes(query().toLowerCase()))
+  const close = (restoreFocus = true): void => {
+    setOpen(false)
+    if (restoreFocus) line.querySelector('button')?.focus()
+  }
+  const choose = (index: number): void => {
+    const choice = choices()[index]
+    if (choice === undefined) return
+    close()
+    if (choice.id !== props.selected) props.onChoose(choice.id)
+  }
+  const show = (): void => {
+    setQuery('')
+    setHighlight(Math.max(0, props.choices.findIndex((choice) => choice.id === props.selected)))
+    setOpen(true)
+  }
+  const place = (): void => {
+    const parent = mount()
+    if (!open() || !parent) return
+    const box = line.getBoundingClientRect()
+    const scale = box.width / line.offsetWidth
+    const origin = parent.getBoundingClientRect()
+    const boundaryElement = parent.closest('.widget-popover-layer, .dinkster-canvas-example-stage')
+    const boundary = boundaryElement?.getBoundingClientRect()
+    const example = boundaryElement?.matches('.dinkster-canvas-example-stage') === true
+    const view = window.visualViewport
+    const left = example ? boundary!.left : Math.max(boundary?.left ?? 0, view?.offsetLeft ?? 0)
+    const top = example ? boundary!.top : Math.max(boundary?.top ?? 0, view?.offsetTop ?? 0)
+    const right = example ? boundary!.right : Math.min(boundary?.right ?? window.innerWidth, (view?.offsetLeft ?? 0) + (view?.width ?? window.innerWidth))
+    const bottom = example ? boundary!.bottom : Math.min(boundary?.bottom ?? window.innerHeight, (view?.offsetTop ?? 0) + (view?.height ?? window.innerHeight))
+    const layout = canvasListLayout({ x: box.x, y: box.y, width: box.width, height: box.height },
+      { x: left, y: top, width: right - left, height: bottom - top }, listHeight(), { width: 0, height: 0 }, scale, 0, 0)
+    setPosition({ x: (box.x - origin.left) / scale, y: (box.y - origin.top) / scale,
+      width: line.offsetWidth, scale, listPlace: layout.listPlace, listMaxHeight: layout.listMaxHeight ?? listHeight() })
+  }
+  createEffect(() => { void [open(), listHeight(), mount()]; queueMicrotask(place) })
+  createEffect(() => {
+    const current = position()
+    if (popup) { popup.style.left = `${current.x}px`; popup.style.top = `${current.y}px` }
+  })
+  onMount(() => {
+    setMount(line.closest<HTMLElement>('.dinkster-canvas-field') ?? document.body)
+    const outside = (event: PointerEvent): void => {
+      if (event.target instanceof Node && !line.contains(event.target) && !popup?.contains(event.target)) close(false)
+    }
+    const observer = new ResizeObserver(place)
+    observer.observe(line)
+    const movement = new MutationObserver(place)
+    const field = mount()
+    if (field) movement.observe(field, { attributes: true, attributeFilter: ['style', 'data-place'] })
+    const side = line.closest('.dinkster-canvas-field-side')
+    if (side) movement.observe(side, { attributes: true, attributeFilter: ['style'] })
+    document.addEventListener('pointerdown', outside, true)
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    window.visualViewport?.addEventListener('resize', place)
+    onCleanup(() => {
+      observer.disconnect()
+      movement.disconnect()
+      document.removeEventListener('pointerdown', outside, true)
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+      window.visualViewport?.removeEventListener('resize', place)
+    })
+  })
   return (
     <div class="dinkster-canvas-side-representation">
-      <label for={id}>Representation</label>
-      <ProductSelect
-        id={id}
-        value={props.selected}
-        {...(props.expanded === true ? { size: props.choices.length } : {})}
-        onPointerDown={(event) => event.stopPropagation()}
-        onChange={(event) => {
-          // The control shows the stored choice until the switch is made.
-          const chosen = event.currentTarget.value
-          event.currentTarget.value = props.selected
-          props.onChoose(chosen)
-        }}
-      >
-        <For each={props.choices}>
-          {(choice) => <option value={choice.id}>{choice.label}</option>}
-        </For>
-      </ProductSelect>
+      <div ref={line} class="dinkster-canvas-side-representation-line" data-open={open()}>
+        <CanvasClosedRow
+          label="Representation"
+          value={props.choices.find((choice) => choice.id === props.selected)?.label ?? props.selected}
+          choice
+          onOpen={show}
+        />
+      </div>
+      <Show when={open() && mount()}>
+        <Portal mount={mount()!}>
+          <div ref={popup} class="dinkster-canvas-side-representation-list">
+            <CanvasRowList
+              rowWidth={position().width}
+              place="right"
+              label="Representation"
+              query={query()}
+              onQuery={(text) => { setQuery(text); setHighlight(0) }}
+              inputLabel="Representation"
+              options={choices().map((choice) => ({ key: choice.id, label: choice.label, saved: choice.id === props.selected }))}
+              {...(highlight() === undefined ? {} : { highlight: highlight()! })}
+              onHighlight={setHighlight}
+              onPick={choose}
+              empty="No matching representations"
+              listPlace={position().listPlace}
+              listMaxHeight={position().listMaxHeight}
+              onListSize={setListHeight}
+              inputRef={(input) => { if (props.expanded !== true) queueMicrotask(() => input.focus()) }}
+              onKeyDown={(event) => {
+                if (event.isComposing) return
+                if (['Escape', 'Tab', 'Enter', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) event.stopPropagation()
+                if (event.key === 'Escape') { event.preventDefault(); close() }
+                else if (event.key === 'Tab') close(false)
+                else if (event.key === 'Enter') { event.preventDefault(); if (highlight() !== undefined) choose(highlight()!) }
+                else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+                  event.preventDefault()
+                  const next = event.key === 'Home' ? 0 : event.key === 'End' ? choices().length - 1
+                    : (highlight() ?? (event.key === 'ArrowDown' ? -1 : choices().length)) + (event.key === 'ArrowDown' ? 1 : -1)
+                  setHighlight(choices().length === 0 ? undefined : Math.max(0, Math.min(choices().length - 1, next)))
+                }
+              }}
+            />
+          </div>
+        </Portal>
+      </Show>
       <Show when={props.note}>
         <p class="dinkster-canvas-side-representation-note">{props.note}</p>
       </Show>

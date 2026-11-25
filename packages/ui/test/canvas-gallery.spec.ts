@@ -27,6 +27,34 @@ async function choosePage(page: Page, id: string) {
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
 
+test('Representation filters declared looks and dismisses without changing the field', async ({ page }) => {
+  await openPage(page, 'row-states')
+  const stage = page.getByTestId('row-states-representation-open').locator('..')
+  const popup = stage.locator('.dinkster-canvas-side-representation-list')
+  const filter = popup.getByRole('combobox', { name: 'Representation', exact: true })
+  const draft = stage.locator('input:not([role="combobox"])')
+  const trigger = stage.getByRole('button', { name: 'Representation Number', exact: true })
+  await expect(draft).toHaveValue('0.65')
+  await filter.press('Escape')
+  await draft.fill('0.73')
+  await trigger.click()
+  await expect(popup.getByRole('option')).toHaveText(['Number', 'Slider'])
+  await filter.fill('sl')
+  await expect(popup.getByRole('option')).toHaveText(['Slider'])
+  await filter.press('Escape')
+  await expect(popup).toHaveCount(0)
+  await expect(trigger).toBeVisible()
+  await trigger.press('Enter')
+  await expect(popup.getByRole('option')).toHaveText(['Number', 'Slider'])
+  await popup.getByRole('option').first().click()
+  await expect(popup).toHaveCount(0)
+  await expect(trigger).toBeVisible()
+  await expect(draft).toHaveValue('0.73')
+  await trigger.press('Enter')
+  await page.getByRole('heading', { name: 'Declaration row states: representation, nothing and skipped', exact: true }).click()
+  await expect(popup).toHaveCount(0)
+})
+
 /** Every example card on the page has painted its canvas. */
 async function cardsReady(page: Page, id: string, theme: string) {
   const cards = page.locator('figure.dinkster-canvas-example canvas')
@@ -468,11 +496,11 @@ for (const theme of ['dark', 'light'] as const) {
         // Only the widget kind, open list filters and Representation examples
         // are choices; comparisons are all visible without selecting one.
         const filters = page.locator(
-          'input.dinkster-canvas-field-input[role="combobox"]',
+          'input.dinkster-canvas-field-input[role="combobox"]:not(.dinkster-canvas-side-representation-list *)',
         )
         await expect(filters).toHaveCount(id === 'row-lists' ? 23 : 0)
         await expect(page.getByRole('combobox').and(
-          page.locator(':not(.dinkster-canvas-side-representation *)'),
+          page.locator(':not(.dinkster-canvas-side-representation *, .dinkster-canvas-side-representation-list *)'),
         )).toHaveCount(
           (id === 'widget-states' ? 1 : 0) + (await filters.count()),
         )
