@@ -1159,12 +1159,12 @@
 .run-progress > progress::-webkit-progress-value { background: var(--dinkster-accent-foreground); }
 .run-progress > progress::-moz-progress-bar { background: var(--dinkster-accent-foreground); }
 .run-progress > .run-progress-node { opacity: 0.45; }
-/* On the Run bar the two lines run along its bottom edge, with no track of their own. */
-.workflow-queue-line { position: absolute; right: 1px; bottom: 0; left: 1px; border-radius: 0; background: transparent; pointer-events: none; }
-/* The list under the runs button. */
+/* Under the Run bar the two lines are a bar of their own, 3 px below it and 4 px in from each side, so they never meet a button's outline. With nothing running there is no bar and no space kept for it. */
+.workflow-queue-line { position: absolute; top: calc(100% + 3px); right: 4px; left: 4px; pointer-events: none; }
+/* The list under the runs button opens 3 px under the Run bar, or 3 px under the progress bar while one runs. */
 .workflow-queue-popover {
   position: absolute;
-  top: calc(var(--dinkster-control-compact-height) + 6px);
+  top: calc(100% + 3px);
   right: 0;
   width: min(360px, calc(100cqw - var(--dinkster-space-16)));
   padding: var(--dinkster-space-8) var(--dinkster-space-4);
@@ -1174,6 +1174,7 @@
   border-radius: var(--dinkster-radius-card);
   box-shadow: var(--dinkster-elevation-high);
 }
+.workflow-queue-control:has(.workflow-queue-line) > .workflow-queue-popover { top: calc(100% + 10px); }
 /* One line: the workflow's name, cut first, then how many run and wait. */
 .workflow-queue-popover header {
   display: flex;
