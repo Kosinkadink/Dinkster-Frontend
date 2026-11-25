@@ -592,9 +592,9 @@ documentTest('noodle into a collapsed section stays anchored on the header row',
     const r = window.__dinksterTest!.renderer!
     const scene = r.getScene()
     const node = scene.nodes.find((n) => n.id === 's0')!
-    const header = node.layout.rows.find((row) => row.kind === 'section')!
+    const closedBox = node.layout.boxes!.find((box) => box.id === 'adv' && box.closed)!
     const link = scene.links.find((l) => l.to.kind === 'port' && l.to.node === 's0')!
-    return { linkY: link.y2, headerCenter: node.y + header.y + header.height / 2 }
+    return { linkY: link.y2, headerCenter: node.y + closedBox.y + closedBox.height / 2 }
   })
   expect(anchored.linkY).toBe(anchored.headerCenter)
 })

@@ -21,6 +21,7 @@ interface DinksterBridgeSceneNode {
     minimized?: true
     preview?: { x: number; y: number; width: number; height: number; compact?: true }
     advancedGroup?: { y: number; height: number }
+    boxes?: ReadonlyArray<{ id: string; y: number; height: number; closed?: true }>
     rows: ReadonlyArray<{
       kind: string
       y: number
@@ -104,7 +105,7 @@ interface DinksterBridgeErrorEvent {
 /** Injectable lifecycle event: used by the reconnect spec to seed an
  * in-flight execution the server has never heard of ("ghost" run). */
 interface DinksterBridgeLifecycleEvent {
-  kind: 'started' | 'completed'
+  kind: 'started' | 'completed' | 'cancelled'
   execution: DinksterBridgeExecutionRef
   timestamp: number
 }
