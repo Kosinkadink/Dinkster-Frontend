@@ -441,8 +441,9 @@ export function LibraryPanel(props: LibraryPanelProps) {
               intent="remove"
               onCancel={() => setRemoving(undefined)}
               onConfirm={() => {
+                const selected = entry()
                 setRemoving(undefined)
-                props.onAction?.('blueprints', entry(), 'remove')
+                props.onAction?.('blueprints', selected, 'remove')
               }}
             />
           </ProductDialog>
