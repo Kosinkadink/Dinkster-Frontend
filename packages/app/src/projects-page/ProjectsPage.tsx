@@ -554,6 +554,11 @@ export function ProjectsView(props: {
     ])
     return (
       <div class="projects-page-detail" data-testid="projects-detail">
+        <Show when={!data() && detailArrival.loading()}>
+          <div class="projects-page-loading projects-page-arrival" data-testid="project-loading">
+            <ProductLoading label={message('projects.detail.loading')} />
+          </div>
+        </Show>
         <ProductProjectHeader
           title={project.name}
           subtitle={message(time.kind === 'ran' ? 'projects.time.lastRun' : 'projects.time.created', {
@@ -626,11 +631,6 @@ export function ProjectsView(props: {
           <ProductErrorBanner onDismiss={() => setFolderFailed(undefined)}>
             {message('projects.facts.folderFailed')}
           </ProductErrorBanner>
-        </Show>
-        <Show when={!data() && detailArrival.loading()}>
-          <div class="projects-page-loading projects-page-arrival" data-testid="project-loading">
-            <ProductLoading label={message('projects.detail.loading')} />
-          </div>
         </Show>
         <Show when={data()}>
         <Show when={firstRun()}>{setupInstructions()}</Show>
