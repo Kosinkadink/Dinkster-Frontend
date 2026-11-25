@@ -1230,6 +1230,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           missingConnections(def, node.id),
           view?.size,
           view?.collapsed === true,
+          input.schemasPending === true,
         )
     // A promoted boundary input owns the value and editable menu of the
     // inner row it binds; edits on that row write to the owning instance.
@@ -2104,9 +2105,15 @@ function missingLayout(
   connections: { inputs: readonly PortRef[]; outputs: readonly PortRef[]; taps: readonly string[] },
   sizeOverride?: SizeOverride,
   minimized = false,
+  pending = false,
 ): NodeLayout {
   const titleRenamed = node.title !== undefined && node.title !== node.type
-  const title = node.title ?? node.type
+  // A node waiting for definitions shows its type id without the pack part,
+  // as written. A missing node keeps the whole id: the pack part says what to
+  // install.
+  const lastDot = node.type.lastIndexOf('.')
+  const shortType = pending && lastDot >= 0 && lastDot < node.type.length - 1 ? node.type.slice(lastDot + 1) : node.type
+  const title = node.title ?? shortType
   const unknownType = { kind: 'wildcard' } as const
   const rows: LayoutRow[] = []
   const pins: PinLayout[] = []
