@@ -1187,6 +1187,10 @@
 .dinkster-template-fact-detail { color: var(--dinkster-text-muted); }
 .dinkster-template-actions { display: flex; flex-wrap: wrap; gap: var(--dinkster-space-8); margin-top: auto; padding: 14px 0; }
 .dinkster-template-actions .dinkster-button > .dinkster-template-fact-detail { color: var(--dinkster-text-secondary); }
+.dinkster-template-download { display: grid; flex: 1; align-content: center; gap: 6px; min-width: 0; min-height: var(--dinkster-control-compact-height); color: var(--dinkster-text-secondary); }
+.dinkster-template-download-label { display: flex; align-items: baseline; justify-content: space-between; gap: var(--dinkster-space-12); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dinkster-template-download-track { position: relative; display: block; height: 2px; overflow: hidden; border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-border-subtle); }
+.dinkster-template-download-track > .dinkster-template-progress { top: 0; }
 .dinkster-template-states { display: grid; grid-template-columns: repeat(auto-fill, 236px); gap: 14px; }
 .dinkster-template-states > div { display: grid; gap: 6px; }
 .dinkster-template-states .dinkster-template-tiles { padding: 0; overflow: visible; }

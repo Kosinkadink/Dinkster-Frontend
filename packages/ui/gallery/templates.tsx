@@ -7,7 +7,9 @@ import {
   ProductIcon,
   ProductPage,
   ProductSelect,
+  ProductTextButton,
   ProductTemplateDetail,
+  ProductTemplateDownload,
   ProductTemplateTiles,
   ProductTemplatesPage,
   type ProductTemplateEntry,
@@ -233,9 +235,10 @@ export function TemplatesGallery() {
   const [search, setSearch] = createSignal('')
   const [selected, setSelected] = createSignal('inpaint-a-region')
   const [view, setView] = createSignal<'result' | 'workflow'>('result')
-  const [downloads, setDownloads] = createSignal<ReadonlyMap<string, number>>(
-    new Map(),
-  )
+  // A started download's progress, or null once it is stopped.
+  const [downloads, setDownloads] = createSignal<
+    ReadonlyMap<string, number | null>
+  >(new Map())
   const [activity, setActivity] = createSignal('No action yet')
 
   const all = (): MockTemplate[] =>
@@ -243,7 +246,13 @@ export function TemplatesGallery() {
       const progress = downloads().get(template.id)
       return progress === undefined
         ? template
-        : { ...template, missing: undefined, progress }
+        : progress === null
+          ? {
+              ...template,
+              progress: undefined,
+              missing: missing(template.models),
+            }
+          : { ...template, missing: undefined, progress }
     })
   const inGroup = (template: MockTemplate, id: string) =>
     id === 'all' ||
@@ -305,7 +314,11 @@ export function TemplatesGallery() {
           onGroup={setGroup}
           searchLabel="Search templates"
           search={search()}
-          onSearch={setSearch}
+          onSearch={(value) => {
+            // A search looks through every template; a group chosen afterwards narrows it.
+            if (value.trim() !== '' && search().trim() === '') setGroup('all')
+            setSearch(value)
+          }}
           leave={
             <ProductButton onClick={() => setActivity('Blank workflow opened')}>
               Blank workflow
@@ -361,6 +374,27 @@ export function TemplatesGallery() {
                       >
                         Use template
                       </ProductButton>
+                      <Show when={template().progress}>
+                        {(progress) => (
+                          <ProductTemplateDownload
+                            label={`Downloading ${left().length} ${left().length === 1 ? 'model' : 'models'}, ${Math.round(progress() * 100)}%`}
+                            progress={progress()}
+                            stop={
+                              <ProductTextButton
+                                label="Stop"
+                                onClick={() => {
+                                  const next = new Map(downloads())
+                                  next.set(template().id, null)
+                                  setDownloads(next)
+                                  setActivity(
+                                    `Stopped the download for ${template().name}`,
+                                  )
+                                }}
+                              />
+                            }
+                          />
+                        )}
+                      </Show>
                       <Show when={template().missing}>
                         {(amount) => (
                           <ProductButton

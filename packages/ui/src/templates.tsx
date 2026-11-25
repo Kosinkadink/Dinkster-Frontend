@@ -455,3 +455,32 @@ export function ProductTemplateDetail(props: {
     </>
   )
 }
+
+/**
+ * A template's models downloading, in place of its download button: quiet
+ * text with how far along it is and the same thin line as its tile.
+ */
+export function ProductTemplateDownload(props: {
+  /** Such as "Downloading 2 models, 41%". */
+  label: string
+  /** From 0 to 1. */
+  progress: number
+  /** A way to stop the download, such as a text button. */
+  stop?: JSX.Element
+}) {
+  let line: HTMLSpanElement | undefined
+  createEffect(() => {
+    if (line) line.style.width = `${Math.round(props.progress * 100)}%`
+  })
+  return (
+    <span class="dinkster-template-download" role="status">
+      <span class="dinkster-template-download-label">
+        {props.label}
+        {props.stop}
+      </span>
+      <span class="dinkster-template-download-track" aria-hidden="true">
+        <span ref={line} class="dinkster-template-progress" />
+      </span>
+    </span>
+  )
+}
