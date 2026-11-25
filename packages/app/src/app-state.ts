@@ -23,6 +23,7 @@ import {
   documentResolver,
   coreCommandRegistry,
   initializeBoundaryViews,
+  type AutomaticValueRecord,
   type BoundaryPositionResolver,
   coreMenuContributions,
   createMenuRegistry,
@@ -137,7 +138,7 @@ import {
   type Vec2,
   type CompileArtifact,
 } from '@dinkster/core'
-import { lookupAnswersOf } from './lookup-demand.js'
+import { lookupAnswersOf, recordRunAnswers } from './lookup-demand.js'
 import {
   DINKSTER_GRAPH_FEATURE_PLACEMENT,
   DinksterConnection,
@@ -3335,6 +3336,18 @@ export class AppState {
       }
       if ([...executions.values()].some((execution) => execution.status === 'completed' &&
         this.store.canRestoreCompleted(execution.ref))) this.refreshPersistedExecutionResults()
+    })
+    // Once per run's records: a recorded lookup answer the editor does not hold makes that call old.
+    const recordedAnswers = new WeakSet<readonly AutomaticValueRecord[]>()
+    this.store.executions.subscribe((executions) => {
+      for (const execution of executions.values()) {
+        const records = execution.automaticValues
+        const calls = execution.artifact?.automaticCalls
+        if (records === undefined || calls === undefined || recordedAnswers.has(records)) continue
+        recordedAnswers.add(records)
+        const lookups = this.backendFor(execution.ref.connection)?.lookups
+        if (lookups !== undefined) recordRunAnswers(lookups, calls, records)
+      }
     })
     let previousProblems: readonly OwnedDiagnostic[] = []
     this.problems.subscribe((problems) => {

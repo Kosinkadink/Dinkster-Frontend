@@ -506,6 +506,24 @@ describe('value handling', () => {
     expect(result.artifact.diagnostics.some((d) => d.code === 'compile.input.missing' || d.code === 'automatic.default')).toBe(false)
   })
 
+  it('keeps the lookup call it made for each automatic field it leaves for the engine', () => {
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      const automatic: Record<string, unknown> = { batch_size: { lookup: 'sizes.batch', args: ['width'] }, color: { formula: 'width * 2' } }
+      return { ...schema, body: schema.body.map((row) => row.kind !== 'input' || automatic[row.id] === undefined ? row : { ...row, automatic: automatic[row.id] }) } as NodeSchema
+    }
+    const callsOf = (values: Record<string, unknown>) => {
+      const doc = mutableWorkflow('exec-basic')
+      ;((((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable)['n0'] as Mutable)['values'] = values
+      const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers: () => ({ state: 'ready', answer: 3 }) })
+      return result.ok ? result.artifact.automaticCalls : 'failed'
+    }
+    // A formula makes no call; a stored value is not automatic.
+    expect(callsOf({ width: 24, height: 64 })).toEqual([{ runtimeNodeId: 'n0', inputId: 'batch_size', lookup: 'sizes.batch', args: [24] }])
+    expect(callsOf({ width: 24, height: 64, batch_size: 2 })).toBeUndefined()
+  })
+
   it('passes on what a tapped automatic field shows, warning on the field only when that is its default', () => {
     const resolve: CompileInput['resolve'] = (type) => {
       const schema = backendResolve(type)
