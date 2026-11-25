@@ -20,6 +20,7 @@ const arrangement = (page: Page) => page.evaluate(() => window.__dinksterTest!.a
 const graph = (page: Page) => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0)
 const identityViewport = (page: Page) => page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
 const frozenTab = (page: Page) => page.getByTestId('tab-bar').locator('.tab.frozen')
+const liveTab = (page: Page) => page.getByTestId('tab-bar').locator('.tab:not(.frozen)').getByRole('tab', { name: /^Portrait,/ })
 const openRun = async (page: Page) => {
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
   await expect(page.getByTestId('frozen-banner')).toBeVisible()
@@ -79,7 +80,15 @@ test('frozen layout is temporary, edits are refused, and copies keep the arrange
   })
   await openRun(page)
   await expect(frozenTab(page).locator('svg.lucide-snowflake')).toBeVisible()
-  await expect(page.getByTestId('queue-button')).toBeDisabled()
+  // Named by the workflow and the time the run was queued; the job id and state are in the tooltip.
+  const queuedAt = await page.evaluate(() => [...window.__dinksterTest!.app.store.executions.get().values()][0]!.queuedAt)
+  const clock = (at: Date) => `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+  await expect(frozenTab(page).locator('.tab-title')).toHaveText(`Portrait, ${clock(new Date(queuedAt))}`)
+  await expect(frozenTab(page).getByRole('tab')).toHaveAttribute('data-tooltip-label', 'Frozen run frozen-p, completed')
+  // A frozen tab has no Run button; its run list stays.
+  await expect(page.getByTestId('queue-button')).toHaveCount(0)
+  await expect(page.getByTestId('workflow-queue-toggle')).toBeVisible()
+  await expect(page.getByTestId('status-run')).toContainText('Frozen:')
   const originalGraph = await graph(page)
   await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.renderer!.getInactiveNodes() ?? []])).toEqual(['n2'])
   await page.screenshot({ path: info.outputPath('frozen-idle.png') })
@@ -146,7 +155,7 @@ test('frozen layout is temporary, edits are refused, and copies keep the arrange
   expect((await graph(page))!.nodes.n0!.values.width).toBe(768)
   await page.screenshot({ path: info.outputPath('frozen-open-as-copy.png') })
 
-  await page.getByTestId('tab-bar').getByRole('tab', { name: /^Portrait,/ }).click()
+  await liveTab(page).click()
   await openRun(page)
   await expect.poll(() => arrangement(page)).toEqual({ position: { x: 100, y: 150 } })
   await page.evaluate(() => {
@@ -156,11 +165,11 @@ test('frozen layout is temporary, edits are refused, and copies keep the arrange
   await page.getByTestId('tab-bar').getByRole('tab', { name: /^Portrait copy,/ }).click()
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())).toEqual({ x: 0, y: 0, scale: 1 })
   expect(await page.evaluate(() => [...window.__dinksterTest!.controller!.getSelection()])).not.toContain('n2')
-  await page.getByTestId('tab-bar').getByRole('tab', { name: /^Portrait,/ }).click()
+  await liveTab(page).click()
   await openRun(page)
   await page.getByTestId('frozen-open-copy').click()
   await expect(page.getByRole('tab', { name: /^Portrait copy 2,/ })).toBeVisible()
-  await page.getByTestId('tab-bar').getByRole('tab', { name: /^Portrait,/ }).click()
+  await liveTab(page).click()
   await openRun(page)
   await expect.poll(() => arrangement(page)).toEqual({ position: { x: 100, y: 150 } })
   expect(await graph(page)).toEqual(originalGraph)

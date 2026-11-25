@@ -187,7 +187,7 @@ export function StatusBar(props: {
         <Show when={workflowTab()}>
           <ProductButton variant="ghost" size="compact" class="status-item status-run" data-testid="status-run"
             aria-label={runLabel()} data-tooltip-label={runLabel()} onClick={props.openRuns}>
-            <Show when={props.tab()?.execution !== undefined}><Icon icon={Snowflake} /><span>{message('shell.status.frozen')}</span></Show>
+            <Show when={props.tab()?.execution !== undefined}><Icon icon={Snowflake} /><span>{message(run().frozen !== undefined && !busy() && runWords() !== '' ? 'shell.status.frozenEnded' : 'shell.status.frozen')}</span></Show>
             <Show when={busy()} fallback={<Show when={props.tab()?.execution === undefined}><ProductRunIcon icon={Workflow} /></Show>}>
               <ProductRunActivity running={run().running} waiting={run().waiting} label={activityLabel()} />
             </Show>

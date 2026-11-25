@@ -126,6 +126,7 @@ test('status readings follow workflow state and open their explanatory panels', 
     return app.openExecutionView({ connection: app.backends.get()[0]!.id, prompt: 'status-running' })
   })).toBe(true)
   await expect(page.getByTestId('status-run')).toContainText('Frozen')
+  await expect(page.getByTestId('status-run')).not.toContainText('Frozen:')
   await expect(page.getByTestId('status-run')).toContainText('75%')
   await expect(page.getByTestId('status-run').getByRole('img')).toHaveAccessibleName('1 running, 0 queued')
   await capture('frozen-running')
@@ -133,7 +134,7 @@ test('status readings follow workflow state and open their explanatory panels', 
     const app = window.__dinksterTest!.app
     app.store.apply({ kind: 'completed', execution: app.activeTab()!.execution!, timestamp: 48_101 } as never)
   })
-  await expect(page.getByTestId('status-run')).toContainText('Frozen')
+  await expect(page.getByTestId('status-run')).toContainText('Frozen:')
   await expect(page.getByTestId('status-run')).toContainText('completed in 48 s')
   await expect(page.getByTestId('status-run').getByRole('img')).toHaveCount(0)
   await capture('frozen-completed')

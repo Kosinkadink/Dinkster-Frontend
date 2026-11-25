@@ -131,7 +131,7 @@ test('execution row opens a frozen view pinned to that execution', async ({ page
   await expect(banner).toContainText('completed')
 
   // Frozen views never queue and never edit.
-  await expect(page.getByTestId('queue-button')).toBeDisabled()
+  await expect(page.getByTestId('queue-button')).toHaveCount(0)
   await identityViewport(page)
   await page.mouse.click(...xy(await pointOn(page, 'n0', { kind: 'widget', inputId: 'width' })))
   await expect(page.getByTestId('widget-editor')).not.toBeVisible()

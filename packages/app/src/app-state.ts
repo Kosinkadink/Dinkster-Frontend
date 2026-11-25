@@ -196,6 +196,7 @@ import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 import type { CanvasLens } from './data-lens.js'
 import { registerLocaleSetting } from './locale.js'
+import { runClock } from './execution-activity.js'
 import { registerThemeSetting } from './theme.js'
 import {
   assetGuessCandidateToRef,
@@ -5564,9 +5565,8 @@ export class AppState {
   async duplicateTab(tabId: string, replaceFrozen = false): Promise<Tab | undefined> {
     const source = this.tabs.get().find((candidate) => candidate.id === tabId)
     if (!source || ![GRAPH_EDITOR_KIND, APP_EDITOR_KIND].includes(source.editorKind)) return undefined
-    const title = source.execution
-      ? source.title.slice(0, -` @ ${source.execution.prompt.slice(0, 8)}`.length)
-      : source.title
+    const suffix = source.execution === undefined ? '' : this.frozenTitleSuffix(source.execution)
+    const title = suffix !== '' && source.title.endsWith(suffix) ? source.title.slice(0, -suffix.length) : source.title
     const titles = new Set(this.tabs.get().map((tab) => tab.title))
     let copyTitle = `${title} copy`
     for (let ordinal = 2; titles.has(copyTitle); ordinal++) copyTitle = `${title} copy ${ordinal}`
@@ -5954,7 +5954,7 @@ export class AppState {
     if (!backend) return false
     if (!stillWanted()) return false
     this.store.retain(ref)
-    const title = `${this.tabTitleFor(ref)} @ ${ref.prompt.slice(0, 8)}`
+    const title = `${this.tabTitleFor(ref)}${this.frozenTitleSuffix(ref)}`
     const tab = this.makeTab(artifact.snapshot, title, ref)
     this.tabs.update((tabs) => [...tabs, tab])
     this.activeTabId.set(id)
@@ -9674,6 +9674,12 @@ export class AppState {
     const live = this.liveTabFor(tab.store.doc.lineage)
     if (!live) return 'no-live-tab'
     return this.semanticHashOfTab(live) === artifact.semanticHash ? 'in-sync' : 'diverged'
+  }
+
+  /** A frozen tab is named by its workflow and the time the run was queued, such as "Portrait, 14:02". */
+  private frozenTitleSuffix(ref: ExecutionRef): string {
+    const state = this.store.get(ref)
+    return state === undefined ? '' : `, ${runClock(state.queuedAt)}`
   }
 
   tabTitleFor(ref: ExecutionRef): string {
