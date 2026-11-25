@@ -214,6 +214,8 @@ test('setup feedback exposes known fractions, unknown progress and non-dismissab
     for (const motion of ['no-preference', 'reduce'] as const) {
       await page.emulateMedia({ reducedMotion: motion })
       await expect(unknown.locator('svg')).toHaveCSS('animation-name', motion === 'reduce' ? 'none' : 'dinkster-progress-sweep')
+      await expect(unknown.locator('svg')).toHaveCSS('opacity', motion === 'reduce' ? '0.45' : '1')
+      await expect(page.getByRole('progressbar', { name: 'Complete', exact: true }).locator('svg')).toHaveCSS('opacity', '1')
       const widths = await unknown.evaluate((element) => [element.getBoundingClientRect().width, element.querySelector('svg')!.getBoundingClientRect().width])
       expect(widths[1]! / widths[0]!).toBeCloseTo(motion === 'reduce' ? 1 : 0.36, 2)
       await expect(page).toHaveScreenshot(`setup-feedback-${theme}-${motion}.png`, { fullPage: true })
@@ -241,6 +243,8 @@ test('described menu choices keep separate accessible descriptions, checks and o
       await expect(alternative).toHaveAccessibleDescription('Use this build when your driver requires an earlier runtime.')
       await expect(plain).not.toHaveAttribute('aria-describedby')
       await expect(plain).toHaveAccessibleName('View build information')
+      const labelLefts = await Promise.all([selected, alternative, plain].map((item) => item.locator('.dinkster-menu-item-label').evaluate((label) => label.getBoundingClientRect().left)))
+      expect(Math.max(...labelLefts) - Math.min(...labelLefts)).toBeLessThanOrEqual(0.5)
       const text = alternative.locator('.dinkster-menu-item-description')
       const row = await alternative.boundingBox()
       const description = await text.boundingBox()

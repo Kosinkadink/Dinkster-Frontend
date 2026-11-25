@@ -190,7 +190,7 @@ every core tab once.
   tokens). A link inside a message stays primary and its close button
   secondary, so the strip is not one colour. The toast puts the message on
   the raised surface because it floats over other content.
-- `ProductProgress` takes a required accessible `label` and optional fractional `value` from 0 to 1. Zero is determinate; omission sweeps without exposing a current value. Reduced motion replaces the sweep with a full static fill. The host owns phase wording, amounts and spacing. The address-only `#setup-components` gallery shows progress, notice tones and described menu choices together.
+- `ProductProgress` takes a required accessible `label` and optional fractional `value` from 0 to 1. Zero is determinate; omission sweeps without exposing a current value. Reduced motion replaces the sweep with a full static fill at 45% opacity, distinct from completion. The host owns phase wording, amounts and spacing. The address-only `#setup-components` gallery shows progress, notice tones and described menu choices together.
 - `ProductConfirmation` orders the title, consequence, solid action and Cancel.
   Sites use it as page content. Inside `ProductDialog`, omit the confirmation's
   duplicate title and let the dialog provide it. `ProductDialog` provides native modal inertness,
