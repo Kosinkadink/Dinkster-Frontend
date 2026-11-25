@@ -1685,5 +1685,11 @@
   "automaticField.couldNotRefresh": "无法刷新",
   "automaticField.paused": "已暂停",
   "automaticField.offline": "离线",
-  "automaticField.waitingForValue": "等待一个值。"
+  "automaticField.waitingForValue": "等待一个值。",
+  "library.state.noBlueprints.title": "没有保存的蓝图",
+  "library.state.noBlueprints.detail": "右键单击子图并选择“另存为蓝图”，即可在此处找到它。",
+  "library.blueprint.rename": "{name} 的新名称",
+  "library.blueprint.remove.title": "移除“{name}”？",
+  "library.blueprint.remove.consequence": "它将从此项目的蓝图和搜索中移除。已从它放置的子图在其工作流中保持不变。",
+  "library.blueprint.remove.confirm": "移除蓝图"
 }

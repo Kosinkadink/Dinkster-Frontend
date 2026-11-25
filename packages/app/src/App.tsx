@@ -25,7 +25,7 @@ import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, coreOccurrencePlanner } from './CanvasHost.js'
 import { CanvasViewControls } from './CanvasChrome.js'
 import { ContextMenu } from './ContextMenu.js'
-import { historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
+import { blueprintsSource, historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
 import { ExecutionActivityCard, ExecutionOpenButton, executionStatusLabel } from './ExecutionActivityCard.js'
 import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
@@ -585,7 +585,7 @@ export function App(props: {
   })
   // Built-in browsable collections; sources are live (corpus re-read per
   // page), so one instance each for the app's lifetime is correct.
-  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app)]
+  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app), blueprintsSource(app)]
   const storedRuns = runsSource(app)
   const browserHistory = historySource(app)
   const libraryTemplatesEnabled = createMemo(() => {
@@ -625,7 +625,13 @@ export function App(props: {
       return
     }
   }
-  const libraryEntryAction = (sourceId: string, entry: CollectionEntry, actionId: string): void => {
+  const libraryEntryAction = (sourceId: string, entry: CollectionEntry, actionId: string, value?: string): void => {
+    if (sourceId === 'blueprints') {
+      if (entry.owner === undefined) return
+      if (actionId === 'rename' && value !== undefined) void app.renameSavedBlueprint(entry.id, entry.owner, value)
+      if (actionId === 'remove') void app.removeSavedBlueprint(entry.id, entry.owner, entry.title)
+      return
+    }
     // Remote entries carry the backend that served them (owner); every
     // action routes back to that owner, never to whatever backend is
     // current when the click lands.

@@ -97,6 +97,8 @@ export function CollectionPanel(props: {
   readonly searchPlaceholder?: string
   readonly renderState?: (state: CollectionPanelState) => JSX.Element
   readonly entryFallback?: (entry: CollectionEntry) => JSX.Element
+  /** An editor shown in place of an entry's title, such as while it is renamed; undefined shows the title. */
+  readonly titleEditor?: (entry: CollectionEntry) => JSX.Element | undefined
   /** Exact-match filter values applied before the first page loads. */
   readonly initialFilters?: Readonly<Record<string, string>>
   /**
@@ -533,7 +535,7 @@ export function CollectionPanel(props: {
               class="collection-action"
               data-testid="collection-action"
               data-action={a.id}
-              data-tone={a.id === 'delete' ? 'danger' : 'accent'}
+              data-tone={a.id === 'delete' || a.id === 'remove' ? 'danger' : 'accent'}
               aria-pressed={a.id === 'delete' ? armed() : undefined}
               onClick={(e) => {
                 e.stopPropagation()
@@ -584,7 +586,9 @@ export function CollectionPanel(props: {
       <Show when={props.entryContent} fallback={<>
       <Thumb entry={p.entry} />
       <div class="collection-text">
-        <span class="collection-title">{p.entry.title}</span>
+        <Show when={props.titleEditor?.(p.entry)} fallback={<span class="collection-title">{p.entry.title}</span>}>
+          {(editor) => editor()}
+        </Show>
         <Show when={p.entry.subtitle}>
           <span class="collection-subtitle">{p.entry.subtitle}</span>
         </Show>

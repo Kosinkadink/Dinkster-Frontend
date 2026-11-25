@@ -1,6 +1,6 @@
 # Library
 
-The left-dock Library browses Packs, Templates, and Workflows in that order.
+The left-dock Library browses Packs, Templates, Workflows and Blueprints in that order.
 Execution history and stored runs live in the right-side Runs panel, not in
 Library. The Library header names the backend
 that owns the current tab and shows its exact protocol and connection state.

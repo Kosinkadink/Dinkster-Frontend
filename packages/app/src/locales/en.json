@@ -1685,5 +1685,11 @@
   "automaticField.couldNotRefresh": "Could not refresh",
   "automaticField.paused": "Paused",
   "automaticField.offline": "Offline",
-  "automaticField.waitingForValue": "Waiting for a value."
+  "automaticField.waitingForValue": "Waiting for a value.",
+  "library.state.noBlueprints.title": "No saved blueprints",
+  "library.state.noBlueprints.detail": "Right-click a subgraph and choose Save as blueprint to find it here.",
+  "library.blueprint.rename": "New name for {name}",
+  "library.blueprint.remove.title": "Remove \"{name}\"?",
+  "library.blueprint.remove.consequence": "It goes from this project's blueprints and from search. Subgraphs already placed from it stay as they are in their workflows.",
+  "library.blueprint.remove.confirm": "Remove blueprint"
 }

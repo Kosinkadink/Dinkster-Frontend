@@ -7473,7 +7473,7 @@ export class AppState {
         labels: [BLUEPRINT_LABEL],
         project: activeProjectId(),
       })
-      this.savedBlueprintsTick.update((v) => v + 1)
+      this.savedBlueprintsChanged()
       this.showTransientStatus(`Saved blueprint ${name}`)
       return true
     } catch (e) {
@@ -7484,6 +7484,49 @@ export class AppState {
       this.showTransientStatus(`Saving blueprint ${name} failed on ${backend.label}`)
       return false
     }
+  }
+
+  /** Rename a saved blueprint on the backend that listed it; search and the Library read the new name. */
+  async renameSavedBlueprint(recordId: string, owner: string, name: string): Promise<boolean> {
+    const backend = this.ownedLibraryBackend(owner)
+    const trimmed = name.trim()
+    if (!backend || trimmed === '') return false
+    try {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const record = await backend.connection.getLibraryRecord(recordId, LIBRARY_SCOPE)
+        if (record === undefined) return false
+        if (record.name === trimmed) return true
+        const patched = await backend.connection.patchLibraryRecord(recordId, { scope: LIBRARY_SCOPE, revision: record.revision, name: trimmed })
+        if (patched.ok) {
+          this.savedBlueprintsChanged()
+          return true
+        }
+      }
+      throw new Error('the blueprint changed concurrently - rename it again')
+    } catch (e) {
+      this.showTransientStatus(`Could not rename blueprint: ${e instanceof Error ? e.message : String(e)}`)
+      return false
+    }
+  }
+
+  /** Remove a saved blueprint. Subgraphs placed from it are ordinary subgraphs and stay as they are. */
+  async removeSavedBlueprint(recordId: string, owner: string, name: string): Promise<boolean> {
+    const backend = this.ownedLibraryBackend(owner)
+    if (!backend) return false
+    try {
+      await backend.connection.deleteLibraryRecord(recordId, LIBRARY_SCOPE)
+      this.savedBlueprintsChanged()
+      this.showTransientStatus(`Removed blueprint ${name}`)
+      return true
+    } catch (e) {
+      this.showTransientStatus(`Could not remove blueprint ${name}: ${e instanceof Error ? e.message : String(e)}`)
+      return false
+    }
+  }
+
+  private savedBlueprintsChanged(): void {
+    this.savedBlueprintsTick.update((v) => v + 1)
+    this.backendsTick.update((v) => v + 1) // an open Blueprints collection re-pages
   }
 
   /**

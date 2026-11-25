@@ -5,9 +5,10 @@ import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js
 import { initialsOf } from './collections.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
+import { ProductButton, ProductConfirmation, ProductDialog, ProductTextInput } from '@dinkster/ui'
 import { ProductEmptyState } from './ProductSurfaces.js'
 
-const DIRECT_LIBRARY_SOURCES = new Set(['packs', 'templates', 'workflows'])
+const DIRECT_LIBRARY_SOURCES = new Set(['packs', 'templates', 'workflows', 'blueprints'])
 const ACTIVITY_SOURCES = new Set(['history', 'runs'])
 type LibraryMessage = (key: string, params?: MessageParams) => string
 
@@ -22,7 +23,8 @@ export interface LibraryPanelProps {
   readonly backend: () => LibraryBackendContext
   readonly refreshTick?: () => number
   readonly onActivate?: (sourceId: string, entry: CollectionEntry) => void
-  readonly onAction?: (sourceId: string, entry: CollectionEntry, actionId: string) => void
+  /** Entry actions; a blueprint's rename carries the new name as `value`. */
+  readonly onAction?: (sourceId: string, entry: CollectionEntry, actionId: string, value?: string) => void
   readonly sourceActions?: readonly { sourceId: string; id: string; label: string }[]
   readonly onSourceAction?: (sourceId: string, actionId: string, owner?: string) => void
 }
@@ -150,7 +152,16 @@ function LibraryDetailRail(props: {
             <Show when={(entry.actions ?? []).length > 0}>
               <div class="library-detail-actions">
                 <For each={entry.actions}>
-                  {(action) => (
+                  {(action) => props.sourceId === 'blueprints'
+                    ? <ProductButton
+                        data-testid="library-detail-action"
+                        data-action={action.id}
+                        {...(action.id === 'remove' ? { intent: 'remove' as const } : {})}
+                        onClick={() => runAction(entry, action.id)}
+                      >
+                        {action.label}
+                      </ProductButton>
+                    : (
                     <button
                       type="button"
                       data-testid="library-detail-action"
@@ -191,6 +202,9 @@ function DirectLibraryState(props: { readonly state: CollectionPanelState; reado
   }
   if (props.state.sourceLabel === 'Templates') {
     return <ProductEmptyState title={props.message('library.state.noTemplates.title')} hint={props.message('library.state.noTemplates.detail', { backend: props.backend.label })} />
+  }
+  if (props.state.sourceLabel === 'Blueprints') {
+    return <ProductEmptyState title={props.message('library.state.noBlueprints.title')} hint={props.message('library.state.noBlueprints.detail')} />
   }
   if (props.backend.protocol === 'v1') {
     return <ProductEmptyState title={props.message('library.state.savedWorkflowsUnavailable.title')} hint={props.message('library.state.savedWorkflowsUnavailable.detail')} />
@@ -259,6 +273,36 @@ export function LibraryPanel(props: LibraryPanelProps) {
       displayedSourceId = settledSourceId
       if (transitionSourceId() === settledSourceId) setTransitionSourceId(undefined)
     })
+  }
+  // A saved blueprint is renamed in its own row and removed through a
+  // confirmation; both reach the host as ordinary entry actions.
+  const [renamingId, setRenamingId] = createSignal<string>()
+  const [removing, setRemoving] = createSignal<CollectionEntry>()
+  const entryAction = (actionSourceId: string, entry: CollectionEntry, actionId: string): void => {
+    if (actionSourceId === 'blueprints' && actionId === 'rename') return void setRenamingId(entry.id)
+    if (actionSourceId === 'blueprints' && actionId === 'remove') return void setRemoving(entry)
+    props.onAction?.(actionSourceId, entry, actionId)
+  }
+  const titleEditor = (entry: CollectionEntry) => {
+    if (sourceId() !== 'blueprints' || renamingId() !== entry.id) return undefined
+    const finish = (input: HTMLInputElement, keep: boolean): void => {
+      setRenamingId(undefined)
+      const name = input.value.trim()
+      if (keep && name !== '' && name !== entry.title) props.onAction?.('blueprints', entry, 'rename', name)
+    }
+    return <ProductTextInput
+      data-testid="library-rename-input"
+      value={entry.title}
+      aria-label={message('library.blueprint.rename', { name: entry.title })}
+      ref={(input) => queueMicrotask(() => { input.focus(); input.select() })}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        event.stopPropagation()
+        if (event.key === 'Enter') finish(event.currentTarget, true)
+        if (event.key === 'Escape') finish(event.currentTarget, false)
+      }}
+      onBlur={(event) => { if (renamingId() === entry.id) finish(event.currentTarget, false) }}
+    />
   }
   const panelSources = createMemo(() => props.sources.map((source): CollectionSource => ({
     ...source,
@@ -378,15 +422,32 @@ export function LibraryPanel(props: LibraryPanelProps) {
                 entry={entry}
                 sourceId={sourceId()}
                 message={message}
-                {...(props.onAction ? { onAction: props.onAction } : {})}
+                onAction={entryAction}
               />
             : undefined}
         {...(props.refreshTick ? { refreshTick: props.refreshTick } : {})}
         {...(props.onActivate ? { onActivate: props.onActivate } : {})}
-        {...(props.onAction ? { onAction: props.onAction } : {})}
+        onAction={entryAction}
+        titleEditor={titleEditor}
         {...(props.sourceActions ? { sourceActions: props.sourceActions } : {})}
         {...(props.onSourceAction ? { onSourceAction: props.onSourceAction } : {})}
       />
+      <Show when={removing()}>
+        {(entry) => (
+          <ProductDialog title={message('library.blueprint.remove.title', { name: entry().title })} onDismiss={() => setRemoving(undefined)}>
+            <ProductConfirmation
+              consequence={message('library.blueprint.remove.consequence')}
+              actionLabel={message('library.blueprint.remove.confirm')}
+              intent="remove"
+              onCancel={() => setRemoving(undefined)}
+              onConfirm={() => {
+                setRemoving(undefined)
+                props.onAction?.('blueprints', entry(), 'remove')
+              }}
+            />
+          </ProductDialog>
+        )}
+      </Show>
     </div>
   )
 }

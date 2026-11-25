@@ -14,7 +14,8 @@ import {
   type CollectionSource,
 } from '@dinkster/core'
 import { HISTORY_STATES, type ExecutionState, type HistoryRunRecord, type LibraryRecord, type TemplateDescriptor } from '@dinkster/client'
-import { LIBRARY_SCOPE, WORKFLOW_LABEL, type AppState, type Backend } from './app-state.js'
+import { BLUEPRINT_LABEL, LIBRARY_SCOPE, WORKFLOW_LABEL, type AppState, type Backend } from './app-state.js'
+import { activeProjectId } from './projects.js'
 import { runAttributionLabel, type RunAttribution } from './run-attribution.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 
@@ -361,6 +362,47 @@ export function workflowsSource(app: AppState): CollectionSource {
       return {
         owner: backend.id,
         items: page.records.map((r) => workflowEntry(r, backend)),
+        ...(nextCursor !== undefined ? { cursor: nextCursor } : {}),
+      }
+    },
+  }
+}
+
+/** One saved blueprint of this project; pack blueprints are not listed here. */
+const blueprintEntry = (r: LibraryRecord, backend: Backend): CollectionEntry => ({
+  id: r.id,
+  owner: backend.id,
+  title: r.name,
+  subtitle: `Saved ${formatCollectionDate(r.modified * 1000)}`,
+  details: [
+    { label: 'saved in', text: 'this project' },
+    { label: 'backend', text: backend.label },
+    { label: 'digest', text: r.digest },
+  ],
+  actions: [{ id: 'rename', label: 'Rename' }, { id: 'remove', label: 'Remove' }],
+})
+
+/** The open project's saved blueprints, newest first, paged by the engine like Workflows. */
+export function blueprintsSource(app: AppState): CollectionSource {
+  return {
+    id: 'blueprints',
+    label: 'Blueprints',
+    page: async (req) => {
+      const backend = app.libraryBackend()
+      if (!backend) return { items: [], total: 0 }
+      const cursor = decodeOwnedCursor(backend.id, req.cursor)
+      const page = await backend.connection.listLibrary({
+        scope: LIBRARY_SCOPE,
+        query: req.query,
+        label: BLUEPRINT_LABEL,
+        project: activeProjectId(),
+        limit: req.limit,
+        ...(cursor !== undefined ? { cursor } : {}),
+      })
+      const nextCursor = encodeOwnedCursor(backend.id, page.cursor)
+      return {
+        owner: backend.id,
+        items: page.records.map((r) => blueprintEntry(r, backend)),
         ...(nextCursor !== undefined ? { cursor: nextCursor } : {}),
       }
     },
