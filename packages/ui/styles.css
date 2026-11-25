@@ -1008,7 +1008,7 @@
 .dinkster-fixes-review-group + .dinkster-fixes-review-group { margin-top: var(--dinkster-space-12); }
 .dinkster-fixes-review-kind { display: block; color: var(--dinkster-text-muted); }
 .dinkster-fixes-review-row { display: grid; gap: var(--dinkster-space-4); width: 100%; padding: var(--dinkster-space-8); border: 0; border-radius: var(--dinkster-radius-small); color: var(--dinkster-text-primary); background: var(--dinkster-surface-field); font: inherit; text-align: left; cursor: pointer; user-select: none; }
-.dinkster-fixes-review-row:is(:hover, [aria-current]) { background: var(--dinkster-surface-raised); }
+.dinkster-fixes-review-row:is(:hover, [aria-current]) { background: var(--dinkster-interaction-pressed); }
 .dinkster-fixes-review-node { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dinkster-fixes-review-changes { display: grid; color: var(--dinkster-text-secondary); white-space: pre-line; overflow-wrap: anywhere; }
 .dinkster-fixes-review-foot { padding: var(--dinkster-space-4) var(--dinkster-space-12) var(--dinkster-space-8); }
