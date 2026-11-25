@@ -116,6 +116,10 @@ test('the left bar account menu opens beside the bar, upward from its trigger', 
     const surface = (await menu.boundingBox())!
     expect(surface.x).toBeGreaterThanOrEqual(anchor.x + anchor.width)
     expect(surface.y + surface.height).toBeCloseTo(anchor.y + anchor.height, 0)
+    // The account is a 32 px circle, its open highlight included.
+    expect(anchor.width).toBe(32)
+    expect(anchor.height).toBe(32)
+    await expect(trigger).toHaveCSS('border-radius', '999px')
     await page.keyboard.press('Escape')
     await expect(trigger).toBeFocused()
   }
