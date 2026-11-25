@@ -35,7 +35,7 @@ async function openGalleryFromSearch(page: import('@playwright/test').Page): Pro
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('> Open template gallery')
   await page
-    .locator('[data-provider="core.commands"]')
+    .locator('[data-group="core.commands"]')
     .getByRole('option', { name: 'Open template gallery' })
     .click()
 }
