@@ -50,9 +50,8 @@ test('whole-workflow and executing-node progress update from the same execution 
   await settlePaint(page)
 
   const workflowProgress = page.getByTestId('workflow-progress')
-  await expect(workflowProgress).toContainText('Workflow 63%')
-  await expect(workflowProgress).toContainText('2 of 4 nodes')
-  await expect(workflowProgress.locator('progress')).toHaveAttribute('value', '0.625')
+  await expect(workflowProgress).toHaveAttribute('aria-valuetext', '63%, 2 of 4 nodes')
+  await expect(workflowProgress).toHaveAttribute('value', '0.625')
   const firstBitmap = await page.getByTestId('graph-canvas').evaluate((canvas) =>
     (canvas as HTMLCanvasElement).toDataURL())
 
@@ -63,7 +62,7 @@ test('whole-workflow and executing-node progress update from the same execution 
     } as never)
   }, seed)
   await settlePaint(page)
-  await expect(workflowProgress.locator('progress')).toHaveAttribute('value', '0.5625')
+  await expect(workflowProgress).toHaveAttribute('value', '0.5625')
   const changedBitmap = await page.getByTestId('graph-canvas').evaluate((canvas) =>
     (canvas as HTMLCanvasElement).toDataURL())
   expect(changedBitmap).not.toBe(firstBitmap)
@@ -75,7 +74,7 @@ test('whole-workflow and executing-node progress update from the same execution 
     } as never)
   }, seed)
   await settlePaint(page)
-  await expect(workflowProgress.locator('progress')).toHaveAttribute('value', '0.6575')
+  await expect(workflowProgress).toHaveAttribute('value', '0.6575')
   if (proofDir !== undefined) {
     await page.screenshot({
       path: join(proofDir, 'workflow-and-node-progress.png'),

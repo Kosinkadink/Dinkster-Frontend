@@ -56,6 +56,13 @@ export async function productOption(page: Page, optionId: string): Promise<Locat
   return option
 }
 
+/** Shows this workflow's runs or every workflow's in the Runs panel. */
+export async function chooseRunScope(page: Page, scope: 'workflow' | 'all'): Promise<void> {
+  const control = page.getByTestId('runs-scope')
+  await control.locator(`[data-scope="${scope}"]`).click()
+  await expect(control).toHaveAttribute('data-selected-id', scope)
+}
+
 export async function selectProductOption(page: Page, control: Locator, optionId: string, selectedId = optionId): Promise<void> {
   await control.click()
   await (await productOption(page, optionId)).click()
@@ -105,6 +112,8 @@ export async function unfoldNodeEditor(page: Page, nodeId: string, inputId: stri
 
 export async function executionDetails(row: Locator): Promise<Locator> {
   const details = row.locator('details.runs-details')
+  // A running or queued row shows its outputs and details once its name is pressed.
+  if (await details.count() === 0) await row.locator('.run-row-name').click()
   if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) {
     await details.locator('summary').click()
   }

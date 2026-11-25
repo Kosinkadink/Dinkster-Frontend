@@ -76,6 +76,7 @@
   "runs.loading": "正在加载保留的输出...",
   "runs.loadError": "无法加载输出: {error}",
   "runs.agent": "智能体",
+  "runs.row.grouped": "{count} 次运行",
   "runs.row.next": "下一个",
   "runs.row.inLine": "排第 {place}",
   "runs.row.step": "{node}，第 {step}/{total} 步",

@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, mockProjectPacks, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, mockProjectPacks, nativeTest as test, waitForWorkspaceReady, type Page, chooseRunScope } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_ACTIVITY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -137,7 +137,7 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   await expect.poll(() => page.evaluate(() => window.__dinksterTest !== undefined)).toBe(true)
   await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected')
   await waitForWorkspaceReady(page)
-  await expect(page.getByTestId('runs-panel').getByRole('img', { name: /running, .*queued/ })).toHaveCount(0)
+  await expect(page.getByTestId('runs-panel').getByTestId('runs-running')).toHaveCount(0)
   await seedExecutions(page)
   await capture(page, 'after-activity-workflow-counts')
 
@@ -145,9 +145,10 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   await expect(page.getByTestId('workflow-queue-summary')).toContainText('1 running, 1 queued')
   await expect(page.getByTestId('workflow-queue-entry')).toHaveCount(6)
   await expect(page.getByTestId('execution-row')).toHaveCount(6)
-  await expect(page.getByTestId('runs-panel').getByRole('img', { name: '1 running, 1 queued', exact: true })).toBeVisible()
+  await expect(page.getByTestId('runs-panel').getByTestId('runs-running').getByRole('heading')).toHaveText('Running (1)')
+  await expect(page.getByTestId('runs-panel').getByTestId('runs-queued').getByRole('heading')).toHaveText('Queued (1)')
   await expect(page.getByTestId('backend-group').filter({ hasText: 'backend removed or disconnected' })).toContainText('/removed-activity-proof')
-  const runningEntry = page.getByTestId('workflow-queue-entry').filter({ hasText: 'running-' })
+  const runningEntry = page.locator('[data-testid="workflow-queue-entry"][data-status="running"]')
   await expect(runningEntry).toContainText(/Running|running/)
   if (process.env['DINKSTER_ACTIVITY_EXPECT_REDESIGN'] === '1') {
     await expect(runningEntry).toContainText(/63%/)
@@ -164,15 +165,16 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   await railScroll.evaluate((element) => { element.scrollTop = 0 })
 
   await page.getByTestId('workflow-queue-toggle').click()
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
+  await chooseRunScope(page, 'all')
   const panel = page.getByTestId('runs-panel')
-  await expect(panel.getByRole('img', { name: '2 running, 1 queued', exact: true })).toBeVisible()
+  await expect(panel.getByTestId('runs-running').getByRole('heading')).toHaveText('Running (2)')
+  await expect(panel.getByTestId('runs-queued').getByRole('heading')).toHaveText('Queued (1)')
   const runs = panel.getByRole('listbox', { name: 'Runs results', exact: true })
   const runEntries = runs.getByTestId('collection-entry')
   await expect(panel.getByTestId('execution-row')).toHaveCount(3)
   await capture(page, 'after-activity-all-workflows-counts')
   await page.setViewportSize({ width: 390, height: 844 })
-  await expect(panel.getByRole('img', { name: '2 running, 1 queued', exact: true })).toBeInViewport()
+  await expect(panel.getByTestId('runs-running').getByRole('heading')).toBeInViewport()
   await capture(page, 'after-activity-narrow-counts')
   await page.setViewportSize({ width: 1600, height: 950 })
   await page.evaluate(() => {
@@ -180,7 +182,7 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
     const external = [...store.executions.get().values()].find((entry) => entry.ref.prompt.startsWith('external-incomplete-'))!
     store.apply({ kind: 'completed', execution: external.ref, timestamp: Date.now() + 8 } as never)
   })
-  await expect(panel.getByRole('img', { name: '1 running, 1 queued', exact: true })).toBeVisible()
+  await expect(panel.getByTestId('runs-running').getByRole('heading')).toHaveText('Running (1)')
   await expect(panel.getByTestId('execution-row')).toHaveCount(2)
   await expect(runEntries).toHaveCount(23)
   const group = runEntries.filter({ hasText: /2 runs|x2/ }).first()
@@ -203,7 +205,7 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   await capture(page, 'after-activity-narrow-runs')
 
   await page.setViewportSize({ width: 720, height: 450 })
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await chooseRunScope(page, 'workflow')
   await page.getByTestId('workflow-queue-toggle').focus()
   await page.keyboard.press('Enter')
   await page.locator('.workflow-queue-list').evaluate((element) => { element.scrollTop = element.scrollHeight })

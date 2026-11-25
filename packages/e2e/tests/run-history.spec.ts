@@ -18,7 +18,7 @@
  * lives in the gated dev pack and a plain dinkster-serve does not compose it.
  * Skips loudly when no backend answers. Missing required dev nodes fail.
  */
-import { expect, nativeTest, openRailPanel, productOption, selectProductOption, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeTest, openRailPanel, productOption, selectProductOption, test, waitForWorkspaceReady, type Page, chooseRunScope } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
@@ -128,7 +128,7 @@ async function durableRecords(): Promise<readonly {
 /** Open backend history in the right-side Runs panel. */
 async function openRuns(page: Page): Promise<void> {
   await openRailPanel(page, 'Runs')
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
+  await chooseRunScope(page, 'all')
 }
 
 /** The runs entry whose subtitle is the run's jobId prefix. */
@@ -159,13 +159,13 @@ test('a durable stamped record: click selects, the open action reopens the produ
   await openRuns(page)
   const entry = entryFor(page, jobId)
   await expect(entry).toHaveCount(1)
-  await expect(entry.locator('.collection-badges')).toContainText('completed')
-  await expect(entry.locator('.collection-badges')).toContainText('Source recorded')
 
   // Click selects and inspects - it must NOT open anything or close the
   // panel (that would make the delete affordance unreachable).
   await entry.click()
   await expect(page.getByTestId('runs-panel')).toBeVisible()
+  await expect(entry.locator('.collection-badges')).toContainText('completed')
+  await expect(entry.locator('.collection-badges')).toContainText('Source recorded')
   await entry.locator('.runs-details > summary').click()
   await expect(entry.locator('.output-facts').first()).toContainText('source document')
 
@@ -231,6 +231,8 @@ test('two cached runs collapse into one expandable no-op history row', async ({ 
   await expect(grouped.getByTestId('collection-expand')).toHaveAttribute('aria-expanded', 'true')
   await expect(page.locator('.collection-entry.collection-child')).toHaveCount(2)
   for (const child of await page.locator('.collection-entry.collection-child').all()) {
+    // A stored row shows its badges while it is chosen.
+    await child.click()
     await expect(child.locator('.collection-badges')).toContainText('0 run')
     await expect(child.locator('.collection-badges')).not.toContainText('0 cached')
   }
@@ -261,7 +263,7 @@ test('delete removes the record only: the collection re-pages and asset bytes su
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=100`)).json() as
     { records: { jobId: string }[] }
   expect(listing.records.some((r) => r.jobId === jobId)).toBe(false)
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await chooseRunScope(page, 'workflow')
   await expect(page.getByTestId('runs-panel').getByTestId('execution-row')).toHaveCount(0)
 })
 
@@ -280,7 +282,7 @@ test('a delete failure lands in Problems and keeps the record', async ({ page })
   await remove.click()
   await expect(page.getByTestId('problems-panel')).toContainText('history.deleteFailed')
   await expect(entry).toHaveCount(1)
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await chooseRunScope(page, 'workflow')
   await expect(page.getByTestId('runs-panel').getByTestId('execution-row')).toHaveCount(1)
 })
 
@@ -367,7 +369,7 @@ nativeTest('clear arms first, wipes the whole scope on confirmation', async ({ p
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=10`)).json() as
     { records: unknown[] }
   expect(listing.records).toHaveLength(0)
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'workflow')
+  await chooseRunScope(page, 'workflow')
   await expect(runs.getByTestId('execution-row')).toHaveCount(0)
   await expect(runs).toContainText('No runs for this workflow')
 })

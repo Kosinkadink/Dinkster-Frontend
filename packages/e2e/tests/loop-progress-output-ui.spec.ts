@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, mockProjectPacks, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { executionDetails, expect, mockProjectPacks, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_LOOP_UI_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -95,7 +95,7 @@ test('loop progress and outputs render per item', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
   await waitForWorkspaceReady(page)
   await installLoopExecution(page)
-  await page.getByTestId('runs-panel').locator('.runs-details > summary').click()
+  await executionDetails(page.getByTestId('execution-row').first())
 
   const progress = page.getByLabel('Loop iteration progress')
   await expect(progress).toContainText('map mapImages - item 1completed')

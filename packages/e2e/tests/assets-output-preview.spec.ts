@@ -319,6 +319,9 @@ test('rail viewer and canvas paging remain ordered, accessible, ephemeral, and r
 })
 
 test('output inspection distinguishes lifecycle, asset identity, errors, and unavailable owners', async ({ page }) => {
+  // Rows sit under Running, Queued and Finished, newest first in each.
+  const section = { queued: 'runs-queued', running: 'runs-running' } as const
+  let row = page.getByTestId('execution-row').first()
   const installState = async (kind: 'queued' | 'running' | 'loading' | 'empty' | 'error' | 'asset' | 'disconnected-owner' | 'removed-owner') => {
     await page.evaluate((stateKind) => {
       const app = window.__dinksterTest!.app as any
@@ -376,10 +379,15 @@ test('output inspection distinguishes lifecycle, asset identity, errors, and una
         if (stateKind === 'empty') app.store.hydrateArtifacts(ref, [])
       }
     }, kind)
+    row = kind === 'queued' || kind === 'running' ? page.getByTestId(section[kind]).getByTestId('execution-row').first()
+      : kind === 'disconnected-owner' ? page.getByRole('list', { name: 'Configured disconnected owner', exact: true }).getByTestId('execution-row')
+      : kind === 'removed-owner' ? page.getByRole('list', { name: /removed backend executions/ }).getByTestId('execution-row')
+      : page.getByTestId('runs-finished').getByTestId('execution-row').first()
+    // A row shows its outputs once its name is pressed.
+    if (await row.locator('.runs-output-thumbnails').count() === 0) await row.locator('.run-row-name').click()
+    state = row.locator('.runs-output-thumbnails > [data-state]')
   }
-
-  const row = page.getByTestId('execution-row').first()
-  const state = row.locator('.runs-output-thumbnails > [data-state]')
+  let state = row.locator('.runs-output-thumbnails > [data-state]')
   await installState('queued')
   await expect(state).toHaveText('Waiting for image outputs')
   await expect(state).toHaveAttribute('title', 'The execution is queued.')

@@ -1263,7 +1263,10 @@ export function App(props: {
   const cancelling = useSignal(app.cancellingExecutions)
   const ExecutionRow = (p: { exec: ExecutionState; all: readonly ExecutionState[] }) => {
     const live = () => liveTabOf(p.exec)
-    const selected = () => selectedRun()?.key === p.exec.key
+    // A finished run shows its outputs while it is the chosen run; a running or
+    // queued one only once its name is pressed, so the list stays one line each.
+    const selected = () => selectedRunKey() === p.exec.key ||
+      (selectedRunKey() === undefined && !runIsPending(p.exec) && selectedRun()?.key === p.exec.key)
     const thumbnail = () => runIsPending(p.exec) ? undefined : executionThumbnail(p.exec)
     return <RunRow entry={p.exec} name={app.tabTitleFor(p.exec.ref)} workflow={app.tabTitleFor(p.exec.ref)}
       statusInNote all={p.all} testId="execution-row" nodeTitle={runtimeNodeTitle}
@@ -1272,9 +1275,9 @@ export function App(props: {
       onOpen={() => { void app.openExecutionView(p.exec.ref) }}
       thumbnail={<Show when={thumbnail()}>{(asset) => <RunThumbnail
         url={app.assetUrlForExecution(p.exec.ref, asset().digest)} mediaType={asset().mediaType} />}</Show>}
-      selected={!runIsPending(p.exec) && selected()}
-      onSelect={runIsPending(p.exec) ? undefined : () => setSelectedRunKey(p.exec.key)}>
-      <Show when={!runIsPending(p.exec) && selected()}>
+      selected={selected()}
+      onSelect={() => setSelectedRunKey(selected() && selectedRunKey() === p.exec.key ? undefined : p.exec.key)}>
+      <Show when={selected()}>
         <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
             entry={p.exec}
             title={app.tabTitleFor(p.exec.ref)}
@@ -1518,9 +1521,20 @@ export function App(props: {
     const now = useNow()
     const note = () => {
       const execution = known()
-      const ended = execution?.endedAt ?? record()?.finishedAt
+      // Durable records count seconds; the store counts milliseconds.
+      const finished = record()?.finishedAt
+      const ended = execution?.endedAt ?? (finished === undefined ? undefined : finished * 1000)
       if (ended === undefined) return p.entry.subtitle
-      return execution === undefined ? runAge(ended, now()) : `${executionStatusLabel(execution.status)}, ${runAge(ended, now())}`
+      // The short job id tells apart runs of one workflow that ended close together.
+      const job = (record()?.jobId ?? p.entry.id).slice(0, 8)
+      const grouped = p.entry.children?.length ?? 0
+      const parts = [
+        ...(execution === undefined ? [] : [executionStatusLabel(execution.status)]),
+        runAge(ended, now()),
+        ...(grouped > 1 ? [message('runs.row.grouped', { count: grouped })] : []),
+        job,
+      ]
+      return parts.join(', ')
     }
     return <div class="runs-stored-row run-row" data-selected={p.selected() ? 'true' : undefined}>
       <div class="run-row-line">
@@ -1566,7 +1580,7 @@ export function App(props: {
   }
   const RunsPanel = () => (
     <div class="rail-panel-body runs-panel" data-testid="runs-panel">
-      <div class="runs-scope" role="group" aria-label={message('runs.scope')} data-testid="runs-scope">
+      <div class="runs-scope" role="group" aria-label={message('runs.scope')} data-testid="runs-scope" data-selected-id={runScope()}>
         <For each={['workflow', 'all'] as const}>{(scope) => (
           <ProductButton type="button" variant="ghost" size="compact" class="runs-scope-option" data-scope={scope}
             aria-pressed={runScope() === scope} onClick={() => setRunScope(scope)}>{message(`runs.scope.${scope}`)}</ProductButton>

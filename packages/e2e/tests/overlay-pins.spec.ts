@@ -13,7 +13,7 @@ async function queueAndComplete(page: Page): Promise<void> {
   await page.getByTestId('queue-button').click()
   const row = page.getByTestId('execution-row').first()
   await expect(row).toBeVisible({ timeout: 10_000 })
-  await expect(row.locator('.runs-row-heading .execution-status')).toHaveText('Completed', { timeout: 30_000 })
+  await expect(row.locator('.run-row-line .execution-status')).toHaveText('Completed', { timeout: 30_000 })
 }
 
 const switchTab = (page: Page, title: string) =>

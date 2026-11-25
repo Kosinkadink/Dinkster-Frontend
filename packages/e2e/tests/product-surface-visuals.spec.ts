@@ -1,4 +1,4 @@
-import { expect, nativeAppViewTest as test, subgraphMarkPoint, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeAppViewTest as test, subgraphMarkPoint, waitForWorkspaceReady, type Page, chooseRunScope } from './fixtures.js'
 import type { Route } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
@@ -300,8 +300,7 @@ test('stored run outputs load only after selection and retain their original ide
   await boot(page)
   await closeGallery(page)
   await openRail(page, 'Runs')
-  await page.getByTestId('runs-scope').click()
-  await page.getByRole('option', { name: 'All workflows', exact: true }).click()
+  await chooseRunScope(page, 'all')
   const rows = page.getByTestId('collection-entry')
   await expect(rows).toHaveCount(3)
   expect(jobs).toEqual([])
@@ -333,10 +332,8 @@ test('stored run outputs load only after selection and retain their original ide
   await page.keyboard.press('Escape')
   await page.screenshot({ path: testInfo.outputPath('stored-run-error.png'), animations: 'disabled' })
   await page.route('**/api/history?*', (route) => route.fulfill({ json: { records: [] } }))
-  await page.getByTestId('runs-scope').click()
-  await page.getByRole('option', { name: 'This workflow', exact: true }).click()
-  await page.getByTestId('runs-scope').click()
-  await page.getByRole('option', { name: 'All workflows', exact: true }).click()
+  await chooseRunScope(page, 'workflow')
+  await chooseRunScope(page, 'all')
   const empty = page.getByTestId('runs-panel').getByTestId('collection-empty')
   await expect(empty).toHaveText('No finished runs are stored')
   await page.screenshot({ path: testInfo.outputPath('stored-runs-empty.png'), animations: 'disabled' })

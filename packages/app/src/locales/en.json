@@ -76,6 +76,7 @@
   "runs.loading": "Loading retained outputs...",
   "runs.loadError": "Could not load outputs: {error}",
   "runs.agent": "agent",
+  "runs.row.grouped": "{count} runs",
   "runs.row.next": "next",
   "runs.row.inLine": "{place} in line",
   "runs.row.step": "{node}, step {step} of {total}",
