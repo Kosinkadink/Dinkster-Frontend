@@ -11,6 +11,7 @@ import { classifyFlattenBoundaryRoute, planFlattenBoundaryRoutes } from '../src/
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
 import type { InputSpec, NodeSchema } from '../src/schema/model.js'
+import { PRIMITIVE_SCHEMAS, withPrimitives } from './fixtures/primitive-schemas.js'
 
 const schema: NodeSchema = {
   type: 'Relay', displayName: 'Relay', category: 'test', source: 'v3', isOutputNode: true,
@@ -34,14 +35,14 @@ const definition = (id = 'inner') => ({
 const instance = (id: number, type = 'inner', value = 19) => ({ id, type,
   inputs: [{ name: 'value', widget: { name: 'value' } }], outputs: [{ name: 'result' }], widgets_values: [value] })
 const imported = (raw: unknown, resolver = resolve): WorkflowDocument => {
-  const result = importLitegraph(raw as JsonObject, resolver)
+  const result = importLitegraph(raw as JsonObject, withPrimitives(resolver), undefined, [], PRIMITIVE_SCHEMAS)
   expect(result.diagnostics.filter((item) => item.severity === 'error')).toEqual([])
   expect(result.document).toBeDefined()
   expect(loadDocument(result.document).document).toEqual(result.document)
   return result.document!
 }
 const prompt = (document: WorkflowDocument, resolver = resolve) => {
-  const result = compile({ document, revision: 1, resolve: resolver, scope: { kind: 'full' },
+  const result = compile({ document, revision: 1, resolve: withPrimitives(resolver), scope: { kind: 'full' },
     connection: asConnectionId('test'), schemaHash: 'test' })
   expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
   if (!result.ok) throw new Error('compile failed')
@@ -557,7 +558,7 @@ describe('LiteGraph subgraphs', () => {
       inputs: [{ name: grouped ? 'items.item2.amount' : 'items.item2', link: 1 }], outputs: [{ name: 'result' }] }] }
     const result = importLitegraph({ nodes: [{ ...instance(1), inputs: [{ name: 'value' }], widgets_values: [] },
       { id: 3, type: 'PrimitiveNode', widgets_values: [29], outputs: [{ name: 'INT' }] }],
-      links: [[3, 3, 0, 1, 0, 'INT']], definitions: { subgraphs: [def] } } as JsonObject, resolver)
+      links: [[3, 3, 0, 1, 0, 'INT']], definitions: { subgraphs: [def] } } as JsonObject, withPrimitives(resolver), undefined, [], PRIMITIVE_SCHEMAS)
     expect(result.diagnostics.filter((item) => item.severity !== 'info')).toEqual([])
     const doc = result.document!
     const port = grouped ? 'items.item2.amount' : 'items.item2'
@@ -721,7 +722,7 @@ describe('LiteGraph subgraphs', () => {
 
   it('preserves primitive proxy values independently through structural output boundaries', () => {
     const def = { ...definition(), inputs: [], nodes: [
-      { id: 1, type: 'PrimitiveNode', pos: [61, 29], outputs: [{ name: 'INT' }], widgets_values: [7, 'fixed'] },
+      { id: 1, type: 'PrimitiveNode', pos: [61, 29], outputs: [{ name: 'INT', type: 'INT' }], widgets_values: [7, 'fixed'] },
     ], links: [link(2, 1, 0, -20, 0)] }
     const host = (id: number, value: Json, mode: string) => ({ ...instance(id), inputs: [], widgets_values: [value, mode],
       properties: { proxyWidgets: [['1', 'value'], ['1', 'control_after_generate']] } })
@@ -731,10 +732,14 @@ describe('LiteGraph subgraphs', () => {
     const source = JSON.stringify(raw)
     const doc = imported(raw)
     expect(JSON.stringify(raw)).toBe(source)
-    expect(doc.graphs.inner!.nodes).toEqual({})
+    expect(doc.graphs.inner!.nodes).toEqual({ n1: {
+      id: 'n1', type: 'dinkster.utilities.primitive_int', values: { value: 7 }, controllers: { value: 'fixed' },
+    } })
     expect(doc.graphs.inner!.links).toEqual({})
-    expect(doc.graphs.inner!.valueSources).toEqual({ v1: { id: 'v1', value: 7, controller: 'fixed' } })
-    expect(doc.view.graphs.inner!.valueSources!.v1!.position).toEqual({ x: 61, y: 29 })
+    expect(doc.graphs.inner!.boundary!.inputs).toEqual([{
+      id: 'proxy-primitive-1', displayName: 'value', binds: { kind: 'port', node: 'n1', port: 'value' }, promoted: true,
+    }])
+    expect(doc.view.graphs.inner!.nodes.n1!.position).toEqual({ x: 61, y: 29 })
     expect(doc.graphs.g0!.nodes.n1!.values).toEqual({ 'proxy-primitive-1': 11 })
     expect(doc.graphs.g0!.nodes.n2!.values).toEqual({ 'proxy-primitive-1': 29 })
     expect(doc.graphs.g0!.nodes.n1!.controllers).toEqual({ 'proxy-primitive-1': 'increment' })
@@ -759,8 +764,8 @@ describe('LiteGraph subgraphs', () => {
         to: { node: asNodeId('n1'), port: asPortId('proxy-primitive-1') } } },
     } } }
     expect(prompt(driven).n3!.inputs.value).toEqual(['n9', 0])
-    expect(store.dispatch({ command: 'valueSource.remove', params: { graphId: 'inner', valueSourceIds: ['v1'] } }).ok).toBe(true)
-    expect(store.doc.graphs.inner!.boundary).toEqual({ inputs: [], outputs: [] })
+    expect(store.dispatch({ command: 'node.remove', params: { graphId: 'inner', nodeIds: ['n1'] } }).ok).toBe(true)
+    expect(store.doc.graphs.inner!.nodes).toEqual({})
     expect(store.undo()).toBe(true)
     expect(store.doc.graphs.inner).toEqual(doc.graphs.inner)
     expect(prompt(store.doc)).toEqual(compiled)

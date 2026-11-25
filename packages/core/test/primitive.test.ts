@@ -32,6 +32,10 @@ const schemas: Record<string, NodeSchema> = {
     input('value', COMBO),
     { kind: 'output', id: 'COMBO', type: COMBO, knownValue: { input: 'value' } },
   ] as NodeSchema['body'], { isOutputNode: false }),
+  Boolean: schemaOf('Boolean', [
+    input('value', { kind: 'concrete', name: 'BOOLEAN' }, { widgetType: 'BOOLEAN', options: {} }),
+    { kind: 'output', id: 'BOOLEAN', type: { kind: 'concrete', name: 'BOOLEAN' }, knownValue: { input: 'value' } },
+  ] as NodeSchema['body'], { isOutputNode: false }),
   Steps: schemaOf('Steps', [input('steps', INT, intWidget({ min: 0, max: 8 }, { default: 4 }), { displayName: 'Steps' })]),
   Count: schemaOf('Count', [input('count', INT, intWidget({ min: 4, max: 12, step: 2 }, { default: 4 }), { displayName: 'Count' })]),
   Counter: schemaOf('Counter', [{ kind: 'output', id: 'INT', type: INT }] as NodeSchema['body'], { isOutputNode: false }),
@@ -78,9 +82,9 @@ describe('a primitive works out its value widget', () => {
     expect([...effective.derived].sort()).toEqual(['default', 'max', 'min', 'step'])
     expect(effective.label).toBeUndefined()
     expect(effective.diagnostics).toEqual([])
-    // The fields share a default of 4, so Reset goes there, and the empty Default field shows it dimmed.
+    // Reset goes to the default of the first field it feeds, 4, and the empty Default field shows it dimmed.
     expect(effective.spec?.default).toBe(4)
-    const drawn = documentNodeResolver(doc, resolve, undefined, documentPrimitiveResolver(doc, resolve))('g0', doc.graphs['g0']!.nodes['prim'] as NodeData, [])!
+    const drawn = documentNodeResolver(doc, resolve, documentPrimitiveResolver(doc, resolve))('g0', doc.graphs['g0']!.nodes['prim'] as NodeData, [])!
     expect(inputsOf(drawn).find((row) => row.id === 'default')!.widget).toMatchObject({ default: 4, automatic: true })
     // The value itself is never corrected by working out the range.
     expect(doc.graphs['g0']!.nodes['prim']!.values['value']).toBe(2)
@@ -94,7 +98,7 @@ describe('a primitive works out its value widget', () => {
     expect([...effective.derived]).toEqual(['max'])
     expect(effective.spec?.default).toBe(7)
     const node = doc.graphs['g0']!.nodes['prim'] as NodeData
-    const drawn = documentNodeResolver(doc, resolve, undefined, documentPrimitiveResolver(doc, resolve))('g0', node, [])!
+    const drawn = documentNodeResolver(doc, resolve, documentPrimitiveResolver(doc, resolve))('g0', node, [])!
     const value = inputsOf(drawn).find((row) => row.id === 'value')!
     expect(value.widget?.options).toMatchObject({ min: 5, max: 8 })
     expect(value.displayName).toBe('Steps')
@@ -148,6 +152,14 @@ describe('a primitive works out its value widget', () => {
     expect(effective.diagnostics).toEqual([])
   })
 
+  it('keeps a Boolean on a Switch\'s Pick a Boolean without a conflict, and reports one on a number field', () => {
+    const onPick = effectiveOf(docOf({ flag: { type: 'Boolean' }, s1: { type: 'Switch' } }, [['flag', 'BOOLEAN', 's1', 'pick']]), 'flag')!
+    expect(onPick.spec?.widgetType).toBe('BOOLEAN')
+    expect(onPick.diagnostics).toEqual([])
+    const onSteps = effectiveOf(docOf({ flag: { type: 'Boolean' }, a: { type: 'Steps' } }, [['flag', 'BOOLEAN', 'a', 'steps']]), 'flag')!
+    expect(onSteps.diagnostics.map((d) => d.code)).toEqual(['primitive.widgetType.conflict'])
+  })
+
   it('gives the general Primitive the widget and label of the field it feeds, though it runs', () => {
     const doc = docOf({ prim: { type: 'Primitive', values: { value: '#00ff00' } }, t: { type: 'Tint' } }, [['prim', 'value', 't', 'tint']])
     const effective = effectiveOf(doc, 'prim')!
@@ -198,8 +210,10 @@ describe('renaming a Switch\'s branch', () => {
       const node = doc.graphs['g0']!.nodes[id] as NodeData
       ;(doc.graphs['g0']!.nodes as Record<string, NodeData>)[id] = { ...node, dynamic: { branch: { members: ['a', 'b'], memberLabels } } } as NodeData
     }
-    return new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => all }))
+    return storeOf(doc)
   }
+  const storeOf = (doc: WorkflowDocument) =>
+    new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => all }))
   const rename = (store: DocumentStore, nodeId: string, member: string, label: string) =>
     store.dispatch({ command: 'dynamic.labelMember', params: { graphId: 'g0', nodeId, construct: 'branch', member, label } })
   const valueOf = (store: DocumentStore, nodeId: string) => store.doc.graphs['g0']!.nodes[nodeId]!.values['value']
@@ -212,6 +226,26 @@ describe('renaming a Switch\'s branch', () => {
     expect(store.undo()).toBe(true)
     expect(valueOf(store, 'choice')).toBe('Detailed')
     expect(store.doc.graphs['g0']!.nodes['s1']!.dynamic?.['branch']?.memberLabels?.['b']).toBe('Detailed')
+  })
+
+  it.each(['reroute', 'named net'] as const)('gives a Choice that reaches Pick through a %s the new name', (route) => {
+    const doc = docOf({ choice: { type: 'Choice', values: { value: 'Detailed' } }, s1: { type: 'Switch' } }, [])
+    const graph = doc.graphs['g0'] as unknown as Record<string, unknown> & { nodes: Record<string, NodeData> }
+    graph.nodes['s1'] = { ...graph.nodes['s1']!, dynamic: { branch: { members: ['a', 'b'], memberLabels: { a: 'Quick', b: 'Detailed' } } } } as NodeData
+    if (route === 'reroute') {
+      graph['reroutes'] = { r1: { id: 'r1' } }
+      graph['links'] = {
+        l0: { id: 'l0', from: { node: 'choice', port: 'COMBO' }, to: { reroute: 'r1' } },
+        l1: { id: 'l1', from: { reroute: 'r1' }, to: { node: 's1', port: 'pick' } },
+      }
+    } else {
+      graph['nets'] = { n1: { id: 'n1', name: 'mode', source: { node: 'choice', port: 'COMBO' }, sinks: [{ node: 's1', port: 'pick' }] } }
+    }
+    const store = storeOf(doc)
+    expect(rename(store, 's1', 'b', 'Final').ok).toBe(true)
+    expect(valueOf(store, 'choice')).toBe('Final')
+    expect(store.undo()).toBe(true)
+    expect(valueOf(store, 'choice')).toBe('Detailed')
   })
 
   it('keeps the old name when another Switch the Choice feeds has no branch with the new one', () => {
@@ -262,7 +296,7 @@ describe('a primitive\'s range from its menu', () => {
   const [widgetReset, , , primitiveRange] = resetMenuContributions(() => resolve)
   const menu = (doc: WorkflowDocument): MenuContext => ({
     doc, graphId: 'g0', target: { kind: 'widget', nodeId: 'prim', inputId: 'value' },
-    selection: { nodes: [], links: [], reroutes: [], valueSources: [], selectors: [] }, worldX: 0, worldY: 0,
+    selection: { nodes: [], links: [], reroutes: [] }, worldX: 0, worldY: 0,
   })
   const run = (store: DocumentStore, item: MenuItem) => {
     const action = (item as MenuActionItem).action
@@ -285,7 +319,7 @@ describe('a primitive\'s range from its menu', () => {
     expect(store.doc.graphs['g0']!.nodes['prim']!.values).toEqual({ value: 6, minimum: 4, maximum: 7, step: 2 })
   })
 
-  it('resets the value to its own Default, and otherwise to the default the fed fields share', () => {
+  it('resets the value to its own Default, and otherwise to the default of the first field it feeds', () => {
     const withDefault = storeOf({ value: 6, default: 5 })
     run(withDefault, widgetReset!.resolve(menu(withDefault.doc))[0]!)
     expect(withDefault.doc.graphs['g0']!.nodes['prim']!.values['value']).toBe(5)

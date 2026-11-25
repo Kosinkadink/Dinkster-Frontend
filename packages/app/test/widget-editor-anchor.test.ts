@@ -155,20 +155,6 @@ describe('widgetEditorAnchorAlive', () => {
     expect(widgetEditorAnchorAlive(ed, nodes, 't0', 'g0', undefined, false)).toBe(true)
   })
 
-  it('retains value-source drafts only with the same effective widget contract', () => {
-    const spec: WidgetSpec = { widgetType: 'VIDEO_EDIT', options: { features: ['trim'] } }
-    const ed = editorState({ target: { kind: 'valueSource', valueSourceId: 'v0' }, spec })
-    const type: TypeExpr = { kind: 'concrete', name: 'VIDEO_EDIT' }
-    const sources = [{ id: 'v0', effective: { spec, type, consumers: [], diagnostics: [] } }]
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g0', undefined, true, sources)).toBe(true)
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g0', undefined, false, sources)).toBe(false)
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g0', undefined, true, [])).toBe(false)
-    expect(widgetEditorAnchorAlive(ed, [], 't1', 'g0', undefined, true, sources)).toBe(false)
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g1', undefined, true, sources)).toBe(false)
-    expect(widgetEditorAnchorAlive(ed, [], 't0', 'g0', undefined, true,
-      [{ ...sources[0]!, effective: { ...sources[0]!.effective, spec: assetSpec } }])).toBe(false)
-  })
-
   it('closes when a registry change flips the multi-select decision', () => {
     // Opened multi (scalar merge arm on), rebuilt registry dropped the
     // merge provider: committing would apply stale multi semantics.

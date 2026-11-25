@@ -100,7 +100,9 @@ export function keyPosition(keys: GroupKeysSpec, key: string): number | undefine
 
 /** The most members a group may have: its maximum, its names, and the member budget. */
 export function memberLimitOf(group: GroupSpec): number {
-  let limit = group.maxMembers ?? MAX_GROUP_MEMBERS
+  // A group shown on a subgraph node without a declared maximum shares the
+  // cap with the members inside, which take their places first.
+  let limit = group.maxMembers ?? MAX_GROUP_MEMBERS - (group.interiorMembers ?? 0)
   if (group.keys.kind === 'named') limit = Math.min(limit, group.keys.names.length)
   return Math.min(limit, MAX_GROUP_MEMBERS)
 }
@@ -135,7 +137,9 @@ export function optionRows(choice: ChoiceSpec, key: string): readonly OptionRow[
 export function defaultValuesOf(schema: NodeSchema): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   for (const row of scopeRowsOf(schema.body)) {
-    if (row.kind === 'input' && row.hidden !== true && row.widget?.default !== undefined) values[row.id] = row.widget.default
+    // An automatic field starts with nothing stored: it follows its formula
+    // or lookup until the user fixes a value.
+    if (row.kind === 'input' && row.hidden !== true && row.automatic === undefined && row.widget?.default !== undefined) values[row.id] = row.widget.default
   }
   return values
 }

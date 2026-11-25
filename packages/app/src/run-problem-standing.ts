@@ -7,8 +7,7 @@
  * the current document (recipeStandingFor, the test that keeps an older run's
  * previews). A field the next queue draws anew, such as a seed set to
  * randomize, is not a change. When the test cannot tell (no current compile,
- * a compile with an Error, other schemas, a random choice upstream) the
- * node keeps its previous answer; a node starts as unchanged. Undo back to
+ * a compile with an Error, other schemas) the node keeps its previous answer; a node starts as unchanged. Undo back to
  * the document that ran compiles to the same recipe and brings the color back.
  */
 

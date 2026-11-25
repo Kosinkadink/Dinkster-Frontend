@@ -8,10 +8,11 @@ import {
   type OverlayState,
   type Scene,
   type TextMeasurer,
+  type ToolboxEntry,
   type ToolboxRow,
   type WidgetMeasure,
 } from '../src/index.js'
-import { joined, sceneOf, type Graph, type NodeEntry } from './switch-primitive.js'
+import { joined, numberPrimitive, sceneOf, type Graph, type NodeEntry } from './switch-primitive.js'
 
 const concrete = (name: string) => ({ kind: 'concrete' as const, name })
 const field = (id: string, displayName: string, value: Json, options: Record<string, Json>): InputSpec => ({
@@ -38,38 +39,33 @@ const sharpen = schema('Sharpen', [pin('image'), field('amount', 'Amount', 0.4, 
 
 /**
  * Upscale pass: Scale is shown on the subgraph node without a wire, and
- * Strength is a value source inside that the subgraph node also sends.
+ * Strength is a Primitive inside whose value the subgraph node sends.
  */
 const detail: Graph = {
   name: 'Upscale pass',
   nodes: {
     up: { type: upscale, x: 210, y: 20, width: 180 },
     sharp: { type: sharpen, x: 430, y: 20, width: 180 },
+    strength: {
+      type: numberPrimitive('Primitive strength', 'Strength', 'FLOAT', 0.4, { min: 0, max: 1, step: 0.05 }, false, 'Strength'),
+      x: 210,
+      y: 170,
+      width: 180,
+    },
   },
   links: [
     ['up', 'IMAGE', 'sharp', 'image'],
-    { from: { valueSource: 'strength' }, to: { node: 'sharp', port: 'amount' } },
+    ['strength', 'FLOAT', 'sharp', 'amount'],
   ],
   boundary: {
     inputs: [
       { id: 'image', displayName: 'image', binds: { kind: 'port', node: 'up', port: 'image' } },
       { id: 'scale', displayName: 'Scale', binds: { kind: 'port', node: 'up', port: 'scale' }, promoted: true, wireHidden: true },
-      { id: 'strength', displayName: 'Strength', binds: { kind: 'valueSource', valueSource: 'strength', type: { kind: 'concrete', name: 'FLOAT' } }, promoted: true },
+      { id: 'strength', displayName: 'Strength', binds: { kind: 'port', node: 'strength', port: 'value' }, promoted: true, wireHidden: true },
     ],
     outputs: [{ id: 'result', displayName: 'image', binds: { kind: 'port', node: 'sharp', port: 'IMAGE' } }],
   },
   panels: { inputs: 0, outputs: 650 },
-  extra: {
-    valueSources: {
-      strength: {
-        id: 'strength',
-        value: 0.4,
-        title: 'Strength',
-        spec: { widgetType: 'FLOAT', options: { min: 0, max: 1, step: 0.05 } },
-      },
-    },
-  },
-  extraView: { valueSources: { strength: { position: { x: 230, y: 150 } } } },
 }
 
 const instance = (x: number, y: number, title?: string): NodeEntry => ({
@@ -86,16 +82,15 @@ export interface SubgraphIconCard {
   readonly scene: Scene
   readonly badges: BadgeMap
   readonly overlay?: OverlayState
+  readonly toolbox?: readonly ToolboxRow[]
 }
 
-/** The rows CanvasHost builds for one selected subgraph node in the root graph, without the run buttons. */
-export const subgraphToolbox: readonly ToolboxRow[] = [[
+/** A selection toolbox row as CanvasHost builds it in the root graph, without the run buttons. */
+const toolboxRow = (subgraphButtons: readonly ToolboxEntry[]): readonly ToolboxRow[] => [[
   toolboxButton({ id: 'core.delete', icon: 'trash-2', label: 'Delete' }),
   toolboxSeparator(),
   toolboxButton({ id: 'core.mode', icon: 'sliders-horizontal', label: 'Choose mode' }),
-  toolboxButton({ id: 'core.openSubgraph', icon: 'folder-open', label: 'Open subgraph' }),
-  toolboxButton({ id: 'core.extractSubgraph', icon: 'group', label: 'Extract as subgraph' }),
-  toolboxButton({ id: 'core.flattenSubgraph', icon: 'ungroup', label: 'Flatten subgraph one level' }),
+  ...subgraphButtons,
   toolboxSeparator(),
   toolboxButton({ id: 'core.color', icon: 'circle', label: 'Choose color' }),
   toolboxSeparator(),
@@ -127,7 +122,7 @@ export function subgraphIconGallery(
       badges: { a: [two], b: [two] },
     },
     {
-      caption: 'Fields shown on the subgraph node, entered through it: the cyan mark before Scale on the Inputs panel and on the Upscale node inside, and on the Strength value source the subgraph node sends.',
+      caption: 'Fields shown on the subgraph node, entered through it: the cyan mark before Scale on the Inputs panel and on the Upscale node inside, and on the Strength Primitive whose value the subgraph node sends.',
       scene: joined(
         scene({ root: { nodes: { entered: instance(0, 260, 'Upscale pass') } }, detail }),
         scene({ root: { nodes: { entered: instance(0, 260, 'Upscale pass') } }, detail }, { graph: 'detail', through: 'entered' }),
@@ -135,10 +130,26 @@ export function subgraphIconGallery(
       badges: { entered: [one] },
     },
     {
-      caption: 'A selected subgraph node and its toolbox. No toolbox button draws the subgraph icon: Open subgraph, Extract as subgraph and Flatten subgraph one level keep their icons.',
+      caption: 'One selected subgraph node: its toolbox has Open subgraph and Flatten subgraph, and no Create subgraph button.',
       scene: scene({ root: { nodes: { picked: instance(0, 60, 'Upscale pass') } }, detail }),
       badges: { picked: [one] },
       overlay: { selection: new Set(['picked']) },
+      toolbox: toolboxRow([
+        toolboxButton({ id: 'core.openSubgraph', icon: 'group', label: 'Open subgraph' }),
+        toolboxButton({ id: 'core.flattenSubgraph', icon: 'ungroup', label: 'Flatten subgraph' }),
+      ]),
+    },
+    {
+      caption: 'Two selected plain nodes: their toolbox has Create subgraph, drawn with the subgraph icon. One selected plain node has no subgraph button.',
+      scene: scene({
+        root: {
+          nodes: { up: { type: upscale, x: 0, y: 60, width: 180 }, sharp: { type: sharpen, x: 220, y: 60, width: 180 } },
+          links: [['up', 'IMAGE', 'sharp', 'image']],
+        },
+      }),
+      badges: {},
+      overlay: { selection: new Set(['up', 'sharp']) },
+      toolbox: toolboxRow([toolboxButton({ id: 'core.extractSubgraph', icon: 'subgraph', label: 'Create subgraph' })]),
     },
   ]
 }

@@ -1,3 +1,4 @@
+import { canvasPaintTokens } from '@dinkster/canvas'
 import type { PreviewData } from '@dinkster/client'
 import { occurrencesForView, type WidgetParts } from '@dinkster/core'
 import { viewInstancePath, type AppState, type Tab } from './app-state.js'
@@ -71,12 +72,12 @@ export function drawImageCompare(canvas: HTMLCanvasElement, images: Partial<Reco
   if (images.image_b) draw(images.image_b)
   if (images.image_a) {
     context.save()
-    if (images.image_b) { context.beginPath(); context.rect(0, 0, canvas.width * split / 100, canvas.height); context.clip() }
+    if (images.image_b) { context.beginPath(); context.rect(0, 0, canvas.width * split / canvasPaintTokens.editor.imageCompare.percentScale, canvas.height); context.clip() }
     draw(images.image_a)
     context.restore()
   }
   if (images.image_a && images.image_b) {
     context.fillStyle = divider.color
-    context.fillRect(canvas.width * split / 100 - divider.width / 2, 0, divider.width, canvas.height)
+    context.fillRect(canvas.width * split / canvasPaintTokens.editor.imageCompare.percentScale - divider.width / 2, 0, divider.width, canvas.height)
   }
 }

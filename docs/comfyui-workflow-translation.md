@@ -142,70 +142,13 @@ is invented. Listed versions use their exact table entry, never layout inference
 Other layouts or invalid choices use ordinary decoding and retain its failure
 without inferred provenance. Compilation still requires stored choices.
 
-Primitive producers inside imported subgraphs remain first-class value sources,
-not runtime helper nodes. Native `valueSource` boundary bindings retain the
-authored interface type independently of the stored literal. Proxy values and
-controller modes are retained on each instance; a missing value uses the shared
-definition's literal, while an explicit null remains null. Compilation reads
-occurrence-local overrides without modifying the definition. A connected proxy
-input takes precedence over the instance's stored literal. Each value source
-can have only one input boundary slot; duplicate targets are rejected rather
-than choosing a driver or literal by declaration order. Deleting the value
-source removes its boundary slots in the same undoable transaction.
-
-Source pills and their spec popovers resolve consumers across exported subgraph
-outputs. Shared stored literals combine constraints across instances; separately
-promoted owners remain independent in drilled views. Definition views combine
-the reachable consumers, while uninstantiated definitions retain local specs.
-This read-only presentation query also sees inactive structural-selector
-candidates and works while unrelated nodes are incomplete. It never changes
-stored values or serializes inferred widget constraints; pinning is explicit.
-
-Promoted literal inputs use the same occurrence-specific constraints as their
-source pills. Missing overrides display the source's stored value and mode;
-explicit instance values and controller modes remain local, including when
-viewing a nested instance. Editing a projected widget writes its outer owner.
-
-Extraction moves selected value sources and their outgoing fan-out into the
-new definition without a runtime producer. Existing authored output types are
-retained; a source with no authored boundary type uses wildcard, never a type
-guessed from its literal. Conflicting authored output types refuse extraction
-atomically. Enclosing boundary bindings and stale-selection fingerprints follow
-the moved source identity, and one undo restores the original graph.
-Enclosing input boundaries follow the moved source into the new definition.
-Nested instance values override the inner literal independently per occurrence;
-an outer instance value wins over an inner one, and a connected driver wins
-over either stored value. Native reopen and extraction undo/redo retain that
-precedence without rewriting the shared definition's values.
-
-Occurrence-local links can use a value-source output boundary directly or
-through enclosing forwarding boundaries. The route retains the authored source
-identity and type, terminates at the existing source, and remains scoped to its
-occurrence through save/reopen and undo/redo. Input promotion still carries
-values, not consuming links: a value source cannot be a local link target.
-
-Flattening an occurrence with literal output bindings copies each retained
-source once into the parent and remaps outgoing links and enclosing output
-bindings to that fresh identity. Source values, declared specs and controllers
-are retained, and sibling occurrences keep the shared definition unchanged.
-Named nets cannot use a literal as their source; flattening refuses that
-unrepresentable result atomically rather than inventing a runtime node.
-
-Inside a definition, literal output bindings draw from the retained source pin
-to the Outputs boundary. The Boundary panel displays the source title and ID;
-Show selects and centers that source without changing the document. Input
-promotion carries an override value, not an incoming wire to the source.
-
-After-generate advancement follows the compiled literal owner instead of
-changing its connected consumer widgets. Shared producer fan-out advances once;
-promoted instance controls own their occurrence overrides and inherit missing
-values and modes from the inner source. Declared source widget constraints take
-precedence over consumer-derived constraints. Only executed consumers contribute
-advancement. Completion preserves user edits, including edit-and-restore changes,
-and skips controls whose live route, effective mode, or widget semantics changed.
-Changing a controller mode and restoring it still invalidates pending advancement;
-explicitly storing an unchanged effective mode does not. Source advancement uses
-the ordinary undoable value-source command, without helper nodes.
+A frontend PrimitiveNode, including one inside an imported subgraph, becomes an
+ordinary primitive node: Int, Float, Text, Boolean or Choice when the fields it
+feeds have that widget type, otherwise the general Primitive. When it feeds a
+subgraph boundary, whose type is open, its saved output type chooses the
+primitive. Its value, controller mode, node mode and title carry over, and its
+fan-out becomes ordinary links. An unwired PrimitiveNode with no value is
+dropped with a warning.
 
 A ComfyUI FLOATS slot type imports as list<FLOAT>.
 

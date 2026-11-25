@@ -6,7 +6,7 @@ button,
 input,
 select,
 textarea {
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
   color: inherit;
   background: var(--dinkster-surface-inset);

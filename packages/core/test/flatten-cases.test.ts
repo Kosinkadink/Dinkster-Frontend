@@ -12,7 +12,7 @@ import { canonicalTypeIdOf } from '../src/schema/model.js'
 import type { DynamicPortState, Json } from '../src/format/document.js'
 
 const FIXTURE = new URL('./fixtures/flatten_v2.json', import.meta.url)
-const FIXTURE_SHA256 = '3c95c96f05190c97c909783ee4126b9b334f496d3876014f5c74d6d2d6f26402'
+const FIXTURE_SHA256 = 'dea223325eee9947905b7a76210642c0df663b2d3658c195613cf039386f40dd'
 
 interface FlattenCase {
   readonly id: string
@@ -25,6 +25,10 @@ interface FlattenCase {
   readonly inputs?: readonly (readonly [string, string, boolean, Json])[]
   readonly outputs?: readonly string[]
   readonly chose?: Readonly<Record<string, string>>
+  /** Each automatic field with nothing stored and no wire: its value in use and where it came from. */
+  readonly automatic?: Readonly<Record<string, readonly [Json, 'worked-out' | 'default']>>
+  /** The automatic fields whose lookup is called. */
+  readonly lookupCalls?: readonly string[]
 }
 
 const bytes = readFileSync(FIXTURE)
@@ -105,6 +109,15 @@ describe('flattening cases shared with the engine', () => {
       const outputs = elabOutputsOf(elaborated).filter((output) => output.wireable !== false).map((output) => output.spec.id)
       expect([...outputs].sort()).toEqual([...testCase.outputs!].sort())
       expect(elaborated.choices ?? {}).toEqual(testCase.chose)
+      if (testCase.automatic !== undefined) {
+        const automatic = Object.fromEntries(elabInputsOf(elaborated).flatMap((input) =>
+          input.automatic === undefined ? [] : [[input.address.port, [input.automatic.value, input.automatic.state === 'worked-out' ? 'worked-out' : 'default']]]))
+        expect(automatic).toEqual(testCase.automatic)
+      }
+      if (testCase.lookupCalls !== undefined) {
+        expect(elabInputsOf(elaborated).filter((input) => input.automatic?.call !== undefined).map((input) => input.address.port))
+          .toEqual(testCase.lookupCalls)
+      }
     })
   }
 })

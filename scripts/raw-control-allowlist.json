@@ -98,12 +98,6 @@
     },
     {
       "kind": "rawControl",
-      "path": "packages/app/src/CurveEditor.tsx",
-      "count": 4,
-      "issue": 382
-    },
-    {
-      "kind": "rawControl",
       "path": "packages/app/src/CustomizeLayoutDialog.tsx",
       "count": 1,
       "issue": 382

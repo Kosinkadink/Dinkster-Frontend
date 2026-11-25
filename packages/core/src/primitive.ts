@@ -8,9 +8,10 @@
  * diagnostic, never a change to the value or the wires.
  */
 
+import { canonicalJson } from './compile/hash.js'
 import { diag, type Diagnostic } from './diagnostics.js'
+import { normalizeComboOption } from './schema/combo-options.js'
 import type { Json } from './format/document.js'
-import { specMergeFor } from './value-source.js'
 import {
   inputsOf,
   outputsOf,
@@ -22,6 +23,93 @@ import {
   type OutputSpec,
   type WidgetSpec,
 } from './schema/model.js'
+
+/**
+ * Per-kind constraint merging: closed, deterministic, defined here for
+ * the core kinds; unknown kinds fall back to "specs must agree exactly"
+ * (i.e. they opt out of derivation until they declare a merge rule).
+ * Returns merged options or a conflict message.
+ */
+export type SpecMergeFn = (
+  a: Readonly<Record<string, unknown>>,
+  b: Readonly<Record<string, unknown>>,
+) => { readonly options: Record<string, unknown> } | { readonly conflict: string }
+
+const asNum = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined)
+
+const mergeNumeric: SpecMergeFn = (a, b) => {
+  const options: Record<string, unknown> = { ...a }
+  const aMin = asNum(a['min'])
+  const bMin = asNum(b['min'])
+  const aMax = asNum(a['max'])
+  const bMax = asNum(b['max'])
+  const min = aMin === undefined ? bMin : bMin === undefined ? aMin : Math.max(aMin, bMin)
+  const max = aMax === undefined ? bMax : bMax === undefined ? aMax : Math.min(aMax, bMax)
+  if (min !== undefined) options['min'] = min
+  if (max !== undefined) options['max'] = max
+  if (min !== undefined && max !== undefined && min > max) {
+    return { conflict: `numeric ranges do not intersect (min ${min} > max ${max})` }
+  }
+  // Coarsest step wins (every consumer can accept multiples of it only if
+  // steps divide; advisory, so pick the larger and let validate() warn).
+  const aStep = asNum(a['step'])
+  const bStep = asNum(b['step'])
+  const step = aStep === undefined ? bStep : bStep === undefined ? aStep : Math.max(aStep, bStep)
+  if (step !== undefined) options['step'] = step
+  // Finest precision display-wise (FLOAT): smallest declared.
+  const aPrec = asNum(a['precision'])
+  const bPrec = asNum(b['precision'])
+  const precision =
+    aPrec === undefined ? bPrec : bPrec === undefined ? aPrec : Math.min(aPrec, bPrec)
+  if (precision !== undefined) options['precision'] = precision
+  return { options }
+}
+
+const mergeCombo: SpecMergeFn = (a, b) => {
+  const aOpts = Array.isArray(a['options']) ? (a['options'] as unknown[]) : undefined
+  const bOpts = Array.isArray(b['options']) ? (b['options'] as unknown[]) : undefined
+  const options: Record<string, unknown> = { ...a, ...b }
+  if (aOpts && bOpts) {
+    const bKeys = new Set(bOpts.flatMap((option) => {
+      const normalized = normalizeComboOption(option)
+      return normalized === undefined ? [] : [normalized.value]
+    }))
+    const merged = aOpts.filter((option) => {
+      const normalized = normalizeComboOption(option)
+      return normalized !== undefined && bKeys.has(normalized.value)
+    })
+    if (merged.length === 0) return { conflict: 'combo option lists do not intersect' }
+    options['options'] = merged
+  } else if (aOpts ?? bOpts) {
+    options['options'] = aOpts ?? bOpts
+  }
+  return { options }
+}
+
+const mergeString: SpecMergeFn = (a, b) => ({
+  // multiline is a default-view hint, not a wall: any consumer wanting
+  // multiline gets the richer default; the value shape is identical.
+  options: { ...a, ...b, ...(a['multiline'] === true || b['multiline'] === true ? { multiline: true } : {}) },
+})
+
+const mergeTrivial: SpecMergeFn = (a, b) => ({ options: { ...a, ...b } })
+
+const mergeExact: SpecMergeFn = (a, b) => {
+  if (canonicalJson(a) !== canonicalJson(b)) {
+    return { conflict: 'consumers disagree on widget options and this widget kind declares no merge rule' }
+  }
+  return { options: { ...a } }
+}
+
+const CORE_MERGES: Readonly<Record<string, SpecMergeFn>> = {
+  INT: mergeNumeric,
+  FLOAT: mergeNumeric,
+  COMBO: mergeCombo,
+  STRING: mergeString,
+  BOOLEAN: mergeTrivial,
+}
+
+export const specMergeFor = (widgetType: string): SpecMergeFn => CORE_MERGES[widgetType] ?? mergeExact
 
 /** The value field of a primitive node and the output that passes it on. */
 export interface PrimitiveShape {
@@ -138,6 +226,31 @@ export interface EffectivePrimitiveSpec {
 }
 
 /**
+ * The value a primitive holds while nothing is stored in it, which is also
+ * where Reset takes it: its own Default, else the default of the first field
+ * it feeds (the field its widget comes from), else its declared default. A
+ * default it does not hold itself must suit every fed field: a number is
+ * moved into the effective range, and a choice the fields do not all offer
+ * gives way to the widget's first option. The value field shows it, the
+ * fields it feeds show it, and a run sends it.
+ */
+function emptyPrimitiveValue(
+  explicitDefault: Json | undefined,
+  first: WidgetSpec | undefined,
+  declared: WidgetSpec | undefined,
+  options: Readonly<Record<string, unknown>>,
+): unknown {
+  if (explicitDefault !== undefined) return explicitDefault
+  const value = first?.default ?? declared?.default
+  const offered = options['options']
+  if (Array.isArray(offered) && !offered.some((option) => normalizeComboOption(option)?.value === value)) return undefined
+  if (typeof value !== 'number') return value
+  const min = typeof options['min'] === 'number' ? options['min'] : -Infinity
+  const max = typeof options['max'] === 'number' ? options['max'] : Infinity
+  return Math.min(Math.max(value, min), max)
+}
+
+/**
  * The effective widget of a primitive's value field. `fed` are the inputs
  * the output reaches (direct, through reroutes and through subgraph
  * boundaries); their widgets narrow the declared widget, and `explicit`
@@ -153,11 +266,13 @@ export function effectivePrimitiveSpec(
   const diagnostics: Diagnostic[] = []
   const data = { node: nodeId }
   const declared = shape.value.widget
-  const fedWidgets = fed.flatMap(({ name, input }) => input.widget === undefined ? [] : [{ name, widget: input.widget }])
+  const fedWidgets = fed.flatMap(({ name, input }) => input.widget === undefined ? [] : [{ name, widget: input.widget, type: input.type }])
   const labels = new Set(fed.map(({ input }) => input.displayName ?? input.id))
   const label = labels.size === 1 ? [...labels][0] : undefined
 
   const widgetType = declared?.widgetType ?? fedWidgets[0]?.widget.widgetType
+  // The first fed field of the primitive's own kind, in the order `fed` is given.
+  const first = fedWidgets.find(({ widget }) => widget.widgetType === widgetType)?.widget
   if (widgetType === undefined) {
     // A choice that feeds no field with options is typed in as text.
     const typed = shape.value.type.kind === 'concrete' && shape.value.type.name === 'COMBO'
@@ -167,8 +282,11 @@ export function effectivePrimitiveSpec(
   let options: Record<string, unknown> = { ...(declared?.options ?? {}) }
   let base = declared
   const agreed: string[] = []
-  for (const { name, widget } of fedWidgets) {
+  const ownType = shape.value.type.kind === 'concrete' ? shape.value.type.name : undefined
+  for (const { name, widget, type } of fedWidgets) {
     if (widget.widgetType !== widgetType) {
+      // A field that also takes the primitive's own type, such as a Switch's Pick, is not of another kind.
+      if (type.kind === 'union' && ownType !== undefined && type.names.includes(ownType)) continue
       diagnostics.push(diag('warning', 'schema', 'primitive.widgetType.conflict',
         `${nodeId} feeds ${name}, a field of another kind ('${widget.widgetType}', not '${widgetType}')`, { data }))
       continue
@@ -199,18 +317,7 @@ export function effectivePrimitiveSpec(
     }
     options = { ...options, ...explicit }
   }
-  // Reset goes to the primitive's own Default, else the default every fed
-  // field shares, else the declared default moved into the effective range.
-  const fedDefaults = new Set(fedWidgets.map(({ widget }) => JSON.stringify(widget.default ?? null)))
-  const shared = fedWidgets.length > 0 && fedDefaults.size === 1 ? fedWidgets[0]!.widget.default : undefined
-  const fallback = declared?.default
-  const clamp = (value: unknown): unknown => {
-    if (typeof value !== 'number') return value
-    const min = typeof options['min'] === 'number' ? options['min'] : -Infinity
-    const max = typeof options['max'] === 'number' ? options['max'] : Infinity
-    return Math.min(Math.max(value, min), max)
-  }
-  const resetTo = explicitDefault ?? shared ?? (fallback === undefined ? undefined : clamp(fallback))
+  const resetTo = emptyPrimitiveValue(explicitDefault, first, declared, options)
   if (explicitDefault === undefined && resetTo !== undefined) derived.add('default')
   const { default: _declaredDefault, ...rest } = base ?? { widgetType }
   const spec: WidgetSpec = { ...rest, widgetType, options, ...(resetTo !== undefined ? { default: resetTo } : {}) }

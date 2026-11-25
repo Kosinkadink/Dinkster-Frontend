@@ -1,5 +1,6 @@
 import {
   defaultValuesOf,
+  documentResolver,
   loadDocument,
   type BodyRow,
   type InputSpec,
@@ -159,9 +160,20 @@ export interface InNodeEditorExample {
   readonly states?: Readonly<Record<string, EditorExampleState>>
   /** Per editor value key: what its folded row reads, as the host derives it. */
   readonly summaries?: EditorSummaryMap[string]
+  /** Per wired value key: the value its wire carries before a run, from a Primitive or a widget tap. */
+  readonly carried?: Readonly<Record<string, Json>>
   /** Per editor value key: the small picture its row shows before the text. */
   readonly thumbnails?: Readonly<Record<string, 'frame' | 'view'>>
   readonly width?: number
+  /**
+   * Where the editor is shown when it is not the node's own: on the Inputs
+   * panel of the subgraph the node is in, as the field of an input that
+   * promotes it, entered from no subgraph node so the panel shows the
+   * defaults a new one starts with. Or in a general Primitive node whose
+   * output feeds the example node's field, so the Primitive takes that
+   * field's widget; the Primitive holds the example's values.
+   */
+  readonly place?: 'inputsPanel' | 'primitive'
 }
 
 const asset = (name: string, mediaType: string, extra: Record<string, Json> = {}): Json =>
@@ -182,6 +194,7 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
     members: { colors: ['color0', 'color1', 'color2'] },
     values: { 'colors.color0': '#ff6600', 'colors.color1': '#2255aa', 'colors.color2': '#33cc99' },
     wired: { 'colors.color2': 'COLOR' } },
+  { id: 'palette-fresh', card: 7, caption: 'A fresh palette: no colors yet, only the add member', type: 'Palette' },
   { id: 'webcam-folded', summaries: { image: { text: 'webcam.png' } }, thumbnails: { image: 'frame' }, card: 8, caption: 'Folded: the editor button row with the stored frame', type: 'Webcam Capture',
     values: { image: frame } },
   { id: 'webcam-unfolded', summaries: { image: { text: 'webcam.png' } }, thumbnails: { image: 'frame' }, card: 8, caption: 'Clicked: the webcam folds out under the same row and the rows below move down', type: 'Webcam Capture',
@@ -283,6 +296,9 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
   { id: 'curve-folded-wired-after', card: 35, caption: 'Folded, fed by a wire, after a run: the curve the wire brought, its points muted with the row', type: 'Curve editor',
     wired: { curve: 'CURVE' },
     summaries: { curve: { value: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.8 }, { position: 1, value: 0.6 }] } } } },
+  { id: 'curve-folded-primitive', card: 35, caption: 'Folded, fed by a Primitive holding 3 points, before a run: the curve it holds, muted with the row', type: 'Curve editor',
+    wired: { curve: 'CURVE' },
+    carried: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0.2 }, { position: 0.6, value: 0.4 }, { position: 1, value: 0.9 }] } } },
   { id: 'curve-histogram-unwired', card: 36, caption: 'The histogram input has no wire: its pin is on the line Histogram inside the editor', type: 'Curve editor',
     values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } }, view: unfold('curve') },
   { id: 'curve-histogram-before', card: 36, caption: 'A histogram wired in, before a run: no bars yet', type: 'Curve editor',
@@ -291,10 +307,16 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
   { id: 'curve-histogram', card: 36, caption: 'A histogram wired in: after a run, its bars behind the curve', type: 'Curve editor',
     values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } },
     wired: { histogram: 'HISTOGRAM' }, view: unfold('curve'), states: { curve: { histogram: 'rising' } } },
+  { id: 'panel-curve', card: 37, caption: "On a subgraph's Inputs panel: the curve folded out under its field, and the panel grown downward", type: 'Curve editor',
+    place: 'inputsPanel', values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] } },
+    view: unfold('curve') },
+  { id: 'primitive-curve', card: 38, caption: "In a Primitive wired to a Curve editor's curve: the Primitive takes the curve's widget and folds it out like any node", type: 'Curve editor',
+    place: 'primitive', values: { value: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] } },
+    view: unfold('value') },
   { id: 'curve-histogram-folded', card: 36, caption: "Folded with a wire: the histogram's pin beside the curve's on its row", type: 'Curve editor',
     values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } },
     wired: { histogram: 'HISTOGRAM' }, view: fold('curve') },
-  { id: 'curves-histograms', card: 37, caption: 'Two curves in one node, each with its own histogram pin and its own bars after a run',
+  { id: 'curves-histograms', card: 39, caption: 'Two curves in one node, each with its own histogram pin and its own bars after a run',
     type: 'Curves with histograms', members: { curves: ['1', '2'] },
     values: {
       'curves.1.curve': { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.5, value: 0.65 }, { position: 1, value: 1 }] },
@@ -303,6 +325,19 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
     wired: { 'curves.1.histogram': 'HISTOGRAM', 'curves.2.histogram': 'HISTOGRAM' }, view: unfold('curves.1.curve', 'curves.2.curve'),
     width: 324, states: { 'curves.1.curve': { histogram: 'rising' }, 'curves.2.curve': { histogram: 'falling' } } },
 ]
+
+/**
+ * The general Primitive as its pack declares it: one value whose type, and
+ * so its widget, follows the field its output feeds, and a default under
+ * Limits.
+ */
+const primitiveSchema: NodeSchema = schema('Primitive', [
+  { kind: 'input', id: 'value', displayName: 'Value', type: { kind: 'variable', templateId: 'value' }, optional: true },
+  { kind: 'section', id: 'limits', displayName: 'Limits', collapsedByDefault: true, rows: [
+    { kind: 'input', id: 'default', displayName: 'Default', type: { kind: 'variable', templateId: 'value' }, optional: true },
+  ] },
+  { kind: 'output', id: 'value', displayName: 'Value', type: { kind: 'variable', templateId: 'value' }, knownValue: { input: 'value', limits: { default: 'default' } } },
+] as readonly BodyRow[])
 
 const SOURCE = 'Wire source'
 
@@ -315,6 +350,8 @@ export function createInNodeEditorScene(
   position: { x: number; y: number },
 ): Scene {
   const target = inNodeEditorSchemas.find((item) => item.type === example.type)!
+  if (example.place === 'inputsPanel') return createInputsPanelScene(tokens, measure, widgetMeasure, example, target, position)
+  if (example.place === 'primitive') return createPrimitiveScene(tokens, measure, widgetMeasure, example, target, position)
   const wired = Object.entries(example.wired ?? {})
   const source: NodeSchema = schema(SOURCE, wired.map(([id, type]) => output(id.replaceAll('.', '_'), type)))
   const id = example.id
@@ -364,6 +401,113 @@ export function createInNodeEditorScene(
     document: loaded.document,
     graphId: 'gallery',
     resolve: (type) => type === SOURCE ? source : type === target.type ? target : undefined,
+    tokens,
+    measure,
+    widgetMeasure,
+  })
+}
+
+/**
+ * The example's node inside a subgraph whose Inputs panel promotes each of
+ * its editors, laid out by the production scene builder for that subgraph.
+ * The panel stands at `position`. The subgraph is entered from no node, so
+ * the panel's fields show the example's values as the defaults inside.
+ */
+function createInputsPanelScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  example: InNodeEditorExample,
+  target: NodeSchema,
+  position: { x: number; y: number },
+): Scene {
+  const editors = target.body.flatMap((row) => row.kind === 'input' && row.widget !== undefined ? [row.id] : [])
+  const loaded = loadDocument({
+    format: 'dinkster-workflow',
+    formatVersion: 1,
+    lineage: 'canvas-gallery',
+    root: 'gallery',
+    graphs: {
+      gallery: {
+        id: 'gallery', name: 'Gallery', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+        nodes: { outer: { id: 'outer', type: '#inside', values: {} } },
+      },
+      inside: {
+        id: 'inside', name: 'Inside', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+        nodes: { [example.id]: { id: example.id, type: target.type, values: { ...defaultValuesOf(target), ...(example.values ?? {}) } } },
+        boundary: {
+          inputs: editors.map((id) => ({ id, promoted: true, binds: { kind: 'port', node: example.id, port: id } })),
+          outputs: [],
+        },
+      },
+    },
+    view: {
+      graphs: {
+        gallery: { nodes: { outer: { position: { x: 0, y: 0 } } } },
+        inside: {
+          nodes: { [example.id]: { position: { x: position.x + 2000, y: position.y } } },
+          boundary: { inputs: { position }, outputs: { position: { x: position.x + 4000, y: position.y } } },
+          ...(example.view?.editors !== undefined ? { inputsPanel: { editors: example.view.editors } } : {}),
+        },
+      },
+    },
+  } as never)
+  if (!loaded.document) throw new Error(`Invalid gallery document: ${JSON.stringify(loaded)}`)
+  return buildScene({
+    document: loaded.document,
+    graphId: 'inside',
+    resolve: documentResolver(loaded.document, (type) => type === target.type ? target : undefined),
+    tokens,
+    measure,
+    widgetMeasure,
+  })
+}
+
+/**
+ * A general Primitive at `position` whose output feeds the example node's
+ * first editor, laid out by the production scene builder. The fed node
+ * stands to the right, off the card.
+ */
+function createPrimitiveScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+  example: InNodeEditorExample,
+  target: NodeSchema,
+  position: { x: number; y: number },
+): Scene {
+  const fed = target.body.flatMap((row) => row.kind === 'input' && row.widget !== undefined ? [row.id] : [])[0]!
+  const loaded = loadDocument({
+    format: 'dinkster-workflow',
+    formatVersion: 1,
+    lineage: 'canvas-gallery',
+    root: 'gallery',
+    graphs: {
+      gallery: {
+        id: 'gallery', name: 'Gallery', nextOrdinal: 3, nets: {}, reroutes: {},
+        nodes: {
+          [example.id]: { id: example.id, type: primitiveSchema.type, values: example.values ?? {} },
+          fed: { id: 'fed', type: target.type, values: defaultValuesOf(target) },
+        },
+        links: { primitive: { id: 'primitive', from: { node: example.id, port: 'value' }, to: { node: 'fed', port: fed } } },
+      },
+    },
+    view: {
+      graphs: {
+        gallery: {
+          nodes: {
+            [example.id]: { position, size: { width: example.width ?? GALLERY_NODE_WIDTH, height: 0 }, ...(example.view ?? {}) },
+            fed: { position: { x: position.x + 2000, y: position.y }, size: { width: GALLERY_NODE_WIDTH, height: 0 } },
+          },
+        },
+      },
+    },
+  } as never)
+  if (!loaded.document) throw new Error(`Invalid gallery document: ${JSON.stringify(loaded)}`)
+  return buildScene({
+    document: loaded.document,
+    graphId: 'gallery',
+    resolve: (type) => type === primitiveSchema.type ? primitiveSchema : type === target.type ? target : undefined,
     tokens,
     measure,
     widgetMeasure,

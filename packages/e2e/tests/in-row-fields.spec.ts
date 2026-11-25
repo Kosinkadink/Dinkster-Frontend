@@ -217,6 +217,50 @@ test('a draft survives a document change such as a finishing run', async ({ page
   expect(await value(page, 'steps')).toBe(55)
 })
 
+test('automatic: typing the value in use fixes the field; leaving a fixed empty text unchanged stores nothing', async ({ page }) => {
+  await openSampler(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const widget = (id: string, widgetType: string, defaultValue: unknown, formula: string) => ({
+      kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
+      widget: { widgetType, options: {}, default: defaultValue }, automatic: { formula },
+    })
+    app.registerSchemas([{
+      type: 'Automatic', displayName: 'Automatic', category: 'test', source: 'v3', isOutputNode: false,
+      body: [
+        { kind: 'input', id: 'rate', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {}, default: 12 } },
+        widget('frames', 'INT', 1, 'rate * 2'),
+        widget('caption', 'STRING', 'none', '"auto caption"'),
+      ],
+    }] as never)
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'automatic', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n1: { id: 'n1', type: 'Automatic', values: { rate: 12, caption: '' } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 100, y: 100 } } } } } },
+    } as never, 'Automatic')
+    window.__dinksterTest!.renderer!.setViewport({ x: 200, y: 150, scale: 1 })
+  })
+  const frames = await rowPoint(page, 'n1', 'frames')
+  await page.mouse.click(frames.x, frames.y)
+  await expect(field(page)).toHaveValue('')
+  await expect(field(page)).toHaveAttribute('placeholder', '24')
+  await page.keyboard.type('24')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => value(page, 'frames')).toBe(24)
+  // A text field that stores '' is fixed; opening and leaving it changes nothing.
+  const revision = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
+  const before = await revision()
+  const caption = await rowPoint(page, 'n1', 'caption')
+  await page.mouse.click(caption.x, caption.y)
+  await expect.poll(() => openLabel(page)).toBe('caption')
+  await page.mouse.click(caption.x + 400, caption.y + 200)
+  await expect(field(page)).toHaveCount(0)
+  expect(await value(page, 'caption')).toBe('')
+  expect(await revision()).toBe(before)
+})
+
 test('slider: a drag puts the value under the pointer; Escape in the open field keeps it', async ({ page }) => {
   await openSampler(page)
   const at = (fraction: number) => rowPoint(page, 'n1', 'denoise', fraction)

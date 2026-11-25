@@ -99,6 +99,17 @@ import { canvasPaintTokens } from './tokens.js'
 
 type IconNode = readonly (readonly [string, Readonly<Record<string, string>>])[]
 
+/**
+ * The subgraph icon in Lucide's 24-unit element form, so DOM menus draw the
+ * same picture: the workflow drawing, smaller, inside a frame. Not a Lucide icon.
+ */
+export const SUBGRAPH_ICON: IconNode = [
+  ['rect', { x: '2', y: '2', width: '20', height: '20', rx: '3' }],
+  ['rect', { x: '6', y: '6', width: '5', height: '5', rx: '1' }],
+  ['path', { d: 'M8.5 11v3.5a1 1 0 0 0 1 1H13' }],
+  ['rect', { x: '13', y: '13', width: '5', height: '5', rx: '1' }],
+]
+
 export type SeedControllerMode = 'fixed' | 'increment' | 'decrement' | 'randomize'
 
 const CONTROLLER_ICONS: Record<SeedControllerMode, IconNode> = {
@@ -164,13 +175,7 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   'folder-open': FolderOpen,
   group: Group,
   ungroup: Ungroup,
-  // The workflow drawing, smaller, inside a frame: not a Lucide icon.
-  subgraph: [
-    ['rect', { x: '2', y: '2', width: '20', height: '20', rx: '3' }],
-    ['rect', { x: '6', y: '6', width: '5', height: '5', rx: '1' }],
-    ['path', { d: 'M8.5 11v3.5a1 1 0 0 0 1 1H13' }],
-    ['rect', { x: '13', y: '13', width: '5', height: '5', rx: '1' }],
-  ],
+  subgraph: SUBGRAPH_ICON,
   'sliders-horizontal': SlidersHorizontal,
   'panel-top-close': PanelTopClose,
   'panel-top-open': PanelTopOpen,

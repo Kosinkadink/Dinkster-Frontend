@@ -320,7 +320,7 @@ describe('addBackend / removeBackend', () => {
             rootChoice: { id: 'rootChoice', type: 'Choice', values: { choice: 'retained-root' } },
             subgraph: { id: 'subgraph', type: '#body', values: {} },
           },
-          links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {}, nextOrdinal: 2,
+          links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
         },
         body: {
           id: 'body',
@@ -328,7 +328,7 @@ describe('addBackend / removeBackend', () => {
           nodes: {
             nestedChoice: { id: 'nestedChoice', type: 'Choice', values: { choice: 'retained-nested' } },
           },
-          links: {}, nets: {}, reroutes: {}, valueSources: {}, selectors: {},
+          links: {}, nets: {}, reroutes: {},
           boundary: { inputs: [], outputs: [] },
           nextOrdinal: 1,
         },

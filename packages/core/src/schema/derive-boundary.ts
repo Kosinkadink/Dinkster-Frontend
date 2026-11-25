@@ -37,11 +37,11 @@ import { isNodeBoundaryBinding, type BoundaryBinding, type BoundaryItem, type Co
 import { isPortEndpoint, portAddressKey, type DynamicMemberId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
-import { effectiveValueSourceSpec, type EffectiveValueSourceSpec } from '../value-source.js'
 import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
 import { buildGraphConnectivity, describedEntries, elabInputsOf, elaborateInterface, EMPTY_CONNECTIVITY, type Connectivity } from './elaborate.js'
 import { applyUse, choiceScopeRows, framesNamesOf, keyPosition, memberKeyAt, memberLimitOf, memberRowsOf } from './body.js'
 import { canonicalTypeIdOf, inputsOf, scopeRowsOf, typeExprFromTypeId } from './model.js'
+import { readWhenUnset } from './widget-defaults.js'
 import type {
   BodyRow,
   ChoiceSpec,
@@ -51,6 +51,7 @@ import type {
   NodeSchema,
   OptionRow,
   OuterName,
+  OuterScope,
   OutputSpec,
   TypeChoiceSpec,
   TypeExpr,
@@ -238,7 +239,7 @@ export function resolveBoundaryRoute(
   values?: Readonly<Record<string, unknown>>,
   _dynamic?: NodeData['dynamic'],
 ): RouteResult {
-  if (binding.kind === 'unbound' || binding.kind === 'valueSource') return { ok: false, code: 'boundary.unboundRoute', message: 'a structural boundary has no node port route' }
+  if (binding.kind === 'unbound') return { ok: false, code: 'boundary.unboundRoute', message: 'a structural boundary has no node port route' }
   if (binding.kind === 'widgetTap') {
     return { ok: false, code: 'boundary.tapRoute', message: `widget tap '${binding.tap}' is not a port or family route` }
   }
@@ -504,7 +505,7 @@ function scopesAround(body: readonly BodyRow[], path: string): readonly { readon
 /** Each row's own default value, as a formula reads it with nothing stored. */
 const ownDefaultOf = (row: Exclude<BodyRow, { kind: 'row' }> | undefined, stored: DynamicPortState | undefined): unknown => {
   if (row === undefined) return undefined
-  if (row.kind === 'input') return row.widget?.default ?? row.ext?.['default']
+  if (row.kind === 'input') return readWhenUnset(row)
   if (row.kind === 'state') return row.default
   if (row.kind === 'choice') return stored?.selected ?? (row.required ? row.default ?? row.options[0]?.key : null)
   return undefined
@@ -619,7 +620,6 @@ export function deriveBoundarySchema(
   resolve: SchemaResolver,
   region?: RegionContract,
   resolveNode: (node: NodeData) => NodeSchema | undefined = (node) => resolve(node.type),
-  resolveSource?: (sourceId: string) => EffectiveValueSourceSpec | undefined,
 ): DeriveResult {
   const diags: Diagnostic[] = []
   const fail = (code: string, msg: string): void => {
@@ -852,10 +852,55 @@ export function deriveBoundarySchema(
       derived = {
         ...derived,
         minMembers: Math.max(0, derived.minMembers - count),
-        maxMembers: limit - count,
+        // Only a declared maximum is carried: it is the number a header shows.
+        ...(row.maxMembers !== undefined ? { maxMembers: limit - count } : {}),
         ...(derived.keys.kind === 'named' ? { keys: { kind: 'named' as const, names: derived.keys.names.filter((name) => !interior.members.includes(name)) } } : {}),
         // Members inside count through every level: an outer face numbers on from all of them.
         ...(count > 0 ? { interiorMembers: (row.interiorMembers ?? 0) + count } : {}),
+      }
+    }
+    return {
+      ...derived,
+      id: item.id,
+      ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
+      outer: outerScopeOf(binds, node, path, item.id),
+    } as BodyRow
+  }
+
+  /** A lookup argument wired inside the definition is not known, so its name reads nothing. */
+  const unwired = (scope: OuterScope): OuterScope => ({
+    frames: scope.frames.map((frame) => ({
+      rows: frame.rows,
+      names: Object.fromEntries(Object.entries(frame.names).filter(([, meaning]) => !('linked' in meaning && meaning.linked === true))),
+    })),
+  })
+
+  /**
+   * What each name in the scopes around an inner row means on the subgraph
+   * node: the subgraph row that shows it, else the definition's value. On an
+   * inner subgraph node's field that already carries such a scope, its names
+   * are carried out one more level.
+   */
+  const outerScopeOf = (binds: RouteBoundaryBinding, node: NodeData, path: string, shownAs: string, carried?: OuterScope): OuterScope => {
+    const meaningOf = (flat: string, row: () => unknown): OuterName | undefined => {
+      const shown = flat === path ? shownAs : shownRows.get(JSON.stringify([binds.node, flat]))
+      if (shown !== undefined) return { row: shown }
+      const value = Object.hasOwn(node.values, flat) ? node.values[flat] : row()
+      return value === undefined ? undefined : { value, ...(isInternallyConnected(binds, flat) ? { linked: true as const } : {}) }
+    }
+    if (carried !== undefined) {
+      const schema = resolveNode(node)
+      return {
+        frames: carried.frames.map((frame) => {
+          const names: Record<string, OuterName> = {}
+          for (const [name, meaning] of Object.entries(frame.names)) {
+            const outer = 'row' in meaning
+              ? meaningOf(meaning.row, () => ownDefaultOf(schema === undefined ? undefined : rowById(schema.body, meaning.row), node.dynamic?.[meaning.row]))
+              : meaning
+            if (outer !== undefined) names[name] = outer
+          }
+          return { rows: frame.rows, names }
+        }),
       }
     }
     const schema = resolveNode(node)!
@@ -863,55 +908,19 @@ export function deriveBoundarySchema(
       const names: Record<string, OuterName> = {}
       for (const name of framesNamesOf([frame.rows]).names.keys()) {
         const flat = frame.prefix + name
-        const shown = flat === path ? item.id : shownRows.get(JSON.stringify([binds.node, flat]))
-        if (shown !== undefined) {
-          names[name] = { row: shown }
-          continue
-        }
-        const value = Object.hasOwn(node.values, flat)
-          ? node.values[flat]
-          : ownDefaultOf(name.includes('.') ? undefined : rowById(frame.rows, name), node.dynamic?.[flat])
-        if (value !== undefined) names[name] = { value, ...(isInternallyConnected(binds, flat) ? { linked: true as const } : {}) }
+        const meaning = meaningOf(flat, () => ownDefaultOf(name.includes('.') ? undefined : rowById(frame.rows, name), node.dynamic?.[flat]))
+        if (meaning !== undefined) names[name] = meaning
       }
       return { rows: frame.rows, names }
     })
-    return {
-      ...derived,
-      id: item.id,
-      ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
-      outer: { frames },
-    } as BodyRow
+    return { frames }
   }
 
-  const valueSourceInputs = new Map<string, string>()
   for (const item of def.boundary.inputs) {
     if (!checkId(item)) continue
     if (item.binds.kind === 'construct') {
       const row = constructRow(item, 'input')
       if (row !== undefined) items.push(row)
-      continue
-    }
-    if (item.binds.kind === 'valueSource') {
-      const previous = valueSourceInputs.get(item.binds.valueSource)
-      if (previous !== undefined) {
-        fail('boundary.valueSourceConflict', `boundary inputs '${previous}' and '${item.id}' both bind value source '${item.binds.valueSource}'`)
-        continue
-      }
-      valueSourceInputs.set(item.binds.valueSource, item.id)
-      const source = def.valueSources?.[item.binds.valueSource]
-      if (!source) {
-        fail('boundary.danglingValueSource', `boundary input '${item.id}' binds missing value source '${item.binds.valueSource}'`)
-        continue
-      }
-      const effective = resolveSource?.(source.id) ?? effectiveValueSourceSpec(def, source, resolve)
-      items.push({ kind: 'input', id: item.id, type: item.binds.type, optional: true,
-        ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
-        ...(item.promoted === true && effective.spec !== undefined ? { widget: {
-          ...effective.spec,
-          default: source.value,
-          ...(source.controller !== undefined ? { controllerInitial: source.controller } : {}),
-        } } : {}),
-      })
       continue
     }
     if (item.binds.kind === 'unbound') {
@@ -991,6 +1000,9 @@ export function deriveBoundarySchema(
         ? { controllerInitial: node.controllers![item.binds.port as string] }
         : {}),
     } : undefined
+    // An automatic field the definition stores nothing for stays automatic on
+    // the subgraph node; a stored value is the row's default instead.
+    const automatic = promoted && !Object.hasOwn(node.values, item.binds.port as string) ? inner.automatic : undefined
     items.push({
       kind: 'input',
       id: item.id,
@@ -1007,6 +1019,10 @@ export function deriveBoundarySchema(
           ? { forceInput: true }
           : {}),
       ...(inner.lazy !== undefined ? { lazy: inner.lazy } : {}),
+      ...(automatic !== undefined ? { automatic } : {}),
+      ...(promotedWidget?.looked !== undefined || automatic !== undefined
+        ? { lookupScope: unwired(outerScopeOf(item.binds as RouteBoundaryBinding, node, item.binds.port as string, item.id, inner.lookupScope)) }
+        : {}),
     })
   }
 
@@ -1019,16 +1035,6 @@ export function deriveBoundarySchema(
       }
       const row = constructRow(item, 'output')
       if (row !== undefined) items.push(row)
-      continue
-    }
-    if (item.binds.kind === 'valueSource') {
-      if (!def.valueSources?.[item.binds.valueSource]) {
-        fail('boundary.danglingValueSource', `boundary output '${item.id}' binds missing value source '${item.binds.valueSource}'`)
-        continue
-      }
-      items.push({ kind: 'output', id: item.id, type: item.binds.type,
-        ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
-      })
       continue
     }
     if (item.binds.kind === 'unbound') {
@@ -1088,6 +1094,8 @@ export function deriveBoundarySchema(
       type: freshenType(inner.type, item.binds.node, typeBindingsFor(node)),
       ...(inner.isList !== undefined ? { isList: inner.isList } : {}),
       ...(inner.preview !== undefined ? { preview: inner.preview } : {}),
+      // An output fed by one that may give nothing may give nothing too.
+      ...(inner.optional === true ? { optional: true } : {}),
     })
   }
 

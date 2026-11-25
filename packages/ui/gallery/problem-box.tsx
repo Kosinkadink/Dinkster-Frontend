@@ -23,10 +23,15 @@ import {
 } from '../../canvas/gallery/problem-box.js'
 import { ProblemBox } from '../src/index.js'
 
+/** Room under the nodes for their tabs, and under the lowest box, in px. */
+const TAB_ROOM = 24
+
 interface PlacedBox {
   readonly box: ProblemBoxGalleryCard['boxes'][number]
   readonly x: number
   readonly y: number
+  readonly maxWidth: number
+  readonly minWidth: number
 }
 
 function ProblemBoxCard(props: {
@@ -58,7 +63,8 @@ function ProblemBoxCard(props: {
       }
       const card = props.card(tokens)
       const nodesBottom = Math.max(...card.scene.nodes.map((node) => node.y + node.layout.height))
-      const height = nodesBottom + card.room
+      const scale = card.scale ?? 1
+      const height = nodesBottom * scale + TAB_ROOM
       canvas.style.width = `${card.width}px`
       canvas.style.height = `${height}px`
       frame.style.width = `${card.width}px`
@@ -72,7 +78,7 @@ function ProblemBoxCard(props: {
       renderer.setBadges(card.badges)
       renderer.setRowMarks(card.rowMarks)
       renderer.setProblemRowHighlight(card.highlight)
-      renderer.setViewport({ x: 0, y: 0, scale: 1 })
+      renderer.setViewport({ x: 0, y: 0, scale })
       renderer.renderNow()
       const viewport = renderer.getViewport()
       setCaption(card.caption)
@@ -80,10 +86,17 @@ function ProblemBoxCard(props: {
       setBoxes(card.boxes.flatMap((box) => {
         const node = card.scene.nodes.find((candidate) => candidate.id === box.nodeId)
         if (node === undefined) return []
-        const at = problemBoxPlacement(node, renderer!.getNodeBadgeLayout(node), viewport)
-        return [{ box, x: at.x, y: at.y }]
+        const at = problemBoxPlacement(node, renderer!.getNodeBadgeLayout(node), viewport, card.width)
+        return at === undefined ? [] : [{ box, x: at.x, y: at.y, maxWidth: at.maxWidth, minWidth: at.minWidth }]
       }))
-      canvas.dataset.ready = `${props.id}-${theme}`
+      // The boxes wrap to their nodes' widths, so the frame grows to hold them once drawn.
+      requestAnimationFrame(() => {
+        if (disposed) return
+        const below = Math.max(0, ...[...frame.querySelectorAll<HTMLElement>('.problem-box')]
+          .map((element) => element.offsetTop + element.offsetHeight))
+        frame.style.height = `${Math.max(height, below + TAB_ROOM)}px`
+        canvas.dataset.ready = `${props.id}-${theme}`
+      })
     })
     onCleanup(() => {
       disposed = true
@@ -119,6 +132,8 @@ function ProblemBoxCard(props: {
               {...(highlighted()[placed.box.nodeId] === undefined ? {} : { highlighted: highlighted()[placed.box.nodeId]! })}
               x={placed.x}
               y={placed.y}
+              maxWidth={placed.maxWidth}
+              minWidth={placed.minWidth}
               onPointLine={(line) => point(placed.box.nodeId, line?.key, line?.row)}
             />
           )}

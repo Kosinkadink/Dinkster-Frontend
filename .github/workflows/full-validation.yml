@@ -2,7 +2,7 @@ name: Full validation
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/node-declaration]
   schedule:
     - cron: "0 6-22/2 * * *"
       timezone: America/Los_Angeles
@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DINKSTER_REF: aa505413c2374bba35dedd7a0f4760c9950eb8c3
+  DINKSTER_REF: c17c3a3cba94e50fb35ed69ddea15fbeaba12345
 
 jobs:
   validation-plan:

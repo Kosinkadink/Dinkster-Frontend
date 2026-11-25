@@ -88,9 +88,8 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
     .filter((entry) => ['core.openSubgraph', 'core.extractSubgraph', 'core.flattenSubgraph'].includes(entry.button.id))
     .map((entry) => ({ id: entry.button.id, icon: entry.button.icon, name: entry.button.label })))
   expect(toolbox).toEqual([
-    { id: 'core.openSubgraph', icon: 'folder-open', name: 'Open subgraph' },
-    { id: 'core.extractSubgraph', icon: 'group', name: 'Extract as subgraph' },
-    { id: 'core.flattenSubgraph', icon: 'ungroup', name: 'Flatten subgraph one level' },
+    { id: 'core.openSubgraph', icon: 'group', name: 'Open subgraph' },
+    { id: 'core.flattenSubgraph', icon: 'ungroup', name: 'Flatten subgraph' },
   ])
 
   await page.mouse.click(...Object.values(await nodePoint(page, 'first')) as [number, number], { button: 'right' })

@@ -46,7 +46,9 @@ import { NodeLookGallery } from './node-look.js'
 import { ColorEditingGallery } from './color-editing.js'
 import { InNodeEditorsGallery } from './in-node-editors.js'
 import { RowEditingGallery } from './row-editing.js'
+import { RowAutomaticGallery } from './row-automatic.js'
 import { RowListsGallery } from './row-lists.js'
+import { LookupsGallery } from './lookups.js'
 import { ProblemBoxGallery } from './problem-box.js'
 
 type Theme = 'dark' | 'light'
@@ -77,7 +79,9 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'widgets',
         'core-rows',
         'row-editing',
+        'row-automatic',
         'row-lists',
+        'lookups',
         'color-editing',
         'collection-rows',
         'editor-rows',
@@ -90,7 +94,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'text-boxes',
       ],
     ],
-    ['Wires', ['types', 'structure']],
+    ['Wires', ['types', 'structure', 'wire-looks']],
     ['Subgraphs', ['boundary', 'boundary-names', 'subgraph-icon']],
     ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
     ['Problems with fixes', ['problem-box']],
@@ -174,14 +178,18 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Number, text, toggle, choice, color and file rows with set, empty and long values.',
   'row-editing':
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
+  'row-automatic':
+    'A number whose value is automatic: closed, opened, stepped, while a lookup loads, and when it cannot be worked out.',
   'row-lists':
     'A choice, and a list a pack fills from a lookup, open one filtered list in their own row: the value becomes the filter, a check marks the stored option and the grey highlight the candidate. Opening, filtering, refreshing or Tab never changes the stored value; only Enter or a click picks. Model and media fields are asset fields and keep their own editor; a list of plain names is what a pack\'s own dropdown shows.',
+  lookups:
+    'Fields and notes a pack fills from a declared lookup, in every state, worked out by the production elaboration and drawn by the production renderer. Only an answer for exactly the current arguments is used; a closed row always shows its stored value, and nothing a lookup gives is ever stored.',
   'color-editing':
     'A color row becomes its own field when clicked, with a picker under it and what Enter stores beside it. Nothing is stored until the field is left. The saved color is a line in the side part beside the field, read here as the tooltip asked for, while the draft differs from it; nothing marks it by the name.',
   'collection-rows':
-    'Multi-choice, list, colors and curve rows; After raises the rows that open an editor and draws the curve in its row.',
+    'Multi-choice, list and curve rows; After raises the rows that open an editor and draws the curve in its row.',
   'editor-rows':
-    'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for.',
+    'Every row that opens an editor, chosen and empty; After raises each with an icon for its kind and says what an empty one asks for. On a narrow node an empty row keeps its label whole and cuts what it asks for first.',
   'in-node-editors':
     'The audio recorder, webcam, 3D viewer, image comparison, camera angle and curve fold out inside the node under their editor button row, and the rows below move down; clicking the row again folds them back. A folded row says what the editor holds. A palette is a group of color rows: it grows as colors are added and shows a limit only when its group declares one.',
   'widget-driven':
@@ -199,9 +207,9 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   types:
     'The color of each data type on its pins and wires, and the pin of an input that accepts a list before and after its type is matched.',
   structure:
-    'What is drawn between nodes: groups, reroutes, notes, value sources, selectors and net tags.',
+    'What is drawn between nodes: groups, reroutes, notes and net tags.',
   boundary:
-    "The panels at the edges of a subgraph entered through its node. The Inputs panel carries that node's fields, which it sends down their wires; strength, the edge dropdown and the grain value source are shown on the node without a wire and carry the subgraph icon, as does the grain pill.",
+    "The panels at the edges of a subgraph entered through its node. The Inputs panel carries that node's fields, which it sends down their wires; strength and the edge dropdown are shown on the node without a wire and carry the subgraph icon.",
   'boundary-names':
     "The names on a subgraph's panels and on its collapsed node; After shows ids as written.",
   zoom: 'Three nodes at 75 percent, the smallest zoom that still draws controls.',
@@ -210,13 +218,15 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'zoom-overview':
     'The same nodes just below 50 percent, where the canvas draws its overview.',
   minimap:
-    'The minimap: nodes colored by state, a bypassed node, groups, and the frame of the visible area.',
+    'The minimap: nodes outlined by state, a bypassed node, wires in their type colors, groups, and the frame of the visible area.',
   'switch-primitive':
-    'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields. They replace the value source pill and the selector box shown in the second card.',
+    'Switch and Primitive as ordinary nodes, in every state of the design: a Switch picks one of its named branches for each subgraph node, and a Primitive holds a value with its limits as its own fields.',
   'subgraph-icon':
-    'Every place the canvas draws the subgraph icon, a workflow in a frame, at the 14 px it is drawn at 100 percent: the mark in a subgraph node\'s title alone and with a count, and the cyan mark on a field shown on the subgraph node. The title mark sits as far from the node\'s right edge as from the top and bottom of the title bar.',
+    'Every place the canvas draws the subgraph icon, a workflow in a frame, at the 14 px it is drawn at 100 percent: the mark in a subgraph node\'s title alone and with a count, the cyan mark on a field shown on the subgraph node, and the Create subgraph button on the toolbox over two plain nodes, which one selected subgraph node does not show. The title mark sits as far from the node\'s right edge as from the top and bottom of the title bar.',
   'small-flow-nodes':
     'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
+  'wire-looks':
+    'Every look a wire has. A dashed wire means only that it may carry nothing; every other wire, including one being dragged, is solid. A wire whose source is switched off is faded.',
   'type-conflict':
     'Inputs that must share one type but are fed two different types: an error on the node, its wires and in Problems, and a refusal before the run. By hand such a wire is not accepted.',
 }
@@ -364,7 +374,8 @@ function ExampleCard(props: {
     renderer.setRowMarks(example.rowMarks ?? fixture.rowMarks)
     renderer.setCompanions(example.companions ?? fixture.companions)
     renderer.setInactiveNodes(example.inactive)
-    renderer.setToolbox(fixture.toolbox)
+    renderer.setPresence(example.presence ?? [])
+    renderer.setToolbox(example.toolbox ?? fixture.toolbox)
     const image = document.createElement('canvas')
     image.width = 320
     image.height = 160
@@ -528,6 +539,7 @@ function ExampleCard(props: {
         links: fixture.scene.links.map((link) => ({
           from: { x: link.x1, y: link.y1 },
           to: { x: link.x2, y: link.y2 },
+          ...(link.typeName !== undefined ? { typeName: link.typeName } : {}),
         })),
         reroutes: fixture.scene.reroutes,
         viewport: {
@@ -605,7 +617,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box') return
+    if (currentPage === 'row-editing' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'node-look' || currentPage === 'problem-box') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -707,8 +719,14 @@ export function CanvasGallery() {
         <Show when={fontsReady() && page() === 'row-lists'}>
           <RowListsGallery theme={theme()} />
         </Show>
+        <Show when={fontsReady() && page() === 'lookups'}>
+          <LookupsGallery theme={theme()} />
+        </Show>
         <Show when={fontsReady() && page() === 'color-editing'}>
           <ColorEditingGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'row-automatic'}>
+          <RowAutomaticGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'in-node-editors'}>
           <InNodeEditorsGallery theme={theme()} />
