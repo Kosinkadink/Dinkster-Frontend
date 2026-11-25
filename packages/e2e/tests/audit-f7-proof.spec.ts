@@ -20,6 +20,7 @@ async function prepare(page: Page): Promise<void> {
   await page.route('/api/settings', (route) => route.fulfill({ json: { categories: { granted: [], available: [] }, settings: {} } }))
   await page.route('/supervisor/status', (route) => route.fulfill({ status: 502, body: 'no supervisor' }))
   await page.route('/api/nodes*', (route) => route.fulfill({ json: catalog }))
+  await page.route('/api/nodes/provisional?project=default', (route) => route.fulfill({ status: 404 }))
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'proof' }, devices: [] } }))
   await page.route('/api/diagnostics', (route) => route.fulfill({ json: {} }))
   await page.route('/api/composition', (route) => route.fulfill({ json: { packs: {} } }))

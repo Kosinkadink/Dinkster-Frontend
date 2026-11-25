@@ -62,6 +62,7 @@ import {
   ProductLoading,
   ProductMenu,
   ProductNotice,
+  ProductProgress,
   ProductProjectMenu,
   ProductPage,
   ProductRadio,
@@ -187,7 +188,7 @@ function Gallery() {
           route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
-              (route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
+              (route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
         }
         description={
           route() === '#canvas'
@@ -203,6 +204,39 @@ function Gallery() {
           <Switch
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
+            <Match when={route() === '#setup-components'}>
+              <Section title="Progress" components="ProductProgress">
+                <For each={[
+                  { label: 'Not started', value: 0 },
+                  { label: 'Downloading', value: 0.37 },
+                  { label: 'Complete', value: 1 },
+                  { label: 'Preparing' },
+                ]}>
+                  {(progress) => (
+                    <div class="dinkster-stack">
+                      <span>{progress.label}</span>
+                      <ProductProgress label={progress.label} value={progress.value} />
+                    </div>
+                  )}
+                </For>
+              </Section>
+              <Section title="Standing notices" components="ProductNotice">
+                <ProductNotice>Choose a folder for the installation.</ProductNotice>
+                <ProductNotice tone="warning">Another Dinkster installation is running. Stop it, then check again.</ProductNotice>
+                <ProductNotice tone="error">Setup failed. Check the connection, then try again.</ProductNotice>
+              </Section>
+              <Section title="Choice descriptions" components="ProductMenu">
+                <ProductMenu
+                  label="Change build"
+                  fill="quiet"
+                  items={[
+                    { label: 'Recommended build', description: 'Matches the detected graphics card.', checked: true, onSelect: () => setActivity('Recommended build selected') },
+                    { label: 'Alternative build', description: 'Use this build when your driver requires an earlier runtime.', checked: false, onSelect: () => setActivity('Alternative build selected') },
+                    { label: 'View build information', onSelect: () => setActivity('Build information selected') },
+                  ]}
+                />
+              </Section>
+            </Match>
             <Match when={route() === '#resource-usage'}>
               <Section title="Card memory" components="ProductResourceUsage">
                 <For each={[false, true]}>
