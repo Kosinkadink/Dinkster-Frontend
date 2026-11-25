@@ -236,7 +236,7 @@ export function ProductTemplatesPage(props: {
                   <For each={group.rows}>
                     {(row) => (
                       <li
-                        class="dinkster-list-row"
+                        class="dinkster-list-row dinkster-template-filter"
                         role="option"
                         data-group={row.id}
                         aria-selected={row.id === props.group}
@@ -244,7 +244,9 @@ export function ProductTemplatesPage(props: {
                         onClick={() => props.onGroup(row.id)}
                       >
                         <span class="dinkster-list-row-name">{row.label}</span>
-                        <span class="dinkster-list-row-detail">{row.count}</span>
+                        <span class="dinkster-template-filter-count">
+                          {row.count}
+                        </span>
                       </li>
                     )}
                   </For>
