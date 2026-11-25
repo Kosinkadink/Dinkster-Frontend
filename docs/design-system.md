@@ -39,6 +39,10 @@ from that vector and packages the 16-256px PNGs into ICO without resizing.
 The dark palette uses cyan-tinted greys: canvas `#0E1414`, panel `#141C1D`,
 raised `#1E292A`, hover `#283537`, and subtle border `#324143`. The frame role
 is `#090D0D`, exposed as `surface.frame` and `--dinkster-surface-frame`.
+The active workflow tab's top tint, `rgba(120, 205, 210, 0.08)` in both
+themes, is the translucent `interaction.activeTabTint`
+(`--dinkster-interaction-active-tab-tint`); it is not a surface, because text
+never sits on it alone.
 Light-theme colors remain unchanged. The app grid uses the light palette's
 `#D3D9DE` dots rather than retaining the dark constructor color. Queued and
 skipped node outlines keep their existing light values through dedicated
@@ -191,8 +195,9 @@ every core tab once.
   `ProductRunIcon` keeps a supplied Lucide kind icon visible while running,
   breathing in cyan over a 2.4-second cycle. Reduced motion leaves it still
   and cyan. Queued work stays cyan without motion. Its optional
-  `finished`/`failed` result adds a lower-right cyan or
-  coral dot, hidden while running. Tabs and the status bar use this same export.
+  `finished`/`failed` result adds a 6 px lower-right cyan or coral dot with a
+  2 px ring in the colour behind it, hidden while running. Tabs and the status
+  bar use this same export.
   `ProductRunActivity` shows separate numeric running and waiting activity:
   a turning cyan ring always carries the running count, including one, and a
   still secondary-text clock always carries the waiting count. Zero counts

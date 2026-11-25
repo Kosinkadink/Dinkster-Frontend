@@ -115,6 +115,7 @@ import {
 } from './dinkster-graph.js'
 import { LivenessDerivation, traverseRoutedProjection, type RouteProjection, type RoutedStep } from './liveness.js'
 import type {
+  AutomaticCall,
   AutomaticTap,
   CompileArtifact,
   CompileResult,
@@ -505,6 +506,7 @@ function compileImpl(
   const diags: Diagnostic[] = []
   /** Automatic values copied into a node, by the node that receives each. */
   const automaticTaps: AutomaticTap[] = []
+  const automaticCalls: AutomaticCall[] = []
   const elaborationDiagnosticOwners = new Map<Diagnostic, {
     readonly graphId: GraphDefId
     readonly nodeId: NodeId
@@ -2611,12 +2613,16 @@ function compileImpl(
       if (input.origin.kind === 'member' && input.origin.ghost === true) continue
       const spec = input.spec
       if (fn.inputs[spec.id] !== undefined) continue
+      // An automatic field with nothing stored stays out of the prompt, shown
+      // or not: the engine works it out when the run is queued.
+      if (spec.automatic !== undefined) {
+        const call = input.automatic?.call
+        if (call !== undefined) automaticCalls.push({ runtimeNodeId: fn.runtimeId, inputId: spec.id, lookup: call.lookup, args: call.args })
+        continue
+      }
       // A field declared hidden is sent only what it stores; a row hidden by
       // its visible, or by a hidden choice or group, is sent as if shown.
       if (spec.hidden === true && input.hiddenByScope !== true) continue
-      // An automatic field with nothing stored stays out of the prompt: the
-      // engine works it out when the run is queued.
-      if (spec.automatic !== undefined) continue
       // A primitive's empty limit only shows the limit worked out for it.
       if (spec.widget?.automatic === true) continue
       if (spec.widget) {
@@ -3134,6 +3140,10 @@ function compileImpl(
     ...(() => {
       const taps = automaticTaps.filter((tap) => included.has(tap.receiverRuntimeId))
       return taps.length > 0 ? { automaticTaps: deepFreeze(structuredClone(taps)) } : {}
+    })(),
+    ...(() => {
+      const calls = automaticCalls.filter((call) => included.has(call.runtimeNodeId))
+      return calls.length > 0 ? { automaticCalls: deepFreeze(structuredClone(calls)) } : {}
     })(),
     diagnostics: deepFreeze(structuredClone(diags)),
   })
