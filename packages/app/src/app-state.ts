@@ -23,7 +23,6 @@ import {
   documentResolver,
   coreCommandRegistry,
   initializeBoundaryViews,
-  type AutomaticValueRecord,
   type BoundaryPositionResolver,
   coreMenuContributions,
   createMenuRegistry,
@@ -3337,14 +3336,16 @@ export class AppState {
       if ([...executions.values()].some((execution) => execution.status === 'completed' &&
         this.store.canRestoreCompleted(execution.ref))) this.refreshPersistedExecutionResults()
     })
-    // Once per run's records: a recorded lookup answer the editor does not hold makes that call old.
-    const recordedAnswers = new WeakSet<readonly AutomaticValueRecord[]>()
+    // Once per run: a recorded lookup answer the editor does not hold makes that call old.
+    // Reconnects and restores hand over the same records again as new arrays.
+    const recordedRuns = new Set<string>()
     this.store.executions.subscribe((executions) => {
-      for (const execution of executions.values()) {
+      for (const key of recordedRuns) if (!executions.has(key)) recordedRuns.delete(key)
+      for (const [key, execution] of executions) {
         const records = execution.automaticValues
         const calls = execution.artifact?.automaticCalls
-        if (records === undefined || calls === undefined || recordedAnswers.has(records)) continue
-        recordedAnswers.add(records)
+        if (records === undefined || calls === undefined || recordedRuns.has(key)) continue
+        recordedRuns.add(key)
         const lookups = this.backendFor(execution.ref.connection)?.lookups
         if (lookups !== undefined) recordRunAnswers(lookups, calls, records)
       }

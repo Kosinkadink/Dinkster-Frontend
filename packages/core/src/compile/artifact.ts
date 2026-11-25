@@ -139,6 +139,8 @@ export interface CompileArtifact {
   /**
    * The lookup call the editor worked out for each automatic field it left
    * for the engine, so a run that records another value marks that call old.
+   * It depends on the answers this window holds, so the projection other
+   * windows compare against leaves it out; each window keeps its own.
    */
   readonly automaticCalls?: readonly AutomaticCall[]
   /** Warnings produced during a successful compile. */
@@ -192,7 +194,6 @@ export interface WorkspaceCompileArtifact {
   readonly provenance: WorkspaceProvenance
   readonly choices?: readonly SelectorChoice[]
   readonly automaticTaps?: readonly AutomaticTap[]
-  readonly automaticCalls?: readonly AutomaticCall[]
   readonly diagnostics: readonly Diagnostic[]
 }
 
@@ -240,14 +241,6 @@ export function projectWorkspaceCompileArtifact(artifact: CompileArtifact): Work
         value: tap.value,
         receiverRuntimeId: tap.receiverRuntimeId,
         receiver: tap.receiver,
-      })),
-    }),
-    ...(artifact.automaticCalls === undefined ? {} : {
-      automaticCalls: artifact.automaticCalls.map((call) => ({
-        runtimeNodeId: call.runtimeNodeId,
-        inputId: call.inputId,
-        lookup: call.lookup,
-        args: call.args,
       })),
     }),
     diagnostics: artifact.diagnostics,

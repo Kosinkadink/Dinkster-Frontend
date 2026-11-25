@@ -25,12 +25,15 @@ describe('recorded run answers', () => {
     recordRunAnswers(client, [
       { runtimeNodeId: 'n0', inputId: 'fps', lookup: 'pack.rate_of', args: ['sd'] },
       { runtimeNodeId: 'n1', inputId: 'fps', lookup: 'pack.rate_of', args: ['sdxl'] },
+      { runtimeNodeId: 'n3', inputId: 'fps', lookup: 'pack.rate_of', args: ['sdxl'] },
     ], [
-      // n0 got another answer; n1 got the one kept; n2 made no call the editor kept; a default says nothing of the answer.
+      // n0 got another answer; n1 got the one kept; n2 made no call the editor kept;
+      // n3's default says nothing of the answer; n1's other field made no call.
       { runtimeNodeId: 'n0', inputId: 'fps', value: 25, workedOut: true },
       { runtimeNodeId: 'n1', inputId: 'fps', value: 30, workedOut: true },
       { runtimeNodeId: 'n2', inputId: 'fps', value: 12, workedOut: true },
-      { runtimeNodeId: 'n1', inputId: 'other', value: 24, workedOut: false },
+      { runtimeNodeId: 'n3', inputId: 'fps', value: 24, workedOut: false },
+      { runtimeNodeId: 'n1', inputId: 'other', value: 24, workedOut: true },
     ])
     expect(await client.request(call('sd'))).toEqual({ state: 'ready', answer: 25 })
     expect(await client.request(call('sdxl'))).toEqual({ state: 'ready', answer: 30 })

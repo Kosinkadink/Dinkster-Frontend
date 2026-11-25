@@ -2612,14 +2612,14 @@ function compileImpl(
       if (input.origin.kind === 'member' && input.origin.ghost === true) continue
       const spec = input.spec
       if (fn.inputs[spec.id] !== undefined) continue
-      if (spec.hidden === true) continue
-      // An automatic field with nothing stored stays out of the prompt: the
-      // engine works it out when the run is queued.
+      // An automatic field with nothing stored stays out of the prompt, shown
+      // or not: the engine works it out when the run is queued.
       if (spec.automatic !== undefined) {
         const call = input.automatic?.call
         if (call !== undefined) automaticCalls.push({ runtimeNodeId: fn.runtimeId, inputId: spec.id, lookup: call.lookup, args: call.args })
         continue
       }
+      if (spec.hidden === true) continue
       // A primitive's empty limit only shows the limit worked out for it.
       if (spec.widget?.automatic === true) continue
       if (spec.widget) {
