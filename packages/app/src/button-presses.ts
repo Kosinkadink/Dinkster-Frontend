@@ -292,6 +292,8 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         report(place, { kind: 'failed', warning: true, message: `Nothing was changed. ${error instanceof Error ? error.message : String(error)}`, skipped: [], notes: [] })
       } finally {
         running.delete(key)
+        // Focused buttons read both the result and whether a press is still running.
+        setStates(new Map(states()))
       }
     },
     cancel(place: ButtonPlace): void {

@@ -1870,7 +1870,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const tab = activeTab()
     return tab !== undefined && place.tab === tab && place.graphId === currentGraphId(tab)
   }
-  let moveEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _direction: 1 | -1): void => {}
+  let moveEditorRow = (_from: { readonly nodeId: string } & ({ readonly valueKey: string } | { readonly buttonId: string }), _direction: 1 | -1): void => {}
+  let onRowFocusKey = (_event: KeyboardEvent): void => {}
   let editsRowsInPlace = (): boolean => false
   let focusEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }): void => {}
   let rowRepresentationOf = (_tab: Tab, _node: SceneNode, _row: WidgetLayoutRow): RowRepresentation | undefined => undefined
@@ -4725,11 +4726,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const focus = untrack(rowFocus)
       if (focus !== undefined) {
         const node = fieldNodes.find((item) => item.id === focus.nodeId)
-        const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
-        setRowFocus(node === undefined || row?.kind !== 'widget' || focus.tabId !== tab.id || focus.graphId !== graphId
-          ? undefined
-          : { ...rowFocusAt(tab, node, row), ...(focus.note === undefined ? {} : { note: focus.note }),
-            ...(focus.cancellation === undefined || !rowIsDriven(node.id, row) ? {} : { cancellation: focus.cancellation }) })
+        if (focus.button !== undefined) {
+          const row = node?.layout.rows.find((item) => item.kind === 'button' && item.buttonId === focus.button!.id)
+          setRowFocus(node === undefined || row?.kind !== 'button' || focus.tabId !== tab.id || focus.graphId !== graphId
+            ? undefined : buttonFocusAt(tab, node, row))
+        } else {
+          const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
+          setRowFocus(node === undefined || row?.kind !== 'widget' || focus.tabId !== tab.id || focus.graphId !== graphId
+            ? undefined
+            : { ...rowFocusAt(tab, node, row), ...(focus.note === undefined ? {} : { note: focus.note }),
+              ...(focus.cancellation === undefined || !rowIsDriven(node.id, row) ? {} : { cancellation: focus.cancellation }) })
+        }
       }
       const openMenu = untrack(menu)
       // Menu items are a semantic snapshot: they also go stale when the
@@ -5631,14 +5638,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const node = found?.node
       // Zoomed out to the overview, rows cannot be clicked and Tab does nothing.
       if (tab === undefined || tab.execution || node === undefined || renderer.getDetailLevel() === 'overview') return
-      // Every row is a stop. A field or text edited in place opens; any other
-      // row (a toggle, or a row that opens an editor) only takes the focus.
+      // Buttons keep their place even while disabled or working. A field or
+      // text edited in place opens; other rows only take the focus.
       const opensInPlace = (row: WidgetLayoutRow): boolean =>
         (row.viewId === 'core.text' || row.viewId === 'core.line') &&
         widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi === undefined
-      const stops = node.layout.rows.filter((row): row is WidgetLayoutRow =>
-        row.kind === 'widget' && !rowIsDriven(node.id, row))
-      const index = stops.findIndex((row) => row.valueKey === from.valueKey)
+      const stops = node.layout.rows.filter((row): row is WidgetLayoutRow | Extract<LayoutRow, { kind: 'button' }> =>
+        row.kind === 'button' || (row.kind === 'widget' && !rowIsDriven(node.id, row)))
+      const index = stops.findIndex((row) => row.kind === 'button'
+        ? 'buttonId' in from && row.buttonId === from.buttonId
+        : 'valueKey' in from && row.valueKey === from.valueKey)
       if (index < 0) return
       const row = stops[(index + direction + stops.length) % stops.length]!
       const width = row.width ?? node.layout.width - row.inset * 2
@@ -5651,10 +5660,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const dx = left < 0 ? -left : right > canvasEl.clientWidth ? canvasEl.clientWidth - right : 0
       const dy = top < 0 ? -top : bottom > canvasEl.clientHeight ? canvasEl.clientHeight - bottom : 0
       if (dx !== 0 || dy !== 0) renderer.setViewport({ ...viewport, x: viewport.x + dx, y: viewport.y + dy })
-      if (editsInRow(tab, node, row) || opensInPlace(row)) {
+      if (row.kind === 'button') {
+        setRowFocus(buttonFocusAt(tab, node, row))
+      } else if (editsInRow(tab, node, row) || opensInPlace(row)) {
         setRowFocus(undefined)
         openWidgetEditor(rowHit(node, row))
-      } else focusEditorRow({ nodeId: node.id, valueKey: row.valueKey })
+      } else {
+        canvasEl.focus()
+        focusEditorRow({ nodeId: node.id, valueKey: row.valueKey })
+      }
     }
 
     const rowHit = (node: SceneNode, row: WidgetLayoutRow): Extract<Hit, { kind: 'widget' }> => {
@@ -5680,7 +5694,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
     }
 
-    const rowFocusAt = (tab: Tab, node: SceneNode, row: WidgetLayoutRow): RowFocusState => {
+    const buttonFocusAt = (tab: Tab, node: SceneNode, row: Extract<LayoutRow, { kind: 'button' }>): RowFocusState => {
+      const place = buttonPlaceOf(tab, node.id, row.buttonId, false, row.label)
+      const box = buttonFieldBox(place)!
+      const busy = buttonPresses.isBusy(place)
+      const availability = buttonAvailabilityOf(place)
+      const disabled = !busy && !availability.enabled
+      const help = disabled && !availability.enabled ? availability.reason : row.tooltip
+      return {
+        ...box, tabId: tab.id, graphId: currentGraphId(tab), nodeId: node.id,
+        button: { id: row.buttonId, label: row.label, disabled, busy },
+        ...(help === undefined ? {} : { help }),
+      }
+    }
+    createEffect(() => {
+      buttonPresses.states()
+      untrack(() => {
+        const focus = rowFocus()
+        const tab = activeTab()
+        const node = focus === undefined ? undefined : rowNodeOf(focus.nodeId)?.node
+        const row = node?.layout.rows.find((item) => item.kind === 'button' && item.buttonId === focus?.button?.id)
+        if (focus?.button !== undefined && tab !== undefined && node !== undefined && row?.kind === 'button') setRowFocus(buttonFocusAt(tab, node, row))
+      })
+    })
+
+    const rowFocusAt = (tab: Tab, node: SceneNode, row: WidgetLayoutRow): Extract<RowFocusState, { valueKey: string }> => {
       const tokens = renderer.getDesignTokens()
       const inset = tokens.rowGeometry.fieldInsetY
       const reg = registry()
@@ -5749,10 +5787,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // While a row has the focus, Tab moves on, Space and Enter act on the
     // row (a toggle flips, anything else opens), and Escape gives the focus
     // back to the canvas. Every other key does what it does on the canvas.
-    const onRowFocusKey = (event: KeyboardEvent): void => {
+    onRowFocusKey = (event: KeyboardEvent): void => {
       const focus = rowFocus()
       if (focus === undefined || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return
-      const from = { nodeId: focus.nodeId, valueKey: focus.valueKey }
+      const from = focus.button === undefined
+        ? { nodeId: focus.nodeId, valueKey: focus.valueKey }
+        : { nodeId: focus.nodeId, buttonId: focus.button.id }
       if (event.key === 'Tab') {
         event.preventDefault()
         event.stopPropagation()
@@ -5761,10 +5801,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         event.preventDefault()
         event.stopPropagation()
         setRowFocus(undefined)
+        canvasEl.focus()
       } else if ((event.key === 'Enter' || event.key === ' ') && focus.note === undefined) {
         event.preventDefault()
         event.stopPropagation()
         const node = rowNodeOf(focus.nodeId)?.node
+        if (focus.button !== undefined) {
+          if (event.repeat || node === undefined) return
+          const place = buttonPlaceOf(activeTab()!, node.id, focus.button.id, false, focus.button.label)
+          if (buttonPresses.isBusy(place)) buttonPresses.cancel(place)
+          else if (buttonAvailabilityOf(place).enabled) void buttonPresses.press(place)
+          return
+        }
         const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
         if (node === undefined || row?.kind !== 'widget') { setRowFocus(undefined); return }
         // A toggle and an editor's fold keep the focus, so Enter turns them back.
@@ -5776,7 +5824,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // The outline shows only while the keyboard put the focus there.
     const clearRowFocus = (): void => {
       const focus = untrack(rowFocus)
-      closedNote = focus?.note === undefined ? undefined : { nodeId: focus.nodeId, valueKey: focus.valueKey }
+      closedNote = focus?.note === undefined || focus.button !== undefined ? undefined : { nodeId: focus.nodeId, valueKey: focus.valueKey }
       setRowFocus(undefined)
     }
     const onRowFocusBlur = (event: FocusEvent): void => {
@@ -7750,7 +7798,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       </Show>
 
       <Show when={rowFocus()}>
-        {(focus) => <RowFocusOverlay focus={focus()} viewport={editorViewport} boundary={canvasEl.parentElement!} onClose={(restoreFocus) => {
+        {(focus) => <RowFocusOverlay focus={focus()} viewport={editorViewport} boundary={canvasEl.parentElement!} onKeyDown={onRowFocusKey} onClose={(restoreFocus) => {
           setRowFocus(undefined)
           if (restoreFocus) canvasEl.focus()
         }} onRepresentation={(id) => {

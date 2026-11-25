@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onMount, Show } from 'solid-js'
 import Info from 'lucide-solid/icons/info'
 import TriangleAlert from 'lucide-solid/icons/triangle-alert'
 import { formatWidgetValue, type AskRequest, type InputSpec, type IntegerWidgetValue, type Json, type WidgetKind, type WidgetSpec } from '@dinkster/core'
@@ -137,6 +137,7 @@ export function ButtonAskForm(props: {
   }
 
   let form!: HTMLDivElement
+  onMount(() => form.querySelector<HTMLButtonElement>('button:not(:disabled):not([tabindex="-1"])')?.focus())
   const content = (
     <div
       ref={form}

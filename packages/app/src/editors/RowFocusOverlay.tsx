@@ -16,11 +16,10 @@ export interface RowRepresentation {
 }
 
 /** A row the keyboard is on while nothing is open. */
-export interface RowFocusState extends RowBox {
+interface RowFocusDetails extends RowBox {
   readonly tabId: string
   readonly graphId: string
   readonly nodeId: string
-  readonly valueKey: string
   /** The declared default, as the row shows it. */
   readonly defaultText?: string
   readonly help?: string
@@ -35,10 +34,15 @@ export interface RowFocusState extends RowBox {
   readonly note?: JSX.Element
 }
 
+export type RowFocusState = RowFocusDetails & (
+  | { readonly valueKey: string; readonly button?: never }
+  | { readonly valueKey?: never; readonly button: { readonly id: string; readonly label: string; readonly disabled: boolean; readonly busy: boolean } }
+)
+
 /**
  * Draws the open field's outline around the row the keyboard is on, with a
- * side part holding the row's default and help text. Nothing opens; the
- * canvas keeps the focus and still draws the row.
+ * side part holding the row's default and help text. The canvas still draws
+ * the row; Buttons get a semantic focus target for their keyboard actions.
  */
 export function RowFocusOverlay(props: {
   focus: RowFocusState
@@ -47,6 +51,7 @@ export function RowFocusOverlay(props: {
   /** Switch the row's look; called only with a choice other than the current one. */
   onRepresentation: (id: string) => void
   onClose: (restoreFocus: boolean) => void
+  onKeyDown: (event: KeyboardEvent) => void
 }) {
   const [sideSize, setSideSize] = createSignal({ width: 0, height: 0 })
   const bounds = visibleCanvas(props.boundary)
@@ -70,15 +75,28 @@ export function RowFocusOverlay(props: {
       } })}
     >{props.focus.note ?? props.focus.arriving}</CanvasSidePart>
   )
+  let layer!: HTMLDivElement
   let frame!: HTMLDivElement
   createEffect(() => placeRow(frame, placement()))
+  createEffect(() => {
+    if (props.focus.button === undefined) return
+    // Buttons have a semantic focus target; fields keep their existing canvas focus.
+    if (document.activeElement === props.boundary.querySelector('canvas') || document.activeElement === document.body) layer.focus()
+  })
   return (
-    <div class="palette-layer widget-popover-layer" data-testid="row-focus"
+    <div ref={layer} class="palette-layer widget-popover-layer" data-testid="row-focus"
+      role={props.focus.button === undefined ? undefined : 'button'}
+      tabIndex={props.focus.button === undefined ? undefined : -1}
+      aria-label={props.focus.button === undefined ? undefined : props.focus.button.busy ? `Cancel ${props.focus.button.label}` : props.focus.button.label}
+      aria-disabled={props.focus.button?.disabled}
+      aria-busy={props.focus.button?.busy}
+      aria-description={props.focus.button === undefined ? undefined : props.focus.help}
       onFocusOut={(event) => {
         if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) props.onClose(false)
       }}
       onKeyDown={(event) => {
         if (event.isComposing) return
+        if (props.focus.button !== undefined) { props.onKeyDown(event); return }
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); props.onClose(true) }
       }}>
       <div ref={frame} class="widget-row-focus">

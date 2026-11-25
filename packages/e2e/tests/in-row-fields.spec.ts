@@ -708,7 +708,7 @@ test('multiline box: Tab stores and moves on; Ctrl+Enter stores then runs', asyn
   await expect.poll(() => page.evaluate(() => (window as unknown as { queuedNotes?: unknown }).queuedNotes)).toBe('third')
 })
 
-async function openMixed(page: Page): Promise<void> {
+async function openMixed(page: Page, buttons = false): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'inrow-mixed', schemaWire: 2, graphFeatures: ['decimalInt'] }, nodes: {},
   } }))
@@ -717,7 +717,7 @@ async function openMixed(page: Page): Promise<void> {
   await waitForWorkspaceReady(page)
   const close = page.locator('.template-gallery-close')
   if ((await close.count()) > 0 && (await close.first().isVisible())) await close.first().click()
-  await page.evaluate(async () => {
+  await page.evaluate(async (buttons) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
@@ -726,9 +726,23 @@ async function openMixed(page: Page): Promise<void> {
       type: 'Mixed', displayName: 'Mixed', category: 'test', source: 'v3', isOutputNode: false,
       body: [
         { ...widget('steps', 'INT', 20, { min: 1, max: 10000, step: 1 }), tooltip: 'How many denoising steps to run.' },
+        ...(buttons ? [
+          { kind: 'button', id: 'increment', label: 'Add a step', steps: [{ step: 'set', field: 'steps', value: { formula: 'steps + 1' } }] },
+          { kind: 'button', id: 'disabled', label: 'Use preset', enabled: false, disabledReason: 'Choose a preset before using this button.', steps: [{ step: 'set', field: 'steps', value: { value: 99 } }] },
+          { kind: 'button', id: 'working', label: 'Prepare', steps: [
+            { step: 'set', field: 'steps', value: { value: 88 } },
+            { step: 'call', function: 'test.prepare', args: [], writes: ['prefix'] },
+          ] },
+        ] : []),
         { ...widget('enabled', 'BOOLEAN', true), tooltip: 'Turn the pass on or off.' },
         widget('sampler', 'COMBO', 'euler', { options: ['euler', 'dpmpp_2m', 'uni_pc'] }),
         widget('prefix', 'STRING', 'Dinkster'),
+        ...(buttons ? [{ kind: 'button', id: 'ask', label: 'Choose pass', steps: [
+          { step: 'ask', title: 'Choose pass settings', rows: [
+            { id: 'enabled_pass', type: { kind: 'concrete', types: ['BOOLEAN'] }, required: true, default: true },
+          ] },
+          { step: 'set', field: 'enabled', value: { formula: 'enabled_pass' } },
+        ] }] : []),
       ],
     }] as never)
     await window.__dinksterTest!.app.openDocument({
@@ -739,8 +753,102 @@ async function openMixed(page: Page): Promise<void> {
       view: { graphs: { g0: { nodes: { n1: { position: { x: 100, y: 100 } } } } } },
     } as never, 'Mixed')
     window.__dinksterTest!.renderer!.setViewport({ x: 200, y: 150, scale: 1 })
-  })
+  }, buttons)
 }
+
+test('a keyboard-started Ask Button gives its form the keyboard and applies one undoable edit', async ({ page }) => {
+  await openMixed(page, true)
+  const steps = await rowPoint(page, 'n1', 'steps')
+  await page.mouse.click(steps.x, steps.y)
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.getByTestId('row-focus')).toHaveAccessibleName('Choose pass')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('button-ask-enabled_pass')).toBeFocused()
+  await page.keyboard.press(' ')
+  await expect(page.getByTestId('button-ask-enabled_pass')).toHaveAttribute('aria-pressed', 'false')
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('button-ask-cancel')).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('button-ask-apply')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('button-ask-form')).toHaveCount(0)
+  await expect.poll(() => value(page, 'enabled')).toBe(false)
+  await page.getByTestId('graph-canvas').focus()
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => value(page, 'enabled')).toBe(true)
+})
+
+test('Buttons keep their row-cycle stops, disabled reason and atomic keyboard cancellation', async ({ page }, testInfo) => {
+  let finishCall!: () => void
+  let calls = 0
+  await page.route('**/api/node-functions/call', async (route) => {
+    calls++
+    await new Promise<void>((resolve) => { finishCall = resolve })
+    await route.fulfill({ contentType: 'application/x-ndjson', body: '{"answer":{"prefix":"prepared"}}\n' }).catch(() => {})
+  })
+  await openMixed(page, true)
+  const focus = page.getByTestId('row-focus')
+  const steps = await rowPoint(page, 'n1', 'steps')
+  await page.mouse.click(steps.x, steps.y)
+  await page.keyboard.press('Tab')
+  await expect(focus).toHaveAccessibleName('Add a step')
+  await expect(focus).toBeFocused()
+  await page.screenshot({ path: testInfo.outputPath('focused-ready-button.png') })
+  await page.keyboard.down('Enter')
+  await page.keyboard.down('Enter')
+  await page.keyboard.up('Enter')
+  await expect.poll(() => value(page, 'steps')).toBe(21)
+  await page.keyboard.press(' ')
+  await expect.poll(() => value(page, 'steps')).toBe(22)
+  await page.keyboard.press('Tab')
+  await expect(focus).toHaveAccessibleName('Use preset')
+  await expect(focus).toHaveAttribute('aria-disabled', 'true')
+  await expect(focus).toHaveAccessibleDescription('Choose a preset before using this button.')
+  await expect(focus).toContainText('Choose a preset before using this button.')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press(' ')
+  expect(await value(page, 'steps')).toBe(22)
+  await page.screenshot({ path: testInfo.outputPath('focused-disabled-button.png') })
+  await page.keyboard.press('Shift+Tab')
+  await expect(focus).toHaveAccessibleName('Add a step')
+  await page.keyboard.press('Shift+Tab')
+  await expect.poll(() => openLabel(page)).toBe('steps')
+  for (const cancel of ['Enter', ' ']) {
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Tab')
+    await expect(focus).toHaveAccessibleName('Prepare')
+    await page.keyboard.press('Enter')
+    await expect(focus).toHaveAccessibleName('Cancel Prepare')
+    await expect.poll(() => calls).toBe(cancel === 'Enter' ? 1 : 2)
+    if (cancel === 'Enter') await page.screenshot({ path: testInfo.outputPath('focused-busy-button.png') })
+    await page.keyboard.press(cancel)
+    await expect(focus).toHaveAccessibleName('Prepare')
+    finishCall()
+    expect(await value(page, 'steps')).toBe(22)
+    expect(await value(page, 'prefix')).toBe('Dinkster')
+    await page.keyboard.press('Tab')
+    await expect(focus).not.toHaveAttribute('role', 'button')
+    await expect(page.getByTestId('graph-canvas')).toBeFocused()
+    await page.keyboard.press(' ')
+    await expect.poll(() => value(page, 'enabled')).toBe(false)
+    await page.keyboard.press(' ')
+    await expect.poll(() => value(page, 'enabled')).toBe(true)
+    await page.keyboard.press('Shift+Tab')
+    await expect(focus).toHaveAccessibleName('Prepare')
+    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Shift+Tab')
+    await expect.poll(() => openLabel(page)).toBe('steps')
+  }
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Control+z')
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => value(page, 'steps')).toBe(21)
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => value(page, 'steps')).toBe(20)
+})
 
 test('the keyboard on a row: toggle and choice stops, Enter and Escape keep the row', async ({ page }) => {
   await openMixed(page)
