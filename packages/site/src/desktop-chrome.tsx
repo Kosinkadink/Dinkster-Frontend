@@ -8,7 +8,7 @@ export interface DesktopChromeOptions {
   readonly theme: 'dark' | 'light'
   readonly qa?: boolean
   readonly development?: boolean
-  /** macOS hides the traffic lights in full screen, so the bar drops their inset. */
+  /** Full screen hides the window buttons, so the bar reserves no room for them. */
   readonly fullScreen?: boolean
 }
 
