@@ -165,12 +165,13 @@ export function ExecutionActivityCard(props: {
 
   return (
     <article
-      class="execution-activity-card"
+      class="execution-activity-card dinkster-list-row"
       classList={{ compact: props.compact === true }}
       role="listitem"
       data-testid={props.testId}
       data-status={props.entry.status}
       data-overlay={props.relation}
+      aria-current={props.relation !== undefined ? 'true' : undefined}
       title={props.compact === true ? attribution() : undefined}
     >
       <div class="execution-activity-heading">

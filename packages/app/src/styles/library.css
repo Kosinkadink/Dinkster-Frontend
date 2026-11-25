@@ -90,18 +90,11 @@
 }
 :is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-entry {
   gap: var(--dinkster-space-8);
-  padding: var(--dinkster-space-8) var(--dinkster-space-12);
   color: var(--dinkster-text-secondary);
-  background: var(--dinkster-surface-raised);
-  border-color: var(--dinkster-border-subtle);
-  border-radius: var(--dinkster-radius-control);
 }
-:is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-entry:hover { background: var(--dinkster-interaction-hover); border-color: var(--dinkster-border-hover); }
-:is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-entry.selected { color: var(--dinkster-text-on-selected); background: var(--dinkster-surface-selected); border-color: var(--dinkster-border-selected); }
-:is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-entry.selected :is(.collection-title, .collection-subtitle, .collection-badge) { color: var(--dinkster-text-on-selected); }
 :is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-entry:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: -2px; }
 :is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-title { color: var(--dinkster-text-primary); font: inherit; font-weight: var(--dinkster-weight-bold); white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
-:is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-subtitle { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+:is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-subtitle { color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
 :is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-initials {
   color: var(--dinkster-accent-foreground);
   background: var(--dinkster-accent-background);
@@ -190,27 +183,19 @@
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-items {
   display: flex;
   flex-direction: column;
-  gap: var(--dinkster-space-8);
   -webkit-user-select: text;
   user-select: text;
 }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-entry {
   align-items: flex-start;
   gap: var(--dinkster-space-8);
-  padding: var(--dinkster-space-12);
   color: var(--dinkster-text-secondary);
-  background: var(--dinkster-surface-raised);
-  border-color: var(--dinkster-border-subtle);
-  border-left: 3px solid var(--dinkster-info-border);
-  border-radius: var(--dinkster-radius-control);
 }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) :is(.collection-thumb, .collection-initials) { display: none; }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .library-detail-initials { display: none; }
-:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-entry:hover { background: var(--dinkster-interaction-hover); border-color: var(--dinkster-border-hover); }
-:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-entry.selected { color: var(--dinkster-text-on-selected); background: var(--dinkster-surface-selected); border-color: var(--dinkster-border-selected); }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-entry:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: -2px; }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-title { color: var(--dinkster-text-primary); font: inherit; font-weight: var(--dinkster-weight-bold); white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
-:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-subtitle { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-subtitle { color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-badge {
   max-width: 100%;
   padding: 0 var(--dinkster-space-8);
@@ -231,7 +216,7 @@
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-expand:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-expand:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .collection-children { display: contents; }
-:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-entry.collection-child { margin-left: var(--dinkster-space-16); border-left-color: var(--dinkster-accent-border); }
+:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-entry.collection-child { margin-left: var(--dinkster-space-16); }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='accent'] { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='danger'] { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-border); }
 
@@ -548,7 +533,6 @@
 .collection-items.list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
 }
 
 .collection-items.grid {
@@ -562,19 +546,23 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 8px;
-  border: 1px solid var(--dinkster-border-subtle);
-  border-radius: 6px;
-  background: var(--dinkster-surface-raised);
   cursor: pointer;
   flex-wrap: wrap;
 }
 
-.collection-entry:hover {
+/* Grid tiles keep their box; list entries are shared list rows. */
+.collection-items.grid .collection-entry {
+  padding: 6px 8px;
+  border: 1px solid var(--dinkster-border-subtle);
+  border-radius: 6px;
+  background: var(--dinkster-surface-raised);
+}
+
+.collection-items.grid .collection-entry:hover {
   border-color: var(--dinkster-border-hover);
 }
 
-.collection-entry.selected {
+.collection-items.grid .collection-entry.selected {
   border-color: var(--dinkster-border-focus);
   background: var(--dinkster-interaction-selected);
   box-shadow: inset 0 0 0 1px var(--dinkster-border-focus);
@@ -584,7 +572,6 @@
 
 .collection-entry.collection-child {
   margin-left: 24px;
-  border-left-color: var(--dinkster-info-border);
 }
 
 .collection-group {
@@ -645,7 +632,7 @@
 .assets-panel .collection-subtitle,
 .assets-panel .collection-badge { color: var(--dinkster-text-secondary); }
 .assets-panel .collection-subtitle { display: block; max-width: 100%; }
-.assets-panel .collection-entry.selected {
+.assets-panel .collection-items.grid .collection-entry.selected {
   border-color: var(--dinkster-border-focus);
   box-shadow: inset 0 0 0 1px var(--dinkster-border-focus);
 }
