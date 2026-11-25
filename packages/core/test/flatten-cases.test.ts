@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { elabInputsOf, elabOutputsOf, elaborateInterface, type Connectivity } from '../src/schema/elaborate.js'
-import { canonicalTypeIdOf } from '../src/schema/model.js'
+import { canonicalTypeIdOf, type NodeSchema } from '../src/schema/model.js'
 import type { DynamicPortState, Json } from '../src/format/document.js'
 
 const FIXTURE = new URL('./fixtures/flatten_v2.json', import.meta.url)
@@ -39,7 +39,7 @@ const cases = (JSON.parse(bytes.toString('ascii')) as { cases: FlattenCase[] }).
  * a group's member keys in the order the run names them (its member list
  * first, then keys found only in stored ids, the engine's discovery rule), and each choice's key.
  */
-function documentOf(testCase: FlattenCase): {
+function documentOf(testCase: FlattenCase, schema: NodeSchema): {
   values: Record<string, Json>
   dynamic: Record<string, DynamicPortState>
   connectivity: Connectivity
@@ -67,6 +67,15 @@ function documentOf(testCase: FlattenCase): {
     if (found.length > 0) dynamic[path] = { members: found }
   }
   for (const [path, key] of Object.entries(testCase.choices)) dynamic[path] = { ...dynamic[path], selected: key }
+  // These are keys already submitted to the engine, not inert editor picks.
+  // A submitted type choice has an active pin in the editor that produced it.
+  const census = elaborateInterface(schema, { values, dynamic }, {
+    isInputConnected: (port) => wired.has(port), isOutputConnected: () => false,
+  }, { includeDormant: true })
+  for (const input of elabInputsOf(census)) {
+    if (input.origin.kind === 'slot' && input.origin.variants !== undefined && testCase.choices[input.address.port] !== undefined)
+      wired.add(input.address.port)
+  }
   return {
     values,
     dynamic,
@@ -88,7 +97,7 @@ describe('flattening cases shared with the engine', () => {
         return
       }
       expect(parsed.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-      const { values, dynamic, connectivity } = documentOf(testCase)
+      const { values, dynamic, connectivity } = documentOf(testCase, parsed.schema!)
       const elaborated = elaborateInterface(parsed.schema!, { values, dynamic }, connectivity, { promoteGhosts: false })
       const errors = elaborated.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message)
       if (testCase.outcome === 'refused') {

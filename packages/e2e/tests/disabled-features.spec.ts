@@ -59,6 +59,6 @@ test('disabled templates have no entry points or background requests', async ({ 
   await page.screenshot({ path: testInfo.outputPath('disabled-learn.png'), animations: 'disabled' })
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('> Open template gallery')
-  await expect(page.locator('[data-provider="core.commands"]').getByRole('option', { name: 'Open template gallery' })).toHaveCount(0)
+  await expect(page.locator('[data-group="core.commands"]').getByRole('option', { name: 'Open template gallery' })).toHaveCount(0)
   expect(featureRequests).toEqual([])
 })
