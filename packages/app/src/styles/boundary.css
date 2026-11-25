@@ -66,17 +66,8 @@
 .boundary-side-heading h3,
 .boundary-section-heading h3 { margin-top: 2px; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-section-size); line-height: var(--dinkster-type-section-line); text-transform: capitalize; }
 .boundary-count { min-width: var(--dinkster-space-24); justify-content: center; padding-inline: var(--dinkster-space-4); }
-.boundary-items { display: grid; min-width: 0; gap: var(--dinkster-space-8); }
-.boundary-item {
-  min-width: 0;
-  padding: var(--dinkster-space-12);
-  border: 1px solid var(--dinkster-border-subtle);
-  border-radius: var(--dinkster-radius-card);
-  background: var(--dinkster-surface-panel);
-  box-shadow: var(--dinkster-elevation-low);
-}
-.boundary-item[data-binding-kind='family'] { border-left: 3px solid var(--dinkster-accent-border); }
-.boundary-item[data-selected] { border-color: var(--dinkster-border-focus); background: var(--dinkster-surface-selected); }
+.boundary-items { display: grid; min-width: 0; }
+.boundary-item { min-width: 0; }
 .boundary-head { align-items: flex-start; }
 .boundary-identity,
 .boundary-badges,
