@@ -345,10 +345,14 @@ test('a slow response for a closed remote editor never hijacks the next combo (s
   })
   await openRemoteWorkflow(page)
 
-  // Open the remote combo: stuck loading. Close it and open the STATIC one.
+  // A second consumer keeps the shared request alive after the editor closes.
   const requested = page.waitForRequest((request) => request.url().includes(REMOTE_ROUTE))
-  await page.mouse.click(...xy(await widgetPoint(page, 'r0', 'model')))
+  const sharedAnswer = page.evaluate((route) => {
+    const app = window.__dinksterTest!.app
+    return app.backendForTab(app.activeTab()!).scopedClient.remoteChoices(route)
+  }, REMOTE_ROUTE)
   const request = await requested
+  await page.mouse.click(...xy(await widgetPoint(page, 'r0', 'model')))
   const dropdown = page.getByTestId('combo-dropdown')
   await expect(dropdown).toHaveAttribute('data-remote', 'loading')
   await page.keyboard.press('Escape')
@@ -357,11 +361,13 @@ test('a slow response for a closed remote editor never hijacks the next combo (s
   await expect(staticList.getByRole('combobox', { name: 'mode', exact: true })).toBeFocused()
   await expect(staticList.getByRole('option')).toHaveText(['alpha', 'beta'])
 
-  // The late response lands now. The request token was invalidated when the
-  // static editor opened, so the result must be dropped, not published.
+  // The shared consumer receives the late answer, but the closed editor must
+  // not publish it into the static editor.
   release()
   const response = await request.response()
-  if (response !== null) await response.finished()
+  expect(response).not.toBeNull()
+  expect(await response!.finished()).toBeNull()
+  expect(await sharedAnswer).toEqual(['late.safetensors'])
   await expect(dropdown).not.toBeVisible()
   await expect(staticList.getByRole('combobox', { name: 'mode', exact: true })).toBeFocused()
   await expect(staticList.getByRole('option')).toHaveText(['alpha', 'beta'])
