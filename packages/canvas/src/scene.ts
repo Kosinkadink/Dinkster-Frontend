@@ -47,6 +47,7 @@ import {
   traceEndpoint,
   traceEndpointAll,
   typeExprFromTypeId,
+  missingWhenUnset,
   valueKeyOf,
   type BoundaryItem,
   type BypassCandidate,
@@ -925,8 +926,9 @@ export function buildScene(input: BuildSceneInput): Scene {
   const def: GraphDef | undefined = input.document.graphs[input.graphId]
   /**
    * A node's interface as drawn. A row hidden by its `visible` shows while it
-   * has a problem: a solver problem on its port, or a stored value its
-   * widget's own check refuses.
+   * has a problem: a solver problem on its port, a stored value its
+   * widget's own check refuses, or nothing stored where a run needs a value
+   * (`compile.input.missing`).
    */
   const elaborateShown = (
     schema: NodeSchema,
@@ -935,18 +937,25 @@ export function buildScene(input: BuildSceneInput): Scene {
     nodeId: string,
     solverProblems: ReadonlySet<string> | undefined,
     representations: Readonly<Record<string, string>> | undefined,
+    runs: boolean,
   ): ElaboratedInterface => {
     const problemRows = new Set(solverProblems)
     const lookups = input.lookupAnswers === undefined ? {} : { lookupAnswers: input.lookupAnswers }
     const elaborated = elaborateInterface(schema, node, connectivity, problemRows.size > 0 ? { problemRows, ...lookups } : lookups)
     const check = input.storedValueProblem
-    if (check === undefined) return elaborated
     for (const item of elabInputsOf(elaborated)) {
-      const widget = item.spec.widget
-      if (item.spec.hidden !== true || widget === undefined) continue
+      if (item.spec.hidden !== true) continue
       const valueKey = valueKeyOf(item)
+      const stored = node.values[valueKey]
+      // A row with a wire already shows, so a hidden row here has none.
+      if (runs && stored === undefined && item.hiddenByScope === true && missingWhenUnset(item)) {
+        problemRows.add(item.address.port)
+        continue
+      }
+      const widget = item.spec.widget
+      if (check === undefined || widget === undefined) continue
       const spec = resolveWidgetRepresentation(widget, representations?.[valueKey]).spec
-      if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, node.values[valueKey])) problemRows.add(item.address.port)
+      if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, stored)) problemRows.add(item.address.port)
     }
     return problemRows.size > (solverProblems?.size ?? 0)
       ? elaborateInterface(schema, node, connectivity, { problemRows, ...lookups })
@@ -956,6 +965,16 @@ export function buildScene(input: BuildSceneInput): Scene {
   const sourcePath = input.occurrence === undefined
     ? input.graphId === input.document.root ? [] : undefined
     : [...input.occurrence.owner.instancePath, input.occurrence.owner.node]
+  // Compile reports a missing value only on a node that runs: it skips a
+  // muted or bypassed node and everything inside one.
+  let enclosingRuns = sourcePath !== undefined
+  let enclosing: GraphDef | undefined = input.document.graphs[input.document.root]
+  for (const id of sourcePath ?? []) {
+    const owner = enclosing?.nodes[id]
+    if (owner === undefined || (owner.mode ?? 'active') !== 'active') { enclosingRuns = false; break }
+    const body = subgraphDefIdOf(owner.type)
+    enclosing = body === undefined ? undefined : input.document.graphs[body]
+  }
   let resolvePrimitive: ReturnType<typeof documentPrimitiveResolver> | undefined
   const resolveNode = documentNodeResolver(input.document, input.resolve, (graphId, node, path) => {
     resolvePrimitive ??= documentPrimitiveResolver(input.document, input.resolve)
@@ -1209,7 +1228,8 @@ export function buildScene(input: BuildSceneInput): Scene {
         }
     const schema = resolveNode(input.graphId, occurrenceNode, sourcePath)
     const elaborated = schema
-      ? elaborateShown(schema, occurrenceNode, connectivityOf(node.id), node.id, problemPorts.get(node.id), view?.views)
+      ? elaborateShown(schema, occurrenceNode, connectivityOf(node.id), node.id, problemPorts.get(node.id), view?.views,
+          enclosingRuns && (node.mode ?? 'active') === 'active')
       : undefined
     for (const diagnostic of elaborated?.diagnostics ?? []) {
       const port = diagnostic.data?.['input']
