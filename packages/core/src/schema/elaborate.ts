@@ -67,7 +67,7 @@ import type {
   UseSpec,
   WidgetSpec,
 } from './model.js'
-import { isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
+import { isAssetWidgetInput, isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
 import { readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
 import { normalizeComboOption } from './combo-options.js'
 import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
@@ -635,7 +635,7 @@ export function missingInputValue(i: ElaboratedInput, value: unknown): boolean {
   if (i.apiName === undefined || spec.optional) return false
   if (i.origin.kind === 'member' && i.origin.ghost === true) return false
   if (spec.hidden === true && i.hiddenByScope !== true) return false
-  if (value !== undefined) return value === null && spec.widget?.widgetType === 'ASSET' && spec.widget.selection !== true
+  if (value !== undefined) return value === null && isAssetWidgetInput(spec) && spec.widget?.selection !== true
   if (spec.automatic !== undefined || spec.widget?.automatic === true) return false
   return spec.widget === undefined || sentWhenUnset(sentSpecOf(spec, i.hiddenByScope)) === undefined
 }
