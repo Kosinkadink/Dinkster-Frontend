@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import catalog from '../../core/fixtures/dinkster-nodes-comfy.json' with { type: 'json' }
 import { expect, nativeTest as test, openRailPanel, selectProductOption } from './fixtures.js'
 
 for (const entry of ['search', 'import'] as const) {
@@ -15,15 +16,15 @@ for (const entry of ['search', 'import'] as const) {
         created: '2026-01-01T00:00:00Z', revision, deleted: false, packs: { extra: extras }, accountProject: null,
         environment: { id: environment(), lastSnapshot: null, lastRunAt: null } })
       const sibling = { ...project(), id: 'sibling', uid: '7b42c8d9-2f8b-4ce9-9d87-82fc78a31457', name: 'Sibling', packs: { extra: ['image-tools'] } }
-      const wire = { schemaVersion: 1, displayName: 'Catalog Image', pack: 'image-tools', signature: 'image-v1', interface: [] }
+      const wire = { ...catalog.nodes['comfy.EmptyImage'], displayName: 'Catalog Image', pack: 'image-tools', signature: 'image-v1' }
       const body = JSON.stringify({ packName: 'image-tools', version: '1.2.0', schemas: [{ nodeType: 'image.catalog', schemaVersion: 1,
-        schemaWireVersion: 1, schemaSignature: 'image-v1', schema: wire }] })
+        schemaWireVersion: 2, schemaSignature: 'image-v1', schema: wire }] })
       await page.addInitScript(() => {
         Object.assign(window, { dinksterDesktop: { fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: true }) } })
       })
       await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 404 }))
       await page.routeWebSocket('**/api/events?*', () => {})
-      await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: activated ? 2 : 1,
+      await page.route('/api/nodes*', (route) => route.fulfill({ json: { ...catalog, epoch: activated ? 2 : 1,
         packs: extras.length > 0 ? { 'image-tools': { displayName: 'Image Tools', version: '1.2.0' } } : {},
         nodes: extras.length > 0 ? { 'image.catalog': wire } : {},
       } }))
