@@ -406,7 +406,10 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
       renderer.setReducedMotion(true)
       renderer.setGridVisible(false)
       renderer.setScene(built)
-      const summaries = Object.fromEntries(Object.entries(example.summaries ?? {}).map(([key, summary]) => {
+      // A carried value shows on its row as the app shows it: as the wire's value, and as what the editor row reads.
+      const carried = Object.fromEntries(Object.entries(example.carried ?? {}).map(([key, value]) => [key, { value }]))
+      renderer.setCompanions({ [example.id]: carried })
+      const summaries = Object.fromEntries(Object.entries({ ...carried, ...example.summaries }).map(([key, summary]) => {
         const kind = example.thumbnails?.[key]
         return [key, kind === undefined ? summary : { ...summary, thumbnail: thumbnailOf(kind, tokens) }]
       }))
