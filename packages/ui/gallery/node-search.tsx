@@ -118,7 +118,7 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
         kinds={KINDS}
         kind={kind()}
         onKind={setKind}
-        {...(wire() ? { chip: { label: 'Takes image', color: typeColor(defaultTokens, 'IMAGE'), removeLabel: 'Remove image constraint', onRemove: () => setWire(false) } } : {})}
+        {...(wire() ? { chip: { label: 'image', name: 'Takes image', direction: 'takes' as const, color: typeColor(defaultTokens, 'IMAGE'), removeLabel: 'Remove image constraint', onRemove: () => setWire(false) } } : {})}
         filters={<>
           <Show when={!wire()}>{typeMenu('Takes', takes(), setTakes)}</Show>
           {typeMenu('Gives', gives(), setGives)}

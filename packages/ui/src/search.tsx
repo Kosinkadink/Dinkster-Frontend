@@ -65,10 +65,30 @@ export interface ProductSearchHint {
 /** The chip at the start of the field, such as the type a dropped wire carries. */
 export interface ProductSearchChip {
   readonly label: string
+  readonly name: string
+  readonly direction: 'takes' | 'gives'
   /** The wire's paint, supplied by the caller from its type palette. */
   readonly color?: string
   readonly removeLabel: string
   readonly onRemove: () => void
+}
+
+/** Inputs put the wire dot before the type word; outputs put it after. */
+export function ProductSearchTypeLabel(props: {
+  label: string
+  direction: 'takes' | 'gives'
+  color?: string
+}) {
+  const dot = () => (
+    <svg class="dinkster-search-chip-dot" viewBox="0 0 8 8" aria-hidden="true">
+      <circle cx="4" cy="4" r="4" fill={props.color ?? 'currentColor'} />
+    </svg>
+  )
+  return <span class="dinkster-search-type-label">
+    <Show when={props.direction === 'takes'}>{dot()}</Show>
+    <span>{props.label}</span>
+    <Show when={props.direction === 'gives'}>{dot()}</Show>
+  </span>
 }
 
 /** The keys of every row the keyboard can reach, in the order they are drawn. */
@@ -380,13 +400,8 @@ export function ProductSearch(props: {
           <ProductIcon icon={Search} />
           <Show when={props.chip}>
             {(chip) => (
-              <span class="dinkster-search-chip">
-                <Show when={chip().color}>{(color) => (
-                  <svg class="dinkster-search-chip-dot" viewBox="0 0 8 8" aria-hidden="true">
-                    <circle cx="4" cy="4" r="4" fill={color()} />
-                  </svg>
-                )}</Show>
-                <span>{chip().label}</span>
+              <span class="dinkster-search-chip" role="group" aria-label={chip().name} title={chip().name}>
+                <ProductSearchTypeLabel label={chip().label} direction={chip().direction} {...(chip().color === undefined ? {} : { color: chip().color })} />
                 <button
                   type="button"
                   class="dinkster-search-chip-remove"

@@ -12,6 +12,14 @@ test('a dropped image wire offers compatible installed nodes and blueprints and 
   const dot = search.locator('.dinkster-search-chip-dot')
   await expect(dot).toBeVisible()
   await expect(dot.locator('circle')).toHaveAttribute('fill', '#64B5F6')
+  const chip = search.getByRole('group', { name: 'Takes image', exact: true })
+  await expect(chip).toHaveAttribute('title', 'Takes image')
+  await expect(chip).toHaveText('image')
+  expect(await chip.evaluate((element) => {
+    const dot = element.querySelector('svg')!.getBoundingClientRect()
+    const word = element.querySelector('.dinkster-search-type-label > span')!.getBoundingClientRect()
+    return dot.right < word.left
+  })).toBe(true)
   const field = search.getByRole('combobox', { name: 'Search nodes', exact: true })
   await field.focus()
   await field.press('Enter')
