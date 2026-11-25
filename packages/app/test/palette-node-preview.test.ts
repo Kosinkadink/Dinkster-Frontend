@@ -53,6 +53,34 @@ describe('palette row identity', () => {
     expect(paletteEntryIdentity(unique, duplicates)).toEqual({ accessible: 'Save Target' })
   })
 
+  it('labels duplicate saved blueprints without exposing their record ids', () => {
+    const saved: PaletteEntry = {
+      type: 'blueprint:saved/record-one', name: 'Image helpers', category: 'This project',
+      kind: 'blueprint', fields: [],
+      blueprint: { recordId: 'record-one', descriptor: { id: 'record-one', name: 'Image helpers', digest: 'blake3:one' } },
+    }
+    const other: PaletteEntry = {
+      ...saved, type: 'blueprint:saved/record-two',
+      blueprint: { recordId: 'record-two', descriptor: { id: 'record-two', name: 'Image helpers', digest: 'blake3:two' } },
+    }
+    const pack: PaletteEntry = {
+      ...saved, type: 'blueprint:helpers/image', pack: 'Image pack', category: 'Images',
+      blueprint: { packId: 'helpers', descriptor: { id: 'image', name: 'Image helpers', digest: 'sha256:pack' } },
+    }
+    const duplicates = duplicatePaletteNames([saved, other, pack])
+    for (const entry of [saved, other]) {
+      expect(paletteEntryIdentity(entry, duplicates)).toEqual({
+        visible: 'This project - Blueprint', accessible: 'Image helpers, This project, Blueprint',
+      })
+    }
+    expect(paletteEntryIdentity(pack, duplicates)).toEqual({
+      visible: 'Image pack - Images - blueprint:helpers/image',
+      accessible: 'Image helpers, Image pack, Images, blueprint:helpers/image',
+    })
+    expect(paletteEntryIdentity(saved, new Set())).toEqual({ accessible: 'Image helpers' })
+    expect([saved.type, other.type]).toEqual(['blueprint:saved/record-one', 'blueprint:saved/record-two'])
+  })
+
   it('omits fabricated pack context when a duplicate schema has no pack metadata', () => {
     const first = paletteEntry('local.first', 'Local', 'testing', '')
     const second: PaletteEntry = { type: 'local.second', name: 'Local', category: 'other', kind: 'node', fields: [] }

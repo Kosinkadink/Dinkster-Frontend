@@ -99,7 +99,9 @@ export function paletteEntryIdentity(
   duplicateNames: ReadonlySet<string>,
 ): { readonly visible?: string; readonly accessible: string } {
   if (!duplicateNames.has(entry.name)) return { accessible: entry.name }
-  const context = [...(entry.pack === undefined ? [] : [entry.pack]), entry.category, entry.type]
+  const context = entry.blueprint !== undefined && 'recordId' in entry.blueprint
+    ? [entry.category, 'Blueprint']
+    : [...(entry.pack === undefined ? [] : [entry.pack]), entry.category, entry.type]
   return {
     visible: context.join(' - '),
     accessible: [entry.name, ...context].join(', '),
