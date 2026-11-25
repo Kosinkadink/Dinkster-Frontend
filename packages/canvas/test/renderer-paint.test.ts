@@ -2244,25 +2244,63 @@ describe('node chrome paint on the live renderer', () => {
     ).toBe(false)
   })
 
-  it('run states drive the border: running widens + colors it and draws the progress bar', () => {
+  it('run states drive the border: running draws a steady 2 px outline at 90% with a breathing glow, and the progress bar', () => {
     const scene = fixtureScene('clean')
     const n = nodeOf(scene, 'c1')
-    const calls = paintWith(scene, (r) =>
+    const running = defaultTokens.stateColors.running
+    // Frames at the sine's low point (a quarter period before the next start)
+    // and its high point (a quarter period in), 1400 ms per breath.
+    const frames: Record<number, PaintCall[]> = {}
+    let pending: FrameRequestCallback | undefined
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { pending = callback; return 1 })
+    const { ctx, calls } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    try {
+      renderer.setScene(scene)
+      renderer.setNodeStates({ c1: { state: 'running', value: 0.5, max: 20 }, c2: { state: 'error' } })
+      for (const at of [1050, 1750]) {
+        const frame = pending
+        pending = undefined
+        if (frame === undefined) throw new Error('the running node scheduled no frame')
+        calls.length = 0
+        frame(at)
+        frames[at] = [...calls]
+      }
+    } finally {
+      renderer.dispose()
+      vi.stubGlobal('requestAnimationFrame', () => 0)
+    }
+    const glowOf = (frame: PaintCall[]) => {
+      const at = frame.findIndex((c) => c.method === 'fill' && c.fillStyle === running && c.shadowColor === running)
+      const before = frame.slice(0, at).reverse()
+      return { glow: frame[at]!, box: before.find((c) => c.method === 'roundRect')!, clip: before.find((c) => c.method === 'clip')! }
+    }
+    const low = glowOf(frames[1050]!)
+    const high = glowOf(frames[1750]!)
+    expect(low.glow.shadowBlur).toBeCloseTo(12)
+    expect(low.glow.globalAlpha).toBeCloseTo(0.32)
+    expect(high.glow.shadowBlur).toBeCloseTo(17)
+    expect(high.glow.globalAlpha).toBeCloseTo(0.47)
+    // The glow is the node's box grown by 1 px, painted only outside the node.
+    expect(low.box.args).toEqual([n.x - 1, n.y - 1, n.layout.width + 2, n.layout.height + 2, defaultTokens.cornerRadius + 1])
+    expect(low.clip.args).toEqual(['evenodd'])
+    // The outline does not breathe.
+    for (const frame of [frames[1050]!, frames[1750]!]) {
+      const border = nodeBorder(frame, n)
+      expect(border).toMatchObject({ strokeStyle: running, lineWidth: 2, shadowBlur: 0 })
+      expect(border!.globalAlpha).toBeCloseTo(0.9)
+    }
+    const painted = paintWith(scene, (r) =>
       r.setNodeStates({ c1: { state: 'running', value: 0.5, max: 20 }, c2: { state: 'error' } }),
     )
-    const running = defaultTokens.stateColors.running
-    expect(calls.some((c) => c.method === 'stroke' && c.strokeStyle === running && c.lineWidth === 2.5)).toBe(true)
-    expect(calls.some((c) =>
-      c.method === 'stroke' && c.strokeStyle === running && c.shadowColor === running && c.shadowBlur > 8,
-    )).toBe(true)
-    expect(calls.some((c) =>
+    expect(painted.some((c) =>
       c.method === 'stroke' && c.strokeStyle === defaultTokens.progressBar && c.lineDash.length > 0,
     )).toBe(true)
     expect(
-      calls.some((c) => c.method === 'stroke' && c.strokeStyle === defaultTokens.stateColors.error && c.lineWidth === 2.5),
+      painted.some((c) => c.method === 'stroke' && c.strokeStyle === defaultTokens.stateColors.error && c.lineWidth === 2.5),
     ).toBe(true)
     // Determinate progress: a bar under the header at exactly value * width.
-    const bar = calls.find(
+    const bar = painted.find(
       (c) =>
         c.method === 'fillRect' &&
         c.fillStyle === defaultTokens.progressBar &&
@@ -2272,6 +2310,17 @@ describe('node chrome paint on the live renderer', () => {
     expect(bar).toBeDefined()
     expect(bar!.args[2]).toBeCloseTo(n.layout.width * 0.5)
     expect(bar!.args[3]).toBe(3)
+  })
+
+  it('nodes that ran draw 2 px: done in its colour at half strength, cached dashed in the neutral outline', () => {
+    const scene = fixtureScene('clean')
+    const calls = paintWith(scene, (r) => r.setNodeStates({ c1: { state: 'done' }, c2: { state: 'cached' } }))
+    const done = nodeBorder(calls, nodeOf(scene, 'c1'))
+    expect(done).toMatchObject({ strokeStyle: defaultTokens.stateColors.done, lineWidth: 2, lineDash: [] })
+    expect(done!.globalAlpha).toBeCloseTo(0.5)
+    const cached = nodeBorder(calls, nodeOf(scene, 'c2'))
+    expect(cached).toMatchObject({ strokeStyle: defaultTokens.colors.nodeOutline, lineWidth: 2, globalAlpha: 1 })
+    expect(cached!.lineDash.length).toBeGreaterThan(0)
   })
 
   it('uses a static glow without scheduling animation under reduced motion', () => {
@@ -2294,9 +2343,10 @@ describe('node chrome paint on the live renderer', () => {
       callback(200)
 
       const running = defaultTokens.stateColors.running
-      expect(calls.some((call) =>
-        call.method === 'stroke' && call.strokeStyle === running && call.shadowColor === running && call.shadowBlur > 0,
-      )).toBe(true)
+      // Reduced motion holds the breath's midpoint.
+      const glow = calls.find((call) => call.method === 'fill' && call.fillStyle === running && call.shadowColor === running)
+      expect(glow?.shadowBlur).toBeCloseTo(14.5)
+      expect(glow?.globalAlpha).toBeCloseTo(0.395)
       expect(calls.some((call) =>
         call.method === 'stroke' && call.strokeStyle === defaultTokens.progressBar && call.lineDash.length > 0,
       )).toBe(false)
