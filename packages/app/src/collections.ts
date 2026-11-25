@@ -224,9 +224,9 @@ const templateModels = (template: TemplateDescriptor, backend: Backend): readonl
     backend.registry.get()?.packs?.get(template.pack)?.assets?.find((asset) => asset.id === id)?.name ?? id),
 ])]
 
-const normalizeTemplateSearch = (value: string): string => value
+export const normalizeTemplateSearch = (value: string): string => value
   .toLowerCase()
-  .replace(/[^a-z0-9]+/g, '')
+  .replace(/[^\p{L}\p{N}]+/gu, '')
 
 export function templatesSource(app: AppState): CollectionSource {
   return {
