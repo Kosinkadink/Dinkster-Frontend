@@ -39,6 +39,10 @@ from that vector and packages the 16-256px PNGs into ICO without resizing.
 The dark palette uses cyan-tinted greys: canvas `#0E1414`, panel `#141C1D`,
 raised `#1E292A`, hover `#283537`, and subtle border `#324143`. The frame role
 is `#090D0D`, exposed as `surface.frame` and `--dinkster-surface-frame`.
+The active workflow tab's top tint, `rgba(120, 205, 210, 0.08)` in both
+themes, is the translucent `interaction.activeTabTint`
+(`--dinkster-interaction-active-tab-tint`); it is not a surface, because text
+never sits on it alone.
 Light-theme colors remain unchanged. The app grid uses the light palette's
 `#D3D9DE` dots rather than retaining the dark constructor color. Queued and
 skipped node outlines keep their existing light values through dedicated
