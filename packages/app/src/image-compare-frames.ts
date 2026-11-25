@@ -1,11 +1,43 @@
 import { canvasPaintTokens } from '@dinkster/canvas'
 import type { PreviewData } from '@dinkster/client'
-import { occurrencesForView, type WidgetParts } from '@dinkster/core'
+import { isAssetRefValue, occurrencesForView, type AssetRef, type WidgetParts } from '@dinkster/core'
 import { viewInstancePath, type AppState, type Tab } from './app-state.js'
 import { liveExactnessFor } from './companion-display.js'
+import { editorInputSource, type EditorInputAddress } from './in-node-editor-source.js'
 
 export const IMAGE_COMPARE_SIDES = ['image_a', 'image_b'] as const
 export type ImageCompareSide = typeof IMAGE_COMPARE_SIDES[number]
+
+/** A known wired image can be shown before the comparison node itself runs. */
+export async function readImageCompareInput(app: AppState, tab: Tab, at: EditorInputAddress, signal: AbortSignal): Promise<readonly PreviewData[]> {
+  const source = editorInputSource(app, tab, at, signal)
+  if (source === undefined) return []
+  let payload: Blob
+  if (source.kind === 'literal') {
+    if (!isAssetRefValue(source.value)) return []
+    const asset = source.value as unknown as AssetRef
+    const backend = app.backendForTab(tab)
+    if (!asset.mediaType.startsWith('image/') || backend.protocol !== 'dinkster') return []
+    const revision = tab.store.revision
+    const bytes = await backend.connection.fetchAssetBytes(asset.digest, signal)
+    if (signal.aborted || tab.store.revision !== revision || app.backendForTab(tab).connection !== backend.connection
+      || bytes === undefined || bytes.byteLength > 64 * 1024 * 1024) return []
+    payload = new Blob([bytes], { type: asset.mediaType })
+  } else {
+    const { values, query, current } = source
+    const peek = await values.peek(query, { signal })
+    if (!current() || !peek.available || peek.descriptor.typeId !== 'IMAGE') return []
+    const info = peek.renditions.find((entry) => entry.mime === 'image/png')
+    if (!info) return []
+    const result = await values.read(query, peek.descriptor, () => values.rendition(query, info.kind, { signal, descriptor: peek.descriptor,
+      ...(info.parameters?.includes('batch') ? { batch: 0 } : {}),
+      ...(info.version === undefined ? {} : { rendererVersion: info.version }) }))
+    if (!current() || !result.available || result.mime !== info.mime || result.fingerprint !== peek.descriptor.fingerprint
+      || result.bytes.byteLength > 64 * 1024 * 1024) return []
+    payload = new Blob([result.bytes], { type: result.mime })
+  }
+  return [{ channel: at.inputId, payload, timestamp: 0 }]
+}
 
 /**
  * The images a comparison node's last run streamed for each side, in frame

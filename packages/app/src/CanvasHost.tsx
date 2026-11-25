@@ -9,7 +9,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, on, onCleanup, onMount, Show, For, Index, untrack, type JSX } from 'solid-js'
-import type { ExecutionLogEntry, ExecutionState, LookupClient } from '@dinkster/client'
+import type { ExecutionLogEntry, ExecutionState, LookupClient, PreviewData } from '@dinkster/client'
 import {
   buildScene,
   boundarySceneId,
@@ -197,7 +197,8 @@ import {
 import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
 import { Load3dSpace } from './InNodeLoad3dSpace.js'
 import { ImageCompareSpace } from './InNodeImageCompareSpace.js'
-import { imageCompareFrames } from './image-compare-frames.js'
+import { imageCompareFrames, IMAGE_COMPARE_SIDES, readImageCompareInput, type ImageCompareSide } from './image-compare-frames.js'
+import { readEditorCurve } from './in-node-editor-source.js'
 import { openLoad3dSource } from './load3d-source.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
@@ -6708,6 +6709,39 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           }
           return { tab, graphId, current, target, commit }
         }
+        const [arrivingCurve, setArrivingCurve] = createSolidSignal<Json>()
+        const [arrivingImages, setArrivingImages] = createSolidSignal<Readonly<Record<ImageCompareSide, readonly PreviewData[]>>>({ image_a: [], image_b: [] })
+        const arrivalKey = createMemo(() => {
+          docTick()
+          executions()
+          const at = valueTarget()
+          if (at === undefined) return ''
+          const execution = props.app.executionForTab(at.tab)
+          return JSON.stringify([at.tab.id, at.tab.store.revision, at.current.key, at.current.wired, [...at.current.wiredParts],
+            execution?.key, execution?.status, execution?.nodes])
+        })
+        createEffect(on(arrivalKey, () => {
+          const at = valueTarget()
+          setArrivingCurve(undefined)
+          setArrivingImages({ image_a: [], image_b: [] })
+          if (at === undefined) return
+          const abort = new AbortController()
+          onCleanup(() => abort.abort())
+          if (at.current.row.viewId === 'core.curve' && at.current.wired) {
+            void readEditorCurve(props.app, at.tab, at.target, abort.signal).then((value) => {
+              if (!abort.signal.aborted) setArrivingCurve(value)
+            }).catch(() => undefined)
+          } else if (at.current.row.viewId === 'core.imageCompare') {
+            const parts = at.current.field.parts
+            for (const side of IMAGE_COMPARE_SIDES) {
+              const inputId = parts?.reads[side] ?? parts?.writes[side]
+              if (inputId === undefined) continue
+              void readImageCompareInput(props.app, at.tab, { ...at.target, inputId }, abort.signal).then((frames) => {
+                if (!abort.signal.aborted) setArrivingImages((previous) => ({ ...previous, [side]: frames }))
+              }).catch(() => undefined)
+            }
+          }
+        }))
         const recorder = () => {
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.audioRecord') return undefined
@@ -6724,7 +6758,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.curve') return undefined
           const fallback = effectiveWidgetDefault(at.current.field.spec)
-          const value = isCurveValue(at.current.value) ? at.current.value : !at.current.wired && isCurveValue(fallback) ? fallback : undefined
+          const carried = at.current.value ?? arrivingCurve()
+          const value = isCurveValue(carried) ? carried : !at.current.wired && isCurveValue(fallback) ? fallback : undefined
           if (value === undefined && !at.current.wired) return undefined
           executions()
           return {
@@ -6766,7 +6801,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const sourceKey = JSON.stringify([backend.id, ['model_file', 'model_3d'].map((part) => {
             const at = row(part)
             return at === undefined ? null : node?.values[at] ?? null
-          }), at.current.wiredParts.size > 0 ? props.app.executionForTab(at.tab)?.key ?? null : null])
+          }), at.current.carriedParts, at.current.value, at.current.wired,
+          at.current.wiredParts.size > 0 ? props.app.executionForTab(at.tab)?.key ?? null : null])
           return {
             sourceKey,
             captures: parts === undefined || !Object.hasOwn(parts.writes, 'state'),
@@ -6784,7 +6820,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.imageCompare') return undefined
           executions()
-          return imageCompareFrames(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts: at.current.field.parts })
+          const streamed = imageCompareFrames(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts: at.current.field.parts })
+          return { image_a: streamed.image_a.length > 0 ? streamed.image_a : arrivingImages().image_a,
+            image_b: streamed.image_b.length > 0 ? streamed.image_b : arrivingImages().image_b }
         }
         const cameraAngle = () => {
           const at = valueTarget()
@@ -6844,8 +6882,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   live={liveModelViews().has(key) && !covered()}
                   onWake={() => setWokenModelViews((woken) => [key, ...woken.filter((other) => other !== key)].slice(0, LIVE_MODEL_VIEWS))}
                   openSections={item()?.row.openSections ?? []}
-                  cameraWired={item()?.wiredParts.has('camera_info') === true}
-                  placementWired={item()?.wiredParts.has('model_3d_info') === true} />}
+                  cameraWired={item()?.wired === true || item()?.wiredParts.has('camera_info') === true}
+                  placementWired={item()?.wired === true || item()?.wiredParts.has('model_3d_info') === true} />}
               </Show>
               <Show when={cameraAngle()}>
                 {(at) => <CameraAngleSpace fields={at().fields} commit={at().commit} />}
