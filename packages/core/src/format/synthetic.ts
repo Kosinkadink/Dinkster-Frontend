@@ -26,11 +26,6 @@ export interface SyntheticWorkflowOptions {
    */
   readonly reroutes?: boolean
   /**
-   * One value source per chain, fanning out to the EmptyImage's width AND
-   * height (2 links each; exercises spec derivation + source rendering).
-   */
-  readonly valueSources?: boolean
-  /**
    * Replace each chain's final link (into PreviewImage) with a named net
    * (exercises net tracing + fan-out noodle rendering). Wins over `reroutes`
    * for that segment.
@@ -38,14 +33,6 @@ export interface SyntheticWorkflowOptions {
   readonly nets?: boolean
   /** One group rectangle per chain, bounding its whole row. */
   readonly groups?: boolean
-  /**
-   * Insert a selector at each chain's midpoint segment: two candidates, the
-   * true upstream (fixed policy) plus a decoy branch driven by the chain
-   * source (same IMAGE type, so solving stays clean). Replaces 1 link with
-   * 3 (two candidate feeds + the output). Wins over `reroutes` for that
-   * segment; skipped if `nets` already claimed it (chainLength 2).
-   */
-  readonly selectors?: boolean
   /**
    * Replace the inline chains with subgraph instances: ONE shared definition
    * holds the chain body (EmptyImage -> scales, with a promoted `color`
@@ -78,25 +65,18 @@ export function syntheticWorkflow(options: SyntheticWorkflowOptions): unknown {
   const links: Record<string, unknown> = {}
   const reroutes: Record<string, unknown> = {}
   const nets: Record<string, unknown> = {}
-  const valueSources: Record<string, unknown> = {}
-  const selectors: Record<string, unknown> = {}
   const viewNodes: Record<string, unknown> = {}
   const viewReroutes: Record<string, unknown> = {}
-  const viewValueSources: Record<string, unknown> = {}
-  const viewSelectors: Record<string, unknown> = {}
   const viewGroups: Record<string, unknown> = {}
   let ordinal = 0
 
   const { colX, rowY } = GRID
-  const selectorSegment = Math.max(1, Math.floor(chainLength / 2))
 
   for (let c = 0; c < chains; c++) {
     let prev: string | undefined
-    let first: string | undefined
     for (let i = 0; i < chainLength; i++) {
       const id = `n${ordinal++}`
       if (i === 0) {
-        first = id
         nodes[id] = {
           id,
           type: SYNTHETIC_IMAGE_NODES.source,
@@ -123,25 +103,6 @@ export function syntheticWorkflow(options: SyntheticWorkflowOptions): unknown {
             source: { node: prev, port: 'IMAGE' },
             sinks: [{ node: id, port: toPort }],
           }
-        } else if (options.selectors && i === selectorSegment) {
-          // True upstream on candidate 'ca' (fixed policy), decoy branch from
-          // the chain source on 'cb'. Both are IMAGE producers, so editing-
-          // time solving (which checks EVERY candidate) stays conflict-free.
-          const selectorId = `s${ordinal++}`
-          selectors[selectorId] = {
-            id: selectorId,
-            candidates: [{ id: 'ca' }, { id: 'cb' }],
-            policy: { kind: 'fixed', candidate: 'ca' },
-          }
-          viewSelectors[selectorId] = {
-            position: { x: 80 + (i - 0.5) * colX, y: 80 + c * rowY + 40 },
-          }
-          const feedA = `l${ordinal++}`
-          links[feedA] = { id: feedA, from: { node: prev, port: 'IMAGE' }, to: { selector: selectorId, candidate: 'ca' } }
-          const feedB = `l${ordinal++}`
-          links[feedB] = { id: feedB, from: { node: first, port: 'IMAGE' }, to: { selector: selectorId, candidate: 'cb' } }
-          const outId = `l${ordinal++}`
-          links[outId] = { id: outId, from: { selector: selectorId }, to: { node: id, port: toPort } }
         } else if (options.reroutes) {
           const rerouteId = `r${ordinal++}`
           reroutes[rerouteId] = { id: rerouteId }
@@ -165,18 +126,6 @@ export function syntheticWorkflow(options: SyntheticWorkflowOptions): unknown {
       prev = id
     }
 
-    if (options.valueSources && first !== undefined) {
-      // One literal producer per chain, fanning out to width AND height (both
-      // INT: the effective spec derives cleanly, no conflicts).
-      const vsId = `v${ordinal++}`
-      valueSources[vsId] = { id: vsId, value: 64 + (c % 8) * 16 }
-      viewValueSources[vsId] = { position: { x: -180, y: 80 + c * rowY + 20 } }
-      for (const port of ['width', 'height']) {
-        const linkId = `l${ordinal++}`
-        links[linkId] = { id: linkId, from: { valueSource: vsId }, to: { node: first, port } }
-      }
-    }
-
     if (options.groups) {
       const groupId = `grp${ordinal++}`
       viewGroups[groupId] = {
@@ -189,10 +138,8 @@ export function syntheticWorkflow(options: SyntheticWorkflowOptions): unknown {
 
   const flags = [
     options.reroutes ? 'reroutes' : '',
-    options.valueSources ? 'valueSources' : '',
     options.nets ? 'nets' : '',
     options.groups ? 'groups' : '',
-    options.selectors ? 'selectors' : '',
   ].filter(Boolean)
   const suffix = flags.length > 0 ? `-${flags.join('-')}` : ''
 
@@ -209,8 +156,6 @@ export function syntheticWorkflow(options: SyntheticWorkflowOptions): unknown {
         links,
         nets,
         reroutes,
-        ...(options.valueSources ? { valueSources } : {}),
-        ...(options.selectors ? { selectors } : {}),
         nextOrdinal: ordinal,
       },
     },
@@ -219,8 +164,6 @@ export function syntheticWorkflow(options: SyntheticWorkflowOptions): unknown {
         g0: {
           nodes: viewNodes,
           ...(options.reroutes ? { reroutes: viewReroutes } : {}),
-          ...(options.valueSources ? { valueSources: viewValueSources } : {}),
-          ...(options.selectors ? { selectors: viewSelectors } : {}),
           ...(options.groups ? { groups: viewGroups } : {}),
         },
       },
@@ -248,7 +191,7 @@ function syntheticSubgraphWorkflow(options: SyntheticWorkflowOptions): unknown {
   const { chains, chainLength } = options
   const depth = options.subgraphDepth ?? 1
   if (depth < 1) throw new Error('need subgraphDepth >= 1')
-  if (options.reroutes || options.valueSources || options.nets || options.groups)
+  if (options.reroutes || options.nets || options.groups)
     throw new Error('subgraphs replaces the base topology; do not combine with other flags')
 
   const graphs: Record<string, unknown> = {}

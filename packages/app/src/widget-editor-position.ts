@@ -182,3 +182,21 @@ export function contrastingTextColor(background: string): '#000000' | '#ffffff' 
   const luminance = 0.2126 * linear[0]! + 0.7152 * linear[1]! + 0.0722 * linear[2]!
   return luminance > 0.179 ? '#000000' : '#ffffff'
 }
+
+/** Fixed-position style for a node overlay, clipped to the canvas rect. */
+export function overlayClipStyle(rect: EditorWorldRect, canvasEl: HTMLCanvasElement, covers: readonly EditorWorldRect[] = []): Record<string, string> {
+  const canvas = canvasEl.getBoundingClientRect()
+  const top = Math.max(0, canvas.top - rect.y)
+  const right = Math.max(0, rect.x + rect.width - (canvas.left + canvas.width))
+  const bottom = Math.max(0, rect.y + rect.height - (canvas.top + canvas.height))
+  const left = Math.max(0, canvas.left - rect.x)
+  const box = { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` }
+  if (covers.length === 0) return { ...box, 'clip-path': `inset(${top}px ${right}px ${bottom}px ${left}px)` }
+  // What is drawn in front of the overlay on the canvas, given in screen
+  // pixels, is cut out of it, so the canvas shows through those holes.
+  const square = (x0: number, y0: number, x1: number, y1: number): string => `M ${x0} ${y0} H ${x1} V ${y1} H ${x0} Z`
+  const holes = covers.map((cover) => square(
+    Math.max(left, cover.x - rect.x), Math.max(top, cover.y - rect.y),
+    Math.min(rect.width - right, cover.x + cover.width - rect.x), Math.min(rect.height - bottom, cover.y + cover.height - rect.y)))
+  return { ...box, 'clip-path': `path(evenodd, "${[square(left, top, rect.width - right, rect.height - bottom), ...holes].join(' ')}")` }
+}

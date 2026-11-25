@@ -1,8 +1,8 @@
 
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import type { GraphDef, ValueSourceData } from '../src/format/document.js'
-import { asGraphDefId, asLinkId, asNodeId, asPortId, asValueSourceId } from '../src/ids.js'
+import type { GraphDef } from '../src/format/document.js'
+import { asGraphDefId, asLinkId, asNodeId, asPortId } from '../src/ids.js'
 import { deriveGlslMirrorBindings } from '../src/mirror/glsl.js'
 import { DINKSTER_SCHEMA_WIRE_VERSION, parseDinksterNodes } from '../src/schema/dinkster-wire.js'
 import type { InputSpec, MirrorSpec, NodeSchema, OutputSpec } from '../src/schema/model.js'
@@ -130,9 +130,6 @@ const resolve = (type: string): NodeSchema | undefined =>
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
 const tap = (node: string, inputId: string) => ({ node: asNodeId(node), tap: asPortId(inputId) })
-const vsrc = (id: string) => ({ valueSource: asValueSourceId(id) })
-const source = (id: string, value: unknown): ValueSourceData =>
-  ({ id: asValueSourceId(id), value }) as ValueSourceData
 const link = (id: string, from: object, to: object) =>
   ({ id: asLinkId(id), from, to }) as GraphDef['links'][string]
 const node = (id: string, type: string, values: Record<string, unknown> = {}) =>
@@ -205,14 +202,6 @@ describe('deriveGlslMirrorBindings', () => {
     expect(bindingOf(def)).toBeUndefined()
   })
 
-  it('resolves value-source literals driving a scalar input', () => {
-    const def = adjustGraph('brightness', {}, {
-      valueSources: { v1: source('v1', 0.25) },
-      links: { l2: link('l2', vsrc('v1'), port('a1', 'operation.factor')) },
-    })
-    expect(bindingOf(def)?.scalars).toContainEqual({ name: 'factor', glslType: 'float', value: 0.25 })
-  })
-
   it('resolves widget taps through stored values and widget defaults', () => {
     const def = adjustGraph('brightness', {}, {
       links: { l2: link('l2', tap('src', 'level'), port('a1', 'operation.factor')) },
@@ -274,12 +263,11 @@ describe('deriveGlslMirrorBindings', () => {
     expect(bindingOf(def)).toBeUndefined()
   })
 
-  it('yields no binding when the image input is fed by a value source', () => {
+  it('yields no binding when the image input is fed by a stored field value', () => {
     const def = graph({
       id: 'g0',
-      nodes: { a1: adjustNode('invert') },
-      valueSources: { v1: source('v1', 'not-an-image') },
-      links: { l1: link('l1', vsrc('v1'), port('a1', 'image')) },
+      nodes: { src: node('src', 'ImageSource', { level: 'not-an-image' }), a1: adjustNode('invert') },
+      links: { l1: link('l1', tap('src', 'level'), port('a1', 'image')) },
     })
     expect(bindingOf(def)).toBeUndefined()
   })

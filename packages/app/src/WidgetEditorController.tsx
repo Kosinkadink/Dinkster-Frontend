@@ -17,10 +17,13 @@ import {
   canonicalTypeIdOf,
   portRefKey,
   semanticDesignTokens,
+  type AutomaticState,
   type CommandInvocation,
   type EditorSizing,
   type HostUiProviderV1,
   type Json,
+  type LookedState,
+  type LookedWidgetField,
   type MaterializeFrame,
   type SourceFilenameSpec,
   type TypeExpr,
@@ -46,7 +49,7 @@ import {
 export { parseNumericCommit, widgetCommitError, type NumericCommitResult } from './widget-commit.js'
 export { withMaterializeFrames } from './widget-editor-command.js'
 
-/** What a widget editor writes to: a node input, or a value source's value. */
+/** What a widget editor writes to: a node input. */
 export type EditorTarget =
   | {
       readonly kind: 'input'
@@ -74,7 +77,6 @@ export type EditorTarget =
        */
       readonly parts?: WidgetParts
     }
-  | { readonly kind: 'valueSource'; readonly valueSourceId: string }
 
 /**
  * The node row a widget part names: the row the widget writes or reads under
@@ -82,9 +84,22 @@ export type EditorTarget =
  * the editor treats as absent.
  */
 export function partRow(target: EditorTarget, part: string): string | undefined {
-  const parts = target.kind === 'input' ? target.parts : undefined
+  const parts = target.parts
   if (parts === undefined) return undefined
   return Object.hasOwn(parts.writes, part) ? parts.writes[part] : Object.hasOwn(parts.reads, part) ? parts.reads[part] : undefined
+}
+
+/**
+ * A row's fields declared as a lookup, as they stand now: the widget with the
+ * answers in use, and what the editor holds for each field. Reactive.
+ */
+export interface RowLookups {
+  readonly current: () => {
+    readonly spec: WidgetSpec
+    readonly looked: Readonly<Partial<Record<LookedWidgetField, LookedState>>>
+  } | undefined
+  /** Refresh or Try again for one field: asks its call again. Nothing is stored. */
+  readonly refresh: (field: LookedWidgetField) => void
 }
 
 export interface WidgetEditorState {
@@ -98,12 +113,9 @@ export interface WidgetEditorState {
   tab: Tab
   readonly graphId: string
   readonly target: EditorTarget
-  /** The same display label painted on the widget row or value source. */
+  /** The same display label painted on the widget row. */
   readonly label: string
-  /**
-   * Effective widget spec. Undefined = the raw JSON fallback editor (an
-   * unconnected, undeclared value source still has an editable value - P2).
-   */
+  /** Effective widget spec. Undefined = the raw JSON fallback editor. */
   readonly spec: WidgetSpec | undefined
   /** Resolved row view, including a user-selected presentation override. */
   readonly viewId?: string
@@ -141,10 +153,19 @@ export interface WidgetEditorState {
     readonly storedAtOpen: Json
     /** A seed's after-run mode. */
     readonly controllerMode?: 'fixed' | 'increment' | 'decrement' | 'randomize'
+    /**
+     * A field that declares `automatic`: the value it has in use, or for a
+     * fixed value, what it would work out to if emptied, read from the scene
+     * as it is rebuilt. An empty field stores nothing, which makes the value
+     * automatic.
+     */
+    readonly automatic?: () => AutomaticState
     /** Where a click opened a text row, in client coordinates. */
     readonly caret?: { readonly x: number; readonly y: number }
     /** The editor now shows a popover instead of the row, so the canvas draws the row again. */
     readonly handOff?: () => void
+    /** The row's fields worked out by a declared lookup; absent when it declares none. */
+    readonly lookups?: RowLookups
   }
   /** Where a click opened a text box, in client coordinates. */
   readonly caret?: { readonly x: number; readonly y: number }
@@ -281,7 +302,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
   // An editor that writes another row of its node never writes through that row's wire.
   const wiredWrite = ((): string | undefined => {
     const target = ed.target
-    if (target.kind !== 'input' || target.familyOwner !== undefined || target.parts === undefined) return undefined
+    if (target.familyOwner !== undefined || target.parts === undefined) return undefined
     if (!Object.values(target.parts.writes).includes(target.valueKey)) return undefined
     const graph = ed.tab.store.doc.graphs[ed.graphId]
     if (graph === undefined) return undefined
@@ -326,12 +347,6 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     if (wiredWrite !== undefined) {
       setCommitError(message('widgetEditor.writeWired', { row: wiredWrite }))
       return Promise.resolve(false)
-    }
-    if (ed.target.kind !== 'input') {
-      return commitCommand({
-        command: 'valueSource.setValue',
-        params: { graphId: ed.graphId, valueSourceId: ed.target.valueSourceId, value },
-      })
     }
     const selectorCommand = dynamicSelectorCommitCommand(ed, value)
     if (selectorCommand !== undefined) {

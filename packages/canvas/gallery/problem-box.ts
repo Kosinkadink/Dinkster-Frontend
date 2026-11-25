@@ -3,12 +3,16 @@ import {
   loadDocument,
   type InputSpec,
   type Json,
+  type NodeProgress,
   type NodeSchema,
   type OutputSpec,
   type TypeExpr,
 } from '@dinkster/core'
 import {
   buildScene,
+  canvasPaintTokens,
+  executionErrorBadge,
+  LAST_RUN_BADGE,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
   problemBadge,
@@ -48,15 +52,22 @@ export interface ProblemBoxGalleryCard {
   readonly scene: Scene
   readonly badges: BadgeMap
   readonly rowMarks: RowMarkMap
+  /** Run states, for a node that failed in the run. */
+  readonly states?: Readonly<Record<string, NodeProgress>>
   readonly boxes: readonly ProblemBoxGalleryBox[]
   /** The row drawn highlighted with its line. */
   readonly highlight?: { readonly nodeId: string; readonly row: string }
-  /** Canvas height below the nodes left for the open boxes, in px. */
-  readonly room: number
   readonly width: number
+  /** Zoom the card is drawn at; 1 when absent. */
+  readonly scale?: number
 }
 
 const NODE_WIDTH = 260
+const NARROW = 200
+const WIDE = 420
+/** The widest an open box gets, so the long-line card leaves room for the narrow node's box. */
+const BOX_MAX = canvasPaintTokens.badge.tab.problemBox.maxWidth
+const LONG_MISSING = 'sdxl_base.safetensors is not in any model folder on this machine, and no download source is declared for it in the workflow or in its node pack.'
 const GAP = 72
 const TOP = 16
 const LEFT = 16
@@ -117,6 +128,19 @@ const loadModel = schema('GalleryLoadModel', 'Load model', [
   out('model', 'MODEL', 'MODEL'),
   field('model', 'model', 'COMBO', 'sdxl_base.safetensors', { options: ['sdxl_base.safetensors'] }),
 ])
+const loadImage = schema('GalleryLoadImage', 'Load image', [
+  out('image', 'IMAGE', 'IMAGE'),
+  field('file', 'file', 'COMBO', 'portrait.png', { options: ['portrait.png'] }),
+])
+const blurImage = schema('GalleryBlurImage', 'Blur image', [
+  pin('image', 'IMAGE', 'image'),
+  out('image_out', 'IMAGE', 'IMAGE'),
+  field('radius', 'radius', 'INT', 4),
+])
+const saveImage = schema('GallerySaveImage', 'Save image', [
+  pin('image', 'IMAGE', 'image'),
+  field('prefix', 'prefix', 'STRING', 'blurred'),
+])
 const captionImage = schema('GalleryCaptionImage', 'Caption image', [
   out('text', 'STRING', 'TEXT'),
   pin('image', 'IMAGE', 'image'),
@@ -138,13 +162,20 @@ interface Placed {
   readonly x: number
   readonly values?: Record<string, Json>
   readonly minimized?: true
+  /** Node width; NODE_WIDTH when absent. */
+  readonly width?: number
+  readonly mode?: 'muted'
 }
+
+/** A wire from one node's output to another node's input. */
+type Wire = readonly [from: readonly [node: string, port: string], to: readonly [node: string, port: string]]
 
 function sceneOf(
   tokens: DesignTokens,
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
   nodes: readonly Placed[],
+  wires: readonly Wire[] = [],
 ): Scene {
   const schemas = new Map(nodes.map((node) => [node.schema.type, node.schema]))
   const loaded = loadDocument({
@@ -161,15 +192,18 @@ function sceneOf(
           id: node.id,
           type: node.schema.type,
           values: { ...defaultValuesOf(node.schema), ...node.values },
+          ...(node.mode ? { mode: node.mode } : {}),
         }])),
-        links: {},
+        links: Object.fromEntries(wires.map(([from, to], index) => [`w${index}`, {
+          id: `w${index}`, from: { node: from[0], port: from[1] }, to: { node: to[0], port: to[1] },
+        }])),
         nets: {},
         reroutes: {},
       },
     },
     view: { graphs: { gallery: { nodes: Object.fromEntries(nodes.map((node) => [node.id, {
       position: { x: node.x, y: TOP },
-      size: { width: NODE_WIDTH, height: 0 },
+      size: { width: node.width ?? NODE_WIDTH, height: 0 },
       ...(node.minimized ? { collapsed: true } : {}),
     }])) } } },
   })
@@ -186,6 +220,8 @@ function sceneOf(
 
 const column = (index: number): number => LEFT + index * (NODE_WIDTH + GAP)
 const widthOf = (columns: number): number => LEFT * 2 + columns * NODE_WIDTH + (columns - 1) * GAP
+/** A one-node card with an open box: room for the box at its widest. */
+const BOXED = LEFT * 2 + BOX_MAX
 
 const errors = (count: number): NodeBadge => problemBadge(PROBLEM_ERROR_BADGE, count)
 const warnings = (count: number): NodeBadge => problemBadge(PROBLEM_WARNING_BADGE, count)
@@ -218,7 +254,7 @@ export function problemBoxGallery(
   measure: TextMeasurer,
   widgetMeasure: WidgetMeasure,
 ): readonly ProblemBoxGalleryCard[] {
-  const scene = (nodes: readonly Placed[]) => sceneOf(tokens, measure, widgetMeasure, nodes)
+  const scene = (nodes: readonly Placed[], wires: readonly Wire[] = []) => sceneOf(tokens, measure, widgetMeasure, nodes, wires)
   return [
     {
       id: 'at-rest',
@@ -227,7 +263,6 @@ export function problemBoxGallery(
       badges: { gen: [errors(2), warnings(1)] },
       rowMarks: { gen: brokenMarks },
       boxes: [],
-      room: 24,
       width: widthOf(1),
     },
     {
@@ -238,8 +273,7 @@ export function problemBoxGallery(
       rowMarks: { gen: brokenMarks },
       boxes: [{ nodeId: 'gen', nodeTitle: 'Generate image', lines: brokenLines, highlighted: brokenLines[1]!.key }],
       highlight: { nodeId: 'gen', row: 'height' },
-      room: 126,
-      width: widthOf(1) + 160,
+      width: BOXED,
     },
     {
       id: 'two-causes',
@@ -251,8 +285,7 @@ export function problemBoxGallery(
         line('error', 'width', 'Width is required.', [EDIT]),
         line('error', 'width', 'Width could not be inferred from the image.', [EDIT]),
       ] }],
-      room: 96,
-      width: widthOf(1) + 160,
+      width: BOXED,
     },
     {
       id: 'whole-node',
@@ -264,8 +297,7 @@ export function problemBoxGallery(
         line('error', undefined, 'Width times height must be at least 4096 pixels.'),
         line('warning', 'steps', 'Steps exceeds 10000.', [EDIT]),
       ] }],
-      room: 96,
-      width: widthOf(1) + 160,
+      width: BOXED,
     },
     {
       id: 'minimized',
@@ -274,8 +306,7 @@ export function problemBoxGallery(
       badges: { gen: [errors(2), warnings(1)] },
       rowMarks: { gen: brokenMarks },
       boxes: [{ nodeId: 'gen', nodeTitle: 'Generate image', lines: brokenLines }],
-      room: 126,
-      width: widthOf(1) + 160,
+      width: BOXED,
     },
     {
       id: 'outline',
@@ -287,7 +318,6 @@ export function problemBoxGallery(
       badges: { error: [errors(1)], warning: [warnings(1)] },
       rowMarks: { error: { width: 'error' }, warning: { steps: 'warning' } },
       boxes: [],
-      room: 24,
       width: widthOf(2),
     },
     {
@@ -305,8 +335,33 @@ export function problemBoxGallery(
         { nodeId: 'caption', nodeTitle: 'Caption image', lines: [line('error', 'image', 'Image is required.')] },
         { nodeId: 'resize', nodeTitle: 'Resize image', lines: [line('error', 'width', 'Width must be positive.', [EDIT])] },
       ],
-      room: 76,
       width: widthOf(3),
+    },
+    {
+      id: 'skipped',
+      caption: 'A node the run will skip. Load image is muted, so its output gives nothing; Blur image needs it, so Blur image is skipped and reads Warning, its line saying why in the reason\'s words. Save image, which needs what Blur image would have made, is skipped too but carries no warning: only the first affected node warns. A warning does not stop the run: the rest of the workflow runs. When every output a run asks for would be skipped, the run is not queued, and the notice says nothing would run.',
+      scene: scene([
+        { id: 'load', schema: loadImage, x: column(0), mode: 'muted' },
+        { id: 'blur', schema: blurImage, x: column(1) },
+        { id: 'save', schema: saveImage, x: column(2) },
+      ], [[['load', 'image'], ['blur', 'image']], [['blur', 'image_out'], ['save', 'image']]]),
+      badges: { blur: [warnings(1)] },
+      rowMarks: { blur: { image: 'warning' } },
+      boxes: [{ nodeId: 'blur', nodeTitle: 'Blur image', lines: [line('warning', 'image', "Receives nothing because 'Load image' is muted, so this node is skipped in the run.")] }],
+      width: widthOf(3),
+    },
+    {
+      id: 'last-run',
+      caption: 'A run failed on method. Left, as run: the node keeps its run outline, the method row is outlined red and the tab reads Error. Right, method changed to bilinear since that run: the outline is ordinary, the row has no outline, and the tab reads Last run without color. Clicking it opens the run\'s details under the line "From the last run. Changed since." A seed the next queue draws anew is not a change, and undo back to the document that ran brings the color back.',
+      scene: scene([
+        { id: 'ran', schema: resizeImage, x: column(0) },
+        { id: 'changed', schema: resizeImage, x: column(1), values: { method: 'bilinear' } },
+      ]),
+      states: { ran: { state: 'error' } },
+      badges: { ran: [executionErrorBadge(1)], changed: [LAST_RUN_BADGE] },
+      rowMarks: { ran: { method: 'error' } },
+      boxes: [],
+      width: widthOf(2),
     },
     {
       id: 'unavailable',
@@ -318,24 +373,41 @@ export function problemBoxGallery(
         line('error', undefined, 'This node needs a graphics card, and this machine has none.'),
         line('warning', 'scale', 'Scale exceeds 8.', [EDIT]),
       ] }],
-      room: 96,
-      width: widthOf(1) + 160,
+      width: BOXED,
     },
     {
       id: 'widths',
-      caption: 'The box is drawn at one screen size whatever the zoom. It is at least 240 px wide, as for a short message with its button, and at most 400 px, where a long message wraps.',
+      caption: 'A long line: the box takes the most it may, 400 px on screen, and the line wraps there, so the box is the same under a narrow node and a wide one; under the narrow node it reaches past the node\'s right edge. Its left edge stays under the node\'s. The box grows downward; nothing is cut. Its text stays one screen size whatever the zoom, and the limit does not depend on the node or the zoom.',
       scene: scene([
-        { id: 'short', schema: resizeImage, x: column(0), values: { width: 0 } },
-        { id: 'long', schema: loadModel, x: column(1) + 40 },
+        { id: 'narrow', schema: loadModel, x: LEFT, width: NARROW },
+        { id: 'wide', schema: loadModel, x: LEFT + BOX_MAX + GAP, width: WIDE },
       ]),
-      badges: { short: [errors(1)], long: [errors(1)] },
-      rowMarks: { short: { width: 'error' }, long: { model: 'error' } },
+      badges: { narrow: [errors(1)], wide: [errors(1)] },
+      rowMarks: { narrow: { model: 'error' }, wide: { model: 'error' } },
       boxes: [
-        { nodeId: 'short', nodeTitle: 'Resize image', lines: [line('error', 'width', 'Width must be positive.', [EDIT])] },
-        { nodeId: 'long', nodeTitle: 'Load model', lines: [line('error', 'model', 'sdxl_base.safetensors is not in any model folder on this machine, and no download source is declared for it in the workflow or in its node pack.', ['Locate or replace'])] },
+        { nodeId: 'narrow', nodeTitle: 'Load model', lines: [line('error', 'model', LONG_MISSING, ['Locate or replace'])] },
+        { nodeId: 'wide', nodeTitle: 'Load model', lines: [line('error', 'model', LONG_MISSING, ['Locate or replace'])] },
       ],
-      room: 116,
-      width: widthOf(2) + 200,
+      width: LEFT * 2 + BOX_MAX + GAP + WIDE,
+    },
+    {
+      id: 'short-line',
+      caption: 'A short line: the box is only as wide as its longest line needs, so under a wide node it is narrower than the node. Its left edge stays under the node\'s, it is never narrower than the node\'s row of tabs, and each line\'s action sits at the box\'s right end. When the canvas is narrow, the most the box takes is the canvas width less 16 px at each side.',
+      scene: scene([{ id: 'wide', schema: resizeImage, x: LEFT, width: WIDE, values: { width: 0 } }]),
+      badges: { wide: [errors(1)] },
+      rowMarks: { wide: { width: 'error' } },
+      boxes: [{ nodeId: 'wide', nodeTitle: 'Resize image', lines: [line('error', 'width', 'Width must be positive.', [EDIT])] }],
+      width: LEFT * 2 + WIDE,
+    },
+    {
+      id: 'zoomed-out',
+      caption: 'Zoomed out to 55%, the node is 143 px wide on screen and its box keeps its own width, as wide as its line needs, so it reaches past the node; its text stays one screen size. Below 50%, where tabs are no longer drawn, an open box is not drawn either, and it returns with the tabs.',
+      scene: scene([{ id: 'load', schema: loadModel, x: LEFT }]),
+      badges: { load: [errors(1)] },
+      rowMarks: { load: { model: 'error' } },
+      boxes: [{ nodeId: 'load', nodeTitle: 'Load model', lines: [line('error', 'model', 'Model file is missing.', ['Locate or replace'])] }],
+      scale: 0.55,
+      width: BOXED,
     },
   ]
 }

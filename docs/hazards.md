@@ -207,7 +207,7 @@ runs only at import, and must never leak into the live editing model - the
 editor has no concept of an "absorbed" reroute. If import output looks wrong,
 fix the classification; do not add editor-side compensation.
 
-## Primitives / value sources
+## Primitives
 
 The legacy frontend PrimitiveNode (`widgetInputs.ts`) is the other historical
 minefield: a virtual `*`-output node that adopted the FIRST connected input's
@@ -218,49 +218,18 @@ The fallout was structural: disconnect deleted the widget (value loss),
 rewiring order changed behavior, control_after_generate became phantom
 positional widgets, and special cases metastasized into app.ts, groupNode.ts,
 ExecutableNodeDTO, and an entire subgraph migration (`primitiveBypass`).
-Dinkster's value source (architecture section 5b) exists to make each of those
-impossible. Invariants:
+Dinkster's primitives (architecture section 5b) are ordinary nodes with a
+fixed type, or one type variable on the general Primitive, so none of that
+machinery exists: no adoption, no spec stored from a connection, no phantom
+widgets. One invariant keeps it that way:
 
-### P1. Declared spec is authoritative and serialized; derivation only fills gaps
+### P1. No write-through into consumers - the compiler bakes
 
-The document stores value + optional declared partial spec + controller
-state. The effective spec = declared fields verbatim, undeclared fields
-unified from consumers. Never store a derived field back into the document,
-and never let a connection event write spec state ("first connection wins" is
-the legacy bug). Consequence to preserve: a fully-declared source is static,
-so derivation can be narrowed or removed later without breaking saved
-workflows. If a feature ever requires persisting a derived spec, that is a
-design regression - stop and redesign.
-
-### P2. The value is never hostage to the spec
-
-Disconnected source, conflicting consumers, value outside current options,
-option list unavailable: diagnostic + raw-value fallback view. NEVER reset
-the value, never delete widget state. Same policy as remote combos - one
-rule, no exceptions.
-
-### P3. Spec derivation lives in the solver, never elaboration
-
-Deriving a source's spec from consumer interfaces is a downstream-to-source
-flow through the existing constraint machinery. Elaboration must stay
-ignorant of it (the no-type-feedback DAG invariant). If someone "just reads
-the consumer's elaborated widget spec during elaboration", connect-order
-sensitivity returns.
-
-### P4. No write-through into consumers - the compiler bakes
-
-A value source's value reaches execution exclusively by the compiler baking
-it into each consumer's input in the CompileArtifact. Never mutate a
-consumer's stored widget value from a source (the legacy `applyToGraph`
-pattern). Breaking this corrupts semantic hashing, frozen-view divergence,
-and undo in one stroke.
-
-### P5. Constraint merging is per-kind, closed, and deterministic
-
-Merge rules (range intersection, option intersection, ...) are defined by the
-WidgetKind contract, not ad-hoc per call site. An empty merge is a
-diagnostic, never a silent pick-one. Adding a widget kind means declaring its
-merge rule explicitly or opting out of derivation.
+A known value reaches execution exclusively by the compiler baking it into
+each field it feeds in the CompileArtifact. Never mutate a consumer's stored
+widget value from a primitive (the legacy `applyToGraph` pattern). Breaking
+this corrupts semantic hashing, frozen-view divergence, and undo in one
+stroke.
 
 ## Groups and choices through subgraph boundaries
 

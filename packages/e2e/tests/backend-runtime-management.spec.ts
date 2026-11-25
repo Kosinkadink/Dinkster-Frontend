@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeTest as test, setShellRegion, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { auditLayout } from './ui-audit.js'
 import { evidencePath } from './evidence-output.js'
 
@@ -128,9 +128,7 @@ test('backend and runtime management remains truthful and usable across wide, na
   await page.keyboard.press('Escape')
 
   await page.setViewportSize({ width: 390, height: 844 })
-  const railToggle = page.getByTestId('rail-toggle')
-  if (await railToggle.getAttribute('aria-pressed') === 'true') await railToggle.click()
-  await expect(railToggle).toHaveAttribute('aria-pressed', 'false')
+  await setShellRegion(page, 'right', false)
   await surface.evaluate((element) => { element.scrollTop = 0 })
   await expect(panel).toBeInViewport()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)

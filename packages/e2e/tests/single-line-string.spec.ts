@@ -313,18 +313,16 @@ test.describe('single-line STRING device-pixel layout', () => {
 })
 
 test('opening a text and leaving it without typing stores nothing, whatever line breaks the field cannot show', async ({ page }) => {
-  // A one-line field cannot hold a line break and a text box gives back
-  // "\n" for "\r\n", so the text the field shows differs from the stored one.
-  const joined = 'a quiet lake\nat dawn\nmist'
+  // A text box gives back "\n" for "\r\n", so the text the field shows
+  // differs from the stored one.
   const windows = 'one\r\ntwo\r\nthree'
-  await page.evaluate(async ({ joined, windows }) => {
+  await page.evaluate(async ({ windows }) => {
     const string = { kind: 'concrete', name: 'STRING' }
     window.__dinksterTest!.app.registerSchemas([{
       type: 'TextLeaveProof', displayName: 'Text', category: 'test', source: 'v3', isOutputNode: false,
       body: [
         { kind: 'input', id: 'text', type: string, optional: false, widget: { widgetType: 'STRING', options: { multiline: true }, default: '' } },
         { kind: 'input', id: 'other', type: string, optional: false, widget: { widgetType: 'STRING', options: {}, default: '' } },
-        { kind: 'input', id: 'wired', type: string, optional: true },
       ],
     }])
     await window.__dinksterTest!.app.openDocument({
@@ -332,61 +330,48 @@ test('opening a text and leaving it without typing stores nothing, whatever line
       graphs: { g0: {
         id: 'g0', name: 'root',
         nodes: { n1: { id: 'n1', type: 'TextLeaveProof', values: { text: windows, other: 'x' } } },
-        links: { l1: { id: 'l1', from: { valueSource: 'v1' }, to: { node: 'n1', port: 'wired' } } },
-        nets: {}, reroutes: {},
-        valueSources: { v1: { id: 'v1', value: joined, spec: { widgetType: 'STRING', options: {} } } },
+        links: {}, nets: {}, reroutes: {},
         nextOrdinal: 2,
       } },
-      view: { graphs: { g0: {
-        nodes: { n1: { position: { x: 420, y: 120 } } },
-        valueSources: { v1: { position: { x: 80, y: 140 } } },
-      } } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 420, y: 120 } } } } } },
     }, 'Text Leave Proof')
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
     const app = window.__dinksterTest!.app as unknown as { queue: () => Promise<void> }
     app.queue = async () => {}
-  }, { joined, windows })
+  }, { windows })
 
   const state = () => page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
     const graph = tab.store.doc.graphs.g0!
-    return { revision: tab.store.revision, text: graph.nodes.n1!.values.text, source: graph.valueSources!['v1']!.value }
+    return { revision: tab.store.revision, text: graph.nodes.n1!.values.text }
   })
-  const point = (target: 'source' | 'text') => page.evaluate((target) => {
+  const point = () => page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const viewport = renderer.getViewport()
-    const scene = renderer.getScene()
-    const world = target === 'source'
-      ? (() => { const vs = scene.valueSources.find((item) => item.id === 'v1')!; return { x: vs.x + 14, y: vs.y + vs.height / 2 } })()
-      : (() => {
-          const node = scene.nodes.find((item) => item.id === 'n1')!
-          const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'text')!
-          return { x: node.x + node.layout.width / 2, y: node.y + row.y + row.height / 2 }
-        })()
+    const node = renderer.getScene().nodes.find((item) => item.id === 'n1')!
+    const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'text')!
+    const world = { x: node.x + node.layout.width / 2, y: node.y + row.y + row.height / 2 }
     return { x: rect.left + world.x * viewport.scale + viewport.x, y: rect.top + world.y * viewport.scale + viewport.y }
-  }, target)
+  })
   const editor = page.getByTestId('widget-editor')
-  const open = async (target: 'source' | 'text') => {
-    const at = await point(target)
+  const open = async () => {
+    const at = await point()
     await page.mouse.click(at.x, at.y)
-    await expect(editor.locator(target === 'source' ? 'input' : 'textarea')).toBeFocused()
+    await expect(editor.locator('textarea')).toBeFocused()
   }
   const clickAway = () => page.mouse.click(1200, 760)
   const before = await state()
-  expect(before).toMatchObject({ text: windows, source: joined })
+  expect(before).toMatchObject({ text: windows })
 
-  const leaves: ReadonlyArray<readonly ['source' | 'text', string, () => Promise<void>]> = [
-    ['source', 'click away', clickAway],
-    ['source', 'Enter', () => page.keyboard.press('Enter')],
-    ['source', 'Commit', () => editor.getByTestId('widget-editor-commit').click()],
-    ['text', 'click away', clickAway],
-    ['text', 'Tab', () => page.keyboard.press('Tab')],
-    ['text', 'Ctrl+Enter', () => page.keyboard.press('Control+Enter')],
+  const leaves: ReadonlyArray<readonly [string, () => Promise<void>]> = [
+    ['click away', clickAway],
+    ['Tab', () => page.keyboard.press('Tab')],
+    ['Ctrl+Enter', () => page.keyboard.press('Control+Enter')],
   ]
-  for (const [target, how, leave] of leaves) {
+  for (const [how, leave] of leaves) {
     const start = await state()
-    await open(target)
+    await open()
     await leave()
     if (how === 'Tab') {
       await expect(page.locator('.widget-in-row-field input')).toBeFocused()
@@ -394,15 +379,14 @@ test('opening a text and leaving it without typing stores nothing, whatever line
     }
     await expect(editor).toHaveCount(0)
     const after = await state()
-    expect.soft(after, `${target} left by ${how}`).toEqual(start)
+    expect.soft(after, `text left by ${how}`).toEqual(start)
     // Put a lost text back so each way of leaving is judged on its own.
     if (after.revision !== start.revision) await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
   }
   expect((await state()).text).toBe(windows)
-  expect((await state()).source).toBe(joined)
 
   // A typed change is still stored.
-  await open('text')
+  await open()
   await page.keyboard.press('Control+End')
   await page.keyboard.type('!')
   await clickAway()

@@ -9,7 +9,7 @@
 
 import type { NodeProgress, NodeRunState } from '@dinkster/core'
 import type { Scene, SceneNode } from './scene.js'
-import { canvasPaintTokens, defaultTokens, type DesignTokens } from './tokens.js'
+import { CANVAS_DETAIL_MIN_SCALE, canvasPaintTokens, defaultTokens, type DesignTokens } from './tokens.js'
 import type { CanvasIconName } from './toolbox.js'
 
 export interface NodeBadge {
@@ -77,7 +77,7 @@ export type RowProblemMap = Readonly<Record<string, Readonly<Record<string, Prob
 /** The row key of an output, kept apart from an input with the same port id. */
 export const outputRowKey = (portId: string): string => `\u0000output\u0000${portId}`
 
-export const SUBGRAPH_BADGE: NodeBadge = { id: 'core.subgraph', glyph: 'Subgraph', icon: 'boxes', placement: 'title', color: canvasPaintTokens.badge.colors.subgraph }
+export const SUBGRAPH_BADGE: NodeBadge = { id: 'core.subgraph', glyph: 'Subgraph', icon: 'subgraph', placement: 'title', color: canvasPaintTokens.badge.colors.subgraph }
 export const subgraphBadge = (occurrences: number): NodeBadge => occurrences >= 2
   ? { ...SUBGRAPH_BADGE, count: occurrences }
   : SUBGRAPH_BADGE
@@ -91,6 +91,17 @@ export const executionErrorBadge = (count: number): NodeBadge => ({
   ...ERROR_BADGE,
   glyph: count > 1 ? `Error ${count}` : 'Error',
 })
+/**
+ * The run's error tab once the node has changed since that run: drawn in the
+ * theme's label gray with no count, opening the same runtime details.
+ */
+export const LAST_RUN_BADGE: NodeBadge = {
+  id: 'core.error.lastRun',
+  glyph: 'Last run',
+  icon: 'circle-x',
+  placement: 'below',
+  color: defaultTokens.colors.label,
+}
 /** One engine explanation for the root absence that blocked this node. */
 export const executionBlockedBadge = (message: string): NodeBadge => ({
   id: 'core.execution.blocked',
@@ -222,7 +233,8 @@ export function layoutNodeBadges(
   const labelWidth = (text: string): number => Math.ceil(options.measureLabel?.(text) ?? text.length * paint.fontSize)
   const result: BadgePlacement[] = []
 
-  let markRight = node.x + node.layout.width - options.tokens.padX
+  // The mark sits as far from the node's right edge as from the bar's top and bottom.
+  let markRight = node.x + node.layout.width - (node.layout.headerHeight - mark.size) / 2
   for (const badge of badges) {
     if (badge.placement !== 'title') continue
     const width = badge.count === undefined
@@ -360,20 +372,28 @@ export function hitTestBadge(scene: Scene, badges: BadgeMap, wx: number, wy: num
 
 /** Gap between the node's lowest tab and the box, in screen px. */
 export const PROBLEM_BOX_GAP = canvasPaintTokens.badge.tab.problemBoxGap
+const PROBLEM_BOX = canvasPaintTokens.badge.tab.problemBox
 
 /**
- * Where the box hangs, in canvas-pane px (the canvas element's own px): below the node and its tabs, left
- * edge with the node, so it never covers the node, its pins or its wires.
+ * Where the box hangs, in canvas-pane px (the canvas element's own px): below the node and its tabs, its
+ * left edge under the node's, so it never covers the node, its pins or its wires. The box is as wide as
+ * its longest line needs, at least its row of tabs and at most a limit set by the screen, not by the node
+ * or the zoom: its widest, or the canvas pane's width less a margin at each side when that is smaller.
+ * Longer lines wrap there. Undefined while the zoom is too low for tabs: the box returns with them.
  */
 export function problemBoxPlacement(
   node: SceneNode,
   tabs: readonly BadgePlacement[],
   viewport: { readonly x: number; readonly y: number; readonly scale: number },
-): { readonly x: number; readonly y: number } {
+  paneWidth: number,
+): { readonly x: number; readonly y: number; readonly maxWidth: number; readonly minWidth: number } | undefined {
+  if (viewport.scale < CANVAS_DETAIL_MIN_SCALE) return undefined
   const below = tabs.filter((entry) => entry.badge.placement === 'below')
   const bottom = Math.max(node.y + node.layout.height, ...below.map((entry) => entry.y + entry.height))
   return {
     x: node.x * viewport.scale + viewport.x,
     y: bottom * viewport.scale + viewport.y + PROBLEM_BOX_GAP,
+    maxWidth: Math.min(PROBLEM_BOX.maxWidth, paneWidth - 2 * PROBLEM_BOX.paneMargin),
+    minWidth: Math.max(0, ...below.map((entry) => entry.x + entry.width - node.x)) * viewport.scale,
   }
 }

@@ -109,6 +109,13 @@ export const DINKSTER_GRAPH_FEATURE_TYPED_LITERAL = 'typedLiteral'
  */
 export const DINKSTER_GRAPH_FEATURE_ABSENT_INPUT = 'absentInput'
 
+/** Build the `$absent` input marker (the ONE constructor). */
+export const absentInputWire = (reason: string): Json => ({ $absent: { reason } })
+
+/** True when `v` is an `$absent` marker: not a literal, so it needs no runtime type. */
+export const isAbsentInputWire = (v: Json): boolean =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v).length === 1 && '$absent' in v
+
 /** The /api/nodes graph feature advertising lossless unsafe INT literals. */
 export const DINKSTER_GRAPH_FEATURE_DECIMAL_INT = 'decimalInt'
 
@@ -489,7 +496,7 @@ function validateScope(
     const inputs = isDinksterRegionEntry(entry) ? entry.region.inputs : entry.inputs
     for (const [inputId, value] of Object.entries(inputs)) {
       const expected = nodeContext?.inputTypes[inputId]
-      if (expected === undefined || asDinksterLink(value) !== undefined ||
+      if (expected === undefined || asDinksterLink(value) !== undefined || isAbsentInputWire(value as Json) ||
           parseTypedLiteralWire(value as Json) !== undefined || parseDecimalIntegerWire(value as Json) !== undefined) continue
       if (canonicalTypeIdOf(expected) === undefined) {
         out.push(diag(

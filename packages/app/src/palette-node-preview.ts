@@ -82,7 +82,7 @@ export function paintSchemaPreview(canvas: HTMLCanvasElement, schema: NodeSchema
     renderer.setScene({
       graphId: '__palette_preview__',
       nodes: [{ id: node.id, x: 0, y: 0, node, layout, isSubgraph }],
-      links: [], reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
+      links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [],
     })
     renderer.setViewport({ x: paint.inset, y: paint.inset, scale })
     renderer.renderNow()

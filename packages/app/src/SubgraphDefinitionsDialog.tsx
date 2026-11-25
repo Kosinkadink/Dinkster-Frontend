@@ -11,7 +11,7 @@ function DefinitionRow(props: {
   readonly definition: (id: string) => SubgraphDefinitionCleanupEntry | undefined
 }) {
   return (
-    <li class="subgraph-definition-row" data-definition-id={props.entry.id}>
+    <li class="subgraph-definition-row dinkster-list-row" data-definition-id={props.entry.id}>
       <div class="subgraph-definition-header">
         <span class="subgraph-definition-identity"><strong>{props.entry.name}</strong><code>{props.entry.id}</code></span>
         <span class="subgraph-definition-state" data-state={props.state}>
@@ -98,7 +98,7 @@ export function SubgraphDefinitionsDialog(props: { readonly app: AppState }) {
                 </p>
               </Show>
               <ul
-                class="subgraph-definition-list"
+                class="subgraph-definition-list dinkster-list-rows"
                 data-testid="unused-subgraph-list"
                 aria-label={`${current().removable.length} unreachable subgraph definition${current().removable.length === 1 ? '' : 's'}`}
                 aria-describedby={current().removable.length > 2 ? 'subgraph-unused-scroll-hint' : undefined}
@@ -128,7 +128,7 @@ export function SubgraphDefinitionsDialog(props: { readonly app: AppState }) {
                 </p>
               </Show>
               <ul
-                class="subgraph-definition-list"
+                class="subgraph-definition-list dinkster-list-rows"
                 aria-label={`${current().retained.length} retained subgraph definition${current().retained.length === 1 ? '' : 's'}`}
                 aria-describedby={current().retained.length > 2 ? 'subgraph-retained-scroll-hint' : undefined}
                 tabIndex={0}

@@ -129,7 +129,7 @@ test('proves wire20 manual control policy, CAS, TTL, and phase1 fallback through
   await page.keyboard.press('Escape')
 
   await page.getByTestId('views-switcher').click()
-  await page.getByRole('menuitemradio', { name: 'App view' }).click()
+  await page.getByRole('menuitemradio', { name: 'App', exact: true }).click()
   const appCombo = page.getByTestId('app-view-combo')
   await appCombo.focus()
   await appCombo.press('Enter')

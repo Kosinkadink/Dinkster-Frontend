@@ -32,8 +32,6 @@ describe('selectionLifecycleMenuGroups', () => {
       { kind: 'node', nodeId: 'n1' },
       { kind: 'group', groupId: 'g1' },
       { kind: 'reroute', rerouteId: 'r1' },
-      { kind: 'valueSource', valueSourceId: 'v1' },
-      { kind: 'selector', selectorId: 's1' },
     ]
     for (const target of targets) {
       expect(selectionLifecycleMenuGroups(target, lifecycle).flatMap((entry) => entry.items.map((entry) => entry.id)))
@@ -196,8 +194,6 @@ describe('toolbox more menu parity', () => {
         item(`nodes:${ctx.selection.nodes.join(',')}`),
         item(`links:${ctx.selection.links.join(',')}`),
         item(`reroutes:${ctx.selection.reroutes.join(',')}`),
-        item(`values:${ctx.selection.valueSources.join(',')}`),
-        item(`selectors:${ctx.selection.selectors.join(',')}`),
         item('core.node.queueSelection'),
       ],
     })
@@ -221,7 +217,7 @@ describe('toolbox more menu parity', () => {
       button: { id: 'core.more', label: 'More actions' }, x: 100, y: 40, size: 28,
     }, ['n1'])!
     expect(request).toMatchObject({ worldX: 114, worldY: 54 })
-    const selection = { nodes: ['n1'], links: ['l1'], reroutes: ['r1'], valueSources: ['v1'], selectors: ['s1'] }
+    const selection = { nodes: ['n1'], links: ['l1'], reroutes: ['r1'] }
     expect(resolve(selection, request.target)).toEqual(resolve(selection, rightClickTarget))
     expect(resolve(selection, request.target)).toContainEqual({ id: 'core.node.queueSelection', disabled: true })
   })
@@ -231,8 +227,7 @@ describe('toolbox more menu parity', () => {
     const request = toolboxMenuRequest({
       button: { id: 'core.more', label: 'More actions' }, x: 100, y: 40, size: 28,
     }, ['n1', 'n2'])!
-    const selection = { nodes: ['n1', 'n2'], links: ['l1'], reroutes: ['r1'], valueSources: ['v1'], selectors: ['s1'] }
+    const selection = { nodes: ['n1', 'n2'], links: ['l1'], reroutes: ['r1'] }
     expect(resolve(selection, request.target)).toEqual(resolve(selection, rightClickTarget))
   })
-
 })

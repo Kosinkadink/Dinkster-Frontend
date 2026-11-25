@@ -56,7 +56,7 @@ const scene = ({
     to: { kind: 'port', node: 'sink', port: 'image' },
     x1: 200, y1: 80, x2: 260, y2: 80, typeName: 'IMAGE',
   }],
-  reroutes: [], valueSources: [], selectors: [], netStubs: [], boundaryNodes: [], diagnostics: [],
+  reroutes: [], netStubs: [], boundaryNodes: [], diagnostics: [],
   groups: [{ id: 'group-1', title: 'Image pipeline', x: 0, y: 0, width: 480, height: 180 }],
 }) as unknown as Scene
 
@@ -143,8 +143,6 @@ describe('buildCanvasSemanticItems', () => {
         },
       }],
       reroutes: [{ id: 'r1', x: 10, y: 10, typeName: 'IMAGE' }],
-      valueSources: [{ id: 'v1', title: 'Seed', x: 20, y: 20, width: 100, height: 30, specState: 'declared', conflict: true }],
-      selectors: [{ id: 's1', title: 'Sampler', x: 30, y: 30, width: 100, height: 60, random: false, candidates: ['a', 'b'] }],
       netStubs: [{ id: 'n1', role: 'get', name: 'latent', x: 40, y: 40, width: 100, height: 30, typeName: 'LATENT' }],
       groups: [{ id: 'g1', title: 'Empty group', x: 0, y: 0, width: 200, height: 100 }],
     }) as unknown as Scene
@@ -155,13 +153,11 @@ describe('buildCanvasSemanticItems', () => {
       'Inputs boundary, 1 port',
       'Output: prompt of inputs boundary, STRING, not connected',
       'Reroute: r1, IMAGE',
-      'Value source: Seed, declared, conflict',
-      'Selector: Sampler, fixed, 2 candidates',
       'Named net get: latent, LATENT',
       'Group: Empty group, 0 nodes',
     ])
     expect(items.map((item) => item.target.kind)).toEqual([
-      'boundary', 'port', 'reroute', 'valueSource', 'selector', 'net', 'group',
+      'boundary', 'port', 'reroute', 'net', 'group',
     ])
   })
 
@@ -214,7 +210,7 @@ describe('buildCanvasSemanticItems', () => {
         id: 'wired-row', from: { kind: 'reroute', reroute: 'r1' },
         to: { kind: 'port', node: 'source', port: 'amount' }, x1: -40, y1: 42, x2: 0, y2: 42,
       }],
-      reroutes: [], valueSources: [], selectors: [], netStubs: [], groups: [], diagnostics: [],
+      reroutes: [], netStubs: [], groups: [], diagnostics: [],
     }) as unknown as Scene
 
     const items = buildCanvasSemanticItems({ scene: connected, states: {}, badges: {}, rowProblems: {}, outputTexts: {} })

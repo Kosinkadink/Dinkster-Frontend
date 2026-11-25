@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { JSX } from 'solid-js'
 import { asConnectionId, asPromptId, type DinksterNodesPayload, type ExecutionRef } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
-import { APP_EDITOR_KIND, CURVE_EDITOR_KIND, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND } from '../src/editors.js'
+import { APP_EDITOR_KIND, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND } from '../src/editors.js'
 import { AppState } from '../src/app-state.js'
 import { historicalRegistry } from './historical-schemas.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
@@ -31,27 +31,6 @@ const makeStorage = (): Storage => {
 }
 
 const TABS_KEY = 'dinkster.openTabs'
-
-const curvePayload = (): DinksterNodesPayload => ({
-  schemaVersion: 2,
-  nodes: {
-    'dinkster.curve.editor': {
-      schemaVersion: 2, displayName: 'Curve editor', category: 'curve', idempotent: true, editorRole: 'curve',
-      body: [
-        {
-          kind: 'input', id: 'curve', required: false,
-          type: { kind: 'concrete', types: ['CURVE'] }, widget: { type: 'CURVE' },
-          default: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] },
-        },
-        { kind: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } },
-      ],
-    },
-    OtherCurve: {
-      schemaVersion: 2, displayName: 'Other curve', category: 'test', idempotent: true,
-      body: [{ kind: 'output', id: 'curve', type: { kind: 'concrete', types: ['CURVE'] } }],
-    },
-  },
-}) as unknown as DinksterNodesPayload
 
 const glslPayload = (): DinksterNodesPayload => ({
   schemaVersion: 2,
@@ -218,39 +197,6 @@ describe('Tab editorKind', () => {
     expect(app.tabs.get().find((t) => t.id === tab.id)!.appArrange).toBe(false)
   })
 
-  it.each(['link', 'net'] as const)('refuses editing a curve driven through a %s', async (topology) => {
-    const app = prepareWorkflowApp(new AppState())
-    app.registry.set(buildDinksterRegistry(asConnectionId('local'), curvePayload()))
-    const curveEdge = { from: { node: 'other', port: 'curve' }, to: { node: 'editor', port: 'curve' } }
-    expect((await app.openDocument({
-      format: 'dinkster-workflow', formatVersion: 1, lineage: `curve-driven-${topology}`, root: 'g0',
-      graphs: { g0: {
-        id: 'g0', name: 'root',
-        nodes: {
-          editor: { id: 'editor', type: 'dinkster.curve.editor', values: {} },
-          editable: { id: 'editable', type: 'dinkster.curve.editor', values: {} },
-          other: { id: 'other', type: 'OtherCurve', values: {} },
-        },
-        links: {
-          ...(topology === 'link' ? {
-            curve: { id: 'curve', ...curveEdge },
-          } : {}),
-        },
-        nets: topology === 'net' ? {
-          curve: { id: 'curve', name: 'driven curve', source: curveEdge.from, sinks: [curveEdge.to] },
-        } : {},
-        reroutes: {}, nextOrdinal: 1,
-      } },
-      view: { graphs: {} },
-    }, 'Curve target'))).toEqual([])
-    const tab = app.activeTab()!
-    expect(app.curveTargetForInput(tab, 'g0', 'editable', 'curve')).toMatchObject({
-      nodeId: 'editable', inputId: 'curve', instancePath: [],
-    })
-    expect(app.curveTargetForInput(tab, 'g0', 'editor', 'curve')).toBeUndefined()
-    app.dispose()
-  })
-
   it('opens an unchanged GLSL source by editor role as a session editor', async () => {
     const app = createWorkflowApp(null)
     retainedApps.push(app)
@@ -294,56 +240,36 @@ describe('Tab editorKind', () => {
   it('clears session-only editor targets on editor switch or tab close', () => {
     const app = prepareWorkflowApp(new AppState())
     const tab = app.tabs.get()[0]!
-    const curveTarget = {
-      tabId: tab.id, graphId: tab.store.doc.root, nodeId: 'n0', inputId: 'curve', instancePath: [],
-      openedStoredValue: undefined,
-      openedSchemaDefault: undefined,
-      openedValue: { interpolation: 'linear' as const, points: [{ position: 0, value: 0 }] },
-    }
     const glslTarget = {
       tabId: tab.id, graphId: tab.store.doc.root, nodeId: 'n0', inputId: 'fragment_shader' as const,
       instancePath: [], openedStoredValue: undefined, openedSchemaDefault: '', openedValue: '',
     }
-    app.curveEditorTarget.set(curveTarget)
-    app.setTabEditorKind(tab.id, CURVE_EDITOR_KIND)
-    expect(app.curveEditorTarget.get()).toBe(curveTarget)
-    app.setTabEditorKind(tab.id, GRAPH_EDITOR_KIND)
-    expect(app.curveEditorTarget.get()).toBeUndefined()
     app.glslEditorTarget.set(glslTarget)
     app.setTabEditorKind(tab.id, GLSL_EDITOR_KIND)
     expect(app.glslEditorTarget.get()).toBe(glslTarget)
     app.setTabEditorKind(tab.id, GRAPH_EDITOR_KIND)
     expect(app.glslEditorTarget.get()).toBeUndefined()
-    app.curveEditorTarget.set(curveTarget)
     app.glslEditorTarget.set(glslTarget)
     app.closeTab(tab.id)
-    expect(app.curveEditorTarget.get()).toBeUndefined()
     expect(app.glslEditorTarget.get()).toBeUndefined()
   })
 
-  it.each([CURVE_EDITOR_KIND, GLSL_EDITOR_KIND])('clears a %s session when another tab activates and never persists it', (kind) => {
+  it('clears a GLSL session when another tab activates and never persists it', () => {
     g.localStorage = makeStorage()
     const app = prepareWorkflowApp(new AppState())
     app.createWorkflow()
     const [tab, other] = app.tabs.get()
     if (!tab || !other) throw new Error('fixture needs two tabs')
     app.activeTabId.set(tab.id)
-    if (kind === CURVE_EDITOR_KIND) app.curveEditorTarget.set({
-      tabId: tab.id, graphId: tab.store.doc.root, nodeId: 'n0', inputId: 'curve', instancePath: [],
-      openedStoredValue: undefined,
-      openedSchemaDefault: undefined,
-      openedValue: { points: [{ position: 0, value: 0 }] },
-    })
-    else app.glslEditorTarget.set({
+    app.glslEditorTarget.set({
       tabId: tab.id, graphId: tab.store.doc.root, nodeId: 'n0', inputId: 'fragment_shader', instancePath: [],
       openedStoredValue: undefined, openedSchemaDefault: '', openedValue: '',
     })
-    app.setTabEditorKind(tab.id, kind)
+    app.setTabEditorKind(tab.id, GLSL_EDITOR_KIND)
     app.flushPersistTabs()
     const stored = JSON.parse(globalThis.localStorage!.getItem(TABS_KEY)!) as { tabs: { title: string; editorKind?: string }[] }
     expect(stored.tabs.find((record) => record.title === tab.title)?.editorKind).toBeUndefined()
     app.activeTabId.set(other.id)
-    expect(app.curveEditorTarget.get()).toBeUndefined()
     expect(app.glslEditorTarget.get()).toBeUndefined()
     expect(app.tabs.get().find((candidate) => candidate.id === tab.id)?.editorKind).toBe(GRAPH_EDITOR_KIND)
   })

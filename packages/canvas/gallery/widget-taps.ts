@@ -408,7 +408,7 @@ export function widgetTapGallery(
       [0, 60],
     ),
     card(
-      "A row that stays for its wire, under an option not chosen: the wire stays on strength, dimmed and marked wired, after the chosen option's rows. It cannot be edited and gives nothing until it is unplugged or 'fixed' is chosen again.",
+      "A row that stays for its wire, under an option not chosen: the wire stays on strength, dimmed and marked inactive, after the chosen option's rows. It cannot be edited and gives nothing until it is unplugged or 'fixed' is chosen again.",
       [
         {
           id: 'kept option',
@@ -427,7 +427,7 @@ export function widgetTapGallery(
       [0, 60],
     ),
     card(
-      'A row that stays for its wire, under a type-led pin: the input now takes an IMAGE, and the LATENT row scale stays, dimmed and marked wired, after the IMAGE rows, with its wire.',
+      'A row that stays for its wire, under a type-led pin: the input now takes an IMAGE, and the LATENT row scale stays, dimmed and marked inactive, after the IMAGE rows, with its wire.',
       [
         {
           id: 'kept type',

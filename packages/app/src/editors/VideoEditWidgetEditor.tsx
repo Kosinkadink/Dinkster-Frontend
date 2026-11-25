@@ -26,11 +26,6 @@ const VideoEditImplementation: Component<WidgetEditorImplementationProps> = (pro
   const commit = (value: Json, strictDuration: boolean): void => {
     if (!live) return
     if (ed.tab.execution || ed.tab.store.revision !== revision) { props.close(); return }
-    if (ed.target.kind === 'valueSource') {
-      if (jsonSameValue(value, initial)) props.close()
-      else props.commitValue(value)
-      return
-    }
     const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
     const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
     const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey

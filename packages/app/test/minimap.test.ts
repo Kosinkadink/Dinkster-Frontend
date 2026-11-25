@@ -11,6 +11,7 @@ import { setupMinimap } from '../src/minimap.js'
 import type { SettingsRegistry } from '../src/settings.js'
 
 const drawInputs = vi.hoisted(() => [] as MinimapInput[])
+const overlayInputs = vi.hoisted(() => [] as Pick<MinimapInput, 'hovered'>[])
 vi.mock('@dinkster/canvas', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dinkster/canvas')>()
   return {
@@ -18,6 +19,10 @@ vi.mock('@dinkster/canvas', async (importOriginal) => {
     drawMinimapGraph: (ctx: CanvasRenderingContext2D, input: MinimapInput) => {
       drawInputs.push(input)
       return actual.drawMinimapGraph(ctx, input)
+    },
+    drawMinimapOverlay: (...args: Parameters<typeof actual.drawMinimapOverlay>) => {
+      overlayInputs.push(args[2])
+      actual.drawMinimapOverlay(...args)
     },
   }
 })
@@ -33,6 +38,7 @@ interface Harness {
   }
   readonly setViewport: ReturnType<typeof vi.fn>
   readonly moveCamera: () => void
+  readonly runFrame: () => void
   readonly handle: { paint(): void; setStates(states: Readonly<Record<string, NodeProgress>>): void; dispose(): void }
 }
 
@@ -96,7 +102,7 @@ function harness(opts?: {
     settings: { get: (key: string) => opts?.settings?.[key] ?? false } as unknown as SettingsRegistry,
     markers: () => [],
   })
-  return { listeners, canvas, setViewport, handle, moveCamera: () => { viewportListener(); scheduledFrame() } }
+  return { listeners, canvas, setViewport, handle, moveCamera: () => { viewportListener(); scheduledFrame() }, runFrame: () => scheduledFrame() }
 }
 
 const pointer = { clientX: 20, clientY: 20, pointerId: 1, preventDefault: vi.fn(), stopPropagation: vi.fn() }
@@ -104,30 +110,42 @@ const pointer = { clientX: 20, clientY: 20, pointerId: 1, preventDefault: vi.fn(
 describe('minimap pointer gestures', () => {
   afterEach(() => {
     drawInputs.length = 0
+    overlayInputs.length = 0
     vi.unstubAllGlobals()
   })
 
-  it('keeps links, groups, and reroutes independently configurable', () => {
+  it('draws reroutes with links, and Colors off as the quiet minimap', () => {
     const scene = {
       nodes: [{ id: 'n1', x: 0, y: 0, layout: { width: 100, height: 60 }, node: { mode: 'active' } }],
       groups: [{ id: 'g1', x: -10, y: -10, width: 120, height: 80 }],
       links: [{ x1: 1, y1: 2, x2: 3, y2: 4 }],
       reroutes: [{ x: 5, y: 6 }],
     } as unknown as ReturnType<CanvasRenderer['getScene']>
-    const h = harness({
+    const quiet = harness({
       scene,
       settings: {
+        'canvas.minimap.nodes': false,
         'canvas.minimap.noodles': false,
         'canvas.minimap.groups': false,
-        'canvas.minimap.reroutes': true,
       },
     })
-    const input = drawInputs.at(-1)!
-    expect(input.links).toEqual([])
-    expect(input.groups).toHaveLength(1)
-    expect(input.visibility).toEqual({ groups: false })
-    expect(input.reroutes).toEqual([{ x: 5, y: 6 }])
-    h.handle.dispose()
+    const off = drawInputs.at(-1)!
+    expect(off.links).toEqual([])
+    expect(off.reroutes).toEqual([])
+    expect(off.groups).toHaveLength(1)
+    expect(off.visibility).toEqual({ groups: false })
+    expect(off.nodeColors).toBe(false)
+    expect(off.linkColors).toBe(false)
+    expect(off.renderBypassState).toBeUndefined()
+    quiet.handle.dispose()
+
+    const colored = harness({ scene, settings: { 'canvas.minimap.nodes': true, 'canvas.minimap.noodles': true } })
+    const on = drawInputs.at(-1)!
+    expect(on.links).toHaveLength(1)
+    expect(on.reroutes).toEqual([{ x: 5, y: 6 }])
+    expect(on.nodeColors).toBe(true)
+    expect(on.linkColors).toBe(true)
+    colored.handle.dispose()
   })
 
   it.each([66, 300, 1200].flatMap((count) => [true, false].map((offscreen) => ({ count, offscreen }))))('retains $count graph boxes through camera frames with OffscreenCanvas $offscreen', ({ count, offscreen }) => {
@@ -184,6 +202,21 @@ describe('minimap pointer gestures', () => {
       scale: 1,
     })
     h.handle.dispose()
+  })
+
+  it('paints the view as hovered only while the pointer is over the minimap', () => {
+    const node = { id: 'n1', x: 100, y: 200, layout: { width: 300, height: 160 }, node: { mode: 'active' } }
+    const h = harness({ scene: { nodes: [node], groups: [], links: [], reroutes: [] } as unknown as ReturnType<CanvasRenderer['getScene']> })
+    expect(overlayInputs.at(-1)?.hovered).toBe(false)
+    h.listeners.get('pointerenter')?.(pointer)
+    h.runFrame()
+    expect(overlayInputs.at(-1)?.hovered).toBe(true)
+    h.listeners.get('pointerleave')?.(pointer)
+    h.runFrame()
+    expect(overlayInputs.at(-1)?.hovered).toBe(false)
+    h.handle.dispose()
+    expect(h.listeners.has('pointerenter')).toBe(false)
+    expect(h.listeners.has('pointerleave')).toBe(false)
   })
 
   it('FR13 pointercancel ends a minimap drag', () => {

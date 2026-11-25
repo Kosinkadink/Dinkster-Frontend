@@ -310,10 +310,21 @@ export interface WidgetDescriptorSpec {
   readonly optionsInput?: string
   /** Schema-declared text completion vocabulary (wire 36). */
   readonly textCompletions?: TextCompletionsSpec
+  /**
+   * Fields declared as a formula the editor works out or a lookup the host
+   * calls, in place of the literal in `options` or `textCompletions`. None of
+   * them is workflow state, and none decides the stored value.
+   */
+  readonly looked?: Readonly<Partial<Record<LookedWidgetField, FormulaSpec | LookupSpec>>>
   /** A custom or compositor widget's own part names -> the row ids it writes. */
   readonly writes?: Readonly<Record<string, string>>
   /** A custom or compositor widget's own part names -> the row ids it reads. */
   readonly reads?: Readonly<Record<string, string>>
+  /**
+   * Set by the editor, never declared: an empty field shows its `default`
+   * dimmed, as a value worked out for it (a primitive's derived limit).
+   */
+  readonly automatic?: true
 }
 
 export interface TextCompletionItemSpec {
@@ -413,6 +424,8 @@ export function resolveWidgetRepresentation(
     id: representation.id,
     spec: {
       ...representation.widget,
+      // The value's default is the same however the value is drawn.
+      ...(spec.default !== undefined ? { default: spec.default } : {}),
       representations: set,
     },
   }
@@ -446,6 +459,11 @@ export interface LookupSpec {
   /** Field ids and formulas, by position. */
   readonly args: readonly (string | FormulaSpec)[]
 }
+
+/** A number field's limits and offset that may be worked out. */
+export type LookedNumberField = 'min' | 'max' | 'step' | 'offset'
+/** Widget fields that may be a formula or a lookup. */
+export type LookedWidgetField = 'options' | 'completions' | LookedNumberField
 
 /** A literal, or a formula that works it out. */
 export type Formulated<T> = T | FormulaSpec
@@ -542,6 +560,18 @@ export interface InputSpec extends PortSpecBase {
   readonly forceInput?: boolean
   /** A field with no input pin (declared `pin=False`); values and output taps are unchanged. */
   readonly socketless?: boolean
+  /**
+   * Declared `sent=False`: stored and edited like any field, but never sent
+   * to the run and outside both signatures. Always socketless.
+   */
+  readonly sent?: false
+  /**
+   * On a subgraph node's field whose widget is worked out from lookups, or
+   * that is automatic: what the names its lookup arguments and its automatic
+   * formula read mean there. They keep the inner node's scope, as a
+   * construct shown whole does.
+   */
+  readonly lookupScope?: OuterScope
   /** Backend computation-semantic demand marker (wire 16); true or omitted. */
   readonly lazy?: true
   /** Execution binding for a staged Comfy source filename (wire 22). */
@@ -550,6 +580,12 @@ export interface InputSpec extends PortSpecBase {
   readonly hidden?: true
   /** Steps the host applies together with the user's own change of this field; kept as declared. */
   readonly onEdit?: readonly StepSpec[]
+  /**
+   * The value used while nothing is stored for this field: a formula the
+   * editor works out, or a lookup. A field that declares it always has a
+   * default, used when the value cannot be worked out.
+   */
+  readonly automatic?: FormulaSpec | LookupSpec
   /**
    * Set by elaboration, never declared: the flattened id of the field drawn
    * before this one on a line of several fields.

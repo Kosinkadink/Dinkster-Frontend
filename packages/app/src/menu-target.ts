@@ -33,14 +33,16 @@ export function resolveNodeMenuGroups(
   ctx: MenuContext,
   queueUpToAvailable: boolean,
   createSubgraphAvailable = true,
+  queueUpToReason?: string,
 ): readonly ResolvedMenuGroup[] {
   return registry.resolve(ctx).map((group) => ({
     ...group,
     items: group.items.map((item) =>
-      (item.id === 'core.node.queueSelection' && !queueUpToAvailable) ||
-      ((item.id === 'core.canvas.createSubgraph' || item.id.startsWith('core.canvas.create') && item.id.endsWith('Region')) && !createSubgraphAvailable)
-        ? { ...item, disabled: true }
-        : item),
+      item.id === 'core.node.queueSelection' && !queueUpToAvailable
+        ? { ...item, disabled: true, ...(queueUpToReason === undefined ? {} : { disabledReason: queueUpToReason }) }
+        : (item.id === 'core.canvas.createSubgraph' || item.id.startsWith('core.canvas.create') && item.id.endsWith('Region')) && !createSubgraphAvailable
+          ? { ...item, disabled: true }
+          : item),
   }))
 }
 
@@ -53,8 +55,6 @@ export function selectionLifecycleMenuGroups(
     case 'node':
     case 'group':
     case 'reroute':
-    case 'valueSource':
-    case 'selector':
       return [group]
     default:
       return []
@@ -235,26 +235,15 @@ export function menuTargetOf(hit: Hit): MenuTarget {
               }
             : hit.link.to.kind === 'reroute'
               ? { reroute: hit.link.to.reroute }
-              : hit.link.to.kind === 'selector' && hit.link.to.candidate !== undefined
-                ? { selector: hit.link.to.selector, candidate: hit.link.to.candidate }
-                : // 'boundary' ends are unreachable: boundary noodles are
-                  // excluded from link hit-testing.
-                  { reroute: '' },
+              : // 'boundary' ends are unreachable: boundary noodles are
+                // excluded from link hit-testing.
+                { reroute: '' },
       }
     case 'reroute':
     // Ghost sockets never reach the context menu (its hitTest does not
     // reveal them), but the junction menu is the right fallback anyway.
     case 'rerouteSocket':
       return { kind: 'reroute', rerouteId: hit.reroute.id }
-    case 'valueSource':
-    case 'valueSourceOut':
-    case 'valueSourceBadge':
-      return { kind: 'valueSource', valueSourceId: hit.valueSource.id }
-    case 'selector':
-    case 'selectorIn':
-    case 'selectorOut':
-    case 'selectorBadge':
-      return { kind: 'selector', selectorId: hit.selector.id }
     case 'pin':
       // Structural identity (address), not the elab view key: menu items
       // build command endpoints from this.
