@@ -135,7 +135,9 @@ body,
   --image-tool-rail-width: 150px;
   margin: 0;
   height: 100%;
-  background: var(--dinkster-surface-canvas);
+  /* Every load starts on the frame colour (index.html sets it before any
+     stylesheet), so a page load between two frontends shows one colour. */
+  background: var(--dinkster-surface-frame);
   color: var(--dinkster-text-primary);
   font-family: var(--dinkster-font-family);
   font-size: var(--dinkster-type-body-size);
@@ -144,6 +146,42 @@ body,
      overflow themselves and keep working. */
   overflow: hidden;
   overscroll-behavior: none;
+}
+
+#root {
+  opacity: 0;
+  transition: opacity 150ms var(--dinkster-motion-easing);
+}
+
+#root.root-shown { opacity: 1; }
+
+/* The one app: the editor under the projects page, and the frame colour over both. */
+.app-shell { position: relative; height: 100%; }
+
+.app-shell-layer { position: absolute; inset: 0; }
+
+.app-shell-page {
+  opacity: 1;
+  transition: opacity 150ms var(--dinkster-motion-easing);
+}
+
+.app-shell-page.app-shell-faded { opacity: 0; pointer-events: none; }
+
+.app-shell-cover {
+  position: absolute;
+  inset: 0;
+  background: var(--dinkster-surface-frame);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms var(--dinkster-motion-easing);
+}
+
+.app-shell-cover.app-shell-covered { opacity: 1; pointer-events: auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  #root,
+  .app-shell-page,
+  .app-shell-cover { transition: none; }
 }
 
 .shell {

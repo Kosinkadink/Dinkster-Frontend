@@ -1685,5 +1685,11 @@
   "automaticField.couldNotRefresh": "Could not refresh",
   "automaticField.paused": "Paused",
   "automaticField.offline": "Offline",
-  "automaticField.waitingForValue": "Waiting for a value."
+  "automaticField.waitingForValue": "Waiting for a value.",
+  "shell.opening.here": "Opening",
+  "shell.opening.ownEditor": "Opening in {installation}'s own editor",
+  "shell.opening.reason.older": "This installation uses an older editor.",
+  "shell.opening.reason.development": "This installation uses a development editor.",
+  "shell.opening.failed": "The engine did not start.",
+  "shell.opening.unavailable": "This installation has no editor this Dinkster can open. Update it to open its projects."
 }

@@ -2,6 +2,8 @@ import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { syntheticWorkflow } from '@dinkster/core'
 import { App } from './App.js'
+import { projectsPage, Shell, type ShellNavigation } from './Shell.js'
+import { readHomeStatus } from './shell-route.js'
 import { AppState } from './app-state.js'
 import { createBootIndicatorElement, startBootIndicator } from './boot-indicator.js'
 import { DesktopSetup } from './DesktopSetup.js'
@@ -15,8 +17,8 @@ import './styles.css'
 
 // The project scope namespaces every per-project storage key and shared
 // worker/channel/lock name. It must be fixed before AppState (or anything
-// that touches storage) constructs, and it never changes within a page:
-// switching projects reloads the window.
+// that touches storage) constructs. Under the always-on process the shell
+// sets it again before each editor it mounts.
 initializeProjectScope(projectIdFromSearch(globalThis.location?.search ?? ''))
 const disposeBootTheme = bindPersistedTheme()
 
@@ -25,11 +27,16 @@ const disposeBootTheme = bindPersistedTheme()
 // waiting on after 3s, and is removed the
 // moment the real app renders. See docs/shell.md "Boot indicator".
 const root = document.getElementById('root')!
+// The page starts on the frame colour (index.html); the first drawn content fades in.
+const revealRoot = (): void => {
+  requestAnimationFrame(() => root.classList.add('root-shown'))
+}
 let bootEl: HTMLElement | undefined
 const hideBoot = startBootIndicator({
   onShow: () => {
     bootEl = createBootIndicatorElement().el
     root.appendChild(bootEl)
+    revealRoot()
   },
   onShowMessage: () => {
     const waiting = bootEl?.querySelector<HTMLElement>('.boot-indicator-waiting')
@@ -82,6 +89,7 @@ async function bootstrap(): Promise<void> {
         () => <DesktopSetup status={desktopStatus()} onRetry={() => { void desktop.retry().catch(() => undefined) }} />,
         root,
       )
+      revealRoot()
       try {
         await new Promise<void>((resolve) => {
           const receive = (status: DesktopLifecycleStatus) => {
@@ -102,14 +110,40 @@ async function bootstrap(): Promise<void> {
       root.replaceChildren()
     }
   }
+  const home = desktop || projectsPage === undefined ? undefined : await readHomeStatus()
   hideBoot()
-  app = new AppState()
+  if (home !== undefined && projectsPage !== undefined) {
+    // The projects page shares the editor's frame; it follows the persisted theme and language.
+    bindPersistedLocale(globalThis.localStorage, document.documentElement, navigator.language)
+    render(() => <Shell home={home} page={projectsPage!} mountEditor={async (projectId, host, shell) => {
+      initializeProjectScope(projectId)
+      const { dispose } = await startEditor(host, desktopLocale, undefined, shell)
+      await new Promise(requestAnimationFrame)
+      await new Promise(requestAnimationFrame)
+      return dispose
+    }} />, root)
+    revealRoot()
+    return
+  }
   disposeBootTheme()
-  bindTheme(app.settings)
-  bindLocale(app.settings, document.documentElement, navigator.language, desktopLocale)
   const desktopWindow = desktop
     ? { context: await desktop.windowContext(), layout: await desktop.windowLayout() }
     : undefined
+  app = (await startEditor(root, desktopLocale, desktopWindow, undefined, desktopLogs)).app
+  revealRoot()
+}
+
+/** Build one project's editor into ``host``; the returned disposer ends it. */
+async function startEditor(
+  host: HTMLElement,
+  desktopLocale: string | undefined,
+  desktopWindow: Parameters<typeof App>[0]['desktopWindow'],
+  shell: ShellNavigation | undefined,
+  desktopLogs: readonly string[] = [],
+): Promise<{ readonly app: AppState; readonly dispose: () => void }> {
+  const app = new AppState()
+  const disposeTheme = bindTheme(app.settings)
+  const disposeLocale = bindLocale(app.settings, document.documentElement, navigator.language, desktopLocale)
   for (const line of desktopLogs.slice(-500)) app.recordHostLog('info', 'Local engine', line)
   // Browser tests reach the app as soon as it exists; they wait for
   // readiness through it, not for the kept node tables below.
@@ -121,13 +155,22 @@ async function bootstrap(): Promise<void> {
   await Promise.race([app.loadKeptSchemas(), new Promise((resolve) => setTimeout(resolve, 1000))])
   const started = app.start()
 
-  render(() => <App
+  const disposeRender = render(() => <App
     app={app}
     {...(desktopWindow ? { desktopWindow } : {})}
-  />, root)
+    {...(shell ? { shell } : {})}
+  />, host)
   void started.then(() => app.enableWorkspaceAuthority()).catch((error: unknown) => {
     console.warn('Shared editing could not start', error)
   })
+  return {
+    app,
+    dispose: () => {
+      disposeRender()
+      disposeLocale()
+      disposeTheme()
+    },
+  }
 }
 
 // Do not hide startup failures: a rejected bootstrap remains an observable
