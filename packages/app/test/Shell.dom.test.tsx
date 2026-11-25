@@ -69,6 +69,7 @@ function mount(home: HomeStatus = { role: 'home', state: 'stopped' }) {
 describe('the one app shell', () => {
   beforeEach(() => {
     history.replaceState(null, '', '/')
+    document.documentElement.dataset['theme'] = 'dark'
     // No fades: every transition is immediate, so only the order of events is under test.
     vi.stubGlobal('matchMedia', () => ({ matches: true }))
   })
@@ -108,8 +109,9 @@ describe('the one app shell', () => {
     await new Promise((resolve) => setTimeout(resolve, 600))
     expect(view.navigated).toEqual([])
 
+    document.documentElement.dataset['theme'] = 'light'
     view.become({ state: 'ready', installationFrontend: 'http://127.0.0.1:3637' })
-    await vi.waitFor(() => expect(view.navigated).toEqual(['http://127.0.0.1:3637/?dinksterProject=bookshop']))
+    await vi.waitFor(() => expect(view.navigated).toEqual(['http://127.0.0.1:3637/?dinksterProject=bookshop&dinksterTheme=light']))
     expect(view.root.querySelector('[data-testid="app-shell-cover"]')?.classList.contains('app-shell-covered')).toBe(true)
     expect(view.editors).toEqual([])
   })
@@ -146,7 +148,7 @@ describe('the one app shell', () => {
   it('lands a reload of an editor whose installation needs its own frontend on the page, opening', async () => {
     history.replaceState(null, '', '/?dinksterProject=bookshop')
     const view = mount({ role: 'home', state: 'ready', open: { root: '/older', engine: 'main' }, installationFrontend: 'http://127.0.0.1:3637' })
-    await vi.waitFor(() => expect(view.navigated).toEqual(['http://127.0.0.1:3637/?dinksterProject=bookshop']))
+    await vi.waitFor(() => expect(view.navigated).toEqual(['http://127.0.0.1:3637/?dinksterProject=bookshop&dinksterTheme=dark']))
     expect(view.editors).toEqual([])
     expect(view.opened).toEqual([])
   })

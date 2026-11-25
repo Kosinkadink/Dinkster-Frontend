@@ -176,6 +176,8 @@ export function Shell(props: {
       await cover(true)
       if (run !== attempt) return void cover(false)
       const target = urlForView(new URL(status.installationFrontend + '/'), { kind: 'editor', projectId })
+      // That editor keeps its own settings; this keeps its loading colour the one on screen now.
+      target.searchParams.set('dinksterTheme', document.documentElement.dataset['theme'] ?? 'dark')
       ;(props.navigate ?? ((url) => location.assign(url)))(target.href)
     } catch (error) {
       if (run === attempt) setOpening(failedOpening(base, installation, error))

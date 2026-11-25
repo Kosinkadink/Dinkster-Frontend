@@ -76,6 +76,20 @@ const closeGallery = async (page: Page): Promise<void> => {
 }
 
 for (const theme of ['dark', 'light'] as const) {
+  test(`a load starts on the saved ${theme} theme's frame colour before any script`, async ({ page }) => {
+    await page.addInitScript((selected) => {
+      localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
+    }, theme)
+    await page.route(/\.(js|css)(\?.*)?$/, (route) => route.abort())
+    const frame = theme === 'dark' ? 'rgb(9, 13, 13)' : 'rgb(237, 239, 242)'
+    const other = theme === 'dark' ? 'light' : 'dark'
+    await page.goto('/')
+    await expect(page.locator('body')).toHaveCSS('background-color', frame)
+    // A page that sends the browser here names the theme on screen, over the saved one.
+    await page.goto(`/?dinksterTheme=${other}`)
+    await expect(page.locator('body')).toHaveCSS('background-color', other === 'dark' ? 'rgb(9, 13, 13)' : 'rgb(237, 239, 242)')
+  })
+
   test(`brand assets and persisted ${theme} theme`, async ({ page }) => {
     await page.addInitScript((selected) => {
       localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))

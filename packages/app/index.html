@@ -18,8 +18,22 @@
     />
     <link rel="apple-touch-icon" href="/branding/favicon/180.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <script>
+      // The load starts on the frame colour of the theme the app will draw:
+      // the one the page that sent us here asked for, else the saved one.
+      ;(function () {
+        var theme = new URLSearchParams(location.search).get('dinksterTheme')
+        if (theme !== 'light' && theme !== 'dark') {
+          try {
+            theme = JSON.parse(localStorage.getItem('dinkster.settings') || '{}').values['dinkster.theme']
+          } catch (error) {}
+        }
+        document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark'
+      })()
+    </script>
     <style>
       html, body { margin: 0; background: #090d0d; }
+      html[data-theme='light'], html[data-theme='light'] body { background: #edeff2; }
       #root { opacity: 0; }
     </style>
   </head>
