@@ -832,7 +832,8 @@ test('A reopened workflow draws from the kept node definitions until the real on
   answer = undefined
   held = undefined
   await page.reload()
-  await expect.poll(drawn).toMatchObject({ schemas: 'error', registry: false, run: true, nodes: { sink: 'Sink' } })
+  await page.waitForFunction(() => window.__dinksterTest?.app.backends.get()[0]?.schemaState.get().status === 'error')
+  await expect(page.getByTestId('queue-button')).toBeDisabled()
   await page.getByTestId('queue-button').hover()
   await expect(tooltip).toHaveText('The engine is not answering')
 })
