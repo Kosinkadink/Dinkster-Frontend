@@ -11,12 +11,30 @@ import { useProductStrings } from './strings.js'
 
 export function ProductNotice(props: {
   children: JSX.Element
-  tone?: 'info' | 'warning'
+  tone?: 'info' | 'warning' | 'error'
 }) {
   return (
-    <div class="dinkster-message" data-kind={props.tone ?? 'info'} role="note">
-      <ProductIcon icon={Info} />
+    <div class="dinkster-message" data-kind={props.tone ?? 'info'} role={props.tone === 'error' ? 'alert' : 'note'}>
+      <ProductIcon icon={props.tone === 'error' ? CircleAlert : Info} />
       <span class="dinkster-message-copy">{props.children}</span>
+    </div>
+  )
+}
+
+export function ProductProgress(props: { label: string; value?: number | undefined }) {
+  return (
+    <div
+      class="dinkster-product-progress"
+      role="progressbar"
+      aria-label={props.label}
+      aria-valuemin={0}
+      aria-valuemax={1}
+      aria-valuenow={props.value}
+      data-indeterminate={props.value === undefined ? '' : undefined}
+    >
+      <svg viewBox="0 0 100 1" preserveAspectRatio="none" aria-hidden="true">
+        <rect width={props.value === undefined ? 100 : props.value * 100} height="1" />
+      </svg>
     </div>
   )
 }
