@@ -1,4 +1,4 @@
-import { subgraphDefIdOf, type AssetRef, type Json, type WorkflowDocument } from '@dinkster/core'
+import { buildGraphConnectivity, documentNodeResolver, effectiveWidgetDefault, elabInputsOf, elaborateInterface, isAssetWidgetInput, subgraphDefIdOf, valueKeyOf, type AssetRef, type ElaborateOptions, type Json, type SchemaResolver, type WorkflowDocument } from '@dinkster/core'
 
 export function isAssetRef(value: unknown): value is AssetRef {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
@@ -24,7 +24,7 @@ export interface AssetLocationHint {
   readonly paths: readonly string[]
 }
 
-export function workflowAssetOccurrences(doc: WorkflowDocument): readonly WorkflowAssetOccurrence[] {
+function instancePaths(doc: WorkflowDocument): ReadonlyMap<string, readonly string[]> {
   const paths = new Map<string, readonly string[]>()
   const visit = (graphId: string, path: readonly string[]): void => {
     if (paths.has(graphId)) return
@@ -35,6 +35,53 @@ export function workflowAssetOccurrences(doc: WorkflowDocument): readonly Workfl
     }
   }
   visit(doc.root, [])
+  return paths
+}
+
+export interface WorkflowModelOccurrence {
+  readonly graph: string
+  readonly node: string
+  readonly input: string
+  readonly name: string
+  readonly kind: string
+  readonly valid: boolean
+  readonly instancePath?: readonly string[]
+}
+
+/** Only active, unwired model-name fields participate in local model binding. */
+export function workflowModelOccurrences(
+  doc: WorkflowDocument,
+  resolveSchema: SchemaResolver,
+  lookupAnswers: ElaborateOptions['lookupAnswers'],
+): readonly WorkflowModelOccurrence[] {
+  const paths = instancePaths(doc)
+  const resolve = documentNodeResolver(doc, resolveSchema)
+  return Object.values(doc.graphs).flatMap((graph) => {
+    const connectivity = buildGraphConnectivity(graph)
+    return Object.values(graph.nodes).flatMap((node) => {
+      const schema = resolve(graph.id, node)
+      if (schema === undefined) return []
+      return elabInputsOf(elaborateInterface(schema, node, connectivity(node.id), {
+        promoteGhosts: false, ...(lookupAnswers === undefined ? {} : { lookupAnswers }),
+      })).flatMap((item): WorkflowModelOccurrence[] => {
+        const widget = item.spec.widget
+        const input = valueKeyOf(item)
+        if (item.apiName === undefined || item.spec.sent === false || connectivity(node.id).isInputConnected(input) ||
+            !isAssetWidgetInput(item.spec) || widget?.selection === true || !widget?.kind?.startsWith('model/')) return []
+        const name = item.derivedValue ?? node.values[input] ?? item.automatic?.value ?? effectiveWidgetDefault(widget)
+        if (typeof name !== 'string') return []
+        const valid = name.length > 0 && name.length <= 4096 && !/[\\\x00-\x1f\x7f]/.test(name) && !/^[A-Za-z]:/.test(name) &&
+          !name.split('/').some((part) => part === '' || part === '.' || part === '..') &&
+          (!name.includes('/') || widget.kind === 'model/text-encoder')
+        return [{ graph: graph.id, node: node.id, input, name, kind: widget.kind, valid,
+          ...(paths.has(graph.id) ? { instancePath: paths.get(graph.id)! } : {}) }]
+      })
+    })
+  })
+}
+
+export function workflowAssetOccurrences(doc: WorkflowDocument): readonly WorkflowAssetOccurrence[] {
+  const paths = instancePaths(doc)
   return Object.values(doc.graphs).flatMap((graph) => Object.values(graph.nodes).flatMap((node) =>
     Object.entries(node.values).flatMap(([input, value]) => {
       const values = Array.isArray(value) ? value : [value]
