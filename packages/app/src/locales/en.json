@@ -1221,6 +1221,7 @@
   "problemBox.label": "Problems of {node}",
   "problemBox.editField": "Edit field",
   "problemBox.required": "{label} is required.",
+  "problemBox.requiredHidden": "this node requires it but hides it, so it cannot be set. The node's author has to fix this.",
   "problems.action.showOnCanvas": "Show on canvas",
   "problems.action.locateAsset": "Locate or replace",
   "problems.action.reviewModel": "Review download",
