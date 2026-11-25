@@ -66,11 +66,11 @@ export function EngineRunControl(props: {
     const result = await fetchSupervisorEngineLog(props.baseUrl)
     if (request === logRequest) setLog(result)
   }
-  const percent = (): number | undefined => {
+  const percent = (): number => {
     const progress = props.status.progress
     return progress && progress.total > 0
       ? Math.round(Math.min(1, Math.max(0, progress.done / progress.total)) * 100)
-      : undefined
+      : 0
   }
 
   return (
@@ -87,7 +87,7 @@ export function EngineRunControl(props: {
           <span class="engine-run-starting" role="status" aria-live="polite">
             <ProductSpinner label={message('shell.engine.startingControl')} />
             <span>{message('shell.engine.startingControl')}</span>
-            <Show when={percent() !== undefined}><span class="engine-run-percent">{percent()}%</span></Show>
+            <span class="engine-run-percent">{percent()}%</span>
           </span>
         </Match>
         <Match when={props.status.state === 'stopped'}>

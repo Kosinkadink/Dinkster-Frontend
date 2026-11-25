@@ -53,8 +53,23 @@ test('with no engine open the status bar and Run say so until an engine opens', 
   let status: Record<string, unknown> = { protocol: 1, state: 'stopped', role: 'home', installations: 1 }
   await page.route('**/supervisor/status', (route) => route.fulfill({ json: status }))
   await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: { error: 'engine-not-ready', state: 'stopped', status: '/supervisor/status' } }))
+  await page.route('**/api/projects/default', (route) => route.fulfill({ json: { project: {
+    id: 'default', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Bookshop diorama',
+    created: '2026-01-01T00:00:00Z', revision: 1, deleted: false,
+    packs: { extra: [] }, environment: null, accountProject: null,
+  } } }))
+  await page.addInitScript(() => {
+    const firstShell = new MutationObserver(() => {
+      if (!document.querySelector('[data-testid="learn-toggle"]')) return
+      document.documentElement.dataset.firstProjectName = document.querySelector('.dinkster-project-name')?.textContent ?? ''
+      firstShell.disconnect()
+    })
+    firstShell.observe(document, { childList: true, subtree: true })
+  })
 
   await page.goto('/')
+  await expect(page.locator('html')).toHaveAttribute('data-first-project-name', 'Bookshop diorama')
+  await expect(page.getByTestId('learn-toggle')).toBeVisible()
   const connection = page.getByTestId('status-connection')
   await expect(connection).toHaveAttribute('data-state', 'no-engine')
   await expect(connection).toHaveAttribute('aria-label', 'Local: no engine')
@@ -68,5 +83,7 @@ test('with no engine open the status bar and Run say so until an engine opens', 
   await expect(connection).not.toHaveAttribute('data-state', 'no-engine', { timeout: 7000 })
   await expect(page.getByTestId('engine-run-control')).toContainText('Starting engine')
   await expect(page.getByTestId('workflow-queue-toggle')).toBeVisible()
+  await expect(page.locator('.dinkster-project-name')).toHaveText('Bookshop diorama')
+  await expect(page.getByTestId('learn-toggle')).toBeVisible()
   await expect(page.getByTestId('status-bar')).toContainText('Loading schemas')
 })

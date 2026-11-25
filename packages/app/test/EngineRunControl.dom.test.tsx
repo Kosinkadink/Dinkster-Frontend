@@ -29,7 +29,7 @@ describe('EngineRunControl', () => {
     expect(root.textContent).toContain('Starting engine38%')
     expect(root.querySelector('button')).toBeNull()
     setStatus({ protocol: 1, state: 'starting' })
-    expect(root.textContent).not.toContain('%')
+    expect(root.textContent).toContain('Starting engine0%')
     setStatus({ protocol: 1, state: 'failed', detail: 'Engine exited with code 7' })
     button('Engine failed').click()
     expect(root.querySelector('[role="dialog"]')?.textContent).toContain('Engine exited with code 7')
