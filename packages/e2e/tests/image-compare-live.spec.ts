@@ -1,5 +1,39 @@
 import { expect, nativeTest as test, unfoldNodeEditor, waitForWorkspaceReady, type Locator } from './fixtures.js'
 
+test('shows numeric IMAGE literals from Primitive outputs and field taps before running', async ({ page }, testInfo) => {
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  for (const tap of [false, true]) {
+    await page.evaluate(async (tap) => {
+      const image = { $typed: { type: 'IMAGE', value: [[[[1, 0, 0], [0, 1, 0]], [[0, 0, 1], [1, 1, 0]]]] } }
+      const diagnostics = await window.__dinksterTest!.app.openDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: `numeric-image-${tap}`, root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'Literal image', nodes: {
+          source: { id: 'source', type: tap ? 'dinkster.image.image_compare' : 'dinkster.utilities.primitive',
+            values: tap ? { image_a: image } : { value: image } },
+          target: { id: 'target', type: 'dinkster.image.image_compare', values: {} },
+        }, links: { wire: { id: 'wire', from: tap ? { node: 'source', tap: 'image_a' } : { node: 'source', port: 'value' },
+          to: { node: 'target', port: 'image_a' } } }, nets: {}, reroutes: {}, nextOrdinal: 3 } },
+        view: { graphs: { g0: { nodes: { source: { position: { x: -1000, y: 100 } }, target: { position: { x: 100, y: 100 } } } } } },
+      } as never, 'Literal image')
+      if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
+      window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    }, tap)
+    const editor = await unfoldNodeEditor(page, 'target', 'comparison')
+    const picture = editor.locator('canvas.node-image-compare')
+    await expect(picture).toHaveAttribute('data-images', '1')
+    await expect(editor.getByRole('button', { name: /^Image A frame/ })).toContainText('1 of 1')
+    await expect.poll(() => picture.evaluate((element) => {
+      const canvas = element as HTMLCanvasElement
+      const side = Math.min(canvas.width, canvas.height)
+      const data = canvas.getContext('2d')!.getImageData(Math.floor(canvas.width / 2 - side / 3), Math.floor(canvas.height / 2 - side / 3), 1, 1).data
+      return [...data]
+    })).toEqual([255, 0, 0, 255])
+    await editor.screenshot({ path: testInfo.outputPath(`numeric-image-${tap ? 'tap' : 'primitive'}.png`) })
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.target!.values)).toEqual({})
+  }
+})
+
 test('compares real completed image batches in the node with independent keyboard frame selection and local wipe state', async ({ page }, testInfo) => {
   await page.goto('/')
   await expect(page.getByTestId('status-connection')).toHaveAttribute('data-state', 'connected', { timeout: 20_000 })

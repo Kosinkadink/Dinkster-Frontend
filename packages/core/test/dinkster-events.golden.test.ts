@@ -423,10 +423,10 @@ describe('routing guards', () => {
 describe('curve histogram previews', () => {
   const histogram = Array.from({ length: 256 }, (_, index) => index)
 
-  it('normalizes an exact attributed histogram onto its own preview stream', () => {
+  it.each([{ histogram }, { curve: 'curve', histogram }])('normalizes an exact attributed histogram onto its own preview stream: %j', (data) => {
     expect(new DinksterNormalizer(CONN, () => 23).normalize({
       type: 'node_event', jobId: 'curve-job', nodeId: 'curve',
-      event: 'dinkster.curve.histogram', data: { histogram },
+      event: 'dinkster.curve.histogram', data,
     })).toEqual([{
       kind: 'preview',
       execution: { connection: CONN, prompt: asPromptId('curve-job') },

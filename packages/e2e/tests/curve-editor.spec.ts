@@ -78,6 +78,8 @@ test.beforeEach(async ({ page }, testInfo) => {
     detail: 'Engine healthy',
     progress: { done: 8, total: 8, phase: 'Engine healthy' },
   } }))
+  // A standalone engine has no supervisor's recorded node table endpoint.
+  await page.route('/api/nodes/provisional*', (route) => route.fulfill({ json: { ...table, provisional: true } }))
   await page.goto('/')
   await expect.poll(() => page.evaluate(() => {
     const schemas = window.__dinksterTest?.app.backends.get()[0]?.registry.get()?.schemas

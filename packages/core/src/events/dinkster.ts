@@ -518,7 +518,8 @@ export class DinksterNormalizer implements EventNormalizer {
     }
     if (name === 'dinkster.curve.histogram') {
       const histogram = data['histogram']
-      if (nodeId === undefined || Object.keys(data).length !== 1 || !Array.isArray(histogram) ||
+      if (nodeId === undefined || Object.keys(data).some((key) => key !== 'curve' && key !== 'histogram') ||
+        data['curve'] !== undefined && (typeof data['curve'] !== 'string' || data['curve'].length === 0) || !Array.isArray(histogram) ||
         histogram.length !== 256 || histogram.some((value) =>
           typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)) {
         return this.malformed('node_event dinkster.curve.histogram with malformed data')

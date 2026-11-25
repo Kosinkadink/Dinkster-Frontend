@@ -1,8 +1,8 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { asLinkId, asNodeId, asPortId, coreCommandRegistry, DocumentStore, importLitegraph, parseDinksterSchema, type CompileArtifact, type Json } from '@dinkster/core'
 import type { AppState, Tab } from '../src/app-state.js'
 import { readEditorCurve } from '../src/in-node-editor-source.js'
-import { readImageCompareInput } from '../src/image-compare-frames.js'
+import { frameBitmap, readImageCompareInput } from '../src/image-compare-frames.js'
 
 const carriedCurve = { interpolation: 'linear', points: [{ position: 0, value: 0.12 }, { position: 0.3, value: 0.83 }, { position: 1, value: 0.44 }] }
 const dormantCurve = { interpolation: 'linear', points: [{ position: 0, value: 0.9 }, { position: 1, value: 0.2 }] }
@@ -83,4 +83,25 @@ it('reads a known tapped image without any comparison execution and rejects a ca
   abort.abort()
   setup.finish()
   expect(await read).toEqual([])
+})
+
+it('renders typed numeric image taps before a run with portable channel rounding and first-batch selection', async () => {
+  vi.stubGlobal('ImageData', class {
+    constructor(readonly data: Uint8ClampedArray, readonly width: number, readonly height: number) {}
+  })
+  vi.stubGlobal('createImageBitmap', async (image: ImageData) => image)
+  try {
+    const setup = fixture({ $typed: { type: 'IMAGE', value: [
+      [[[0.25, 0.75, -1, 0.5], [2, 0, 0.1, 1]]],
+      [[[0, 1, 0, 1], [0, 0, 1, 1]]],
+    ] } }, true)
+    const frames = await readImageCompareInput(setup.app, setup.tab, setup.at, new AbortController().signal)
+    expect(frames).toHaveLength(1)
+    const picture = await frameBitmap(frames[0]!)
+    expect(picture).toMatchObject({ width: 2, height: 1, data: new Uint8ClampedArray([64, 191, 0, 128, 255, 0, 26, 255]) })
+    const malformed = fixture({ $typed: { type: 'IMAGE', value: [[[[1, 0, 0]], [[0, 1]]]] } }, true)
+    expect(await readImageCompareInput(malformed.app, malformed.tab, malformed.at, new AbortController().signal)).toEqual([])
+  } finally {
+    vi.unstubAllGlobals()
+  }
 })
