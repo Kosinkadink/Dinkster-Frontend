@@ -11,6 +11,7 @@ import { ChevronDown, CircleAlert, Clock, LoaderCircle, X, type LucideIcon } fro
 import { Dynamic } from 'solid-js/web'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
 import { useProductStrings } from './strings.js'
+import { useFieldFocus } from './field-focus.js'
 import githubMark from '../../../branding/providers/github-mark.svg?url'
 import googleMark from '../../../branding/providers/google-mark.svg?url'
 
@@ -385,6 +386,7 @@ export function ProductTextInput(
     density?: 'canvas'
   },
 ) {
+  useFieldFocus()
   const [local, input] = splitProps(props, ['density'])
   return (
     <input {...input} data-density={local.density} class="dinkster-input" />
@@ -397,12 +399,14 @@ export function ProductTextArea(
     'class' | 'style'
   >,
 ) {
+  useFieldFocus()
   return <textarea {...props} class="dinkster-input dinkster-textarea" />
 }
 
 export function ProductSelect(
   props: Omit<JSX.SelectHTMLAttributes<HTMLSelectElement>, 'class' | 'style'>,
 ) {
+  useFieldFocus()
   return (
     <div class="dinkster-select">
       <select {...props} class="dinkster-input" />

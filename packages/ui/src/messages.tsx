@@ -151,6 +151,7 @@ export function ProductDialog(props: {
   children: JSX.Element
   onDismiss: () => void
   pending?: boolean
+  size?: 'default' | 'wide'
 }) {
   const strings = useProductStrings()
   let dialog!: HTMLDialogElement
@@ -165,6 +166,7 @@ export function ProductDialog(props: {
     <dialog
       ref={dialog}
       class="dinkster-dialog"
+      data-size={props.size ?? 'default'}
       aria-labelledby={id}
       onKeyDown={(event) => {
         // Browsers stop honoring a cancelled `cancel` event after repeated

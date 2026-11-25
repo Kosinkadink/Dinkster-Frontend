@@ -85,6 +85,9 @@ const float = schema('Float', [
   { kind: 'output', id: 'FLOAT', type: concrete('FLOAT') },
   field('value', 'value', 'FLOAT', 6.5, { min: 0, max: 100, step: 0.5 }),
 ])
+const image = schema('Image', [
+  { kind: 'output', id: 'IMAGE', type: concrete('IMAGE') },
+])
 const rowKinds = schema('Row kinds', [
   field('number', 'number', 'INT', 20, { min: 1, max: 10000 }),
   field('slider', 'slider', 'FLOAT', 0.65, {
@@ -214,6 +217,7 @@ const schemas = [
   guider,
   blend,
   float,
+  image,
   rowKinds,
   foldedSampler,
   grouped,
@@ -429,21 +433,31 @@ export function widgetTapGallery(
     card(
       'A row that stays for its wire, under a type-led pin: the input now takes an IMAGE, and the LATENT row scale stays, dimmed and marked inactive, after the IMAGE rows, with its wire.',
       [
+        { id: 'type source', schema: image, x: 0, ...small },
         {
           id: 'kept type',
           schema: typeLed,
-          x: 0,
+          x: SMALL_WIDTH + WIRE_GAP,
           dynamic: { input: { selected: 'IMAGE' } },
         },
-        { id: 'kept type blend', schema: blend, x: right, ...small },
+        {
+          id: 'kept type blend',
+          schema: blend,
+          x: SMALL_WIDTH + WIRE_GAP + right,
+          ...small,
+        },
       ],
       [
+        {
+          from: port('type source', 'IMAGE'),
+          to: { node: 'kept type', port: 'input' },
+        },
         {
           from: tap('kept type', 'input.scale'),
           to: { node: 'kept type blend', port: 'factor' },
         },
       ],
-      [0, 60],
+      [60, 0, 60],
     ),
   ]
   const placed = cards.flatMap((card) => card.nodes)

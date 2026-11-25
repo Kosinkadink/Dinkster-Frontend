@@ -48,7 +48,7 @@ import {
   traceEndpoint,
   traceEndpointAll,
   typeExprFromTypeId,
-  missingWhenUnset,
+  missingInputValue,
   valueKeyOf,
   type BoundaryItem,
   type BoundaryPositionResolver,
@@ -948,7 +948,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       const valueKey = valueKeyOf(item)
       const stored = node.values[valueKey]
       // A row with a wire already shows, so a hidden row here has none.
-      if (runs && stored === undefined && item.hiddenByScope === true && missingWhenUnset(item)) {
+      if (runs && item.hiddenByScope === true && missingInputValue(item, stored)) {
         problemRows.add(item.address.port)
         continue
       }

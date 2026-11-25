@@ -575,8 +575,7 @@
   "inNodeCurve.value": "值",
   "inNodeCurve.deletePoint": "删除点",
   "inNodeCurve.addPoint": "双击添加一个点",
-  "inNodeCurve.histogram": "来自所选运行的直方图",
-  "inNodeCurve.histogramUnknown": "直方图: 尚不知道",
+  "inNodeCurve.histogram": "直方图",
   "inNodeWebcam.start": "启动摄像头",
   "inNodeWebcam.stop": "停止",
   "inNodeWebcam.noFrame": "尚未存储画面",
@@ -1731,5 +1730,13 @@
   "automaticField.couldNotRefresh": "无法刷新",
   "automaticField.paused": "已暂停",
   "automaticField.offline": "离线",
-  "automaticField.waitingForValue": "等待一个值。"
+  "automaticField.waitingForValue": "等待一个值。",
+  "shell.opening.here": "正在打开",
+  "shell.opening.ownEditor": "正在 {installation} 自己的编辑器中打开",
+  "shell.opening.reason.older": "此安装使用较旧的编辑器。",
+  "shell.opening.reason.development": "此安装使用开发版编辑器。",
+  "shell.opening.starting": "正在启动 {installation}",
+  "shell.opening.editorFailed": "编辑器未能打开",
+  "shell.opening.didNotStart": "{installation} 未能启动",
+  "shell.opening.unavailable": "此安装没有当前 Dinkster 能打开的编辑器。请更新它以打开其中的项目。"
 }

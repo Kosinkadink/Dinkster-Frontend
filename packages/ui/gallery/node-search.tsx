@@ -94,6 +94,7 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
   }
   const typeMenu = (direction: 'Takes' | 'Gives', value: string, change: (value: string) => void) => (
     <ProductMenu
+      fill="quiet"
       label={`${direction}: ${value === '' ? 'any' : value.toLowerCase()}`}
       triggerName={`${direction} type`}
       items={['', 'IMAGE', 'STRING', 'INT'].map((type) => ({
