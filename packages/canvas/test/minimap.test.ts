@@ -345,6 +345,12 @@ describe('drawMinimap', () => {
     // The even-odd pair: the whole panel, minus the frame.
     expect(dim[0]).toMatchObject({ x: 0, y: 0, w: 220, h: 150 })
     expect(dim[1]!.x).toBeCloseTo(frame.x)
+    // Inside the frame a quiet wash of the frame's own color, painted after the dimming and under the outline.
+    const inside = calls.findIndex((c) => c.kind === 'fill' && c.rule === undefined && c.style === colors.title && c.x === frame.x && c.w === frame.w)
+    expect(inside).toBeGreaterThan(calls.indexOf(dim[1]!))
+    expect(inside).toBeLessThan(calls.indexOf(frame))
+    expect(calls[inside]!.alpha).toBeGreaterThan(0)
+    expect(calls[inside]!.alpha).toBeLessThan(0.1)
   })
 
   it('keeps the local viewport visible on the light canvas', () => {

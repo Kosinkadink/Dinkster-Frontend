@@ -419,6 +419,9 @@ export function drawMinimapOverlay(
       ctx.fill('evenodd')
       ctx.beginPath()
       ctx.roundRect(rect.x, rect.y, rect.width, rect.height, paint.viewportRadius)
+      ctx.fillStyle = t.colors.title
+      ctx.globalAlpha = paint.viewportFillOpacity
+      ctx.fill()
       ctx.strokeStyle = t.colors.title
       ctx.globalAlpha = paint.viewportStrokeOpacity
       ctx.lineWidth = paint.viewportStroke

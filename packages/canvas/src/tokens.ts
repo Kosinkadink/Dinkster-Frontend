@@ -648,6 +648,8 @@ export const canvasPaintTokens = {
     remoteOpacity: 0.8,
     /** The area outside the current view is dimmed by the canvas color at this opacity. */
     outsideViewOpacity: 0.34,
+    /** The view area: filled with its outline's color at this opacity, so it reads as a lit window. */
+    viewportFillOpacity: 0.06,
     viewportStrokeOpacity: 0.72,
     viewportStroke: 1,
     viewportRadius: 3,
