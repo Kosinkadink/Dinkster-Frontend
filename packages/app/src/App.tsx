@@ -2981,7 +2981,7 @@ export function App(props: {
             )}</Show>
           </Show>
         </>}
-        search={<UniversalSearchTrigger shortcut={searchShortcut()} onOpen={() => app.searchOpen.set(true)} />}
+        search={<UniversalSearchTrigger shortcut={searchShortcut()} open={searchOpen()} onOpen={() => app.searchOpen.set(true)} />}
         actions={(narrow) => <>
           <Show when={allWorkflowActivity().running > 0}>
             <ProductRunActivity {...allWorkflowActivity()} label={message('runs.activity', allWorkflowActivity())} />

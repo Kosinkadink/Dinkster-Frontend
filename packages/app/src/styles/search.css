@@ -2,7 +2,7 @@
   padding-inline: var(--dinkster-space-4);
   color: var(--dinkster-text-secondary);
   background: var(--dinkster-surface-raised);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-small);
   font: inherit;
   font-size: var(--dinkster-type-metadata-size);
@@ -86,7 +86,7 @@
   gap: var(--dinkster-space-8);
   padding-inline: var(--dinkster-space-8);
   background: var(--dinkster-surface-inset);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
 }
 .search-input-shell[data-variant='toolbar']:focus-within {

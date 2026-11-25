@@ -644,7 +644,7 @@
   padding-right: var(--dinkster-space-4);
 }
 .dock-zone-overflow { position: relative; display: flex; }
-.lens-menu.dock-zone-overflow-menu { top: calc(100% + 4px); right: 0; left: auto; min-width: 180px; border-color: var(--dinkster-border-strong); }
+.lens-menu.dock-zone-overflow-menu { top: calc(100% + 4px); right: 0; left: auto; min-width: 180px; }
 .dock-zone-overflow-menu button[aria-checked='true'] { color: var(--dinkster-accent-foreground); background: var(--dinkster-interaction-selected); }
 .dock-zone-tabs .product-tabpanel {
   flex: 1;

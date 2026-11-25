@@ -56,18 +56,19 @@
   padding: var(--dinkster-space-4) var(--dinkster-space-12);
   color: var(--dinkster-text-primary);
   background: var(--dinkster-surface-raised);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
   font: inherit;
   cursor: pointer;
 }
+.collab-panel button:not(.product-button):where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .collab-panel button:not(.product-button):hover:not(:disabled):not([aria-disabled='true']) { background: var(--dinkster-interaction-hover); }
 .collab-panel button:not(.product-button):focus-visible,
 .collab-current-card:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 2px; }
 .collab-panel button:not(.product-button):disabled,
 .collab-panel button:not(.product-button)[aria-disabled='true'] { color: var(--dinkster-text-disabled); cursor: default; }
 .collab-panel button.collab-primary-action { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); font-weight: var(--dinkster-weight-bold); }
-.collab-panel button.collab-primary-action:disabled { color: var(--dinkster-text-disabled); background: var(--dinkster-surface-raised); border-color: var(--dinkster-border-strong); }
+.collab-panel button.collab-primary-action:disabled { color: var(--dinkster-text-disabled); background: var(--dinkster-surface-raised); border-color: var(--dinkster-border-subtle); }
 .collab-panel button.danger { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-border); }
 .collab-current > .product-notice { margin: 0; }
 .collab-session-card { display: grid; min-width: 0; gap: var(--dinkster-space-12); padding: var(--dinkster-space-12); background: var(--dinkster-surface-raised); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); }
