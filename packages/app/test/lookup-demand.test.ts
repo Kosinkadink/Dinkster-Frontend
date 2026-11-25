@@ -4,7 +4,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createLookupClient } from '@dinkster/client'
-import { recordRunAnswers } from '../src/lookup-demand.js'
+import { EMPTY_CONNECTIVITY, elaborateInterface, type NodeSchema } from '@dinkster/core'
+import { LookupDemand, lookupAnswersOf, recordRunAnswers } from '../src/lookup-demand.js'
 
 describe('recorded run answers', () => {
   it('asks again only for the call whose field the run worked out to another value', async () => {
@@ -38,5 +39,42 @@ describe('recorded run answers', () => {
     expect(await client.request(call('sd'))).toEqual({ state: 'ready', answer: 25 })
     expect(await client.request(call('sdxl'))).toEqual({ state: 'ready', answer: 30 })
     expect(asked).toEqual(['sd', 'sdxl', 'sd'])
+  })
+
+  it('asks an old call shown on screen once, without cancelling it as the scene is drawn again', async () => {
+    const pending: Array<(answer: unknown) => void> = []
+    let aborted = 0
+    const client = createLookupClient({
+      baseUrl: '',
+      fetchFn: (_url, init) => new Promise<Response>((resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => { aborted += 1; reject(new DOMException('aborted', 'AbortError')) })
+        pending.push((answer) => resolve(new Response(JSON.stringify({ answer }), { status: 200, headers: { 'content-type': 'application/json' } })))
+      }),
+    })
+    const schema: NodeSchema = {
+      type: 'dev.rate', displayName: 'Rate', category: 'test', source: 'v3', isOutputNode: true,
+      body: [{ kind: 'input', id: 'fps', type: { kind: 'concrete', name: 'INT' }, optional: false,
+        widget: { widgetType: 'INT', options: {}, default: 24 }, automatic: { lookup: 'pack.rate_of', args: [{ formula: '100' }] } }],
+    }
+    const demand = new LookupDemand(client)
+    const show = () => demand.show([{ nodeType: 'dev.rate', node: 'n0',
+      items: elaborateInterface(schema, { values: {} }, EMPTY_CONNECTIVITY, { lookupAnswers: lookupAnswersOf(client) }).items }])
+    const settle = async () => { for (let i = 0; i < 10; i += 1) await Promise.resolve() }
+    show()
+    await settle()
+    pending.shift()!(99)
+    await settle()
+    expect(client.entry({ function: 'pack.rate_of', args: [100] })).toEqual({ state: 'ready', answer: 99 })
+    client.answerRecorded({ function: 'pack.rate_of', args: [100] }, 25)
+    // Every change the client reports draws the scene again.
+    show()
+    await settle()
+    show()
+    show()
+    await settle()
+    expect([pending.length, aborted]).toEqual([1, 0])
+    pending.shift()!(25)
+    await settle()
+    expect(client.entry({ function: 'pack.rate_of', args: [100] })).toEqual({ state: 'ready', answer: 25 })
   })
 })

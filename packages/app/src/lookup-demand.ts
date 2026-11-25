@@ -57,7 +57,9 @@ export class LookupDemand {
         const callKey = JSON.stringify([site.call.lookup, site.call.args])
         wanted.add(key)
         const previous = this.held.get(key)
-        if (previous?.call === callKey && !this.lookups.isOld(call)) return
+        // A demand is held only while its call is under way; asking again
+        // would cancel the call that is to replace an old answer.
+        if (previous?.call === callKey) return
         previous?.controller.abort()
         this.held.delete(key)
         if (this.lookups.entry(call) !== undefined && !this.lookups.isOld(call)) return
