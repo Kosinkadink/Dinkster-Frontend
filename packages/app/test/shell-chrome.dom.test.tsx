@@ -242,6 +242,10 @@ describe('canvas corner controls', () => {
 
     setMenu('zoom')
     expect(root.querySelector('[data-testid="canvas-zoom-input"]')).toBeNull()
+    row().querySelector('.dinkster-canvas-closed-row-open')!.dispatchEvent(new KeyboardEvent('keydown', { key: '8', bubbles: true }))
+    expect(root.querySelector<HTMLInputElement>('[data-testid="canvas-zoom-input"]')!.value).toBe('8')
+    setMenu(undefined)
+    setMenu('zoom')
     click(root.querySelector('[data-testid="canvas-zoom-reset"]')!)
     expect(zoomTo).toHaveBeenLastCalledWith(1)
     expect(menu()).toBeUndefined()

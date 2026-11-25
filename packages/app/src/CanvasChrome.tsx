@@ -205,14 +205,15 @@ export function CanvasCornerControls(props: {
       queueMicrotask(() => (previous === 'zoom' ? zoomTrigger : settingsTrigger)?.focus())
     }
   }, { defer: true }))
-  // Pressing the number lays a field over it, holding the number selected.
-  const startTyping = (): void => {
-    setTyped(String(percent()))
+  // Pressing the number lays a field over it, holding the number selected;
+  // a digit typed on the number starts the field with that digit.
+  const startTyping = (first?: string): void => {
+    setTyped(first ?? String(percent()))
     setTyping(true)
     queueMicrotask(() => {
       const field = menuElement?.querySelector<HTMLInputElement>('input')
       field?.focus()
-      field?.select()
+      if (first === undefined) field?.select()
     })
   }
   const applyTyped = (): void => {
@@ -288,12 +289,18 @@ export function CanvasCornerControls(props: {
         </Show>
         <Show when={props.menu === 'zoom'}>
           <div ref={menuElement} class="canvas-zoom-menu" role="menu" aria-label={message('canvas.corner.zoomOptions')} data-testid="canvas-zoom-menu">
-            <div class="canvas-zoom-row" data-testid="canvas-zoom-row">
+            <div class="canvas-zoom-row" data-testid="canvas-zoom-row" onKeyDown={(event) => {
+              const onNumber = event.target instanceof Element && event.target.matches('.dinkster-canvas-closed-row-open')
+              if (onNumber && !event.ctrlKey && !event.metaKey && !event.altKey && /^[0-9.]$/.test(event.key)) {
+                event.preventDefault()
+                startTyping(event.key)
+              }
+            }}>
               <Show when={typing()} fallback={
                 <CanvasClosedRow
                   label=""
                   value={`${percent()}%`}
-                  onOpen={startTyping}
+                  onOpen={() => startTyping()}
                   onStep={(direction) => props.onZoomBy(direction > 0 ? 1.2 : 1 / 1.2)}
                   steps={{
                     decrease: { label: message('canvas.corner.zoomOut'), detail: props.shortcuts?.zoomOut },

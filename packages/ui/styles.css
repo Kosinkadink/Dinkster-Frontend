@@ -737,6 +737,7 @@
 .canvas-zoom-menu .canvas-zoom-row .dinkster-canvas-field-step { display: grid; place-items: center; flex: none; width: var(--dinkster-space-24); color: var(--dinkster-text-secondary); }
 .canvas-zoom-menu .canvas-zoom-row .dinkster-canvas-closed-row-open { flex: 1; justify-content: center; min-width: 0; }
 .canvas-zoom-row .dinkster-canvas-field-label:empty { display: none; }
+.canvas-zoom-menu .canvas-zoom-row button:focus-visible { outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); }
 .canvas-zoom-row .dinkster-canvas-closed-row-value { margin-left: 0; }
 .canvas-zoom-field { justify-content: center; gap: 1px; box-sizing: border-box; padding: 0 var(--dinkster-space-24); color: var(--dinkster-text-muted); }
 .canvas-zoom-field:focus-within { box-shadow: inset 0 0 0 1px var(--dinkster-border-focus); }

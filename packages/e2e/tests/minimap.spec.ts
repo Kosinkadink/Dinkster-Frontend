@@ -406,6 +406,16 @@ test('the zoom menu is keyboard reachable, truthful, and preserves the document'
     await centered()
   }
 
+  // A digit typed on the number starts the field with that digit.
+  await level.focus()
+  await page.keyboard.press('Enter')
+  await expect(number).toBeFocused()
+  await page.keyboard.type('80')
+  await expect(field).toHaveValue('80')
+  await page.keyboard.press('Enter')
+  await expect(menu).toBeHidden()
+  expect((await viewport(page)).scale).toBeCloseTo(0.8, 5)
+
   await level.click()
   await page.getByTestId('canvas-zoom-reset').click()
   expect((await viewport(page)).scale).toBeCloseTo(1, 5)
