@@ -7,7 +7,7 @@ import {
   onMount,
   type JSX,
 } from 'solid-js'
-import { Box, ChevronRight, Search, X, type LucideIcon } from 'lucide-solid'
+import { DraftingCompass, ChevronRight, Search, X, type LucideIcon } from 'lucide-solid'
 import { ProductIcon, ProductSwitch } from './controls.js'
 
 /** A kind of result, shown as a named tab; Tab steps through them. */
@@ -144,7 +144,7 @@ function MarkedText(props: { text: string; query: string }) {
 }
 
 /** The icon that marks a blueprint wherever one is listed; the one place to change it. */
-export const BlueprintIcon: LucideIcon = Box
+export const BlueprintIcon: LucideIcon = DraftingCompass
 
 /** The floating preview's width: as wide as the window allows between these. */
 const FLOATING_WIDEST = 320
