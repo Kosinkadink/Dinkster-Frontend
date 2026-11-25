@@ -198,9 +198,12 @@ export function templateAssetLines(descriptor: TemplateDescriptor, backend: Back
   })
 }
 
-export type TemplateCollectionRef =
-  | { readonly kind: 'local'; readonly pack: string; readonly id: string }
+export type TemplateCollectionRef = (
+  | { readonly kind: 'local'; readonly pack: string; readonly id: string; readonly template: TemplateDescriptor }
   | { readonly kind: 'remote'; readonly template: RemoteTemplateDescriptor }
+) & {
+  readonly models: readonly { readonly name: string; readonly here: boolean; readonly size?: number }[]
+}
 
 const allLocalTemplates = async (
   backend: Extract<Backend, { protocol: 'dinkster' }>,
@@ -215,10 +218,11 @@ const allLocalTemplates = async (
   return templates
 }
 
-const templateModels = (template: TemplateDescriptor, backend: Backend): readonly string[] => [
+const templateModels = (template: TemplateDescriptor, backend: Backend): readonly string[] => [...new Set([
   ...(template.models ?? []),
-  ...templateAssetLines(template, backend).map((line) => line.split(' - ', 1)[0]!),
-]
+  ...(template.assets ?? []).map((id) =>
+    backend.registry.get()?.packs?.get(template.pack)?.assets?.find((asset) => asset.id === id)?.name ?? id),
+])]
 
 const normalizeTemplateSearch = (value: string): string => value
   .toLowerCase()
@@ -248,8 +252,8 @@ export function templatesSource(app: AppState): CollectionSource {
       const [local, remote] = await Promise.all([allLocalTemplates(backend), catalog.list()])
       const query = normalizeTemplateSearch(req.query.trim())
       const templates = [
-        ...local.map((template) => ({ template, ref: { kind: 'local', pack: template.pack, id: template.id } as TemplateCollectionRef })),
-        ...remote.map((template) => ({ template, ref: { kind: 'remote', template } as TemplateCollectionRef })),
+        ...local.map((template) => ({ template, ref: { kind: 'local' as const, pack: template.pack, id: template.id, template } })),
+        ...remote.map((template) => ({ template, ref: { kind: 'remote' as const, template } })),
       ].filter(({ template }) =>
         (pack === undefined || pack === '' || template.pack === pack) &&
         (query === '' || [template.id, template.name, template.description ?? '', template.family ?? '', ...(template.tags ?? [])]
@@ -269,6 +273,8 @@ export function templatesSource(app: AppState): CollectionSource {
         items: templates.slice(offset, nextOffset).map(({ template, ref }) => {
           const models = templateModels(template, backend)
           const missing = models.filter((model) => !held.get(model))
+          const assets = backend.registry.get()?.packs?.get(template.pack)?.assets ?? []
+          const declared = assets.filter((asset) => template.assets?.includes(asset.id))
           const remoteTemplate = ref.kind === 'remote' ? ref.template : undefined
           const thumbUrl = remoteTemplate === undefined ? undefined : catalog.thumbnailUrl(remoteTemplate)
           return {
@@ -306,7 +312,13 @@ export function templatesSource(app: AppState): CollectionSource {
               ...models.map((model) => ({ label: held.get(model) ? 'model ready' : 'model missing', text: model })),
             ],
             actions: [{ id: 'open', label: 'Open template' }],
-            ref,
+            ref: {
+              ...ref,
+              models: models.map((name) => {
+                const size = declared.find((asset) => asset.name === name)?.size
+                return { name, here: held.get(name) === true, ...(size === undefined ? {} : { size }) }
+              }),
+            } satisfies TemplateCollectionRef,
           }
         }),
       }

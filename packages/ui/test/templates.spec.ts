@@ -120,3 +120,33 @@ test('a tile shows what is left to download, then how far it is, and a template 
   await expect(page.getByRole('tab', { name: 'Result' })).toHaveAttribute('aria-selected', 'true')
   await expect(view.locator('img')).toHaveCount(1)
 })
+
+test('without a model folder the page offers Storage, and without templates it still offers a blank workflow', async ({ page }) => {
+  await page.goto('/#templates')
+  const state = page.getByRole('combobox', { name: 'State' })
+  await state.selectOption('no-folders')
+  const needs = page.getByRole('region', { name: 'Needs' })
+  await expect(needs).toContainText('0 of 3 on this computer')
+  await expect(needs.getByRole('listitem')).toHaveText([
+    /sd_xl_base_1\.0\.safetensors.*Missing/,
+    /sd_xl_inpaint_0\.1\.safetensors.*Missing/,
+    /sdxl_vae\.safetensors.*Missing/,
+  ])
+  await expect(page.getByRole('button', { name: /Download \d+ models?/ })).toHaveCount(0)
+  await expect(page.getByText('No model folder yet', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Open Storage' }).click()
+  await expect(page.getByRole('status').last()).toHaveText('Storage opened')
+
+  await state.selectOption('empty')
+  await expect(page.getByRole('listbox', { name: 'Makes' }).getByRole('option')).toHaveText(['All0'])
+  await expect(page.getByRole('listbox', { name: 'Model family' })).toHaveCount(0)
+  await expect(page.getByText('No templates yet. Packs you add can bring their own.')).toBeVisible()
+  await expect(page.locator('.dinkster-template-detail')).toBeEmpty()
+  await expect(page.getByRole('button', { name: 'Use template' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Blank workflow' }).click()
+  await expect(page.getByRole('status').last()).toHaveText('Blank workflow opened')
+
+  await state.selectOption('ready')
+  await expect(page.getByRole('button', { name: /Download 2 models/ })).toBeVisible()
+  await expect(needs).toContainText('1 of 3 on this computer')
+})
