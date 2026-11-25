@@ -13,7 +13,7 @@ import { activeLocale, type MessageParams } from '@dinkster/core'
 import type { DinksterConnection, PackSettings } from '@dinkster/client'
 import type { AppCommand, CommandRegistry, KeybindingRegistry, SettingDefinition, SettingsRegistry } from './settings.js'
 import { captureKeydown, initialSettingsCategory } from './settings.js'
-import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, type SettingsSearchItem } from './settings-search.js'
+import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, settingsCategoryLabel, type SettingsSearchItem } from './settings-search.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
 import { ProductCheckbox } from './ProductControls.js'
@@ -104,16 +104,6 @@ function PackSettingsPanel(props: {
       </ProductField>
     }}</For>
   </div>}</Show>
-}
-
-function fallbackCategoryLabel(category: string): string {
-  return category
-    .replaceAll('.', ' ')
-    .replace(/([a-z\d])([A-Z])/g, '$1 $2')
-    .split(' ')
-    .filter(Boolean)
-    .map((part) => `${part[0]?.toLocaleUpperCase() ?? ''}${part.slice(1)}`)
-    .join(' ')
 }
 
 function SettingField(props: {
@@ -270,9 +260,7 @@ export function SettingsDialog(props: {
     if (backend) return backend.label
     const packName = packCategories().get(candidate)
     if (packName !== undefined) return packName
-    const key = `settingsDialog.category.${candidate.replaceAll('.', '_')}`
-    const translated = message(key)
-    return translated === key ? fallbackCategoryLabel(candidate) : translated
+    return settingsCategoryLabel(candidate, message)
   }
   const shownMatchCount = createMemo(() => shownSearchGroups().reduce((total, group) => total + group.matches.length, 0))
   const searchSummary = (): string => {
