@@ -49,6 +49,7 @@
     "sidebarBreakpoint": 768,
     "contentMaxWidth": 720,
     "tableMaxWidth": 960,
+    "dialogWideMaxWidth": 960,
     "pagePadding": 32,
     "menuWidth": 240,
     "emptyStateMaxWidth": 480,

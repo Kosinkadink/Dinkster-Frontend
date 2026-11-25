@@ -655,6 +655,52 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await expect(page).toHaveScreenshot('dialog-open-390.png')
 })
 
+test('wide dialogs use their own width and preserve narrow margins and dismissal', async ({
+  page,
+}) => {
+  await page.goto('/#confirmations')
+  for (const width of [1280, 800, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.getByRole('button', { name: 'Review removal' }).click()
+    const regular = page.getByRole('dialog', { name: 'Remove item?' })
+    await expect(regular).toHaveAttribute('data-size', 'default')
+    const regularBounds = (await regular.boundingBox())!
+    if (width >= 800) expect(regularBounds.width).toBe(480)
+    else {
+      expect(regularBounds.x).toBeGreaterThanOrEqual(16)
+      expect(regularBounds.width).toBeGreaterThanOrEqual(width - 36)
+    }
+    await page.keyboard.press('Escape')
+    const opener = page.getByRole('button', { name: 'Open wide dialog' })
+    await opener.click()
+    const wide = page.getByRole('dialog', { name: 'Diagnostics' })
+    await expect(wide).toHaveAttribute('data-size', 'wide')
+    const bounds = (await wide.boundingBox())!
+    if (width === 1280) expect(bounds.width).toBe(960)
+    else expect(bounds.width).toBeGreaterThanOrEqual(width - 36)
+    expect(bounds.x).toBeGreaterThanOrEqual(16)
+    expect(width - bounds.x - bounds.width).toBeGreaterThanOrEqual(16)
+    expect(
+      await wide.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true)
+    await expect(wide.getByRole('button', { name: 'Close' })).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(wide.getByRole('button', { name: 'Close' })).toBeFocused()
+    await expectNoAxeViolations(page)
+    if (width !== 800)
+      await expect(page).toHaveScreenshot(`dialog-wide-${width}.png`)
+    await page.keyboard.press('Escape')
+    await expect(wide).toHaveCount(0)
+    await expect(opener).toBeFocused()
+    await opener.click()
+    await wide.getByRole('button', { name: 'Close' }).click()
+    await expect(wide).toHaveCount(0)
+    await expect(opener).toBeFocused()
+  }
+})
+
 test('a refused save and an open dialog have no accessibility violations', async ({
   page,
 }) => {
