@@ -115,6 +115,8 @@ import {
   type PanelDragVisibleZoneGeometry,
 } from './panel-drag.js'
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
+import { isPageTab, PageTabPanel } from './page-tabs.js'
+import type { AppTab } from './app-page-tabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
 import { RunActivityControl, RunRow, RunSection, placeInLine, runAge, runIsPending, useNow } from './RunControls.js'
 import { ExecutedImageFacts, ExecutedImageViewer, SavedOutputFiles, ViewerImage, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
@@ -471,6 +473,7 @@ export function App(props: {
     onCleanup(() => { detach(); unsubscribe() })
   })
   const tabs = useSignal(app.tabs)
+  const shellTabs = useSignal(app.pages.changed)
   const activeTabId = useSignal(app.activeTabId)
   const dirtyTabs = useSignal(app.dirtyTabs)
   const tabResultClears = useSignal(app.clearedTabResults)
@@ -513,12 +516,12 @@ export function App(props: {
     entry.kind === 'workflow' ? [entry.workflowId] : []))
   const detachedPanelIds = (): ReadonlySet<string> => new Set(managedLayout().windows.flatMap((entry) =>
     entry.kind === 'panel' ? [entry.panelId] : []))
-  const windowTabs = (): readonly Tab[] => {
+  const windowTabs = (): readonly AppTab[] => {
     const context = managedContext()
     if (context.kind === 'workflow') return tabs().filter((tab) => tab.id === context.workflowId)
-    if (context.kind === 'panel') return tabs()
+    if (context.kind === 'panel') return shellTabs()
     const detached = detachedWorkflowIds()
-    return tabs().filter((tab) => !detached.has(tab.id))
+    return shellTabs().filter((tab) => !detached.has(tab.id))
   }
   createEffect(() => {
     const visible = windowTabs()
@@ -696,9 +699,13 @@ export function App(props: {
   // replacement (import or collaboration adoption) installs a new session,
   // invalidating the user's discard decision, while editor-kind switches
   // replace the Tab object but keep the session and must not dismiss it.
-  const [pendingClose, setPendingClose] = createSolidSignal<Tab>()
-  const pendingCloseStillCurrent = (pending: Tab): boolean =>
-    tabs().some((tab) => tab.id === pending.id && tab.store === pending.store)
+  const [pendingClose, setPendingClose] = createSolidSignal<AppTab>()
+  const pendingCloseStillCurrent = (pending: AppTab): boolean =>
+    isPageTab(pending) ? shellTabs().includes(pending) :
+      tabs().some((tab) => tab.id === pending.id && tab.store === pending.store)
+  const isDirty = (tab: AppTab): boolean => isPageTab(tab)
+    ? app.pages.descriptor(tab.pageId)?.dirty?.() === true
+    : dirtyTabs().has(tab.id)
   createEffect(() => {
     const pending = pendingClose()
     if (pending && !pendingCloseStillCurrent(pending)) setPendingClose(undefined)
@@ -714,7 +721,7 @@ export function App(props: {
     }
     return undefined
   }
-  const requestTabClose = (tab: Tab, restoreFocus: boolean): void => {
+  const requestTabClose = (tab: AppTab, restoreFocus: boolean): void => {
     const strip = stripContaining(document.activeElement)
     // Closing the global active tab: activate the successor the repaired
     // split layout keeps (next tab in the closing group, else the active
@@ -722,7 +729,8 @@ export function App(props: {
     // split-blind remaining[0] fallback never moves focus to another group.
     const successor = tab.id === activeTabId() ? closeSuccessor(tab.id) : undefined
     if (successor !== undefined) app.activeTabId.set(successor)
-    app.requestCloseTab(tab.id, () => true)
+    if (isPageTab(tab)) app.pages.close(tab.id)
+    else app.requestCloseTab(tab.id, () => true)
     if (restoreFocus || strip !== undefined) {
       queueMicrotask(() => {
         const target = strip?.isConnected
@@ -732,8 +740,8 @@ export function App(props: {
       })
     }
   }
-  const closeTab = (tab: Tab): void => {
-    if (!app.isTabDirty(tab.id)) {
+  const closeTab = (tab: AppTab): void => {
+    if (!isDirty(tab)) {
       requestTabClose(tab, false)
       return
     }
@@ -747,10 +755,10 @@ export function App(props: {
     requestTabClose(pending, true)
   }
 
-  const [pendingCloseOthers, setPendingCloseOthers] = createSolidSignal<readonly Tab[]>()
-  const closeOthers = (tab: Tab, groupTabs: readonly Tab[]): void => {
+  const [pendingCloseOthers, setPendingCloseOthers] = createSolidSignal<readonly AppTab[]>()
+  const closeOthers = (tab: AppTab, groupTabs: readonly AppTab[]): void => {
     const others = groupTabs.filter((candidate) => candidate.id !== tab.id)
-    if (others.some((candidate) => app.isTabDirty(candidate.id))) {
+    if (others.some(isDirty)) {
       setPendingCloseOthers(others)
       return
     }
@@ -767,7 +775,7 @@ export function App(props: {
     if (pending && !pending.every(pendingCloseStillCurrent)) setPendingCloseOthers(undefined)
   })
 
-  const activeTab = () => windowTabs().find((t) => t.id === activeTabId())
+  const activeTab = () => windowTabs().find((t): t is Tab => !isPageTab(t) && t.id === activeTabId())
   const [boundaryStateTick, setBoundaryStateTick] = createSolidSignal(0)
   createEffect(() => {
     const tab = activeTab()
@@ -991,7 +999,7 @@ export function App(props: {
     const delta = event.key === increase ? 0.02 : -0.02
     updateSplitLayout((layout) => setSplitRatioAt(layout, divider.path, divider.ratio + delta))
   }
-  const beginTabDrag = (tab: Tab, down: PointerEvent, groupId: string): void => {
+  const beginTabDrag = (tab: AppTab, down: PointerEvent, groupId: string): void => {
     if (down.button !== 0) return
     const strip = stripElements.get(groupId)
     if (strip === undefined) return
@@ -1111,10 +1119,10 @@ export function App(props: {
           updateSplitLayout((layout) => moveTabToGroup(layout, tab.id, stripDrop.groupId, stripDrop.index))
         } else if (action === 'commit' && pane !== undefined) {
           updateSplitLayout((layout) => splitDropNextLayout(layout, pane, tab.id))
-        } else if (started && outsideRegion && !overSource && managedContext().kind === 'primary') {
+        } else if (started && outsideRegion && !overSource && managedContext().kind === 'primary' && !isPageTab(tab)) {
           popOutWorkflow(tab, event.screenX, event.screenY)
         } else if (action === 'commit' && overSource && preview !== undefined) {
-          app.tabs.set(applySubsetOrder(tabs(), preview.order))
+          app.pages.setTabs(applySubsetOrder(shellTabs(), preview.order))
           updateSplitLayout((layout) => setGroupTabOrder(layout, groupId, preview.order))
         }
       })
@@ -2594,7 +2602,7 @@ export function App(props: {
     const paneFocused = (): boolean => displayLayout().focusedGroupId === p.groupId
     const soleGroup = (): boolean => layoutGroups(displayLayout().root).length === 1
     const paneRect = (): SplitRect | undefined => regionRects().groups.find((entry) => entry.id === p.groupId)?.rect
-    const groupTabs = (): readonly Tab[] => {
+    const groupTabs = (): readonly AppTab[] => {
       const byId = new Map(windowTabs().map((tab) => [tab.id, tab] as const))
       const drag = tabDrag()
       const ids = drag !== undefined && drag.sourceGroupId === p.groupId && drag.order !== undefined
@@ -2605,7 +2613,15 @@ export function App(props: {
         return tab !== undefined ? [tab] : []
       })
     }
-    const paneActiveTab = (): Tab | undefined => windowTabs().find((tab) => tab.id === group().activeTabId)
+    const paneTab = () => windowTabs().find((tab) => tab.id === group().activeTabId)
+    const paneActiveTab = (): Tab | undefined => {
+      const tab = paneTab()
+      return tab && !isPageTab(tab) ? tab : undefined
+    }
+    const panePage = () => {
+      const tab = paneTab()
+      return tab && isPageTab(tab) ? tab : undefined
+    }
     const paneTarget = (): Backend | undefined => {
       backendsTick()
       tabTargets()
@@ -2702,18 +2718,19 @@ export function App(props: {
         <div class="tab-strip">
           <WorkflowTabs
             tabs={groupTabs()}
+            {...(shellTabs().some(isPageTab) ? { label: message('shell.pageTabs.open') } : {})}
             activeId={group().activeTabId}
             draggedId={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.tabId : undefined}
             insertionIndex={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.insertionIndex : undefined}
             runState={(tab) => {
               executions()
               tabResultClears()
-              return app.tabRunState(tab)
+              return isPageTab(tab) ? 'idle' : app.tabRunState(tab)
             }}
-            isDirty={(tab) => dirtyTabs().has(tab.id)}
-            isFrozen={(tab) => tab.execution !== undefined}
+            isDirty={isDirty}
+            isFrozen={(tab) => !isPageTab(tab) && tab.execution !== undefined}
             tooltip={(tab) => {
-              if (tab.execution === undefined) return undefined
+              if (isPageTab(tab) || tab.execution === undefined) return undefined
               executions()
               const status = app.store.get(tab.execution)?.status
               return message('frozen.runTooltip', { id: tab.execution.prompt.slice(0, 8),
@@ -2735,6 +2752,7 @@ export function App(props: {
             onClose={managedContext().kind === 'workflow' ? redockCurrentWindow : closeTab}
             onRename={(tab, title) => app.renameTab(tab.id, title)}
             onDuplicate={(tab) => {
+              if (isPageTab(tab)) return
               void app.duplicateTab(tab.id).then((copy) => {
                 if (!copy) return
                 updateSplitLayout((layout) => {
@@ -2746,7 +2764,7 @@ export function App(props: {
             onCloseOthers={managedContext().kind === 'primary' ? (tab) => closeOthers(tab, groupTabs()) : undefined}
             onPointerDown={(event, tab) => beginTabDrag(tab, event, p.groupId)}
             onNew={() => app.createWorkflow()}
-            canShare={(tab) => tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
+            canShare={(tab) => !isPageTab(tab) && tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
             onShare={(tab) => {
               app.activeTabId.set(tab.id)
               app.showTransientStatus(message('shell.share.sharing', { title: tab.title }))
@@ -2756,7 +2774,7 @@ export function App(props: {
                   : message('shell.share.failed', { error }))
               })
             }}
-            onPopOut={managedContext().kind === 'primary' ? popOutWorkflow : undefined}
+            onPopOut={managedContext().kind === 'primary' ? (tab) => { if (!isPageTab(tab)) popOutWorkflow(tab) } : undefined}
             showNew={paneFocused() && managedContext().kind === 'primary'}
             panelId={splitPanelDomId(p.groupId)}
             onSplitRight={managedContext().kind === 'primary'
@@ -2765,20 +2783,20 @@ export function App(props: {
             onSplitDown={managedContext().kind === 'primary'
               ? (tab) => updateSplitLayout((layout) => splitGroup(layout, p.groupId, 'column', tab.id))
               : undefined}
-            canSplit={managedContext().kind === 'primary' ? canSplitTab : undefined}
+            canSplit={managedContext().kind === 'primary' ? (tab) => !isPageTab(tab) && canSplitTab(tab) : undefined}
             onUnsplit={soleGroup() ? undefined : () => updateSplitLayout((layout) => dissolveGroup(layout, p.groupId))}
             targets={backends()}
             targetId={(tab) => {
               tabTargets()
-              return app.backendForTab(tab).id
+              return isPageTab(tab) ? '' : app.backendForTab(tab).id
             }}
             onSetTarget={(tab, id) => {
               const backend = backends().find((candidate) => candidate.id === id)
               if (backend) app.setTabTarget(tab.id, backend.id)
             }}
-            previews={(tab) => tab.store.doc.previews}
+            previews={(tab) => isPageTab(tab) ? undefined : tab.store.doc.previews}
             onSetPreviews={(tab, mode) => {
-              if (tab.execution !== undefined) return
+              if (isPageTab(tab) || tab.execution !== undefined) return
               app.dispatchTo(tab, { command: 'workflow.setPreviews', params: { previews: mode } })
             }}
           />
@@ -2803,10 +2821,11 @@ export function App(props: {
           id={splitPanelDomId(p.groupId)}
           class="canvas-stage"
           role="tabpanel"
-          aria-label={paneActiveTab() ? undefined : message('shell.workflow.editor')}
-          aria-labelledby={paneActiveTab() ? workflowTabDomId(paneActiveTab()!.id) : undefined}
+          aria-label={paneTab() ? undefined : message('shell.workflow.editor')}
+          aria-labelledby={paneTab() ? workflowTabDomId(paneTab()!.id) : undefined}
           tabindex="0"
         >
+          <Show when={panePage()} fallback={<>
           <Show when={managedContext().kind === 'primary' && !paneActiveTab() && detachedWorkflowIds().size > 0}>
             <div class="detached-workspace-state" data-testid="detached-workspace-state">
               <h2>{message('shell.workflow.detached.title')}</h2>
@@ -2918,6 +2937,9 @@ export function App(props: {
           >
             {(editor) => editor.component(host)}
           </Show>
+          </>}>
+            {(page) => <PageTabPanel host={app.pages} tab={page()} />}
+          </Show>
         </div>
       </section>
     )
@@ -3012,7 +3034,7 @@ export function App(props: {
         >
           <div class="close-tab-confirm">
             <p>{message('shell.close.othersConfirm')}</p>
-            <ul><For each={pending.filter((tab) => dirtyTabs().has(tab.id))}>{(tab) => <li>{tab.title}</li>}</For></ul>
+            <ul><For each={pending.filter(isDirty)}>{(tab) => <li>{tab.title}</li>}</For></ul>
             <ProductActionFooter>
               <ProductButton type="button" autofocus onClick={() => setPendingCloseOthers(undefined)}>{message('shell.action.cancel')}</ProductButton>
               <SharedProductButton intent="remove" fill="solid" onClick={confirmCloseOthers}>{message('shell.close.discard')}</SharedProductButton>

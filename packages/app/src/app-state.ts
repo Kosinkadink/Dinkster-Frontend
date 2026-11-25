@@ -6,6 +6,7 @@
  */
 
 import { desktopSaveBridge } from './desktop-bridge.js'
+import { createAppPageTabs } from './app-page-tabs.js'
 import type { PaletteEntry } from './NodePalette.js'
 import {
   CORE_VIRTUAL_NODE_KINDS,
@@ -2851,6 +2852,7 @@ export class AppState {
   readonly registry: Signal<SchemaRegistry | undefined>
   readonly tabs: Signal<readonly Tab[]> = createSignal<readonly Tab[]>([])
   readonly activeTabId: Signal<string> = createSignal('')
+  readonly pages: ReturnType<typeof createAppPageTabs>
   /** Never serialized: identifies the first-party GLSL source editor session. */
   readonly glslEditorTarget: Signal<GlslEditorTarget | undefined> = createSignal<GlslEditorTarget | undefined>(undefined)
   /**
@@ -3160,6 +3162,7 @@ export class AppState {
       this.panels.all().map(({ id, placement, allowedPlacements, order }) =>
         ({ id, placement, allowedPlacements, order })))
     this.editorSplits = new EditorSplitStore(this.settings)
+    this.pages = createAppPageTabs(this)
     // Stale-modal guard (see modalPanel above): registry churn that removes
     // the open modal's panel - or moves it off 'modal' - closes the modal
     // state itself, so a later re-register can never resurrect the dialog.
@@ -3567,6 +3570,7 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.pages.dispose()
     for (const request of this.pendingComparisonCompiles.values()) {
       if (request.frame !== undefined) cancelAnimationFrame(request.frame)
       if (request.timer !== undefined) clearTimeout(request.timer)
@@ -3867,8 +3871,8 @@ export class AppState {
       const nextTabs = [...nextLive, ...frozen]
       this.tabs.set(nextTabs)
       const localFrozenActive = frozen.some((tab) => tab.id === this.activeTabId.get())
-      if (opening && this.activeTabId.get() === active && !localFrozenActive && nextLive.some((tab) => tab.id === snapshot.active)) this.activeTabId.set(snapshot.active)
-      else if (!nextTabs.some((tab) => tab.id === this.activeTabId.get())) this.activeTabId.set(nextLive[0]?.id ?? '')
+      if (opening && this.activeTabId.get() === active && !localFrozenActive && !this.pages.tabs().some((tab) => tab.editorKind === 'page' && tab.id === active) && nextLive.some((tab) => tab.id === snapshot.active)) this.activeTabId.set(snapshot.active)
+      else if (!this.pages.tabs().some((tab) => tab.id === this.activeTabId.get())) this.activeTabId.set(nextLive[0]?.id ?? '')
       publicationChangedTabs = this.tabs.get() !== nextTabs
     } finally {
       this.applyingWorkspaceTabs = false
@@ -4371,7 +4375,8 @@ export class AppState {
     }
     const state: PersistedTabs = {
       v: 1,
-      active: this.workspaceAuthorityEnabled ? this.workspaceActiveBaseline : this.activeTabId.get(),
+      active: this.workspaceAuthorityEnabled ? this.workspaceActiveBaseline
+        : this.tabs.get().some((tab) => tab.id === this.activeTabId.get()) ? this.activeTabId.get() : this.tabs.get()[0]?.id ?? '',
       workspaceRevision: this.workspacePersistedRevision,
       workspaceOperationWatermarks: this.workspaceOperationWatermarks,
       tabs: this.tabs.get()
