@@ -32,7 +32,8 @@ export function placeInLine(entry: ExecutionState, all: Iterable<ExecutionState>
 /** How long ago a run ended, in the largest whole unit: "2 minutes ago". */
 export function runAge(endedAt: number, now: number): string {
   const seconds = Math.max(0, Math.round((now - endedAt) / 1000))
-  if (seconds < 60) return formatRelativeTime(-seconds, 'second', { numeric: 'auto' })
+  // Under a minute reads "now": the lists tick every half minute, so counting seconds would show stale, differing ages.
+  if (seconds < 60) return formatRelativeTime(0, 'second', { numeric: 'auto' })
   const minutes = Math.floor(seconds / 60)
   if (minutes < 60) return formatRelativeTime(-minutes, 'minute')
   const hours = Math.floor(minutes / 60)

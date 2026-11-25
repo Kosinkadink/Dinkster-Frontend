@@ -20,7 +20,9 @@
 .runs-output-thumbnails .output-thumbnail-preview { min-height: 0; aspect-ratio: 1; }
 .runs-output-thumbnails > [data-state] { width: 100%; font-size: var(--dinkster-type-metadata-size); color: var(--dinkster-text-muted); }
 .runs-panel .collection-entry { grid-template-columns: minmax(0, 1fr); }
-.runs-panel .collection-panel { flex: none; min-height: 16rem; }
+/* Stored runs draw as the run rows above them: no card, the row itself shades on hover and while chosen. */
+.runs-panel .collection-entry, .runs-panel .collection-entry:hover, .runs-panel .collection-entry.selected { padding: 0; border: 0; background: transparent; box-shadow: none; }
+.runs-panel .collection-panel { flex: none; min-height: 16rem; padding: 0; }
 .runs-panel .collection-toolbar { flex-wrap: wrap; }
 .runs-panel .collection-content { display: block; }
 
