@@ -104,7 +104,7 @@ interface DinksterBridgeErrorEvent {
 /** Injectable lifecycle event: used by the reconnect spec to seed an
  * in-flight execution the server has never heard of ("ghost" run). */
 interface DinksterBridgeLifecycleEvent {
-  kind: 'started' | 'completed'
+  kind: 'started' | 'completed' | 'cancelled'
   execution: DinksterBridgeExecutionRef
   timestamp: number
 }
