@@ -10,6 +10,7 @@ interface DinksterBridgeSceneNode {
   color?: string
   virtual?: { text: string; format: 'plain' | 'markdown' }
   unrecognized?: true
+  schemaPending?: true
   layout: {
     width: number
     height: number

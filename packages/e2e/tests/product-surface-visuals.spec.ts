@@ -646,7 +646,7 @@ test('A reopened workflow shows no missing node until the node definitions arriv
   const drawn = () => page.evaluate(() => ({
     schemas: window.__dinksterTest!.app.backends.get()[0]?.schemaState.get().status,
     nodes: Object.fromEntries((window.__dinksterTest?.renderer?.getScene().nodes ?? []).map((node) => [
-      node.id, node.missingSchema === true || node.unrecognized === true ? 'missing' : node.schemaPending === true ? 'pending' : 'resolved',
+      node.id, node.unrecognized === true ? 'missing' : node.schemaPending === true ? 'pending' : 'resolved',
     ])),
     problems: window.__dinksterTest!.app.problems.get().filter((problem) => problem.code === 'schema.unresolvedType').length,
   }))
