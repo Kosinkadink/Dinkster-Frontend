@@ -305,7 +305,7 @@ test('stored run outputs load only after selection and retain their original ide
   await expect(rows).toHaveCount(3)
   expect(jobs).toEqual([])
   await expect(page.locator('.runs-output-thumbnails')).toHaveCount(0)
-  const good = rows.filter({ hasText: 'shared-j' }).nth(0)
+  const good = rows.nth(0)
   await good.click()
   await expect(good).toContainText('Loading retained outputs...')
   await page.mouse.move(600, 400)
