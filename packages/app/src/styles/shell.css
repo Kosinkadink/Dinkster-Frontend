@@ -32,6 +32,8 @@
 }
 
 .sidebar-button:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
+.sidebar-button[aria-disabled='true'] { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
+.sidebar-button[aria-disabled='true']:hover { color: var(--dinkster-text-secondary); background: transparent; }
 
 .sidebar-button[aria-pressed='true'] {
   color: var(--dinkster-text-primary);

@@ -5,8 +5,8 @@
  * running. Opening a project goes through the shell, which writes the opening
  * line and the failure the page draws.
  */
-import { createEffect, createMemo, createResource, createSignal, For, Index, Match, Show, Switch } from 'solid-js'
-import { AudioLines, BookOpen, Database, Eye, EyeOff, LayoutGrid, Server, Workflow } from 'lucide-solid'
+import { createEffect, createMemo, createResource, createSignal, For, Index, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
+import { AudioLines, BookOpen, Database, Eye, EyeOff, LayoutGrid, Search, Server, Workflow } from 'lucide-solid'
 import { activeLocale, asConnectionId } from '@dinkster/core'
 import {
   DinksterConnection,
@@ -31,13 +31,14 @@ import {
   ProductTextInput,
   ProductTile,
   ProductTileGrid,
+  ProductWindowAction,
   ProductWindowToolbar,
   type ProductProjectEntry,
 } from '@dinkster/ui'
 import { useAppMessage } from '../locale.js'
 import { AccountControl, createAccountSession } from '../AccountControl.js'
-import { ActivityBarButton, IconBar } from '../ShellChrome.js'
-import { UniversalSearchTrigger } from '../UniversalSearch.js'
+import { ActivityBarButton, IconBar, ShellTooltip } from '../ShellChrome.js'
+import { attachDomTooltips, TooltipController, type DomTooltipTarget } from '../tooltips.js'
 import { useSignal } from '../solid-adapter.js'
 import { DEFAULT_PROJECT_ID } from '../projects.js'
 import '@dinkster/ui/styles.css'
@@ -183,6 +184,25 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
   const account = createAccountSession(() => connection)
   const [place, setPlace] = createSignal<Place>('projects')
   const [count, setCount] = createSignal<number>()
+  // The editor's tooltips, so the frame's controls explain themselves here too.
+  const tooltips = new TooltipController()
+  tooltips.register({
+    id: 'core.dom',
+    resolve: (target) => {
+      const dom = target as Partial<DomTooltipTarget>
+      return dom.kind === 'dom' && dom.label ? { lines: [dom.label] } : undefined
+    },
+  })
+  const [tooltip, setTooltip] = createSignal(tooltips.visible)
+  let frame!: HTMLDivElement
+  onMount(() => {
+    const detach = attachDomTooltips(frame, tooltips)
+    const unsubscribe = tooltips.subscribe(() => setTooltip(tooltips.visible))
+    onCleanup(() => {
+      detach()
+      unsubscribe()
+    })
+  })
   const logo = () => (
     <ProductMenu
       label={message('projects.logoMenu')}
@@ -192,17 +212,32 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
     />
   )
   return (
-    <div class="shell" data-testid="projects-page">
+    <div class="shell" data-testid="projects-page" ref={frame}>
       <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
       <ProductWindowToolbar
         title={message('shell.applicationControls')}
         platform="linux"
         brand={logo()}
-        search={<UniversalSearchTrigger shortcut="Ctrl+K" onOpen={() => {}} />}
+        search={
+          // Search needs an open project's catalog; until the page has its own, it says so.
+          <ProductWindowAction
+            label={message('projects.unavailable.search')}
+            labelContent={message('command.search.open')}
+            icon={Search}
+            aria-disabled="true"
+            data-testid="topbar-search"
+            data-tooltip-label={message('projects.unavailable.search')}
+          />
+        }
         actions={<></>}
       />
       <div class="body">
-        <IconBar hidden={false} account={<AccountControl session={account} rail />} onSettings={() => {}}>
+        <IconBar
+          hidden={false}
+          account={<AccountControl session={account} rail />}
+          onSettings={() => {}}
+          settingsUnavailable={message('projects.unavailable.settings')}
+        >
           <For each={PLACES}>
             {([id, icon]) => (
               <ActivityBarButton
@@ -243,6 +278,7 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
           </Show>
         </div>
       </footer>
+      <Show when={tooltip()}>{(tip) => <ShellTooltip tip={tip()} />}</Show>
     </div>
   )
 }

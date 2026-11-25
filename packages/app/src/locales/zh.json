@@ -1722,5 +1722,7 @@
   "projects.place.docs": "文档",
   "projects.place.later": "将在后续版本中在此打开。",
   "projects.status.local": "本地",
-  "projects.status.count": "{count} 个项目"
+  "projects.status.count": "{count} 个项目",
+  "projects.unavailable.search": "此页面暂不支持搜索。",
+  "projects.unavailable.settings": "此页面暂不支持设置。"
 }

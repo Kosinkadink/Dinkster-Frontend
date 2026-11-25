@@ -1722,5 +1722,7 @@
   "projects.place.docs": "Docs",
   "projects.place.later": "Opens here in a later version.",
   "projects.status.local": "Local",
-  "projects.status.count": "{count, plural, one {# project} other {# projects}}"
+  "projects.status.count": "{count, plural, one {# project} other {# projects}}",
+  "projects.unavailable.search": "Search is not available on this page yet.",
+  "projects.unavailable.settings": "Settings are not available on this page yet."
 }

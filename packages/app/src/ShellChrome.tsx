@@ -135,6 +135,8 @@ export function ActivityBarButton(props: {
   readonly panelId?: string | undefined
   readonly testId?: string | undefined
   readonly class?: string | undefined
+  /** Drawn unavailable: it keeps its tooltip, which says why, and does nothing when pressed. */
+  readonly unavailable?: boolean | undefined
   readonly onActivate: () => void
 }) {
   const tooltip = () => props.tooltip !== props.label
@@ -150,7 +152,8 @@ export function ActivityBarButton(props: {
       data-tooltip-immediate="true"
       aria-label={props.accessibleName === props.label ? props.label : `${props.label}: ${props.accessibleName}`}
       aria-pressed={props.pressed}
-      onClick={props.onActivate}
+      aria-disabled={props.unavailable ? 'true' : undefined}
+      onClick={() => { if (!props.unavailable) props.onActivate() }}
     >
       <span class="sidebar-button-icon" aria-hidden="true"><Icon icon={props.icon ?? PanelLeft} /></span>
     </button>
@@ -170,6 +173,8 @@ export function IconBar(props: {
   readonly children: JSX.Element
   readonly account: JSX.Element
   readonly onSettings: () => void
+  /** Why Settings cannot open here; draws it unavailable with this as its tooltip. */
+  readonly settingsUnavailable?: string | undefined
 }) {
   const message = useAppMessage()
   return (
@@ -183,8 +188,9 @@ export function IconBar(props: {
         icon={Settings}
         label={message('shell.panel.settings.title')}
         accessibleName={message('shell.panel.settings.title')}
-        tooltip={message('shell.panel.settings.title')}
-        tooltipDetail="Ctrl+,"
+        tooltip={props.settingsUnavailable ?? message('shell.panel.settings.title')}
+        tooltipDetail={props.settingsUnavailable === undefined ? 'Ctrl+,' : undefined}
+        unavailable={props.settingsUnavailable !== undefined}
         pressed={undefined}
         testId="settings-button"
         class="sidebar-settings-button"
