@@ -1656,5 +1656,6 @@
   "automaticField.warning": "无法计算 {field}，使用默认值 {value}。",
   "automaticField.couldNotRefresh": "无法刷新",
   "automaticField.paused": "已暂停",
-  "automaticField.offline": "离线"
+  "automaticField.offline": "离线",
+  "automaticField.waitingForValue": "等待一个值。"
 }

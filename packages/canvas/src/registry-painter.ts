@@ -8,7 +8,7 @@
  * layout-independent; the adapter owns pixels.
  */
 
-import { formatWidgetValue, type Json, type WidgetRegistry, type WidgetSpec, type WidgetView } from '@dinkster/core'
+import { formatWidgetValue, t as translate, type Json, type WidgetRegistry, type WidgetSpec, type WidgetView } from '@dinkster/core'
 import { controllerChipRect, controllerChipTextRight, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { widgetChromeRect } from './layout.js'
 import { defaultWidgetPainter, drawsPassedValueAsEditor, fitItems, paintCompanionValue, PARKED_EDITOR_VIEWS, paintStaleValueStrikethrough, paintValueSwatch, type CompanionSummary, type WidgetPaintArgs, type WidgetPainter } from './renderer.js'
@@ -19,8 +19,6 @@ import { paintSeedModeIcon, paintToolboxIcon } from './icons.js'
 import type { ToolboxButton } from './toolbox.js'
 
 const paint = canvasPaintTokens.widget
-/** The word before an automatic value. */
-const AUTOMATIC_WORD = 'auto'
 /** The word before the value of a row that stays only for the wire on its output. */
 const KEPT_WORD = 'inactive'
 const TEXT_PAD = paint.textPadding
@@ -190,8 +188,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     // its value instead, and then no "auto".
     const automatic = value === undefined ? row.automatic : undefined
     const resolved: Json = value !== undefined ? value : automatic !== undefined ? automatic.value : (kind.defaultValue(row.spec) as Json)
-    const valueWord = row.kept !== undefined ? KEPT_WORD : automatic !== undefined ? AUTOMATIC_WORD : undefined
-    const automaticDot = valueWord === AUTOMATIC_WORD && automatic?.state === 'default' ? paint.automaticDot.radius * 2 + paint.automaticDot.gap : 0
+    // The same word as the open field's mark, in the current language.
+    const valueWord = row.kept !== undefined ? KEPT_WORD : automatic !== undefined ? translate('automaticField.auto') : undefined
+    const automaticDot = row.kept === undefined && automatic?.state === 'default' ? paint.automaticDot.radius * 2 + paint.automaticDot.gap : 0
     const wordReserve = valueWord === undefined ? 0 : measureWidth(ctx, valueWord) + paint.valueWordGap + automaticDot
     // Draw the shared row chrome (label) then let the view draw its content.
     const chrome = widgetChromeRect(x, y, width, row.height, tokens.rowGeometry.fieldInsetY)

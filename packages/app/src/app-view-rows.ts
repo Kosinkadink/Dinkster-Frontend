@@ -32,6 +32,7 @@ import {
   normalizedComboOptions,
   type Connectivity,
   type CommandInvocation,
+  type ElaborateOptions,
   type ElaboratedInput,
   type ExecutionScope,
   type ExposedParameter,
@@ -88,6 +89,7 @@ function resolveRow(
   entry: ExposedParameter,
   resolve: ((type: string) => NodeSchema | undefined) | undefined,
   connectivityFor: (graphId: string) => (node: NodeId) => Connectivity,
+  lookupAnswers: ElaborateOptions['lookupAnswers'],
 ): ParamRow {
   const def = doc.graphs[entry.graphId]
   if (!def) return { kind: 'stale', entry, reason: 'graph no longer exists' }
@@ -96,7 +98,7 @@ function resolveRow(
   const schema = resolve?.(node.type)
   if (!schema) return { kind: 'stale', entry, reason: `no schema for '${node.type}'` }
   const connectivity = connectivityFor(entry.graphId)(node.id)
-  const elaborated = elaborateInterface(schema, node, connectivity)
+  const elaborated = elaborateInterface(schema, node, connectivity, lookupAnswers === undefined ? {} : { lookupAnswers })
   const item = elabInputsOf(elaborated).find((i) => i.spec.id === entry.inputId)
   if (!item) return { kind: 'stale', entry, reason: `input '${entry.inputId}' no longer exists` }
   const valueKey = valueKeyOf(item)
@@ -127,6 +129,7 @@ function resolveRow(
 export function buildParamRows(
   doc: WorkflowDocument,
   resolve: ((type: string) => NodeSchema | undefined) | undefined,
+  lookupAnswers?: ElaborateOptions['lookupAnswers'],
 ): readonly ParamRow[] {
   const cache = new Map<string, (node: NodeId) => Connectivity>()
   const connectivityFor = (graphId: string): ((node: NodeId) => Connectivity) => {
@@ -135,7 +138,7 @@ export function buildParamRows(
     return c
   }
   return exposedParameters(doc).flatMap((entry) => {
-    const row = resolveRow(doc, entry, resolve, connectivityFor)
+    const row = resolveRow(doc, entry, resolve, connectivityFor, lookupAnswers)
     return row.kind === 'live' && row.item.spec.hidden === true ? [] : [row]
   })
 }

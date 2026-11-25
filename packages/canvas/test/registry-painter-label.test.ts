@@ -5,7 +5,7 @@
  * each side gives up space in proportion to its natural width (label biased
  * to give up more), clamped to readability floors so neither zone vanishes.
  */
-import type { WidgetKind, WidgetRegistry, WidgetView } from '@dinkster/core'
+import { registerCatalog, setLocale, type WidgetKind, type WidgetRegistry, type WidgetView } from '@dinkster/core'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createRegistryPainter, subgraphMarkRect } from '../src/registry-painter.js'
 import { fitItems } from '../src/renderer.js'
@@ -613,6 +613,10 @@ describe('registry painter label/value split', () => {
 })
 
 describe('an automatic value', () => {
+  beforeAll(() => {
+    registerCatalog('en', { 'automaticField.auto': 'auto' })
+    registerCatalog('zh', { 'automaticField.auto': 'zidong' })
+  })
   const paintAutomatic = (value: number | undefined, automatic: NonNullable<Extract<LayoutRow, { kind: 'widget' }>['automatic']>, kept?: string) => {
     const { ctx, textCalls, arcs } = fakeCtx()
     createRegistryPainter(registry)({
@@ -650,6 +654,15 @@ describe('an automatic value', () => {
     expect(arcs[0]!.fillStyle).toBe(defaultTokens.colors.warningMark)
     // Right-aligned value: the dot sits left of the word.
     expect(arcs[0]!.x).toBeLessThan(word!.x - 4 * 6)
+  })
+
+  it('draws the word in the current language, as the open field does', () => {
+    setLocale('zh')
+    try {
+      expect(paintAutomatic(undefined, { value: 30, state: 'worked-out' }).word?.text).toBe('zidong')
+    } finally {
+      setLocale('en')
+    }
   })
 
   it('reads the kept word only, with no auto and no dot, on a row kept for its wire', () => {
