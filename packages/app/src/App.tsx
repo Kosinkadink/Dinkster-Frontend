@@ -366,6 +366,7 @@ export function dispatchAppCommandKey(
 
 export function App(props: {
   app: AppState
+  initialProjectName?: string | undefined
   desktopWindow?: { readonly context: DesktopWindowContext; readonly layout: DesktopWindowLayout }
 }) {
   const app = props.app
@@ -1653,7 +1654,6 @@ export function App(props: {
       id: 'learn', get title() { return message('learn.panel.title') }, icon: BookOpen,
       get description() { return message('learn.panel.description') }, get ariaLabel() { return message('learn.panel.ariaLabel') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 25,
-      when: () => learnBackend() !== undefined,
       toggleTestId: 'learn-toggle', component: () => {
         return <LearnPanel
           backend={learnBackend()}
@@ -2387,14 +2387,10 @@ export function App(props: {
     })
     observer.observe(trigger, { attributes: true, attributeFilter: ['aria-expanded'] })
   }), { defer: true }))
-  const [projectName, setProjectName] = createSolidSignal<string>()
-  const primaryConnected = createMemo(() => {
-    const backend = backends()[0]
-    return backend !== undefined && statusOf(backend) === 'connected' ? backend : undefined
-  })
+  const [projectName, setProjectName] = createSolidSignal(props.initialProjectName)
   // The name is read again when a modal closes, since the Projects dialog renames projects.
   createEffect(() => {
-    const backend = primaryConnected()
+    const backend = backends()[0]
     if (backend === undefined || modalPanel() !== '') return
     const controller = new AbortController()
     backend.connection.getProject(activeProjectId(), controller.signal)
@@ -2410,7 +2406,7 @@ export function App(props: {
   const readProjectList = (): void => {
     projectListRead?.abort()
     setProjectListFailed(false)
-    const backend = primaryConnected()
+    const backend = backends()[0]
     if (backend === undefined) {
       setProjectListFailed(true)
       return
