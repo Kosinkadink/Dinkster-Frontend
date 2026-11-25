@@ -84,6 +84,7 @@ export const canvasGalleryPages = [
   ['row-lists', 'Lists in the row proposal'],
   ['lookups', 'Lookup states'],
   ['color-editing', 'Color in the row'],
+  ['save-target-box', 'Save target in the row'],
   ['node-look', 'Original and new node look'],
   ['problem-box', 'The node\'s problem box'],
   ['fixes-notice', 'The notice of automatic fixes'],
