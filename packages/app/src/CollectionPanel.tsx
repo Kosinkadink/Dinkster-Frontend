@@ -566,6 +566,7 @@ export function CollectionPanel(props: {
       id={`${resultsId}-entry-${navigableItems().findIndex((entry) => entry.id === p.entry.id)}`}
       classList={{
         'collection-entry': true,
+        'dinkster-list-row': mode() === 'list',
         'collection-child': p.child === true,
         selected: highlighted(p.entry),
         folder: p.entry.folder !== undefined,
@@ -850,7 +851,7 @@ export function CollectionPanel(props: {
         >
           <div
             id={resultsId}
-            classList={{ 'collection-items': true, grid: mode() === 'grid', list: mode() === 'list' }}
+            classList={{ 'collection-items': true, grid: mode() === 'grid', list: mode() === 'list', 'dinkster-list-rows': mode() === 'list' }}
             data-testid="collection-items"
             data-mode={mode()}
             role="listbox"

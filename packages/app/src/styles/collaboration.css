@@ -140,8 +140,7 @@
 .collection-badge[data-badge='agent'] { padding: 0 var(--dinkster-space-8); color: var(--dinkster-warning-foreground); background: var(--dinkster-warning-background); border: 1px solid var(--dinkster-warning-border); border-radius: var(--dinkster-radius-capsule); font-size: var(--dinkster-type-metadata-size); font-weight: var(--dinkster-weight-bold); line-height: var(--dinkster-type-metadata-line); }
 .collab-proposal-section { display: grid; min-width: 0; gap: var(--dinkster-space-8); }
 .collab-proposal-section h4 { margin: 0; font-size: var(--dinkster-type-section-size); line-height: var(--dinkster-type-section-line); }
-.collab-proposals { display: grid; gap: var(--dinkster-space-8); margin: 0; padding: 0; list-style: none; }
-.collab-proposal-card { display: grid; min-width: 0; gap: var(--dinkster-space-8); padding: var(--dinkster-space-12); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
+.collab-proposal-card { display: grid; min-width: 0; gap: var(--dinkster-space-8); }
 .collab-proposal-card > header { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: var(--dinkster-space-8); }
 .collab-proposal-card > header > code { min-width: 0; color: var(--dinkster-text-muted); overflow-wrap: anywhere; }
 .collab-proposal-agent { display: inline-flex; min-width: 0; align-items: center; gap: var(--dinkster-space-8); }

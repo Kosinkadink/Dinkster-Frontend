@@ -82,8 +82,8 @@
 
 .agent-permissions { display: grid; gap: var(--dinkster-space-8); min-width: 0; padding-top: var(--dinkster-space-12); border-top: 1px solid var(--dinkster-border-subtle); }
 .agent-permissions h3 { margin: 0; font-size: var(--dinkster-type-section-size); line-height: var(--dinkster-type-section-line); }
-.agent-permissions-list { display: grid; gap: var(--dinkster-space-8); }
-.agent-permissions-row { display: grid; gap: var(--dinkster-space-8); min-width: 0; padding: var(--dinkster-space-12); background: var(--dinkster-surface-inset); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
+.agent-permissions-list { display: grid; }
+.agent-permissions-row { display: grid; gap: var(--dinkster-space-8); min-width: 0; }
 .agent-permissions-identity { display: flex; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-8); min-width: 0; }
 .agent-permissions-identity strong { overflow-wrap: anywhere; }
 .agent-permissions-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: var(--dinkster-space-8); }
