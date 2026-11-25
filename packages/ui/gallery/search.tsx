@@ -97,7 +97,7 @@ const ENTER: Record<Kind, string> = {
 }
 
 const type = (name: string): TypeExpr => ({ kind: 'concrete', name })
-const node = (
+export const node = (
   title: string,
   inputs: readonly [string, string][],
   outputs: readonly [string, string][],
@@ -177,7 +177,7 @@ const ITEMS: readonly Item[] = [
 const RECENT = ['workflows:diner', 'nodes:ImageBatchtoList', 'settings:minimap', 'commands:run']
 
 /** The example node drawn by the canvas renderer, as the product draws its previews. */
-function NodeDrawing(props: { schema: NodeSchema; registry: WidgetRegistry; subgraph?: boolean }) {
+export function NodeDrawing(props: { schema: NodeSchema; registry: WidgetRegistry; subgraph?: boolean }) {
   let canvas!: HTMLCanvasElement
   createEffect(() => {
     const schema = props.schema

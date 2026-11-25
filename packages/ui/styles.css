@@ -1407,3 +1407,9 @@
 .dinkster-search-stage { display: flex; flex-direction: column; gap: var(--dinkster-space-8); width: 620px; }
 .dinkster-search-stage > .dinkster-window-toolbar-search { justify-content: center; }
 .dinkster-search-stage > .dinkster-search { width: 100%; }
+.dinkster-node-search-example { width: min(900px, 100%); }
+.dinkster-node-search-example .dinkster-search-kinds { flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .dinkster-node-search-example .dinkster-search[data-preview='beside'] .dinkster-search-body { grid-template-columns: minmax(0, 1fr); }
+  .dinkster-node-search-example .dinkster-search-preview { display: none; }
+}
