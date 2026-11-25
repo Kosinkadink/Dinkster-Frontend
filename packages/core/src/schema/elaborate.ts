@@ -1070,7 +1070,8 @@ function elaboratePass(
         // An argument that reads a value not known yet, such as another
         // automatic field whose lookup is loading, waits without a warning.
         if (outcome.kind === 'unknown') return { value: fallback, state: 'not-known', reason: 'argument-unknown' }
-        if (outcome.kind !== 'value') return standIn('argument-unknown')
+        // A lookup takes no None argument, so none is sent.
+        if (outcome.kind !== 'value' || outcome.value === null) return standIn('argument-unknown')
         const value = outcome.value
         args.push(Array.isArray(value)
           ? value.map((item) => (typeof item === 'bigint' ? Number(item) : item))

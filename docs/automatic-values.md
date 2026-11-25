@@ -34,7 +34,7 @@ number field, the side part's default line reads "automatic (24)", or
 "automatic (not known)" when the value cannot be worked out, with a spinner
 while a lookup loads, and its link empties the field. While the field is empty, the side part also gives
 the warning, or one plain line when a lookup's answer is not fresh: "Could not
-refresh", "Paused" or "Offline".
+refresh", "Paused", "Offline" or "Waiting for the file to be checked.".
 
 ## Working the value out
 
@@ -46,15 +46,19 @@ value.
 
 When the value cannot be worked out - the formula reads something not known
 or fails, the result is not a value of the field, a lookup fails, runs out of
-time or has an argument that is not known - the field's default is used and
-the field carries a warning, "Could not work out frame rate. Using the
-default, 24.", listed in Problems. While a lookup's answer is still to come
-the field shows the default without a warning.
+time, or has an argument that fails or is None - the field's default is used
+and the field carries a warning, "Could not work out frame rate. Using the
+default, 24.", listed in Problems. A lookup takes no None argument, so the
+editor and the engine both use the default without calling it. While a
+lookup's answer is still to come, or one of its arguments reads a value not
+known yet such as another automatic field that is loading, the field shows
+the default without a warning.
 
 A lookup's answer kept for the same arguments is shown as worked out, with no
 warning, while a newer one loads, after a refresh failed, or while the editing
-budget is spent. Offline, with no answer kept, the field shows the default
-with no warning: nothing is under way and the field cannot fix it.
+budget is spent. Offline, paused or waiting for a file to be checked, with no
+answer kept, the field shows the default with no warning: nothing is under
+way that the field can fix.
 
 A whole-number field takes a whole number or a decimal that is exactly whole;
 a decimal field takes either; a choice is checked against its options only
