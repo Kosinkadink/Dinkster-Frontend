@@ -24,7 +24,10 @@ it('keeps standalone review free of Run once even when locally ready, but retain
   try {
     installAssetConsent({ models: [requirement], slot: assetConsent, modelDownloads: { connection, project: 'default' } })
     await Promise.resolve()
-    expect(root.textContent).toContain('This review does not submit a run.')
+    expect(root.textContent).toContain('Check where this model comes from before you download it.')
+    expect(root.textContent).toContain('Nothing downloads until you agree.')
+    expect(root.textContent).toContain('Closing this does not stop a download that has started.')
+    expect(root.textContent).not.toMatch(/\brun\b/i)
     expect(root.textContent).not.toContain('Run once')
     expect(root.querySelector('[data-testid="asset-consent-acquire"]')).toBeNull()
     await assetConsent.get()!.reviewModel!(0)

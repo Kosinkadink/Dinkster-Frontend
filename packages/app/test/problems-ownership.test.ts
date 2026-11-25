@@ -9,6 +9,7 @@ import { buildDinksterRegistry, type ModelPresence } from '@dinkster/client'
 import { AppState, GLOBAL_PROBLEMS_OWNER, visibleProblems, type Backend, type Tab } from '../src/app-state.js'
 import { asNodeId, diag, DINKSTER_SCHEMA_WIRE_VERSION, type DinksterNodesPayload, type InputSpec, type Json, type NodeSchema } from '@dinkster/core'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
+import { deriveProblemProjection } from '../src/problem-display.js'
 
 const INT = { kind: 'concrete', types: ['INT'] }
 const nodesPayload: DinksterNodesPayload = {
@@ -273,6 +274,60 @@ describe('workflow model presence', () => {
     return { backend, tab, presence }
   }
   const models = (tab: Tab) => app.problems.get().filter((entry) => entry.owner === tab.id && entry.code.startsWith('model.availability.'))
+
+  it('keeps every affected row when two fields and two nodes use the same missing model', async () => {
+    const { backend } = await setup({ first: 'same.safetensors', second: 'same.safetensors' })
+    await app.openDocument({ ...CHAIN_DOC, lineage: 'repeated-model', graphs: { g0: { ...CHAIN_DOC.graphs.g0,
+      nodes: {
+        n0: { id: 'n0', type: 'ModelLoader', values: { first: 'same.safetensors', second: 'same.safetensors' } },
+        n1: { id: 'n1', type: 'ModelLoader', values: { first: 'same.safetensors', second: 'same.safetensors' } },
+      }, links: {},
+    } } }, 'Repeated model')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    await vi.waitFor(() => expect(models(tab)).toHaveLength(4))
+    const projection = deriveProblemProjection({ diagnostics: models(tab), document: tab.store.doc, graphId: 'g0', instancePath: [] })
+    expect(projection.rows).toEqual({ n0: { first: 'error', second: 'error' }, n1: { first: 'error', second: 'error' } })
+    for (const diagnostic of models(tab)) {
+      app.reviewModelDownload(tab, diagnostic)
+      expect(app.assetConsent.get()?.models?.[0]?.requirement).toEqual({ name: 'same.safetensors', kind: 'model/checkpoint' })
+      app.assetConsent.set(undefined)
+    }
+  })
+
+  it.each([true, false])('checks each subgraph instance value and excludes wired and unused values (promoted: %s)', async (promoted) => {
+    const { backend, presence } = await setup({ model: 'source.safetensors' }, [field('model'),
+      { kind: 'output', id: 'asset', type: { kind: 'concrete', name: 'ASSET' } },
+    ])
+    presence.mockImplementation(async (wanted) => wanted.map((model) => ({ ...model,
+      status: model.name === 'left.safetensors' ? 'missing' as const : 'local' as const, plannable: true })))
+    const inner = { id: 'inner', name: 'Model group', nodes: {
+      loader: { id: 'loader', type: 'ModelLoader', values: { model: 'unused-definition.safetensors' } },
+    }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
+      boundary: { inputs: [{ id: 'model', promoted, binds: { kind: 'port', node: 'loader', port: 'model' } }], outputs: [] } }
+    await app.openDocument({ ...CHAIN_DOC, lineage: 'instance-models', graphs: {
+      g0: { ...CHAIN_DOC.graphs.g0, nodes: {
+        source: { id: 'source', type: 'ModelLoader', values: { model: 'source.safetensors' } },
+        left: { id: 'left', type: '#inner', values: { model: 'left.safetensors' } },
+        right: { id: 'right', type: '#inner', values: { model: 'right.safetensors' } },
+        wired: { id: 'wired', type: '#inner', values: { model: 'ignored-wired.safetensors' } },
+        muted: { id: 'muted', type: '#inner', mode: 'muted', values: { model: 'ignored-muted.safetensors' } },
+      }, links: { l1: { id: 'l1', from: { node: 'source', port: 'asset' }, to: { node: 'wired', port: 'model' } } } },
+      inner, unused: { ...inner, id: 'unused' },
+    } }, 'Instance models')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    await vi.waitFor(() => expect(models(tab).map((entry) => entry.data?.['name'])).toEqual(['left.safetensors']))
+    expect(models(tab)[0]?.anchor?.occurrence).toEqual({ instancePath: ['left'], node: 'loader' })
+    expect(presence.mock.calls.at(-1)?.[0].map((entry) => entry.name)).toEqual([
+      'source.safetensors', 'left.safetensors', 'right.safetensors',
+    ])
+    const projection = (instance: string) => deriveProblemProjection({ diagnostics: models(tab), document: tab.store.doc,
+      graphId: 'inner', instancePath: [instance] }).rows
+    expect(projection('left')).toEqual({ loader: { model: 'error' } })
+    expect(projection('right')).toEqual({})
+    expect(projection('wired')).toEqual({})
+  })
 
   it('reports the model binding reason on its row without submitting a run or creating a review', async () => {
     const { backend, tab, presence } = await setup({ missing: 'absent.safetensors', hidden: 'hidden.safetensors',

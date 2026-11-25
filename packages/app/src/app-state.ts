@@ -4154,7 +4154,7 @@ export class AppState {
       if (!isCurrent()) return
       this.problems.update((problems) => [
         ...problems.filter((problem) => problem.owner !== tab.id || !problem.code.startsWith('model.availability.')),
-        ...dedupedReportDiagnostics(tab.id, diagnostics),
+        ...diagnostics.map((diagnostic) => ({ ...diagnostic, owner: tab.id })),
       ])
     }
     const problem = (occurrence: WorkflowModelOccurrence, state: string, params: Record<string, string> = {}, plannable = false): Diagnostic =>
@@ -4173,7 +4173,8 @@ export class AppState {
       entry.code.startsWith('model.availability.') && entry.code !== 'model.availability.invalid' &&
       entry.data?.['backend'] === backend.id && wanted.some((item) =>
         item.graph === entry.data?.['graph'] && item.node === entry.data['node'] && item.input === entry.data['input'] &&
-        item.name === entry.data['name'] && item.kind === entry.data['kind']))])
+        item.name === entry.data['name'] && item.kind === entry.data['kind'] &&
+        JSON.stringify(item.instancePath) === JSON.stringify(entry.anchor?.occurrence?.instancePath)))])
     if (backend.protocol !== 'dinkster' || wanted.length === 0) return
     const unchecked = (): void => publish([...invalid, diag('warning', 'validation', 'model.availability.unchecked',
       t('modelPresence.unchecked', { backend: backend.label }))])

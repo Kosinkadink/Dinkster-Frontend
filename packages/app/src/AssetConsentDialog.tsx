@@ -153,8 +153,10 @@ export function AssetConsentDialog(props: { app: AppState }) {
               if (job) return message(`modelConsent.phase.${job.status}`)
               const plan = state().plan
               if (standalone() && plan?.status === 'local') return message('modelConsent.reviewLocal')
+              if (standalone() && plan?.status === 'consent-required') return message('modelConsent.reviewConsent')
+              if (standalone() && plan?.status === 'picker-required') return message('modelConsent.reviewPicker')
               if (plan) return message(`modelConsent.plan.${plan.status}`)
-              return message('modelConsent.reviewFirst')
+              return message(standalone() ? 'modelConsent.reviewConsent' : 'modelConsent.reviewFirst')
             }
             const cancellable = () => { return cancellableModelPhases.has(state().job?.status ?? '') }
             return <li class="asset-decision-row" data-testid="model-consent-row">

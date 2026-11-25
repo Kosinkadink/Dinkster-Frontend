@@ -205,11 +205,17 @@ test('a missing model opens only its own review and never queues a workflow', as
   await expect(box).toContainText('missing-checkpoint.safetensors is not in a model folder this project uses')
   await expect(box.getByTestId('problem-box-line')).toHaveCount(1)
   await expect(box.getByRole('button', { name: 'Locate or replace', exact: true })).toBeVisible()
+  await expect.poll(() => box.evaluate((element) => {
+    const buttons = Array.from(element.querySelectorAll('button'), (button) => button.getBoundingClientRect())
+    return buttons.length === 2 && buttons.every((rect) => rect.width > 0) &&
+      Math.abs(buttons[0]!.right - buttons[1]!.right) < 1 && Math.abs(buttons[0]!.bottom - buttons[1]!.top) < 1
+  })).toBe(true)
   expect(plans).toEqual([])
   await page.screenshot({ path: process.env['DINKSTER_MODEL_BOX_CAPTURE'] ?? test.info().outputPath('missing-model-box.png') })
   await box.getByRole('button', { name: 'Review download', exact: true }).click()
   await expect(page.getByTestId('model-consent-row')).toHaveCount(1)
   await expect(page.getByTestId('model-consent-row')).toContainText('missing-checkpoint.safetensors')
+  await expect(page.getByTestId('model-consent-phase')).toHaveText('Nothing downloads until you agree.')
   await expect(page.getByTestId('asset-consent-acquire')).toHaveCount(0)
   await page.getByTestId('model-consent-row').getByRole('button', { name: 'Review source', exact: true }).click()
   await expect.poll(() => plans.length).toBe(1)

@@ -32,6 +32,30 @@ const docOf = (graphs: Record<string, unknown>): WorkflowDocument => ({
 } as unknown as WorkflowDocument)
 
 describe('occurrenceDynamicView', () => {
+  it('projects socket-only stored values through nested instances without transferring widget ownership', () => {
+    const sink: NodeSchema = { type: 'Sink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: true,
+      body: [{ kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false,
+        widget: { widgetType: 'INT', options: {}, default: 0 } }] }
+    const resolver = (type: string) => type === 'Sink' ? sink : undefined
+    const doc = docOf({
+      g0: graph('g0', { s: { id: 's', type: '#outer', values: { count: 7 } } }),
+      outer: graph('outer', { i: { id: 'i', type: '#inner', values: { count: 3 } } }, {
+        inputs: [{ id: 'count', binds: { kind: 'port', node: 'i', port: 'count' } }], outputs: [],
+      }),
+      inner: graph('inner', { n: { id: 'n', type: 'Sink', values: { count: 1 } } }, {
+        inputs: [{ id: 'count', binds: { kind: 'port', node: 'n', port: 'count' } }], outputs: [],
+      }),
+    })
+    const view = occurrenceDynamicView(doc, resolver, ['s', 'i'])
+    expect(view.values.get('n')).toEqual({ count: 7 })
+    expect(view.valueOwners.size).toBe(0)
+    expect(view.controllers.size).toBe(0)
+    const result = compile({ document: doc, revision: 0, resolve: resolver, scope: { kind: 'full' }, connection: asConnectionId('nested'), schemaHash: 'nested' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('nested compilation failed')
+    expect(result.artifact.prompt['s.i.n']!.inputs).toEqual({ count: 7 })
+  })
+
   it.each([{ options: [] }, { options: [false, 0, 'same', 'same'] }])('projects promoted editable menus through chained instances and fan-out: %j', ({ options }) => {
     const menuSchema: NodeSchema = {
       type: 'Menu', displayName: 'Menu', category: 'test', source: 'v3', isOutputNode: true,
