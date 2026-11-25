@@ -3148,7 +3148,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const right = left + width / viewport.scale
       const bottom = top + height / viewport.scale
       const open = untrack(editor)
-      const openField = open?.inRow?.automatic === undefined || open.tab.id !== tab.id ? undefined : open.target
+      const openField = open?.inRow?.automatic === undefined || open.tab.id !== tab.id || open.target.kind !== 'input' ? undefined : open.target
       lookupDemandFor(lookups).show(renderer.getScene().nodes.flatMap((node) =>
         node.elaborated === undefined || node.x > right || node.y > bottom ||
           node.x + node.layout.width < left || node.y + node.layout.height < top

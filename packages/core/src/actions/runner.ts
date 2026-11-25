@@ -395,7 +395,7 @@ function memberWired(view: View, group: string, member: string): boolean {
   const ends = [
     ...Object.values(graph.links).flatMap((link) => [link.from, link.to]),
     ...Object.values(graph.nets).flatMap((net) => [net.source, ...net.sinks]),
-    ...[...(graph.boundary?.inputs ?? []), ...(graph.boundary?.outputs ?? [])].map((item) => item.binds),
+    ...[...(graph.boundary?.inputs ?? []), ...(graph.boundary?.outputs ?? [])].flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])]),
   ]
   // A wire leaving a member field's output is a widget tap named by the field's flattened id.
   return ends.some((end) => 'node' in end && end.node === view.node.id &&

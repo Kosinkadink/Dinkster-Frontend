@@ -267,6 +267,17 @@ describe('each step', () => {
     const tapOutcome = await runPress(tapSession, at('clear'), hostOf())
     expect(tapSession.doc.graphs['g0']!.nodes['n1']!.dynamic!['loras']!.members).toEqual(['lora_3'])
     expect(tapOutcome.skipped).toEqual([{ id: 'loras.lora_3', why: 'wired' }])
+
+    // A boundary input's additional binding is a wire too, not just its primary target.
+    const boundary = documentOf({ n1: { type: 'dev.buttons.member_steps', values: start.values, ...start.extra } })
+    const boundSession = sessionOf({ ...boundary, graphs: { g0: { ...boundary.graphs['g0']!, boundary: {
+      inputs: [{ id: 'clip', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('loras.lora_1.clip') },
+        alsoBinds: [{ kind: 'port', node: asNodeId('n1'), port: asPortId('loras.lora_3.clip') }] }],
+      outputs: [],
+    } } } })
+    const boundOutcome = await runPress(boundSession, at('clear'), hostOf())
+    expect(boundSession.doc.graphs['g0']!.nodes['n1']!.dynamic!['loras']!.members).toEqual(['lora_1', 'lora_3'])
+    expect(boundOutcome.skipped).toEqual([{ id: 'loras.lora_3', why: 'wired' }, { id: 'loras.lora_1', why: 'wired' }])
   })
 
   it('SetEach works out every member before it writes any', async () => {
@@ -692,4 +703,3 @@ describe('steps that are not a button\'s', () => {
     expect(session.canUndo).toBe(false)
   })
 })
-
