@@ -17,7 +17,6 @@ import Library from 'lucide-solid/icons/library'
 import BookOpen from 'lucide-solid/icons/book-open'
 import ScrollText from 'lucide-solid/icons/scroll-text'
 import Server from 'lucide-solid/icons/server'
-import Settings from 'lucide-solid/icons/settings'
 import Users from 'lucide-solid/icons/users'
 import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
@@ -90,6 +89,7 @@ import {
   ActivityBarButton,
   DockZoneHost,
   FloatingPanelHost,
+  IconBar,
   PanelIndicatorBadge,
   ShellRegionIcon,
   ShellResizeHandle,
@@ -3099,44 +3099,30 @@ export function App(props: {
       </Show>
 
       <div class="body" ref={bodyElement} onPointerDown={beginPanelDrag}>
-        <nav class="left-sidebar" aria-label={message('shell.primaryNavigation')} data-tooltip-session="left-rail" hidden={!activityBarVisible()}>
-          <Show when={logoInLeftBar()}><div class="sidebar-logo">{appMenu()}</div></Show>
-          <div class="sidebar-toggle-stack">
-            <div class="sidebar-toggle-group" data-testid="dock-toggle-group">
-              <For each={dockPanels()}>
-                {(panel) => (
-                  <ActivityBarButton
-                    icon={panel.icon}
-                    label={panel.title}
-                    accessibleName={panel.ariaLabel ?? panel.title}
-                    tooltip={panel.description ?? panel.title}
-                    pressed={sidebarPressed(panel.id)}
-                    panelId={panel.id}
-                    testId={panel.toggleTestId}
-                    onActivate={() => {
-                      tooltips.hide()
-                      toggleSidebarPanel(panel.id)
-                    }}
-                  />
-                )}
-              </For>
-            </div>
-          </div>
-          <div class="sidebar-account">
-            <AccountControl session={account} rail />
-          </div>
-          <ActivityBarButton
-            icon={Settings}
-            label={message('shell.panel.settings.title')}
-            accessibleName={message('shell.panel.settings.title')}
-            tooltip={message('shell.panel.settings.title')}
-            tooltipDetail="Ctrl+,"
-            pressed={undefined}
-            testId="settings-button"
-            class="sidebar-settings-button"
-            onActivate={() => app.commands.get('settings.open')?.run()}
-          />
-        </nav>
+        <IconBar
+          hidden={!activityBarVisible()}
+          logo={logoInLeftBar() ? appMenu : undefined}
+          account={<AccountControl session={account} rail />}
+          onSettings={() => app.commands.get('settings.open')?.run()}
+        >
+          <For each={dockPanels()}>
+            {(panel) => (
+              <ActivityBarButton
+                icon={panel.icon}
+                label={panel.title}
+                accessibleName={panel.ariaLabel ?? panel.title}
+                tooltip={panel.description ?? panel.title}
+                pressed={sidebarPressed(panel.id)}
+                panelId={panel.id}
+                testId={panel.toggleTestId}
+                onActivate={() => {
+                  tooltips.hide()
+                  toggleSidebarPanel(panel.id)
+                }}
+              />
+            )}
+          </For>
+        </IconBar>
         <Show when={leftOpen()}>
           <aside
             class="dock-panel"
