@@ -12,6 +12,8 @@ export function ProjectsDialog(props: {
   readonly connection: Pick<DinksterConnection, 'listProjects' | 'registerProject' | 'renameProject'>
   readonly onSwitch: (projectId: string) => void
   readonly onOpenWindow?: (projectId: string) => void
+  /** Opened to create a project: the name field takes focus once it can be typed in. */
+  readonly focusNewProject?: boolean
 }) {
   const message = useAppMessage()
   const currentConnection = createMemo(() => props.connection)
@@ -24,6 +26,7 @@ export function ProjectsDialog(props: {
   const [renamingId, setRenamingId] = createSignal<string>()
   const [renameDraft, setRenameDraft] = createSignal('')
   let lifetime: AbortController | undefined
+  let newProjectName!: HTMLInputElement
 
   const readProjects = async (connection: typeof props.connection, signal: AbortSignal): Promise<void> => {
     const items: LibraryProject[] = []
@@ -63,6 +66,10 @@ export function ProjectsDialog(props: {
         if (!controller.signal.aborted) setLoading(false)
       }
     })()
+  })
+
+  createEffect(() => {
+    if (props.focusNewProject && !loading()) newProjectName.focus()
   })
 
   const mutate = async (action: (connection: typeof props.connection, signal: AbortSignal) => Promise<void>): Promise<void> => {
@@ -146,7 +153,7 @@ export function ProjectsDialog(props: {
         )}</For>
       </ul>
       <ProductActionFooter>
-        <ProductTextInput type="text" placeholder="New project name" aria-label="New project name" value={draft()} disabled={loading() || busy()} onInput={(event) => setDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') create() }} />
+        <ProductTextInput ref={newProjectName} type="text" placeholder="New project name" aria-label="New project name" value={draft()} disabled={loading() || busy()} onInput={(event) => setDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') create() }} />
         <ProductButton type="button" variant="primary" data-testid="projects-create" loading={busy()} disabled={loading() || error() !== undefined || draft().trim().length === 0} onClick={create}>Create project</ProductButton>
       </ProductActionFooter>
     </div>

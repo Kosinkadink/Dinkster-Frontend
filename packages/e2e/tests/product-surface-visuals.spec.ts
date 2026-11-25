@@ -139,7 +139,8 @@ for (const theme of ['dark', 'light'] as const) {
     await header.evaluate((node) => { (node as HTMLElement).dataset['platform'] = 'win32' })
     await page.setViewportSize({ width: 390, height: 900 })
     await expect(trigger).toHaveAccessibleName('Dinkster')
-    expect((await trigger.boundingBox())!.width).toBe(44)
+    // The D symbol alone, filling the left bar's 48px column inside the bar's 12px padding.
+    expect((await trigger.boundingBox())!.width).toBe(24)
     // The panel switches leave once the toolbar observes its new width.
     await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
     for (const control of await header.locator('button:visible').all()) {

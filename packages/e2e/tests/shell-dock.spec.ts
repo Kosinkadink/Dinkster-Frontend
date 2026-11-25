@@ -187,7 +187,7 @@ test('left bar uses square icon-only actions and each toggle activates or closes
   for (const width of [1440, 900, 769, 768, 480]) {
     await page.setViewportSize({ width, height: 800 })
     expect((await page.locator('.left-sidebar').boundingBox())!.width).toBe(48)
-    for (const button of await page.locator('.left-sidebar button').all()) {
+    for (const button of await page.locator('.left-sidebar .sidebar-button').all()) {
       await expect(button).not.toHaveAccessibleName('')
       await expect(button).toHaveText('')
       const item = (await button.boundingBox())!
