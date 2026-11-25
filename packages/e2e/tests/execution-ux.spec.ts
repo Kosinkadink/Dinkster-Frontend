@@ -128,7 +128,8 @@ test('execution row opens a frozen view pinned to that execution', async ({ page
   const banner = page.getByTestId('frozen-banner')
   await expect(banner).toBeVisible()
   await expect(banner).toHaveAttribute('data-sync', 'in-sync')
-  await expect(banner).toContainText('completed')
+  await expect(banner).toContainText('Matches the live workflow.')
+  await expect(banner.locator('.frozen-words')).toHaveAttribute('data-tooltip-label', /^Frozen run .+, completed$/)
 
   // Frozen views never queue and never edit.
   await expect(page.getByTestId('queue-button')).toHaveCount(0)

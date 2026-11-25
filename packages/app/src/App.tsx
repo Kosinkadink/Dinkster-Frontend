@@ -2665,7 +2665,7 @@ export function App(props: {
               if (tab.execution === undefined) return undefined
               executions()
               const status = app.store.get(tab.execution)?.status
-              return message('frozen.tabTooltip', { id: tab.execution.prompt.slice(0, 8),
+              return message('frozen.runTooltip', { id: tab.execution.prompt.slice(0, 8),
                 state: status === undefined ? '' : executionStatusLabel(status).toLocaleLowerCase() })
             }}
             isShared={(tab) => collabTabs().has(tab.id)}

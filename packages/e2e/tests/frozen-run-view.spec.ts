@@ -89,6 +89,7 @@ test('frozen layout is temporary, edits are refused, and copies keep the arrange
   await expect(page.getByTestId('queue-button')).toHaveCount(0)
   await expect(page.getByTestId('workflow-queue-toggle')).toBeVisible()
   await expect(page.getByTestId('status-run')).toContainText('Frozen:')
+  await expect(page.getByTestId('frozen-banner').locator('.frozen-sync')).toHaveText(`Ran ${clock(new Date(queuedAt))}. Matches the live workflow.`)
   const originalGraph = await graph(page)
   await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.renderer!.getInactiveNodes() ?? []])).toEqual(['n2'])
   await page.screenshot({ path: info.outputPath('frozen-idle.png') })
@@ -176,6 +177,35 @@ test('frozen layout is temporary, edits are refused, and copies keep the arrange
   await expect(frozenTab(page).locator('.tab-dirty')).toHaveCount(0)
 })
 
+test('the frozen line sits centred on the row of the canvas controls and drops a row only when it would touch them', async ({ page }) => {
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app, run = [...app.store.executions.get().values()][0]!
+    app.store.apply({ kind: 'completed', execution: run.ref, timestamp: Date.now() })
+  })
+  await openRun(page)
+  const line = page.getByTestId('frozen-banner')
+  for (const [width, row] of [[1440, 'top'], [640, 'below'], [1440, 'top']] as const) {
+    await page.setViewportSize({ width, height: 900 })
+    await expect(line).toHaveAttribute('data-row', row)
+    const stage = (await page.locator('.canvas-stage').boundingBox())!
+    const toolbar = (await page.locator('.canvas-stage-toolbar').boundingBox())!
+    const box = (await line.boundingBox())!
+    expect(Math.abs(box.x + box.width / 2 - (stage.x + stage.width / 2))).toBeLessThanOrEqual(1)
+    expect(box.x).toBeGreaterThanOrEqual(stage.x)
+    expect(box.x + box.width).toBeLessThanOrEqual(stage.x + stage.width)
+    if (row === 'top') {
+      expect(Math.abs(box.y - toolbar.y)).toBeLessThanOrEqual(1)
+      for (const control of await page.locator('.canvas-stage-toolbar button').all()) {
+        const other = (await control.boundingBox())!
+        expect(other.x + other.width <= box.x || other.x >= box.x + box.width).toBe(true)
+      }
+    } else {
+      expect(box.y - (toolbar.y + toolbar.height)).toBeGreaterThanOrEqual(8)
+    }
+    await page.screenshot({ path: test.info().outputPath(`frozen-line-${width}-${row}.png`) })
+  }
+})
+
 test('run rows expose one snowflake and retained runs keep their snapshot availability', async ({ page }, info) => {
   const row = page.getByTestId('execution-row').first()
   await expect(row.locator('.runs-row-heading .execution-open')).toBeEnabled()
@@ -221,7 +251,7 @@ test('queued and running jobs open frozen and follow only their submitted snapsh
     })
   })
   await openRun(page)
-  await expect(page.getByTestId('frozen-banner')).toContainText('Running 21%. Live changed.')
+  await expect(page.getByTestId('frozen-banner')).toContainText('Running 21%. Live workflow has changed.')
   expect((await graph(page))!.nodes.n0!.values.width).toBe(512)
   // The next scheduled node is not dimmed just because it has not started.
   await expect.poll(() => page.evaluate(() => [...window.__dinksterTest!.renderer!.getInactiveNodes() ?? []])).toEqual(['n2'])

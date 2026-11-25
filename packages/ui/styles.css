@@ -713,13 +713,13 @@
 /* A gallery frame holding one open context menu. */
 .dinkster-context-menu-stage { width: 280px; height: 320px; }
 /* Canvas chrome: the view and lens bar at the canvas's top left, and the minimap with the bar under it at its bottom right. Both bars wear the subtle border and are as wide as their buttons; their menus are the panels below. */
-.canvas-view-controls, .canvas-corner-bar { display: flex; align-items: center; box-sizing: border-box; font-size: var(--dinkster-type-body-size); line-height: normal; padding: 3px; border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-low); pointer-events: auto; }
+.canvas-view-controls, .canvas-corner-bar, .frozen-banner { display: flex; align-items: center; box-sizing: border-box; font-size: var(--dinkster-type-body-size); line-height: normal; padding: 3px; border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-low); pointer-events: auto; }
 .canvas-view-control { position: relative; display: flex; }
-:is(.canvas-view-controls, .canvas-corner-bar) .canvas-chrome-button { display: inline-flex; align-items: center; justify-content: center; gap: 3px; box-sizing: border-box; min-width: 28px; min-height: 28px; height: 28px; padding: 0; border: 1px solid transparent; border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: transparent; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; user-select: none; }
-:is(.canvas-view-controls, .canvas-corner-bar) .canvas-chrome-button:hover:not(:disabled) { border-color: transparent; background: var(--dinkster-interaction-hover); }
-:is(.canvas-view-controls, .canvas-corner-bar) .canvas-chrome-button:active:not(:disabled), :is(.canvas-view-controls, .canvas-corner-bar) .canvas-chrome-button[aria-expanded='true'] { border-color: transparent; background: var(--dinkster-interaction-pressed); }
-:is(.canvas-view-controls, .canvas-corner-bar) .canvas-chrome-button:disabled { color: var(--dinkster-text-disabled); opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
-:is(.canvas-view-controls, .canvas-corner-bar) .canvas-chrome-button.product-button:focus-visible { outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); }
+:is(.canvas-view-controls, .canvas-corner-bar, .frozen-banner) .canvas-chrome-button { display: inline-flex; align-items: center; justify-content: center; gap: 3px; box-sizing: border-box; min-width: 28px; min-height: 28px; height: 28px; padding: 0; border: 1px solid transparent; border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: transparent; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; user-select: none; }
+:is(.canvas-view-controls, .canvas-corner-bar, .frozen-banner) .canvas-chrome-button:hover:not(:disabled) { border-color: transparent; background: var(--dinkster-interaction-hover); }
+:is(.canvas-view-controls, .canvas-corner-bar, .frozen-banner) .canvas-chrome-button:active:not(:disabled), :is(.canvas-view-controls, .canvas-corner-bar, .frozen-banner) .canvas-chrome-button[aria-expanded='true'] { border-color: transparent; background: var(--dinkster-interaction-pressed); }
+:is(.canvas-view-controls, .canvas-corner-bar, .frozen-banner) .canvas-chrome-button:disabled { color: var(--dinkster-text-disabled); opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
+:is(.canvas-view-controls, .canvas-corner-bar, .frozen-banner) .canvas-chrome-button.product-button:focus-visible { outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); }
 .canvas-chrome-button svg { width: 16px; height: 16px; flex: none; }
 .canvas-chrome-divider { flex: none; width: 1px; height: 18px; margin: 0 3px; background: var(--dinkster-border-subtle); }
 /* The active workflow tab shows the same icon just above, so the view button's icon stays quiet; secondary, not muted, because it is live. */
@@ -834,6 +834,8 @@
 .workflow-queue-toggle svg { width: 15px; height: 15px; }
 .workflow-queue-buttons .workflow-queue-toggle { font-size: var(--dinkster-type-metadata-size); }
 .workflow-queue-toggle[data-running='true'] { color: var(--dinkster-accent-foreground); }
+/* A frozen tab has no Run button, so its list button stands alone with all four edges. */
+.workflow-queue-toggle:first-child { border-left: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
 .dinkster-canvas-chrome-stage { width: 320px; height: 240px; }
 .dinkster-canvas-chrome-stage[data-shape='tall'] { width: 320px; height: 440px; }
 .dinkster-canvas-chrome-stage[data-shape='top'] { width: 380px; height: 420px; }

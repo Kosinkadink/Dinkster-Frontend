@@ -1,7 +1,7 @@
 import { expect, nativeTest, test } from './fixtures.js'
 import components from '../../../branding/tokens/dinkster-components.json' with { type: 'json' }
 
-test('frozen banner stays below canvas controls when the toolbar wraps', async ({ page }) => {
+test('the frozen line stays centred, inside the canvas and clear of its controls when the toolbar wraps', async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   await page.routeWebSocket('/ws*', () => {})
@@ -35,19 +35,16 @@ test('frozen banner stays below canvas controls when the toolbar wraps', async (
   for (const width of [1440, 1100, 1440]) {
     await page.setViewportSize({ width, height: 900 })
     await expect.poll(async () => {
-      const toolbar = (await page.locator('.canvas-stage-toolbar').boundingBox())!
-      const status = (await frozen.boundingBox())!
-      return status.y - (toolbar.y + toolbar.height)
-    }).toBeGreaterThanOrEqual(8)
+      const line = (await frozen.boundingBox())!
+      const controls = await Promise.all((await page.locator('.canvas-stage-toolbar button').all()).map(async (control) => (await control.boundingBox())!))
+      return controls.every((box) => box.x + box.width <= line.x || box.x >= line.x + line.width ||
+        box.y + box.height <= line.y || box.y >= line.y + line.height)
+    }).toBe(true)
     const stage = (await page.locator('.canvas-stage').boundingBox())!
-    const status = (await frozen.boundingBox())!
-    expect(status.x).toBeGreaterThanOrEqual(stage.x)
-    expect(status.x + status.width).toBeLessThanOrEqual(stage.x + stage.width)
-    for (const control of await page.locator('.canvas-stage-toolbar button').all()) {
-      const box = (await control.boundingBox())!
-      expect(box.x).toBeGreaterThanOrEqual(stage.x)
-      expect(box.x + box.width).toBeLessThanOrEqual(stage.x + stage.width)
-    }
+    const line = (await frozen.boundingBox())!
+    expect(Math.abs(line.x + line.width / 2 - (stage.x + stage.width / 2))).toBeLessThanOrEqual(1)
+    expect(line.x).toBeGreaterThanOrEqual(stage.x)
+    expect(line.x + line.width).toBeLessThanOrEqual(stage.x + stage.width)
   }
 })
 
