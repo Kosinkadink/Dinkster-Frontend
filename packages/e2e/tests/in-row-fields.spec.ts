@@ -812,6 +812,56 @@ test('a keyboard-started Ask Button gives its form the keyboard and applies one 
   await expect.poll(() => value(page, 'enabled')).toBe(true)
 })
 
+test('a failed Button keeps its warning until the next press and success is one undo step', async ({ page }, testInfo) => {
+  let fail = true
+  await page.route('**/api/node-functions/call', (route) => route.fulfill({
+    contentType: 'application/x-ndjson',
+    body: fail ? '{"error":"function-failed","message":"No sheet named video in this file."}\n' : '{"answer":{"prefix":"prepared"}}\n',
+  }))
+  await openMixed(page, true)
+  const steps = await rowPoint(page, 'n1', 'steps')
+  await page.mouse.click(steps.x, steps.y)
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Tab')
+  const focus = page.getByTestId('row-focus')
+  await expect(focus).toHaveAccessibleName('Prepare')
+  await page.keyboard.press('Enter')
+  const warning = page.getByTestId('button-box')
+  await expect(warning).toHaveAttribute('role', 'alert')
+  await expect(warning).toHaveText('Nothing was changed. No sheet named video in this file.')
+  expect(await value(page, 'steps')).toBe(20)
+  expect(await value(page, 'prefix')).toBe('Dinkster')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.canUndo)).toBe(false)
+  await page.evaluate(() => window.__dinksterTest!.app.enableWorkspaceAuthority())
+  await expect(warning).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('button-failed-result.png') })
+  await page.keyboard.press('Tab')
+  await expect(warning).toBeVisible()
+  await page.keyboard.press('Shift+Tab')
+  fail = false
+  await page.keyboard.press('Enter')
+  await expect.poll(() => value(page, 'steps')).toBe(88)
+  expect(await value(page, 'prefix')).toBe('prepared')
+  await expect(warning).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => value(page, 'steps')).toBe(20)
+  expect(await value(page, 'prefix')).toBe('Dinkster')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.canUndo)).toBe(false)
+  fail = true
+  await page.mouse.click(steps.x, steps.y)
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Tab')
+  await page.keyboard.press('Enter')
+  await expect(warning).toBeVisible()
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    const document = structuredClone(tab.store.doc)
+    app.closeTab(tab.id)
+    await app.openDocument(document, 'Reopened Mixed')
+  })
+  await expect(warning).toHaveCount(0)
+})
+
 test('Buttons keep their row-cycle stops, disabled reason and atomic keyboard cancellation', async ({ page }, testInfo) => {
   let finishCall!: () => void
   let calls = 0

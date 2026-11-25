@@ -505,7 +505,7 @@ for (const theme of ['dark', 'light'] as const) {
         const filters = page.locator(
           'input.dinkster-canvas-field-input[role="combobox"]:not(.dinkster-canvas-side-representation-list *)',
         )
-        await expect(filters).toHaveCount(id === 'row-lists' ? 23 : 0)
+        await expect(filters).toHaveCount(id === 'row-lists' ? 23 : id === 'row-states' ? 3 : 0)
         await expect(page.getByRole('combobox').and(
           page.locator(':not(.dinkster-canvas-side-representation *, .dinkster-canvas-side-representation-list *)'),
         )).toHaveCount(

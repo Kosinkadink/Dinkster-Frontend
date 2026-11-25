@@ -176,6 +176,8 @@ export interface RowStateExample {
   readonly overlay?: OverlayState
   readonly buttons?: ButtonPaintMap
   readonly focus?: { readonly button: string; readonly help?: string }
+  readonly result?: { readonly button: string; readonly tone: 'info' | 'warn'; readonly message: string }
+  readonly pick?: { readonly button: string; readonly state: 'ready' | 'empty' | 'failed' }
 }
 
 /** The canvas examples of the page, by section, in the order it shows them. */
@@ -323,6 +325,46 @@ export function rowStateExamples(
       focus: { button: 'prepare', help: 'Every field this would set has a wire.' },
     },
   ]
+  buttons.push(
+    ...(['hoveredButton', 'pressedButton'] as const).map((state) => ({
+      id: `button-${state === 'hoveredButton' ? 'hover' : 'pressed'}`,
+      caption: state === 'hoveredButton' ? 'Ready under the pointer. The raised face uses the ordinary hover fill.' : 'Pointer held down. The same Button sinks until release; no second control is introduced.',
+      scene: sceneOf([{ id: 'prepare', schema: buttonNode, x: 0, y: 0 }], [], tokens, measure, widgetMeasure),
+      overlay: { [state]: { nodeId: 'prepare', key: 'button:prepare' } },
+    })),
+    ...([
+      ['button-success', 'Successful, no skipped writes. The Button returns quietly to ready; no result box is invented.', undefined],
+      ['button-cancelled', 'Cancelled. The Button returns to ready and the discarded answer stores nothing.', undefined],
+      ['button-skipped-write', 'Done with a skipped write. The information box stays until the next press; the wired field is unchanged.', { tone: 'info', message: 'Set 1 field. radius has a wire and was left as it is.' }],
+      ['button-failed', 'Failed. The warning triangle uses the existing warning color; the failed press stores nothing.', { tone: 'warn', message: 'Nothing was changed. No sheet named video in this file.' }],
+    ] as const).map(([id, caption, result]) => ({
+      id, caption,
+      scene: id === 'button-skipped-write'
+        ? sceneOf([
+          { id: 'prepare', schema: schema('Prepare image', buttonNode.body.map((row) => row.kind !== 'button' ? row : {
+            ...row, steps: [
+              { step: 'set', field: 'strength', value: { value: 0.8 } },
+              { step: 'set', field: 'radius', value: { value: 24 } },
+            ],
+          })), x: 200, y: 0, values: { strength: 0.8 } },
+          { id: 'measure', schema: measureNode, x: 0, y: 0, width: 160 },
+        ], [{ from: ['measure', 'radius'], to: ['prepare', 'radius'] }], tokens, measure, widgetMeasure)
+        : sceneOf([{ id: 'prepare', schema: buttonNode, x: 0, y: 0, ...(id === 'button-success' ? { values: { radius: 24 } } : {}) }], [], tokens, measure, widgetMeasure),
+      ...(result === undefined ? {} : { result: { button: 'prepare', ...result } }),
+    })),
+    ...(['ready', 'empty', 'loading', 'failed'] as const).map((state) => ({
+      id: `button-pick-${state}`,
+      caption: state === 'loading' ? 'Pick waits for its lookup. The Button says Loading and exposes Cancel; its list opens only after that lookup answers.' : `Pick, ${state}. The Button opens the same filtered list as a choice field, not a separate Button picker.`,
+      scene: sceneOf([{ id: 'prepare', schema: schema('Prepare image', buttonNode.body.map((row) => row.kind !== 'button' ? row : {
+        ...row, steps: [{ step: 'pick', name: 'preset', options: state === 'loading' || state === 'failed'
+          ? { lookup: 'image.presets', args: [] }
+          : { value: state === 'empty' ? [] : ['Portrait', 'Landscape', 'Line art'] } }],
+      })), x: 0, y: 0 }], [], tokens, measure, widgetMeasure),
+      ...(state === 'loading'
+        ? { buttons: { prepare: { prepare: { kind: 'busy' as const, text: 'Loading' } } } }
+        : { pick: { button: 'prepare', state } }),
+    })),
+  )
   return { nothing, promoted, buttons }
 }
 

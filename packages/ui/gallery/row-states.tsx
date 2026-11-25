@@ -27,7 +27,8 @@ import {
   rowStateExamples,
   type RowStateExample,
 } from '../../canvas/gallery/row-states.js'
-import { CanvasRowFocus, CanvasSidePart, ProductSection } from '../src/index.js'
+import { CanvasRowFocus, CanvasRowList, CanvasSidePart, ProductSection } from '../src/index.js'
+import { ButtonBoxView } from '../../app/src/ButtonOverlays.js'
 import {
   MARGIN,
   NODE_WIDTH,
@@ -76,7 +77,7 @@ function SceneCard(props: {
   registry: WidgetRegistry
 }) {
   let canvas!: HTMLCanvasElement
-  const [focusBox, setFocusBox] = createSignal<{ x: number; y: number; width: number }>()
+  const [focusBox, setFocusBox] = createSignal<{ x: number; y: number; width: number; height: number }>()
   createEffect(() => {
     const { example, tokens } = props
     const renderer = new CanvasRenderer(canvas, tokens, createRegistryPainter(props.registry))
@@ -100,15 +101,17 @@ function SceneCard(props: {
       }
     }
     canvas.style.width = `${Math.ceil(box.maxX - box.minX + PAD * 2) + (example.focus?.help === undefined ? 0 : SIDE_ROOM)}px`
-    canvas.style.height = `${Math.ceil(box.maxY - box.minY + PAD * 2)}px`
+    canvas.style.height = `${Math.ceil(box.maxY - box.minY + PAD * 2) + (example.pick ? 180 : example.result ? 80 : 0)}px`
     renderer.setViewport({ x: PAD - box.minX, y: PAD - box.minY, scale: 1 })
     renderer.renderNow()
     const node = example.scene.nodes[0]!
-    const row = node.layout.rows.find((item) => item.kind === 'button' && item.buttonId === example.focus?.button)
+    const button = example.focus?.button ?? example.result?.button ?? example.pick?.button
+    const row = node.layout.rows.find((item) => item.kind === 'button' && item.buttonId === button)
     setFocusBox(row?.kind !== 'button' ? undefined : {
       x: node.x + row.inset + PAD - box.minX,
       y: node.y + row.y + tokens.rowGeometry.fieldInsetY + PAD - box.minY,
       width: row.width ?? node.layout.width - row.inset * 2,
+      height: row.height - tokens.rowGeometry.fieldInsetY * 2,
     })
     canvas.dataset.ready = `${example.id}-${props.theme}`
     onCleanup(() => {
@@ -124,10 +127,10 @@ function SceneCard(props: {
   />
   return (
     <figure class="dinkster-canvas-example">
-      <Show when={props.example.focus !== undefined} fallback={picture}>
-      <div class="dinkster-canvas-example-stage">
+      <Show when={props.example.focus !== undefined || props.example.result !== undefined || props.example.pick !== undefined} fallback={picture}>
+      <div class="dinkster-canvas-example-stage" data-fixed-surfaces={props.example.result !== undefined}>
         {picture}
-        <Show when={focusBox()}>{(box) => (
+        <Show when={props.example.focus !== undefined && focusBox()}>{(box) => (
           <CanvasRowFocus
             ref={(element) => createEffect(() => {
               element.style.left = `${box().x}px`
@@ -138,6 +141,34 @@ function SceneCard(props: {
             place="right"
             sideTop={0}
             {...(props.example.focus?.help === undefined ? {} : { side: <CanvasSidePart help={props.example.focus.help} /> })}
+          />
+        )}</Show>
+        <Show when={props.example.result && focusBox()}>{(box) => (
+          <ButtonBoxView box={props.example.result!} under={box()} testId={props.example.id} />
+        )}</Show>
+        <Show when={props.example.pick && focusBox()}>{(box) => (
+          <CanvasRowList
+            ref={(element) => createEffect(() => {
+              element.style.left = `${box().x}px`
+              element.style.top = `${box().y}px`
+            })}
+            rowWidth={box().width}
+            look={props.tokens.nodeLook}
+            label="Prepare"
+            inputLabel="Filter presets"
+            query=""
+            onQuery={() => undefined}
+            place="right"
+            options={props.example.pick!.state === 'ready' ? [
+              { key: 'portrait', label: 'Portrait' },
+              { key: 'landscape', label: 'Landscape' },
+              { key: 'line-art', label: 'Line art' },
+            ] : []}
+            onPick={() => undefined}
+            {...(props.example.pick!.state === 'ready' ? { highlight: 0 } : {})}
+            listMaxHeight={156}
+            {...(props.example.pick!.state === 'empty' ? { empty: 'No options available' } : {})}
+            {...(props.example.pick!.state === 'failed' ? { status: { tone: 'error' as const, text: 'Could not load options', action: { id: 'retry', label: 'Try again', onClick: () => undefined } } } : {})}
           />
         )}</Show>
       </div>
@@ -245,7 +276,8 @@ export function RowStatesGallery(props: { theme: Theme }) {
     <>
       <ProductSection title="Gives nothing, and a skipped node">{cards(examples().nothing)}</ProductSection>
       <ProductSection title="Promoted fields inside and outside">{cards(examples().promoted)}</ProductSection>
-      <ProductSection title="Button keyboard focus">{cards(examples().buttons)}</ProductSection>
+      <ProductSection title="Button keyboard focus">{cards(examples().buttons.filter((example) => example.focus !== undefined))}</ProductSection>
+      <ProductSection title="Button results and Pick lists">{cards(examples().buttons.filter((example) => example.focus === undefined))}</ProductSection>
       <ProductSection title="Representation control at the end of the side part">
         <div class="dinkster-canvas-examples">
           <For each={representationExamples}>

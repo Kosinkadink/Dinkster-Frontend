@@ -1868,7 +1868,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   })
   const shownOnThisGraph = (place: ButtonPlace): boolean => {
     const tab = activeTab()
-    return tab !== undefined && place.tab === tab && place.graphId === currentGraphId(tab)
+    return tab !== undefined && (place.tab === tab || props.app.liveTabContinuing(place.tab.store) === tab) && place.graphId === currentGraphId(tab)
   }
   let moveEditorRow = (_from: { readonly nodeId: string } & ({ readonly valueKey: string } | { readonly buttonId: string }), _direction: 1 | -1): void => {}
   let onRowFocusKey = (_event: KeyboardEvent): void => {}

@@ -330,6 +330,7 @@ interface DinksterTestBridge {
     graphViewport(tabId: string, graphId: string): { x: number; y: number; scale: number } | undefined
     setGraphViewport(tabId: string, graphId: string, viewport: { x: number; y: number; scale: number }): void
     confirmStartupOwnership(): Promise<void>
+    enableWorkspaceAuthority(): Promise<void>
     activeTab(): DinksterBridgeTab | undefined
     createWorkflow(): DinksterBridgeTab
     renameTab(id: string, title: string): void
