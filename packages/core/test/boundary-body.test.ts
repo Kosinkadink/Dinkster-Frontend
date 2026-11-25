@@ -72,7 +72,7 @@ const lookBody: Json[] = [
   { kind: 'input', id: 'mask' },
   { kind: 'output', id: 'result', ownRow: true },
   { kind: 'section', id: 'look', displayName: 'Look', collapsedByDefault: true, rows: [
-    { kind: 'line', rows: [{ kind: 'input', id: 'radius' }, { kind: 'input', id: 'strength' }, { kind: 'input', id: 'feather' }] },
+    { kind: 'line', rows: [{ kind: 'input', id: 'strength' }, { kind: 'input', id: 'radius' }, { kind: 'input', id: 'feather' }] },
   ] },
   { kind: 'output', id: 'preview' },
 ]
@@ -84,15 +84,29 @@ describe('boundary.arrange', () => {
     const hash = semanticHashOf(store.doc)
     expect(arrange(store, lookBody).ok).toBe(true)
     const body = store.doc.graphs.sub!.boundary!.body
-    expect(ids(body)).toEqual(['image', 'mask', 'result', { section: 'look', rows: [{ line: ['radius', 'strength', 'feather'] }] }, 'preview'])
+    expect(ids(body)).toEqual(['image', 'mask', 'result', { section: 'look', rows: [{ line: ['strength', 'radius', 'feather'] }] }, 'preview'])
     // Every item keeps its binding and promotion where it moved to.
     const look = body[3] as Extract<BoundaryEntry, { kind: 'section' }>
     expect(look).toMatchObject({ displayName: 'Look', collapsedByDefault: true })
-    expect((look.rows[0] as Extract<BoundaryEntry, { kind: 'line' }>).rows[1]).toEqual(input('strength', true))
+    expect((look.rows[0] as Extract<BoundaryEntry, { kind: 'line' }>).rows[0]).toEqual(input('strength', true))
     expect(body[2]).toEqual({ ...output('result', 'IMAGE'), ownRow: true })
     expect(semanticHashOf(store.doc)).toBe(hash)
     expect(store.undo()).toBe(true)
     expect(store.doc).toEqual(before)
+  })
+
+  it.each(['active', 'bypassed'] as const)('boundary order is layout unless an instance uses positional bypass (%s)', (mode) => {
+    const store = storeOf(flat)
+    expect(store.dispatch({ command: 'node.setMode', params: { graphId: 'g0', nodeIds: ['s'], mode } }).ok).toBe(true)
+    const before = semanticHashOf(store.doc)
+    expect(store.dispatch({ command: 'boundary.renameItem', params: { graphId: 'sub', side: 'inputs', itemId: 'strength', displayName: 'Amount' } }).ok).toBe(true)
+    expect(semanticHashOf(store.doc)).toBe(before)
+    const reversed = [...flat.body].reverse().map((entry) => ({ kind: entry.kind, id: (entry as { id: string }).id }))
+    expect(arrange(store, reversed).ok).toBe(true)
+    if (mode === 'bypassed') expect(semanticHashOf(store.doc)).not.toBe(before)
+    else expect(semanticHashOf(store.doc)).toBe(before)
+    expect(store.undo()).toBe(true)
+    expect(semanticHashOf(store.doc)).toBe(before)
   })
 
   it('refuses an arrangement that drops, repeats or invents an item, and leaves the document alone', () => {
@@ -170,7 +184,7 @@ describe('the subgraph node schema follows the body', () => {
       return r.ownRow ? `${r.id} (own row)` : r.id
     })
     expect(shape(derived.schema!.body)).toEqual(['image', 'mask', 'result (own row)',
-      { section: 'look', rows: [{ line: ['radius', 'strength', 'feather'] }] }, 'preview'])
+      { section: 'look', rows: [{ line: ['strength', 'radius', 'feather'] }] }, 'preview'])
     const section = derived.schema!.body[3] as { displayName?: string; collapsedByDefault?: boolean }
     expect(section).toMatchObject({ displayName: 'Look', collapsedByDefault: true })
   })
