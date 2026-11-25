@@ -52,7 +52,7 @@ export function BoardGallery() {
           id: 'note-1',
           kind: 'note',
           text: 'Reference for the light. Keep the rain on the window; try a wider shot next.',
-          rect: { x: 24, y: 594, width: 280, height: 100 },
+          rect: { x: 24, y: 584, width: 280, height: 80 },
         },
       ],
     },
