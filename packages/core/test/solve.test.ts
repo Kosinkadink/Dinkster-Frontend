@@ -235,15 +235,18 @@ describe('solver problems in the reader\'s words', () => {
     expect(problem?.message).toBe('Decode: Samples needs latent data, but the outer input sends an image.')
   })
 
-  it('explains an out-of-range group position on the shown output', () => {
-    const groupSource = source({ kind: 'tuple', elements: [image, latent] })
+  it.each([
+    [{ kind: 'tuple', elements: [image, latent] }, 'Position 3 was chosen, but the group has 2 values.'],
+    [image, 'Value needs a group and a fixed position in it.'],
+  ] as const)('explains an invalid group position on the shown output for %j', (type, message) => {
+    const groupSource = source(type)
     const get = { ...tupleGet, displayName: 'Pick value', body: tupleGet.body.map((row) => row.kind === 'output' ? { ...row, displayName: 'value' } : row) }
     const def = defOf({
       nodes: { producer_internal: { type: groupSource.type }, consumer_internal: { type: get.type, values: { index: 3 } } },
       links: { wire_internal: { from: ['producer_internal', 'source_internal'], to: ['consumer_internal', 'tuple'] } },
     })
     const problem = solveGraphTypes(def, (type) => type === get.type ? get : groupSource).diagnostics.find((diagnostic) => diagnostic.code === 'solve.tupleProjection')
-    expect(problem?.message).toBe('Pick value: Value needs a group and a fixed position in it. Position 3 was chosen, but the group has 2 values.')
+    expect(problem?.message).toBe(`Pick value: ${message}`)
   })
 
   it('names both conflicting inputs without the type variable', () => {
@@ -256,7 +259,7 @@ describe('solver problems in the reader\'s words', () => {
       links: { l0: { from: ['a', 'source_internal'], to: ['c', 'first_internal'] }, l1: { from: ['b', 'source_internal'], to: ['c', 'second_internal'] } },
     })
     const problem = solveGraphTypes(def, (type) => type === img.type ? img : type === lat.type ? lat : target).diagnostics.find((diagnostic) => diagnostic.code === 'solve.varConflict')
-    expect(problem?.message).toBe('Switch: its inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.')
+    expect(problem?.message).toBe('Switch: The inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.')
     expect(problem?.anchor?.port?.node).toBe('c')
   })
 
@@ -275,8 +278,11 @@ describe('solver problems in the reader\'s words', () => {
 
   it('names the selected type rather than the stored variant key', () => {
     const target = named('Choose model', [{ kind: 'typeChoice', id: 'target_internal', displayName: 'source', required: true, rows: [], variants: [{ key: 'private_variant', type: image, rows: [] }] }])
-    const problem = pair(source(latent), target, { dynamic: { target_internal: { selected: 'private_variant' } } }).diagnostics.find((diagnostic) => diagnostic.code === 'solve.slot.staleSpecialization')
+    const diagnostics = pair(source(latent), target, { dynamic: { target_internal: { selected: 'private_variant' } } }).diagnostics
+    expect(diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['solve.linkMismatch', 'solve.slot.staleSpecialization'])
+    const problem = diagnostics.find((diagnostic) => diagnostic.code === 'solve.slot.staleSpecialization')
     expect(problem?.message).toBe('Choose model: Source is set to image, but Load image sends latent data.')
+    for (const diagnostic of diagnostics) expect(diagnostic.data).toMatchObject({ sourceNode: 'producer_internal', sourcePort: 'source_internal' })
   })
 })
 
@@ -1131,9 +1137,9 @@ describe('a type variable fed two different types', () => {
       expect.objectContaining({
         severity: 'error',
         code: 'solve.varConflict',
-        message: 'Pair: its inputs must be the same type, but the input first is an image and the input second is latent data.',
+        message: 'Pair: The inputs must be the same type, but the input first is an image and the input second is latent data.',
         anchor: { port: { node: 'pair', port: 'second' }, link: 'l1' },
-        data: { node: 'pair', edges: ["link 'l0'", "link 'l1'"], nodeMessage: 'its inputs must be the same type, but the input first is an image and the input second is latent data.' },
+        data: { node: 'pair', edges: ["link 'l0'", "link 'l1'"], nodeMessage: 'The inputs must be the same type, but the input first is an image and the input second is latent data.' },
       }),
     ])
     expect(solved.linkVerdicts.get('l0' as never)).toBe('mismatch')
@@ -1148,7 +1154,7 @@ describe('a type variable fed two different types', () => {
         l1: { from: ['sw', 'out'], to: ['pair', 'first'] },
         l2: { from: ['lat', 'out'], to: ['pair', 'second'] },
       },
-    }))).toEqual([{ severity: 'error', message: 'Pair: its inputs must be the same type, but the input first is an image and the input second is latent data.', node: 'pair' }])
+    }))).toEqual([{ severity: 'error', message: 'Pair: The inputs must be the same type, but the input first is an image and the input second is latent data.', node: 'pair' }])
   })
 
   it('stays a warning when the engine would run the node', () => {
@@ -1202,12 +1208,12 @@ describe('a type variable fed two different types', () => {
       },
     })
     expect(conflicts(switchWith('runtime'))).toEqual([
-      { severity: 'error', message: 'PickSwitch: its inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.', node: 'sw' },
+      { severity: 'error', message: 'PickSwitch: The inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.', node: 'sw' },
     ])
     // Only the picked branch runs, so it is a warning on the Switch, in the error's words.
     for (const pick of ['known', 'stored'] as const) {
       expect(conflicts(switchWith(pick))).toEqual([
-        { severity: 'warning', message: 'PickSwitch: its inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.', node: 'sw' },
+        { severity: 'warning', message: 'PickSwitch: The inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.', node: 'sw' },
       ])
       expect(solve(switchWith(pick)).diagnostics.find((d) => d.code === 'solve.varConflict')?.anchor?.port)
         .toEqual({ node: 'sw', port: 'branch.branch1' })

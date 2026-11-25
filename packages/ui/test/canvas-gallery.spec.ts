@@ -344,6 +344,10 @@ for (const theme of ['dark', 'light'] as const) {
     for (const [id, title, sentence, kind] of [
       ['type-warning', 'Decode', 'Samples needs latent data, but Load image sends an image.', 'warning'],
       ['type-list-error', 'Blur image', 'Image needs one image, but Load images sends a list of images.', 'error'],
+      ['type-group-position', 'Pick value', 'Position 3 was chosen, but the group has 2 values.', 'error'],
+      ['type-selected', 'Choose model', 'Source is set to image, but Load latent sends latent data.', 'warning'],
+      ['type-switch-stored', 'Switch', 'The inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.', 'warning'],
+      ['type-switch-runtime', 'Switch', 'The inputs must be the same type, but the input branch 1 is an image and the input branch 2 is latent data.', 'error'],
     ] as const) {
       const card = page.locator('figure.dinkster-canvas-example', { has: page.getByTestId(`problem-box-${id}`) })
       const box = card.getByRole('dialog', { name: `Problems of ${title}`, exact: true })

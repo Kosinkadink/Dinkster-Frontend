@@ -779,6 +779,7 @@ export function solveGraphTypes(
           diagnostics.push(
             problem('warning', 'solve.linkMismatch', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${typeProblemWords(origin?.toType ?? toType)}, but ${producer} sends ${typeProblemWords(origin?.fromType ?? fromType)}.`, {
               anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
+              data: { sourceNode: from.node, sourcePort: from.port },
             }),
           )
           return
@@ -803,6 +804,7 @@ export function solveGraphTypes(
     diagnostics.push(
       problem('warning', 'solve.linkMismatch', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${typeProblemWords(origin?.toType ?? toType)}, but ${producer} sends ${typeProblemWords(origin?.fromType ?? fromType)}.`, {
         anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
+        data: { sourceNode: from.node, sourcePort: from.port },
       }),
     )
   }
@@ -894,8 +896,10 @@ export function solveGraphTypes(
       const resolved = substitute(type, node)
       if (resolved.kind !== 'tuple_element' || resolved.element === undefined || atomNamesOf(resolved.element) === undefined) continue
       const ref = { node, port: asPortId(port) }
-      const detail = resolved.element.kind === 'tuple' ? ` Position ${resolved.index} was chosen, but the group has ${resolved.element.elements.length} values.` : ''
-      diagnostics.push(problem('error', 'solve.tupleProjection', ref, 'output', `${capitalized(rowLabel(ref, 'output'))} needs a group and a fixed position in it.${detail}`))
+      const message = resolved.element.kind === 'tuple' && typeof resolved.index === 'number'
+        ? `Position ${resolved.index} was chosen, but the group has ${resolved.element.elements.length} values.`
+        : `${capitalized(rowLabel(ref, 'output'))} needs a group and a fixed position in it.`
+      diagnostics.push(problem('error', 'solve.tupleProjection', ref, 'output', message))
     }
   }
 
@@ -963,7 +967,7 @@ export function solveGraphTypes(
       const named = [...brought]
         .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
         .map(([port, types]) => `the input ${labels?.get(port) ?? port} is ${[...types].map((type) => typeProblemWords(typeExprFromTypeId(type))).join(' or ')}`)
-      return { key, node, into, message: `its inputs must be the same type, but ${named.join(' and ')}.` }
+      return { key, node, into, message: `The inputs must be the same type, but ${named.join(' and ')}.` }
     })
   }
   const refused = new Set<VarRecord>()
@@ -1053,6 +1057,7 @@ export function solveGraphTypes(
       if (!isKnown(solved) || typesCompatible(solved, slot.selectedType)) continue
       diagnostics.push(problem('warning', 'solve.slot.staleSpecialization', slot.ref, 'input', `${capitalized(rowLabel(slot.ref, 'input'))} is set to ${typeProblemWords(slot.selectedType, 'name')}, but ${sourceName(trace.ref)} sends ${typeProblemWords(solved)}.`, {
         anchor: { port: slot.ref },
+        data: { sourceNode: trace.ref.node, sourcePort: trace.ref.port },
       }))
     }
   }
