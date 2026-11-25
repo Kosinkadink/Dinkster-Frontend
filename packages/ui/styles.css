@@ -455,6 +455,8 @@
 }
 
 .dinkster-workflow-tabs-preview { overflow: hidden; padding-bottom: var(--dinkster-space-32); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-canvas); color: var(--dinkster-text-primary); }
+/* Room left of the first tab, so its left foot sits well inside the frame. */
+.dinkster-workflow-tabs-preview .tab-strip { padding-inline-start: var(--dinkster-space-24); }
 .dinkster-about-preview { background: var(--dinkster-surface-canvas); color: var(--dinkster-text-primary); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); }
 .dinkster-choice { display: flex; align-items: center; gap: var(--dinkster-space-8); }
 .dinkster-check { accent-color: var(--dinkster-accent-foreground); }
