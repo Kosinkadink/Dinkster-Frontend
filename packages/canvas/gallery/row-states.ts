@@ -18,6 +18,7 @@ import {
   buildScene,
   type DesignTokens,
   type ButtonPaintMap,
+  type CompanionMap,
   type OverlayState,
   type RowMarkMap,
   type Scene,
@@ -220,6 +221,58 @@ function promotedOccurrenceScene(
   })
 }
 
+function retainedOccurrenceScene(
+  tokens: DesignTokens,
+  measure: TextMeasurer,
+  widgetMeasure: WidgetMeasure,
+): Scene {
+  const retained = schema('Retained radius', [{
+    kind: 'choice', id: 'mode', displayName: 'Mode', required: true, shared: [], options: [
+      { key: 'fast', label: 'Fast', rows: [] },
+      { key: 'fine', label: 'Fine', rows: [{
+        ...field('radius', 'FLOAT', 7, { min: 0, max: 100 }),
+        disabled: true, disabledReason: 'Preset controls this field',
+      }] },
+    ],
+  }])
+  const sink = schema('Radius sink', [{ kind: 'input', id: 'value', type: concrete('FLOAT'), optional: false }])
+  const document = loadDocument({
+    format: 'dinkster-workflow', formatVersion: 1,
+    lineage: 'gallery-retained-promoted-disabled', root: 'root',
+    graphs: {
+      root: {
+        id: 'root', name: 'Instances', nextOrdinal: 2,
+        nodes: { outer: { id: 'outer', type: '#sub', values: { radius: 12 } } },
+        links: {}, nets: {}, reroutes: {},
+      },
+      sub: {
+        id: 'sub', name: 'Retained radius', nextOrdinal: 3,
+        nodes: {
+          radius: { id: 'radius', type: retained.type, values: { 'mode.radius': 7 }, dynamic: { mode: { selected: 'fast' } } },
+          sink: { id: 'sink', type: sink.type, values: {} },
+        },
+        links: { l1: { id: 'l1', from: { node: 'radius', tap: 'mode.radius' }, to: { node: 'sink', port: 'value' } } },
+        nets: {}, reroutes: {},
+        boundary: { inputs: [{ id: 'radius', binds: { kind: 'port', node: 'radius', port: 'mode.radius' }, promoted: true, wireHidden: true }], outputs: [] },
+      },
+    },
+    view: { graphs: {
+      root: { nodes: { outer: { position: { x: 0, y: 0 } } } },
+      sub: { nodes: {
+        radius: { position: { x: 0, y: 130 }, size: { width: 300, height: 0 } },
+        sink: { position: { x: 380, y: 130 }, size: { width: 160, height: 0 } },
+      }, boundary: { inputs: { position: { x: 0, y: 0 } }, outputs: { position: { x: 380, y: 0 } } } },
+    } },
+  }).document
+  if (!document) throw new Error('Invalid retained occurrence gallery document')
+  const resolve = documentResolver(document, (type) => type === retained.type ? retained : type === sink.type ? sink : undefined)
+  return buildScene({
+    document, graphId: 'sub', resolve, tokens, measure, widgetMeasure,
+    occurrence: { owner: { instancePath: [], node: asNodeId('outer') }, plannerAvailable: false },
+    occurrenceView: occurrenceDynamicView(document, resolve, [asNodeId('outer')]),
+  })
+}
+
 /** One drawn example of the page: a scene with its run states, row marks and overlay. */
 export interface RowStateExample {
   readonly id: string
@@ -227,6 +280,7 @@ export interface RowStateExample {
   readonly scene: Scene
   readonly states?: Readonly<Record<string, NodeProgress>>
   readonly rowMarks?: RowMarkMap
+  readonly companions?: CompanionMap
   readonly overlay?: OverlayState
   readonly buttons?: ButtonPaintMap
   readonly focus?: { readonly button: string; readonly help?: string }
@@ -298,6 +352,20 @@ export function rowStateExamples(
       scene: feed(),
     },
     {
+      id: 'disabled-known-wire',
+      caption: 'Disabled radius with a known incoming value. The wire brings 24, which the quiet field shows instead of its dormant stored 12. Disabled does not disconnect a wire or change its value.',
+      scene: sceneOf(
+        [
+          { id: 'measure', schema: measureNode, x: 0, y: 0, width: 160 },
+          { id: 'soften', schema: schema('Soften', soften.body.map((row) => row.kind === 'input' && row.id === 'radius'
+            ? { ...row, disabled: true, disabledReason: 'Preset controls this field' } : row)), x: 220, y: 0 },
+        ],
+        [{ from: ['measure', 'radius'], to: ['soften', 'radius'] }],
+        tokens, measure, widgetMeasure,
+      ),
+      companions: { soften: { radius: { value: 24 } } },
+    },
+    {
       id: 'unknown-narrow',
       caption: 'The same on a narrow node. The stored 12 stays struck through and is used again when the wire is removed.',
       scene: sceneOf(
@@ -312,6 +380,7 @@ export function rowStateExamples(
       ),
     },
   ]
+  const retainedScene = retainedOccurrenceScene(tokens, measure, widgetMeasure)
   const promoted: RowStateExample[] = [
     {
       id: 'promoted-inside',
@@ -327,6 +396,22 @@ export function rowStateExamples(
       id: 'promoted-nested',
       caption: 'Two levels deep, entered through Soften 24. Inner radius and the quiet inner field show 24, not the nested definition 6 or leaf default 7. The cyan mark names only this graph boundary, Inner radius; there is no depth badge.',
       scene: promotedOccurrenceScene(tokens, measure, widgetMeasure, true),
+    },
+    {
+      id: 'retained-promoted-disabled',
+      caption: 'Inside, with Fast chosen. The kept disabled radius reads inactive and the entered value 12, dimmed, with its promotion mark and kept outgoing wire. Its stored definition value is 7. No Nothing label: this is an inactive row, not a finished absent result.',
+      scene: retainedScene,
+    },
+    {
+      id: 'retained-problem',
+      caption: 'The same inactive row with a separate field problem. The problem mark keeps full contrast beside the quiet retained value and promotion mark; inactivity alone does not create this problem.',
+      scene: retainedScene,
+      rowMarks: { radius: { 'mode.radius': 'error' } },
+    },
+    {
+      id: 'retained-outside',
+      caption: 'Inputs with Fast chosen. The binding name stays, but no value field or hidden link is offered. Stored 12 and its binding stay untouched; Fine restores editing.',
+      scene: { ...retainedScene, nodes: [], links: [], boundaryNodes: retainedScene.boundaryNodes.filter((node) => node.side === 'inputs') },
     },
   ]
   const buttonNode = schema('Prepare image', [

@@ -89,6 +89,7 @@ function SceneCard(props: {
     renderer.setBadges(presentation.badges)
     renderer.setOverlay(example.overlay ?? {})
     renderer.setRowMarks(example.rowMarks ?? {})
+    renderer.setCompanions(example.companions ?? {})
     renderer.setButtonPaint(example.buttons ?? {})
     const box = sceneVisualBounds({ ...renderer.getScene(), links: [] }, {}, (node) => renderer.getNodeBadgeBounds(node))!
     for (const link of example.scene.links) {
@@ -104,10 +105,10 @@ function SceneCard(props: {
     canvas.style.height = `${Math.ceil(box.maxY - box.minY + PAD * 2) + (example.ask ? 160 : example.pick ? 180 : example.result ? 80 : 0)}px`
     renderer.setViewport({ x: PAD - box.minX, y: PAD - box.minY, scale: 1 })
     renderer.renderNow()
-    const node = example.scene.nodes[0]!
+    const node = example.scene.nodes[0]
     const button = example.focus?.button ?? example.result?.button ?? example.pick?.button ?? example.ask?.button
-    const row = node.layout.rows.find((item) => item.kind === 'button' && item.buttonId === button)
-    setFocusBox(row?.kind !== 'button' ? undefined : {
+    const row = node?.layout.rows.find((item) => item.kind === 'button' && item.buttonId === button)
+    setFocusBox(node === undefined || row?.kind !== 'button' ? undefined : {
       x: node.x + row.inset + PAD - box.minX,
       y: node.y + row.y + tokens.rowGeometry.fieldInsetY + PAD - box.minY,
       width: row.width ?? node.layout.width - row.inset * 2,
