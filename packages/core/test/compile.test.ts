@@ -559,7 +559,7 @@ describe('value handling', () => {
   it('has a formula read for a field with no default what the run is sent for it', () => {
     const field = (id: string, name: string, widget: Record<string, unknown>, optional = false) =>
       ({ kind: 'input', id, type: { kind: 'concrete', name }, optional, widget })
-    const read = ['num', 'text', 'pick', 'opt', 'hid', 'limited', 'many', 'authored']
+    const read = ['num', 'text', 'pick', 'opt', 'hid', 'hid_def', 'secret', 'limited', 'many', 'authored']
     const resolve: CompileInput['resolve'] = (type) => {
       const schema = backendResolve(type)
       if (type !== 'EmptyImage' || schema === undefined) return schema
@@ -569,8 +569,11 @@ describe('value handling', () => {
         field('text', 'STRING', { widgetType: 'STRING', options: {} }),
         field('pick', 'COMBO', { widgetType: 'COMBO', options: { options: ['slow', 'fast'] } }),
         field('opt', 'INT', { widgetType: 'INT', options: { min: 5 } }, true),
-        // Hidden by its visible, looked-up limits, authored options and members past an optional minimum change what compile sends.
+        // Looked-up limits, authored options and members past an optional minimum change what compile sends.
+        // A row its visible hides is sent what it would be sent if shown; a field declared hidden only what it stores.
         { ...field('hid', 'INT', { widgetType: 'INT', options: { min: 7 } }), visible: { formula: 'width > 100' } },
+        { ...field('hid_def', 'INT', { widgetType: 'INT', options: { min: 7 }, default: 9 }), visible: { formula: 'width > 100' } },
+        { ...field('secret', 'INT', { widgetType: 'INT', options: { min: 4 } }), hidden: true },
         field('limited', 'INT', { widgetType: 'INT', options: {}, looked: { min: { formula: 'width + 1' } } }),
         field('authored', 'COMBO', { widgetType: 'COMBO', options: { options: ['declared'] }, editableOptions: true }),
         {
@@ -596,10 +599,14 @@ describe('value handling', () => {
     if (!result.ok) return
     const inputs = result.artifact.prompt['n0']!.inputs
     // A required field reads its widget's start: the minimum, an empty text, the first option.
-    const sent = Object.fromEntries(['num', 'text', 'pick', 'opt', 'hid', 'limited', 'authored', 'many.m0.entry', 'many.m1.entry'].map((id) => [id, inputs[id]]))
-    expect(sent).toEqual({ num: 16, text: '', pick: 'slow', opt: undefined, hid: undefined, limited: 65, authored: 'first', 'many.m0.entry': 3, 'many.m1.entry': undefined })
+    const sent = Object.fromEntries(['num', 'text', 'pick', 'opt', 'hid', 'hid_def', 'secret', 'limited', 'authored', 'many.m0.entry', 'many.m1.entry'].map((id) => [id, inputs[id]]))
+    expect(sent).toEqual({ num: 16, text: '', pick: 'slow', opt: undefined, hid: 7, hid_def: 9, secret: undefined, limited: 65, authored: 'first', 'many.m0.entry': 3, 'many.m1.entry': undefined })
     // The lookup is called with what the run is sent; a field sent nothing waits.
-    expect(asked).toEqual({ num: 16, text: '', pick: 'slow', limited: 65, authored: 'first', many: [3, null] })
+    expect(asked).toEqual({ num: 16, text: '', pick: 'slow', hid: 7, hid_def: 9, limited: 65, authored: 'first', many: [3, null] })
+    // Shown, the same rows are sent the same values.
+    ;(nodes['n0'] as Mutable)['values'] = { width: 200, height: 64, batch_size: 1, color: 0 }
+    const shown = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers })
+    expect(shown.ok && ['hid', 'hid_def', 'secret'].map((id) => shown.artifact.prompt['n0']!.inputs[id])).toEqual([7, 9, undefined])
   })
 })
 

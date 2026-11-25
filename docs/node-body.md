@@ -58,8 +58,9 @@ fails:
 | The node's `titleSuffix` | No suffix |
 
 A row whose `visible` is false is not drawn and is still stored and sent to
-the run. A box whose `visible` is false hides every row in it. A row with a
-wire on its pin or its field's output shows anyway, and so does a box that
+the run; with nothing stored it is sent what it would be sent if shown, so
+showing or hiding a row never changes what a run receives. A box whose
+`visible` is false hides every row in it. A row with a wire on its pin or its field's output shows anyway, and so does a box that
 holds one at any depth. A row with a problem shows the same way, and hides
 again once the problem is gone: an error or a warning that elaboration or
 the type solver finds on it, a failed rule that reads only that field, or a
@@ -141,8 +142,8 @@ default, or for a required field with none, its widget's start value (the
 minimum or 0, an empty text, the first option), with looked-up limits and
 stored options applied. A field the run is sent nothing for reads its default,
 or None without one: an optional field or a member past an optional minimum
-with no default, a row hidden by its `visible`, or a choice whose options all
-come from the server. A formula that runs before the node's rows are all laid out, such as
+with no default, a field declared hidden, or a choice whose options all come
+from the server. A formula that runs before the node's rows are all laid out, such as
 a count, reads a row it has not reached yet from its declaration.
 
 A group that grows by link, filled field or button has its first
