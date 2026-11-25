@@ -74,6 +74,7 @@ test('Tab and Shift+Tab step through the kinds, and a kind narrows the list to i
 })
 
 test('the preview floats beside the list on a node or blueprint row and is gone on any other row', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 })
   await page.goto('/#search')
   const search = example(page, 'search-typed')
   const preview = search.getByTestId('search-preview')
@@ -83,9 +84,12 @@ test('the preview floats beside the list on a node or blueprint row and is gone 
   const list = (await search.getByRole('listbox').boundingBox())!
   const panel = (await preview.boundingBox())!
   expect(panel.x).toBeGreaterThanOrEqual(list.x + list.width)
+  const results = (await search.locator('.dinkster-search-group').first().boundingBox())!
+  expect(Math.abs(panel.y - results.y)).toBeLessThanOrEqual(1)
 
   await search.getByRole('option', { name: /Upscale image 2x\s*Blueprint/ }).hover()
   await expect(preview.getByRole('heading')).toHaveText('Upscale image 2x')
+  expect((await preview.boundingBox())!.y).toBe(panel.y)
   for (const name of [/Live sampling previews/, /Image to video\s*Film grain tests/, /Image to video\s*Edited/, /5 more nodes/]) {
     await search.getByRole('option', { name }).hover()
     await expect(preview).toHaveCount(0)
@@ -100,4 +104,16 @@ test('the typed words are marked in each result title', async ({ page }) => {
   await expect(search.getByRole('option', { name: /Gradient Image/ }).locator('mark')).toHaveText('Image')
   await field(search).fill('to vid')
   await expect(search.getByRole('option', { name: /Image to video\s*Blueprint/ }).locator('mark')).toHaveText(['to', 'vid'])
+})
+
+test('the floating preview is hidden when it does not fit beside the list in the window', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await page.goto('/#search')
+  const search = example(page, 'search-typed')
+  const preview = search.getByTestId('search-preview')
+  await field(search).focus()
+  await expect(preview).toBeVisible()
+  const list = (await search.getByRole('listbox').boundingBox())!
+  await page.setViewportSize({ width: Math.floor(list.x + list.width + 100), height: 900 })
+  await expect(preview).toBeHidden()
 })
