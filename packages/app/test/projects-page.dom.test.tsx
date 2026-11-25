@@ -232,3 +232,14 @@ it('shows the output folder as the Outputs fact, offers Show in folder only when
   expect(facts()).toContain(folder)
   expect(button('Show in folder')).toBeUndefined()
 })
+
+it('dates a workflow tile from the record, which counts seconds', async () => {
+  vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
+  const seconds = (NOW - 2 * 3600_000) / 1000
+  const workflow = { id: 'w1', scope: 'local', name: 'Kitchen still life', digest: `blake3:${'a'.repeat(64)}`,
+    mediaType: 'application/x-dinkster-workflow+json', labels: ['workflow'], created: seconds, modified: seconds, revision: 1 }
+  render(() => <ProjectsView shell={shell()} source={{ ...source(projects), listWorkflows: async () => [workflow] }} />, document.body)
+  await settle()
+  const tile = [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Kitchen still life'))
+  expect(tile?.textContent).toBe('Kitchen still life' + '2 hours ago')
+})

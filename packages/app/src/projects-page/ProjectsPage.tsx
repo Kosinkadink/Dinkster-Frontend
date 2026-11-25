@@ -592,7 +592,8 @@ export function ProjectsView(props: {
                     <ProductTile
                       label={workflow.name}
                       caption={workflow.name}
-                      detail={when(workflow.modified)}
+                      // Library records carry seconds.
+                      detail={when(workflow.modified * 1000)}
                       empty={<ProductIcon icon={Workflow} />}
                       onClick={() => open(project)}
                     />
