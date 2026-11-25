@@ -69,6 +69,8 @@ import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type C
 import { CanvasColorArriving } from '@dinkster/ui'
 import {
   defaultValuesOf,
+  buildRerouteIndex,
+  portRefKey,
   initialDynamicStateOf,
   ruleProblemRefs,
   documentResolver,
@@ -6694,8 +6696,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const graphId = currentGraphId(tab)
           const owner = current.field.familyOwner
           const target = { graphId: owner?.graphId ?? graphId, nodeId: owner?.nodeId ?? current.nodeId, inputId: owner?.valueKey ?? current.valueKey }
-          const commit = (value: Json): void => void props.app.dispatchTo(tab,
-            withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
+          const commit = (value: Json): void => {
+            // A capture started before wiring must not write the now-dormant value.
+            const graph = tab.store.doc.graphs[target.graphId]
+            if (graph === undefined) return
+            const index = buildRerouteIndex(graph)
+            const port = portRefKey({ node: asNodeId(target.nodeId), port: asPortId(target.inputId) })
+            if (item()?.wired === true || index.inputDriverOf.has(port) || index.netSourceOf.has(port)) return
+            void props.app.dispatchTo(tab,
+              withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
+          }
           return { tab, graphId, current, target, commit }
         }
         const recorder = () => {
@@ -6714,8 +6724,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.curve') return undefined
           const fallback = effectiveWidgetDefault(at.current.field.spec)
-          const value = isCurveValue(at.current.value) ? at.current.value : isCurveValue(fallback) ? fallback : undefined
-          if (value === undefined) return undefined
+          const value = isCurveValue(at.current.value) ? at.current.value : !at.current.wired && isCurveValue(fallback) ? fallback : undefined
+          if (value === undefined && !at.current.wired) return undefined
           executions()
           return {
             value,
@@ -6818,14 +6828,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 commit: (height) => editorPictureHeights?.commitPictureHeight(item()!.nodeId, item()!.row.valueKey, height),
               }}>
               <Show when={recorder()}>
-                {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} />}
+                {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} wired={item()?.wired === true} />}
               </Show>
               <Show when={webcam()}>
                 {(ports) => <WebcamSpace value={item()?.value} ports={ports()}
                   wired={item()?.wired === true} carried={item()?.carried} covered={covered()} />}
               </Show>
               <Show when={curve()}>
-                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wiredLine={item()?.row.wiredLine === true}
+                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wiredLine={item()?.row.wiredLine === true} wired={item()?.wired === true}
                   options={item()?.field.spec.options ?? {}} />}
               </Show>
               <Show when={load3d()}>

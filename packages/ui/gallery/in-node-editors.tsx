@@ -309,7 +309,8 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
       )
     }
     case 'core.curve': {
-      const value = props.example.values?.[props.row.valueKey] as
+      const wired = props.example.wired?.[props.row.inputId] !== undefined
+      const value = (wired ? props.example.carried?.[props.row.valueKey] ?? props.example.summaries?.[props.row.valueKey]?.value : props.example.values?.[props.row.valueKey]) as
         { interpolation?: 'linear' | 'monotone_cubic'; points?: { position: number; value: number }[] } | undefined
       const interpolation = value?.interpolation ?? 'monotone_cubic'
       const points = value?.points ?? []
@@ -326,21 +327,22 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
         <>
           {picture(
             <CanvasCurvePlot points={points} sample={curveInterpolator({ interpolation, points })} selected={selected}
+              disabled={wired}
               histogram={state()['histogram'] === true ? GALLERY_HISTOGRAM : undefined}
               inputStrip={inputStrip} outputStrip={outputStrip} {...(hover ? { hover } : {})} />,
           )}
-          <CanvasEditorLine>
+          <CanvasEditorLine dimmed={wired}>
             <GalleryChoice label="Interpolation" value={interpolation === 'linear' ? 'Linear' : 'Monotone cubic'} options={['Linear', 'Monotone cubic']} />
           </CanvasEditorLine>
-          <CanvasEditorLine dimmed={selected === undefined}>
+          <CanvasEditorLine dimmed={wired || selected === undefined}>
             <GalleryNumber label="Position" value={selected === undefined ? undefined : points[selected]!.position} min={0} max={1} step={0.01} precision={2} />
           </CanvasEditorLine>
-          <CanvasEditorLine dimmed={selected === undefined}>
+          <CanvasEditorLine dimmed={wired || selected === undefined}>
             <GalleryNumber label="Value" value={selected === undefined ? undefined : points[selected]!.value} min={0} max={1} step={0.01} precision={2} />
           </CanvasEditorLine>
           {/* The Delete key on a selected point does the same; a curve keeps at least one point. */}
           <CanvasEditorButtons buttons={[{ label: 'Delete point', icon: canvasEditorIcons.remove, intent: 'remove',
-            disabled: selected === undefined || points.length < 2 }]} />
+            disabled: wired || selected === undefined || points.length < 2 }]} />
           {/* The line is there while the histogram input has a wire, whether or not a run sent one. */}
           <Show when={props.row.wiredLine}>
             <CanvasEditorNote tone={state()['histogram'] === true ? undefined : 'muted'}>
