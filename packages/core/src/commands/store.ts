@@ -18,7 +18,8 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import type { BoundarySide, BoundaryNodeViewState, Json, WorkflowDocument } from '../format/document.js'
 import { ownJson } from '../format/json.js'
 import { isPortEndpoint, isValidActorId, parseOccurrenceKey, sameEndpoint, type PortRef } from '../ids.js'
-import { resolveOccurrenceLinkEndpoint } from '../compile/effective-topology.js'
+import { effectiveOccurrenceTopology } from '../compile/effective-topology.js'
+import { canonicalJson } from '../compile/hash.js'
 import { buildGraphConnectivity, elaborateInterface } from '../schema/elaborate.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { checkDocument, subgraphDefIdOf } from '../invariants.js'
@@ -61,10 +62,12 @@ function foldEditorsOnWireArrival(before: WorkflowDocument, tx: ReturnType<typeo
   for (const [key, topology] of Object.entries(tx.current.occurrenceTopologies ?? {})) {
     const old = before.occurrenceTopologies?.[key]
     if (old === topology) continue
-    for (const [id, link] of Object.entries(topology.links)) {
-      if (old?.links[id] && JSON.stringify(old.links[id]!.to) === JSON.stringify(link.to)) continue
-      const target = resolveOccurrenceLinkEndpoint(tx.current, topology.owner, link.to, 'to').endpoint
-      if (target && isPortEndpoint(target.endpoint)) add(target.graphId, target.endpoint)
+    const previous = effectiveOccurrenceTopology(before, resolve, topology.owner)
+    const current = effectiveOccurrenceTopology(tx.current, resolve, topology.owner)
+    const deliveryKey = (link: (typeof current.links)[number]) => canonicalJson([link.identity, link.to] as unknown as Json)
+    const known = new Set([...previous.links, ...previous.projectedParentLinks].map(deliveryKey))
+    for (const link of [...current.links, ...current.projectedParentLinks]) {
+      if (!known.has(deliveryKey(link)) && isPortEndpoint(link.to.endpoint)) add(link.to.graphId, link.to.endpoint)
     }
   }
   for (const [graphId, nodes] of arrivals) {
