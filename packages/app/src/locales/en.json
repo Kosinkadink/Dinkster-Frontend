@@ -1731,7 +1731,7 @@
   "projects.rename.title": "Rename project",
   "projects.rename.save": "Save",
   "projects.delete.title": "Delete {project}?",
-  "projects.delete.consequence": "Its workflows and outputs leave the project list. Files in its folder stay on disk.",
+  "projects.delete.consequence": "The project is removed from this list. Its workflows and output files are kept on disk.",
   "projects.delete.action": "Delete project",
   "projects.open.noInstallation": "This project has no installation to run on.",
   "projects.unreadable": "Could not read the projects.",

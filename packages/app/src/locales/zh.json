@@ -1731,7 +1731,7 @@
   "projects.rename.title": "重命名项目",
   "projects.rename.save": "保存",
   "projects.delete.title": "删除 {project}？",
-  "projects.delete.consequence": "它的工作流和输出将从项目列表中移除。其文件夹中的文件保留在磁盘上。",
+  "projects.delete.consequence": "该项目将从此列表中移除。其工作流和输出文件保留在磁盘上。",
   "projects.delete.action": "删除项目",
   "projects.open.noInstallation": "此项目没有可运行的安装。",
   "projects.unreadable": "无法读取项目。",
