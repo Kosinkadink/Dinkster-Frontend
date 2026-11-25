@@ -71,8 +71,14 @@ test('failure observes the same minimum and a superseded failure cannot replace 
   await page.clock.runFor(1)
   await expect(section.getByRole('status')).toHaveCount(0)
   await expect(section.getByRole('alert')).toHaveText(
-    'The account could not be read. Try again.',
+    'The account could not be read.',
   )
+  await section.getByRole('button', { name: 'Try again' }).click()
+  await page.clock.runFor(500)
+  await expect(section.getByRole('alert')).toHaveCount(0)
+  await expect(
+    section.getByText('alex@example.test', { exact: true }),
+  ).toBeVisible()
   await section.getByRole('button', { name: 'Fail to load' }).click()
   await page.clock.runFor(10)
   await section.getByRole('button', { name: 'Load quickly' }).click()
@@ -101,4 +107,48 @@ test('replacing a pending read keeps an already visible loading sign until its m
   await expect(
     section.getByText('alex@example.test', { exact: true }),
   ).toBeVisible()
+})
+
+test('the content frame stays fixed, centres loading, and retains the last answer below a failed refresh and retry', async ({
+  page,
+}) => {
+  const section = page.getByRole('region', { name: 'Page loading' })
+  const frame = section.locator('.dinkster-page-load-example')
+  const bounds = await frame.boundingBox()
+  expect(bounds).not.toBeNull()
+  await section.getByRole('button', { name: 'Load slowly' }).click()
+  await page.clock.runFor(200)
+  const loading = await section.getByRole('status').boundingBox()
+  expect(loading).not.toBeNull()
+  expect(
+    Math.abs(loading!.x + loading!.width / 2 - (bounds!.x + bounds!.width / 2)),
+  ).toBeLessThan(1)
+  expect(
+    Math.abs(
+      loading!.y + loading!.height / 2 - (bounds!.y + bounds!.height / 2),
+    ),
+  ).toBeLessThan(1)
+  await page.clock.runFor(800)
+  await section.getByRole('button', { name: 'Fail to load' }).click()
+  await page.clock.runFor(250)
+  const alert = section.getByRole('alert')
+  const retry = section.getByRole('button', { name: 'Try again' })
+  const answer = section.getByText('alex@example.test', { exact: true })
+  await expect(alert).toHaveText('The account could not be read.')
+  await expect(answer).toBeVisible()
+  await expect(section.getByRole('status')).toHaveCount(0)
+  const alertBounds = await alert.boundingBox()
+  const retryBounds = await retry.boundingBox()
+  const answerBounds = await answer.boundingBox()
+  expect(alertBounds!.y + alertBounds!.height).toBeLessThan(retryBounds!.y)
+  expect(retryBounds!.y + retryBounds!.height).toBeLessThan(answerBounds!.y)
+  expect(await frame.boundingBox()).toEqual(bounds)
+  await retry.click()
+  await page.clock.runFor(200)
+  await expect(answer).toBeVisible()
+  await expect(section.getByRole('status')).toHaveCount(0)
+  await page.clock.runFor(50)
+  await expect(alert).toHaveCount(0)
+  await expect(answer).toBeVisible()
+  expect(await frame.boundingBox()).toEqual(bounds)
 })

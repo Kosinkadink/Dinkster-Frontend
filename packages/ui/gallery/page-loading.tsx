@@ -1,31 +1,35 @@
-import { Show } from 'solid-js'
 import {
   createPageLoad,
   ProductButton,
-  ProductLoading,
-  ProductNotice,
+  ProductPageLoad,
   ProductSection,
 } from '../src/index.js'
 
 export function PageLoadingGallery() {
   const page = createPageLoad<[string, string]>()
-  const read = (delay: number, fail = false, email = 'alex@example.test') =>
-    page.load(() =>
-      Promise.all([
+  let request: () => Promise<[string, string]>
+  const read = (delay: number, fail = false, email = 'alex@example.test') => {
+    let failNext = fail
+    request = () => {
+      const failed = failNext
+      failNext = false
+      return Promise.all([
         new Promise<string>((resolve) =>
           setTimeout(() => resolve('Alex Morgan'), 20),
         ),
         new Promise<string>((resolve, reject) =>
           setTimeout(
             () =>
-              fail
-                ? reject(new Error('The account could not be read. Try again.'))
+              failed
+                ? reject(new Error('The account could not be read.'))
                 : resolve(email),
             delay,
           ),
         ),
-      ]),
-    )
+      ])
+    }
+    return page.load(request)
+  }
   return (
     <ProductSection title="Page loading">
       <p class="dinkster-description">
@@ -51,23 +55,19 @@ export function PageLoadingGallery() {
           Refresh account
         </ProductButton>
       </div>
-      <div class="dinkster-stack" aria-busy={page.pending()}>
-        <Show when={page.loading()}>
-          <ProductLoading label="Loading account" />
-        </Show>
-        <Show when={page.error()}>
-          {(error) => (
-            <ProductNotice tone="error">{error().message}</ProductNotice>
-          )}
-        </Show>
-        <Show when={page.value()}>
+      <div class="dinkster-page-load-example">
+        <ProductPageLoad
+          page={page}
+          read={() => request()}
+          loadingLabel="Loading account"
+        >
           {(account) => (
             <div class="dinkster-stack">
-              <strong>{account()[0]}</strong>
-              <span>{account()[1]}</span>
+              <strong>{account[0]}</strong>
+              <span>{account[1]}</span>
             </div>
           )}
-        </Show>
+        </ProductPageLoad>
       </div>
     </ProductSection>
   )
