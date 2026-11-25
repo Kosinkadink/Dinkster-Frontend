@@ -1367,7 +1367,18 @@ export interface ProjectNeeds {
   readonly unknown: readonly { readonly scope: string; readonly id: string }[]
 }
 
+export interface AccountProjectLink {
+  readonly issuer: string
+  readonly id: string
+}
+
+export interface AccountProjectChoices {
+  readonly issuer: string
+  readonly projects: readonly { readonly id: string; readonly displayName: string | null }[]
+}
+
 export interface LibraryProject {
+  readonly accountProject?: AccountProjectLink | null
   readonly id: string
   readonly uid?: string
   readonly name: string
@@ -1406,10 +1417,62 @@ function decodeLibraryProject(value: unknown): LibraryProject {
       throw new Error('Malformed library project environment')
     }
   }
+  const accountProject = row['accountProject']
+  let link: AccountProjectLink | null | undefined
+  if (accountProject === null) link = null
+  else if (accountProject !== undefined) {
+    if (typeof accountProject !== 'object' || Array.isArray(accountProject)) throw new Error('Malformed library project account link')
+    const record = accountProject as Record<string, unknown>
+    if (typeof record['issuer'] !== 'string' || !/^https?:\/\/[^\s]+$/.test(record['issuer']) ||
+      typeof record['id'] !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(record['id'])) {
+      throw new Error('Malformed library project account link')
+    }
+    link = { issuer: record['issuer'], id: record['id'] }
+  }
   return {
+    ...(link === undefined ? {} : { accountProject: link }),
     id: row['id'], name: row['name'], created: row['created'], revision: row['revision'] as number, deleted: row['deleted'],
     ...(uid === undefined ? {} : { uid: uid as string }),
     ...(environment === undefined ? {} : { environment: environment as Exclude<LibraryProject['environment'], undefined> }),
+  }
+}
+
+/** The engine's native account session (`GET /api/account`), not a collaboration session. */
+export interface AccountStatus {
+  /** False when hosted account services are not configured for this engine. */
+  readonly available: boolean
+  readonly canStartSignIn: boolean
+  readonly signInUnavailableReason: 'account-unavailable' | 'account-sign-in-requires-engine-machine' | null
+  readonly signedIn: boolean
+  readonly profile: { readonly displayName: string | null; readonly email: string | null } | null
+  readonly signIn: 'idle' | 'pending' | 'failed'
+}
+
+function decodeAccountStatus(value: unknown): AccountStatus {
+  const invalid = () => new Error('Malformed account status')
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw invalid()
+  const row = value as Record<string, unknown>
+  const reason = row['signInUnavailableReason']
+  const profile = row['profile']
+  const signIn = row['signIn'] as Record<string, unknown> | null | undefined
+  const text = (field: unknown): string | null => {
+    if (field !== null && typeof field !== 'string') throw invalid()
+    return field
+  }
+  if (typeof row['available'] !== 'boolean' || typeof row['canStartSignIn'] !== 'boolean' ||
+    typeof row['signedIn'] !== 'boolean' ||
+    !(reason === null || reason === 'account-unavailable' || reason === 'account-sign-in-requires-engine-machine') ||
+    !(profile === null || typeof profile === 'object' && !Array.isArray(profile)) ||
+    typeof signIn !== 'object' || signIn === null ||
+    !(signIn['state'] === 'idle' || signIn['state'] === 'pending' || signIn['state'] === 'failed')) throw invalid()
+  const person = profile as Record<string, unknown> | null
+  return {
+    available: row['available'],
+    canStartSignIn: row['canStartSignIn'],
+    signInUnavailableReason: reason,
+    signedIn: row['signedIn'],
+    profile: person === null ? null : { displayName: text(person['displayName']), email: text(person['email']) },
+    signIn: signIn['state'],
   }
 }
 
@@ -1921,6 +1984,7 @@ export class DinksterConnection {
   private readonly liveCompletionListeners = new Set<(execution: ExecutionRef) => void>()
   private readonly memoryListeners = new Set<(status: MemoryStatus) => void>()
   private readonly mountListeners = new Set<() => void>()
+  private readonly libraryListeners = new Set<() => void>()
   private readonly socket: ReconnectingSocket
   private readonly jobIdFactory: () => string
   private protocolErrors = 0
@@ -2054,13 +2118,20 @@ export class DinksterConnection {
     return () => this.mountListeners.delete(listener)
   }
 
+  /** Library pings carry no records; consumers refetch through authorized routes. */
+  onLibraryChanged(listener: () => void): () => void {
+    this.libraryListeners.add(listener)
+    return () => this.libraryListeners.delete(listener)
+  }
+
   private emit(events: readonly NormalizedEvent[]): void {
     for (const e of events) for (const l of [...this.listeners]) l(e)
   }
 
   private emitRaw(raw: DinksterRawMessage, live: boolean): void {
-    if (live && !(raw instanceof ArrayBuffer) && raw.type === 'mounts_changed') {
+    if (live && !(raw instanceof ArrayBuffer) && (raw.type === 'mounts_changed' || raw.type === 'library_changed')) {
       for (const listener of [...this.mountListeners]) listener()
+      if (raw.type === 'library_changed') for (const listener of [...this.libraryListeners]) listener()
       return
     }
     if (live && !(raw instanceof ArrayBuffer)) this.noteLiveJobEvent(raw)
@@ -4084,6 +4155,68 @@ export class DinksterConnection {
       return { scope: record['scope'], id: record['id'] }
     })
     return { packs, installed, extra: body['extra'] as string[], unknown }
+  }
+
+  async accountStatus(signal?: AbortSignal): Promise<AccountStatus> {
+    return decodeAccountStatus(await this.accountRequest('GET', '/api/account', signal))
+  }
+
+  /** Starts native sign-in; the browser on the engine's machine opens `authorizationUrl`. */
+  async startAccountSignIn(signal?: AbortSignal): Promise<AccountStatus & { readonly authorizationUrl: string }> {
+    const payload = await this.accountRequest('POST', '/api/account/sign-in', signal) as Record<string, unknown> | null
+    const url = payload?.['authorizationUrl']
+    if (typeof url !== 'string' || !/^https?:\/\//.test(url)) throw new Error('Malformed account sign-in')
+    return { ...decodeAccountStatus(payload), authorizationUrl: url }
+  }
+
+  async cancelAccountSignIn(signal?: AbortSignal): Promise<AccountStatus> {
+    return decodeAccountStatus(await this.accountRequest('DELETE', '/api/account/sign-in', signal))
+  }
+
+  async signOutAccount(signal?: AbortSignal): Promise<AccountStatus> {
+    return decodeAccountStatus(await this.accountRequest('POST', '/api/account/sign-out', signal))
+  }
+
+  async accountProjects(signal?: AbortSignal): Promise<AccountProjectChoices> {
+    const raw = await this.accountRequest('GET', '/api/account/projects', signal)
+    const invalid = () => new Error('Malformed account project choices')
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
+    const row = raw as Record<string, unknown>
+    if (typeof row['issuer'] !== 'string' || !/^https?:\/\/[^\s]+$/.test(row['issuer']) || !Array.isArray(row['projects'])) throw invalid()
+    const projects = row['projects'].map((raw: unknown) => {
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
+      const project = raw as Record<string, unknown>
+      if (typeof project['id'] !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(project['id']) ||
+        !(project['displayName'] === null || typeof project['displayName'] === 'string' && project['displayName'].trim().length > 0)) throw invalid()
+      return { id: project['id'], displayName: project['displayName'] }
+    })
+    return { issuer: row['issuer'], projects }
+  }
+
+  async setProjectAccountLink(id: string, accountProject: string | null, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    const payload = await this.accountRequest('PUT', `/api/account/projects/${encodeURIComponent(id)}`, signal, { revision, accountProject }) as { project?: unknown } | null
+    const project = decodeLibraryProject(payload?.project)
+    if (project.id !== id) throw new Error('Library returned another project')
+    if (project.deleted) throw new Error('Project is unavailable')
+    if (project.accountProject === undefined ||
+      (accountProject === null ? project.accountProject !== null : project.accountProject?.id !== accountProject)) {
+      throw new Error('Library returned another account link')
+    }
+    return project
+  }
+
+  private async accountRequest(method: 'GET' | 'POST' | 'DELETE' | 'PUT', path: string, signal?: AbortSignal, body: Readonly<Record<string, unknown>> = {}): Promise<unknown> {
+    const res = await this.fetchFn(`${this.baseUrl}${path}`, {
+      method, cache: 'no-store',
+      ...(method === 'POST' || method === 'PUT' ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
+      ...(signal === undefined ? {} : { signal }),
+    })
+    const payload: unknown = await res.json().catch(() => undefined)
+    if (!res.ok) {
+      const code = (payload as { error?: unknown } | undefined)?.error
+      throw new Error(`${method} ${path} failed: ${typeof code === 'string' ? code : res.status}`)
+    }
+    return payload
   }
 
   renameProject(id: string, name: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {

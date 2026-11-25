@@ -17,7 +17,7 @@ import {
   DinksterAppMenu,
   dispatchAppCommandKey,
 } from '../src/App.js'
-import { ActivityBarButton, DockZoneHost, FloatingPanelHost, ShellResizeHandle } from '../src/ShellChrome.js'
+import { ActivityBarButton, DockZoneHost, FloatingPanelHost, IconBar, ShellResizeHandle } from '../src/ShellChrome.js'
 import { CanvasViewControls } from '../src/CanvasHost.js'
 import { ContextMenu } from '../src/ContextMenu.js'
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from '../src/editors.js'
@@ -106,6 +106,43 @@ function canvasViewControlsFixture(appViewEnabled = true) {
   ), root)
   return { root, selectView, selectLens, setAllNetsDisplay, setViewMenuOpen, setLensMenuOpen, dispose }
 }
+
+describe('icon bar', () => {
+  it('keeps the left bar hooks the editor and its tests rely on, and draws the logo only when given', () => {
+    const [hidden, setHidden] = createSignal(false)
+    const [logo, setLogo] = createSignal(false)
+    const settings = vi.fn()
+    const place = vi.fn()
+    render(() => (
+      <IconBar
+        hidden={hidden()}
+        logo={logo() ? () => <button type="button">Dinkster</button> : undefined}
+        account={<span data-testid="account" />}
+        onSettings={settings}
+      >
+        <ActivityBarButton label="Projects" accessibleName="Projects" tooltip="Projects" pressed={true} testId="place" onActivate={place} />
+      </IconBar>
+    ), document.body)
+    const bar = document.querySelector<HTMLElement>('nav.left-sidebar')!
+    expect(bar.getAttribute('aria-label')).toBe('Primary navigation')
+    expect(bar.dataset['tooltipSession']).toBe('left-rail')
+    expect(bar.querySelector('.sidebar-logo')).toBeNull()
+    expect(bar.querySelector('.sidebar-toggle-stack > [data-testid="dock-toggle-group"] [data-testid="place"]')).not.toBeNull()
+    expect(bar.querySelector('.sidebar-account > [data-testid="account"]')).not.toBeNull()
+    const settingsButton = bar.querySelector<HTMLButtonElement>('[data-testid="settings-button"]')!
+    expect(settingsButton.classList.contains('sidebar-settings-button')).toBe(true)
+    expect(settingsButton.dataset['tooltipDetail']).toBe('Ctrl+,')
+    click(settingsButton)
+    expect(settings).toHaveBeenCalledTimes(1)
+    expect(place).not.toHaveBeenCalled()
+
+    setLogo(true)
+    expect(bar.firstElementChild?.matches('.sidebar-logo')).toBe(true)
+    expect(bar.querySelector('.sidebar-logo')?.textContent).toBe('Dinkster')
+    setHidden(true)
+    expect(bar.hidden).toBe(true)
+  })
+})
 
 describe('canvas view controls', () => {
   it('omits App View when its feature is disabled without hiding graph controls', () => {
@@ -683,6 +720,32 @@ describe('workflow file commands', () => {
     expect(JSON.parse(text)).toEqual(expected)
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(revokeUrl).toHaveBeenCalledWith('blob:workflow-export')
+  })
+
+  it.each(['saved', 'closed', 'failed'] as const)('uses the Desktop save result: %s', async (outcome) => {
+    const app = prepareWorkflowApp(new AppState())
+    const tab = app.activeTab()!
+    const expected = app.exportDocument(tab.id)
+    const saveFile = vi.fn(async (_bytes: Uint8Array, _name: string) => {
+      if (outcome === 'failed') throw new Error('disk full')
+      return outcome === 'saved' ? { status: 'saved' as const, name: 'chosen.json' } : { status: 'closed' as const }
+    })
+    const previous = window.dinksterDesktop
+    window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: true }), chooseDirectory: async () => undefined, saveFile }
+    const createUrl = vi.spyOn(URL, 'createObjectURL')
+    try {
+      expect(await app.exportWorkflow(tab.id)).toBe(outcome === 'saved')
+      const [bytes, name] = saveFile.mock.calls[0]!
+      expect(name).toBe(workflowExportFilename(tab.title))
+      expect(new TextDecoder().decode(bytes)).toBe(`${JSON.stringify(expected, null, 2)}\n`)
+      expect(createUrl).not.toHaveBeenCalled()
+      expect(app.transientStatus.get()).toContain(outcome === 'saved' ? 'Saved: chosen.json' : outcome === 'closed' ? 'Save closed:' : 'disk full')
+      expect(app.problems.get().some((problem) => problem.code === 'workflow.exportFailed')).toBe(outcome === 'failed')
+    } finally {
+      if (previous) window.dinksterDesktop = previous
+      else delete window.dinksterDesktop
+      app.dispose()
+    }
   })
 
   it('reports a snapshot failure without rejecting the download command', async () => {

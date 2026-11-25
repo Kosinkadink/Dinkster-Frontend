@@ -104,6 +104,21 @@
   justify-content: center;
 }
 
+.node-model3d-actions > [role="alert"],
+.node-model3d-viewport > [role="alert"] {
+  position: absolute;
+  top: calc(var(--dinkster-control-compact-height) + var(--dinkster-space-12));
+  left: var(--dinkster-space-8);
+  right: var(--dinkster-space-8);
+  max-height: calc(100% - var(--dinkster-control-compact-height) - var(--dinkster-space-24));
+  overflow: auto;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+  z-index: 1;
+  color: var(--dinkster-danger-foreground);
+  background: var(--dinkster-surface-panel);
+}
+
 .node-output-pager {
   position: fixed;
   z-index: 4;

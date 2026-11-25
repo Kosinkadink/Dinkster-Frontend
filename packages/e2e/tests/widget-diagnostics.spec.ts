@@ -135,7 +135,7 @@ test('an additive nested combo field keeps the node editable and reports its nam
   await expect(problems(page)).toContainText('TolerantWidgets.choice')
   await expect(problems(page)).toContainText('futureHint')
   await openEditor(page, 'sample', 'choice')
-  const search = page.getByTestId('combo-search')
+  const search = page.locator('[data-editor-surface="in-row-list"] input')
   await search.fill('cubic'); await search.press('ArrowDown'); await search.press('Enter')
   await expect.poll(() => page.evaluate(() =>
     window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.sample!.values.choice,
@@ -183,7 +183,7 @@ test('unknown stored COMBO option reports and clears when a listed option is pic
   await expect(problems(page)).toContainText('widget.COMBO.unknownOption')
   await expect(problems(page)).toContainText("widgets.choice: 'omega' is not in the option list")
   await openEditor(page, 'widgets', 'choice')
-  const search = page.getByTestId('combo-search')
+  const search = page.locator('[data-editor-surface="in-row-list"] input')
   await search.fill('beta'); await search.press('ArrowDown'); await search.press('Enter')
   await expect(problems(page)).not.toContainText('widget.COMBO')
 })
@@ -225,7 +225,7 @@ test('diagnostics replace per scene rebuild: unrelated edits never duplicate an 
   // Editing a DIFFERENT widget rebuilds the scene; the standing diagnostic
   // must stay a single entry, not accumulate one copy per rebuild.
   await openEditor(page, 'widgets', 'choice')
-  const search = page.getByTestId('combo-search')
+  const search = page.locator('[data-editor-surface="in-row-list"] input')
   await search.fill('gamma'); await search.press('ArrowDown'); await search.press('Enter')
   await expect(problemEntries(page, 'widget.INT.aboveMax')).toHaveCount(1)
   await expect(problems(page)).toContainText('widgets.count: 999 > max 100')

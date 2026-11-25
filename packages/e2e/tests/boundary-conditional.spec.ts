@@ -152,8 +152,8 @@ async function selectCombo(page: Page, nodeId: string, inputId: string, option: 
     return { x: rect.left + node.x + node.layout.width * xFraction, y: rect.top + node.y + row.y + row.height / 2 }
   }, { nodeId, inputId, xFraction })
   await page.mouse.click(point.x, point.y)
-  const dropdown = page.getByTestId('combo-dropdown')
-  await expect(dropdown).toBeVisible()
+  const dropdown = page.locator('[data-editor-surface="in-row-list"]')
+  await expect(dropdown.locator('input')).toBeVisible()
   await dropdown.getByRole('option', { name: option, exact: true }).click()
 }
 

@@ -132,6 +132,21 @@ describe('widgetEditorAnchorAlive', () => {
     expect(widgetEditorAnchorAlive(ed, [node([widgetRow({ spec, type, y: 56 } as never)], 'n0', { x: 50, y: 50 })], 't0', 'g0', undefined, false)).toBe(false)
   })
 
+  it('closes a selector open in its row when its choice changes elsewhere', () => {
+    const spec: WidgetSpec = { widgetType: 'COMBO', options: { options: ['scale dimensions', 'scale by multiplier'] } }
+    const type = { kind: 'concrete', name: 'COMBO' } as unknown as TypeExpr
+    const selector = { construct: 'resize_type', ancestors: [] }
+    const ed = editorState({
+      spec, declaredType: type, initial: 'scale dimensions',
+      target: { kind: 'input', nodeId: 'n0', valueKey: 'files', selector },
+      rect: { x: 54, y: 82, width: 100, height: 20 },
+      inRow: { look: 'flat-title', nodeTop: 0, nodeBottom: 200, storedAtOpen: null },
+    })
+    const row = (derivedValue: string) => widgetRow({ spec, type, y: 30, selector, derivedValue } as never)
+    expect(widgetEditorAnchorAlive(ed, [node([row('scale dimensions')], 'n0', { x: 50, y: 50 })], 't0', 'g0', undefined, false)).toBe(true)
+    expect(widgetEditorAnchorAlive(ed, [node([row('scale by multiplier')], 'n0', { x: 50, y: 50 })], 't0', 'g0', undefined, false)).toBe(false)
+  })
+
   it('keeps a multiline STRING draft across document changes while its row contract survives', () => {
     const spec: WidgetSpec = { widgetType: 'STRING', options: { multiline: true } }
     const type = { kind: 'concrete', name: 'STRING' } as unknown as TypeExpr

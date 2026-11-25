@@ -60,7 +60,7 @@ describe('universal search model', () => {
     const row = rows.find((item) => item.id === 'layout.customize')!
     expect(row.title).toBe('Customize layout')
     expect(runSearchAction(app, row.action)).toBe(true)
-    expect(app.modalPanel.get()).toBe('customize-layout')
+    expect(app.layoutMenuRequests.get()).toBe(1)
     dispose.forEach((fn) => fn())
   })
   it('commands provider opens the Backends panel for runtime settings discovery', () => {

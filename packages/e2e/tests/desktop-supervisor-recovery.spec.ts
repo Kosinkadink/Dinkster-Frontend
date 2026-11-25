@@ -40,3 +40,25 @@ test('a post-ready engine death surfaces restart and returns to ready', async ({
   await expect(banner).toBeHidden({ timeout: 7000 })
   expect(state).toBe('ready')
 })
+
+test('with no engine open the status bar and Run say so until an engine opens', async ({ page }) => {
+  let status: Record<string, unknown> = { protocol: 1, state: 'stopped', role: 'home', installations: 1 }
+  await page.route('**/supervisor/status', (route) => route.fulfill({ json: status }))
+  await page.route('**/api/**', (route) => route.fulfill({ status: 503, json: { error: 'engine-not-ready', state: 'stopped', status: '/supervisor/status' } }))
+
+  await page.goto('/')
+  const connection = page.getByTestId('status-connection')
+  await expect(connection).toHaveAttribute('data-state', 'no-engine')
+  await expect(connection).toHaveAttribute('aria-label', 'Local: no engine')
+  await expect(connection).toContainText('no engine')
+  await expect(page.getByTestId('status-bar')).not.toContainText('Loading schemas')
+  const run = page.getByTestId('queue-button')
+  await expect(run).toHaveAttribute('data-tooltip-label', 'No engine is running')
+  await run.hover()
+  await expect(page.getByText('No engine is running')).toBeVisible()
+
+  status = { protocol: 1, state: 'starting', role: 'home', installations: 1, open: { root: '/installs/a', engine: 'main' } }
+  await expect(connection).not.toHaveAttribute('data-state', 'no-engine', { timeout: 7000 })
+  await expect(run).toHaveAttribute('data-tooltip-label', 'Run workflow')
+  await expect(page.getByTestId('status-bar')).toContainText('Loading schemas')
+})

@@ -66,6 +66,45 @@ it('preserves pending and displayed indexed frames across equivalent media and a
   expect(root.querySelector('[data-testid="video-timing"]')?.textContent).toContain('Frame unknown')
 })
 
+it.each(['video', 'frame'] as const)('downloads the displayed %s through Desktop rather than a browser anchor', async (kind) => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:indexed-frame')
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  const fetchBytes = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Uint8Array([0, 255, 13, 128])))
+  const browserDownload = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  const saveFile = vi.fn(async (_bytes: Uint8Array, _name: string) => ({ status: 'closed' as const }))
+  const previous = window.dinksterDesktop
+  window.dinksterDesktop = { fileCapabilities: async () => ({ nativeFolderChoice: true, reveal: true }), chooseDirectory: async () => undefined, saveFile }
+  const inspection: VideoInspection = {
+    index: 0, count: 1, canSelectFrame: true,
+    request: async () => ({ available: true, bytes: new ArrayBuffer(1), mime: 'image/png', fingerprint: 'frame', kind: 'frame' }),
+    select: async () => { throw new Error('No second video') },
+  }
+  const root = document.createElement('div')
+  document.body.append(root)
+  const media: VideoNodePreview = { kind: 'video', src: 'blob:video', mime: 'video/mp4', videoInspection: inspection,
+    download: { src: 'blob:original', name: 'original.mp4' } }
+  const dispose = render(() => <VideoPreview media={media} preferences={{ autoplay: false, muted: true, loop: true }} />, root)
+  disposers.push(dispose)
+  try {
+    if (kind === 'frame') {
+      root.querySelector<HTMLButtonElement>('[aria-label="Next frame"]')!.click()
+      await vi.waitFor(() => expect(root.querySelector('.video-preview-frame')).not.toBeNull())
+    }
+    const link = root.querySelector<HTMLAnchorElement>('.app-preview-download')!
+    expect(link.href).toBe(kind === 'frame' ? 'blob:indexed-frame' : 'blob:video')
+    expect(link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))).toBe(false)
+    await vi.waitFor(() => expect(saveFile).toHaveBeenCalledOnce())
+    expect(Array.from(saveFile.mock.calls[0]![0])).toEqual([0, 255, 13, 128])
+    expect(saveFile.mock.calls[0]![1]).toBe(kind === 'frame' ? 'preview.png' : 'preview.mp4')
+    expect(fetchBytes.mock.calls[0]![0]).toBe(kind === 'frame' ? 'blob:indexed-frame' : 'blob:video')
+    expect(browserDownload).not.toHaveBeenCalled()
+    expect(root.querySelector('[role="alert"]')).toBeNull()
+  } finally {
+    if (previous) window.dinksterDesktop = previous
+    else delete window.dinksterDesktop
+  }
+})
+
 it.each(['success', 'refusal'] as const)('keeps old thumbnail %s bound to the previous selection', async (outcome) => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValueOnce('blob:new-video').mockReturnValue('blob:new-thumbs')
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
