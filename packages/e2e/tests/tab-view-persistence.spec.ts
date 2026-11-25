@@ -7,7 +7,7 @@ const setViewport = (page: Page, viewport: { x: number; y: number; scale: number
   page.evaluate((value) => window.__dinksterTest!.renderer!.setViewport(value), viewport)
 
 const viewport = (page: Page) =>
-  page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
+  page.evaluate(() => window.__dinksterTest?.renderer?.getViewport())
 
 const flushTabs = (page: Page) => page.evaluate(() => {
   ;(window.__dinksterTest!.app as unknown as { flushPersistTabs(): void }).flushPersistTabs()
