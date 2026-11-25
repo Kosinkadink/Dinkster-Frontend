@@ -1,4 +1,4 @@
-import { executionDetails, expect, nativeTest as test, selectProductOption, type Page } from './fixtures.js'
+import { executionDetails, expect, nativeTest as test, type Page, chooseRunScope } from './fixtures.js'
 
 const pointOn = (page: Page, nodeId: string, part: 'header' | 'section' | 'widget' | 'input' | 'output') =>
   page.evaluate(({ nodeId, part }) => {
@@ -208,7 +208,7 @@ test('the frozen line sits centred on the row of the canvas controls and drops a
 
 test('run rows expose one snowflake and retained runs keep their snapshot availability', async ({ page }, info) => {
   const row = page.getByTestId('execution-row').first()
-  await expect(row.locator('.runs-row-heading .execution-open')).toBeEnabled()
+  await expect(row.locator('.run-row-line .execution-open')).toBeEnabled()
   const details = await executionDetails(row)
   await expect(details.locator('.execution-open')).toHaveCount(0)
   await expect(row.locator('.execution-open')).toHaveCount(1)
@@ -219,9 +219,9 @@ test('run rows expose one snowflake and retained runs keep their snapshot availa
     app.store.register(ref, result.artifact, 0, { jobRef: 'frozen-retained-run' })
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
   })
-  await selectProductOption(page, page.getByTestId('runs-scope'), 'all')
-  const stored = page.locator('.runs-stored-row').filter({ hasText: 'frozen-portrait-run' })
-  const remote = page.locator('.runs-stored-row').filter({ hasText: 'remote-portrait-run' })
+  await chooseRunScope(page, 'all')
+  const stored = page.locator('[data-entry="frozen-retained-run"] .runs-stored-row')
+  const remote = page.locator('[data-entry="remote-retained-run"] .runs-stored-row')
   await expect(stored.locator('.execution-open')).toHaveCount(1)
   await expect(remote).toBeVisible()
   await expect(remote.locator('.execution-open')).toHaveCount(0)
