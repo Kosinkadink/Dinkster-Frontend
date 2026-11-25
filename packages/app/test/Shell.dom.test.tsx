@@ -10,6 +10,7 @@ import type { HomeStatus, InstallationFrontend } from '../src/shell-route.js'
 const here = DINKSTER_SCHEMA_WIRE_VERSION
 const installations: Record<string, InstallationFrontend> = {
   '/same': { wire: here, selected: null, available: true },
+  '/broken': { wire: here, selected: null, available: true },
   '/older': { wire: here + 1, selected: null, available: true },
   '/developed': { wire: here, selected: 'folder', available: true },
   '/none': { wire: here + 1, selected: null, available: false },
@@ -27,6 +28,7 @@ function mount(home: HomeStatus = { role: 'home', state: 'stopped' }) {
     if (path === '/supervisor/engine') {
       const target = JSON.parse(String(init?.body)) as { root: string; engine: string }
       opened.push(target)
+      if (target.root === '/broken') return Response.json({ error: 'engine-failed', message: 'port 3639 is taken' })
       status = { ...status, state: 'starting', open: target }
       return Response.json(status)
     }
@@ -118,8 +120,19 @@ describe('the one app shell', () => {
     await vi.waitFor(() => expect(view.text('line')).toBe("Opening in developed's own editor"))
     expect(view.root.querySelector('[data-testid="line"]')?.getAttribute('title')).toBe('This installation uses a development editor.')
     view.become({ state: 'failed', detail: 'port 3639 is taken' })
-    await vi.waitFor(() => expect(view.text('failed')).toBe('port 3639 is taken'))
+    await vi.waitFor(() => expect(view.text('failed')).toBe('developed did not start'))
+    expect(view.root.querySelector('[data-testid="line"]')?.getAttribute('title')).toBe('port 3639 is taken')
     expect(view.navigated).toEqual([])
+  })
+
+  it('names the installation whose engine did not start, with the engine detail as the reason', async () => {
+    const view = mount()
+    view.shell.openProject('diner', { root: '/broken', engine: 'main', name: 'Nightly' })
+    await vi.waitFor(() => expect(view.text('failed')).toBe('Nightly did not start'))
+    expect(view.text('line')).toBe('Starting Nightly')
+    expect(view.root.querySelector('[data-testid="line"]')?.getAttribute('title')).toBe('port 3639 is taken')
+    expect(view.editors).toEqual([])
+    expect(view.page()).not.toBeNull()
   })
 
   it('says so when an installation has no editor this build can open', async () => {

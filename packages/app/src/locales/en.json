@@ -1690,6 +1690,7 @@
   "shell.opening.ownEditor": "Opening in {installation}'s own editor",
   "shell.opening.reason.older": "This installation uses an older editor.",
   "shell.opening.reason.development": "This installation uses a development editor.",
-  "shell.opening.failed": "The engine did not start.",
+  "shell.opening.starting": "Starting {installation}",
+  "shell.opening.didNotStart": "{installation} did not start",
   "shell.opening.unavailable": "This installation has no editor this Dinkster can open. Update it to open its projects."
 }

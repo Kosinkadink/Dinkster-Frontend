@@ -42,8 +42,9 @@ export interface ShellInstallation extends ProjectInstallation {
 export interface ProjectOpening {
   readonly projectId: string
   readonly line: string
-  /** Why it opens elsewhere; the line's tooltip. */
+  /** The line's tooltip: why it opens elsewhere, or after a failure the engine's own detail. */
   readonly reason?: string
+  /** The failed row's text, such as "Nightly did not start". */
   readonly failed?: string
 }
 
@@ -69,6 +70,11 @@ export type MountEditor = (projectId: string, host: HTMLElement, shell: ShellNav
 const reducedMotion = (): boolean => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
 const fadeTime = (): number => (reducedMotion() ? 0 : SHELL_FADE_MS)
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+const nameOf = (installation: ShellInstallation): string =>
+  installation.name ?? installation.root.split(/[\\/]/).filter(Boolean).pop() ?? installation.root
+const sameInstallation = (a: ProjectInstallation | undefined, b: ProjectInstallation): boolean =>
+  a?.root === b.root && a.engine === b.engine
+const detailOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 async function postJson(path: string, body: unknown): Promise<HomeStatus & { message?: string; error?: string }> {
   const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -130,8 +136,13 @@ export function Shell(props: {
     disposeEditor = await props.mountEditor(projectId, editorHost, navigation)
   }
 
+  const failedOpening = (opening: ProjectOpening, installation: ShellInstallation, error: unknown): ProjectOpening => {
+    const detail = detailOf(error)
+    return { ...opening, ...(detail ? { reason: detail } : {}), failed: message('shell.opening.didNotStart', { installation: nameOf(installation) }) }
+  }
+
   const openInstallationEngine = async (installation: ProjectInstallation): Promise<void> => {
-    if (openInstallation?.root === installation.root && openInstallation.engine === installation.engine) return
+    if (sameInstallation(openInstallation, installation)) return
     const answer = await postJson('/supervisor/engine', installation)
     if (answer.error !== undefined) throw new Error(answer.message ?? answer.error)
     openInstallation = installation
@@ -139,7 +150,7 @@ export function Shell(props: {
 
   /** The page-load path: wait for the engine and the address, then leave on the frame colour. */
   const openElsewhere = async (projectId: string, installation: ShellInstallation, reason: 'older' | 'development', run: number): Promise<void> => {
-    const name = installation.name ?? installation.root.split(/[\\/]/).filter(Boolean).pop() ?? installation.root
+    const name = nameOf(installation)
     const base = {
       projectId,
       line: message('shell.opening.ownEditor', { installation: name }),
@@ -153,7 +164,7 @@ export function Shell(props: {
       let status: HomeStatus | undefined
       while (run === attempt) {
         status = await readHomeStatus()
-        if (status?.state === 'failed') throw new Error(status.detail || message('shell.opening.failed'))
+        if (status?.state === 'failed') throw new Error(status.detail ?? '')
         if (status?.state === 'ready' && status.installationFrontend !== undefined) {
           // Any answer will do; a page of another origin is opaque here.
           const answered = await fetch(status.installationFrontend + '/', { mode: 'no-cors', cache: 'no-store' }).then(() => true, () => false)
@@ -167,17 +178,19 @@ export function Shell(props: {
       const target = urlForView(new URL(status.installationFrontend + '/'), { kind: 'editor', projectId })
       ;(props.navigate ?? ((url) => location.assign(url)))(target.href)
     } catch (error) {
-      if (run === attempt) setOpening({ ...base, failed: error instanceof Error ? error.message : String(error) })
+      if (run === attempt) setOpening(failedOpening(base, installation, error))
     }
   }
 
-  const openHere = async (projectId: string, installation: ProjectInstallation | undefined, run: number): Promise<void> => {
+  const openHere = async (projectId: string, installation: ShellInstallation | undefined, run: number): Promise<void> => {
     const replacing = editorProject() !== undefined && editorProject() !== projectId
-    setOpening({ projectId, line: message('shell.opening.here') })
+    const starting = installation !== undefined && !sameInstallation(openInstallation, installation)
+    const line = starting ? message('shell.opening.starting', { installation: nameOf(installation) }) : message('shell.opening.here')
+    setOpening({ projectId, line })
     try {
       if (installation !== undefined) await openInstallationEngine(installation)
     } catch (error) {
-      if (run === attempt) setOpening({ projectId, line: message('shell.opening.here'), failed: error instanceof Error ? error.message : String(error) })
+      if (run === attempt && installation !== undefined) setOpening(failedOpening({ projectId, line }, installation, error))
       return
     }
     if (run !== attempt) return
