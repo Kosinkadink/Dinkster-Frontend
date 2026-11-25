@@ -1566,6 +1566,24 @@ describe('editors shown in the node', () => {
       expect(plain.rows.some((row) => row.kind === 'ports' && row.input?.portId === 'histogram')).toBe(true)
     })
 
+    it('uses the node default or saved override, but never hides a connected histogram', () => {
+      const hidden = schemaOf([editor('curve', 'CURVE', { unfolded: true, histogram: 'bins', histogramVisible: false }), histogram('bins'), histogram('gamma')])
+      const shown = spaceOf(lay(tied, []))!
+      for (const [schema, histogramVisibility] of [
+        [hidden, {}], [tied, { curve: false }],
+      ] as const) {
+        const layout = lay(schema, [], { histogramVisibility })
+        expect(spaceOf(layout)!.histogram).toBeUndefined()
+        expect(pinsOf(layout, 'bins')).toEqual([])
+        expect(shown.height - spaceOf(layout)!.height).toBe(defaultTokens.rowHeight)
+        const wired = lay(schema, ['in:bins'], { histogramVisibility })
+        expect(spaceOf(wired)!.histogram).toEqual({ portId: 'bins', connected: true })
+        expect(pinsOf(wired, 'bins')).toHaveLength(1)
+        expect(pinsOf(lay(schema, [], { histogramVisibility, editorUnfolded: { curve: false } }), 'bins')).toEqual([])
+      }
+      expect(spaceOf(lay(hidden, [], { histogramVisibility: { curve: true } }))!.histogram).toEqual({ portId: 'bins', connected: false })
+    })
+
     it("shows the pin on the folded curve's row only while it has a wire", () => {
       const folded = { editorUnfolded: { curve: false } }
       expect(pinsOf(lay(tied, [], folded), 'bins')).toEqual([])
