@@ -413,8 +413,7 @@ function createInputsPanelScene(
         id: 'inside', name: 'Inside', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
         nodes: { [example.id]: { id: example.id, type: target.type, values: { ...defaultValuesOf(target), ...(example.values ?? {}) } } },
         boundary: {
-          inputs: editors.map((id) => ({ id, promoted: true, binds: { kind: 'port', node: example.id, port: id } })),
-          outputs: [],
+          body: editors.map((id) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: example.id, port: id } })),
         },
       },
     },
