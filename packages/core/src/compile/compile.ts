@@ -90,7 +90,7 @@ import { solveGraphTypes } from '../schema/solve.js'
 import { constructsOf } from '../schema/body.js'
 import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
 import { assetTypeId, canonicalTypeIdOf, effectiveAbsentPolicy, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
-import { effectiveWidgetDefault, isAssetRefValue, sentWhenUnset } from '../schema/widget-defaults.js'
+import { effectiveWidgetDefault, isAssetRefValue, sentSpecOf, sentWhenUnset } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
   decimalIntegerWire,
@@ -2619,7 +2619,9 @@ function compileImpl(
         if (call !== undefined) automaticCalls.push({ runtimeNodeId: fn.runtimeId, inputId: spec.id, lookup: call.lookup, args: call.args })
         continue
       }
-      if (spec.hidden === true) continue
+      // A field declared hidden is sent only what it stores; a row hidden by
+      // its visible, or by a hidden choice or group, is sent as if shown.
+      if (spec.hidden === true && input.hiddenByScope !== true) continue
       // A primitive's empty limit only shows the limit worked out for it.
       if (spec.widget?.automatic === true) continue
       if (spec.widget) {
@@ -2632,7 +2634,7 @@ function compileImpl(
         // default stays out of the prompt (the backend's own default
         // applies - inventing 0/''/false would change valid workflows that
         // never warned).
-        const fallback = sentWhenUnset(spec)
+        const fallback = sentWhenUnset(sentSpecOf(spec, input.hiddenByScope))
         if (fallback !== undefined) {
           const lowered = lowerWidgetLiteral(fn, input, fallback)
           if (lowered !== undefined) fn.inputs[spec.id] = lowered

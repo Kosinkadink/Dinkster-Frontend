@@ -187,6 +187,17 @@ export function sentWhenUnset(spec: InputSpec): Json | undefined {
 }
 
 /**
+ * The spec a run is sent a value by: a row hidden only by where it sits
+ * (its `visible`, or a hidden choice or group around it) is sent what it
+ * would be sent if shown, so its `hidden` does not count.
+ */
+export function sentSpecOf(spec: InputSpec, hiddenByScope: boolean | undefined): InputSpec {
+  if (!hiddenByScope) return spec
+  const { hidden: _hidden, ...shown } = spec
+  return shown
+}
+
+/**
  * What a formula reads for an input with nothing stored: what the run is
  * sent for it, else its declared default, which the engine also gives an
  * automatic field it cannot work out.
