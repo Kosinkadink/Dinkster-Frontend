@@ -243,7 +243,9 @@ media and revokes generated object URLs.
 ## Resizing
 
 The node's bottom edge sizes the preview. While the preview is open, a short
-bar in the middle of that edge marks it, the same bar a text box has: it takes
+bar marks it, the same bar a text box has, placed the same way: centered,
+inside the node between the preview and the node's bottom outline, its top 5
+units above that edge. It takes
 the accent color under the pointer and while dragged, and dragging anywhere
 along the edge between the corners changes only the node's height. The
 corners still resize both ways. Once pressed, the bar takes Arrow Up and Arrow

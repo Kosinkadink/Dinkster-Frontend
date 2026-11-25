@@ -3867,8 +3867,8 @@ export class CanvasRenderer {
       }, { label: 'Preview', detail: 'no picture yet', detailColor: t.colors.valueMark, detailFont: smallFont, hovered: false })
     }
     if (previewEdgeShown(node) && contentDetail) {
-      // The text box's bar, on the node's bottom edge: it sizes the open
-      // preview through the node's height.
+      // The text box's bar, inside the node just above its bottom edge: it
+      // sizes the open preview through the node's height.
       const edge = canvasPaintTokens.widget.textBoxEdge
       const hot = this.overlay.previewEdge === sceneNode.id
       const barWidth = hot ? edge.hotWidth : edge.width
