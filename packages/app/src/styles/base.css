@@ -166,7 +166,7 @@ body,
 
 .app-shell-page {
   opacity: 1;
-  transition: opacity 260ms var(--dinkster-motion-easing);
+  transition: opacity 200ms var(--dinkster-motion-easing);
 }
 
 .app-shell-page.app-shell-faded { opacity: 0; pointer-events: none; }
@@ -177,15 +177,15 @@ body,
   background: var(--dinkster-surface-frame);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 260ms var(--dinkster-motion-easing);
+  transition: opacity var(--app-shell-cover-fade, 260ms) var(--dinkster-motion-easing);
 }
 
 .app-shell-cover.app-shell-covered { opacity: 1; pointer-events: auto; }
 
 /*
  * A project's editor arriving, in the order of the design mock: the canvas,
- * then the icon bar's icons and the project name, then the right side, then
- * the status bar, each fading over 260 ms and sliding 10 px over 320 ms.
+ * then both sides together, then the status bar, each fading over 200 ms
+ * and sliding 10 px over 240 ms. The full arrival settles within 500 ms.
  * The bars' backgrounds never move. On a switch inside the page the bars keep
  * their contents too (data-stage-scope="centre").
  */
@@ -197,8 +197,8 @@ body,
   .dinkster-window-toolbar-search ~ *
 ) {
   transition:
-    opacity 260ms var(--dinkster-motion-easing),
-    transform 320ms cubic-bezier(0.2, 0.7, 0.2, 1);
+    opacity 200ms var(--dinkster-motion-easing),
+    transform 240ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 .app-shell-layer[data-stage="hidden"] :is(.canvas-pane, .dock-panel, .statusbar) { opacity: 0; transition: none; }
@@ -225,7 +225,7 @@ body,
   .left-sidebar > *,
   .dinkster-window-toolbar-brand :is(button:has(.dinkster-project-name), [data-testid="projects-button"])
 ) {
-  transition-delay: calc(var(--app-shell-stage-start) + 90ms);
+  transition-delay: calc(var(--app-shell-stage-start) + 80ms);
 }
 
 /* A library slower than the arrival's wait swaps the named button in mid-arrival; it fades in too. */
@@ -236,12 +236,16 @@ body,
   }
 }
 
-.app-shell-layer[data-stage="arrive"] .rail,
+.app-shell-layer[data-stage="arrive"][data-stage-scope="all"] .rail,
 .app-shell-layer[data-stage="arrive"][data-stage-scope="all"] .dinkster-window-toolbar-search ~ * {
-  transition-delay: calc(var(--app-shell-stage-start) + 190ms);
+  transition-delay: calc(var(--app-shell-stage-start) + 80ms);
 }
 
-.app-shell-layer[data-stage="arrive"] .statusbar { transition-delay: calc(var(--app-shell-stage-start) + 290ms); }
+.app-shell-layer[data-stage="arrive"][data-stage-scope="centre"] .rail { transition-delay: 120ms; }
+
+.app-shell-layer[data-stage="arrive"] .statusbar { transition-delay: calc(var(--app-shell-stage-start) + 160ms); }
+
+.app-shell-layer[data-stage="arrive"][data-stage-scope="centre"] .statusbar { transition-delay: 200ms; }
 
 @media (prefers-reduced-motion: reduce) {
   #root,

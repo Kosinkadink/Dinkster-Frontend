@@ -31,8 +31,6 @@ import {
 import { useAppMessage } from './locale.js'
 
 export const SHELL_FADE_MS = 260
-/** From the start of an editor's arrival to its last part settling: the status bar starts 290 ms after the canvas and moves for 320 ms. */
-const ARRIVAL_MS = 290 + 320
 const ENGINE_POLL_MS = 250
 
 export interface ShellInstallation extends ProjectInstallation {
@@ -70,7 +68,6 @@ export const projectsPage: ProjectsPageComponent | undefined = undefined
 export type MountEditor = (projectId: string, host: HTMLElement, shell: ShellNavigation) => Promise<() => void>
 
 const reducedMotion = (): boolean => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
-const fadeTime = (): number => (reducedMotion() ? 0 : SHELL_FADE_MS)
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 const nameOf = (installation: ShellInstallation): string =>
   installation.name ?? installation.root.split(/[\\/]/).filter(Boolean).pop() ?? installation.root
@@ -127,13 +124,15 @@ export function Shell(props: {
       await new Promise(requestAnimationFrame)
     }
     setPageOpaque(shown)
-    await wait(fadeTime())
+    await wait(reducedMotion() ? 0 : 200)
     if (!shown) setPageShown(false)
   }
 
   const cover = async (on: boolean): Promise<void> => {
+    const duration = coverElement.style.clipPath ? 200 : SHELL_FADE_MS
+    coverElement.style.setProperty('--app-shell-cover-fade', `${duration}ms`)
     setCovered(on)
-    await wait(fadeTime())
+    await wait(reducedMotion() ? 0 : duration)
     if (!on && !covered()) coverElement.style.clipPath = ''
   }
 
@@ -187,7 +186,8 @@ export function Shell(props: {
     // Commit the hidden state so the parts transition from it.
     editorHost.getBoundingClientRect()
     editorHost.dataset['stage'] = 'arrive'
-    await wait(start + ARRIVAL_MS)
+    // The status bar is last: 160 ms after the canvas from the page, 200 ms on a switch.
+    await wait(start + (editorHost.dataset['stageScope'] === 'all' ? 160 : 200) + 240)
     delete editorHost.dataset['stage']
     delete editorHost.dataset['stageScope']
   }
@@ -311,7 +311,7 @@ export function Shell(props: {
     } else {
       // The page's panels fade out while the editor's parts come in behind them, the canvas first.
       hideForArrival('all')
-      await Promise.all([fadePage(false), arrive(140)])
+      await Promise.all([fadePage(false), arrive(100)])
     }
   }
 
