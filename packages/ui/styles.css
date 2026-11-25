@@ -140,6 +140,7 @@
 .dinkster-button[data-fill='solid'] { color: var(--dinkster-action-primary-text); background: var(--dinkster-action-primary-bg); border-color: var(--dinkster-action-primary-bg); transition: none; }
 .dinkster-button[data-role='remove'][data-fill='solid'] { color: var(--dinkster-action-remove-text); background: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); }
 .dinkster-button[data-fill='quiet'] { border-color: transparent; }
+.dinkster-menu-trigger[data-fill='quiet'][aria-expanded='true']:not(:active) { background: var(--dinkster-interaction-hover); }
 .dinkster-button[data-icon-only] { width: var(--dinkster-control-compact-height); padding: 0; }
 .dinkster-button:not(:disabled, [aria-disabled='true']):hover { background: var(--dinkster-interaction-hover); }
 .dinkster-button:not(:disabled, [aria-disabled='true']):active { background: var(--dinkster-interaction-pressed); }
