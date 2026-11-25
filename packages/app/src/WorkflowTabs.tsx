@@ -1,6 +1,6 @@
 import { createSignal, For, Show, type JSX } from 'solid-js'
 import type { MenuActionItem, MenuSubmenuItem, PreviewMode, ResolvedMenuGroup } from '@dinkster/core'
-import { ProductRunIcon } from '@dinkster/ui'
+import { ProductMenu, ProductRunIcon, type ProductMenuItem } from '@dinkster/ui'
 import Workflow from 'lucide-solid/icons/workflow'
 import Snowflake from 'lucide-solid/icons/snowflake'
 import PanelsTopLeft from 'lucide-solid/icons/panels-top-left'
@@ -8,6 +8,7 @@ import Spline from 'lucide-solid/icons/spline'
 import Code from 'lucide-solid/icons/code'
 import File from 'lucide-solid/icons/file'
 import Plus from 'lucide-solid/icons/plus'
+import ChevronDown from 'lucide-solid/icons/chevron-down'
 import X from 'lucide-solid/icons/x'
 import { ContextMenu } from './ContextMenu.js'
 import { Icon } from './Icon.js'
@@ -56,6 +57,7 @@ export interface WorkflowTabsProps<T extends WorkflowTabItem> {
   readonly onSetTarget?: ((tab: T, id: string) => void) | undefined
   readonly onPointerDown: (event: PointerEvent, tab: T) => void
   readonly onNew: () => void
+  readonly newItems?: readonly (ProductMenuItem & { readonly visible: boolean })[] | undefined
   readonly canShare: (tab: T) => boolean
   readonly onShare: (tab: T) => void
   readonly onPopOut?: ((tab: T) => void) | undefined
@@ -81,6 +83,7 @@ export const workflowTabDomId = (id: string): string => `workflow-tab-${encodeUR
 
 export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps<T>) {
   const message = useAppMessage()
+  const newItems = () => props.newItems?.filter((item) => item.visible) ?? []
   const [menu, setMenu] = createSignal<{ readonly tab: T; readonly x: number; readonly y: number }>()
   const [renaming, setRenaming] = createSignal<string>()
   const documentTab = (tab: T): boolean => tab.editorKind === undefined || tab.editorKind === 'graph' || tab.editorKind === 'app'
@@ -354,7 +357,13 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
           onClick={props.onNew}
         >
           <Icon icon={Plus} />
-        </button></Show>
+        </button>
+          <Show when={newItems().length > 1}>
+            <span class="tab-new-options" data-testid="new-tab-options">
+              <ProductMenu label={message('templatesEntry.newTab')} items={newItems()} icon={ChevronDown} iconOnly />
+            </span>
+          </Show>
+        </Show>
       </div>
       <Show when={menu()} keyed>{(current) => (
         <ContextMenu

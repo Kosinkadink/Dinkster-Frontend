@@ -18,6 +18,8 @@ import BookOpen from 'lucide-solid/icons/book-open'
 import ScrollText from 'lucide-solid/icons/scroll-text'
 import Server from 'lucide-solid/icons/server'
 import Users from 'lucide-solid/icons/users'
+import Workflow from 'lucide-solid/icons/workflow'
+import LayoutTemplate from 'lucide-solid/icons/layout-template'
 import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { LogPanel } from './LogPanel.js'
@@ -40,7 +42,7 @@ import { AppView } from './AppView.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductRunActivity, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductRunActivity, ProductTextButton, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import { AccountControl, createAccountSession } from './AccountControl.js'
@@ -1859,6 +1861,11 @@ export function App(props: {
       const root = tab.store.doc.graphs[tab.store.doc.root]
       return root !== undefined && Object.keys(root.nodes).length === 0
     }
+    const templatesEnabled = (): boolean => {
+      backendsTick()
+      const tab = activeEditorTab()
+      return tab !== undefined && app.backendForTab(tab).templatesEnabled.get()
+    }
     const close = (): void => {
       app.templateGalleryOpen.set(false)
     }
@@ -1877,12 +1884,13 @@ export function App(props: {
             />
         </Show>
       </div>
-      <Show when={activeBackend().templatesEnabled.get() && empty() && !galleryRequested()}>
-        <ProductButton class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>
-          {message('templateGallery.open')}
-        </ProductButton>
+      <Show when={templatesEnabled() && activeEditorTab()?.execution === undefined && !sessionFailed() && empty() && !galleryRequested()}>
+        <div class="template-empty-canvas" data-testid="template-empty-canvas">
+          <span>{message('templatesEntry.addNode')}</span>
+          <span>{message('templatesEntry.or')}{' '}<ProductTextButton label={message('templateGallery.open')} onClick={() => app.templateGalleryOpen.set(true)} /></span>
+        </div>
       </Show>
-      <Show when={activeBackend().templatesEnabled.get()}>
+      <Show when={templatesEnabled()}>
         <TemplateGallery app={app} visible={galleryRequested} onClose={close} />
       </Show>
     </div>
@@ -2695,6 +2703,12 @@ export function App(props: {
             onCloseOthers={managedContext().kind === 'primary' ? (tab) => closeOthers(tab, groupTabs()) : undefined}
             onPointerDown={(event, tab) => beginTabDrag(tab, event, p.groupId)}
             onNew={() => app.createWorkflow()}
+            newItems={[
+              { label: message('templatesEntry.blank'), icon: Workflow, visible: true, onSelect: () => { app.createWorkflow() } },
+              { label: message('templatesEntry.fromTemplate'), icon: LayoutTemplate,
+                get visible() { backendsTick(); return activeBackend().templatesEnabled.get() },
+                onSelect: () => app.templateGalleryOpen.set(true) },
+            ]}
             canShare={(tab) => tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
             onShare={(tab) => {
               app.activeTabId.set(tab.id)
