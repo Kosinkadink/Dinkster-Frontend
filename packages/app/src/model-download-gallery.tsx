@@ -1,4 +1,4 @@
-import { createSignal } from '@dinkster/core'
+import { createSignal, t } from '@dinkster/core'
 import { ProductButton, ProductPage, ProductSection } from '@dinkster/ui'
 import { render } from 'solid-js/web'
 import type { AppState } from './app-state.js'
@@ -41,12 +41,12 @@ async function openReview(standalone: boolean): Promise<void> {
 }
 
 render(() => <>
-  <main class="dinkster-page"><ProductPage title="Model download review" description="The actual product dialog with local duplicate and available model fixtures. No model is downloaded and no workflow is submitted.">
-    <ProductSection title="Duplicate name before a run" description="A model review opened from the editor. There is no captured run to retry.">
-      <ProductButton onClick={() => void openReview(true)}>Open standalone review</ProductButton>
+  <main class="dinkster-page"><ProductPage title={t('modelReviewGallery.title')} description={t('modelReviewGallery.description')}>
+    <ProductSection title={t('modelReviewGallery.standaloneTitle')} description={t('modelReviewGallery.standaloneDescription')}>
+      <ProductButton onClick={() => void openReview(true)}>{t('modelReviewGallery.openStandalone')}</ProductButton>
     </ProductSection>
-    <ProductSection title="Duplicate name after a submitted run" description="The duplicate row blocks retry, while the separate local model remains available.">
-      <ProductButton onClick={() => void openReview(false)}>Open submitted review</ProductButton>
+    <ProductSection title={t('modelReviewGallery.submittedTitle')} description={t('modelReviewGallery.submittedDescription')}>
+      <ProductButton onClick={() => void openReview(false)}>{t('modelReviewGallery.openSubmitted')}</ProductButton>
     </ProductSection>
   </ProductPage></main>
   <AssetConsentDialog app={{ assetConsent } as AppState} />

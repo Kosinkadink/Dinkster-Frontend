@@ -89,9 +89,16 @@ it.each([false, true])('blocks downloads only for the duplicate model in standal
     expect(rows[0]!.querySelector('[data-testid="model-consent-download"]')).toBeNull()
     expect(rows[0]!.querySelector('[data-testid="model-consent-source"]')).toBeNull()
     expect(rows[1]!.textContent).toContain('Review source')
-    if (standalone) expect(root.textContent).not.toMatch(/\brun\b/i)
-    else expect(rows[0]!.textContent).toContain('Choose one on the node, then run again.')
-    expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')?.disabled ?? true).toBe(true)
+    const retry = root.querySelector<HTMLButtonElement>('[data-testid="asset-consent-acquire"]')
+    if (standalone) {
+      expect(root.textContent).not.toMatch(/\brun\b/i)
+      expect(retry).toBeNull()
+    } else {
+      expect(rows[0]!.textContent).toContain('Choose one on the node, then run again.')
+      expect(retry).not.toBeNull()
+      expect(retry!.textContent).toBe('Run once')
+      expect(retry!.disabled).toBe(true)
+    }
     expect(connection.startModelDownload).not.toHaveBeenCalled()
   } finally {
     assetConsent.set(undefined)
