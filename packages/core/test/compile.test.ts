@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { compile, scopeClosure, type CompileInput } from '../src/compile/compile.js'
 import { semanticHashOf, sha256Hex } from '../src/compile/hash.js'
 import type { ExecutionScope } from '../src/compile/artifact.js'
-import type { WorkflowDocument } from '../src/format/document.js'
+import type { Json, WorkflowDocument } from '../src/format/document.js'
 import type { Diagnostic } from '../src/diagnostics.js'
 import type { LookupAnswerState } from '../src/schema/elaborate.js'
 import { loadDocument } from '../src/format/migrate.js'
@@ -535,19 +535,24 @@ describe('value handling', () => {
       return {
         width: result.artifact.prompt['n2']!.inputs['width'],
         warnings: result.artifact.diagnostics.filter((d) => d.code === 'automatic.tapDefault').map((d) => [d.message, d.anchor?.port]),
+        taps: result.artifact.automaticTaps,
       }
     }
     const answer = (state: LookupAnswerState): CompileInput['lookupAnswers'] => (lookup, args) =>
       lookup === 'sizes.batch' && JSON.stringify(args) === '[24]' ? state : undefined
     const batchDefault = [['Could not work out batch_size. Retime 2 gets the default, 1.', { node: 'n0', port: 'batch_size' }]]
-    expect(tapped('color')).toEqual({ width: 48, warnings: [] })
+    // Every value passed on is kept with the run, keyed as the run records the field's own node.
+    const tapOf = (inputId: string, value: Json) => [{ runtimeNodeId: 'n0', inputId, value, receiverRuntimeId: 'n2', receiver: 'Retime 2' }]
+    expect(tapped('color')).toEqual({ width: 48, warnings: [], taps: tapOf('color', 48) })
     // A kept answer is what the row shows, fresh or not.
-    expect(tapped('batch_size', answer({ state: 'ready', answer: 3 }))).toEqual({ width: 3, warnings: [] })
-    expect(tapped('batch_size', answer({ state: 'stale', answer: 4, reason: 'failed' }))).toEqual({ width: 4, warnings: [] })
+    expect(tapped('batch_size', answer({ state: 'ready', answer: 3 }))).toEqual({ width: 3, warnings: [], taps: tapOf('batch_size', 3) })
+    expect(tapped('batch_size', answer({ state: 'stale', answer: 4, reason: 'failed' }))).toEqual({ width: 4, warnings: [], taps: tapOf('batch_size', 4) })
     // Loading, no editor answers at all, and a failed lookup pass on the default.
-    expect(tapped('batch_size', answer({ state: 'loading' }))).toEqual({ width: 1, warnings: batchDefault })
-    expect(tapped('batch_size')).toEqual({ width: 1, warnings: batchDefault })
-    expect(tapped('batch_size', answer({ state: 'unavailable', reason: 'failed' }))).toEqual({ width: 1, warnings: batchDefault })
+    expect(tapped('batch_size', answer({ state: 'loading' }))).toEqual({ width: 1, warnings: batchDefault, taps: tapOf('batch_size', 1) })
+    expect(tapped('batch_size')).toEqual({ width: 1, warnings: batchDefault, taps: tapOf('batch_size', 1) })
+    expect(tapped('batch_size', answer({ state: 'unavailable', reason: 'failed' }))).toEqual({ width: 1, warnings: batchDefault, taps: tapOf('batch_size', 1) })
+    // A stored value is not automatic: nothing is kept.
+    expect(tapped('width')?.taps).toBeUndefined()
     expect(tapped('height')?.warnings.map(([message]) => message)).toEqual([expect.stringMatching(/^Could not work out height\. Retime 2 gets the default, \d+\.$/)])
   })
 })

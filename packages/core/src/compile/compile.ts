@@ -114,6 +114,7 @@ import {
 } from './dinkster-graph.js'
 import { LivenessDerivation, traverseRoutedProjection, type RouteProjection, type RoutedStep } from './liveness.js'
 import type {
+  AutomaticTap,
   CompileArtifact,
   CompileResult,
   ControllerInputProvenance,
@@ -310,12 +311,20 @@ export interface CompileInput {
   readonly placement?: Readonly<Record<string, string>>
 }
 
-/** An automatic field passed on at its default, and where its warning goes. */
-interface TapDefault {
+/**
+ * An automatic field with nothing stored whose row's value is copied into
+ * another node, where its warning goes, and the field's own runtime node and
+ * input, which the engine works out again when the run is queued.
+ */
+interface PassedAutomatic {
   readonly label: string
   readonly value: Json
+  /** True when the row shows the default because the value is not worked out. */
+  readonly usedDefault: boolean
   readonly anchor: DiagnosticAnchor
   readonly ref: DiagnosticRef
+  readonly runtimeNodeId: string
+  readonly inputId: string
 }
 
 const KNOWN_VALUE_TYPES: ReadonlySet<string> = new Set(['INT', 'FLOAT', 'STRING', 'BOOLEAN', 'COMBO'])
@@ -493,6 +502,8 @@ function compileImpl(
   const emitAbsentInputs = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_ABSENT_INPUT) ?? false
   const emitRegions = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_REGIONS) ?? false
   const diags: Diagnostic[] = []
+  /** Automatic values copied into a node, by the node that receives each. */
+  const automaticTaps: AutomaticTap[] = []
   const elaborationDiagnosticOwners = new Map<Diagnostic, {
     readonly graphId: GraphDefId
     readonly nodeId: NodeId
@@ -1330,7 +1341,7 @@ function compileImpl(
      * one is known (tap fallbacks always carry it), feeding the $typed
      * lowering for non-concrete destinations.
      */
-    | { readonly kind: 'value'; readonly value: Json; readonly typeId?: string; readonly controllerSources?: readonly ControllerInputSource[]; readonly controllerWidget?: WidgetSpec; readonly automaticDefault?: TapDefault }
+    | { readonly kind: 'value'; readonly value: Json; readonly typeId?: string; readonly controllerSources?: readonly ControllerInputSource[]; readonly controllerWidget?: WidgetSpec; readonly passedAutomatic?: PassedAutomatic }
     /** `node` names the muted node the route reached, for the reason sent with $absent. */
     | { readonly kind: 'muted'; readonly reason: string; readonly node?: string }
     /** `absent`: the wire gives nothing (its field is no longer part of its node), sent as $absent when the server takes it. */
@@ -1446,7 +1457,7 @@ function compileImpl(
               return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `widget tap '${endpoint.node}.${endpoint.tap}' has no value` } }] }
             }
             return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped.value, typeId: tapped.typeId,
-              ...(tapped.automaticDefault !== undefined ? { automaticDefault: tapped.automaticDefault } : {}) } }] }
+              ...(tapped.passedAutomatic !== undefined ? { passedAutomatic: tapped.passedAutomatic } : {}) } }] }
           }
           const resolved = resolveOutputPort(at.path, at.defId, endpoint, sink, delivery)
           if (resolved === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `producer '${endpoint.node}' is muted or in an inactive occurrence`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
@@ -1483,7 +1494,7 @@ function compileImpl(
           }
           const widget = input.spec.widget
           return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped.value, typeId: tapped.typeId,
-            ...(tapped.automaticDefault !== undefined ? { automaticDefault: tapped.automaticDefault } : {}),
+            ...(tapped.passedAutomatic !== undefined ? { passedAutomatic: tapped.passedAutomatic } : {}),
             ...(widget !== undefined ? { controllerSources: sources, controllerWidget: widget } : {}) } }] }
         }
         const bypass = at.bypass
@@ -1944,7 +1955,7 @@ function compileImpl(
     nodeId: NodeId,
     inputId: string,
     sink: Diagnostic[] = diags,
-  ): { readonly value: Json; readonly typeId: string; readonly automaticDefault?: TapDefault } | 'muted' | undefined => {
+  ): { readonly value: Json; readonly typeId: string; readonly passedAutomatic?: PassedAutomatic } | 'muted' | undefined => {
     const inputs = tappedInputs(path, defId, nodeId, inputId, sink)
     if (inputs === 'muted') return 'muted'
     if (!inputs || inputs.length === 0) return undefined
@@ -1978,13 +1989,16 @@ function compileImpl(
     const widget = input.input.spec.widget
     const fallback = automatic?.value ?? (widget ? effectiveWidgetDefault(widget) : undefined)
     if (fallback === undefined) return undefined
-    const automaticDefault: TapDefault | undefined = automatic === undefined || automatic.state === 'worked-out' ? undefined : {
+    const passedAutomatic: PassedAutomatic | undefined = automatic === undefined ? undefined : {
       label: input.input.spec.displayName ?? input.input.spec.id,
       value: fallback,
+      usedDefault: automatic.state !== 'worked-out',
+      runtimeNodeId: input.runtimeId,
+      inputId: input.inputId,
       anchor: { occurrence: { instancePath: path, node: nodeId }, port: { node: nodeId, port: input.input.address.port as PortRef['port'] } },
       ref: { graphId: defId, nodeId, valueKey: valueKeyOf(input.input), direction: 'input' },
     }
-    return { value: fallback, typeId: assetSourceTypeOf(input.input, fallback) ?? typeId, ...(automaticDefault !== undefined ? { automaticDefault } : {}) }
+    return { value: fallback, typeId: assetSourceTypeOf(input.input, fallback) ?? typeId, ...(passedAutomatic !== undefined ? { passedAutomatic } : {}) }
   }
 
   for (const { defId, path } of graphOccurrences) {
@@ -2167,7 +2181,7 @@ function compileImpl(
         // matching always sees that destination's declared type.
         const routeDiagnostics: Diagnostic[] = []
         let src: ResolvedOutput | undefined
-        let baked: { readonly value: Json; readonly typeId?: string; readonly automaticDefault?: TapDefault } | undefined
+        let baked: { readonly value: Json; readonly typeId?: string; readonly passedAutomatic?: PassedAutomatic } | undefined
         if (structuralSrc && !('bypass' in structuralSrc) && !('structuralSource' in structuralSrc) && !('knownValue' in structuralSrc)) {
           src = structuralSrc
         } else {
@@ -2198,7 +2212,7 @@ function compileImpl(
           }
           if (trace.kind === 'value') {
             baked = { value: trace.value, ...(trace.typeId !== undefined ? { typeId: trace.typeId } : {}),
-              ...(trace.automaticDefault !== undefined ? { automaticDefault: trace.automaticDefault } : {}) }
+              ...(trace.passedAutomatic !== undefined ? { passedAutomatic: trace.passedAutomatic } : {}) }
             if (trace.controllerSources !== undefined) {
               let byInput = literalControllers.get(dst.runtimeId)
               if (!byInput) literalControllers.set(dst.runtimeId, (byInput = new Map()))
@@ -2216,9 +2230,14 @@ function compileImpl(
           diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is unavailable`))
           continue
         }
-        if (baked?.automaticDefault !== undefined) {
+        if (baked?.passedAutomatic !== undefined) {
+          const passed = baked.passedAutomatic
+          automaticTaps.push({ runtimeNodeId: passed.runtimeNodeId, inputId: passed.inputId, value: passed.value,
+            receiver: nameOf(consumer.graphId, consumer.node), receiverRuntimeId: dst.runtimeId })
+        }
+        if (baked?.passedAutomatic?.usedDefault === true) {
           // Listed on the field the value comes from; a run is never blocked by an automatic value.
-          const passed = baked.automaticDefault
+          const passed = baked.passedAutomatic
           diags.push(diag('warning', 'compile', 'automatic.tapDefault',
             `Could not work out ${passed.label}. ${nameOf(consumer.graphId, consumer.node)} gets the default, ${typeof passed.value === 'string' ? passed.value : JSON.stringify(passed.value)}.`,
             { anchor: passed.anchor, refs: [passed.ref], data: { input: passed.ref.valueKey } }))
@@ -3109,6 +3128,10 @@ function compileImpl(
     ...(partialTargets ? { partialTargets: deepFreeze(structuredClone(partialTargets)) } : {}),
     provenance,
     ...(selectorChoices.length > 0 ? { choices: deepFreeze(structuredClone(selectorChoices)) } : {}),
+    ...(() => {
+      const taps = automaticTaps.filter((tap) => included.has(tap.receiverRuntimeId))
+      return taps.length > 0 ? { automaticTaps: deepFreeze(structuredClone(taps)) } : {}
+    })(),
     diagnostics: deepFreeze(structuredClone(diags)),
   })
 

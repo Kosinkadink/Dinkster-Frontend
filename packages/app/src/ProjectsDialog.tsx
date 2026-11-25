@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import type { DinksterConnection, LibraryProject } from '@dinkster/client'
-import { ProductErrorBanner, ProductToast } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductToast } from '@dinkster/ui'
+import { ProjectAccountLink } from './ProjectAccountLink.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { ProductButton, ProductTextInput } from './ProductControls.js'
 import { ProductEmptyState, ProductListRow } from './ProductSurfaces.js'
@@ -9,9 +10,11 @@ import { useAppMessage } from './locale.js'
 
 /** The engine owns project records; switching reloads the window's device scope. */
 export function ProjectsDialog(props: {
-  readonly connection: Pick<DinksterConnection, 'listProjects' | 'registerProject' | 'renameProject'>
+  readonly connection: Pick<DinksterConnection, 'listProjects' | 'registerProject' | 'renameProject' | 'getProject' | 'accountStatus' | 'accountProjects' | 'setProjectAccountLink'>
   readonly onSwitch: (projectId: string) => void
   readonly onOpenWindow?: (projectId: string) => void
+  /** Opened to create a project: the name field takes focus once it can be typed in. */
+  readonly focusNewProject?: boolean
 }) {
   const message = useAppMessage()
   const currentConnection = createMemo(() => props.connection)
@@ -23,7 +26,10 @@ export function ProjectsDialog(props: {
   const [draft, setDraft] = createSignal('')
   const [renamingId, setRenamingId] = createSignal<string>()
   const [renameDraft, setRenameDraft] = createSignal('')
+  const [accountAvailable, setAccountAvailable] = createSignal(false)
+  const [accountProjectId, setAccountProjectId] = createSignal<string>()
   let lifetime: AbortController | undefined
+  let newProjectName!: HTMLInputElement
 
   const readProjects = async (connection: typeof props.connection, signal: AbortSignal): Promise<void> => {
     const items: LibraryProject[] = []
@@ -53,6 +59,11 @@ export function ProjectsDialog(props: {
     setDraft('')
     setRenameDraft('')
     setRenamingId(undefined)
+    setAccountAvailable(false)
+    setAccountProjectId(undefined)
+    void connection.accountStatus(controller.signal).then((account) => {
+      if (!controller.signal.aborted) setAccountAvailable(account.available)
+    }, () => {})
     void (async () => {
       try {
         await migrateBrowserProjects(connection, globalThis.localStorage, controller.signal)
@@ -63,6 +74,10 @@ export function ProjectsDialog(props: {
         if (!controller.signal.aborted) setLoading(false)
       }
     })()
+  })
+
+  createEffect(() => {
+    if (props.focusNewProject && !loading()) newProjectName.focus()
   })
 
   const mutate = async (action: (connection: typeof props.connection, signal: AbortSignal) => Promise<void>): Promise<void> => {
@@ -109,6 +124,11 @@ export function ProjectsDialog(props: {
 
   return (
     <div class="projects-dialog" data-testid="projects-dialog">
+      <Show when={accountProjectId()}>{(id) => <ProjectAccountLink connection={props.connection} projectId={id()} onClose={() => setAccountProjectId(undefined)} onSaved={(saved) => {
+        setAccountProjectId(undefined)
+        setNotification({ message: message('projectAccount.saved') })
+        setProjects((items) => items.map((item) => item.id === saved.id ? saved : item))
+      }} />}</Show>
       <Show when={error()}>{(message) => <ProductErrorBanner onDismiss={() => setError(undefined)}>{message()}</ProductErrorBanner>}</Show>
       <ProductToast notification={notification()} onDismiss={() => setNotification(undefined)} />
       <p class="projects-dialog-intro">
@@ -137,6 +157,7 @@ export function ProjectsDialog(props: {
               />
             </Show>}>
               <ProductActionFooter>
+                <Show when={accountAvailable() && project.uid}><SharedProductButton disabled={busy()} onClick={() => { setNotification(undefined); setAccountProjectId(project.id) }}>{message('projectAccount.title')}</SharedProductButton></Show>
                 <ProductButton size="compact" type="button" disabled={busy()} onClick={() => { setRenameDraft(project.name); setRenamingId(project.id) }}>Rename</ProductButton>
                 <Show when={props.onOpenWindow}><ProductButton size="compact" type="button" disabled={busy()} onClick={() => props.onOpenWindow!(project.id)}>New window</ProductButton></Show>
                 <ProductButton size="compact" type="button" disabled={busy() || project.id === activeProjectId()} onClick={() => props.onSwitch(project.id)}>Switch</ProductButton>
@@ -146,7 +167,7 @@ export function ProjectsDialog(props: {
         )}</For>
       </ul>
       <ProductActionFooter>
-        <ProductTextInput type="text" placeholder="New project name" aria-label="New project name" value={draft()} disabled={loading() || busy()} onInput={(event) => setDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') create() }} />
+        <ProductTextInput ref={newProjectName} type="text" placeholder="New project name" aria-label="New project name" value={draft()} disabled={loading() || busy()} onInput={(event) => setDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') create() }} />
         <ProductButton type="button" variant="primary" data-testid="projects-create" loading={busy()} disabled={loading() || error() !== undefined || draft().trim().length === 0} onClick={create}>Create project</ProductButton>
       </ProductActionFooter>
     </div>

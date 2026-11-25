@@ -91,7 +91,13 @@ holds, or the default when there is neither. When that is the default, the
 field carries the warning "Could not work out frame rate. Retime 2 gets the
 default, 24.", listed in Problems in place of the field's own warning. The
 engine still works out the owning node's own value when the run is queued,
-so it can differ from the value passed on.
+so it can differ from the value passed on. The editor keeps each value passed
+on with the run it queued; when the owning node ran and its recorded value
+differs, the field carries the warning "The last run used 30 for frame rate,
+but Retime 2 got 24.", listed in Problems. It is one warning for the field,
+naming two nodes ("Retime 2 and Retime 3") or counting more ("3 nodes"), and
+it goes when the user fixes a value or wires the field, or a later run
+replaces the record. Fields on nodes inside a region body are not compared.
 
 When the latest run of the open workflow used the default for a field that
 the editor works out now, the field carries the warning "The last run could

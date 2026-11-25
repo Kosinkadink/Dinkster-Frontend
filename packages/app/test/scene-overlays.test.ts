@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEPRECATED_BADGE, executionErrorBadge, LAST_RUN_BADGE, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, UNAVAILABLE_BADGE, type Scene } from '@dinkster/canvas'
+import { buildScene, defaultTokens, DEPRECATED_BADGE, executionErrorBadge, LAST_RUN_BADGE, LOG_INFO_BADGE, logWarningBadge, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, SUBGRAPH_BADGE, UNAVAILABLE_BADGE, type Scene } from '@dinkster/canvas'
 import { asConnectionId, asGraphDefId, asLinkId, asNodeId, asPortId, compile, occurrenceKey, parseDinksterNodes, type CompileArtifact, type GraphDef, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
@@ -1060,6 +1060,41 @@ describe('deriveSceneOverlays', () => {
     })
   })
 
+  it('shows on a field a tap feeds the automatic value the tapped field has in use, as a run sends it', () => {
+    const number = (id: string, extra: Record<string, unknown>) =>
+      ({ kind: 'input', id, type: { kind: 'concrete', types: ['FLOAT'] }, required: true, widget: { type: 'NUMBER', min: 0, max: 1000 }, ...extra })
+    const wire = (nodeType: string, body: unknown[]) =>
+      [nodeType, { schemaVersion: 2, nodeType, version: 1, displayName: nodeType, category: 'test', body }]
+    const { schemas } = parseDinksterNodes({
+      schemaVersion: 2,
+      dinkster: { schemaWire: 2 },
+      nodes: Object.fromEntries([
+        // fps declares 24 and works out to rate / 4 = 12 while nothing is stored.
+        wire('test.retime', [number('rate', { default: 48 }), number('fps', { default: 24, automatic: { formula: 'rate / 4' } }),
+          { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['FLOAT'] } }]),
+        wire('test.sink', [number('rate', { default: 1 }), { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['FLOAT'] } }]),
+      ]),
+    } as never)
+    const def = {
+      id: 'g0', name: 'root', nets: {}, reroutes: {}, nextOrdinal: 5,
+      nodes: { src: { id: 'src', type: 'test.retime', values: {} }, sink: { id: 'sink', type: 'test.sink', values: {} } },
+      links: { l1: { id: 'l1', from: { node: 'src', tap: 'fps' }, to: { node: 'sink', port: 'rate' } } },
+    } as unknown as GraphDef
+    const doc = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'automatic-tap', root: 'g0', graphs: { g0: def }, view: { graphs: {} } } as unknown as WorkflowDocument
+    const resolveSchema = (type: string) => schemas.get(type)
+
+    const compiled = compile({ document: doc, revision: 1, resolve: resolveSchema, scope: { kind: 'full' },
+      connection: asConnectionId('c0'), schemaHash: 'h' })
+    expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+    if (!compiled.ok) return
+    const sent = compiled.artifact.prompt['sink']!.inputs['rate']
+    expect(sent).toBe(12)
+
+    const built = buildScene({ document: doc, graphId: 'g0', resolve: resolveSchema, tokens: defaultTokens,
+      measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }) })
+    expect(deriveSceneOverlays({ ...base, scene: built, doc, def, resolveSchema }).companions).toEqual({ sink: { rate: { value: sent } } })
+  })
+
   it('adds counted document problem tabs without replacing the runtime error badge', () => {
     const cause = (kind: 'error' | 'warning', code: string) => ({
       kind, diagnostic: { severity: kind, origin: 'compile' as const, code, message: code },
@@ -1913,6 +1948,38 @@ describe('last run automatic warnings', () => {
 
     expect(found.map((d) => [d.severity, d.message, d.anchor?.port])).toEqual([
       ['warning', 'The last run could not work out frame rate and used the default, 24.', { node: 'a', port: 'frame_rate' }],
+    ])
+  })
+
+  it('warns on a field whose value a node got at compile time when the run worked out another', () => {
+    const view = automaticScene({ a: { frame_rate: 'worked-out', delay: 'worked-out', fixed: undefined } })
+    const execution = {
+      ...run({ r1: 'a' }, [
+        { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 30, workedOut: true },
+        { runtimeNodeId: 'r1', inputId: 'delay', value: 2, workedOut: true },
+        { runtimeNodeId: 'r1', inputId: 'fixed', value: 1, workedOut: true },
+      ]),
+    } as unknown as { artifact: Record<string, unknown> }
+    const tap = (inputId: string, value: number, receiverRuntimeId: string, receiver: string) =>
+      ({ runtimeNodeId: 'r1', inputId, value, receiverRuntimeId, receiver })
+    const found = (taps: readonly unknown[]) => {
+      execution.artifact = { ...execution.artifact, automaticTaps: taps }
+      return lastRunAutomaticDiagnostics({ scene: view, execution: execution as unknown as ExecutionState, instancePath: [] })
+        .map((d) => [d.code, d.message, d.anchor?.port])
+    }
+    const frameRate = { node: 'a', port: 'frame_rate' }
+
+    // Agreeing values and a field fixed since give no warning.
+    expect(found([tap('frame_rate', 30, 'n2', 'Retime 2'), tap('delay', 2.0, 'n2', 'Retime 2'), tap('fixed', 7, 'n2', 'Retime 2')])).toEqual([])
+    expect(found([tap('frame_rate', 24, 'n2', 'Retime 2')])).toEqual([
+      ['automatic.lastRunTapDiffers', 'The last run used 30 for frame rate, but Retime 2 got 24.', frameRate],
+    ])
+    // One warning for the field, naming the nodes; a node fed through two inputs counts once.
+    expect(found([tap('frame_rate', 24, 'n2', 'Retime 2'), tap('frame_rate', 24, 'n3', 'Retime 3'), tap('frame_rate', 24, 'n3', 'Retime 3')])).toEqual([
+      ['automatic.lastRunTapDiffers', 'The last run used 30 for frame rate, but Retime 2 and Retime 3 got 24.', frameRate],
+    ])
+    expect(found([tap('frame_rate', 24, 'n2', 'Retime'), tap('frame_rate', 24, 'n3', 'Retime'), tap('frame_rate', 24, 'n4', 'Retime')])).toEqual([
+      ['automatic.lastRunTapDiffers', 'The last run used 30 for frame rate, but 3 nodes got 24.', frameRate],
     ])
   })
 
