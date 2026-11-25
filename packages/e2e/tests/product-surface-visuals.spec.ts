@@ -1398,6 +1398,7 @@ test('Project rows preserve names, rename drafts and host actions', async ({ pag
       ['p-audio', { id: 'p-audio', name: 'Audio experiments', revision: 1 }],
     ])
     const connection = {
+      accountStatus: async () => ({ available: false }),
       listProjects: async () => ({ items: [...records.values()], cursor: null }),
       registerProject: async (id: string, name: string) => {
         const project = records.get(id) ?? { id, name, revision: 1 }
