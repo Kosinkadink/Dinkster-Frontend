@@ -305,6 +305,103 @@ test('promoted representations and Inputs edits stay with the entered instance t
   })).toEqual(['first caption', 'second caption', 'definition caption', 'Dinkster'])
 })
 
+test('a kept promoted disabled row restores its boundary by undo and by choosing its option again', async ({ page }, testInfo) => {
+  await openSampler(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'RetainedRadius', displayName: 'Retained radius', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'choice', id: 'mode', displayName: 'Mode', required: true, shared: [], options: [
+        { key: 'fast', label: 'Fast', rows: [] },
+        { key: 'fine', label: 'Fine', rows: [{
+          kind: 'input', id: 'radius', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+          disabled: true, disabledReason: 'Preset controls this field',
+          widget: { widgetType: 'FLOAT', options: { min: 0, max: 100 }, default: 7 },
+        }] },
+      ] }],
+    }, {
+      type: 'RadiusSink', displayName: 'Radius sink', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false }],
+    }] as never)
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'retained-promoted-disabled', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'root', nodes: { outer: { id: 'outer', type: '#sub', values: { radius: 12 } } },
+          links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 },
+        sub: { id: 'sub', name: 'Retained radius', nodes: {
+          radius: { id: 'radius', type: 'RetainedRadius', values: { 'mode.radius': 7 }, dynamic: { mode: { selected: 'fine' } } },
+          sink: { id: 'sink', type: 'RadiusSink', values: {} },
+        }, links: { l1: { id: 'l1', from: { node: 'radius', tap: 'mode.radius' }, to: { node: 'sink', port: 'value' } } },
+          nets: {}, reroutes: {}, nextOrdinal: 3,
+          boundary: { inputs: [{ id: 'radius', binds: { kind: 'port', node: 'radius', port: 'mode.radius' }, promoted: true, wireHidden: true }], outputs: [] } },
+      },
+      view: { graphs: {
+        g0: { nodes: { outer: { position: { x: 100, y: 100 } } } },
+        sub: { nodes: { radius: { position: { x: 300, y: 100 }, size: { width: 320, height: 0 } }, sink: { position: { x: 700, y: 100 } } } },
+      } },
+    } as never, 'Retained promoted disabled')
+    await app.enableWorkspaceAuthority()
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const mark = await subgraphMarkPoint(page, 'outer')
+  await page.mouse.dblclick(mark.x, mark.y)
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 150, scale: 0.9 }))
+  const snapshot = () => page.evaluate(() => {
+    const scene = window.__dinksterTest!.renderer!.getScene()
+    const node = scene.nodes.find((node) => node.id === 'radius')!
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    return {
+      row: node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'mode.radius'),
+      links: scene.links,
+      fields: scene.boundaryNodes.find((node) => node.side === 'inputs')?.layout.rows
+        .filter((row) => row.kind === 'widget').map((row) => row.inputId),
+      binding: doc.graphs.sub!.boundary, storedLinks: doc.graphs.sub!.links,
+      projected: (node as unknown as { node: { values: Record<string, unknown> } }).node.values,
+      values: { outer: doc.graphs.g0!.nodes.outer!.values, inner: doc.graphs.sub!.nodes.radius!.values },
+    }
+  })
+  const choose = async (option: string) => {
+    const mode = await rowPoint(page, 'radius', 'mode')
+    await page.mouse.click(mode.x, mode.y)
+    await page.getByRole('option', { name: option, exact: true }).click()
+    await page.keyboard.press('Escape')
+  }
+  const before = await snapshot()
+  expect(before.row).toMatchObject({ subgraphMark: { item: 'radius' }, disabled: true })
+  expect(before.fields).toEqual(['radius'])
+  expect(before.links).toHaveLength(2)
+  expect(before.links).toContainEqual(expect.objectContaining({
+    from: { kind: 'boundary', side: 'inputs', item: 'radius' },
+    to: { kind: 'port', node: 'radius', port: 'mode.radius' },
+    boundary: true, hidden: true,
+  }))
+  expect(before.values).toEqual({ outer: { radius: 12 }, inner: { 'mode.radius': 7 } })
+  expect(before.projected).toEqual({ 'mode.radius': 12 })
+  for (const restore of ['undo', 'choose']) {
+    await choose('Fast')
+    const after = await snapshot()
+    expect(after.row).toMatchObject({ subgraphMark: { item: 'radius' }, disabled: true,
+      inactive: true, kept: 'Not used while Mode is Fast. Its wire gives nothing.' })
+    expect(after.links).toMatchObject([{ id: 'l1', dimmed: true }])
+    expect(after.fields ?? []).toEqual([])
+    expect(after.values).toEqual(before.values)
+    expect(after.binding).toEqual(before.binding)
+    expect(after.storedLinks).toEqual(before.storedLinks)
+    expect(after.projected).toEqual(before.projected)
+    const kept = await rowPoint(page, 'radius', 'mode.radius')
+    await page.mouse.click(kept.x, kept.y)
+    await expect(field(page)).toHaveCount(0)
+    await page.mouse.move(kept.x, kept.y)
+    await expect(page.getByRole('tooltip')).toContainText('Not used while Mode is Fast. Its wire gives nothing.')
+    await page.screenshot({ path: testInfo.outputPath(`retained-promoted-disabled-${restore}.png`) })
+    if (restore === 'undo') {
+      await page.getByTestId('graph-canvas').focus()
+      await page.keyboard.press('Control+z')
+    } else await choose('Fine')
+    await expect.poll(snapshot).toEqual(before)
+  }
+})
+
 for (const access of ['readOnly', 'disabled'] as const) {
   test(`a ${access} flag discards the draft and explains the row without preventing non-UI writes`, async ({ page }, testInfo) => {
     await openSampler(page, access)

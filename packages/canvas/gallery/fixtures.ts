@@ -844,6 +844,11 @@ export function createCanvasGalleryFixture(
     add('Three fields', schema('Offset', [{ kind: 'row', rows: [
       widget('x', 'INT', 8), widget('y', 'INT', 12), widget('z', 'INT', 0),
     ] }]), {}, undefined, false, { width: 817 })
+    add('Four fields, one disabled', schema('Crop', [{ kind: 'row', rows: [
+      widget('x', 'INT', 8),
+      { ...widget('y', 'INT', 12), disabled: true, disabledReason: 'The preset controls the vertical offset.' },
+      width, height,
+    ] }]), {}, undefined, false, { width: 817 })
     add('Field, worded button and note', schema('Resize image', [{ kind: 'row', rows: [
       width, { kind: 'button', id: 'reset', label: 'Reset width', steps: [] }, { kind: 'note', id: 'units', text: 'px' },
     ] }]), {}, undefined, false, { width: 817 })

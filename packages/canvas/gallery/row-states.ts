@@ -101,6 +101,8 @@ export const representationSchema = schema('Soften', [
   { ...field('caption', 'STRING', 'soft edge'), tooltip: 'Text written under the image.' },
   looked('locked', 'Amount of the result.', mixLooks(false, true, 'number')),
   looked('pending', 'Range waits for width.', mixLooks(true, false, 'slider')),
+  { ...field('readonlyMix', 'FLOAT', 0.65, { min: 0, max: 1, step: 0.01 }),
+    displayName: 'mix', readOnly: true, tooltip: 'Value is read-only. Its representation can still change.' },
 ])
 
 interface NodePlace {

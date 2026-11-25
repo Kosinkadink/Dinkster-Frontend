@@ -251,6 +251,12 @@ const representationExamples: readonly RowExample[] = [
     'Locked, or only one look. No Representation control and no dead button: a declared set with userSwitchable false wins.',
     'locked',
   ),
+  representationExample(
+    'representation-readonly',
+    'A read-only field keeps its ordinary contrast and lock. The keyboard outline offers Representation because changing the look writes no value.',
+    'readonlyMix',
+    { focus: true },
+  ),
   {
     id: 'representation-color',
     caption: 'A whole-number field declared with the color display offers Color and Number. Above, the same field switched to Number: the ordinary whole-number row with its steppers, and the control shows Number. Below, the declared Color look, drawn as a color square and its code; the in-row color editor also takes its steppers away. Both store 5211846; Reset goes back to Color.',
