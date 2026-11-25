@@ -624,8 +624,9 @@
 .dock-zone-tabs .product-tab[aria-selected='true'] { color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); }
 .dock-zone-tabs .product-tab[aria-selected='true']::after { content: ''; position: absolute; right: 10px; bottom: -2px; left: 10px; height: 3px; border-radius: 3px; background: var(--dinkster-accent-foreground); pointer-events: none; }
 .dock-zone-tabs .product-tab:disabled { display: none; }
-/* Truncate the title text, never the attention badge beside it. */
-.dock-zone-tabs .tab-title { display: flex; align-items: center; }
+/* Centre a label narrower than its tab, together with its badge; truncate the
+   title text, never the attention badge beside it. */
+.dock-zone-tabs .tab-title { display: flex; align-items: center; justify-content: center; }
 .dock-zone-tabs .tab-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-zone-tabs .tab-title .panel-indicator { flex: none; }
 .dock-zone-title-only > .product-tabs-header > .product-tablist { display: none; }

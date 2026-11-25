@@ -1,8 +1,4 @@
 .runs-panel { display: flex; flex-direction: column; gap: var(--dinkster-space-8); min-width: 0; }
-/* The scope: two words, the chosen one filled, as the library's source tabs. */
-.runs-scope { display: flex; gap: var(--dinkster-space-4); }
-.runs-scope > .runs-scope-option { color: var(--dinkster-text-secondary); font-weight: var(--dinkster-weight-regular); }
-.runs-scope > .runs-scope-option[aria-pressed='true'] { color: var(--dinkster-text-on-selected); background: var(--dinkster-surface-selected); border-color: var(--dinkster-border-selected); }
 .runs-row, .runs-stored-row { display: grid; min-width: 0; gap: var(--dinkster-space-8); }
 .runs-stored-row > p { margin: 0; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); }
 .runs-stored-row > [role='status'] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

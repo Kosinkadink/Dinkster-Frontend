@@ -41,7 +41,7 @@ import { AppView } from './AppView.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import { AccountControl, createAccountSession } from './AccountControl.js'
@@ -1580,11 +1580,10 @@ export function App(props: {
   }
   const RunsPanel = () => (
     <div class="rail-panel-body runs-panel" data-testid="runs-panel">
-      <div class="runs-scope" role="group" aria-label={message('runs.scope')} data-testid="runs-scope" data-selected-id={runScope()}>
-        <For each={['workflow', 'all'] as const}>{(scope) => (
-          <ProductButton type="button" variant="ghost" size="compact" class="runs-scope-option" data-scope={scope}
-            aria-pressed={runScope() === scope} onClick={() => setRunScope(scope)}>{message(`runs.scope.${scope}`)}</ProductButton>
-        )}</For>
+      <div class="runs-scope" data-testid="runs-scope" data-selected-id={runScope()}>
+        <ProductSegmented label={message('runs.scope')} value={runScope()}
+          options={(['workflow', 'all'] as const).map((scope) => ({ value: scope, label: message(`runs.scope.${scope}`) }))}
+          onChange={(scope) => setRunScope(scope)} />
       </div>
       <Show when={runningRuns().length > 0}>
         <RunSection title={message('runs.section.running', { count: runningRuns().length })} testId="runs-running">

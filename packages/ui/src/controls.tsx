@@ -1,4 +1,5 @@
 import {
+  For,
   Show,
   createComputed,
   createSignal,
@@ -264,6 +265,96 @@ export function ProductCancelButton(
         <ProductIcon icon={X} />
       </Show>
     </Button>
+  )
+}
+
+/** A secondary action drawn as underlined text beside the value it acts on. */
+export function ProductTextButton(
+  props: Omit<ButtonAttributes, 'children'> & {
+    label: string
+    icon?: LucideIcon
+    intent?: ProductRole
+  },
+) {
+  const [local, button] = splitProps(props, ['label', 'icon', 'intent'])
+  return (
+    <button
+      {...button}
+      type="button"
+      class="dinkster-text-button"
+      data-role={local.intent ?? 'neutral'}
+    >
+      <Show when={local.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>
+      {local.label}
+    </button>
+  )
+}
+
+/** One choice of a few, shown side by side. */
+export function ProductSegmented(props: {
+  label: string
+  value: string
+  options: readonly { value: string; label: string }[]
+  onChange: (value: string) => void
+}) {
+  const name = createUniqueId()
+  return (
+    <div class="dinkster-segmented" role="radiogroup" aria-label={props.label}>
+      <For each={props.options}>
+        {(option) => (
+          <label class="dinkster-segment">
+            <input
+              type="radio"
+              class="dinkster-visually-hidden"
+              name={name}
+              value={option.value}
+              checked={props.value === option.value}
+              onChange={() => props.onChange(option.value)}
+            />
+            <span>{option.label}</span>
+          </label>
+        )}
+      </For>
+    </div>
+  )
+}
+
+/**
+ * A picture with a caption that opens what it shows, such as a workflow or
+ * an output. Without a picture the tile keeps its size and shows `empty`.
+ */
+export function ProductTile(props: {
+  label: string
+  caption?: string
+  detail?: string
+  picture?: JSX.Element
+  empty?: JSX.Element
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      class="dinkster-tile"
+      aria-label={props.caption ? undefined : props.label}
+      onClick={() => props.onClick()}
+    >
+      <span class="dinkster-tile-picture">
+        <Show
+          when={props.picture}
+          fallback={<span class="dinkster-tile-empty">{props.empty}</span>}
+        >
+          {props.picture}
+        </Show>
+      </span>
+      <Show when={props.caption}>
+        <span class="dinkster-tile-caption">
+          <span class="dinkster-tile-name">{props.caption}</span>
+          <Show when={props.detail}>
+            <span class="dinkster-tile-detail">{props.detail}</span>
+          </Show>
+        </span>
+      </Show>
+    </button>
   )
 }
 

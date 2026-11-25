@@ -90,6 +90,7 @@ import { CanvasChromeGallery } from './canvas-chrome.js'
 import { RunControlsGallery } from './run-controls.js'
 import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
+import { ProjectsGallery } from './projects.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -251,6 +252,7 @@ function Gallery() {
                 <ProductLink href="#editor-bar">
                   Inspect the editor bar and left bar
                 </ProductLink>
+                <ProductLink href="#projects">Inspect the projects page</ProductLink>
                 <For each={['win32', 'linux', 'darwin'] as const}>
                   {(platform) => {
                     const [error, setError] = createSignal(true)
@@ -1433,7 +1435,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#window-toolbar', '#editor-bar'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#window-toolbar', '#editor-bar', '#projects'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'
@@ -1458,6 +1460,9 @@ function GalleryRoot() {
           </Match>
           <Match when={route() === '#editor-bar'}>
             <EditorBarGallery />
+          </Match>
+          <Match when={route() === '#projects'}>
+            <ProjectsGallery />
           </Match>
         </Switch>
       }

@@ -59,7 +59,7 @@ export async function productOption(page: Page, optionId: string): Promise<Locat
 /** Shows this workflow's runs or every workflow's in the Runs panel. */
 export async function chooseRunScope(page: Page, scope: 'workflow' | 'all'): Promise<void> {
   const control = page.getByTestId('runs-scope')
-  await control.locator(`[data-scope="${scope}"]`).click()
+  await control.locator('.dinkster-segment').filter({ has: page.locator(`input[value="${scope}"]`) }).click()
   await expect(control).toHaveAttribute('data-selected-id', scope)
 }
 
