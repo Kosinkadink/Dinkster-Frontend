@@ -1714,5 +1714,13 @@
   "projects.outputs.hidden": "Hidden on this page",
   "projects.new.title": "New project",
   "projects.new.name": "Name",
-  "projects.new.create": "Create"
+  "projects.new.create": "Create",
+  "projects.logoMenu": "Dinkster menu",
+  "projects.place.projects": "Projects",
+  "projects.place.installations": "Installations",
+  "projects.place.models": "Models",
+  "projects.place.docs": "Docs",
+  "projects.place.later": "Opens here in a later version.",
+  "projects.status.local": "Local",
+  "projects.status.count": "{count, plural, one {# project} other {# projects}}"
 }

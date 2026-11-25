@@ -1714,5 +1714,13 @@
   "projects.outputs.hidden": "已在此页面隐藏",
   "projects.new.title": "新建项目",
   "projects.new.name": "名称",
-  "projects.new.create": "创建"
+  "projects.new.create": "创建",
+  "projects.logoMenu": "Dinkster 菜单",
+  "projects.place.projects": "项目",
+  "projects.place.installations": "安装",
+  "projects.place.models": "模型",
+  "projects.place.docs": "文档",
+  "projects.place.later": "将在后续版本中在此打开。",
+  "projects.status.local": "本地",
+  "projects.status.count": "{count} 个项目"
 }

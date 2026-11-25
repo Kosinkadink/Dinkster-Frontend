@@ -5,8 +5,8 @@
  * running. Opening a project goes through the shell, which writes the opening
  * line and the failure the page draws.
  */
-import { createMemo, createResource, createSignal, For, Index, Show } from 'solid-js'
-import { AudioLines, Eye, EyeOff, Workflow } from 'lucide-solid'
+import { createEffect, createMemo, createResource, createSignal, For, Index, Match, Show, Switch } from 'solid-js'
+import { AudioLines, BookOpen, Database, Eye, EyeOff, LayoutGrid, Server, Workflow } from 'lucide-solid'
 import { activeLocale, asConnectionId } from '@dinkster/core'
 import {
   DinksterConnection,
@@ -15,6 +15,7 @@ import {
   type LocalAssetCatalogEntry,
 } from '@dinkster/client'
 import {
+  ProductBrandMark,
   ProductButton,
   ProductEmptyState,
   ProductErrorBanner,
@@ -30,11 +31,17 @@ import {
   ProductTextInput,
   ProductTile,
   ProductTileGrid,
+  ProductWindowToolbar,
   type ProductProjectEntry,
 } from '@dinkster/ui'
 import { useAppMessage } from '../locale.js'
+import { AccountControl, createAccountSession } from '../AccountControl.js'
+import { ActivityBarButton, IconBar } from '../ShellChrome.js'
+import { UniversalSearchTrigger } from '../UniversalSearch.js'
 import { useSignal } from '../solid-adapter.js'
 import { DEFAULT_PROJECT_ID } from '../projects.js'
+import '@dinkster/ui/styles.css'
+import './projects-page.css'
 import { byProjectTime, formatBytes, formatWhen, projectTime } from './project-facts.js'
 
 /** An installation a project can run on. */
@@ -106,9 +113,12 @@ function folderName(root: string): string {
   return root.replace(/[\\/]+$/u, '').split(/[\\/]/u).pop() || root
 }
 
+function processConnection(): DinksterConnection {
+  return new DinksterConnection({ id: asConnectionId('projects-page'), baseUrl: '', clientId: 'projects-page' })
+}
+
 /** The page's reads from the always-on process serving this page. */
-export function processSource(): ProjectsSource {
-  const connection = new DinksterConnection({ id: asConnectionId('projects-page'), baseUrl: '', clientId: 'projects-page' })
+export function processSource(connection: DinksterConnection = processConnection()): ProjectsSource {
   return {
     async listProjects() {
       const projects: LibraryProject[] = []
@@ -152,14 +162,104 @@ export function processSource(): ProjectsSource {
   }
 }
 
+type Place = 'projects' | 'installations' | 'models' | 'docs'
+
+const PLACES = [
+  ['projects', LayoutGrid],
+  ['installations', Server],
+  ['models', Database],
+  ['docs', BookOpen],
+] as const
+
+/**
+ * The page with the editor's frame around it: the same top bar, left icon
+ * bar and status bar, in the same places, so the frame does not move when the
+ * shell fades between the page and an editor.
+ */
 export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
-  return <ProjectsView shell={props.shell} source={processSource()} />
+  const message = useAppMessage()
+  const connection = processConnection()
+  const source = processSource(connection)
+  const account = createAccountSession(() => connection)
+  const [place, setPlace] = createSignal<Place>('projects')
+  const [count, setCount] = createSignal<number>()
+  const logo = () => (
+    <ProductMenu
+      label={message('projects.logoMenu')}
+      icon={() => <ProductBrandMark />}
+      iconOnly
+      items={[{ label: message('projects.new.title'), onSelect: () => props.shell.showProjects({ newProject: true }) }]}
+    />
+  )
+  return (
+    <div class="shell" data-testid="projects-page">
+      <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
+      <ProductWindowToolbar
+        title={message('shell.applicationControls')}
+        platform="linux"
+        brand={logo()}
+        search={<UniversalSearchTrigger shortcut="Ctrl+K" onOpen={() => {}} />}
+        actions={<></>}
+      />
+      <div class="body">
+        <IconBar hidden={false} account={<AccountControl session={account} rail />} onSettings={() => {}}>
+          <For each={PLACES}>
+            {([id, icon]) => (
+              <ActivityBarButton
+                icon={icon}
+                label={message(`projects.place.${id}`)}
+                accessibleName={message(`projects.place.${id}`)}
+                tooltip={message(`projects.place.${id}`)}
+                pressed={place() === id}
+                testId={`projects-place-${id}`}
+                onActivate={() => setPlace(id)}
+              />
+            )}
+          </For>
+        </IconBar>
+        <div class="projects-page-body dinkster-root">
+          <Switch>
+            <Match when={place() === 'projects'}>
+              <ProjectsView shell={props.shell} source={source} onCount={setCount} />
+            </Match>
+            <Match when={true}>
+              <ProductProjectsView>
+                <ProductProjectHeader title={message(`projects.place.${place()}`)} />
+                <ProductEmptyState message={message('projects.place.later')} />
+              </ProductProjectsView>
+            </Match>
+          </Switch>
+        </div>
+      </div>
+      <footer class="statusbar statusbar-state" aria-label={message('shell.applicationStatus')}>
+        <div class="status-items">
+          <span class="status-item status-connection projects-page-status" data-state="no-engine">
+            <span class="status-connection-dot" aria-hidden="true" />
+            <span class="status-connection-name">{message('projects.status.local')}</span>
+          </span>
+          <span class="status-item">{message('shell.engine.notRunning')}</span>
+          <Show when={count() !== undefined}>
+            <span class="status-item projects-page-count">{message('projects.status.count', { count: count()! })}</span>
+          </Show>
+        </div>
+      </footer>
+    </div>
+  )
 }
 
-export function ProjectsView(props: { readonly shell: ProjectsPageShell; readonly source: ProjectsSource }) {
+export function ProjectsView(props: {
+  readonly shell: ProjectsPageShell
+  readonly source: ProjectsSource
+  /** Told how many projects the list holds once it has read them. */
+  readonly onCount?: (count: number) => void
+}) {
   const message = useAppMessage()
   const locale = useSignal(activeLocale)
   const [projects, { mutate: setProjects }] = createResource(() => props.source.listProjects().then(byProjectTime))
+  createEffect(() => {
+    const list = projects()
+    if (list) props.onCount?.(list.length)
+  })
   const [installations] = createResource(() => props.source.installations())
   const [chosen, setChosen] = createSignal<string>()
   const [bannerShown, setBannerShown] = createSignal(true)
@@ -281,13 +381,15 @@ export function ProjectsView(props: { readonly shell: ProjectsPageShell; readonl
                 ),
               },
             ],
-            [
-              {
-                label: message('projects.facts.size'),
-                value: usage() ? formatBytes(usage()!.bytes, locale().tag) : '',
-                detail: usage() ? message('projects.facts.outputs', { count: usage()!.outputs }) : undefined,
-              },
-            ],
+            usage()
+              ? [
+                  {
+                    label: message('projects.facts.size'),
+                    value: formatBytes(usage()!.bytes, locale().tag),
+                    detail: message('projects.facts.outputs', { count: usage()!.outputs }),
+                  },
+                ]
+              : [],
           ]}
         />
         <ProductProjectSection

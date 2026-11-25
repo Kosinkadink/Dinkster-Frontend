@@ -1,0 +1,4 @@
+/* The page sits where the editor's workspace sits, inside the editor's frame. */
+.projects-page-body { flex: 1; min-width: 0; min-height: 0; padding-bottom: 6px; background: transparent; }
+.projects-page-count { margin-left: auto; }
+.projects-page-status { display: inline-flex; align-items: center; gap: var(--dinkster-space-8); }

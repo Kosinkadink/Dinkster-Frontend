@@ -1,26 +1,26 @@
-import { For, Index, Show, createUniqueId, type JSX } from 'solid-js'
-import { Plus, TriangleAlert } from 'lucide-solid'
-import { ProductButton, ProductIcon } from './controls.js'
+import { For, Index, Show, createUniqueId, type JSX } from "solid-js";
+import { Plus, TriangleAlert } from "lucide-solid";
+import { ProductButton, ProductIcon } from "./controls.js";
 
 /** One project in the projects page's list. */
 export interface ProductProjectEntry {
-  id: string
-  name: string
+  id: string;
+  name: string;
   /** When it was last opened, or what is happening to it now. */
-  detail: string
+  detail: string;
   /** Why the detail says what it does, shown on hover, such as why a project opens in its own editor. */
-  reason?: string | undefined
+  reason?: string | undefined;
   /** Opening shows progress under the row; failed marks it with a warning. */
-  state?: 'opening' | 'failed' | 'draft' | undefined
+  state?: "opening" | "failed" | "draft" | undefined;
 }
 
 /** The projects page body: the list on the left and one project on the right. */
 export function ProductProjectsView(props: {
-  list?: JSX.Element
-  children: JSX.Element
+  list?: JSX.Element;
+  children: JSX.Element;
 }) {
   return (
-    <div class="dinkster-projects" data-list={props.list ? undefined : 'none'}>
+    <div class="dinkster-projects" data-list={props.list ? undefined : "none"}>
       <Show when={props.list}>
         <div class="dinkster-projects-panel dinkster-projects-list">
           {props.list}
@@ -30,7 +30,7 @@ export function ProductProjectsView(props: {
         {props.children}
       </div>
     </div>
-  )
+  );
 }
 
 /**
@@ -38,34 +38,36 @@ export function ProductProjectsView(props: {
  * selected project shows on the right. `projects` is undefined while loading.
  */
 export function ProductProjectList(props: {
-  title: string
-  newLabel: string
-  onNew: () => void
-  projects: readonly ProductProjectEntry[] | undefined
-  selected: string | undefined
-  onSelect: (id: string) => void
-  loadingLabel: string
+  title: string;
+  newLabel: string;
+  onNew: () => void;
+  projects: readonly ProductProjectEntry[] | undefined;
+  selected: string | undefined;
+  onSelect: (id: string) => void;
+  loadingLabel: string;
 }) {
-  const heading = createUniqueId()
-  let list!: HTMLUListElement
+  const heading = createUniqueId();
+  let list!: HTMLUListElement;
   const move = (event: KeyboardEvent) => {
-    const projects = props.projects ?? []
-    const index = projects.findIndex((project) => project.id === props.selected)
+    const projects = props.projects ?? [];
+    const index = projects.findIndex(
+      (project) => project.id === props.selected,
+    );
     const next =
-      event.key === 'ArrowDown'
+      event.key === "ArrowDown"
         ? Math.min(projects.length - 1, index + 1)
-        : event.key === 'ArrowUp'
+        : event.key === "ArrowUp"
           ? Math.max(0, index - 1)
-          : event.key === 'Home'
+          : event.key === "Home"
             ? 0
-            : event.key === 'End'
+            : event.key === "End"
               ? projects.length - 1
-              : undefined
-    if (next === undefined || !projects[next]) return
-    event.preventDefault()
-    props.onSelect(projects[next].id)
-    list.querySelectorAll<HTMLElement>('[role="option"]')[next]?.focus()
-  }
+              : undefined;
+    if (next === undefined || !projects[next]) return;
+    event.preventDefault();
+    props.onSelect(projects[next].id);
+    list.querySelectorAll<HTMLElement>('[role="option"]')[next]?.focus();
+  };
   return (
     <>
       <header class="dinkster-projects-list-header">
@@ -111,12 +113,12 @@ export function ProductProjectList(props: {
                     class="dinkster-project-row-detail"
                     title={project.reason}
                   >
-                    <Show when={project.state === 'failed'}>
+                    <Show when={project.state === "failed"}>
                       <ProductIcon icon={TriangleAlert} />
                     </Show>
                     {project.detail}
                   </span>
-                  <Show when={project.state === 'opening'}>
+                  <Show when={project.state === "opening"}>
                     <span class="dinkster-progress" aria-hidden="true" />
                   </Show>
                 </li>
@@ -126,14 +128,14 @@ export function ProductProjectList(props: {
         )}
       </Show>
     </>
-  )
+  );
 }
 
 /** The selected project's name, when it was opened, and its actions. */
 export function ProductProjectHeader(props: {
-  title: string
-  subtitle?: string | undefined
-  actions?: JSX.Element
+  title: string;
+  subtitle?: string | undefined;
+  actions?: JSX.Element;
 }) {
   return (
     <header class="dinkster-project-header">
@@ -145,63 +147,69 @@ export function ProductProjectHeader(props: {
       </div>
       <div class="dinkster-actions">{props.actions}</div>
     </header>
-  )
+  );
 }
 
 /** One fact of a project, such as where its files are, with an optional action on it. */
 export interface ProductProjectFact {
-  label: string
-  value: JSX.Element
-  detail?: string | undefined
-  action?: JSX.Element
+  label: string;
+  value: JSX.Element;
+  detail?: string | undefined;
+  action?: JSX.Element;
 }
 
 /**
  * A project's facts in two equal boxes, one per column, so each action sits
- * at the right edge of the box that holds its fact.
+ * at the right edge of the box that holds its fact. An empty column draws no
+ * box and leaves its half of the width empty.
  */
 export function ProductProjectFacts(props: {
-  label: string
-  columns: readonly [readonly ProductProjectFact[], readonly ProductProjectFact[]]
+  label: string;
+  columns: readonly [
+    readonly ProductProjectFact[],
+    readonly ProductProjectFact[],
+  ];
 }) {
   return (
     <div class="dinkster-project-facts" role="group" aria-label={props.label}>
       <For each={props.columns}>
         {(column) => (
-          <dl class="dinkster-project-facts-box">
-            <For each={column}>
-              {(item) => (
-                <div class="dinkster-project-fact">
-                  <dt>{item.label}</dt>
-                  <dd>
-                    <span class="dinkster-project-fact-value">
-                      {item.value}
-                      <Show when={item.detail}>
-                        <span class="dinkster-project-fact-detail">
-                          {' - '}
-                          {item.detail}
-                        </span>
-                      </Show>
-                    </span>
-                    {item.action}
-                  </dd>
-                </div>
-              )}
-            </For>
-          </dl>
+          <Show when={column.length > 0}>
+            <dl class="dinkster-project-facts-box">
+              <For each={column}>
+                {(item) => (
+                  <div class="dinkster-project-fact">
+                    <dt>{item.label}</dt>
+                    <dd>
+                      <span class="dinkster-project-fact-value">
+                        {item.value}
+                        <Show when={item.detail}>
+                          <span class="dinkster-project-fact-detail">
+                            {" - "}
+                            {item.detail}
+                          </span>
+                        </Show>
+                      </span>
+                      {item.action}
+                    </dd>
+                  </div>
+                )}
+              </For>
+            </dl>
+          </Show>
         )}
       </For>
     </div>
-  )
+  );
 }
 
 /** A titled part of the project detail, such as its workflows, with a count or action at its end. */
 export function ProductProjectSection(props: {
-  title: string
-  aside?: JSX.Element
-  children?: JSX.Element
+  title: string;
+  aside?: JSX.Element;
+  children?: JSX.Element;
 }) {
-  const id = createUniqueId()
+  const id = createUniqueId();
   return (
     <section class="dinkster-project-section" aria-labelledby={id}>
       <header class="dinkster-project-section-header">
@@ -212,24 +220,24 @@ export function ProductProjectSection(props: {
       </header>
       {props.children}
     </section>
-  )
+  );
 }
 
 /** Tiles in rows: `wide` for workflow previews, `narrow` for output pictures. */
 export function ProductTileGrid(props: {
-  size: 'wide' | 'narrow'
-  children: JSX.Element
+  size: "wide" | "narrow";
+  children: JSX.Element;
 }) {
   return (
     <div class="dinkster-tile-grid" data-size={props.size}>
       {props.children}
     </div>
-  )
+  );
 }
 
 /** A placeholder in the shape of what is loading. */
 export function ProductSkeleton(props: {
-  shape: 'row' | 'title' | 'line' | 'tile'
+  shape: "row" | "title" | "line" | "tile";
 }) {
   return (
     <div
@@ -237,5 +245,5 @@ export function ProductSkeleton(props: {
       data-shape={props.shape}
       aria-hidden="true"
     />
-  )
+  );
 }
