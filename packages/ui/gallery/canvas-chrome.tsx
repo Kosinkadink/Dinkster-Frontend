@@ -101,7 +101,7 @@ const corners: readonly CornerExample[] = [
   { id: 'large', size: 'large', visible: true, caption: 'Large: the bar keeps its width.' },
   { id: 'hidden', size: 'large', visible: false, caption: 'Minimap hidden: the same bar, its switch off.' },
   { id: 'settings', size: 'large', visible: true, menu: 'minimap', tall: true, caption: 'The minimap settings, opened by the arrow beside the minimap switch, straight above the bar and over the dimmed minimap. Link Colors is on by default.' },
-  { id: 'quiet', size: 'large', visible: true, menu: 'minimap', tall: true, switches: { ...defaultSwitches, linkColors: false }, caption: 'Link Colors off: wires in one grey and no title lines.' },
+  { id: 'quiet', size: 'large', visible: true, switches: { ...defaultSwitches, linkColors: false }, caption: 'Link Colors off: wires in one grey and no title lines.' },
   { id: 'zoom', size: 'large', visible: true, menu: 'zoom', caption: 'The zoom menu, opened by the percentage, above the bar: type a percentage, Zoom in, Zoom out, Reset to 100%.' },
 ]
 

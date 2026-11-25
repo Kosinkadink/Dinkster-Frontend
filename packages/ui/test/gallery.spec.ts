@@ -779,7 +779,7 @@ test('the canvas corner bar keeps one width right-justified under the minimap, a
     large: { barWidth: width, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
     hidden: { barWidth: width, barRightToMap: null, menuGap: null, menuRight: null, mapOpacity: '1' },
     settings: { barWidth: width, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
-    quiet: { barWidth: width, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
+    quiet: { barWidth: width, barRightToMap: 0, menuGap: null, menuRight: null, mapOpacity: '1' },
     zoom: { barWidth: width, barRightToMap: 0, menuGap: 6, menuRight: 0, mapOpacity: '0.4' },
   })
   await expect(
