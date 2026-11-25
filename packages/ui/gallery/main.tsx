@@ -99,7 +99,6 @@ const navigation = [
   { label: 'Lists and tables', href: '#lists', icon: LayoutList },
   { label: 'Menus and messages', href: '#messages', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
-  { label: 'Search', href: '#search', icon: Search },
   { label: 'Account data', href: '#account-data', icon: User },
   {
     label: 'Canvas',
