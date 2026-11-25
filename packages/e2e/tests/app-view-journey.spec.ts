@@ -11,7 +11,7 @@ async function registerSchema(page: Page): Promise<void> {
     })
     window.__dinksterTest!.app.registerSchemas([{
       type: 'AppViewJourneyTest', displayName: 'Portrait Studio', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         widget('prompt', 'STRING', 'portrait'),
         widget('steps', 'INT', 20, { min: 1, max: 100, step: 1 }),
       ],

@@ -73,7 +73,7 @@ async function openauditInteractionFixture(page: Page): Promise<void> {
   await page.evaluate(async () => {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'auditPlacementTest', displayName: 'audit KSampler', category: 'test', source: 'v3', isOutputNode: false,
-      items: [
+      body: [
         {
           kind: 'input', id: 'steps', type: { kind: 'concrete', name: 'INT' }, optional: false,
           widget: { widgetType: 'INT', options: { min: 1, max: 100 }, default: 20 },
