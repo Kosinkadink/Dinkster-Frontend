@@ -936,6 +936,8 @@ function elaboratePass(
   const groupPaths = new Set<string>()
   const diagnostics: Diagnostic[] = []
   const emittedInputs = new Set<string>()
+  /** What a formula reads for each emitted input with nothing stored, from the spec compile sends it by. */
+  const unsetReads = new Map<string, unknown>()
   const emittedOutputs = new Set<string>()
   // A dormant census visits every option and variant, so a row they share, or
   // a row id two variants both declare, is emitted once per visit. Only rows
@@ -1020,10 +1022,13 @@ function elaboratePass(
       const automatic = automaticInUse(path)
       if (automatic !== undefined) return automatic === UNKNOWN ? UNKNOWN : formulaValueOf(automatic, kind)
     }
-    const raw = Object.hasOwn(node.values, path) ? node.values[path] : fallback
-    // A field with no default that stores nothing, or the null clearing
-    // stores, is empty: nothing is chosen yet.
-    if ((raw === undefined || raw === null) && (fallback === undefined || fallback === null)) readEmpty = path
+    // A field already emitted reads what compile sends for its elaborated
+    // spec; one read before the walk reaches it reads its declaration.
+    const unset = unsetReads.has(path) ? unsetReads.get(path) : fallback
+    const raw = Object.hasOwn(node.values, path) ? node.values[path] : unset
+    // A field the run is sent nothing for, or that stores the null clearing
+    // stores with nothing else to read, is empty: nothing is chosen yet.
+    if ((raw === undefined || raw === null) && (unset === undefined || unset === null)) readEmpty = path
     return formulaValueOf(raw, kind)
   }
 
@@ -1567,11 +1572,13 @@ function elaboratePass(
     const looked = declared?.looked === undefined ? undefined : lookedWidget({ ...declared, looked: declared.looked }, lookupScope)
     if (looked !== undefined) spec = { ...spec, widget: looked.widget }
     const parts = row.widget === undefined ? undefined : partsAt(row.widget, scope)
+    // A field that is not sent is drawn and edited but never reaches the run.
+    const sent = !(scope.ghost || scope.dormant || row.sent === false)
+    unsetReads.set(path, readWhenUnset(sent ? spec : { ...spec, sent: false }))
     push({
       kind: 'input',
       address: { port: path },
-      // A field that is not sent is drawn and edited but never reaches the run.
-      ...(scope.ghost || scope.dormant || row.sent === false ? {} : { apiName: path }),
+      ...(sent ? { apiName: path } : {}),
       spec,
       ...common(scope),
       ...(parts !== undefined ? { parts } : {}),

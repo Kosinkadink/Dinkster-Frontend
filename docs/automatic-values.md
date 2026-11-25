@@ -52,13 +52,13 @@ warning, "Could not work out frame rate. Using the default, 24.", listed in
 Problems. A lookup takes no None argument, so the editor and the engine both
 use the default without calling it. While a lookup's answer is still to come,
 one of its arguments reads another automatic field still waiting on its
-lookup, or an argument is None because it reads a field left empty - an
-optional one with no default that stores nothing or null, such as a source
-rate not set yet - the field shows the default without a warning. A required
-field with no default is not empty: the run is sent its widget's start value,
-so the lookup is called with it. For an empty field the side part reads
-"Waiting for source rate.", with that field's label, or "Waiting for a value."
-when the argument is not that one field.
+lookup, or an argument is None because it reads a field left empty - one the
+run is sent nothing for that stores nothing or null, such as an optional
+source rate not set yet - the field shows the default without a warning. A
+required field with no default whose widget has a start value is not empty:
+the run is sent that value, so the lookup is called with it. For an empty
+field the side part reads "Waiting for source rate.", with that field's label,
+or "Waiting for a value." when the argument is not that one field.
 The editor does not yet send a file field as a lookup argument: a formula
 cannot read a file field, so such an argument is refused and the field shows
 the default with the warning, whether or not a file is picked.

@@ -138,8 +138,12 @@ it, including a led choice or one with nothing stored yet. A field with
 nothing stored reads what the run is sent for it, also under the chosen
 option, in a stored member, or where a `Use` gives it another default: its
 default, or for a required field with none, its widget's start value (the
-minimum or 0, an empty text, the first option). An optional field with no
-default is sent nothing and reads None.
+minimum or 0, an empty text, the first option), with looked-up limits and
+stored options applied. A field the run is sent nothing for reads its default,
+or None without one: an optional field, a member past an optional minimum, a
+row hidden by its `visible`, or a choice whose options all come from the
+server. A formula that runs before the node's rows are all laid out, such as
+a count, reads a row it has not reached yet from its declaration.
 
 A group that grows by link, filled field or button has its first
 `minMembers` members stored whenever it is part of the node: on a new node,
