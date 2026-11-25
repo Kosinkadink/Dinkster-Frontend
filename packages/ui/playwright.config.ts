@@ -10,6 +10,8 @@ export default defineConfig({
     browserName: 'chromium',
     viewport: { width: 1280, height: 900 },
     contextOptions: { reducedMotion: 'reduce' },
+    // Keep Canvas circle-edge rasterization independent of GPU acceleration.
+    launchOptions: { args: ['--disable-accelerated-2d-canvas'] },
   },
   webServer: {
     command:
