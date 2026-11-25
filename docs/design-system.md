@@ -167,7 +167,7 @@ every core tab once.
   then uses the app's viewport algorithm from `@dinkster/core/floating-surface`
   to clamp and to flip above when needed. Scroll outside or resize dismisses
   the menu rather than leaving a stale anchor. Its document listeners exist
-  only while it is open. Item text follows its intent. Removal callbacks open a
+  only while it is open. Item text follows its intent; optional `description` is a muted second line associated as the item's accessible description, without changing its label. Removal callbacks open a
   confirmation. Use `iconOnly` with an icon for compact folder actions; the
   label remains the trigger and menu's accessible name. `ProductAccountMenu` shows the person's initial and name on a
   borderless trigger (the initial alone below the breakpoint), reads out name
@@ -177,7 +177,7 @@ every core tab once.
   repeated secondary identity lines are omitted; the trigger's accessible name
   follows the same primary line.
 - `ProductNotice` is standing information without a dismiss button, including
-  its warning tone for QA environments.
+  its warning tone for conditions the person clears and its error tone for failures. Error notices use the error icon and alert role; information and warning retain their note role.
   `ProductErrorBanner` is dismissed explicitly or by the caller after success.
   `ProductToast` is the corner region for success feedback. Keep one mounted
   and pass each success as a new `notification` object, so the region exists
@@ -190,6 +190,7 @@ every core tab once.
   tokens). A link inside a message stays primary and its close button
   secondary, so the strip is not one colour. The toast puts the message on
   the raised surface because it floats over other content.
+- `ProductProgress` takes a required accessible `label` and optional fractional `value` from 0 to 1. Zero is determinate; omission sweeps without exposing a current value. Reduced motion replaces the sweep with a full static fill at 45% opacity, distinct from completion. The host owns phase wording, amounts and spacing. The address-only `#setup-components` gallery shows progress, notice tones and described menu choices together.
 - `ProductConfirmation` orders the title, consequence, solid action and Cancel.
   Sites use it as page content. Inside `ProductDialog`, omit the confirmation's
   duplicate title and let the dialog provide it. `ProductDialog` provides native modal inertness,
