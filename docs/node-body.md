@@ -246,9 +246,12 @@ the choice.
 A type choice is led by the type plugged into its pin. Connecting a producer
 of a concrete type stores the one variant that accepts it, in the same undo
 step, when no variant is stored yet; the pin's context menu chooses or clears
-a variant. The chosen variant's rows and the rows every variant has appear
-under the pin. A type choice without variants reveals its rows while the pin
-has a value or a link. A connected type choice without a valid stored variant
+a variant. While the pin has a value or a link, the chosen variant's rows and
+the rows every variant has appear under it. Disconnecting hides those rows
+without deleting the stored variant or values, and sends neither the variant
+key nor its rows to a run. Rows with an output wire remain drawn but inactive.
+A type choice without variants also reveals its rows only while the pin has
+a value or a link. A connected type choice without a valid stored variant
 is refused at compile (`compile.slot.missingVariant`). A `typeVariable` binds
 a node-level type variable to the chosen variant's type.
 

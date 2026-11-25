@@ -477,6 +477,7 @@ interface DinksterTestBridge {
         label: string
         baseUrl: string
         protocol: 'v1' | 'dinkster'
+        scopedClient: Pick<import('@dinkster/client').RefreshableScopedClient, 'remoteChoices'>
         connection: {
           status: { get(): string }
           ingest(event: Readonly<Record<string, unknown>> & { type: string }): void

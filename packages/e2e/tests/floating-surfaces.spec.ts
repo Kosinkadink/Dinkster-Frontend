@@ -128,7 +128,7 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole('button', { name: 'Hide minimap' }).click()
 })
 
-test('menus and selects share contained semantic chrome, and a choice row list stays in the canvas', async ({ page }, testInfo) => {
+test('menus and selects share contained semantic chrome, and a choice row stays in the canvas', async ({ page }, testInfo) => {
   for (const viewport of viewports) {
     await page.setViewportSize(viewport)
     if (viewport.width === 360) {
@@ -140,10 +140,23 @@ test('menus and selects share contained semantic chrome, and a choice row list s
     await page.mouse.click(widgetPoint.x, widgetPoint.y)
     const widget = page.locator('[data-editor-surface="in-row-list"] .dinkster-canvas-field')
     await expect(widget).toBeVisible()
-    const search = widget.locator('input')
+    const search = widget.getByRole('combobox')
     for (let index = 0; index < 13; index += 1) await search.press('ArrowDown')
     await expectContained(page, widget, true)
+    const active = widget.getByRole('option', { selected: true })
+    await expect(active).toContainText('Option 14 ')
     await capture(page, testInfo, `${viewport.name}-row-list`)
+    await expect.soft(active).toBeInViewport({ ratio: 1 })
+    const side = widget.locator('.dinkster-canvas-field-side')
+    const sideBox = (await side.boundingBox())!
+    const stageBox = (await page.locator('.canvas-stage').boundingBox())!
+    expect.soft(sideBox.x).toBeGreaterThanOrEqual(stageBox.x)
+    expect.soft(sideBox.x + sideBox.width).toBeLessThanOrEqual(stageBox.x + stageBox.width)
+    expect.soft(sideBox.y).toBeGreaterThanOrEqual(stageBox.y)
+    expect.soft(sideBox.y + sideBox.height).toBeLessThanOrEqual(stageBox.y + stageBox.height)
+    for (let index = 0; index < 13; index += 1) await search.press('ArrowUp')
+    await expect(active).toContainText('Option 1 ')
+    await expect(active).toBeInViewport({ ratio: 1 })
     await search.press('Escape')
     await expect(page.getByTestId('graph-canvas')).toBeFocused()
 
