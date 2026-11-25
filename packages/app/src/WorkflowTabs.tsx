@@ -360,7 +360,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
         </button>
           <Show when={newItems().length > 1}>
             <span class="tab-new-options" data-testid="new-tab-options">
-              <ProductMenu label={message('templatesEntry.newTab')} items={newItems()} icon={ChevronDown} iconOnly />
+              <ProductMenu label={message('templatesEntry.newTab')} items={newItems()} icon={ChevronDown} iconOnly fill="quiet" />
             </span>
           </Show>
         </Show>

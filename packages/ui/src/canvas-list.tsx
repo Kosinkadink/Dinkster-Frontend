@@ -53,6 +53,10 @@ export const CANVAS_LIST_ROWS = 8
 
 /** Where a list opened in a row goes and how it fits the visible canvas. */
 export interface CanvasListLayout extends CanvasSideLayout {
+  /** Detached side parts slide horizontally to stay on the canvas. */
+  readonly sideLeft?: number
+  /** The visible canvas width, at normal size. */
+  readonly sideMaxWidth: number
   readonly listPlace: 'below' | 'above'
   /** The height the list may take before it scrolls, at normal size. */
   readonly listMaxHeight?: number
@@ -64,7 +68,9 @@ export interface CanvasListLayout extends CanvasSideLayout {
  * it when the room under it is too short and the room over it is larger,
  * and takes the room there is. The side part stays beside the row, touching
  * it, as `canvasSideLayout` places it; under or over the field it goes past
- * the list, never over it. The side part's top is measured from the top of
+ * the list, never over it. Under or over the node, it slides horizontally
+ * to fit the canvas, wrapping when the canvas is narrower than its width.
+ * The side part's top is measured from the top of
  * the row and list together, as the row field's frame places it.
  *
  * `row` and `bounds` are screen boxes; `list` and `side` are at normal size.
@@ -93,7 +99,7 @@ export function canvasListLayout(
   const offset = listPlace === 'above' ? listHeight : 0
   const beside = canvasSideLayout(row, bounds, side, scale, nodeBelow, nodeAbove)
   if (beside.place === 'right' || beside.place === 'left')
-    return { ...beside, sideTop: beside.sideTop + offset, listPlace, ...fits }
+    return { ...beside, sideTop: beside.sideTop + offset, sideMaxWidth: bounds.width / zoom, listPlace, ...fits }
   // Under or over: the side part goes past the list.
   const box = {
     x: row.x,
@@ -109,7 +115,18 @@ export function canvasListLayout(
     Math.max(nodeBelow + offset, fieldHeight + listHeight),
     Math.max(nodeAbove - offset, 0),
   )
-  return { ...around, listPlace, ...fits }
+  const sideMaxWidth = bounds.width / zoom
+  const sideLeft = Math.max(
+    (bounds.x - row.x) / zoom,
+    Math.min(0, (bounds.x + bounds.width - row.x) / zoom - Math.min(side.width, sideMaxWidth)),
+  )
+  return {
+    ...around,
+    ...(around.place === 'below-node' || around.place === 'above-node' ? { sideLeft } : {}),
+    sideMaxWidth,
+    listPlace,
+    ...fits,
+  }
 }
 
 /**
@@ -129,6 +146,8 @@ export function CanvasRowList(
     /** The side part's top, from the top of the row and list together, at normal size. */
     sideTop?: number
     sideMaxHeight?: number
+    sideLeft?: number
+    sideMaxWidth?: number
     side?: JSX.Element
     onSideSize?: (size: CanvasSideSize) => void
     ref?: (element: HTMLDivElement) => void
@@ -175,8 +194,8 @@ export function CanvasRowList(
   let reported = -1
   const measure = () => {
     if (!body) return
-    entries.style.maxHeight = ''
-    body.style.maxHeight = ''
+    // Offsets and scrollHeight measure the contents without removing the
+    // height limit, which would reset the keyboard's scroll position.
     const items = [...entries.children] as HTMLElement[]
     const cap = items.length > CANVAS_LIST_ROWS
       ? items[CANVAS_LIST_ROWS]!.offsetTop - items[0]!.offsetTop
@@ -191,9 +210,11 @@ export function CanvasRowList(
     const first = items[0]?.offsetHeight ?? 0
     if (limit !== undefined && limit < natural && limit - fixed < first) {
       body.dataset['scroll'] = 'whole'
+      entries.style.maxHeight = ''
       body.style.maxHeight = `${limit}px`
     } else {
       body.dataset['scroll'] = 'entries'
+      body.style.maxHeight = ''
       entries.style.maxHeight = `${limit !== undefined && limit < natural ? limit - fixed : cap}px`
     }
   }
@@ -340,6 +361,8 @@ export function CanvasRowList(
       place={props.place}
       {...(props.sideTop === undefined ? {} : { sideTop: props.sideTop })}
       {...(props.sideMaxHeight === undefined ? {} : { sideMaxHeight: props.sideMaxHeight })}
+      {...(props.sideLeft === undefined ? {} : { sideLeft: props.sideLeft })}
+      {...(props.sideMaxWidth === undefined ? {} : { sideMaxWidth: props.sideMaxWidth })}
       {...(props.side === undefined ? {} : { side: props.side })}
       {...(props.onSideSize === undefined ? {} : { onSideSize: props.onSideSize })}
       {...(props.ref === undefined ? {} : { ref: props.ref })}
