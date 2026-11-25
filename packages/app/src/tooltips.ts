@@ -151,10 +151,12 @@ export const WIDGET_READOUT_ITEMS = 20
  * own to read.
  */
 function widgetValueLines(row: { readonly viewId: string; readonly spec: WidgetSpec }, value: Json, context: CanvasTooltipContext, room: number): readonly string[] {
+  if (room < 1) return []
   const readout = context.widgetReadout?.(row, value)
   if (readout === undefined) return [formatWidgetValue(value, row.spec)]
   const [head, ...items] = readout
   if (head === undefined) return []
+  if (room < 2) return [head]
   const shown = items.length <= Math.min(WIDGET_READOUT_ITEMS, room - 1)
     ? items.length
     : Math.max(0, Math.min(WIDGET_READOUT_ITEMS, room - 2))
@@ -352,7 +354,10 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     ]
     // The title and any detail lines take their room first.
     const room = (context.tooltipLines ?? Infinity) - 1 - (opts.detailed ? detail.length : 0)
-    const [text, ...more] = widgetValueLines(row, t.companion?.value ?? value, context, room)
+    // Keep room for the stored summary and its remainder before listing
+    // incoming items. On a very short window the summaries take priority.
+    const storedRoom = t.companion && t.connected ? Math.min(2, Math.max(0, room - 1)) : 0
+    const [text, ...more] = widgetValueLines(row, t.companion?.value ?? value, context, room - storedRoom)
     const state = t.companion?.state ?? (t.companion?.stale ? 'stale' : t.companion ? 'expected' : undefined)
     const line = state === 'expected'
       ? `Current expected value: ${text}`
@@ -365,7 +370,8 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
             : t.connected
               ? `Dormant stored value under connection: ${text}`
               : `Value: ${text}`
-    const [storedText, ...storedMore] = t.companion && t.connected ? widgetValueLines(row, value, context, room - 1 - more.length) : []
+    const [storedText, ...storedMore] = t.companion && t.connected
+      ? widgetValueLines(row, value, context, room - (text === undefined ? 0 : 1 + more.length)) : []
     const stored = storedText === undefined ? [] : [`Dormant stored value under connection: ${storedText}`, ...storedMore]
     return {
       title: row.name ?? row.label,

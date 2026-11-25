@@ -238,6 +238,19 @@ describe('pointing at a row reads out its whole value without changing it', () =
       'Current expected value: 1 item', '1. only',
       'Dormant stored value under connection: 3 items', '1. a', 'and 2 more',
     ])
+    for (const count of [4, 30]) {
+      expect(readout(stringList, ['saved a', 'saved b', 'saved c'], { value: items(count), state: 'expected' }, 6)).toEqual([
+        `Current expected value: ${count} items`, '1. item 1', `and ${count - 1} more`,
+        'Dormant stored value under connection: 3 items', 'and 3 more',
+      ])
+    }
+    expect(readout(stringList, ['saved'], { value: items(4), state: 'expected' }, 3)).toEqual([
+      'Current expected value: 4 items', 'Dormant stored value under connection: 1 item',
+    ])
+    expect(readout(stringList, ['saved'], { value: items(4), state: 'expected' }, 2)).toEqual([
+      'Current expected value: 4 items',
+    ])
+    expect(readout(stringList, ['saved'], { value: items(4), state: 'expected' }, 1)).toEqual([])
   })
 
   it('never writes out the object of a row that only opens an editor', () => {
