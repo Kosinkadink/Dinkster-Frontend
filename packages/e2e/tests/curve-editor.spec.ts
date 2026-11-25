@@ -142,6 +142,47 @@ async function plotPoint(editor: Locator, position: number, value: number): Prom
 
 const points = (editor: Locator) => editor.locator('circle.dinkster-canvas-curve-point')
 
+test('hides the histogram input and its wire in one undo step and keeps the override after reload', async ({ page }) => {
+  const editor = await unfoldNodeEditor(page, 'editor', 'curve')
+  const openMenu = async () => {
+    const point = await page.evaluate(() => {
+      const renderer = window.__dinksterTest!.renderer!
+      const node = renderer.getScene().nodes.find((node) => node.id === 'editor')!
+      const row = node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'curve')!
+      const viewport = renderer.getViewport()
+      const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+      return { x: canvas.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
+        y: canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y }
+    })
+    await page.mouse.click(point.x, point.y, { button: 'right' })
+  }
+  const hasWire = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.links.histogramWire !== undefined)
+  await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
+  const height = (await editor.boundingBox())!.height
+  await openMenu()
+  await page.getByRole('menuitem', { name: 'Hide histogram input', exact: true }).click()
+  await expect(editor.getByText('Histogram', { exact: true })).toHaveCount(0)
+  expect(await hasWire()).toBe(false)
+  expect(height - (await editor.boundingBox())!.height).toBe(26)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+  await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
+  expect(await hasWire()).toBe(true)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())).toBe(true)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const exported = app.exportDocument(app.activeTab()!.id)!
+    await app.openDocument(JSON.parse(JSON.stringify(exported)), 'Reopened histogram visibility')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await expect(editor).toBeVisible()
+  await expect(editor.getByText('Histogram', { exact: true })).toHaveCount(0)
+  await openMenu()
+  await page.getByRole('menuitem', { name: 'Show histogram input', exact: true }).click()
+  await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
+  expect(await hasWire()).toBe(false)
+  expect(browserErrors.get(page)).toEqual({ page: [], console: [], responses: [] })
+})
+
 test('renders finite curve geometry across extreme float values', async ({ page }, testInfo) => {
   const extremeCurve = {
     interpolation: 'monotone_cubic',

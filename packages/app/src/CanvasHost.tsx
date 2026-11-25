@@ -165,7 +165,7 @@ import { cornerMenuMaxHeight, setupMinimap, type MinimapMarker } from './minimap
 import { CanvasCornerControls, MINIMAP_SWITCHES, type CanvasCornerMenu } from './CanvasChrome.js'
 import { NodePalette, type PaletteAnchor, type PaletteEntry } from './NodePalette.js'
 import { ContextMenu } from './ContextMenu.js'
-import { canvasMenuContext, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
+import { canvasMenuContext, curveHistogramMenuGroup, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
 import { BadgePopover, type BadgeAnchor } from './BadgePopover.js'
 import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
@@ -3421,6 +3421,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             disabled: tab.execution !== undefined || hit.row.ghost === true || hit.row.materialize !== undefined,
           })
           if (representationGroup !== undefined) additionalGroups.push(representationGroup)
+          const registry = props.app.registryForTab(tab)
+          if (registry !== undefined) {
+            const histogramGroup = curveHistogramMenuGroup({
+              document: tab.store.doc, scene: renderer.getScene(), hit,
+              resolve: documentResolver(tab.store.doc, registry.resolve),
+              ...(occurrencePlanner() === undefined ? {} : { planner: occurrencePlanner()! }),
+              disabled: tab.execution !== undefined || hit.row.ghost === true || hit.row.materialize !== undefined,
+            })
+            if (histogramGroup !== undefined) additionalGroups.push(histogramGroup)
+          }
         }
         openCanvasMenu(menuTargetOf(hit), worldX, worldY, additionalGroups)
       },
