@@ -39,6 +39,7 @@ import {
   toolboxButton,
   toolboxSeparator,
   type BadgeMap,
+  type PresenceActor,
   type NodeBadge,
   type CompanionMap,
   type RowMarkMap,
@@ -60,6 +61,7 @@ import { smallFlowNodesGallery } from './small-flow-nodes.js'
 import { subgraphIconGallery } from './subgraph-icon.js'
 import { switchPrimitiveGallery } from './switch-primitive.js'
 import { typeConflictGallery } from './type-conflict.js'
+import { wireLooksGallery } from './wire-looks.js'
 import { widgetTapGallery } from './widget-taps.js'
 
 export const canvasGalleryPages = [
@@ -75,10 +77,13 @@ export const canvasGalleryPages = [
   ['run-editable', 'Editable workflow run states'],
   ['run-frozen', 'Frozen run states'],
   ['types', 'Pins and links'],
+  ['wire-looks', 'Wire looks'],
   ['widgets', 'Widget kinds'],
   ['core-rows', 'Core widget rows'],
   ['row-editing', 'Editing in the row proposal'],
+  ['row-automatic', 'Automatic values proposal'],
   ['row-lists', 'Lists in the row proposal'],
+  ['lookups', 'Lookup states'],
   ['color-editing', 'Color in the row'],
   ['node-look', 'Original and new node look'],
   ['problem-box', 'The node\'s problem box'],
@@ -148,6 +153,9 @@ const sample = schema('Sampling', [
   }),
 ])
 
+/** Widget kinds of the editors shown in the node. */
+const EDITOR_KINDS = new Set(['CURVE', 'AUDIO_RECORD', 'WEBCAM', 'LOAD_3D', 'IMAGECOMPARE', 'CAMERA_ANGLE_VIEW'])
+
 export const galleryWidgetInputs: readonly InputSpec[] = [
   widget('integer', 'INT', 20, { min: 1, max: 10000 }),
   sample.body[2] as InputSpec,
@@ -182,7 +190,6 @@ export const galleryWidgetInputs: readonly InputSpec[] = [
     },
   },
   widget('color', 'COLOR', '#3366cc80'),
-  widget('colors', 'COLORS', ['#32E6C5', '#FF7468', '#FFD166']),
   widget('curve', 'CURVE', {
     points: [
       { position: 0, value: 0 },
@@ -236,6 +243,7 @@ interface BoxedNode {
   }
   readonly textLines?: Readonly<Record<string, number>>
   readonly height?: number
+  readonly width?: number
 }
 
 export interface CanvasGalleryFixture {
@@ -268,6 +276,7 @@ export interface CanvasGalleryFixture {
     rowMarks?: RowMarkMap
     inactive?: ReadonlySet<string>
     badges?: BadgeMap
+    presence?: readonly PresenceActor[]
     toolbox?: readonly ToolboxRow[]
   }[]
 }
@@ -631,7 +640,7 @@ export function createCanvasGalleryFixture(
                 : {}),
               [id]: {
                 position: { x, y },
-                size: { width: id === 'Narrow' ? 112 : id === 'Suffix narrow' ? 200 : 280, height: extra.height ?? 0 },
+                size: { width: extra.width ?? (id === 'Narrow' ? 112 : id === 'Suffix narrow' ? 200 : 280), height: extra.height ?? 0 },
                 ...(extra.textLines !== undefined ? { textLines: extra.textLines } : {}),
                 ...(id.startsWith('Minimized') || id === 'Long minimized'
                   ? { collapsed: true }
@@ -682,27 +691,18 @@ export function createCanvasGalleryFixture(
   }
   if (page === 'collection-rows') {
     const collection = galleryWidgetInputs.filter((item) =>
-      ['multi_choice', 'list', 'colors', 'curve'].includes(item.id),
+      ['multi_choice', 'list', 'curve'].includes(item.id),
     )
     const definition = schema('Collection widgets', collection)
     add('Selected values', definition)
     add('Empty and minimal values', definition, {
       multi_choice: [],
       list: [],
-      colors: [],
       curve: { points: [{ position: 0, value: 0.25 }] },
     })
     add('Long and varied values', definition, {
       multi_choice: ['red', 'green', 'blue', 'alpha'],
       list: [0.125, 1.5, 12.75, 256.25, 4096.875],
-      colors: [
-        '#32e6c5',
-        '#ff7468',
-        '#ffd166',
-        '#3366cc80',
-        '#cc66ff',
-        '#ffffff',
-      ],
       curve: {
         interpolation: 'monotone_cubic',
         points: [
@@ -749,7 +749,6 @@ export function createCanvasGalleryFixture(
         'save_target',
         'video_edit',
         'list',
-        'colors',
         'curve',
         'camera_angle',
         'resolution',
@@ -794,7 +793,7 @@ export function createCanvasGalleryFixture(
       save_target: { mount: 'output', prefix: 'portraits/take' },
       video_edit: { trim: { start_time: 2, duration: 5 } },
     })
-    add('Empty values', definition, {
+    const empty = {
       checkpoint: null,
       asset: null,
       recording: null,
@@ -802,14 +801,16 @@ export function createCanvasGalleryFixture(
       save_target: null,
       video_edit: {},
       list: [],
-      colors: [],
       curve: {
         points: [
           { position: 0, value: 0 },
           { position: 1, value: 1 },
         ],
       },
-    })
+    }
+    add('Empty values', definition, empty)
+    add('Empty values, narrow node', definition, empty, undefined, false, { width: 180 })
+    add('Empty values, narrower node', definition, empty, undefined, false, { width: 140 })
   } else if (page === 'core-rows') {
     const core = galleryWidgetInputs.filter((item) =>
       [
@@ -890,9 +891,11 @@ export function createCanvasGalleryFixture(
             item.id,
             {
               value: (item.widget?.default ?? null) as Json,
-              state: (['expected', 'cached', 'estimate', 'stale'] as const)[
-                i % 4
-              ]!,
+              // An editor shown in the node is passed a value only by a
+              // Primitive or a widget tap, which is always known exactly.
+              state: EDITOR_KINDS.has(item.widget?.widgetType ?? '')
+                ? 'expected'
+                : (['expected', 'cached', 'estimate', 'stale'] as const)[i % 4]!,
             },
           ]),
         )
@@ -989,6 +992,12 @@ export function createCanvasGalleryFixture(
     fixture.scene.nodes = [...first.nodes]
     fixture.scene.links = [...first.links]
     fixture.scene.boundaryNodes = [...first.boundaryNodes]
+    examples.push(...cards)
+  } else if (page === 'wire-looks') {
+    const cards = wireLooksGallery(tokens, measure, widgetMeasure)
+    const first = cards[0]!.scene
+    fixture.scene.nodes = [...first.nodes]
+    fixture.scene.links = [...first.links]
     examples.push(...cards)
   } else if (page === 'type-conflict') {
     const cards = typeConflictGallery(tokens, measure, widgetMeasure)

@@ -32,6 +32,10 @@ const schemas: Record<string, NodeSchema> = {
     input('value', COMBO),
     { kind: 'output', id: 'COMBO', type: COMBO, knownValue: { input: 'value' } },
   ] as NodeSchema['body'], { isOutputNode: false }),
+  Boolean: schemaOf('Boolean', [
+    input('value', { kind: 'concrete', name: 'BOOLEAN' }, { widgetType: 'BOOLEAN', options: {} }),
+    { kind: 'output', id: 'BOOLEAN', type: { kind: 'concrete', name: 'BOOLEAN' }, knownValue: { input: 'value' } },
+  ] as NodeSchema['body'], { isOutputNode: false }),
   Steps: schemaOf('Steps', [input('steps', INT, intWidget({ min: 0, max: 8 }, { default: 4 }), { displayName: 'Steps' })]),
   Count: schemaOf('Count', [input('count', INT, intWidget({ min: 4, max: 12, step: 2 }, { default: 4 }), { displayName: 'Count' })]),
   Counter: schemaOf('Counter', [{ kind: 'output', id: 'INT', type: INT }] as NodeSchema['body'], { isOutputNode: false }),
@@ -78,7 +82,7 @@ describe('a primitive works out its value widget', () => {
     expect([...effective.derived].sort()).toEqual(['default', 'max', 'min', 'step'])
     expect(effective.label).toBeUndefined()
     expect(effective.diagnostics).toEqual([])
-    // The fields share a default of 4, so Reset goes there, and the empty Default field shows it dimmed.
+    // Reset goes to the default of the first field it feeds, 4, and the empty Default field shows it dimmed.
     expect(effective.spec?.default).toBe(4)
     const drawn = documentNodeResolver(doc, resolve, documentPrimitiveResolver(doc, resolve))('g0', doc.graphs['g0']!.nodes['prim'] as NodeData, [])!
     expect(inputsOf(drawn).find((row) => row.id === 'default')!.widget).toMatchObject({ default: 4, automatic: true })
@@ -146,6 +150,14 @@ describe('a primitive works out its value widget', () => {
     expect(effective.spec?.widgetType).toBe('COMBO')
     expect(effective.spec?.options['options']).toEqual(['Quick', 'Detailed'])
     expect(effective.diagnostics).toEqual([])
+  })
+
+  it('keeps a Boolean on a Switch\'s Pick a Boolean without a conflict, and reports one on a number field', () => {
+    const onPick = effectiveOf(docOf({ flag: { type: 'Boolean' }, s1: { type: 'Switch' } }, [['flag', 'BOOLEAN', 's1', 'pick']]), 'flag')!
+    expect(onPick.spec?.widgetType).toBe('BOOLEAN')
+    expect(onPick.diagnostics).toEqual([])
+    const onSteps = effectiveOf(docOf({ flag: { type: 'Boolean' }, a: { type: 'Steps' } }, [['flag', 'BOOLEAN', 'a', 'steps']]), 'flag')!
+    expect(onSteps.diagnostics.map((d) => d.code)).toEqual(['primitive.widgetType.conflict'])
   })
 
   it('gives the general Primitive the widget and label of the field it feeds, though it runs', () => {
@@ -307,7 +319,7 @@ describe('a primitive\'s range from its menu', () => {
     expect(store.doc.graphs['g0']!.nodes['prim']!.values).toEqual({ value: 6, minimum: 4, maximum: 7, step: 2 })
   })
 
-  it('resets the value to its own Default, and otherwise to the default the fed fields share', () => {
+  it('resets the value to its own Default, and otherwise to the default of the first field it feeds', () => {
     const withDefault = storeOf({ value: 6, default: 5 })
     run(withDefault, widgetReset!.resolve(menu(withDefault.doc))[0]!)
     expect(withDefault.doc.graphs['g0']!.nodes['prim']!.values['value']).toBe(5)

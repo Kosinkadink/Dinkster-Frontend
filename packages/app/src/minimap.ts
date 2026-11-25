@@ -29,32 +29,16 @@ import type { SettingsRegistry } from './settings.js'
 const MINIMAP_W = canvasPaintTokens.minimap.fallbackWidth
 const MINIMAP_H = canvasPaintTokens.minimap.fallbackHeight
 
-/** Where the minimap settings popover opens relative to the corner cluster. */
-export interface MinimapMenuPlacement {
-  readonly above: boolean
-  /** Height cap (CSS px) when the popover opens above the cluster. */
-  readonly maxHeight?: number
-}
-
 /**
- * The settings popover prefers the space beside (left of) the corner cluster
- * and opens above it when the stage leaves no room there - a narrow window
- * and an open side panel both shrink the stage the cluster floats in, so the
- * decision is measured, not keyed on viewport width. Above placement caps
- * the popover height to the space between the usable stage top and the
- * cluster so it never covers the minimap or escapes the stage's clipping
- * box. Coordinates are viewport CSS px; `stage.top` is the highest edge the
- * popover may reach (the caller lowers it below any floating top toolbar).
+ * Height cap (CSS px) for a menu that opens straight above the bar under the
+ * minimap, over the minimap: it reaches no higher than the usable stage top
+ * (the caller lowers it below any floating top toolbar), scrolling past that.
+ * Coordinates are viewport CSS px.
  */
-export function minimapMenuPlacement(
-  controls: { readonly left: number; readonly top: number },
-  stage: { readonly left: number; readonly top: number },
-): MinimapMenuPlacement {
-  const menuWidth = 210 // .minimap-menu border-box width
-  const gap = 8 // clearance between the popover and the cluster
+export function cornerMenuMaxHeight(barTop: number, stageTop: number): number {
+  const gap = 6 // between the bar and the menu
   const margin = 8 // minimum clearance from the stage edge
-  if (controls.left - stage.left >= menuWidth + gap + margin) return { above: false }
-  return { above: true, maxHeight: Math.max(120, controls.top - stage.top - gap - margin) }
+  return Math.max(120, barTop - stageTop - gap - margin)
 }
 
 /** Bookmark slot digit at a saved camera's world center. */
@@ -91,6 +75,7 @@ export function setupMinimap(deps: {
   let graphDirty = true
   let graphScene: ReturnType<CanvasRenderer['getScene']> | undefined
 
+  let hovered = false
   function paint(graphChanged = true): void {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
@@ -134,15 +119,18 @@ export function setupMinimap(deps: {
           height: g.height,
           ...(g.color !== undefined ? { color: g.color } : {}),
         })),
+        // Colors off is the quiet minimap: no node or link colours and no
+        // title lines. Bypassed nodes and reroutes (with links) always draw.
         nodeColors: settings.get<boolean>('canvas.minimap.nodes'),
-        renderBypassState: settings.get<boolean>('canvas.minimap.bypass'),
         renderErrorState: settings.get<boolean>('canvas.minimap.errors'),
         visibility: { groups: settings.get<boolean>('canvas.minimap.groups') },
         links: settings.get<boolean>('canvas.minimap.noodles') ? sc.links.filter((link) => link.hidden !== true).map((link) => ({
           from: { x: link.x1, y: link.y1 },
           to: { x: link.x2, y: link.y2 },
+          ...(link.typeName !== undefined ? { typeName: link.typeName } : {}),
         })) : [],
-        reroutes: settings.get<boolean>('canvas.minimap.reroutes') ? sc.reroutes.map((r) => ({ x: r.x, y: r.y })) : [],
+        linkColors: settings.get<boolean>('canvas.minimap.nodes'),
+        reroutes: settings.get<boolean>('canvas.minimap.noodles') ? sc.reroutes.map((r) => ({ x: r.x, y: r.y })) : [],
         viewport: {
           ...renderer.getViewport(),
           canvasWidth: mainCanvas.clientWidth,
@@ -169,6 +157,7 @@ export function setupMinimap(deps: {
       remoteViewports: renderer.getPresence().flatMap((actor) =>
         actor.view === undefined ? [] : [{ ...actor.view, color: actor.color }]),
       markers: deps.markers(),
+      hovered,
       tokens: renderer.getTokens(),
     })
     ctx.restore()
@@ -204,6 +193,8 @@ export function setupMinimap(deps: {
     })
   }
   let dragging = false
+  const onPointerEnter = (): void => { hovered = true; schedule() }
+  const onPointerLeave = (): void => { hovered = false; schedule() }
   const onPointerDown = (e: PointerEvent): void => {
     e.preventDefault()
     e.stopPropagation()
@@ -239,6 +230,8 @@ export function setupMinimap(deps: {
       e.deltaY,
     ))
   }
+  canvas.addEventListener('pointerenter', onPointerEnter)
+  canvas.addEventListener('pointerleave', onPointerLeave)
   canvas.addEventListener('pointerdown', onPointerDown)
   canvas.addEventListener('pointermove', onPointerMove)
   canvas.addEventListener('pointerup', onPointerUp)
@@ -257,6 +250,8 @@ export function setupMinimap(deps: {
       if (frame) cancelAnimationFrame(frame)
       resizeObserver?.disconnect()
       unsubscribeViewport()
+      canvas.removeEventListener('pointerenter', onPointerEnter)
+      canvas.removeEventListener('pointerleave', onPointerLeave)
       canvas.removeEventListener('pointerdown', onPointerDown)
       canvas.removeEventListener('pointermove', onPointerMove)
       canvas.removeEventListener('pointerup', onPointerUp)

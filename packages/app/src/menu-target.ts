@@ -33,14 +33,16 @@ export function resolveNodeMenuGroups(
   ctx: MenuContext,
   queueUpToAvailable: boolean,
   createSubgraphAvailable = true,
+  queueUpToReason?: string,
 ): readonly ResolvedMenuGroup[] {
   return registry.resolve(ctx).map((group) => ({
     ...group,
     items: group.items.map((item) =>
-      (item.id === 'core.node.queueSelection' && !queueUpToAvailable) ||
-      ((item.id === 'core.canvas.createSubgraph' || item.id.startsWith('core.canvas.create') && item.id.endsWith('Region')) && !createSubgraphAvailable)
-        ? { ...item, disabled: true }
-        : item),
+      item.id === 'core.node.queueSelection' && !queueUpToAvailable
+        ? { ...item, disabled: true, ...(queueUpToReason === undefined ? {} : { disabledReason: queueUpToReason }) }
+        : (item.id === 'core.canvas.createSubgraph' || item.id.startsWith('core.canvas.create') && item.id.endsWith('Region')) && !createSubgraphAvailable
+          ? { ...item, disabled: true }
+          : item),
   }))
 }
 

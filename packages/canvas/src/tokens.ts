@@ -66,6 +66,8 @@ export const canvasPaintTokens = {
       iconGap: 4,
       /** Gap in screen px between the node's lowest tab and its open problem box. */
       problemBoxGap: 4,
+      /** Widest an open problem box gets, in screen px, and the room it keeps from each side of the canvas pane. */
+      problemBox: { maxWidth: 400, paneMargin: 16 },
       maxLabelWidth: 120,
       stroke: 1,
       /** Shares of the tab's color: its fill over the canvas, its line over the canvas, its words over the title color. */
@@ -97,7 +99,6 @@ export const canvasPaintTokens = {
     groupSelection: { world: [6, 4], screen: [4, 3] },
     ghost: { world: [6, 4], screen: [4, 3] },
     maybeAbsentLink: { world: [9, 5], screen: [5, 3] },
-    netGuide: { world: [7, 5], screen: [7, 5] },
     selectionUnion: { world: [5, 4], screen: [4, 3] },
     marquee: { world: [4, 3], screen: [3, 2] },
     remote: [6, 4],
@@ -120,6 +121,21 @@ export const canvasPaintTokens = {
     pairedPortGap: canvasSemanticTokens.space[24],
     sectionWidthPadding: 18,
     growthWidthPadding: 18,
+    /** A lookup note's state line: its mark (spinner or info), the words after it, and Try again under it. */
+    lookupNote: {
+      /** Rows a note takes with a state line, and with Try again under that too. */
+      stateRows: 2,
+      retryRows: 3,
+      markMinRadius: 3,
+      /** The mark's radius as a share of the font size. */
+      markRadiusScale: 0.45,
+      markStroke: 1,
+      /** The info mark's letter as a share of the mark's radius. */
+      glyphScale: 1.6,
+      glyphNudge: 0.5,
+      textGap: canvasSemanticTokens.space[4] + 2,
+      hoverInset: 2,
+    },
     widgetLabelPadding: canvasSemanticTokens.space[12],
     widgetValueMinWidth: 90,
     widgetColumnGap: 20,
@@ -181,17 +197,24 @@ export const canvasPaintTokens = {
       stroke: 1,
       radius: 5,
       /** Each box inside a box steps in this far from the outline around it. */
-      step: 6,
+      step: 8,
       /**
        * A field inside a box sits this far inside its outline, and the
        * outline's inner side lines up with a field outside any box, so a
-       * field in one box is this much narrower on each side.
+       * field in one box is this much narrower on each side. Equal to
+       * `step`, so a field is as wide as a box beside it in the same box.
        */
-      fieldGap: 3,
+      fieldGap: 8,
       /** The open header is this much shorter than the closed row, inside the outline. */
       headerShrink: 2,
       /** From the last field in a box to its outline. */
-      bottomGap: 3,
+      bottomGap: 4,
+      /** Between two member boxes, so their outlines do not read as one thick line. */
+      memberGap: 4,
+      /** From a field or pin row to the outline of a box header under it. */
+      headerGap: 4,
+      /** From a box's outline to the box header, field or pin row after it. */
+      boxGap: 4,
       /** An open box with no name: room above its outline for the tab, and below it. */
       tabGap: 6,
       tabPad: 4,
@@ -493,9 +516,11 @@ export const canvasPaintTokens = {
     /**
      * A row that opens an editor: `iconSize` is the drawn size of its kind icon
      * and chevron, `iconInset` the kind icon's distance from the row's left
-     * edge and `trailingInset` the chevron's from its right edge.
+     * edge and `trailingInset` the chevron's from its right edge. `iconReserve`
+     * is the room before the name's label inset, so the name starts 8 px (the
+     * mode icon gap) after the kind icon: iconInset + iconSize + 8 - labelInset.
      */
-    opener: { iconSize: 12, iconInset: 6, trailingInset: 8, iconReserve: 24, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
+    opener: { iconSize: 12, iconInset: 6, trailingInset: 8, iconReserve: 20, stroke: 1, strokeInset: 0.5, trailingReserve: 24 },
     /** The subgraph icon before the name of a field shown on the subgraph node without a wire; `size` is drawn. */
     subgraphMark: { size: 14, gap: canvasSemanticTokens.space[4] },
     /**
@@ -505,7 +530,7 @@ export const canvasPaintTokens = {
      */
     curve: { inset: 5, gap: 8, plotInset: 3, lineWidth: 1.5, pointRadius: 1.75, dash: [2, 2], lineStep: 16, edge: 1 },
     /** The color square directly before a color code, the gap between squares in a row of them, and its checker cells. */
-    valueSwatch: { size: 10, radius: 2, gap: 6, listGap: 4, checkerCell: 3, edge: 1 },
+    valueSwatch: { size: 10, radius: 2, gap: 6, checkerCell: 3, edge: 1 },
     /** A folded editor's small picture before its value, such as the stored frame. */
     valueThumbnail: { size: 16, radius: 2, gap: 6 },
     minLabelWidth: 44,
@@ -523,7 +548,9 @@ export const canvasPaintTokens = {
     valueWidthPadding: canvasSemanticTokens.space[16],
     swatchReserve: canvasSemanticTokens.space[16],
     toggleReserve: canvasSemanticTokens.space[12],
-    /** Room between a word about a value ("inactive") and the value. */
+    /** An automatic value's dot, drawn before "auto" when the default is used. */
+    automaticDot: { radius: 3, gap: canvasSemanticTokens.space[4] },
+    /** Room between a word about a value ("auto", "inactive") and the value: the open field's room between auto and its hint. */
     valueWordGap: canvasSemanticTokens.space[8],
     toggle: {
       trailingInset: 22,
@@ -592,15 +619,44 @@ export const canvasPaintTokens = {
     margin: canvasSemanticTokens.space[8],
     maxScale: 0.25,
     viewportInset: 2,
-    linkStroke: 0.3,
-    stateStroke: 0.3,
+    /** Wires: one stroke width; type colors nearly opaque, the one grey quieter. */
+    linkStroke: 1,
+    linkOpacity: 0.9,
+    quietLinkOpacity: 0.55,
+    /** Node boxes: corner radius (at most this share of a small box's side), outline width, and the outline of a run state. */
+    nodeRadius: 2,
+    nodeRadiusShare: 0.25,
+    nodeStroke: 0.75,
+    stateStroke: 1,
+    /**
+     * A box smaller than this on either side draws as a plain block with no
+     * outline, and when most boxes are that small the wires draw straight.
+     */
+    roundedMinSize: 3,
+    /** The title line: drawn only on a box at least this large, inset, and this tall. */
+    titleMinWidth: 9,
+    titleMinHeight: 6,
+    titleInset: 2,
+    titleHeight: 1.4,
+    titleWidthRatio: 0.55,
+    /** Groups: a faint fill and a thin outline in the group's color. */
+    groupRadius: 2.5,
+    groupStroke: 0.75,
+    groupFillOpacity: 0.1,
+    groupStrokeOpacity: 0.38,
     minPointRadius: 0.5,
     minNodeSize: 2,
     bypassFill: 'rgba(75, 24, 75, 0.9)',
     remoteStroke: 1.5,
     remoteOpacity: 0.8,
+    /** The area outside the current view is dimmed by the canvas color at this opacity. */
+    outsideViewOpacity: 0.34,
+    /** The view area: filled with its outline's color at this opacity, so it reads as a lit window. */
     viewportFillOpacity: 0.06,
-    viewportStrokeOpacity: 0.5,
+    viewportStrokeOpacity: 0.4,
+    /** While the pointer is over the minimap the view's fill and outline are a little stronger, so the minimap reads as live. */
+    viewportFillHoverOpacity: 0.1,
+    viewportStrokeHoverOpacity: 0.6,
     viewportStroke: 1,
     viewportRadius: 3,
     markerRadius: 7,
@@ -815,6 +871,8 @@ export interface DesignTokens {
     readonly dropTarget: string
     /** Subtle dot marking non-default values hidden by a collapsed section. */
     readonly modifiedIndicator: string
+    /** A link drawn in a row, such as a lookup note's Try again. */
+    readonly rowLink: string
     /** The cyan subgraph icon on a field shown on the subgraph node without a wire. */
     readonly subgraphMark: string
     /** A box's outline, and the outline of a box inside a box. */
@@ -869,6 +927,8 @@ export interface DesignTokens {
      * document-level problems the solver proved, independent of execution.
      */
     readonly error: string
+    /** The dot before a row's value that could not be worked out, so its default is used. */
+    readonly warningMark: string
   }
   /** Data-type -> pin/link color. Unknown types get a stable hashed hue. */
   readonly typeColors: Readonly<Record<string, string>>
@@ -1041,11 +1101,13 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     // The dot on a closed section that hides changed values. Yellow is kept
     // for problems.
     modifiedIndicator: tokens.meaning.accent.foreground,
+    rowLink: tokens.meaning.accent.foreground,
     subgraphMark: tokens.meaning.accent.foreground,
     companionValue: tokens.text.secondary,
     companionUnproven: tokens.meaning.info.foreground,
     companionEstimate: tokens.meaning.success.foreground,
     error: tokens.meaning.danger.border,
+    warningMark: tokens.meaning.warning.border,
     boxOutline: tokens.border.box,
     boxInnerOutline: theme === 'dark' ? '#2E3338' : '#E1E5E9',
     boxHover: theme === 'dark' ? '#22262B' : tokens.surface.raised,

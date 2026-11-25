@@ -61,6 +61,7 @@ import {
   type MaterializeFrame,
   type EffectiveLinkIdentity,
   type LinkEndpoint,
+  type LookupCallSpec,
   type OccurrenceLinkEndpoint,
   type TypeExpr,
   type WidgetSpec,
@@ -78,6 +79,7 @@ import { wheelNavigationViewport, type WheelNavigationMode } from './zoom.js'
 import {
   boundaryTargetKey,
   dropTargetKey,
+  drawsPassedValueAsEditor,
   rerouteTargetKey,
   type CanvasRenderer,
   type GhostLink,
@@ -403,6 +405,8 @@ function composeBatch(
 export interface InteractionHost {
   /** Submit a document command; the host owns its final result and diagnostics. */
   dispatch(invocation: CommandInvocation): { readonly ok: boolean } | Promise<{ readonly ok: boolean }>
+  /** A lookup note's Try again: ask for its call again. Nothing is stored. */
+  retryLookup?(node: SceneNode, call: LookupCallSpec): void
   /** Current wheel policy; omitted hosts retain cursor-anchored zoom. */
   wheelNavigationMode?(): WheelNavigationMode
   smoothWheelZoom?(): boolean
@@ -1808,6 +1812,9 @@ export class InteractionController {
         this.gesture = { kind: 'growth', hit, moved: false }
         this.pushOverlay({ pressedButton: { nodeId: hit.node.id, key: `growth:${hit.row.construct}` } })
         return
+      case 'lookupRetry':
+        this.host.retryLookup?.(hit.node, hit.row.lookup!.retry!)
+        return
       case 'grip':
         this.gesture = { kind: 'grip', hit, moved: false }
         return
@@ -2860,7 +2867,8 @@ export class InteractionController {
   /** The value a number row's stepper or drag starts from: stored, else declared, else intrinsic default. */
   private numberRowValue(hit: Extract<Hit, { kind: 'widget' }>): IntegerWidgetValue | undefined {
     const row = hit.row
-    const stored = hit.node.node.values[row.valueKey]
+    // An automatic field steps and drags from the value it has in use.
+    const stored = hit.node.node.values[row.valueKey] ?? row.automatic?.value
     const intrinsic = this.host.resolveWidgetDefault?.(row.spec)
     return row.spec.widgetType === 'INT'
       ? isIntegerWidgetValue(stored)
@@ -2948,7 +2956,8 @@ export class InteractionController {
       const width = row.width ?? bnode.layout.width - row.inset * 2
       const localX = wx - bnode.x - row.inset
       const localY = wy - bnode.y - row.y
-      const rect = subgraphMarkRect(row, width, tokens.rowHeight, tokens, driven.value !== undefined, isNumberRow(row))
+      const arriving = driven.value !== undefined && !drawsPassedValueAsEditor(row, { value: driven.value }, tokens)
+      const rect = subgraphMarkRect(row, width, tokens.rowHeight, tokens, arriving, isNumberRow(row))
       if (localX >= rect.x && localX <= rect.x + rect.size && localY >= rect.y && localY <= rect.y + rect.size)
         return { kind: 'widget', node: face, row, bnode, x: bnode.x + row.inset, y: bnode.y + row.y, width, height: row.height, localX, localY }
     }
@@ -4360,6 +4369,8 @@ export class InteractionController {
         return j('section', hit.node.id, hit.row.sectionId)
       case 'growth':
         return j('growth', hit.node.id, hit.row.construct)
+      case 'lookupRetry':
+        return j('lookupRetry', hit.node.id, hit.row.noteId)
       case 'grip':
         return j('grip', hit.node.id, hit.grip.construct, hit.grip.member)
       case 'header':
@@ -4981,7 +4992,8 @@ export class InteractionController {
     const grip = hit?.kind === 'grip' && hit.grip.alone !== true
       ? { nodeId: hit.node.id, construct: hit.grip.construct, member: hit.grip.member }
       : undefined
-    const button = hit?.kind === 'growth' ? { nodeId: hit.node.id, key: `growth:${hit.row.construct}` } : undefined
+    const button = hit?.kind === 'growth' ? { nodeId: hit.node.id, key: `growth:${hit.row.construct}` }
+      : hit?.kind === 'lookupRetry' ? { nodeId: hit.node.id, key: `lookup:${hit.row.noteId}` } : undefined
     const pinNode = pin?.node.id
     const pinPort = pin?.kind === 'widgetTap' ? pin.pin.portId : pin?.portId
     const pinDirection = pin?.kind === 'widgetTap' ? 'out' : pin?.direction

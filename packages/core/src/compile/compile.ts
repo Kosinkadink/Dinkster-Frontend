@@ -37,7 +37,7 @@
  * Stored controller values compile as-is; advancement happens elsewhere.
  */
 
-import { diag, type Diagnostic } from '../diagnostics.js'
+import { diag, type Diagnostic, type DiagnosticAnchor, type DiagnosticRef } from '../diagnostics.js'
 import {
   suppressedDeliveryKey,
   type BoundaryRouteLeg,
@@ -76,6 +76,7 @@ import {
   elabInputsOf,
   elabOutputsOf,
   elaborateInterface,
+  type ElaborateOptions,
   ruleProblemRefs,
   selectorMembersOf,
   valueKeyOf,
@@ -89,7 +90,7 @@ import { solveGraphTypes } from '../schema/solve.js'
 import { constructsOf } from '../schema/body.js'
 import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
 import { assetTypeId, canonicalTypeIdOf, effectiveAbsentPolicy, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
-import { effectiveWidgetDefault, isAssetRefValue } from '../schema/widget-defaults.js'
+import { effectiveWidgetDefault, isAssetRefValue, sentSpecOf, sentWhenUnset } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
   decimalIntegerWire,
@@ -113,6 +114,8 @@ import {
 } from './dinkster-graph.js'
 import { LivenessDerivation, traverseRoutedProjection, type RouteProjection, type RoutedStep } from './liveness.js'
 import type {
+  AutomaticCall,
+  AutomaticTap,
   CompileArtifact,
   CompileResult,
   ControllerInputProvenance,
@@ -300,8 +303,30 @@ export interface CompileInput {
    * = oldest wire, emit no negotiated forms.
    */
   readonly graphFeatures?: readonly string[]
+  /**
+   * The lookup answers the editor holds, so an automatic lookup field copied
+   * into another node passes on the answer its row shows. Absent, such a
+   * field passes on its default.
+   */
+  readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
   /** Submission-only worker hints, keyed by root runtime node id. */
   readonly placement?: Readonly<Record<string, string>>
+}
+
+/**
+ * An automatic field with nothing stored whose row's value is copied into
+ * another node, where its warning goes, and the field's own runtime node and
+ * input, which the engine works out again when the run is queued.
+ */
+interface PassedAutomatic {
+  readonly label: string
+  readonly value: Json
+  /** True when the row shows the default because the value is not worked out. */
+  readonly usedDefault: boolean
+  readonly anchor: DiagnosticAnchor
+  readonly ref: DiagnosticRef
+  readonly runtimeNodeId: string
+  readonly inputId: string
 }
 
 const KNOWN_VALUE_TYPES: ReadonlySet<string> = new Set(['INT', 'FLOAT', 'STRING', 'BOOLEAN', 'COMBO'])
@@ -462,7 +487,11 @@ function compileImpl(
   const scope: ExecutionScope = queryingSources ? { kind: 'full' } : input.scope
   const sourceConsumers: FedConsumer[] = []
   const resolve = documentResolver(doc, input.resolve)
-  const resolveNode = documentNodeResolver(doc, input.resolve)
+  // A primitive's value field is the widget the canvas draws for it, so an
+  // empty primitive passes on the value its row shows. Working out which
+  // fields it feeds is itself a query and sees the declared fields.
+  const resolveNode = documentNodeResolver(doc, input.resolve,
+    queryingSources ? undefined : documentPrimitiveResolver(doc, input.resolve))
   const isVirtualNode = (graphId: string, node: NodeData): boolean =>
     node.virtual === true && resolveNode(graphId, node)?.virtual === true
   /**
@@ -475,6 +504,9 @@ function compileImpl(
   const emitAbsentInputs = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_ABSENT_INPUT) ?? false
   const emitRegions = options?.graphFeatures?.includes(DINKSTER_GRAPH_FEATURE_REGIONS) ?? false
   const diags: Diagnostic[] = []
+  /** Automatic values copied into a node, by the node that receives each. */
+  const automaticTaps: AutomaticTap[] = []
+  const automaticCalls: AutomaticCall[] = []
   const elaborationDiagnosticOwners = new Map<Diagnostic, {
     readonly graphId: GraphDefId
     readonly nodeId: NodeId
@@ -851,13 +883,20 @@ function compileImpl(
     // persisted link whose lowering is dropped (muted endpoint, undriven
     // reroute) conjure an api-visible member that leaks values/defaults or
     // shifts output wire indexes.
-    const e = elaborateInterface(schema, state, connectivity, { promoteGhosts: false, nodeId })
+    const e = elaborateInterface(schema, state, connectivity, {
+      promoteGhosts: false, nodeId,
+      ...(options?.lookupAnswers !== undefined ? { lookupAnswers: options.lookupAnswers } : {}),
+    })
     // Elaboration diagnostics surface once per cache entry: once per
     // definition node normally, once per occurrence for overlaid nodes
     // (over-cap etc. genuinely depend on the merged occurrence state).
     // Errors (budget exhaustion) fail the compile - a truncated interface
     // must never produce a prompt.
     for (const d of e.diagnostics) {
+      // The canvas reports an automatic value it cannot work out while the
+      // field is shown and drops it the moment a value is fixed; a compiled
+      // copy would outlive that fix and list the warning twice.
+      if (d.code === 'automatic.default') continue
       // A failed node rule keeps its data and names its node (and its one
       // field), so the editor's copy and this one read as one cause.
       const rule = d.code === 'node.rule.failed'
@@ -1305,7 +1344,7 @@ function compileImpl(
      * one is known (tap fallbacks always carry it), feeding the $typed
      * lowering for non-concrete destinations.
      */
-    | { readonly kind: 'value'; readonly value: Json; readonly typeId?: string; readonly controllerSources?: readonly ControllerInputSource[]; readonly controllerWidget?: WidgetSpec }
+    | { readonly kind: 'value'; readonly value: Json; readonly typeId?: string; readonly controllerSources?: readonly ControllerInputSource[]; readonly controllerWidget?: WidgetSpec; readonly passedAutomatic?: PassedAutomatic }
     /** `node` names the muted node the route reached, for the reason sent with $absent. */
     | { readonly kind: 'muted'; readonly reason: string; readonly node?: string }
     /** `absent`: the wire gives nothing (its field is no longer part of its node), sent as $absent when the server takes it. */
@@ -1420,7 +1459,8 @@ function compileImpl(
               if (selectedProjection === 'exact') sink.push(diag('error', 'compile', 'compile.tap.novalue', `${endpoint.node}.${endpoint.tap}: tapped input has no value`))
               return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `widget tap '${endpoint.node}.${endpoint.tap}' has no value` } }] }
             }
-            return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped.value, typeId: tapped.typeId } }] }
+            return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped.value, typeId: tapped.typeId,
+              ...(tapped.passedAutomatic !== undefined ? { passedAutomatic: tapped.passedAutomatic } : {}) } }] }
           }
           const resolved = resolveOutputPort(at.path, at.defId, endpoint, sink, delivery)
           if (resolved === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `producer '${endpoint.node}' is muted or in an inactive occurrence`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
@@ -1457,6 +1497,7 @@ function compileImpl(
           }
           const widget = input.spec.widget
           return { steps: [{ kind: 'terminal', terminal: { kind: 'value', value: tapped.value, typeId: tapped.typeId,
+            ...(tapped.passedAutomatic !== undefined ? { passedAutomatic: tapped.passedAutomatic } : {}),
             ...(widget !== undefined ? { controllerSources: sources, controllerWidget: widget } : {}) } }] }
         }
         const bypass = at.bypass
@@ -1767,6 +1808,27 @@ function compileImpl(
     return listTypeId(assetTypeId(element ?? dstTypeId))
   }
 
+  const solvedTypeCache = new Map<string, ReturnType<typeof solveGraphTypes>>()
+  const solvedTypesOf = (graphId: string): ReturnType<typeof solveGraphTypes> | undefined => {
+    const graph = doc.graphs[graphId]
+    if (graph === undefined) return undefined
+    let solved = solvedTypeCache.get(graphId)
+    if (!solved) solvedTypeCache.set(graphId, (solved = solveGraphTypes(graph, resolve, { resolveNode: (node) => resolveNode(graph.id, node) })))
+    return solved
+  }
+  /**
+   * The type a primitive typed by a type variable holds: the one the fields
+   * it feeds bind the variable to. Its value is a plain literal, so it is
+   * stamped with that type, as the engine binds the variable from it. A
+   * backend without typed literals keeps receiving the plain value.
+   */
+  const primitiveValueTypeOf = (fn: FlatNode, input: ElaboratedInput, value: Json): string | undefined => {
+    if (!emitTypedLiterals || input.spec.type.kind !== 'variable' || parseTypedLiteralWire(value) !== undefined) return undefined
+    if (!fn.elab.outputs.some((output) => output.spec.knownValue?.input === input.spec.id)) return undefined
+    const bound = solvedTypesOf(fn.graphId)?.portTypeOf(fn.node.id, 'input', input.address.port)
+    return bound === undefined ? undefined : canonicalTypeIdOf(bound)
+  }
+
   /**
    * Lower ONE widget-held literal onto its own declared input: stamp $typed
    * for a numeric-union widget or an asset source differing from the declared
@@ -1804,7 +1866,7 @@ function compileImpl(
       sink.push(diag('error', 'compile', 'compile.value.decimalIntUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve this large integer`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef } }))
       return undefined
     }
-    const sourceType = assetSourceTypeOf(input, value)
+    const sourceType = assetSourceTypeOf(input, value) ?? primitiveValueTypeOf(fn, input, value)
     if (sourceType === undefined) return value
     if (emitTypedLiterals) return typedLiteralWire(sourceType, value) as Json
     sink.push(diag('error', 'compile', 'compile.value.assetSourceUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve the asset source type`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef } }))
@@ -1896,7 +1958,7 @@ function compileImpl(
     nodeId: NodeId,
     inputId: string,
     sink: Diagnostic[] = diags,
-  ): { readonly value: Json; readonly typeId: string } | 'muted' | undefined => {
+  ): { readonly value: Json; readonly typeId: string; readonly passedAutomatic?: PassedAutomatic } | 'muted' | undefined => {
     const inputs = tappedInputs(path, defId, nodeId, inputId, sink)
     if (inputs === 'muted') return 'muted'
     if (!inputs || inputs.length === 0) return undefined
@@ -1923,9 +1985,23 @@ function compileImpl(
     // Schema default, then the widget kind's intrinsic value - a tapped INT
     // widget showing 0 taps as 0; only kinds with no intrinsic value (ASSET,
     // remote COMBO, ...) leave the tap valueless.
+    // An automatic field with nothing stored passes on the value its row
+    // shows: the worked-out value, the lookup answer the editor holds, or
+    // the default when neither exists, which the receiving node is warned of.
+    const automatic = input.input.automatic
     const widget = input.input.spec.widget
-    const fallback = widget ? effectiveWidgetDefault(widget) : undefined
-    return fallback === undefined ? undefined : { value: fallback, typeId: assetSourceTypeOf(input.input, fallback) ?? typeId }
+    const fallback = automatic?.value ?? (widget ? effectiveWidgetDefault(widget) : undefined)
+    if (fallback === undefined) return undefined
+    const passedAutomatic: PassedAutomatic | undefined = automatic === undefined ? undefined : {
+      label: input.input.spec.displayName ?? input.input.spec.id,
+      value: fallback,
+      usedDefault: automatic.state !== 'worked-out',
+      runtimeNodeId: input.runtimeId,
+      inputId: input.inputId,
+      anchor: { occurrence: { instancePath: path, node: nodeId }, port: { node: nodeId, port: input.input.address.port as PortRef['port'] } },
+      ref: { graphId: defId, nodeId, valueKey: valueKeyOf(input.input), direction: 'input' },
+    }
+    return { value: fallback, typeId: assetSourceTypeOf(input.input, fallback) ?? typeId, ...(passedAutomatic !== undefined ? { passedAutomatic } : {}) }
   }
 
   for (const { defId, path } of graphOccurrences) {
@@ -2108,7 +2184,7 @@ function compileImpl(
         // matching always sees that destination's declared type.
         const routeDiagnostics: Diagnostic[] = []
         let src: ResolvedOutput | undefined
-        let baked: { readonly value: Json; readonly typeId?: string } | undefined
+        let baked: { readonly value: Json; readonly typeId?: string; readonly passedAutomatic?: PassedAutomatic } | undefined
         if (structuralSrc && !('bypass' in structuralSrc) && !('structuralSource' in structuralSrc) && !('knownValue' in structuralSrc)) {
           src = structuralSrc
         } else {
@@ -2138,7 +2214,8 @@ function compileImpl(
             continue
           }
           if (trace.kind === 'value') {
-            baked = { value: trace.value, ...(trace.typeId !== undefined ? { typeId: trace.typeId } : {}) }
+            baked = { value: trace.value, ...(trace.typeId !== undefined ? { typeId: trace.typeId } : {}),
+              ...(trace.passedAutomatic !== undefined ? { passedAutomatic: trace.passedAutomatic } : {}) }
             if (trace.controllerSources !== undefined) {
               let byInput = literalControllers.get(dst.runtimeId)
               if (!byInput) literalControllers.set(dst.runtimeId, (byInput = new Map()))
@@ -2155,6 +2232,18 @@ function compileImpl(
         if (!consumer) {
           diags.push(diag('warning', 'compile', 'compile.link.dropped', `${c.what} in graph '${defId}': connected node is unavailable`))
           continue
+        }
+        if (baked?.passedAutomatic !== undefined) {
+          const passed = baked.passedAutomatic
+          automaticTaps.push({ runtimeNodeId: passed.runtimeNodeId, inputId: passed.inputId, value: passed.value,
+            receiver: nameOf(consumer.graphId, consumer.node), receiverRuntimeId: dst.runtimeId })
+        }
+        if (baked?.passedAutomatic?.usedDefault === true) {
+          // Listed on the field the value comes from; a run is never blocked by an automatic value.
+          const passed = baked.passedAutomatic
+          diags.push(diag('warning', 'compile', 'automatic.tapDefault',
+            `Could not work out ${passed.label}. ${nameOf(consumer.graphId, consumer.node)} gets the default, ${typeof passed.value === 'string' ? passed.value : JSON.stringify(passed.value)}.`,
+            { anchor: passed.anchor, refs: [passed.ref], data: { input: passed.ref.valueKey } }))
         }
         if (baked !== undefined) {
           // Passthrough traced to a known value or tap value: bake, same
@@ -2524,20 +2613,30 @@ function compileImpl(
       if (input.origin.kind === 'member' && input.origin.ghost === true) continue
       const spec = input.spec
       if (fn.inputs[spec.id] !== undefined) continue
-      if (spec.hidden === true) continue
+      // An automatic field with nothing stored stays out of the prompt, shown
+      // or not: the engine works it out when the run is queued.
+      if (spec.automatic !== undefined) {
+        const call = input.automatic?.call
+        if (call !== undefined) automaticCalls.push({ runtimeNodeId: fn.runtimeId, inputId: spec.id, lookup: call.lookup, args: call.args })
+        continue
+      }
+      // A field declared hidden is sent only what it stores; a row hidden by
+      // its visible, or by a hidden choice or group, is sent as if shown.
+      if (spec.hidden === true && input.hiddenByScope !== true) continue
+      // A primitive's empty limit only shows the limit worked out for it.
+      if (spec.widget?.automatic === true) continue
       if (spec.widget) {
         // Explicit schema default first, then the widget kind's intrinsic
         // value (an INT shows 0/min, a STRING shows '', ...): what the
-        // canvas visibly displays is what executes. Kinds without an
-        // intrinsic value (ASSET, remote COMBO, ...) fall through to the
-        // missing-input warning - those genuinely need the user. A purely
-        // INTRINSIC value is synthesized only when a declared default exists
-        // or the input is REQUIRED: an optional widget input with no schema
-        // default was always omitted from the prompt and stays omitted (the
-        // backend's own default applies - inventing 0/''/false would change
-        // valid workflows that never warned).
-        const fallback = effectiveWidgetDefault(spec.widget)
-        if (fallback !== undefined && (spec.widget.default !== undefined || !spec.optional)) {
+        // canvas visibly displays is what executes, and what a formula reads
+        // for the field. Kinds without an intrinsic value (ASSET, remote
+        // COMBO, ...) fall through to the missing-input warning - those
+        // genuinely need the user. An optional widget input with no schema
+        // default stays out of the prompt (the backend's own default
+        // applies - inventing 0/''/false would change valid workflows that
+        // never warned).
+        const fallback = sentWhenUnset(sentSpecOf(spec, input.hiddenByScope))
+        if (fallback !== undefined) {
           const lowered = lowerWidgetLiteral(fn, input, fallback)
           if (lowered !== undefined) fn.inputs[spec.id] = lowered
           // A refused fallback already errored; the missing-input warning
@@ -2807,9 +2906,7 @@ function compileImpl(
       : { node: localRuntimeId(outputs[0]!.src.runtimeId, region), output }
   }
   const validationContext = new Map<string, DinksterGraphValidationNode>()
-  const solvedTypes = new Map(Object.values(doc.graphs).map((graph) => [graph.id,
-    solveGraphTypes(graph, resolve, { resolveNode: (node) => resolveNode(graph.id, node) }),
-  ]))
+  const solvedTypes = new Map(Object.values(doc.graphs).map((graph) => [graph.id, solvedTypesOf(graph.id)!]))
   const nativeTypes = new Map<string, TypeExpr>()
   const resolvingNativeTypes = new Set<string>()
   const nativeInputType = (fn: FlatNode, key: string): TypeExpr | undefined => {
@@ -3039,6 +3136,14 @@ function compileImpl(
     ...(partialTargets ? { partialTargets: deepFreeze(structuredClone(partialTargets)) } : {}),
     provenance,
     ...(selectorChoices.length > 0 ? { choices: deepFreeze(structuredClone(selectorChoices)) } : {}),
+    ...(() => {
+      const taps = automaticTaps.filter((tap) => included.has(tap.receiverRuntimeId))
+      return taps.length > 0 ? { automaticTaps: deepFreeze(structuredClone(taps)) } : {}
+    })(),
+    ...(() => {
+      const calls = automaticCalls.filter((call) => included.has(call.runtimeNodeId))
+      return calls.length > 0 ? { automaticCalls: deepFreeze(structuredClone(calls)) } : {}
+    })(),
     diagnostics: deepFreeze(structuredClone(diags)),
   })
 

@@ -16,6 +16,7 @@ export default defineConfig(({ isSsrBuild }) => ({
         authorization: 'src/authorization.tsx',
         about: 'src/about.tsx',
         'desktop-library': 'src/desktop-library.tsx',
+        'desktop-environments': 'src/desktop-environments.tsx',
       },
       preserveEntrySignatures: 'strict',
       output: {

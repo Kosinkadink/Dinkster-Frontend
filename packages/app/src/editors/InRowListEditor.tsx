@@ -226,7 +226,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
       case 'waiting': return { tone: 'notice', text: state.check === true ? `Checking ${state.input}` : `Waiting for ${state.input}` }
       case 'loading': return { tone: 'busy', text: 'Loading options' }
       case 'off': return { tone: 'notice', text: 'Not loaded in preview' }
-      case 'paused': return { tone: 'notice', text: 'Rate limited' }
+      case 'paused': return { tone: 'notice', text: 'Paused' }
       case 'unavailable': return state.refreshing ? { tone: 'busy', text: 'Loading options' } : { tone: 'error', text: FAILURE_TEXT[state.reason], action: tryAgain }
       case 'stale': return state.refreshing ? { tone: 'busy', text: 'Refreshing options' } : { tone: 'warning', text: 'Could not refresh', action: tryAgain }
       case 'ready': return state.refreshing ? { tone: 'busy', text: 'Refreshing options' } : undefined

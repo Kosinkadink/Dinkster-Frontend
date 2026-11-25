@@ -50,6 +50,7 @@ const mountEditor = (ed: WidgetEditorState, appOverrides: Partial<AppState> = {}
     widgetValueMutationGeneration: () => 0,
     widgetRegistry: { kind: () => undefined },
     widgetRegistryForTab: () => app.widgetRegistry,
+    engineOffReason: () => undefined,
     ...appOverrides,
   } as unknown as AppState
   const unmount = render(() => (

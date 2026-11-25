@@ -10,8 +10,9 @@ import { compile, scopeClosure, type CompileInput } from '../src/compile/compile
 import { semanticHashOf, sha256Hex } from '../src/compile/hash.js'
 import type { ExecutionScope } from '../src/compile/artifact.js'
 import { boundaryOf } from '../src/format/document.js'
-import type { BoundaryItem, WorkflowDocument } from '../src/format/document.js'
+import type { BoundaryItem, Json, WorkflowDocument } from '../src/format/document.js'
 import type { Diagnostic } from '../src/diagnostics.js'
+import type { LookupAnswerState } from '../src/schema/elaborate.js'
 import { loadDocument } from '../src/format/migrate.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import { historicalSchemas as schemas } from './fixtures/historical-schemas.js'
@@ -482,6 +483,156 @@ describe('value handling', () => {
     const inputs = result.artifact.prompt['n0']!.inputs
     expect(inputs['batch_size']).toBeDefined()
     expect(inputs['color']).toBeDefined()
+  })
+
+  it('leaves an automatic field with nothing stored for the engine to work out', () => {
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      const body = schema.body.map((row) =>
+        row.kind !== 'input' || (row.id !== 'batch_size' && row.id !== 'color') ? row
+          // batch_size cannot be worked out: that warning is the canvas's, not the compile's.
+          : { ...row, automatic: { formula: row.id === 'color' ? 'width' : 'missing_name' } })
+      return { ...schema, body }
+    }
+    const doc = mutableWorkflow('exec-basic')
+    const nodes = ((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable
+    ;(nodes['n0'] as Mutable)['values'] = { width: 64, height: 64, color: 5 }
+    const result = compile(compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const inputs = result.artifact.prompt['n0']!.inputs
+    expect(inputs['batch_size']).toBeUndefined()
+    expect(inputs['color']).toBe(5)
+    expect(result.artifact.diagnostics.some((d) => d.code === 'compile.input.missing' || d.code === 'automatic.default')).toBe(false)
+  })
+
+  it('keeps the lookup call it made for each automatic field it leaves for the engine', () => {
+    const callsOf = (values: Record<string, unknown>, hidden = false) => {
+      const resolve: CompileInput['resolve'] = (type) => {
+        const schema = backendResolve(type)
+        if (type !== 'EmptyImage' || schema === undefined) return schema
+        const automatic: Record<string, unknown> = { batch_size: { lookup: 'sizes.batch', args: ['width'] }, color: { formula: 'width * 2' } }
+        return { ...schema, body: schema.body.map((row) => row.kind !== 'input' || automatic[row.id] === undefined ? row
+          : { ...row, automatic: automatic[row.id], ...(hidden ? { visible: { formula: 'width > 100' } } : {}) }) } as NodeSchema
+      }
+      const doc = mutableWorkflow('exec-basic')
+      ;((((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable)['n0'] as Mutable)['values'] = values
+      const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers: () => ({ state: 'ready', answer: 3 }) })
+      return result.ok ? result.artifact.automaticCalls : 'failed'
+    }
+    const kept = [{ runtimeNodeId: 'n0', inputId: 'batch_size', lookup: 'sizes.batch', args: [24] }]
+    // A formula makes no call; a stored value is not automatic; a field its visible hides is still worked out by the run.
+    expect(callsOf({ width: 24, height: 64 })).toEqual(kept)
+    expect(callsOf({ width: 24, height: 64, batch_size: 2 })).toBeUndefined()
+    expect(callsOf({ width: 24, height: 64 }, true)).toEqual(kept)
+  })
+
+  it('passes on what a tapped automatic field shows, warning on the field only when that is its default', () => {
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      const automatic: Record<string, unknown> = {
+        color: { formula: 'width * 2' },
+        batch_size: { lookup: 'sizes.batch', args: ['width'] },
+        height: { formula: 'missing_name' },
+      }
+      const body = schema.body.map((row) =>
+        row.kind !== 'input' || automatic[row.id] === undefined ? row : { ...row, automatic: automatic[row.id] })
+      return { ...schema, body } as NodeSchema
+    }
+    const tapped = (tap: string, lookupAnswers?: CompileInput['lookupAnswers']) => {
+      const doc = mutableWorkflow('exec-basic')
+      const graph = (doc['graphs'] as Mutable)['g0'] as Mutable
+      const nodes = graph['nodes'] as Mutable
+      ;(nodes['n0'] as Mutable)['values'] = { width: 24 }
+      nodes['n2'] = { id: 'n2', type: 'EmptyImage', title: 'Retime 2', values: { width: 8, height: 64, batch_size: 1, color: 0 } }
+      graph['links'] = {
+        l2: { id: 'l2', from: { node: 'n2', port: 'out0' }, to: { node: 'n1', port: 'images' } },
+        l3: { id: 'l3', from: { node: 'n0', tap }, to: { node: 'n2', port: 'width' } },
+      }
+      const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), ...(lookupAnswers !== undefined ? { lookupAnswers } : {}) })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) return undefined
+      return {
+        width: result.artifact.prompt['n2']!.inputs['width'],
+        warnings: result.artifact.diagnostics.filter((d) => d.code === 'automatic.tapDefault').map((d) => [d.message, d.anchor?.port]),
+        taps: result.artifact.automaticTaps,
+      }
+    }
+    const answer = (state: LookupAnswerState): CompileInput['lookupAnswers'] => (lookup, args) =>
+      lookup === 'sizes.batch' && JSON.stringify(args) === '[24]' ? state : undefined
+    const batchDefault = [['Could not work out batch_size. Retime 2 gets the default, 1.', { node: 'n0', port: 'batch_size' }]]
+    // Every value passed on is kept with the run, keyed as the run records the field's own node.
+    const tapOf = (inputId: string, value: Json) => [{ runtimeNodeId: 'n0', inputId, value, receiverRuntimeId: 'n2', receiver: 'Retime 2' }]
+    expect(tapped('color')).toEqual({ width: 48, warnings: [], taps: tapOf('color', 48) })
+    // A kept answer is what the row shows, fresh or not.
+    expect(tapped('batch_size', answer({ state: 'ready', answer: 3 }))).toEqual({ width: 3, warnings: [], taps: tapOf('batch_size', 3) })
+    expect(tapped('batch_size', answer({ state: 'stale', answer: 4, reason: 'failed' }))).toEqual({ width: 4, warnings: [], taps: tapOf('batch_size', 4) })
+    // Loading, no editor answers at all, and a failed lookup pass on the default.
+    expect(tapped('batch_size', answer({ state: 'loading' }))).toEqual({ width: 1, warnings: batchDefault, taps: tapOf('batch_size', 1) })
+    expect(tapped('batch_size')).toEqual({ width: 1, warnings: batchDefault, taps: tapOf('batch_size', 1) })
+    expect(tapped('batch_size', answer({ state: 'unavailable', reason: 'failed' }))).toEqual({ width: 1, warnings: batchDefault, taps: tapOf('batch_size', 1) })
+    // A stored value is not automatic: nothing is kept.
+    expect(tapped('width')?.taps).toBeUndefined()
+    expect(tapped('height')?.warnings.map(([message]) => message)).toEqual([expect.stringMatching(/^Could not work out height\. Retime 2 gets the default, \d+\.$/)])
+  })
+
+  it('has a formula read for a field with no default what the run is sent for it', () => {
+    const field = (id: string, name: string, widget: Record<string, unknown>, optional = false) =>
+      ({ kind: 'input', id, type: { kind: 'concrete', name }, optional, widget })
+    const read = ['num', 'text', 'pick', 'opt', 'hid', 'hid_def', 'secret', 'boxed', 'boxed_secret', 'limited', 'many', 'authored']
+    const resolve: CompileInput['resolve'] = (type) => {
+      const schema = backendResolve(type)
+      if (type !== 'EmptyImage' || schema === undefined) return schema
+      const body = [
+        ...schema.body,
+        field('num', 'INT', { widgetType: 'INT', options: { min: 16, max: 64 } }),
+        field('text', 'STRING', { widgetType: 'STRING', options: {} }),
+        field('pick', 'COMBO', { widgetType: 'COMBO', options: { options: ['slow', 'fast'] } }),
+        field('opt', 'INT', { widgetType: 'INT', options: { min: 5 } }, true),
+        // Looked-up limits, authored options and members past an optional minimum change what compile sends.
+        // A row its visible hides is sent what it would be sent if shown; a field declared hidden only what it stores.
+        { ...field('hid', 'INT', { widgetType: 'INT', options: { min: 7 } }), visible: { formula: 'width > 100' } },
+        { ...field('hid_def', 'INT', { widgetType: 'INT', options: { min: 7 }, default: 9 }), visible: { formula: 'width > 100' } },
+        { ...field('secret', 'INT', { widgetType: 'INT', options: { min: 4 } }), hidden: true },
+        { kind: 'section', id: 'box', visible: { formula: 'width > 100' }, rows: [
+          field('boxed', 'INT', { widgetType: 'INT', options: { min: 6 } }),
+          { ...field('boxed_secret', 'INT', { widgetType: 'INT', options: { min: 5 } }), hidden: true },
+        ] },
+        field('limited', 'INT', { widgetType: 'INT', options: {}, looked: { min: { formula: 'width + 1' } } }),
+        field('authored', 'COMBO', { widgetType: 'COMBO', options: { options: ['declared'] }, editableOptions: true }),
+        {
+          kind: 'group', id: 'many', minMembers: 1, optionalAfterMinimum: true, grows: 'button',
+          keys: { kind: 'numbered', prefix: 'm', start: 0, pad: 0 },
+          member: [field('entry', 'INT', { widgetType: 'INT', options: { min: 3 } })],
+        },
+        ...read.map((id) => ({ ...field(`reads_${id}`, 'INT', { widgetType: 'INT', options: {}, default: 0 }), automatic: { lookup: `probe.${id}`, args: [id === 'many' ? 'many.entry' : id] } })),
+      ]
+      return { ...schema, body } as NodeSchema
+    }
+    const doc = mutableWorkflow('exec-basic')
+    const nodes = ((doc['graphs'] as Mutable)['g0'] as Mutable)['nodes'] as Mutable
+    ;(nodes['n0'] as Mutable)['values'] = { width: 64, height: 64, batch_size: 1, color: 0 }
+    ;(nodes['n0'] as Mutable)['dynamic'] = { many: { members: ['m0', 'm1'] }, authored: { options: ['first', 'second'] } }
+    const asked: Record<string, unknown> = {}
+    const lookupAnswers: CompileInput['lookupAnswers'] = (lookup, args) => {
+      asked[lookup.slice('probe.'.length)] = args[0]
+      return { state: 'ready', answer: 1 }
+    }
+    const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    const inputs = result.artifact.prompt['n0']!.inputs
+    // A required field reads its widget's start: the minimum, an empty text, the first option.
+    const sent = Object.fromEntries(['num', 'text', 'pick', 'opt', 'hid', 'hid_def', 'secret', 'boxed', 'boxed_secret', 'limited', 'authored', 'many.m0.entry', 'many.m1.entry'].map((id) => [id, inputs[id]]))
+    expect(sent).toEqual({ num: 16, text: '', pick: 'slow', opt: undefined, hid: 7, hid_def: 9, secret: undefined, boxed: 6, boxed_secret: undefined, limited: 65, authored: 'first', 'many.m0.entry': 3, 'many.m1.entry': undefined })
+    // The lookup is called with what the run is sent; a field sent nothing waits.
+    expect(asked).toEqual({ num: 16, text: '', pick: 'slow', hid: 7, hid_def: 9, boxed: 6, limited: 65, authored: 'first', many: [3, null] })
+    // Shown, the same rows are sent the same values.
+    ;(nodes['n0'] as Mutable)['values'] = { width: 200, height: 64, batch_size: 1, color: 0 }
+    const shown = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), lookupAnswers })
+    expect(shown.ok && ['hid', 'hid_def', 'secret', 'boxed', 'boxed_secret'].map((id) => shown.artifact.prompt['n0']!.inputs[id])).toEqual([7, 9, undefined, 6, undefined])
   })
 })
 

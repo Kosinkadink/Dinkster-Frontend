@@ -6,10 +6,12 @@
  * file owns "given those flags, the right pixels get the right color".
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, compile, documentResolver, loadDocument, type InputSpec, type NodeSchema, type WorkflowDocument } from '@dinkster/core'
+import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, compile, documentResolver, loadDocument, type InputSpec, type Json, type NodeSchema, type WidgetKind, type WidgetRegistry, type WidgetView, type WorkflowDocument } from '@dinkster/core'
 import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET, REROUTE_SOCKET_RADIUS, type Scene, type SceneNode } from '../src/scene.js'
 import { paintToolboxIcon } from '../src/icons.js'
-import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type PresenceActor } from '../src/renderer.js'
+import { createRegistryPainter } from '../src/registry-painter.js'
+import { createInNodeEditorScene, inNodeEditorExamples } from '../gallery/in-node-editors.js'
+import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type CompanionDisplay, type PresenceActor } from '../src/renderer.js'
 import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, outputRowKey, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasPaintTokens, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
@@ -1146,16 +1148,15 @@ describe('viewport culling regressions', () => {
 
     const scene = emptyScene({ netStubs: [{ ...source, guide: true }, { ...sink, guide: true }] })
     const shown = paintWith(scene, () => undefined)
-    // One casing pass plus one colored pass, both dashed, from the Set
+    // One casing pass plus one colored pass, both solid, from the Set
     // tag's free edge (90, 100) to the Get tag's free edge (200, 100).
     const curves = shown.filter((call) => call.method === 'bezierCurveTo')
     expect(curves).toHaveLength(2)
     for (const curve of curves) {
-      expect(curve.lineDash).toEqual([7, 5])
+      expect(curve.lineDash).toEqual([])
       expect(curve.args.slice(-2)).toEqual([200, 100])
     }
-    expect(shown.some((call) => call.method === 'moveTo' && call.args[0] === 90 && call.args[1] === 100 &&
-      call.lineDash.length === 2)).toBe(true)
+    expect(shown.some((call) => call.method === 'moveTo' && call.args[0] === 90 && call.args[1] === 100)).toBe(true)
     expect(curves.some((curve) => curve.strokeStyle === defaultTokens.colors.canvasBackground)).toBe(true)
     expect(curves.some((curve) => curve.strokeStyle === typeColor(defaultTokens, 'FLOAT'))).toBe(true)
   })
@@ -3392,6 +3393,100 @@ describe('boundary pseudo-node paint on the live renderer', () => {
 
 })
 
+describe('wire dashes', () => {
+  // Dashed means only "may carry nothing" or "carries nothing".
+  const maybeDash = [...canvasPaintTokens.dash.maybeAbsentLink.world]
+  const curveFrom = (calls: PaintCall[], x: number, y: number): PaintCall => {
+    const move = calls.findIndex((call) => call.method === 'moveTo' && call.args[0] === x && call.args[1] === y)
+    expect(move).toBeGreaterThanOrEqual(0)
+    return calls.slice(move).find((call) => call.method === 'bezierCurveTo')!
+  }
+  const linkTarget = (): string => {
+    const to = fixtureScene('clean').links.find((candidate) => candidate.id === 'good')!.to
+    if (to.kind !== 'port') throw new Error('fixture wire must end at a node')
+    return to.node
+  }
+  const wire = (over: Partial<Scene['links'][number]>, modes: Readonly<Record<string, 'muted' | 'bypassed'>> = {}) => {
+    const scene = fixtureScene('clean')
+    const link = scene.links.find((candidate) => candidate.id === 'good')!
+    const from = nodeOf(scene, 'lat')
+    const pin = from.layout.pins.find((candidate) => candidate.direction === 'out')!
+    const calls = paint({
+      ...scene,
+      nodes: scene.nodes.map((node) => {
+        const mode = modes[node.id]
+        return mode === undefined ? node : { ...node, node: { ...node.node, mode } }
+      }),
+      links: scene.links.map((candidate) => candidate === link ? { ...candidate, ...over } : candidate),
+    })
+    return curveFrom(calls, from.x + from.layout.width, from.y + pin.y)
+  }
+
+  it('draws an ordinary wire solid and a wire that may carry nothing dashed', () => {
+    expect(wire({}).lineDash).toEqual([])
+    expect(wire({ maybeAbsent: true }).lineDash).toEqual(maybeDash)
+  })
+
+  it('draws a wire from an inactive field solid and faded', () => {
+    const curve = wire({ dimmed: true })
+    expect(curve.lineDash).toEqual([])
+    expect(curve.globalAlpha).toBeCloseTo(canvasPaintTokens.widget.inactiveOpacity)
+  })
+
+  it('fades the input pin a muted node\'s wire enters, and no other input pin', () => {
+    const scene = fixtureScene('clean')
+    const link = scene.links.find((candidate) => candidate.id === 'good')!
+    if (link.to.kind !== 'port') throw new Error('fixture wire must end at a node')
+    const target = nodeOf(scene, link.to.node)
+    const pin = target.layout.pins.find((candidate) => candidate.direction === 'in' && candidate.portId === (link.to as { port: string }).port)!
+    const at = { x: target.x, y: target.y + pin.y }
+    const pinAlpha = (over: Partial<Scene['links'][number]>) => {
+      const calls = paint({ ...scene, links: scene.links.map((candidate) => candidate === link ? { ...candidate, ...over } : candidate) })
+      // The pin sits on the node's edge, nudged at most a pixel for crisp edges.
+      const outline = calls.findIndex((call) => call.method === 'arc' && Math.abs(Number(call.args[0]) - at.x) <= 1 && Math.abs(Number(call.args[1]) - at.y) <= 1)
+      expect(outline).toBeGreaterThanOrEqual(0)
+      return calls[outline]!.globalAlpha
+    }
+    const plain = pinAlpha({})
+    expect(pinAlpha({ sourceMuted: true })).toBeCloseTo(plain * canvasPaintTokens.node.modeOpacity)
+    expect(pinAlpha({ dimmed: true })).toBeCloseTo(plain)
+    expect(pinAlpha({ maybeAbsent: true })).toBeCloseTo(plain)
+  })
+
+  it('draws a wire out of a muted node at that node\'s opacity, in its type\'s color, with no dashes of its own', () => {
+    const plain = wire({})
+    const maybe = wire({ maybeAbsent: true })
+    const muted = wire({ sourceMuted: true })
+    expect(muted.globalAlpha).toBeCloseTo(plain.globalAlpha * canvasPaintTokens.node.modeOpacity)
+    expect(muted.strokeStyle).toBe(plain.strokeStyle)
+    expect(muted.lineDash).toEqual([])
+    const mutedMaybe = wire({ sourceMuted: true, maybeAbsent: true })
+    expect(mutedMaybe.lineDash).toEqual(maybeDash)
+    expect(mutedMaybe.globalAlpha).toBeCloseTo(maybe.globalAlpha * canvasPaintTokens.node.modeOpacity)
+  })
+
+  it('does not fade a wire into a muted or bypassed node, or out of a bypassed one', () => {
+    const plain = wire({})
+    for (const modes of [{ lat: 'bypassed' }, { [linkTarget()]: 'muted' }, { [linkTarget()]: 'bypassed' }] as const) {
+      const curve = wire({}, modes)
+      expect([curve.lineDash, curve.globalAlpha], JSON.stringify(modes)).toEqual([plain.lineDash, plain.globalAlpha])
+    }
+  })
+
+  it('draws a dragged wire solid, while a group being resized keeps its dashed outline', () => {
+    const scene = emptyScene({ groups: [{ id: 'g', title: 'g', x: 100, y: 200, width: 400, height: 100 }] })
+    const calls = paintWith(scene, (renderer) => renderer.setOverlay({
+      ghostLink: { x1: 10, y1: 20, x2: 300, y2: 60, typeName: 'IMAGE' },
+      ghostLinks: [{ x1: 10, y1: 400, x2: 300, y2: 460, typeName: 'IMAGE' }],
+      groupResizeGhost: { groupId: 'g', x: 100, y: 200, width: 450, height: 120 },
+    }))
+    expect(curveFrom(calls, 10, 20).lineDash).toEqual([])
+    expect(curveFrom(calls, 10, 400).lineDash).toEqual([])
+    const outline = calls.find((call) => call.method === 'roundRect' && call.args[0] === 100 && call.args[2] === 450)
+    expect(outline?.lineDash.length).toBeGreaterThan(0)
+  })
+})
+
 describe('presence paint (remote participants)', () => {
   const CURSOR_COLOR = 'hsl(200 70% 55%)'
   const actor = (over: Partial<PresenceActor> = {}): PresenceActor => ({
@@ -3451,8 +3546,8 @@ describe('presence paint (remote participants)', () => {
     const stroke = paintedAfter(calls, move, 'stroke')
     expect(stroke?.strokeStyle).toBe(CURSOR_COLOR)
     expect(stroke?.globalAlpha).toBeCloseTo(0.55)
-    const dash = [...calls.slice(0, move)].reverse().find((call) => call.method === 'setLineDash')
-    expect(dash?.args).toEqual([[6, 4]])
+    // Solid: a dashed wire means only that it may carry nothing.
+    expect(stroke?.lineDash).toEqual([])
   })
 
   it('an in-progress remote drag paints a dashed ghost at the offset; the real node stays put', () => {
@@ -3525,5 +3620,75 @@ describe('presence paint (remote participants)', () => {
     const colorsByRadius = new Map(rerouteHalos.map((i) => [calls[i]?.args[2], paintedAfter(calls, i, 'stroke')?.strokeStyle]))
     expect(colorsByRadius.get(REROUTE_RADIUS + 6)).toBe(CURSOR_COLOR)
     expect(colorsByRadius.get(REROUTE_RADIUS + 9)).toBe(otherColor)
+  })
+})
+
+describe('an editor row fed a value known before a run', () => {
+  // Stand-ins for the widgets package's views, drawing what they draw: a
+  // curve's square, its point count and how its points are joined; a frame's name.
+  const views: readonly WidgetView[] = [
+    {
+      id: 'core.curve', kind: 'CURVE', isCompatible: () => true, measure: () => ({ rows: 2 }),
+      drawCompact: (scene, value) => {
+        const points = (value as { points?: unknown[] } | null)?.points
+        scene.rect(0, 0, 1, 2, { role: 'curveSketch', samples: [], points: [], held: [] })
+        scene.text(1, 0, `${points?.length ?? 0} points`, { role: 'widgetValue', align: 'right', width: 1 })
+        if (points !== undefined) scene.text(0, 1, 'Monotone cubic', { role: 'curveJoin' })
+      },
+    },
+    {
+      id: 'core.webcam', kind: 'WEBCAM', isCompatible: () => true, measure: () => ({ rows: 1 }),
+      drawCompact: (scene) => scene.text(1, 0, 'No frame yet', { role: 'widgetValue', align: 'right', width: 1, placeholder: true }),
+    },
+  ]
+  const kindOf = (type: string): WidgetKind => ({
+    type, valueSchema: { version: 1, validate: (v): v is Json => v !== undefined }, defaultValue: () => null, validate: () => [], defaultView: () => views.find((view) => view.kind === type)!.id,
+  })
+  const registry: WidgetRegistry = {
+    registerKind: () => () => {}, registerView: () => () => {}, registerEditor: () => () => {}, registerPreviewRenderer: () => () => {},
+    kind: (type) => views.some((view) => view.kind === type) ? kindOf(type) : undefined,
+    viewsFor: (type) => views.filter((view) => view.kind === type),
+    editorFor: () => undefined, previewRendererFor: () => undefined,
+  }
+  const editorMeasure: WidgetMeasure = (spec) => {
+    const view = views.find((candidate) => candidate.kind === spec.widgetType)
+    return view === undefined ? { viewId: 'core.line', rows: 1 } : { viewId: view.id, rows: view.measure(spec).rows }
+  }
+  const curve: Json = { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] }
+  const frame: Json = { name: 'webcam.png', mediaType: 'image/png' }
+
+  const paintFed = (exampleId: string, key: string, companion: CompanionDisplay, named: { text?: string }) => {
+    const { view: _unfolded, summaries: _summaries, ...example } = inNodeEditorExamples.find((item) => item.id === exampleId)!
+    const scene = createInNodeEditorScene(defaultTokens, measure, editorMeasure, example, { x: 0, y: 0 })
+    const { ctx, calls } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens, createRegistryPainter(registry))
+    renderer.setScene(scene)
+    // The host shows the wire's value as a companion and summarizes the editor row from it.
+    renderer.setCompanions({ [example.id]: { [key]: companion } })
+    renderer.setEditorSummaries({ [example.id]: { [key]: { ...named, value: companion.value } } })
+    renderer.renderNow()
+    renderer.dispose()
+    return calls
+  }
+
+  it.each([
+    ['curve-folded-wired-before', 'curve', curve, {}, '3 points'],
+    ['webcam-wired-before', 'image', frame, { text: 'webcam.png' }, 'webcam.png'],
+  ] as const)('%s with a value known exactly reads as the row does after a run', (exampleId, key, value, named, shown) => {
+    // A Primitive or a widget tap gives a value known exactly.
+    const calls = paintFed(exampleId, key, { value }, named)
+    const text = calls.find((call) => call.method === 'fillText' && call.args[0] === shown)
+    expect(text).toBeDefined()
+    expect(text!.font.startsWith('italic')).toBe(false)
+    expect(text!.fillStyle).toBe(defaultTokens.colors.value)
+    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'Monotone cubic')).toBe(key === 'curve')
+  })
+
+  it('keeps the shared italic style and its cue for an estimated value', () => {
+    const calls = paintFed('curve-folded-wired-before', 'curve', { value: curve, state: 'estimate' }, {})
+    const text = calls.find((call) => call.method === 'fillText' && String(call.args[0]).endsWith('3 points'))
+    expect(text?.font.startsWith('italic')).toBe(true)
+    expect(text?.fillStyle).toBe(defaultTokens.colors.companionEstimate)
+    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'Monotone cubic')).toBe(false)
   })
 })

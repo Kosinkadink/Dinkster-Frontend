@@ -621,6 +621,22 @@ describe('DocumentStore.dispatch', () => {
     expect(store.doc.graphs.g0!.nodes.n1!.values.seed).toBe(9)
   })
 
+  it('node.setValues clears stored values in the same undo step', () => {
+    const store = makeStore()
+    store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { seed: 7, steps: 30 } } })
+    const out = store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { seed: 8 }, unset: ['steps', 'cfg'] } })
+    expect(out.ok).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ seed: 8 })
+    expect(store.revision).toBe(2)
+    store.undo()
+    expect(store.doc.graphs.g0!.nodes.n1!.values).toEqual({ seed: 7, steps: 30 })
+    // Unsetting a key with nothing stored is a no-op with no undo entry.
+    const revision = store.revision
+    expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: {}, unset: ['cfg'] } }).ok).toBe(true)
+    expect(store.revision).toBe(revision)
+    expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n1', values: { seed: 1 }, unset: ['seed'] } }).ok).toBe(false)
+  })
+
   it('node.setValues rejects unknown nodes and non-object values', () => {
     const store = makeStore()
     expect(
@@ -1227,6 +1243,27 @@ describe('view.setEditorUnfolded and view.setPictureHeight', () => {
     expect(store.dispatch({ ...unfold('n1', 'frame', true), params: { ...unfold('n1', 'frame', true).params, unfolded: 'yes' } }).ok).toBe(false)
     expect(store.dispatch(unfold('n1', '', true)).ok).toBe(false)
     expect(store.dispatch(unfold('missing', 'frame', true)).ok).toBe(false)
+  })
+
+  it('keeps the Inputs panel\'s folds apart from the subgraph node outside', () => {
+    const store = makeStore({
+      ...doc({
+        g0: graph({ id: 'g0', nodes: { sub: node('sub', '#g1') } }),
+        g1: graph({
+          id: 'g1', name: 'sub', boundary: { body: [] }, nodes: { m1: node('m1') },
+        }),
+      }),
+    })
+    const set = (command: string, params: Record<string, unknown>) => store.dispatch({ command, params: { graphId: 'g1', ...params } } as never)
+    expect(set('view.setEditorUnfolded', { inputsPanel: true, valueKey: 'curve', unfolded: true }).ok).toBe(true)
+    expect(set('view.setPictureHeight', { inputsPanel: true, valueKey: 'curve', height: 300 }).ok).toBe(true)
+    const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!.view
+    expect(loaded.graphs.g1!.inputsPanel).toEqual({ editors: { curve: { unfolded: true } }, pictureHeights: { curve: 300 } })
+    expect(loaded.graphs.g0?.nodes.sub?.editors).toBeUndefined()
+    expect(store.undo()).toBe(true)
+    expect(store.undo()).toBe(true)
+    expect(store.doc.view.graphs.g1?.inputsPanel).toBeUndefined()
+    expect(store.dispatch({ command: 'view.setEditorUnfolded', params: { graphId: 'g0', inputsPanel: true, valueKey: 'curve', unfolded: true } }).ok).toBe(false)
   })
 })
 

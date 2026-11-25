@@ -8,9 +8,12 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import type { BoundaryItem, GraphDef, WorkflowDocument } from '../src/format/document.js'
+import type { BoundaryItem, GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
+import { compile } from '../src/compile/compile.js'
+import { asConnectionId } from '../src/ids.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
+import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { inputsOf, outputsOf, type GroupSpec, type NodeSchema } from '../src/schema/model.js'
 import { boundaryOf } from '../src/format/document.js'
 import { MAX_GROUP_MEMBERS, memberLimitOf } from '../src/schema/body.js'
@@ -685,6 +688,110 @@ describe('whole constructs on the subgraph node', () => {
     expect(elab.items.filter((item) => item.kind === 'note')).toEqual([])
     expect(elabInputsOf(elab).filter((input) => input.spec.id.endsWith('.name')).map((input) => input.spec.displayName))
       .toEqual(['item 1 name'])
+  })
+
+  it("a field's lookup on a subgraph node two levels out reads that node's rows, else the definition's values", () => {
+    const { schema: picker } = parseDinksterSchema('Picker', { body: [
+      { kind: 'input', id: 'category', type: { kind: 'concrete', types: ['COMBO'] }, pin: false, sent: false, widget: { type: 'COMBO', options: ['sd', 'sdxl'] } },
+      { kind: 'input', id: 'lora', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', options: { lookup: 'pack.loras', args: ['category'] } } },
+    ] } as never)
+    const port = (id: string, node: string, at: string) => ({ id, binds: { kind: 'port', node, port: at }, promoted: true })
+    const inner = defWith({ p0: { id: 'p0', type: 'Picker', values: { category: 'sd' } } }, [port('kind', 'p0', 'category'), port('pick', 'p0', 'lora')])
+    const innerSchema = deriveBoundarySchema(inner, (type) => (type === 'Picker' ? picker : resolve(type))).schema!
+    const outerOf = (shown: readonly unknown[]) => deriveBoundarySchema(asDef({
+      id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { s0: { id: 's0', type: '#gW', values: { kind: 'sdxl' } } },
+      boundary: boundaryOf(shown as BoundaryItem[], []),
+    }), (type) => (type === '#gW' ? innerSchema : resolve(type))).schema!
+    const callOf = (schema: NodeSchema, values: Record<string, Json>, wired: readonly string[] = []) => {
+      const elab = elaborateInterface(schema, { values }, {
+        isInputConnected: (id) => wired.includes(id), isOutputConnected: () => false, inputPorts: () => [...wired], outputPorts: () => [],
+      }, { lookupAnswers: () => undefined })
+      return elabInputsOf(elab).find((input) => input.spec.id === 'list')!.looked!.options
+    }
+    const both = outerOf([port('category', 's0', 'kind'), port('list', 's0', 'pick')])
+    // Two instances with their own category each ask for their own list; the face's row ids differ from the inner node's.
+    expect(callOf(both, { category: 'sd' })).toMatchObject({ state: 'loading', call: { args: ['sd'] } })
+    expect(callOf(both, { category: 'sdxl' })).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
+    // A wire into the category from outside is not known, so nothing is called.
+    expect(callOf(both, { category: 'sd' }, ['category'])).toMatchObject({ state: 'waiting' })
+    // Not shown on this node: the inner subgraph node's stored category is used.
+    expect(callOf(outerOf([port('list', 's0', 'pick')]), {})).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
+  })
+
+  it('an automatic field shown on a subgraph node is worked out in the inner node with this instance\'s values', () => {
+    const float = (id: string, extra: Record<string, unknown> = {}) =>
+      ({ kind: 'input', id, type: { kind: 'concrete', types: ['FLOAT'] }, default: 1, widget: { type: 'FLOAT' }, ...extra })
+    const { schema: retime } = parseDinksterSchema('Retime', { body: [
+      float('rate', { default: 48 }),
+      float('fps', { default: 24, automatic: { formula: 'rate / 4' } }),
+    ] } as never)
+    const port = (id: string, node: string, at: string) => ({ id, binds: { kind: 'port', node, port: at }, promoted: true })
+    const withRetime: SchemaResolver = (type) => (type === 'Retime' ? retime : resolve(type))
+    const faceOf = (stored: Record<string, Json>, shown: readonly unknown[], links: Record<string, unknown> = {}, nodes: Record<string, unknown> = {}) =>
+      deriveBoundarySchema(asDef({
+        id: 'gW', name: 'whole', links, nets: {}, nextOrdinal: 1, boundary: boundaryOf(shown as BoundaryItem[], []),
+        nodes: { r0: { id: 'r0', type: 'Retime', values: stored }, ...nodes },
+      }), withRetime).schema!
+    const fpsOf = (schema: NodeSchema, values: Record<string, Json>) => {
+      const elab = elaborateInterface(schema, { values })
+      return { row: elabInputsOf(elab).find((input) => input.spec.id === 'speed')!, warned: elab.diagnostics.some((d) => d.code === 'automatic.default') }
+    }
+    const both = faceOf({}, [port('pace', 'r0', 'rate'), port('speed', 'r0', 'fps')])
+    // Two instances each work out their own value from their own rate.
+    expect(fpsOf(both, { pace: 100 }).row.automatic).toEqual({ value: 25, state: 'worked-out' })
+    expect(fpsOf(both, { pace: 60 }).row.automatic).toEqual({ value: 15, state: 'worked-out' })
+    // A value on the instance is fixed; emptying it would give this instance's value.
+    const fixed = fpsOf(both, { pace: 100, speed: 30 }).row
+    expect(fixed.automatic).toBeUndefined()
+    expect(fixed.automaticIfEmptied).toEqual({ value: 25, state: 'worked-out' })
+    // Compiled, an instance with the field left out sends its inner node
+    // without it; that node, worked out as a plain node, gives the row's value.
+    const shownBoth = [port('pace', 'r0', 'rate'), port('speed', 'r0', 'fps')]
+    const compiled = compile({
+      document: {
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'automatic-instances', root: 'g0',
+        graphs: {
+          g0: { id: 'g0', name: 'root', links: {}, nets: {}, reroutes: {}, nextOrdinal: 3, nodes: {
+            a: { id: 'a', type: '#gW', values: { pace: 100 } },
+            b: { id: 'b', type: '#gW', values: { pace: 60 } },
+            c: { id: 'c', type: '#gW', values: { pace: 60, speed: 30 } },
+          } },
+          gW: { id: 'gW', name: 'whole', links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+            nodes: { r0: { id: 'r0', type: 'Retime', values: {} } }, boundary: boundaryOf(shownBoth as BoundaryItem[], []) },
+        },
+        view: { graphs: {} },
+      } as never,
+      revision: 1, resolve: withRetime, scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'test',
+    })
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) return
+    for (const [instance, pace] of [['a', 100], ['b', 60]] as const) {
+      const inputs = compiled.artifact.prompt[`${instance}.r0`]!.inputs
+      expect(inputs).not.toHaveProperty('fps')
+      const plain = elabInputsOf(elaborateInterface(retime!, { values: inputs as Record<string, Json> }))
+      expect(plain.find((input) => input.spec.id === 'fps')!.automatic).toEqual(fpsOf(both, { pace }).row.automatic)
+    }
+    expect(compiled.artifact.prompt['c.r0']!.inputs).toMatchObject({ fps: 30 })
+    // A rate not shown on the subgraph node is the definition's.
+    expect(fpsOf(faceOf({ rate: 80 }, [port('speed', 'r0', 'fps')]), {}).row.automatic).toEqual({ value: 20, state: 'worked-out' })
+    // A value the definition stores is the row's value, not automatic.
+    const stored = fpsOf(faceOf({ fps: 12 }, [port('speed', 'r0', 'fps')]), {}).row
+    expect(stored.automatic).toBeUndefined()
+    expect(stored.spec.widget?.default).toBe(12)
+    // A rate wired inside the definition is not known: the default, with the warning.
+    const wired = fpsOf(faceOf({}, [port('speed', 'r0', 'fps')],
+      { l0: { id: 'l0', from: { node: 'n0', port: 'out' }, to: { node: 'r0', port: 'rate' } } },
+      { n0: { id: 'n0', type: 'Retime', values: {} } }), {})
+    expect(wired.row.automatic).toMatchObject({ value: 24, state: 'default' })
+    expect(wired.warned).toBe(true)
+    // Two levels out, the outer subgraph node's rate decides.
+    const outer = deriveBoundarySchema(asDef({
+      id: 'gO', name: 'outer', links: {}, nets: {}, nextOrdinal: 1,
+      nodes: { s0: { id: 's0', type: '#gW', values: {} } },
+      boundary: boundaryOf([port('tempo', 's0', 'pace'), port('speed', 's0', 'speed')] as BoundaryItem[], []),
+    }), (type) => (type === '#gW' ? both : withRetime(type))).schema!
+    expect(fpsOf(outer, { tempo: 200 }).row.automatic).toEqual({ value: 50, state: 'worked-out' })
   })
 
   it('a group with no declared maximum gets none on the subgraph node, and its members inside still share the cap', () => {

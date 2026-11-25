@@ -76,7 +76,7 @@
   align-items: center;
   min-height: var(--dinkster-space-24);
   padding: var(--dinkster-space-4) var(--dinkster-space-8);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-capsule);
   color: var(--dinkster-text-secondary);
   background: var(--dinkster-surface-raised);
@@ -102,7 +102,7 @@
   flex: none;
   min-height: var(--dinkster-control-compact-height);
   padding: var(--dinkster-space-4) var(--dinkster-space-8);
-  border: 1px solid var(--dinkster-border-strong);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
   color: var(--dinkster-text-primary);
   background: var(--dinkster-surface-raised);

@@ -165,6 +165,8 @@ interface MenuItemBase {
   readonly hint?: string
   readonly checked?: boolean
   readonly disabled?: boolean
+  /** Why a disabled row is off, shown as its tooltip. */
+  readonly disabledReason?: string
 }
 
 /** A terminal row. Invoking it dispatches its command or named host action. */

@@ -10,7 +10,7 @@ rewrites or bolted-on views.
 
 - A tab is conceptually **(document, editorKind)**. `Tab.editorKind` names
   the editor that renders it; the built-in kinds are `graph` (the node
-  canvas), `app` (the form-style app view), `curve` and `glsl`.
+  canvas), `app` (the form-style app view) and `glsl`.
 - Editors are projections: they render shared document state and mutate it
   ONLY by dispatching maintained serializable commands - never by reaching
   into renderer or editor internals. This is what keeps undo, document
@@ -33,7 +33,7 @@ rewrites or bolted-on views.
 `packages/app/src/editors.ts`, exposed as `app.editors`. A descriptor is:
 
 - `id`: the stable kind id tabs reference (`GRAPH_EDITOR_KIND = 'graph'`,
-  `APP_EDITOR_KIND = 'app'`, `CURVE_EDITOR_KIND = 'curve'`, `GLSL_EDITOR_KIND = 'glsl'`).
+  `APP_EDITOR_KIND = 'app'`, `GLSL_EDITOR_KIND = 'glsl'`).
 - `title`: human-readable name.
 - `roles`: backend schema roles that open this editor. A role has one owner;
   duplicate role registrations refuse loudly.
@@ -45,7 +45,7 @@ rewrites or bolted-on views.
 Registration follows the house registry discipline (PanelRegistry,
 CommandRegistry, widget registry): `register` returns the unregister
 function, duplicate ids refuse loudly, `changed` ticks on every mutation.
-Core registers graph, app, curve, and GLSL editors through
+Core registers graph, app, and GLSL editors through
 `app.frontendDoors.editor`. Extension packs use the `editor()` door and provide
 a declarative host-UI provider instead of a component.
 
@@ -67,7 +67,7 @@ renders the descriptor's component inside `.canvas-stage`. With no active
 tab the graph editor stays mounted (it owns the empty state). A tab whose
 kind has no registered editor (an unregistered extension kind) renders a
 ProductEmptyState alert with the `editor-missing` test ID, never a blank stage.
-Curve and GLSL editors without an active target use neutral ProductEmptyState
+The GLSL editor without an active target uses neutral ProductEmptyState
 messages rather than an error-colored private placeholder.
 
 The keyed host only remounts when the DESCRIPTOR changes: same-kind tab
@@ -80,8 +80,8 @@ navigation restore the last pan and zoom; App View restores its scroll
 position. Concurrent windows merge different positions independently; the
 latest update wins when they change the same position. This state never
 enters the workflow document, collaboration, `WorkspaceTabRecord`, or
-SharedWorker authority. Gestures in progress, Arrange mode, and curve/GLSL
-editor targets remain session-only. These transient editor projections are
+SharedWorker authority. Gestures in progress, Arrange mode, and GLSL editor
+targets remain session-only. These transient editor projections are
 omitted from tab persistence and cannot be restored after refresh.
 
 ## Switching kinds (the app view)

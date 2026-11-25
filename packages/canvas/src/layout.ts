@@ -34,7 +34,9 @@ import {
   resolveWidgetRepresentation,
   selectorBranchDisplay,
   selectorMembersOf,
+  t as translate,
   valueKeyOf,
+  type AutomaticState,
   type BoundaryRouteLeg,
   type ElaboratedInput,
   type ElaboratedInterface,
@@ -42,6 +44,8 @@ import {
   type ElaboratedOutput,
   type InputSpec,
   type Json,
+  type LookedState,
+  type LookupCallSpec,
   type MaterializeFrame,
   type NodeData,
   type NodeSchema,
@@ -54,6 +58,47 @@ import {
   type WidgetSpec,
 } from '@dinkster/core'
 import { IN_NODE_EDITORS, canvasPaintTokens, type DesignTokens } from './tokens.js'
+
+/** The line under a lookup note's text: a spinner or an info mark, and its words. */
+export interface NoteLookupLine {
+  readonly tone: 'busy' | 'info'
+  readonly text: string
+  /** The call Try again asks for again, on its own row under the line. */
+  readonly retry?: LookupCallSpec
+}
+
+/**
+ * What a lookup note says under its text, or nothing when its answer is in
+ * use. `label` names the input an argument waits for.
+ */
+export function noteLookupLine(state: LookedState, label: (port: string) => string): NoteLookupLine | undefined {
+  switch (state.state) {
+    case 'ready':
+      return undefined
+    case 'loading':
+      return { tone: 'busy', text: translate('canvas.lookup.loading') }
+    case 'waiting':
+      return { tone: 'info', text: translate('canvas.lookup.waiting', { input: label(state.input) }) }
+    case 'paused':
+      return { tone: 'info', text: translate('canvas.lookup.paused') }
+    case 'off':
+      return { tone: 'info', text: translate('canvas.lookup.off') }
+    case 'stale':
+      return { tone: 'info', text: translate('canvas.lookup.couldNotRefresh'), retry: state.call }
+    case 'unavailable':
+      // A file the host has not checked yet is waited for, with no Try again.
+      if (state.reason === 'file-unchecked') return { tone: 'info', text: translate('canvas.lookup.fileUnchecked') }
+      return {
+        tone: 'info',
+        text: translate(state.reason === 'offline' ? 'canvas.lookup.offline' : 'canvas.lookup.noteFailed'),
+        ...(state.call === undefined ? {} : { retry: state.call }),
+      }
+  }
+}
+
+/** Rows a lookup note takes: its text, the state line, and Try again under that. */
+export const noteLookupRows = (line: NoteLookupLine): number =>
+  line.retry === undefined ? canvasPaintTokens.node.lookupNote.stateRows : canvasPaintTokens.node.lookupNote.retryRows
 
 /** Injected text measurement (canvas measureText in the app; approximate in tests). */
 export type TextMeasurer = (text: string, role: 'title' | 'renamedTitle' | 'label' | 'value') => number
@@ -188,6 +233,8 @@ export type LayoutRow =
       readonly spec: WidgetSpec
       /** Keep the editor and outgoing value tap without an incoming socket. */
       readonly socketless?: true
+      /** Declared `sent=False`: stored and edited, never sent, so no outgoing value tap. */
+      readonly unsent?: true
       /** Wire-22 execution binding retained from the elaborated input. */
       readonly sourceFilename?: SourceFilenameSpec
       /** Effective named representation selected for this row (wire 17). */
@@ -207,6 +254,13 @@ export type LayoutRow =
        * option key). Renderers/editors read this instead of values.
        */
       readonly derivedValue?: Json
+      /**
+       * A field that declares `automatic` with nothing stored and no wire:
+       * the value it has in use, drawn after the word "auto", dimmed.
+       */
+      readonly automatic?: AutomaticState
+      /** A fixed value on a field that declares `automatic`: what it would work out to if emptied, for the open field. */
+      readonly automaticIfEmptied?: AutomaticState
       /** Structural menu state coordinate, independent of the selected value. */
       readonly optionsTarget?: {
         readonly construct: string
@@ -292,6 +346,8 @@ export type LayoutRow =
       readonly text: string
       /** The text is the note's "while unknown" answer. */
       readonly unknown?: true
+      /** A lookup note's state line under the text, one row high. */
+      readonly lookup?: NoteLookupLine
     }
   | {
       /** A button (ElaboratedButton): drawn and inert; its steps never run here. */
@@ -975,6 +1031,8 @@ export interface LayoutOptions {
   readonly textBoxLines?: Readonly<Record<string, number>>
   /** Per-editor fold overrides by value key (view.setEditorUnfolded). */
   readonly editorUnfolded?: Readonly<Record<string, boolean>>
+  /** Editors start folded whatever their declaration says, as on the Inputs panel. */
+  readonly editorsStartFolded?: true
   /** Height of each unfolded editor's picture the user dragged, by value key (view.setPictureHeight). */
   readonly pictureHeights?: Readonly<Record<string, number>>
   /**
@@ -1069,7 +1127,7 @@ export function layoutNode(
       : never
     header?: BoxDecl
     growth?: { construct: string; label: string; frames: readonly MaterializeFrame[] }
-    note?: { noteId: string; text: string; unknown?: true }
+    note?: { noteId: string; text: string; unknown?: true; lookup?: NoteLookupLine }
     button?: { buttonId: string; label: string; enabled?: false }
     editorSpace?: Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset' | 'width' | 'rowAbove'>
   }
@@ -1314,7 +1372,16 @@ export function layoutNode(
         kind: item.kind,
         boxes: chain,
         ...(item.kind === 'note'
-          ? { note: { noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}) } }
+          ? { note: {
+              noteId: item.id, text: item.text, ...(item.unknown ? { unknown: true as const } : {}),
+              ...(item.lookup === undefined ? {} : (() => {
+                const line = noteLookupLine(item.lookup, (port) => {
+                  const input = items.find((other): other is ElaboratedInput => other.kind === 'input' && other.spec.id === port)
+                  return input?.spec.displayName ?? port
+                })
+                return line === undefined ? {} : { lookup: line }
+              })()),
+            } }
           : { button: { buttonId: item.id, label: item.label, ...(item.enabled === false ? { enabled: false as const } : {}) } }),
       })
       continue
@@ -1442,6 +1509,7 @@ export function layoutNode(
         rows: w.rows,
         spec: representation.spec,
         ...(spec.socketless ? { socketless: true as const } : {}),
+        ...(spec.sent === false ? { unsent: true as const } : {}),
         ...(spec.sourceFilename !== undefined ? { sourceFilename: spec.sourceFilename } : {}),
         ...(representation.id !== undefined ? { representationId: representation.id } : {}),
         ...(options.seedControllerEnabled !== false && representation.spec.controller !== undefined
@@ -1449,6 +1517,8 @@ export function layoutNode(
           : {}),
         ...(spec.optional ? { optional: true } : {}),
         ...(item.derivedValue !== undefined ? { derivedValue: item.derivedValue } : {}),
+        ...(item.automatic !== undefined ? { automatic: item.automatic } : {}),
+        ...(item.automaticIfEmptied !== undefined ? { automaticIfEmptied: item.automaticIfEmptied } : {}),
         // A menu's state lives under its flattened id, members included.
         ...(representation.spec.editableOptions === true ? { optionsTarget: { construct: item.address.port } } : {}),
         ...(selector !== undefined ? { selector, lead: true as const } : {}),
@@ -1550,7 +1620,7 @@ export function layoutNode(
       const w = cell.widget
       const editor = w === undefined ? undefined : IN_NODE_EDITORS[w.viewId]
       if (w === undefined || editor === undefined) continue
-      const declared = w.familyMember !== true && w.spec.options['unfolded'] === true
+      const declared = options.editorsStartFolded !== true && w.familyMember !== true && w.spec.options['unfolded'] === true
       if (!(options.editorUnfolded?.[w.valueKey] ?? declared)) continue
       // Unfolded, the row is the editor's one-row header: what the folded row
       // shows in small (the curve's sketch) is the editor itself under it.
@@ -1588,6 +1658,8 @@ export function layoutNode(
 
   const rowBaseHeight = (row: PendingRow): number => row.kind === 'ports'
     ? tokens.rowGeometry.portRowHeight
+    : row.note?.lookup !== undefined
+    ? tokens.rowHeight * noteLookupRows(row.note.lookup)
     : row.kind !== 'widget' || row.widget === undefined
     ? tokens.rowHeight
     : (row.widget!.viewId === 'core.text'
@@ -1626,13 +1698,21 @@ export function layoutNode(
     // as much as at a box's sides, so a field's inset under a field and a
     // box's step under an outline (an inner box or an add row).
     let under: number = box.bottomGap
+    // A member box just closed, so a member box after it keeps `memberGap` away.
+    let afterMember = false
+    // A box's outline just ended, open or closed: what follows keeps `boxGap` away.
+    let afterOutline = false
     const push = (row: LayoutRow, depth: number): void => {
       rows.push(row)
       rowDepth.push(depth)
+      afterMember = false
+      afterOutline = false
     }
     const close = (depth: number): void => {
       while (open.length > depth) {
         const done = open.pop()!
+        afterMember = done.decl.kind === 'member'
+        afterOutline = true
         const bottom = y + under - slack + box.stroke
         boxes.push({
           id: done.decl.id,
@@ -1651,6 +1731,16 @@ export function layoutNode(
         under = box.step
       }
     }
+    /**
+     * Where a box header's outline starts: `headerGap` under a field or pin
+     * row, `memberGap` under a member box, `boxGap` under any other box, and
+     * just under the header of the box it opens in.
+     */
+    const headerTop = (): number =>
+      afterMember ? y + box.memberGap
+        : slack > 0 ? y - slack + box.headerGap
+        : afterOutline ? y + box.boxGap
+        : y + verticalInset
     /** Close the boxes the row is not in and open the option boxes it is in. */
     const enter = (chain: readonly string[]): void => {
       let shared = 0
@@ -1675,7 +1765,7 @@ export function layoutNode(
         const depth = open.length + 1
         const index = rows.length
         if (decl.kind === 'member') {
-          const top = y + verticalInset - slack
+          const top = headerTop()
           const height = top + box.stroke + headerHeight - y
           const grip = decl.member !== undefined && !decl.ghost ? gripOf(decl.construct!, decl.member) : undefined
           push({
@@ -1704,7 +1794,7 @@ export function layoutNode(
           ...(decl.closed && hiddenPorts.has(decl.id) ? { hiddenPorts: hiddenPorts.get(decl.id)! } : {}),
         }
         if (decl.closed) {
-          const top = y + verticalInset - slack
+          const top = headerTop()
           push({ ...header, y, height: top + closedHeight - y, top }, depth)
           boxes.push({
             id: decl.id, kind: decl.kind, depth, x: outlineX(depth), y: top, width: 0, height: closedHeight,
@@ -1714,6 +1804,7 @@ export function layoutNode(
           y = top + closedHeight
           under = box.step
           slack = 0
+          afterOutline = true
           continue
         } else if (decl.tab) {
           const top = y + box.tabGap - slack
@@ -1721,7 +1812,7 @@ export function layoutNode(
           open.push({ decl, top, first: index })
           y = top + box.stroke + box.tabPad
         } else {
-          const top = y + verticalInset - slack
+          const top = headerTop()
           push({ ...header, y, height: top + box.stroke + headerHeight - y, top }, depth)
           open.push({ decl, top, first: index })
           y = top + box.stroke + headerHeight
@@ -1732,6 +1823,8 @@ export function layoutNode(
       }
       enter(row.boxes)
       const depth = open.length
+      // A field or pin row after a box has its face `boxGap` under the outline.
+      if (afterOutline && row.kind !== 'growth' && row.kind !== 'editorSpace') y += box.boxGap - verticalInset
       if (row.kind === 'editorSpace') {
         const editorSpace = row.editorSpace!
         push({ kind: 'editorSpace', y, inset: fieldInset(depth), rowAbove: 0, ...editorSpace }, depth)
@@ -1739,6 +1832,12 @@ export function layoutNode(
       } else if (row.kind === 'growth') {
         const g = row.growth!
         const height = tokens.rowHeight
+        // As much room above the add row as the outline closing below leaves
+        // under it, from whatever ends above it: an outline, a field, a
+        // header, or the outline of a group drawn without its name.
+        const previous = rows.at(-1)
+        const above = previous?.kind === 'section' && previous.tab ? box.tabPad : slack
+        y += box.step - verticalInset * 2 - above
         push({ kind: 'growth', y, height, inset: outlineX(depth + 1), construct: g.construct, label: g.label, frames: g.frames }, depth)
         y += height
       } else if (row.kind === 'note' || row.kind === 'button') {
@@ -1797,7 +1896,7 @@ export function layoutNode(
         })
         // A widget can also produce its effective value. The duplicate
         // right-edge anchor deliberately shares the input's flattened id.
-        if (w.editor !== true) pins.push({
+        if (w.editor !== true && w.unsent !== true) pins.push({
           ...annotationsOf(w), portId: w.inputId, label: w.name ?? w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
         })
         lineBottoms.set(line, Math.max(lineBottoms.get(line) ?? y, y + height))
@@ -1871,7 +1970,9 @@ export function layoutNode(
       // '+ label' text plus capsule padding.
       content = measure(`+ ${row.label}`, 'label') + canvasPaintTokens.node.growthWidthPadding + (row.inset - tokens.padX) * 2
     } else if (row.kind === 'note') {
-      content = measure(row.text, 'label') + row.inset * 2
+      // The state line's words follow a mark about as wide as a letter and a gap.
+      const line = row.lookup === undefined ? 0 : measure(row.lookup.text, 'label') + tokens.fontSize + canvasPaintTokens.node.lookupNote.textGap
+      content = Math.max(measure(row.text, 'label'), line) + row.inset * 2
     } else if (row.kind === 'button') {
       content = measure(row.label, 'label') + canvasPaintTokens.node.growthWidthPadding + extra
     } else if (row.kind === 'editorSpace') {
@@ -2092,6 +2193,8 @@ export interface BoundarySlotInfo {
    * the first.
    */
   readonly fields?: readonly Omit<Extract<LayoutRow, { kind: 'widget' }>, 'kind' | 'y' | 'height' | 'inset' | 'width'>[]
+  /** Inputs panel only: the space of each unfolded editor among the fields, by its row's value key. */
+  readonly editorSpaces?: Readonly<Record<string, Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset' | 'width' | 'rowAbove'>>>
   /** Fields drawn without their wire: no pin. */
   readonly pinless?: true
   /** Inputs panel only: the input takes one value or a whole list. */
@@ -2138,6 +2241,12 @@ export function layoutBoundaryNode(
         const height = field.viewId === 'core.text' ? multilineWidgetHeight(field.rows, tokens) : field.rows * tokens.rowHeight
         rows.push({ ...field, ...(index === 0 ? { label: slot.label } : {}), kind: 'widget', y, height, inset: tokens.rowGeometry.fieldInsetX })
         y += height
+        // An unfolded editor hangs under its field, and the panel grows downward.
+        const space = slot.editorSpaces?.[field.valueKey]
+        if (space !== undefined) {
+          rows.push({ ...space, kind: 'editorSpace', y, inset: tokens.rowGeometry.fieldInsetX, rowAbove: height })
+          y += space.height
+        }
       }
       continue
     }
@@ -2189,6 +2298,10 @@ export function layoutBoundaryNode(
     if (row.kind === 'widget') {
       const mark = row.subgraphMark === undefined ? 0 : canvasPaintTokens.widget.subgraphMark.size + canvasPaintTokens.widget.subgraphMark.gap
       width = Math.max(width, mark + measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + tokens.padX * 2)
+      continue
+    }
+    if (row.kind === 'editorSpace') {
+      width = Math.max(width, canvasPaintTokens.node.editorSpace.minWidth + row.inset * 2)
       continue
     }
     if (row.kind !== 'ports') continue

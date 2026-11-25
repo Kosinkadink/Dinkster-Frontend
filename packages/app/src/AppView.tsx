@@ -85,6 +85,7 @@ import {
   type NodePreviewSurface,
 } from './node-previews.js'
 import { parseAppViewText } from './app-view-text.js'
+import { lookupAnswersOf } from './lookup-demand.js'
 import { useAppMessage } from './locale.js'
 import ArrowDown from 'lucide-solid/icons/arrow-down'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
@@ -463,6 +464,15 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     previousArrangeScope = scope
   })
 
+  const [lookupTick, setLookupTick] = createSolidSignal(0)
+  createEffect(() => {
+    backendsTick()
+    const tab = activeTab()
+    if (tab === undefined) return
+    const unsubscribe = props.app.backendForTab(tab).lookupGeneration.subscribe(() => setLookupTick((tick) => tick + 1))
+    onCleanup(unsubscribe)
+  })
+
   const rows = createMemo((): readonly ParamRow[] => {
     docTick()
     extensionsTick()
@@ -470,7 +480,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     if (!tab) return []
     const reg = registry()
     const resolve = reg ? (type: string) => reg.resolve(type) : undefined
-    return buildParamRows(tab.store.doc, resolve)
+    // An automatic lookup field shows the answer the canvas holds; a frozen
+    // view of a run calls no lookups.
+    lookupTick()
+    const backend = props.app.backendForTab(tab)
+    return buildParamRows(tab.store.doc, resolve, tab.execution === undefined ? lookupAnswersOf(backend.lookups) : undefined)
   })
 
   const previewCandidates = createMemo((): readonly PreviewRow[] => {

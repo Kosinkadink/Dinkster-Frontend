@@ -9,6 +9,7 @@ import {
 } from '../visual.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json' with { type: 'json' }
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json' with { type: 'json' }
+import components from '../../../branding/tokens/dinkster-components.json' with { type: 'json' }
 
 const nativeCatalogBackend = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
 let nativeCatalogAvailable: Promise<boolean> | undefined
@@ -78,6 +79,30 @@ export async function subgraphMarkPoint(page: Page, nodeId: string): Promise<{ x
   return await point.jsonValue() as { x: number; y: number }
 }
 
+/**
+ * Clicks the row of an editor shown in the node, which folds the editor out
+ * under it, and returns the editor's controls laid over its space.
+ */
+export async function unfoldNodeEditor(page: Page, nodeId: string, inputId: string): Promise<Locator> {
+  const point = await page.waitForFunction(({ nodeId, inputId }) => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((entry) => entry.id === nodeId)
+    const row = node?.layout.rows.find((entry) => entry.kind === 'widget' && entry.inputId === inputId)
+    if (node === undefined || row === undefined) return undefined
+    const viewport = renderer.getViewport()
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return {
+      x: rect.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
+      y: rect.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
+    }
+  }, { nodeId, inputId })
+  const { x, y } = await point.jsonValue() as { x: number; y: number }
+  await page.mouse.click(x, y)
+  const editor = page.locator(`.node-editor-space-overlay[data-node-id="${nodeId}"][data-value-key="${inputId}"]`)
+  await expect(editor).toBeVisible()
+  return editor
+}
+
 export async function executionDetails(row: Locator): Promise<Locator> {
   const details = row.locator('details.runs-details')
   if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) {
@@ -86,11 +111,39 @@ export async function executionDetails(row: Locator): Promise<Locator> {
   return details.getByTestId('run-details')
 }
 
+const regionSwitches = {
+  left: { testId: 'left-panel-toggle', item: 'Left panel' },
+  bottom: { testId: 'bottom-panel-toggle', item: 'Bottom panel' },
+  right: { testId: 'rail-toggle', item: 'Right panel' },
+} as const
+
+/**
+ * Opens or closes a shell region with its switch in the top bar, or with its item in the
+ * layout menu when the bar is in its narrow row.
+ */
+export async function setShellRegion(page: Page, region: keyof typeof regionSwitches, open: boolean): Promise<void> {
+  const { testId, item } = regionSwitches[region]
+  // Waits until the bar shows the row its current width calls for.
+  await expect.poll(() => page.locator('.dinkster-window-toolbar-host').evaluate((host, [id, width]) => {
+    const style = getComputedStyle(host)
+    const content = host.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    return (content < width) === (host.querySelector(`[data-testid="${id}"]`) === null)
+  }, [testId, components.layout.toolbarFullRowWidth] as const)).toBe(true)
+  const button = page.getByTestId(testId)
+  if (await button.count() > 0) {
+    if ((await button.getAttribute('aria-pressed') === 'true') !== open) await button.click()
+    await expect(button).toHaveAttribute('aria-pressed', String(open))
+    return
+  }
+  const menuItem = page.getByRole('menu', { name: 'Customize layout' }).getByRole('menuitemcheckbox', { name: item })
+  await page.getByRole('button', { name: 'Customize layout' }).click()
+  if ((await menuItem.getAttribute('aria-checked') === 'true') !== open) await menuItem.click()
+  else await page.keyboard.press('Escape')
+}
+
 export async function openRailPanel(page: Page, title: string): Promise<void> {
   const rail = page.getByTestId('dock-zone-right')
-  if (!await rail.isVisible()) {
-    await page.getByRole('button', { name: /^Toggle right rail/ }).click()
-  }
+  if (!await rail.isVisible()) await setShellRegion(page, 'right', true)
   await expect(rail).toBeVisible()
 
   const tab = rail.locator('[role="tab"]').filter({ hasText: title })

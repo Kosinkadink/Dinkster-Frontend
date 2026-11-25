@@ -176,7 +176,7 @@ test("the browser template gallery grants a read-only model mount and the asset 
           category: "test",
           source: "v3",
           isOutputNode: false,
-          items: [
+          body: [
             {
               kind: "input",
               id: "model",

@@ -9,7 +9,15 @@ on loopback.
 The Electron host, local engine lifecycle, packaging, and release automation
 are owned by [Dinkster-Desktop](https://github.com/Kosinkadink/Dinkster-Desktop).
 Paths and commands in the build and release sections are relative to that
-repository. Dinkster-Frontend owns the embedded browser application.
+repository. Dinkster-Frontend owns the embedded browser application and the bundled
+environment-management page. That page uses the shared Product components; a
+compatible Desktop host supplies the local environment bridge. Install location,
+hardware variant overrides and snapshot cleanup preferences are in Advanced
+settings. Native tools retain each reviewed plan, and Confirm and apply sends only
+its token. Editing a field or a failed Apply requires a new review; read-only
+results never offer Apply. Existing binding saves preserve device, sandbox and
+development choices, and removing a binding requires confirmation without deleting
+environment files.
 
 ## Install and platform support
 
@@ -105,9 +113,10 @@ restore review and Apply, the user chooses Every project on it or Only this
 project, reviews affected projects and software alternatives, then applies the
 retained approval. Changing scope or an expired or failed attempt requires a
 new review. A failed attempt may leave software or the project selection changed;
-it does not promise rollback. Older bridges without restore keep read-only
-history, and bridges without history keep the existing library browser. A failed
-read is an error, not an empty history; selecting the project again retries it.
+it does not promise recovery of the prior state. Older bridges without restore
+keep read-only history, and bridges without history keep the existing library
+browser. A failed read is an error, not an empty history; selecting the project
+again retries it.
 
 The installation list, project list and project assets have loading and empty
 states. An unavailable bridge or unreadable library gets one plain by-the-way

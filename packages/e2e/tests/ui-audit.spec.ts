@@ -12,7 +12,7 @@
  * controls that Playwright can still click. Every new editor or overlay
  * surface needs an audited, screenshotted state here.
  */
-import { expect, selectProductOption, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, selectProductOption, setShellRegion, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 import { auditLayout } from './ui-audit.js'
 
 const MOCK = 'http://ui-audit.test'
@@ -217,7 +217,7 @@ test.describe('asset and mount editors (mock dinkster backend)', () => {
     // At this width the Backends panel and right rail (opened by the
     // fixture) cover the whole canvas; close them to expose the node.
     await page.getByRole('button', { name: 'Close Primary dock panels' }).click()
-    await page.getByRole('button', { name: 'Toggle right rail' }).click()
+    await setShellRegion(page, 'right', false)
     await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
     await openEditor(page, 'image')
     const asset = page.getByTestId('asset-editor')

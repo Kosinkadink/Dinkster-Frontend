@@ -5,7 +5,6 @@ import { createSignal, registerCatalog, setLocale } from '@dinkster/core'
 import type { NodePreview } from '@dinkster/canvas'
 import type { AppState } from '../src/app-state.js'
 import { AudioTransport } from '../src/AudioTransport.js'
-import { CurveEditor } from '../src/CurveEditor.js'
 import { NodeMediaOverlay } from '../src/CanvasHost.js'
 import { AppPreviewSurface } from '../src/AppPreviewSurface.js'
 import type { PreviewLoader } from '../src/node-previews.js'
@@ -157,63 +156,5 @@ describe('shared audio transport lifecycle', () => {
     expect(root.querySelector<HTMLButtonElement>('[aria-label="Next audio batch"]')!.disabled).toBe(true)
     expect(root.querySelector('[aria-label="Audio position"]')?.getAttribute('aria-disabled')).toBe('true')
     expect(root.textContent).toContain('Batch selection not advertised by backend')
-  })
-  it('applies canonical curve positions without an unrelated audio seconds mode', async () => {
-    await next()
-    const request = { tabId: 'tab', graphId: 'g', nodeId: 'envelope', inputId: 'curve', instancePath: [], openedValue: { points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] } }
-    const tab = { id: 'tab', store: { document: createSignal({}) } }
-    const dispatch = vi.fn(() => ({ ok: true }))
-    const app = {
-      curveEditorTarget: createSignal(request), tabs: createSignal([tab]), activeTabId: createSignal('tab'), store: { executions: createSignal(new Map()) },
-      curveTargetForInput: () => request, executionForTab: () => undefined, dispatchTo: dispatch, closeCurveEditor: vi.fn(),
-    } as unknown as AppState
-    const curve = document.createElement('div'); root.append(curve)
-    const closeCurve = render(() => <CurveEditor app={app} />, curve)
-    const surface = curve.querySelector('svg')!
-    vi.spyOn(surface, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1000, height: 600 } as DOMRect)
-    surface.dispatchEvent(new MouseEvent('dblclick', { clientX: 500, clientY: 300, bubbles: true }))
-    expect(curve.querySelector('[data-testid="curve-point-value"]')?.textContent).toContain('Position0.5000')
-    Array.from(curve.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!.click()
-    expect(dispatch).toHaveBeenCalledWith(tab, {
-      command: 'node.setValue', params: { graphId: 'g', nodeId: 'envelope', inputId: 'curve', value: {
-        interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 0.5, value: 0.5 }, { position: 1, value: 1 }],
-      } },
-    })
-    expect(request.openedValue.points).toEqual([{ position: 0, value: 0 }, { position: 1, value: 1 }])
-    closeCurve()
-  })
-  it.each([
-    { accepted: false, replace: false },
-    { accepted: true, replace: false },
-    { accepted: false, replace: true },
-  ])('waits for curve apply and isolates replacement targets: %j', async ({ accepted, replace }) => {
-    const request = { tabId: 'tab', graphId: 'g', nodeId: 'envelope', inputId: 'curve', instancePath: [], openedValue: { points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] } }
-    const target = createSignal<typeof request | undefined>(request)
-    const tab = { id: 'tab', store: { document: createSignal({}) } }
-    let settle!: () => void
-    const dispatch = vi.fn(() => new Promise((resolve) => {
-      settle = () => resolve({ ok: accepted, diagnostics: [] })
-    }))
-    const app = {
-      curveEditorTarget: target, tabs: createSignal([tab]), activeTabId: createSignal('tab'), store: { executions: createSignal(new Map()) },
-      curveTargetForInput: () => target.get(), executionForTab: () => undefined, dispatchTo: dispatch,
-      closeCurveEditor: () => target.set(undefined),
-    } as unknown as AppState
-    const curve = document.createElement('div'); root.append(curve)
-    const closeCurve = render(() => <CurveEditor app={app} />, curve)
-    const apply = Array.from(curve.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!
-    apply.click()
-    expect(apply.disabled).toBe(true)
-    expect(target.get()).toBe(request)
-    apply.click()
-    expect(dispatch).toHaveBeenCalledOnce()
-    const replacement = { ...request }
-    if (replace) target.set(replacement)
-    settle()
-    await next()
-    expect(target.get()).toBe(replace ? replacement : accepted ? undefined : request)
-    if (!accepted && !replace) expect(curve.textContent).toContain('Curve update was refused')
-    if (replace) expect(curve.textContent).not.toContain('Curve update was refused')
-    closeCurve()
   })
 })

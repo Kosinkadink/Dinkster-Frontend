@@ -683,10 +683,10 @@ and hit testing derive from the same rectangle. Companion-driven rows keep the
 shared read-only companion treatment and omit the chevron. Every row keeps its
 compact value preview. Compact rows preserve a short complete value by shrinking and
 ellipsizing the label first; values too long to fit beside the 44px label floor
-retain proportional sharing. The ASSET `no asset` placeholder uses muted italic
-text and remains complete at ordinary and minimum node widths. Its measured
-text and padding take priority over the label floor after opener icons reserve
-their space; the label may disappear if even its ellipsis cannot fit. Long asset
+retain proportional sharing. An empty row's text ("Choose image", "Choose model")
+uses muted italic type. The row's label keeps its whole width while it fits and
+the empty text takes what is left, cut with an ellipsis and down to nothing on
+a narrow node; the label is cut only when it alone does not fit. Long asset
 names retain the ordinary proportional split and ellipsize within the row. Activating the
 row body opens optional expanded controls only when
 more deliberate editing is useful. INT, FLOAT and single-line STRING are
@@ -793,20 +793,6 @@ state refuses late bytes and new playback; closing does not release the retained
 owner. A native backend is
 required for upload. Browser codec, duration and byte limits are the same as
 the existing ASSET audio recorder.
-
-## COLORS editor
-
-COLORS stores an ordered string array with a copied schema default or an empty
-palette. `core.colors` shows up to four compact swatches and the total count.
-The expanded palette uses ProductColorInput and exact hex ProductTextInput
-fields with keyboard-accessible Up, Down and Remove actions. Add color appends
-white until there are 16 entries; longer imported arrays remain intact.
-Text accepts `#rgb`, `#rrggbb` and `#rrggbbaa` without normalizing case or alpha.
-The RGB picker preserves an existing alpha pair. Invalid drafts stay visible
-and cannot commit. Commit writes the ordered array as one undoable change;
-Cancel, Escape and outside dismissal discard staged edits, additions, removals
-and reorders. Empty palettes are valid. No server palette or color-space
-conversion is inferred.
 
 ## MARKDOWN editor
 
