@@ -1080,8 +1080,12 @@ describe('dynamic interfaces', () => {
       locked: { $link: { node: 'source', output: 'value' } },
       disabled: { $link: { node: 'source', output: 'value' } }, gain: 0.65, text: 'first',
     } })
-    expect(before.dinksterGraph?.nodes['promoted.inner']?.inputs).toEqual({ locked: 3, disabled: 5, gain: 0.65, text: 'entered first' })
-    expect(before.dinksterGraph?.nodes['other.inner']?.inputs).toEqual({ locked: 3, disabled: 5, gain: 0.35, text: 'entered sibling' })
+    expect(before.dinksterGraph?.nodes['promoted.inner']).toEqual({ nodeType: target.type, inputs: {
+      locked: 3, disabled: 5, gain: 0.65, text: 'entered first',
+    } })
+    expect(before.dinksterGraph?.nodes['other.inner']).toEqual({ nodeType: target.type, inputs: {
+      locked: 3, disabled: 5, gain: 0.35, text: 'entered sibling',
+    } })
     const store = new DocumentStore(initial, coreCommandRegistry())
     for (const [inputId, representation] of [['gain', 'slider'], ['text', 'multiline']] as const) {
       expect(store.dispatch({ command: 'view.setWidgetRepresentation', params: {
