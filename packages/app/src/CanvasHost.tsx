@@ -6317,6 +6317,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (armed) queueMicrotask(() => canvasEl.focus())
         return armed
       },
+      blueprintEntries: () => paletteEntries().filter((entry) => entry.kind === 'blueprint'),
+      armBlueprintPlacement: (type, backendId) => {
+        const tab = activeTab()
+        const entry = paletteEntries().find((candidate) => candidate.kind === 'blueprint' && candidate.type === type)
+        if (!entry || !tab || props.app.backendForTab(tab).id !== backendId) {
+          clearArmedPlacement()
+          return false
+        }
+        const armed = armPaletteEntry(entry)
+        if (armed) queueMicrotask(() => canvasEl.focus())
+        return armed
+      },
       createEmptySubgraph: async (position) => {
         const tab = activeTab()
         if (!tab || refuseFrozenEdit()) return false
@@ -6749,7 +6761,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           return {
             value,
             commit: (next: CurveValue) => at.commit(next as unknown as Json),
-            histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId),
+            histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId, at.current.row.inputId),
           }
         }
         const webcam = () => {
@@ -6854,7 +6866,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   wired={item()?.wired === true} carried={item()?.carried} covered={covered()} />}
               </Show>
               <Show when={curve()}>
-                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wiredLine={item()?.row.wiredLine === true}
+                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram}
+                  histogramInput={item()?.row.histogram === undefined ? 'none' : item()!.row.histogram!.connected ? 'wired' : 'unwired'}
                   options={item()?.field.spec.options ?? {}} />}
               </Show>
               <Show when={load3d()}>
