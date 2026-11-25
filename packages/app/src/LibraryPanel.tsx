@@ -5,7 +5,7 @@ import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js
 import { initialsOf } from './collections.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
-import { ProductButton, ProductConfirmation, ProductDialog, ProductTextInput } from '@dinkster/ui'
+import { BlueprintIcon, ProductButton, ProductConfirmation, ProductDialog, ProductIcon, ProductTextInput } from '@dinkster/ui'
 import { ProductEmptyState } from './ProductSurfaces.js'
 
 const DIRECT_LIBRARY_SOURCES = new Set(['packs', 'templates', 'workflows', 'blueprints'])
@@ -429,6 +429,7 @@ export function LibraryPanel(props: LibraryPanelProps) {
         {...(props.onActivate ? { onActivate: props.onActivate } : {})}
         onAction={entryAction}
         titleEditor={titleEditor}
+        entryFallback={() => sourceId() === 'blueprints' ? <ProductIcon icon={BlueprintIcon} /> : undefined}
         {...(props.sourceActions ? { sourceActions: props.sourceActions } : {})}
         {...(props.onSourceAction ? { onSourceAction: props.onSourceAction } : {})}
       />

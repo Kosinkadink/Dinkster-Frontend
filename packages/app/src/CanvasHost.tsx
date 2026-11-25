@@ -150,7 +150,7 @@ import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics,
 import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
 import { problemBoxLines, problemBoxRows, type ProblemBoxLine } from './problem-box.js'
 import { NodeProblemBox } from './NodeProblemBox.js'
-import { BLUEPRINT_ICON, BlueprintBodyCache, blueprintFailureDiagnostic, fetchSavedBlueprintBody, insertBlueprintIntoTab, listSavedBlueprints, type SavedBlueprint } from './blueprints.js'
+import { BlueprintBodyCache, blueprintFailureDiagnostic, fetchSavedBlueprintBody, insertBlueprintIntoTab, listSavedBlueprints, type SavedBlueprint } from './blueprints.js'
 import { pasteClipboardIntoTab } from './clipboard-paste.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
 import { pendingClipboardText, writeClipboardText } from './clipboard-text.js'
@@ -2936,7 +2936,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             ...(canFlattenSubgraph() ? [{
               id: 'core.subgraph.saveBlueprint',
               label: 'Save as blueprint',
-              icon: BLUEPRINT_ICON,
+              icon: 'blueprint',
               action: { kind: 'host' as const, action: 'saveBlueprint' },
               disabled: props.app.backendForTab(tab).protocol !== 'dinkster',
             }] : []),

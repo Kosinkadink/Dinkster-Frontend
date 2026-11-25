@@ -8,6 +8,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show }
 import { semanticDesignTokens, type MenuActionItem, type MenuItem, type MenuSubmenuItem } from '@dinkster/core'
 import { Ban, CirclePlay, Copy, CopyPlus, Eye, FolderOpen, Group, Icon as LucideBaseIcon, Maximize2, Minimize2, Palette, Pencil, SlidersHorizontal, SquareDashed, Trash2, Ungroup, VolumeX, type IconNode, type LucideIcon } from 'lucide-solid'
 import { SUBGRAPH_ICON } from '@dinkster/canvas'
+import { BlueprintIcon } from '@dinkster/ui'
 import { placeFloatingSurface, type FloatingSurfacePlacement } from '@dinkster/core/floating-surface'
 import { Icon } from './Icon.js'
 import { menuFlat, type MenuAnchor } from './menu-target.js'
@@ -41,6 +42,7 @@ const Subgraph: LucideIcon = (props) => <LucideBaseIcon {...props} iconNode={SUB
 
 const MENU_ICONS: Readonly<Record<string, LucideIcon>> = {
   ban: Ban,
+  blueprint: BlueprintIcon,
   'circle-play': CirclePlay,
   copy: Copy,
   'copy-plus': CopyPlus,

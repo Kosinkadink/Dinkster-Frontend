@@ -57,7 +57,7 @@ test('served dev blueprint copies its graph independently and undoes as one inse
 })
 
 test('a saved blueprint is detached, placeable, renameable and removable without changing placed subgraphs', async ({ page, context }, testInfo) => {
-  const name = `Saved image helpers ${Date.now()}`
+  const name = `Image helpers ${Date.now().toString(36)}`
   const renamed = `${name} renamed`
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto('/')
@@ -129,6 +129,23 @@ test('a saved blueprint is detached, placeable, renameable and removable without
   expect(await (await page.request.get(`${backendUrl}/api/assets/${record.digest}`)).json()).toEqual(saved)
 
   const canvas = page.getByTestId('graph-canvas')
+  await canvas.focus()
+  await page.keyboard.press('Control+k')
+  const search = page.getByTestId('universal-search-input')
+  const blueprints = page.locator('[data-group="core.blueprints"]')
+  await search.fill('Node Feature Examples')
+  await expect(blueprints.getByRole('option', { name: /Node Feature Examples/ })).toBeVisible()
+  await search.fill(name)
+  const savedResult = blueprints.getByRole('option', { name: new RegExp(name) })
+  await expect(savedResult).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('saved-blueprint-ctrl-k.png') })
+  await savedResult.click()
+  await canvas.click({ position: { x: 650, y: 400 } })
+  await expect.poll(() => page.evaluate(() => {
+    const doc = window.__dinksterTest!.app.activeTab()!.store.doc
+    return Object.keys(doc.graphs[doc.root]!.nodes).length
+  })).toBe(2)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
   await canvas.dblclick({ position: { x: 650, y: 400 } })
   await page.getByTestId('palette-search').fill(name)
   const result = page.locator(`[data-testid=palette-item][data-node-type="blueprint:saved/${record.id}"]`)
@@ -192,6 +209,11 @@ test('a saved blueprint is detached, placeable, renameable and removable without
   await page.getByTestId('palette-search').fill(renamed)
   await expect(result).toContainText(renamed)
   await page.keyboard.press('Escape')
+  await canvas.focus()
+  await page.keyboard.press('Control+k')
+  await search.fill(renamed)
+  await expect(savedResult).toContainText(renamed)
+  await page.keyboard.press('Escape')
   await page.getByTestId('library-toggle').click()
   if (await source.isVisible()) await source.click()
   else await selectProductOption(page, library.getByTestId('library-source-select'), 'blueprints')
@@ -208,6 +230,11 @@ test('a saved blueprint is detached, placeable, renameable and removable without
   await canvas.dblclick({ position: { x: 650, y: 550 } })
   await page.getByTestId('palette-search').fill(renamed)
   await expect(result).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await canvas.focus()
+  await page.keyboard.press('Control+k')
+  await search.fill(renamed)
+  await expect(savedResult).toHaveCount(0)
   expect(await page.evaluate((type) => {
     const doc = window.__dinksterTest!.app.activeTab()!.store.doc
     return Object.values(doc.graphs[doc.root]!.nodes).some((node) => node.type === type)
