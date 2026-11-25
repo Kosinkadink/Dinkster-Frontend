@@ -1740,5 +1740,8 @@
   "projects.status.ready": "{installation} is ready",
   "projects.facts.outputsFolder": "Outputs",
   "projects.facts.showInFolder": "Show in folder",
-  "projects.facts.folderFailed": "The folder could not be opened on this computer."
+  "projects.facts.folderFailed": "The folder could not be opened on this computer.",
+  "projects.setup.title": "Set up Dinkster",
+  "projects.setup.how": "Install an engine from a terminal on the computer that runs Dinkster:",
+  "projects.setup.after": "This page lists the installation when setup is done."
 }

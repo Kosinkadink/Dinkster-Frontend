@@ -4,3 +4,5 @@
 /* The editor's connection item is a compact ghost button; this keeps its box so the dot and name sit where the editor's do. */
 .projects-page-status { display: inline-flex; align-items: center; gap: var(--dinkster-space-4); padding: 0 var(--dinkster-space-4); border: 1px solid transparent; }
 [data-testid='topbar-search'][aria-disabled='true'] { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
+/* First run: the setup command, as wide as the round one setup form. */
+.projects-page-setup { width: min(100%, 560px); }

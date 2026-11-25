@@ -19,6 +19,7 @@ import {
 import {
   ProductBrandMark,
   ProductButton,
+  ProductCodeBlock,
   ProductConfirmation,
   ProductDialog,
   ProductEmptyState,
@@ -185,9 +186,11 @@ export function processSource(connection: DinksterConnection = processConnection
         fetch('/supervisor/status', { cache: 'no-store' })
           .then((response) => (response.ok ? response.json() : {}))
           .catch(() => ({})),
-        fetch('/supervisor/installations', { cache: 'no-store' })
-          .then((response) => (response.ok ? response.json() : { installations: [] }))
-          .catch(() => ({ installations: [] })),
+        // A list the process cannot give fails the read, so the page never takes it for "no installations".
+        fetch('/supervisor/installations', { cache: 'no-store' }).then((response) => {
+          if (!response.ok) throw new Error(`GET /supervisor/installations failed: ${response.status}`)
+          return response.json()
+        }),
       ]) as [
         { state?: EngineState; open?: { root: string; engine: string }; openFolder?: boolean },
         { installations?: readonly { root: string }[] },
@@ -349,11 +352,22 @@ export function ProjectsView(props: {
   const [projects, { mutate: setProjects }] = createResource(() =>
     props.source.listProjects().then(byProjectTime, () => null),
   )
+  const [installations, { refetch: rereadInstallations }] = createResource(() =>
+    props.source.installations().catch(() => null),
+  )
+  // Set up runs in a terminal, so the page reads the list again when the user comes back to it.
+  const firstRun = () => installations()?.all.length === 0
+  onMount(() => {
+    const reread = () => {
+      if (firstRun()) void rereadInstallations()
+    }
+    globalThis.addEventListener('focus', reread)
+    onCleanup(() => globalThis.removeEventListener('focus', reread))
+  })
   createEffect(() => {
     const list = projects()
-    if (list) props.onCount?.(list.length)
+    if (list && !installations.loading && !firstRun()) props.onCount?.(list.length)
   })
-  const [installations] = createResource(() => props.source.installations().catch((): Awaited<ReturnType<ProjectsSource['installations']>> => ({ all: [] })))
   createEffect(() => {
     const found = installations()
     if (found) props.onEngine?.({ ...(found.engine ? { state: found.engine } : {}), ...(found.open ? { open: found.open } : {}) })
@@ -780,45 +794,59 @@ export function ProjectsView(props: {
     </>
   )
 
-  return (
-    <ProductProjectsView
-      list={
-        <ProductProjectList
-          title={message('projects.title')}
-          newLabel={message('projects.action.new')}
-          onNew={() => props.shell.showProjects({ newProject: true })}
-          projects={entries()}
-          selected={newProject() ? undefined : selectedId()}
-          onSelect={(id) => {
-            setChosen(id)
-            if (newProject()) props.shell.showProjects()
-          }}
-          loadingLabel={message('projects.loading')}
-        />
-      }
-    >
-      <Show when={!newProject()} fallback={newProjectForm()}>
-        <Show
-          when={selected()}
-          keyed
-          fallback={
-            <Show
-              when={projects.loading}
-              fallback={
-                <ProductEmptyState message={message(projects() === null ? 'projects.unreadable' : 'projects.empty')} />
-              }
-            >
-              <div class="dinkster-stack" role="status" aria-label={message('projects.loading')}>
-                <ProductSkeleton shape="title" />
-                <ProductSkeleton shape="line" />
-              </div>
-            </Show>
-          }
-        >
-          {(project) => detail(project)}
-        </Show>
-      </Show>
+  const setup = () => (
+    <ProductProjectsView>
+      <div class="dinkster-projects-setup" data-testid="projects-first-run">
+        <div class="dinkster-stack projects-page-setup">
+          <h1 class="dinkster-title">{message('projects.setup.title')}</h1>
+          <ProductCodeBlock label={message('projects.setup.how')} value={SETUP_COMMAND} />
+          <p class="dinkster-description">{message('projects.setup.after')}</p>
+        </div>
+      </div>
     </ProductProjectsView>
+  )
+
+  return (
+    <Show when={!firstRun()} fallback={setup()}>
+      <ProductProjectsView
+        list={
+          <ProductProjectList
+            title={message('projects.title')}
+            newLabel={message('projects.action.new')}
+            onNew={() => props.shell.showProjects({ newProject: true })}
+            projects={entries()}
+            selected={newProject() ? undefined : selectedId()}
+            onSelect={(id) => {
+              setChosen(id)
+              if (newProject()) props.shell.showProjects()
+            }}
+            loadingLabel={message('projects.loading')}
+          />
+        }
+      >
+        <Show when={!newProject()} fallback={newProjectForm()}>
+          <Show
+            when={selected()}
+            keyed
+            fallback={
+              <Show
+                when={projects.loading}
+                fallback={
+                  <ProductEmptyState message={message(projects() === null ? 'projects.unreadable' : 'projects.empty')} />
+                }
+              >
+                <div class="dinkster-stack" role="status" aria-label={message('projects.loading')}>
+                  <ProductSkeleton shape="title" />
+                  <ProductSkeleton shape="line" />
+                </div>
+              </Show>
+            }
+          >
+            {(project) => detail(project)}
+          </Show>
+        </Show>
+      </ProductProjectsView>
+    </Show>
   )
 }
 
@@ -828,6 +856,9 @@ export function ProjectsView(props: {
  * Delete should do is decided; the dialog stays built behind this switch.
  */
 const OFFER_DELETE = false
+
+/** The command that makes a first installation (Dinkster's docs/install.md). */
+const SETUP_COMMAND = 'dinkster setup'
 
 const widgets = createWidgetRegistry()
 registerCoreWidgets(widgetRegistrationDoors(widgets))

@@ -166,16 +166,37 @@ it('renames the selected project at the revision it read, and offers no Delete w
   expect(rows()).toContain('Film grain' + 'Ran 2 hours ago')
 })
 
-it('does not open a project when there is no installation to run it on', async () => {
+it('does not open a project when the process cannot say which installation it runs on', async () => {
   const navigation = shell()
-  const data = { ...source(projects), installations: async () => ({ all: [] }) }
+  const data = {
+    ...source(projects),
+    installations: async () => Promise.reject(new Error('GET /supervisor/installations failed: 500')),
+  }
   render(() => <ProjectsView shell={navigation} source={data} />, document.body)
   await settle()
+  expect(document.querySelector('[data-testid="projects-first-run"]')).toBeNull()
   const open = document.querySelector<HTMLButtonElement>('[data-testid="projects-open"]')!
   expect(open.getAttribute('aria-disabled')).toBe('true')
   expect(open.getAttribute('data-tooltip-label')).toBe('This project has no installation to run on.')
   open.click()
   expect(navigation.openProject).not.toHaveBeenCalled()
+})
+
+it('shows the setup command while there is no installation, and the list once one appears', async () => {
+  let found: readonly PageInstallation[] = []
+  const counted = vi.fn()
+  const data = { ...source(projects), installations: async () => ({ all: found }) }
+  render(() => <ProjectsView shell={shell()} source={data} onCount={counted} />, document.body)
+  await settle()
+  expect(document.querySelector('[data-testid="projects-first-run"]')?.textContent).toContain('dinkster setup')
+  expect(rows()).toEqual([])
+  expect(counted).not.toHaveBeenCalled()
+  found = [stable]
+  window.dispatchEvent(new Event('focus'))
+  await settle()
+  expect(document.querySelector('[data-testid="projects-first-run"]')).toBeNull()
+  expect(rows()).toHaveLength(3)
+  expect(counted).toHaveBeenLastCalledWith(3)
 })
 
 it('keeps selection working when the process cannot list workflows or outputs', async () => {
