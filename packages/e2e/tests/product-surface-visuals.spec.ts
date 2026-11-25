@@ -839,6 +839,90 @@ test('A reopened workflow draws from the kept node definitions until the real on
   await expect(tooltip).toHaveText('The engine is not answering')
 })
 
+test('A reopened workflow draws from the engine\'s recorded node definitions unless the browser kept newer ones', async ({ page }) => {
+  const image = { kind: 'concrete', types: ['comfy.IMAGE'] }
+  const node = (nodeType: string, displayName: string, body: readonly unknown[]) => ({
+    schemaVersion: 2, nodeType, displayName, category: 'visual', pack: 'visual', signature: `${nodeType}:${body.length}`, body,
+  })
+  const header = { schemaVersion: 1, dinkster: { version: 'visual-fixture', schemaWire: 2 }, packs: { visual: { displayName: 'Visual' } } }
+  const source = node('visual.Source', 'Source', [{ kind: 'output', id: 'image', type: image }])
+  // The always-on process's record names the sink apart from the real table, which also gives it a field row.
+  const recorded = (recordedAt: number) => ({ ...header, provisional: true, recordedAt, nodes: {
+    'visual.Source': source, 'visual.Sink': node('visual.Sink', 'Recorded sink', [{ kind: 'input', id: 'image', type: image }]),
+  } })
+  const real = { ...header, epoch: 7, nodes: {
+    'visual.Source': source, 'visual.Sink': node('visual.Sink', 'Sink', [
+      { kind: 'input', id: 'strength', type: { kind: 'concrete', types: ['FLOAT'] }, default: 1 },
+      { kind: 'input', id: 'image', type: image },
+    ]),
+  } }
+  let record = recorded(Date.now())
+  let held: Promise<void> = Promise.resolve()
+  let release = () => {}
+  const hold = () => { held = new Promise<void>((resolve) => { release = resolve }) }
+  await page.route('/api/nodes/provisional*', (route) => route.fulfill({ json: record }))
+  await page.route('/api/nodes*', async (route) => {
+    await held
+    await route.fulfill({ json: real })
+  })
+  await page.addInitScript(() => {
+    if (localStorage.getItem('dinkster.openTabs') !== null) return
+    const doc = {
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'recorded-definitions', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        source: { id: 'source', type: 'visual.Source', values: {} },
+        sink: { id: 'sink', type: 'visual.Sink', values: {} },
+      }, links: { l0: { id: 'l0', from: { node: 'source', port: 'image' }, to: { node: 'sink', port: 'image' } } },
+      nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { source: { position: { x: 160, y: 220 } }, sink: { position: { x: 480, y: 180 } } } } } },
+    }
+    localStorage.setItem('dinkster.openTabs', JSON.stringify({
+      v: 1, active: doc.lineage, tabs: [{ title: 'Recorded definitions', doc, documentRevision: 0 }],
+    }))
+  })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const drawn = () => page.evaluate(() => {
+    const app = window.__dinksterTest!.app, backend = app.backendForTab(app.activeTab()!)
+    const nodes = window.__dinksterTest?.renderer?.getScene().nodes ?? []
+    return {
+      registry: backend.registry.get() !== undefined,
+      run: (document.querySelector('[data-testid=queue-button]') as HTMLButtonElement | null)?.disabled,
+      nodes: Object.fromEntries(nodes.map((node) => [node.id, node.schemaPending === true ? 'pending' : node.layout.title])),
+      rows: nodes.find((node) => node.id === 'sink')?.layout.rows.length,
+    }
+  })
+  const firstScene = async () => {
+    await page.waitForFunction(() => (window.__dinksterTest?.renderer?.getScene().nodes.length ?? 0) === 2)
+    return drawn()
+  }
+
+  // No copy in this browser yet: the first frame draws every node from the record, and Run waits for the engine.
+  hold()
+  await page.goto('/')
+  const first = await firstScene()
+  expect(first.nodes).toEqual({ source: 'Source', sink: 'Recorded sink' })
+  await expect.poll(drawn).toEqual({ registry: false, run: true, nodes: { source: 'Source', sink: 'Recorded sink' }, rows: first.rows })
+  await page.screenshot({ path: test.info().outputPath('recorded-definitions-first-frame.png') })
+  release()
+  await expect.poll(drawn).toEqual({ registry: true, run: false, nodes: { source: 'Source', sink: 'Sink' }, rows: first.rows! + 1 })
+
+  // The browser has now kept the real table; a record from before it does not replace it.
+  record = recorded(1)
+  hold()
+  await page.reload()
+  expect((await firstScene()).nodes).toEqual({ source: 'Source', sink: 'Sink' })
+  release()
+
+  // A record made after the browser's copy is the one drawn.
+  record = recorded(Date.now() + 60_000)
+  hold()
+  await page.reload()
+  expect((await firstScene()).nodes).toEqual({ source: 'Source', sink: 'Recorded sink' })
+  expect((await drawn()).registry).toBe(false)
+  release()
+  await expect.poll(drawn).toEqual({ registry: true, run: false, nodes: { source: 'Source', sink: 'Sink' }, rows: first.rows! + 1 })
+})
+
 test('Storage settings distinguish accounting policy and permission failures', async ({ page }) => {
   let state: 'ready' | 'unavailable' | 'forbidden' = 'ready'
   await page.route('**/api/library/storage', (route) => state === 'forbidden'

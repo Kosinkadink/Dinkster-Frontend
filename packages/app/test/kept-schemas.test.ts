@@ -39,14 +39,14 @@ describe('kept node tables', () => {
     await keepSchemas(other, 'p0', table)
     for (let index = 0; index < KEPT_PROJECTS_PER_BACKEND; index++) await keepSchemas(local, `p${index}`, table)
     // Opening p0 makes it the most recently used, so p1 is the one dropped.
-    expect(await readKeptSchemas(local, 'p0')).toEqual(table)
+    expect(await readKeptSchemas(local, 'p0')).toMatchObject(table)
     await keepSchemas(local, 'new', table)
     expect(await readKeptSchemas(local, 'p1')).toBeUndefined()
     for (const project of ['p0', 'p2', `p${KEPT_PROJECTS_PER_BACKEND - 1}`, 'new']) {
-      expect(await readKeptSchemas(local, project)).toEqual(table)
+      expect(await readKeptSchemas(local, project)).toMatchObject(table)
     }
     // Another backend's projects do not count against this one.
-    expect(await readKeptSchemas(other, 'p0')).toEqual(table)
+    expect(await readKeptSchemas(other, 'p0')).toMatchObject(table)
     expect(await readKeptSchemas(local, undefined)).toBeUndefined()
   })
 })

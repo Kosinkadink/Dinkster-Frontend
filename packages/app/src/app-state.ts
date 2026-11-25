@@ -233,7 +233,7 @@ import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import type { CatalogNode } from './node-catalog.js'
 import { activeProjectId, migrateBrowserProjects, scopedSharedName, scopedStorageKey } from './projects.js'
-import { keepSchemas, keptRegistry, readKeptSchemas } from './kept-schemas.js'
+import { keepSchemas, keptRegistry, newerKeptTable, readKeptSchemas } from './kept-schemas.js'
 import { ExtensionEditorHost, HostUiContributionRegistry, HostUiProviderHost } from './host-ui.js'
 import { ExtensionWorld } from './extension-world.js'
 import { registerCoreWidgetEditors } from './editors/widget-editors.js'
@@ -7813,10 +7813,17 @@ export class AppState {
     backend.invalidateRemoteChoices()
   }
 
-  /** Draw each backend's nodes from its kept node table until the backend answers. */
+  /**
+   * Draw each backend's nodes from a kept node table until the backend
+   * answers: this browser's copy or the table the always-on process recorded
+   * from the engine, whichever was recorded last.
+   */
   async loadKeptSchemas(): Promise<void> {
     await Promise.all(this.backends.get().map(async (backend) => {
-      const kept = await readKeptSchemas(backend.baseUrl, activeProjectId())
+      const kept = newerKeptTable(...await Promise.all([
+        readKeptSchemas(backend.baseUrl, activeProjectId()),
+        backend.connection.fetchProvisionalSchemas(),
+      ]))
       if (kept === undefined || backend.registry.get() !== undefined) return
       backend.keptRegistry.set(keptRegistry(backend.id, kept))
     }))

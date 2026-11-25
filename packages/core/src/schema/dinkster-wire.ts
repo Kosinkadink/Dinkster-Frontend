@@ -293,6 +293,12 @@ export interface DinksterNodesPayload {
    * this table is real but not final. Omitted once composed - never false.
    */
   readonly composing?: unknown
+  /**
+   * When a kept copy of this table was recorded, in epoch milliseconds: by
+   * the engine for the always-on process's record, by the browser for its
+   * own copy. Absent on a live answer.
+   */
+  readonly recordedAt?: unknown
 }
 
 // ---------------------------------------------------------------------------
