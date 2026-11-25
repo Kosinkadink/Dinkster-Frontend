@@ -50,9 +50,20 @@ test('whole-workflow and executing-node progress update from the same execution 
   await settlePaint(page)
 
   const workflowProgress = page.getByTestId('workflow-progress')
-  await expect(workflowProgress).toContainText('Workflow 63%')
-  await expect(workflowProgress).toContainText('2 of 4 nodes')
-  await expect(workflowProgress.locator('progress')).toHaveAttribute('value', '0.625')
+  await expect(workflowProgress).toHaveAttribute('aria-valuetext', '63%, 2 of 4 nodes')
+  await expect(workflowProgress).toHaveAttribute('value', '0.625')
+  // The progress bar sits 3 px under the Run bar, clear of its buttons' outlines, and the open list starts 3 px under the bar.
+  const runBar = (await page.locator('.workflow-queue-buttons').boundingBox())!
+  const progressBar = (await page.locator('.workflow-queue-line').boundingBox())!
+  expect(progressBar.y).toBe(runBar.y + runBar.height + 3)
+  expect(progressBar.height).toBe(4)
+  expect(progressBar.x).toBe(runBar.x + 4)
+  expect(progressBar.width).toBe(runBar.width - 8)
+  await page.getByTestId('workflow-queue-toggle').click()
+  const list = (await page.locator('.workflow-queue-popover').boundingBox())!
+  expect(list.y).toBe(progressBar.y + progressBar.height + 3)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.workflow-queue-popover')).toHaveCount(0)
   const firstBitmap = await page.getByTestId('graph-canvas').evaluate((canvas) =>
     (canvas as HTMLCanvasElement).toDataURL())
 
@@ -63,7 +74,7 @@ test('whole-workflow and executing-node progress update from the same execution 
     } as never)
   }, seed)
   await settlePaint(page)
-  await expect(workflowProgress.locator('progress')).toHaveAttribute('value', '0.5625')
+  await expect(workflowProgress).toHaveAttribute('value', '0.5625')
   const changedBitmap = await page.getByTestId('graph-canvas').evaluate((canvas) =>
     (canvas as HTMLCanvasElement).toDataURL())
   expect(changedBitmap).not.toBe(firstBitmap)
@@ -75,7 +86,7 @@ test('whole-workflow and executing-node progress update from the same execution 
     } as never)
   }, seed)
   await settlePaint(page)
-  await expect(workflowProgress.locator('progress')).toHaveAttribute('value', '0.6575')
+  await expect(workflowProgress).toHaveAttribute('value', '0.6575')
   if (proofDir !== undefined) {
     await page.screenshot({
       path: join(proofDir, 'workflow-and-node-progress.png'),
