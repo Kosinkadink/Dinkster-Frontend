@@ -2,12 +2,12 @@
 
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
-import type { DinksterConnection, LibraryProject } from '@dinkster/client'
+import type { LibraryProject } from '@dinkster/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProjectsDialog } from '../src/ProjectsDialog.js'
 import { PROJECTS_KEY } from '../src/projects.js'
 
-type ProjectClient = Pick<DinksterConnection, 'listProjects' | 'registerProject' | 'renameProject'>
+type ProjectClient = Parameters<typeof ProjectsDialog>[0]['connection']
 const row = (id: string, name: string, revision = 1): LibraryProject => ({ id, name, revision, created: '2026-11-18T12:34:56Z', deleted: false })
 const flush = async (): Promise<void> => { for (let i = 0; i < 12; i++) await Promise.resolve() }
 
@@ -15,6 +15,10 @@ function engine(): ProjectClient & { readonly records: Map<string, LibraryProjec
   const records = new Map([['default', row('default', 'Default')]])
   return {
     records,
+    accountStatus: async () => ({ available: false, canStartSignIn: false, signInUnavailableReason: 'account-unavailable', signedIn: false, profile: null, signIn: 'idle' }),
+    accountProjects: async () => ({ issuer: 'https://identity.test', projects: [] }),
+    getProject: async (id) => records.get(id)!,
+    setProjectAccountLink: async () => { throw new Error('Account unavailable') },
     listProjects: async () => ({ items: [...records.values()], cursor: null }),
     registerProject: async (id, name) => {
       const project = records.get(id) ?? row(id, name)
