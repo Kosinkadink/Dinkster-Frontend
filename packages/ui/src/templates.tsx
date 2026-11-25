@@ -214,7 +214,7 @@ export function ProductTemplatesPage(props: {
       ?.focus()
   }
   return (
-    <div class="dinkster-templates" role="region" aria-labelledby={heading}>
+    <div class="dinkster-templates" data-empty={props.templates?.length === 0 ? 'true' : undefined} role="region" aria-labelledby={heading}>
       <div class="dinkster-templates-groups">
         <h1 id={heading} class="dinkster-title">
           {props.title}
@@ -305,7 +305,7 @@ export function ProductTemplatesPage(props: {
           )}
         </Show>
       </div>
-      <Show when={props.children}>
+      <Show when={props.templates?.length !== 0 && props.children}>
         <aside class="dinkster-template-detail">
           {props.children}
         </aside>

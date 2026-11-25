@@ -233,8 +233,10 @@ export function TemplatesPage(props: {
                   <Show when={amount(entry())}>{(size) => <span class="dinkster-template-fact-detail">{size()}</span>}</Show>
                 </ProductButton>
               }>
-                <span class="dinkster-description">{message('templatesPage.noFolder')}</span>
-                <ProductTextButton label={message('templatesPage.openStorage')} onClick={props.onOpenStorage} />
+                <span class="dinkster-template-folder">
+                  <span class="dinkster-description">{message('templatesPage.noFolder')}</span>
+                  <ProductTextButton label={message('templatesPage.openStorage')} onClick={props.onOpenStorage} />
+                </span>
               </Show>
             </Show>
           </>}

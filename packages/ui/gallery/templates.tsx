@@ -406,11 +406,13 @@ export function TemplatesGallery() {
                         )}
                       </Show>
                       <Show when={state() === 'no-folders' && left().length > 0}>
-                        <span class="dinkster-description">No model folder yet</span>
-                        <ProductTextButton
-                          label="Open Storage"
-                          onClick={() => setActivity('Storage opened')}
-                        />
+                        <span class="dinkster-template-folder">
+                          <span class="dinkster-description">No model folder yet</span>
+                          <ProductTextButton
+                            label="Open Storage"
+                            onClick={() => setActivity('Storage opened')}
+                          />
+                        </span>
                       </Show>
                       <Show when={state() !== 'no-folders' && template().missing}>
                         {(amount) => (

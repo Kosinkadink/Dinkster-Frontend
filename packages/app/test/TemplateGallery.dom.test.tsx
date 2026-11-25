@@ -281,7 +281,7 @@ describe('TemplatesPage', () => {
       expect(host.querySelector('output')?.textContent).toBe('Storage')
       ;[...host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Reload empty')!.click()
       await vi.waitFor(() => expect(host.textContent).toContain('No templates yet. Packs you add can bring their own.'))
-      expect(host.querySelector('.dinkster-template-detail')?.textContent).toBe('')
+      expect(host.querySelector('.dinkster-template-detail')).toBeNull()
       ;[...host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Blank workflow')!.click()
       expect(host.querySelector('output')?.textContent).toBe('Blank workflow')
     } finally { dispose() }

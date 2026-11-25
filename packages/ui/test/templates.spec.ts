@@ -141,7 +141,7 @@ test('without a model folder the page offers Storage, and without templates it s
   await expect(page.getByRole('listbox', { name: 'Makes' }).getByRole('option')).toHaveText(['All0'])
   await expect(page.getByRole('listbox', { name: 'Model family' })).toHaveCount(0)
   await expect(page.getByText('No templates yet. Packs you add can bring their own.')).toBeVisible()
-  await expect(page.locator('.dinkster-template-detail')).toBeEmpty()
+  await expect(page.locator('.dinkster-template-detail')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Use template' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Blank workflow' }).click()
   await expect(page.getByRole('status').last()).toHaveText('Blank workflow opened')
