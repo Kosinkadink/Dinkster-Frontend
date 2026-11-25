@@ -159,7 +159,8 @@
 .dinkster-list-rows { display: grid; gap: 2px; min-width: 0; margin: 0; padding: 0; list-style: none; }
 .dinkster-list-row { position: relative; display: grid; align-content: start; gap: 2px; min-width: 0; padding: var(--dinkster-space-8) var(--dinkster-space-12); border: 0; border-radius: var(--dinkster-radius-control); color: var(--dinkster-text-primary); background: transparent; font: inherit; text-align: left; text-decoration: none; }
 .dinkster-list-row:is(:hover, [aria-current], [aria-selected='true'], .selected, [data-state='opening']) { background: var(--dinkster-surface-raised); }
-.dinkster-list-row:is([aria-current], [aria-selected='true'], .selected, [data-state='opening'])::before { position: absolute; top: 9px; bottom: 9px; left: 0; width: 3px; border-radius: 0 var(--dinkster-radius-small) var(--dinkster-radius-small) 0; background: var(--dinkster-accent-foreground); content: ''; }
+/* The mark keeps its two-line height on taller rows, such as a selected row showing its details. */
+.dinkster-list-row:is([aria-current], [aria-selected='true'], .selected, [data-state='opening'])::before { position: absolute; top: 9px; left: 0; height: min(36px, calc(100% - 18px)); width: 3px; border-radius: 0 var(--dinkster-radius-small) var(--dinkster-radius-small) 0; background: var(--dinkster-accent-foreground); content: ''; }
 .dinkster-list-row-name { min-width: 0; color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-bold); overflow-wrap: anywhere; }
 .dinkster-list-row-detail { display: flex; align-items: center; gap: var(--dinkster-space-4); min-width: 0; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); overflow-wrap: anywhere; }
 .dinkster-list-row[data-state='failed'] .dinkster-list-row-detail { color: var(--dinkster-warning-foreground); }
