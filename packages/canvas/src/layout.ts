@@ -366,6 +366,9 @@ export type LayoutRow =
       readonly height: number
       readonly inset: number
       readonly width?: number
+      /** The member line's remove cross ends after this last cell. */
+      readonly crossInset?: number
+      readonly remove?: MemberRemoval
       readonly buttonId: string
       readonly label: string
       /** The button's `enabled` worked out to false: drawn faded. */
@@ -1900,10 +1903,17 @@ export function layoutNode(
         const line = lines.get(row)!
         const height = lineBaseHeight(line)
         const inset = fieldInset(depth)
+        const member = row.kind === 'button' && line.at(-1) === row
+          ? line.find((cell) => cell.removable)
+          : undefined
         rowIndex.set(row, rows.length)
         push(row.note
           ? { kind: 'note', y, height, inset, ...row.note }
-          : { kind: 'button', y, height, inset, ...row.button! }, depth)
+          : {
+              kind: 'button', y, height, inset, ...row.button!,
+              ...(member === undefined ? {} : { crossInset: crossInset(depth) }),
+              ...(member?.remove === undefined ? {} : { remove: member.remove }),
+            }, depth)
         lineBottoms.set(line, Math.max(lineBottoms.get(line) ?? y, y + height))
         if (line.at(-1) === row) y = lineBottoms.get(line)!
       } else if (row.kind === 'ports') {

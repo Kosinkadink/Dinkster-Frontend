@@ -179,6 +179,32 @@ describe('pairing', () => {
     }
   })
 
+  it.each([undefined, 'rotate-ccw'])('puts a member cross only after its trailing button (icon %s)', (icon) => {
+    const schema = schemaOf([{
+      kind: 'group', id: 'files', grows: 'filled', minMembers: 1,
+      keys: { kind: 'numbered', prefix: 'file', start: 0, pad: 0 },
+      member: [{ kind: 'row', rows: [widget('path'), {
+        kind: 'button', id: 'reset', label: 'Reset', steps: [], ...(icon === undefined ? {} : { icon }),
+      }] }],
+    }])
+    const layoutWith = (members: string[]) => layoutNode(schema,
+      { ...nodeData, dynamic: { files: { members } } },
+      { ...defaultTokens, memberRemoveCross: true }, measure, widgetMeasure)
+    const cells = layoutWith(['file0', 'file1']).rows.filter((row) => row.kind === 'widget' || row.kind === 'button')
+    expect(cells.map((row) => row.kind)).toEqual(['widget', 'button', 'widget', 'button'])
+    expect(cells.map((row) => row.crossInset !== undefined)).toEqual([false, true, false, true])
+    expect(cells[1]).toMatchObject({ remove: { construct: 'files', member: 'file0' } })
+    expect(cells[3]).toMatchObject({ remove: { construct: 'files', member: 'file1' } })
+    const least = layoutWith(['file0']).rows.find((row) => row.kind === 'button')!
+    expect(least).toMatchObject({ remove: {
+      construct: 'files', member: 'file0', disabledReason: 'The group already has its fewest members.',
+    } })
+    const offered = layoutWith([]).rows
+    expect(offered.some((row) => row.kind === 'button')).toBe(false)
+    expect(offered.find((row) => row.kind === 'widget')).toMatchObject({ crossInset: cells[1]!.crossInset })
+    expect(offered.find((row) => row.kind === 'widget')!.remove).toBeUndefined()
+  })
+
   it('outputs pair with connection-input rows top-down', () => {
     const l = doLayout([input('a'), input('b'), output('x'), output('y')])
     expect(l.rows).toHaveLength(2)

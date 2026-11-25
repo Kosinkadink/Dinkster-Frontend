@@ -4523,6 +4523,37 @@ describe('moving a member by its grip', () => {
     expect(disabled.dispatched).toEqual([])
   })
 
+  it('targets the cross after a member button without pressing the button, and respects the minimum', () => {
+    const makeScene = (members: string[]): Scene => {
+      const scene = sceneWith(members)
+      const group = schema().body[0]!
+      if (group.kind !== 'group') throw new Error('Expected a group')
+      const field = group.member![0]!
+      if (field.kind !== 'input') throw new Error('Expected a field')
+      const layout = layoutNode({ ...schema(), body: [{ ...group, member: [{
+        kind: 'row', rows: [field, { kind: 'button', id: 'reset', label: 'Reset', steps: [] }],
+      }] }] }, scene.nodes[0]!.node!, { ...defaultTokens, memberRemoveCross: true },
+      (value) => value.length * 6, () => ({ viewId: 'core.number', rows: 1 }))
+      return { ...scene, nodes: [{ ...scene.nodes[0]!, layout }] }
+    }
+    const remove = vi.fn()
+    const press = vi.fn()
+    for (const members of [['lora0', 'lora1'], ['lora0']]) {
+      const scene = makeScene(members)
+      const row = scene.nodes[0]!.layout.rows.find((row) => row.kind === 'button')!
+      if (row.kind !== 'button') throw new Error('Expected a button')
+      const harness = interactionHarness(scene, { onMemberRemove: remove, onButtonActivate: press })
+      const x = scene.nodes[0]!.layout.width - row.crossInset! - canvasPaintTokens.node.box.cross.size / 2
+      const y = row.y + defaultTokens.rowHeight / 2
+      harness.fire('pointerdown', x, y)
+      harness.fire('pointerup', x, y)
+      expect(remove).toHaveBeenCalledTimes(1)
+      expect(remove.mock.calls[0]![0]).toMatchObject({ kind: 'memberRemove', remove: { construct: 'loras', member: 'lora0' } })
+      expect(press).not.toHaveBeenCalled()
+      expect(harness.dispatched).toEqual([])
+    }
+  })
+
   it('drops the first member after the last, and the last before the first, as one command each', () => {
     const scene = sceneWith(['lora0', 'lora1', 'lora2'])
     const rows = gripRows(scene)
