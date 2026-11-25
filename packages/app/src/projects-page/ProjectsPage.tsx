@@ -5,7 +5,7 @@
  * running. Opening a project goes through the shell, which writes the opening
  * line and the failure the page draws.
  */
-import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, onMount, Show, Switch, type Resource } from 'solid-js'
+import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { AudioLines, BookOpen, Database, Ellipsis, Eye, EyeOff, LayoutGrid, Search, Server, Workflow } from 'lucide-solid'
 import { activeLocale, asConnectionId, loadDocument, type SchemaResolver, type WorkflowDocument } from '@dinkster/core'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
@@ -19,7 +19,6 @@ import {
 import {
   ProductBrandMark,
   ProductButton,
-  ProductCodeBlock,
   ProductConfirmation,
   ProductDialog,
   ProductEmptyState,
@@ -42,6 +41,8 @@ import {
   type ProductProjectEntry,
 } from '@dinkster/ui'
 import { useAppMessage } from '../locale.js'
+import { createArrival } from '../arrival.js'
+import { SetupForm } from '../SetupForm.js'
 import { AccountControl, createAccountSession } from '../AccountControl.js'
 import { ActivityBarButton, IconBar, ShellTooltip } from '../ShellChrome.js'
 import { attachDomTooltips, TooltipController, type DomTooltipTarget } from '../tooltips.js'
@@ -104,36 +105,6 @@ export interface ProjectsPageShell {
 }
 
 const OUTPUT_LIMIT = 6
-
-/** Keep settled content during rereads, and never flash a brief loading sign. */
-function createArrival<T>(resource: Resource<T>) {
-  const [value, setValue] = createSignal<T>()
-  const [loading, setLoading] = createSignal(false)
-  let hasValue = false
-  let loadingAt: number | undefined
-  createEffect(() => {
-    const latest = resource.latest
-    const pending = resource.loading
-    let timer: ReturnType<typeof setTimeout> | undefined
-    if (!pending && latest !== undefined) {
-      const reveal = () => {
-        hasValue = true
-        setValue(() => latest)
-        setLoading(false)
-      }
-      const remaining = loadingAt === undefined ? 0 : Math.max(0, 300 - (Date.now() - loadingAt))
-      if (remaining) timer = setTimeout(reveal, remaining)
-      else reveal()
-    } else if (pending && !hasValue) {
-      timer = setTimeout(() => {
-        loadingAt = Date.now()
-        setLoading(true)
-      }, 200)
-    }
-    onCleanup(() => clearTimeout(timer))
-  })
-  return { value, loading }
-}
 
 /** Per-project page choices live under the project's own storage prefix, beside its editor settings. */
 function pageKey(project: string, name: string): string {
@@ -395,7 +366,6 @@ export function ProjectsView(props: {
   const setProjects = (update: (list: LibraryProject[] | null) => LibraryProject[] | null | undefined) =>
     setPage((current) => current && { ...current, projects: update(current.projects) ?? null })
   const painted = () => arrival.value() !== undefined
-  // Set up runs in a terminal, so the page reads the list again when the user comes back to it.
   const firstRun = () => installations()?.all.length === 0
   onMount(() => {
     const reread = () => {
@@ -874,20 +844,12 @@ export function ProjectsView(props: {
   )
 
   const setupInstructions = () => (
-    <div class="dinkster-stack projects-page-setup">
-      <ProductCodeBlock label={message('projects.setup.how')} value={SETUP_COMMAND} />
-      <p class="dinkster-description">{message('projects.setup.platforms')}</p>
-      <p class="dinkster-description">{message('projects.setup.cpuFallback')}</p>
-      <p class="dinkster-description">{message('projects.setup.after')}</p>
-    </div>
+    <SetupForm surface="projects" onInstallation={() => void rereadPage()} />
   )
   const setup = () => (
     <ProductProjectsView>
       <div class="dinkster-projects-setup" data-testid="projects-first-run">
-        <div class="dinkster-stack projects-page-setup">
-          <h1 class="dinkster-title">{message('projects.setup.title')}</h1>
-          {setupInstructions()}
-        </div>
+        {setupInstructions()}
       </div>
     </ProductProjectsView>
   )
@@ -962,9 +924,6 @@ export function ProjectsView(props: {
 
 /** A deleted project's record changes no more, so its last change is when it was deleted. */
 const deletedAt = (project: LibraryProject) => Date.parse(project.modified ?? project.created)
-
-/** The process does not report its platform, so show Linux with the other systems named below. */
-const SETUP_COMMAND = 'dinkster setup --variant linux-nvidia --channel nightly'
 
 const widgets = createWidgetRegistry()
 registerCoreWidgets(widgetRegistrationDoors(widgets))

@@ -49,6 +49,7 @@ import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
 import { TemplateGallery } from './TemplateGallery.js'
+import { EditorFirstRunSetup } from './EditorFirstRunSetup.js'
 import { useSignal } from './solid-adapter.js'
 import { comboFromEvent, isNativeTextScopeTarget, shortcutSuppressed, type CommandRegistry, type KeybindingRegistry } from './settings.js'
 import { SettingsDialog } from './SettingsDialog.js'
@@ -1877,6 +1878,9 @@ export function App(props: {
             />
         </Show>
       </div>
+      <Show when={empty() && !galleryRequested()}>
+        <EditorFirstRunSetup backendUrl={activeBackend().baseUrl} />
+      </Show>
       <Show when={activeBackend().templatesEnabled.get() && empty() && !galleryRequested()}>
         <ProductButton class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>
           {message('templateGallery.open')}

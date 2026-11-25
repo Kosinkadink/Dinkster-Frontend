@@ -2,7 +2,7 @@
 
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { setLocale } from '@dinkster/core'
 import type { LibraryProject } from '@dinkster/client'
 import '../src/locale.js'
@@ -13,11 +13,21 @@ import {
   type ProjectsSource,
 } from '../src/projects-page/ProjectsPage.js'
 
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+    plan: { id: 'p1', root: '/install/nightly', channel: 'nightly', variant: 'linux-nvidia',
+      buildLabel: 'NVIDIA graphics card build', buildReason: 'Supported card',
+      engineRelease: 'r1', baseId: 'b1', detectedCards: [], choices: [], gpus: [],
+      downloadBytes: null, runtimeDownloadBytes: 0, freeBytes: 9000, refusal: null },
+    activeJob: null,
+  }))))
+})
 afterEach(() => {
   document.body.replaceChildren()
   localStorage.clear()
   setLocale('en')
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 const NOW = Date.parse('2026-11-25T12:00:00Z')
@@ -319,15 +329,15 @@ it('does not open a project when the process cannot say which installation it ru
   expect(navigation.openProject).not.toHaveBeenCalled()
 })
 
-it('shows the setup command while there is no installation, and the list once one appears', async () => {
+it('shows the setup form while there is no installation, and the list once one appears', async () => {
   let found: readonly PageInstallation[] = []
   const counted = vi.fn()
   const data = { ...source([]), installations: async () => ({ all: found }) }
   render(() => <ProjectsView shell={shell()} source={data} onCount={counted} />, document.body)
   await settle()
-  expect(document.querySelector('code')?.textContent).toBe('dinkster setup --variant linux-nvidia --channel nightly')
-  expect(document.querySelector('[data-testid="projects-first-run"]')?.textContent).toContain('Use win-nvidia on Windows or mac-arm64 on Apple Silicon.')
-  expect(document.querySelector('[data-testid="projects-first-run"]')?.textContent).toContain('No NVIDIA graphics card? Use linux-cpu (win-cpu on Windows).')
+  expect(document.querySelector('[data-testid="setup-form"]')?.textContent).toContain('NVIDIA graphics card build')
+  expect(document.querySelector('[data-testid="setup-form"]')?.textContent).toContain('/install/nightly')
+  expect(document.querySelector('code')).toBeNull()
   expect(rows()).toEqual([])
   expect(counted).not.toHaveBeenCalled()
   found = [stable]
@@ -358,7 +368,7 @@ it('keeps projects readable and restorable without an installation, but cannot o
   expect(document.querySelector('[data-testid="projects-first-run"]')).toBeNull()
   expect(rows()).toHaveLength(3)
   expect(document.querySelector('h2')?.textContent).toBe('Film grain tests')
-  expect(document.querySelector('code')?.textContent).toBe('dinkster setup --variant linux-nvidia --channel nightly')
+  expect(document.querySelector('[data-testid="setup-form"]')).not.toBeNull()
   expect(document.querySelector('[data-testid="projects-open"]')?.getAttribute('aria-disabled')).toBe('true')
   const tile = document.querySelector<HTMLButtonElement>('.dinkster-tile')!
   expect(tile.disabled).toBe(true)
