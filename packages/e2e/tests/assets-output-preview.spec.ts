@@ -404,7 +404,7 @@ test('output inspection distinguishes lifecycle, asset identity, errors, and una
 
   // A chosen finished run without pictures shows no strip line; a failed one says why on its reason line.
   await installState('empty')
-  await expect(row.getByTestId('chosen-run')).toBeVisible()
+  await expect(row.getByTestId('chosen-run')).toBeAttached()
   await expect(state).toHaveCount(0)
   await page.screenshot({ path: `${proofDir}/23-state-empty.png`, animations: 'disabled' })
 

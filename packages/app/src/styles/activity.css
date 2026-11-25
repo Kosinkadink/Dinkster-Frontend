@@ -646,3 +646,5 @@
 .engine-chip.composing {
   color: var(--dinkster-info-foreground);
 }
+.run-row-menu { display: inline-flex; flex: none; }
+.run-row-menu > div { display: contents; }

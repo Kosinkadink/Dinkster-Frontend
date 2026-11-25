@@ -105,7 +105,7 @@ test('a chosen finished run shows a saved file that is not a picture as a tile t
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   await page.getByTestId('queue-button').click()
   const row = page.getByTestId('execution-row').first()
-  await expect(row.getByTestId('chosen-run')).toBeVisible({ timeout: 30_000 })
+  await expect(row.locator('.output-file-tile')).toBeVisible({ timeout: 30_000 })
   const tile = row.locator('.output-file-tile')
   await expect(tile).toHaveCount(1)
   await expect(tile).toHaveText('TXT')

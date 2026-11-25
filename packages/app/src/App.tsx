@@ -1279,6 +1279,8 @@ export function App(props: {
     // open state serves both, so a run inspected while it ran stays inspected.
     const [detailsOpen, setDetailsOpen] = createSolidSignal(false)
     const [inspectOpen, setInspectOpen] = createSolidSignal(false)
+    // No button goes beside a finished run's menu here, so the menu sits at the end of the title line.
+    const [menuMount, setMenuMount] = createSolidSignal<HTMLElement>()
     const reason = (): string | undefined => p.exec.status === 'error'
       ? p.exec.errors.map((error) => error.message).join(' ') || undefined : undefined
     const facts = (): ChosenRunFact[] => {
@@ -1301,6 +1303,7 @@ export function App(props: {
       thumbnail={<Show when={thumbnail()}>{(asset) => <RunThumbnail
         url={app.assetUrlForExecution(p.exec.ref, asset().digest)} mediaType={asset().mediaType} />}</Show>}
       selected={selected()}
+      lineEnd={<Show when={selected() && !runIsPending(p.exec)}><span class="run-row-menu" ref={setMenuMount} /></Show>}
       onSelect={() => setSelectedRunKey(selected() && selectedRunKey() === p.exec.key ? undefined : p.exec.key)}>
       <Show when={selected()}>
         <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
@@ -1318,7 +1321,7 @@ export function App(props: {
           />} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
           {...(runIsPending(p.exec) ? {} : { chosen: <ChosenRun name={app.tabTitleFor(p.exec.ref)} reason={reason()} facts={facts()}
             detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
-            onCopyJobId={() => { void navigator.clipboard?.writeText(p.exec.ref.prompt) }} /> })} />
+            menuMount={menuMount()} onCopyJobId={() => { void navigator.clipboard?.writeText(p.exec.ref.prompt) }} /> })} />
       </Show>
     </RunRow>
   }

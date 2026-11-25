@@ -119,7 +119,8 @@ export async function inspectRun(row: Locator): Promise<Locator> {
   const fold = row.locator('details.runs-details')
   // A running or queued row shows its outputs once its name is pressed.
   if (await chosen.count() === 0 && await fold.count() === 0) await row.locator('.run-row-name').click()
-  await expect(chosen.or(fold)).toBeVisible()
+  // A chosen run whose menu sits on its title line can have no box of its own, so presence is the check.
+  await expect(chosen.or(fold).first()).toBeAttached()
   if (await chosen.count() > 0) {
     const inspection = row.getByTestId('run-inspection')
     if (await inspection.count() === 0) {

@@ -1,4 +1,5 @@
 import { For, Show, createSignal, onCleanup, type JSX } from 'solid-js'
+import { Portal } from 'solid-js/web'
 import type { ExecutionState } from '@dinkster/client'
 import { executionKey, formatNumber, formatRelativeTime, t } from '@dinkster/core'
 import { ProductCancelButton, ProductConfirmation, ProductMenu, ProductRunActivity } from '@dinkster/ui'
@@ -84,6 +85,8 @@ export function RunRow(props: {
   readonly onSelect?: (() => void) | undefined
   /** Shown under the line, such as the outputs of the chosen run. */
   readonly children?: JSX.Element
+  /** At the line's end, after the snowflake, such as a chosen run's menu. */
+  readonly lineEnd?: JSX.Element
 }) {
   const message = useAppMessage()
   const now = useNow()
@@ -144,6 +147,7 @@ export function RunRow(props: {
         </span>
         <Show when={detail()}>{(text) => <span class="run-row-detail">{text()}</span>}</Show>
         <ExecutionOpenButton entry={props.entry} title={props.workflow} onOpen={props.onOpen} />
+        {props.lineEnd}
         <Show when={runIsPending(props.entry)}>
           <ProductCancelButton
             label={message('runs.cancel.named', { name: props.workflow })}
@@ -262,9 +266,29 @@ export function ChosenRun(props: {
   readonly onOpenWorkflow?: (() => void) | undefined
   readonly onCopyJobId: () => void
   readonly onDelete?: (() => void) | undefined
+  /**
+   * Where the menu goes when the run has no buttons beside it, such as the
+   * end of its row's title line, so it takes no line of its own.
+   */
+  readonly menuMount?: HTMLElement | undefined
 }) {
   const message = useAppMessage()
   const [deleting, setDeleting] = createSignal(false)
+  const hasButtons = () => props.onRunAgain !== undefined || props.onOpenWorkflow !== undefined
+  const menu = () => (
+    <ProductMenu icon={Ellipsis} iconOnly label={message('runs.chosen.actions', { name: props.name })} items={[
+      { label: message(props.detailsOpen ? 'runs.chosen.hideDetails' : 'runs.details'), onSelect: () => props.onDetails(!props.detailsOpen) },
+      ...(props.onInspect === undefined ? [] : [{
+        label: message(props.inspectOpen === true ? 'runs.chosen.hideInspect' : 'runs.chosen.inspect'),
+        onSelect: () => props.onInspect?.(props.inspectOpen !== true),
+      }]),
+      { label: message('runs.chosen.copyJob'), onSelect: () => props.onCopyJobId() },
+      ...(props.onDelete === undefined ? [] : [
+        'separator' as const,
+        { label: message('runs.chosen.delete'), intent: 'remove' as const, onSelect: () => setDeleting(true) },
+      ]),
+    ]} />
+  )
   return (
     <div class="run-chosen" data-testid="chosen-run" onClick={(event) => event.stopPropagation()}>
       <Show when={props.reason}>{(reason) => <p class="run-chosen-reason" role="status">{reason()}</p>}</Show>
@@ -272,29 +296,17 @@ export function ChosenRun(props: {
         <ProductConfirmation consequence={message('runs.chosen.deleteConsequence')} actionLabel={message('runs.chosen.delete')}
           intent="remove" onCancel={() => setDeleting(false)} onConfirm={() => { setDeleting(false); props.onDelete?.() }} />
       }>
-        <div class="run-chosen-actions">
+        <Show when={props.menuMount === undefined || hasButtons()}><div class="run-chosen-actions">
           <Show when={props.onRunAgain}>{(runAgain) =>
             <ProductButton type="button" size="compact" data-testid="chosen-run-again" onClick={() => runAgain()()}>{message('runs.chosen.runAgain')}</ProductButton>
           }</Show>
           <Show when={props.onOpenWorkflow}>{(open) =>
             <ProductButton type="button" size="compact" data-testid="chosen-run-open" onClick={() => open()()}>{message('runs.chosen.openWorkflow')}</ProductButton>
           }</Show>
-          <span class="run-chosen-menu">
-            <ProductMenu icon={Ellipsis} iconOnly label={message('runs.chosen.actions', { name: props.name })} items={[
-              { label: message(props.detailsOpen ? 'runs.chosen.hideDetails' : 'runs.details'), onSelect: () => props.onDetails(!props.detailsOpen) },
-              ...(props.onInspect === undefined ? [] : [{
-                label: message(props.inspectOpen === true ? 'runs.chosen.hideInspect' : 'runs.chosen.inspect'),
-                onSelect: () => props.onInspect?.(props.inspectOpen !== true),
-              }]),
-              { label: message('runs.chosen.copyJob'), onSelect: () => props.onCopyJobId() },
-              ...(props.onDelete === undefined ? [] : [
-                'separator' as const,
-                { label: message('runs.chosen.delete'), intent: 'remove' as const, onSelect: () => setDeleting(true) },
-              ]),
-            ]} />
-          </span>
-        </div>
+          <span class="run-chosen-menu">{menu()}</span>
+        </div></Show>
       </Show>
+      <Show when={!hasButtons() && props.menuMount}>{(mount) => <Portal mount={mount()}>{menu()}</Portal>}</Show>
       <Show when={props.detailsOpen}>
         <dl class="run-chosen-facts" data-testid="chosen-run-details">
           <For each={props.facts}>{(fact) => <div><dt>{fact.label}</dt><dd>{fact.text}</dd></div>}</For>
