@@ -89,6 +89,31 @@ export function EditorBarGallery() {
       : projectNames
           .slice(0, list() === 'many' ? projectNames.length : 3)
           .map((name, index) => ({ id: `p-${index}`, name }))
+  // On macOS the logo sits at the top of the left bar while that bar shows.
+  const logoInLeftBar = () => platform() === 'darwin' && leftBar()
+  const dinksterMenu = () => (
+    <ProductMenu
+      label="Dinkster"
+      triggerName="Dinkster menu"
+      icon={() => <ProductBrandMark />}
+      iconOnly
+      items={[
+        ...accountItems(),
+        {
+          label: 'New workflow',
+          onSelect: () => setActivity('New workflow'),
+        },
+        {
+          label: 'Open workflow',
+          onSelect: () => setActivity('Open workflow'),
+        },
+        {
+          label: 'Settings',
+          onSelect: () => setActivity('Settings opened'),
+        },
+      ]}
+    />
+  )
   const accountItems = (): (ProductMenuItem | 'separator')[] =>
     leftBar()
       ? []
@@ -149,27 +174,7 @@ export function EditorBarGallery() {
           })()}
           brand={
             <>
-              <ProductMenu
-                label="Dinkster"
-                triggerName="Dinkster menu"
-                icon={() => <ProductBrandMark />}
-                iconOnly
-                items={[
-                  ...accountItems(),
-                  {
-                    label: 'New workflow',
-                    onSelect: () => setActivity('New workflow'),
-                  },
-                  {
-                    label: 'Open workflow',
-                    onSelect: () => setActivity('Open workflow'),
-                  },
-                  {
-                    label: 'Settings',
-                    onSelect: () => setActivity('Settings opened'),
-                  },
-                ]}
-              />
+              <Show when={!logoInLeftBar()}>{dinksterMenu()}</Show>
               <ProductProjectMenu
                 name={projectName()}
                 projects={projects()}
@@ -242,6 +247,7 @@ export function EditorBarGallery() {
               class="dinkster-editor-preview-rail"
               aria-label="Primary navigation"
             >
+              <Show when={logoInLeftBar()}>{dinksterMenu()}</Show>
               <For
                 each={
                   [

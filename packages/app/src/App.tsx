@@ -521,6 +521,20 @@ export function App(props: {
   // three zones. ShellLayout owns their pixel sizes and bar visibility.
   const dockLayoutState = useSignal(app.dock.state)
   const activityBarVisible = useSignal(app.shell.activityBarVisible)
+  // Desktop marks the bar with its platform. On macOS the logo sits at the top
+  // of the left bar, and after the window buttons while that bar is hidden.
+  const [barPlatform, setBarPlatform] = createSolidSignal<string | undefined>()
+  onMount(() => {
+    // The bar may mount after this component, and Desktop may set the attribute later.
+    const read = (): void => {
+      setBarPlatform(document.querySelector<HTMLElement>('.dinkster-window-toolbar-host')?.dataset['platform'])
+    }
+    read()
+    const observer = new MutationObserver(read)
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-platform'] })
+    onCleanup(() => observer.disconnect())
+  })
+  const logoInLeftBar = (): boolean => barPlatform() === 'darwin' && activityBarVisible()
   const statusBarVisible = useSignal(app.shell.statusBarVisible)
   const dockWidth = useSignal(app.shell.leftWidth)
   const railWidth = useSignal(app.shell.rightWidth)
@@ -2840,6 +2854,23 @@ export function App(props: {
     )
   }
 
+  const appMenu = () => (
+    <DinksterAppMenu
+      commands={app.commands}
+      keybindings={app.keybindings}
+      invalidationSignals={() => [
+        activeLocale,
+        app.settings.changed,
+        app.canvasBridge,
+        app.tabs,
+        app.activeTabId,
+        app.backendsTick,
+        ...(app.activeTab() ? [app.activeTab()!.store.document] : []),
+      ]}
+      account={accountMenuActions}
+    />
+  )
+
   return (
     <>
       <Show
@@ -2924,20 +2955,7 @@ export function App(props: {
       <ProductWindowToolbar title={message('shell.applicationControls')} platform="linux" service={servicesLabel()}
         serviceKind={servicesKind()}
         brand={<>
-          <DinksterAppMenu
-            commands={app.commands}
-            keybindings={app.keybindings}
-            invalidationSignals={() => [
-              activeLocale,
-              app.settings.changed,
-              app.canvasBridge,
-              app.tabs,
-              app.activeTabId,
-              app.backendsTick,
-              ...(app.activeTab() ? [app.activeTab()!.store.document] : []),
-            ]}
-            account={accountMenuActions}
-          />
+          <Show when={!logoInLeftBar()}>{appMenu()}</Show>
           <Show when={managedContext().kind === 'primary'}>
             {/* Until the library names the project, the button is the folder alone. */}
             <Show when={projectName()} keyed fallback={
@@ -3069,6 +3087,7 @@ export function App(props: {
 
       <div class="body" ref={bodyElement} onPointerDown={beginPanelDrag}>
         <nav class="left-sidebar" aria-label={message('shell.primaryNavigation')} data-tooltip-session="left-rail" hidden={!activityBarVisible()}>
+          <Show when={logoInLeftBar()}><div class="sidebar-logo">{appMenu()}</div></Show>
           <div class="sidebar-toggle-stack">
             <div class="sidebar-toggle-group" data-testid="dock-toggle-group">
               <For each={dockPanels()}>

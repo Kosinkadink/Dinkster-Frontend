@@ -1013,7 +1013,11 @@ slot. The app-menu button uses the D symbol alone at every width, with no
 chevron, not a wordmark or a three-line menu icon. Its accessible name is
 unchanged. Off macOS it is centred over the 48px `iconBarWidth` column of the
 editor's left icon bar, and the next control in the brand slot starts at that
-column's edge, where the panels start; on macOS it follows the window buttons.
+column's edge, where the panels start. On macOS the editor moves it to the top
+of the left icon bar, below the bar's row, and the project follows the window
+buttons; while the left bar is hidden it returns to the bar after the window
+buttons. The editor reads the platform from the bar's `data-platform`, which
+Desktop sets.
 The brand slot may follow it with `ProductProjectMenu`: a folder, the project's
 name and a chevron at every width. The chevron uses the muted text color at rest
 and the normal color on hover, keyboard focus and while the menu is open. The name shows at most 160px and shortens to 64px

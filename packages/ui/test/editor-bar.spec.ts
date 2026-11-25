@@ -127,7 +127,11 @@ test('the logo sits over the left bar and the panel switches sit at the right en
   await page.goto('/#editor-bar')
   const editor = page.getByRole('region', { name: 'Editor' })
   const bar = editor.locator('header')
-  const logo = bar.getByRole('button', { name: 'Dinkster menu', exact: true })
+  // One Dinkster menu exists at a time, in the bar or in the left bar.
+  const logo = editor.getByRole('button', {
+    name: 'Dinkster menu',
+    exact: true,
+  })
   const project = bar.getByRole('button', {
     name: 'Film grain tests',
     exact: true,
@@ -143,8 +147,11 @@ test('the logo sits over the left bar and the panel switches sit at the right en
     const mark = (await logo.boundingBox())!
     const start = (await project.boundingBox())!.x
     if (platform === 'darwin') {
-      expect(mark.x).toBeGreaterThan(rail.x + rail.width)
-      expect(start).toBeGreaterThan(mark.x + mark.width)
+      // macOS: the logo heads the left bar, below the bar's row.
+      const row = (await bar.boundingBox())!
+      expect(mark.x + mark.width / 2).toBeCloseTo(rail.x + rail.width / 2, 0)
+      expect(mark.y).toBeGreaterThanOrEqual(row.y + row.height)
+      expect(start).toBeGreaterThan(rail.x + rail.width)
     } else {
       expect(mark.x + mark.width / 2).toBeCloseTo(rail.x + rail.width / 2, 0)
       expect(start).toBeCloseTo(rail.x + rail.width, 0)
@@ -163,6 +170,14 @@ test('the logo sits over the left bar and the panel switches sit at the right en
       'Right panel',
     ])
   }
+  // With the left bar hidden, the macOS logo follows the window buttons.
+  await page.getByLabel('Left bar', { exact: true }).uncheck()
+  await expect(bar.getByRole('button', { name: 'Dinkster menu' })).toBeVisible()
+  expect((await project.boundingBox())!.x).toBeGreaterThan(
+    (await logo.boundingBox())!.x,
+  )
+  await page.getByLabel('Left bar', { exact: true }).check()
+  await page.getByLabel('Platform', { exact: true }).selectOption('linux')
   const arrow = project.locator('svg').last()
   const rest = await arrow.evaluate((node) => getComputedStyle(node).color)
   await project.hover()

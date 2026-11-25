@@ -245,6 +245,10 @@ nativeTest('editor bar holds the project menu and the left bar holds the account
   const logoBox = (await page.getByTestId('dinkster-menu-button').boundingBox())!
   expect(logoBox.x + logoBox.width / 2).toBeCloseTo(railBox.x + railBox.width / 2, 0)
   expect((await trigger.boundingBox())!.x).toBeCloseTo(railBox.x + railBox.width, 0)
+  // Desktop marks the bar as macOS: the logo moves to the top of the left bar.
+  await bar.evaluate((node) => { (node as HTMLElement).dataset['platform'] = 'darwin' })
+  await expect(rail.getByTestId('dinkster-menu-button')).toBeVisible()
+  await expect(brand.getByTestId('dinkster-menu-button')).toHaveCount(0)
 
   await trigger.click()
   const menu = page.getByRole('menu', { name: 'Projects', exact: true })
@@ -260,6 +264,8 @@ nativeTest('editor bar holds the project menu and the left bar holds the account
   await page.getByRole('button', { name: 'Customize layout' }).click()
   await page.getByRole('menuitemcheckbox', { name: 'Left bar' }).click()
   await expect(rail).toBeHidden()
+  // With the left bar hidden, the macOS logo returns to the bar after the window buttons.
+  await expect(brand.getByTestId('dinkster-menu-button')).toBeVisible()
   await page.getByTestId('dinkster-menu-button').click()
   await expect(page.locator('[data-item-id="account.identity"]')).toContainText('Alex Rivers')
   await expect(page.locator('[data-item-id="account.signOut"]')).toBeVisible()
