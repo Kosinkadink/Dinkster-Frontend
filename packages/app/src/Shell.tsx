@@ -29,6 +29,7 @@ import {
   type ShellView,
 } from './shell-route.js'
 import { useAppMessage } from './locale.js'
+import { ProjectsPage } from './projects-page/ProjectsPage.js'
 
 export const SHELL_FADE_MS = 260
 const ENGINE_POLL_MS = 250
@@ -62,7 +63,7 @@ export interface ShellNavigation {
 export type ProjectsPageComponent = (props: { readonly shell: ShellNavigation }) => JSX.Element
 
 /** The projects page this build shows under the always-on process; without one, every address opens the editor. */
-export const projectsPage: ProjectsPageComponent | undefined = undefined
+export const projectsPage: ProjectsPageComponent | undefined = ProjectsPage
 
 /** Mounts one project's editor into ``host``; resolves once it has drawn, with its disposer. */
 export type MountEditor = (projectId: string, host: HTMLElement, shell: ShellNavigation) => Promise<() => void>

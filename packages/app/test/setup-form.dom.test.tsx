@@ -174,7 +174,7 @@ it.each([
   expect(document.querySelector('[role="status"]')?.textContent).toContain(expected)
   expect(document.body.textContent).not.toContain(stage)
   expect(document.body.textContent).not.toContain('3 of 12')
-  expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe(total === null ? null : String(completed / total))
+  expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe(unit === 'bytes' && total !== null ? String(completed / total) : null)
 })
 
 it('keeps a failed setup error visible without a dismiss action and removes active progress', async () => {
@@ -184,6 +184,7 @@ it('keeps a failed setup error visible without a dismiss action and removes acti
   await vi.advanceTimersByTimeAsync(0)
   expect(document.querySelector('[role="alert"]')?.textContent).toBe('The download stopped. Try again.')
   expect(document.querySelector('[role="alert"] button')).toBeNull()
+  expect(document.querySelector('[role="alert"]')?.nextElementSibling).toBe(document.querySelector('.setup-actions'))
   expect(document.querySelector('[role="progressbar"]')).toBeNull()
   expect(button('Set up').disabled).toBe(false)
 })

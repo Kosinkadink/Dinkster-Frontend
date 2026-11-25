@@ -83,7 +83,7 @@ export function SetupForm(props: {
   }
   const progressValue = () => {
     const value = setup.job()?.progress
-    return value?.total !== null && value?.total !== undefined && value.total > 0
+    return value?.unit === 'bytes' && value.total !== null && value.total > 0
       ? Math.min(1, Math.max(0, value.completed / value.total)) : undefined
   }
 
@@ -96,7 +96,6 @@ export function SetupForm(props: {
         </Show>
       }>
         {(plan) => <section class="setup-form setup-arrival">
-          <Show when={problem()}><ProductNotice tone="error">{problem()}</ProductNotice></Show>
           <Show when={props.surface === 'editor'}><ProductBrandMark /></Show>
           <h1 class="dinkster-title">{message(props.surface === 'editor' ? 'setup.editorTitle' : 'projects.setup.title')}</h1>
           <dl class="setup-facts">
@@ -116,8 +115,8 @@ export function SetupForm(props: {
           </dl>
           <Show when={setup.job()}><div class="setup-job" role="status">
             <strong>{jobLine()}</strong>
-            <Show when={setup.job()?.state !== 'completed' && progress()}><p class="dinkster-description">{progress()}</p></Show>
             <Show when={setupJobActive(setup.job())}><ProductProgress label={progress() ?? jobLine()} value={progressValue()} /></Show>
+            <Show when={setup.job()?.state !== 'completed' && progress()}><p class="dinkster-description">{progress()}</p></Show>
           </div></Show>
           <Show when={plan().refusal}>{(refusal) => <ProductNotice tone="warning">
             <Show when={refusal().code === 'library-held'} fallback={refusal().message}>
@@ -127,6 +126,7 @@ export function SetupForm(props: {
           <Show when={!plan().refusal && !setupJobActive(setup.job()) && plan().downloadBytes === null && plan().downloadEstimate && plan().downloadEstimate!.bytes > plan().freeBytes}>
             <ProductNotice tone="warning">{message('setup.estimatedSpaceWarning', { size: bytes(plan().downloadEstimate!.bytes), free: bytes(plan().freeBytes) })}</ProductNotice>
           </Show>
+          <Show when={problem()}><ProductNotice tone="error">{problem()}</ProductNotice></Show>
           <div class="dinkster-actions setup-actions">
             <Show when={setupJobActive(setup.job())} fallback={
               <>
