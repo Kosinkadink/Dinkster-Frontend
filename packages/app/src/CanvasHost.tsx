@@ -2587,6 +2587,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // An expanded product listbox owns the first Escape. Its trigger keeps
       // DOM focus, so the capture-phase host must defer to the target handler.
       if (editorOpen && isInside(event, '.product-select[aria-expanded="true"]')) return
+      // So does the open mount list in a save target's box: it closes before the box.
+      if (editorOpen && isInside(event, '.dinkster-canvas-target-choice[aria-expanded="true"]')) return
       // An expanded palette type filter owns the first Escape and restores its trigger focus.
       if (paletteOpen && isInside(event, '.palette-type-filter[data-expanded="true"]')) return
       // A suggestion surface is part of the live text editor, not a
@@ -2663,6 +2665,33 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const onReducedMotionChange = (event: MediaQueryListEvent) => renderer.setReducedMotion(event.matches)
     renderer.setReducedMotion(reducedMotionQuery?.matches ?? false)
     reducedMotionQuery?.addEventListener('change', onReducedMotionChange)
+    // Closed save target rows name this machine's mounts: the project's
+    // default output mount and the ready writable ones.
+    const factsBackend = createMemo(() => {
+      const tab = activeTab()
+      return tab === undefined ? undefined : props.app.backendForTab(tab)
+    })
+    createEffect(() => {
+      const backend = factsBackend()
+      renderer.setWidgetFacts({})
+      if (backend?.protocol !== 'dinkster') return
+      const connection = backend.connection
+      let live = true
+      const read = (): void => {
+        void connection.fetchMountSettings().then((settings) => {
+          if (!live) return
+          // A run saves to the project's output mount and never falls back to the machine's.
+          const projectMount = settings.activeOutputMount
+          renderer.setWidgetFacts({ SAVE_TARGET: {
+            ready: settings.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready').map((mount) => mount.id),
+            ...(projectMount === undefined ? {} : { projectMount }),
+          } })
+        }).catch(() => { if (live) renderer.setWidgetFacts({}) })
+      }
+      read()
+      const stop = connection.onMountsChanged(read)
+      onCleanup(() => { live = false; stop() })
+    })
     const zoomTo = (target: number) => {
       const vp = renderer.getViewport()
       const cx = canvasEl.clientWidth / 2
@@ -5524,7 +5553,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (renderer.getDesignTokens().widgetEditing !== 'in-row') return false
       // The select view belongs to COMBO alone.
       const choice = row.viewId === 'core.select' && row.spec.remote === undefined
-      if (!['core.number', 'core.slider', 'core.line', 'core.color', 'core.integerColor'].includes(row.viewId) && !choice) return false
+      if (!['core.number', 'core.slider', 'core.line', 'core.color', 'core.integerColor', 'core.saveTarget'].includes(row.viewId) && !choice) return false
       if (widgetRegistry().kind(row.spec.widgetType) === undefined) return false
       if (widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi !== undefined) return false
       // Single-line text that holds a line break opens in the multiline editor,
@@ -6586,6 +6615,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (armed) queueMicrotask(() => canvasEl.focus())
         return armed
       },
+      blueprintEntries: () => paletteEntries().filter((entry) => entry.kind === 'blueprint'),
+      armBlueprintPlacement: (type, backendId) => {
+        const tab = activeTab()
+        const entry = paletteEntries().find((candidate) => candidate.kind === 'blueprint' && candidate.type === type)
+        if (!entry || !tab || props.app.backendForTab(tab).id !== backendId) {
+          clearArmedPlacement()
+          return false
+        }
+        const armed = armPaletteEntry(entry)
+        if (armed) queueMicrotask(() => canvasEl.focus())
+        return armed
+      },
       createEmptySubgraph: async (position) => {
         const tab = activeTab()
         if (!tab || refuseFrozenEdit()) return false
@@ -7018,7 +7059,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           return {
             value,
             commit: (next: CurveValue) => at.commit(next as unknown as Json),
-            histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId),
+            histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId, at.current.row.inputId),
           }
         }
         const webcam = () => {
@@ -7123,7 +7164,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   wired={item()?.wired === true} carried={item()?.carried} covered={covered()} />}
               </Show>
               <Show when={curve()}>
-                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wiredLine={item()?.row.wiredLine === true}
+                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram}
+                  histogramInput={item()?.row.histogram === undefined ? 'none' : item()!.row.histogram!.connected ? 'wired' : 'unwired'}
                   options={item()?.field.spec.options ?? {}} />}
               </Show>
               <Show when={load3d()}>

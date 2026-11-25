@@ -285,6 +285,22 @@ nativeTest.describe('native structural output boundaries', () => {
           epoch: 1,
           dinkster: { version: 'boundary-contract-fixture', schemaWire: 2 },
           nodes: {
+            TextIdentity: {
+              body: [
+                {
+                  kind: 'input',
+                  id: 'value',
+                  type: { kind: 'concrete', types: ['STRING'] },
+                  default: '',
+                },
+                {
+                  kind: 'output',
+                  id: 'value',
+                  type: { kind: 'concrete', types: ['STRING'] },
+                  knownValue: { input: 'value' },
+                },
+              ],
+            },
             CLIPTextEncode: {
               outputNode: true,
               body: [

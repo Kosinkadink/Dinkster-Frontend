@@ -257,6 +257,10 @@ interface CanvasRowFrameProps {
   sideTop?: number
   /** The height the side part may take before it scrolls. */
   sideMaxHeight?: number
+  /** Horizontal offset for a detached side part, at normal size. */
+  sideLeft?: number
+  /** The visible canvas width, at normal size. */
+  sideMaxWidth?: number
   side?: JSX.Element
   /** The side part's own size, before any height limit. */
   onSideSize?: (size: CanvasSideSize) => void
@@ -316,6 +320,12 @@ function CanvasRowFrame(
       props.sideTop === undefined ? '' : `${props.sideTop + columnTop()}px`
     side.style.maxHeight =
       props.sideMaxHeight === undefined ? '' : `${props.sideMaxHeight}px`
+    side.style.left = props.sideLeft === undefined ? '' : `${props.sideLeft}px`
+    const detached = props.place === 'below-node' || props.place === 'above-node'
+    side.style.maxWidth = props.sideMaxWidth === undefined || !detached
+      ? '' : `min(calc(var(--dinkster-space-32) * 8), ${props.sideMaxWidth}px)`
+    side.style.minWidth = props.sideMaxWidth === undefined || !detached
+      ? '' : `min(calc(var(--dinkster-space-32) * 5), ${props.sideMaxWidth}px)`
     const size = { width: side.offsetWidth, height: side.offsetHeight }
     const previous = sideSize()
     if (previous?.width !== size.width || previous.height !== size.height)
@@ -345,6 +355,8 @@ function CanvasRowFrame(
       props.place,
       props.sideTop,
       props.sideMaxHeight,
+      props.sideLeft,
+      props.sideMaxWidth,
       props.side,
       props.panel,
       props.panelPlace,
@@ -456,6 +468,8 @@ export function CanvasRowField(
       {...(props.sideMaxHeight === undefined
         ? {}
         : { sideMaxHeight: props.sideMaxHeight })}
+      {...(props.sideLeft === undefined ? {} : { sideLeft: props.sideLeft })}
+      {...(props.sideMaxWidth === undefined ? {} : { sideMaxWidth: props.sideMaxWidth })}
       {...(props.side === undefined ? {} : { side: props.side })}
       {...(props.onSideSize === undefined ? {} : { onSideSize: props.onSideSize })}
       {...(props.ref === undefined ? {} : { ref: props.ref })}

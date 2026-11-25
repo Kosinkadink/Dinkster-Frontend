@@ -589,6 +589,8 @@ export interface WidgetPaintArgs {
   /** The row is being dragged; `value` is the value under the pointer, not yet stored. */
   readonly dragging?: boolean
   readonly tokens: DesignTokens
+  /** What the host knows about this machine, keyed by widget kind; see `setWidgetFacts`. */
+  readonly facts?: Readonly<Record<string, Json>>
 }
 
 /** A row the pointer is dragging, painted with the value under the pointer until release stores it. */
@@ -1243,6 +1245,18 @@ export class CanvasRenderer {
   /** Companion (propagated) values per node/valueKey. Derived, never stored. */
   setCompanions(companions: CompanionMap): void {
     this.updateNodePaint(this.companions, companions, () => { this.companions = companions })
+  }
+
+  private widgetFacts: Readonly<Record<string, Json>> = {}
+
+  /**
+   * What the host knows about this machine, keyed by widget kind, handed to
+   * every closed row's view, such as the mounts a save target row names.
+   */
+  setWidgetFacts(facts: Readonly<Record<string, Json>>): void {
+    if (structuralEqual(this.widgetFacts, facts)) return
+    this.widgetFacts = facts
+    this.invalidate()
   }
 
   private editorSummaries: EditorSummaryMap = {}
@@ -2185,6 +2199,10 @@ export class CanvasRenderer {
     // Visible world rect for culling.
     const view = { x: -vx / scale, y: -vy / scale, w: w / scale, h: h / scale }
     this.drawCanvasLayers('background', ctx, view, scale)
+    if (this.graphTileSurface?.getContext('2d')?.isContextLost()) {
+      this.clearGraphTiles()
+      this.graphTileSurface = undefined
+    }
     if (
       typeof OffscreenCanvas !== 'undefined' &&
       typeof OffscreenCanvas.prototype.transferToImageBitmap === 'function' &&
@@ -3522,12 +3540,24 @@ export class CanvasRenderer {
           ? t.colors.error
           : running
             ? t.stateColors.running
-            : progress
-              ? t.stateColors[progress.state]
-              : t.colors.nodeIdleOutline
-    const strongOutline = unrecognized || runtimeError || hasDocumentError || running || progress?.state === 'done'
+            : progress?.state === 'cached'
+              ? t.colors.nodeOutline
+              : progress
+                ? t.stateColors[progress.state]
+                : t.colors.nodeIdleOutline
+    // Running and, in the frozen view, done and cached draw quieter than an
+    // error: 2 px, the running colour at 90%, done at half strength, cached
+    // dashed in the neutral outline.
+    const errorOutline = unrecognized || runtimeError || hasDocumentError
+    const ran = !errorOutline && (running || progress?.state === 'done' || progress?.state === 'cached')
+    const strongOutline = errorOutline || ran
     const outline = canvasPaintTokens.node.outline
-    const outlineWidth = unrecognized ? outline.idle * outline.unrecognizedFactor : strongOutline ? outline.strong : t.crispEdges ? outline.crisp : outline.idle
+    const ranOutline = canvasPaintTokens.node.ranOutline
+    const outlineWidth = unrecognized
+      ? outline.idle * outline.unrecognizedFactor
+      : ran ? (running ? canvasPaintTokens.running.outlineStroke : ranOutline.stroke)
+      : strongOutline ? outline.strong : t.crispEdges ? outline.crisp : outline.idle
+    const outlineOpacity = !ran ? 1 : running ? canvasPaintTokens.running.outlineOpacity : progress?.state === 'done' ? ranOutline.opacity : 1
     const outlineDash = unrecognized || runtimeError
       ? nodeStateDash('error', scale)
       : running
@@ -3545,7 +3575,10 @@ export class CanvasRenderer {
     ctx.roundRect(node.x + outlineInset, node.y + outlineInset, l.width - outlineInset * 2, l.height - outlineInset * 2, Math.max(0, t.cornerRadius - outlineInset))
     ctx.strokeStyle = outlineColor
     ctx.lineWidth = outlineStroke
+    const restingAlpha = ctx.globalAlpha
+    ctx.globalAlpha = restingAlpha * outlineOpacity
     ctx.stroke()
+    ctx.globalAlpha = restingAlpha
     if (dash !== undefined) ctx.setLineDash([])
     if (running && !this.reducedMotion) this.drawRunningAccent(ctx, node.x, node.y, l.width, l.height)
     if (node.regionKind !== undefined) {
@@ -4450,6 +4483,7 @@ export class CanvasRenderer {
     this.paintWidget({
       ctx,
       row,
+      facts: this.widgetFacts,
       // Selector rows (DynamicCombo) carry their value on the row itself;
       // everything else persists under the row's value key.
       value: drag !== undefined ? drag.value
@@ -4626,15 +4660,26 @@ export class CanvasRenderer {
     const pulse = this.reducedMotion
       ? paint.reducedMotionPulse
       : (Math.sin((this.animationTimeMs / paint.pulsePeriodMs) * Math.PI * 2) + 1) / 2
+    const scale = finiteScale(this.viewport.scale)
+    const radius = this.tokens.cornerRadius
+    // As a CSS box-shadow draws it: the node's box grown by the spread and
+    // blurred, painted only outside the node. Canvas blur is in device
+    // pixels, so it is scaled to read as the same CSS pixels on any screen.
+    const cssBlur = paint.glowBlur + pulse * paint.glowPulseBlur
+    const blur = cssBlur * (globalThis.devicePixelRatio ?? 1)
+    const reach = (paint.glowSpread + cssBlur * 2) / scale
     ctx.save()
+    ctx.beginPath()
+    ctx.rect(x - reach, y - reach, width + reach * 2, height + reach * 2)
+    ctx.roundRect(x, y, width, height, radius)
+    ctx.clip('evenodd')
     ctx.globalAlpha *= paint.glowOpacity + pulse * paint.glowPulseOpacity
     ctx.beginPath()
-    ctx.roundRect(x - paint.glowOutset, y - paint.glowOutset, width + paint.glowOutset * 2, height + paint.glowOutset * 2, this.tokens.cornerRadius + paint.glowOutset)
-    ctx.strokeStyle = this.tokens.stateColors.running
-    ctx.lineWidth = screenAwareStroke(paint.glowStroke, this.viewport.scale, paint.glowMinScreenStroke)
+    ctx.roundRect(x - paint.glowSpread, y - paint.glowSpread, width + paint.glowSpread * 2, height + paint.glowSpread * 2, radius + paint.glowSpread)
+    ctx.fillStyle = this.tokens.stateColors.running
     ctx.shadowColor = this.tokens.stateColors.running
-    ctx.shadowBlur = paint.glowBlur + pulse * paint.glowPulseBlur
-    ctx.stroke()
+    ctx.shadowBlur = blur
+    ctx.fill()
     ctx.restore()
   }
 
