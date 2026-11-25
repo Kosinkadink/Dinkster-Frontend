@@ -2335,13 +2335,14 @@ function elaboratePass(
     if (variant === undefined && row.required && !view && !scope.ghost && !scope.dormant) {
       report('prompt.missing_dynamic_choice', `required type choice '${path}' has no stored variant`, path)
     }
+    const active = stored(path)
     const inRun = !scope.ghost && !scope.dormant
-    if (variant !== undefined && inRun) choices[path] = variant.key
-    if (variant !== undefined || row.required || view || census || linked(path)) {
+    if (variant !== undefined && active && inRun) choices[path] = variant.key
+    if ((variant !== undefined && active) || row.required || view || census || linked(path)) {
       emitInput(
-        { ...base, type: variant?.type ?? base.type, optional: variant === undefined ? !row.required : false },
+        { ...base, type: variant?.type ?? base.type, optional: variant === undefined || !active ? !row.required : false },
         path,
-        variant === undefined && !census && !linked(path) ? { ...scope, dormant: true } : scope,
+        (variant === undefined && !census && !linked(path)) || (!active && !row.required) ? { ...scope, dormant: true } : scope,
         undefined,
         {
           origin: {
@@ -2354,9 +2355,15 @@ function elaboratePass(
         },
       )
     }
-    if (variant !== undefined) dependents([...row.rows, ...variant.rows], variant.key, false)
+    const disconnectedReason = `Not used while ${label} has no wire. Its wire gives nothing.`
+    if (variant !== undefined) {
+      if (active || census) dependents([...row.rows, ...variant.rows], variant.key, !active)
+      else keep(() => dependents([...row.rows, ...variant.rows], variant.key, true, disconnectedReason))
+    }
     // After the current type's rows: rows of other types that keep a wire.
-    const keptReason = `Not used while ${label} is ${variant === undefined ? 'not set' : variant.key}. Its wire gives nothing.`
+    const keptReason = active
+      ? `Not used while ${label} is ${variant === undefined ? 'not set' : variant.key}. Its wire gives nothing.`
+      : disconnectedReason
     keep(() => {
       for (const item of row.variants!) {
         if (item !== variant) dependents([...(variant === undefined ? row.rows : []), ...item.rows], item.key, true, keptReason)
