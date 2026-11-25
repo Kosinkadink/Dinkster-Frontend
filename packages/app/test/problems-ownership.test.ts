@@ -352,6 +352,40 @@ describe('workflow model presence', () => {
     expect(tab.store.doc.graphs['g0']?.nodes['n0']?.values['model']).toBe('second.safetensors')
     expect(app.assetConsent.get()).toBeUndefined()
   })
+
+  it('ignores a wired model field even when its stored name is missing', async () => {
+    const { backend } = await setup({ model: 'source.safetensors' }, [field('model'),
+      { kind: 'output', id: 'asset', type: { kind: 'concrete', name: 'ASSET' } },
+    ])
+    await app.openDocument({ ...CHAIN_DOC, lineage: 'wired-models', graphs: { g0: { ...CHAIN_DOC.graphs.g0,
+      nodes: {
+        n0: { id: 'n0', type: 'ModelLoader', values: { model: 'source.safetensors' } },
+        n1: { id: 'n1', type: 'ModelLoader', values: { model: 'ignored.safetensors' } },
+      },
+      links: { l2: { id: 'l2', from: { node: 'n0', port: 'asset' }, to: { node: 'n1', port: 'model' } } },
+    } } }, 'Wired models')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    await vi.waitFor(() => expect(models(tab).map((entry) => entry.data?.['name'])).toEqual(['source.safetensors']))
+    expect(models(tab)[0]?.data?.['node']).toBe('n0')
+  })
+
+  it('cancels standalone review and rejects its old actions after changing the target backend', async () => {
+    const { backend, tab } = await setup({ model: 'first.safetensors' })
+    await vi.waitFor(() => expect(models(tab)).toHaveLength(1))
+    const diagnostic = models(tab)[0]!
+    app.reviewModelDownload(tab, diagnostic)
+    const request = app.assetConsent.get()!
+    expect(request.models?.[0]?.requirement.name).toBe('first.safetensors')
+    const other = app.backends.get().find((entry) => entry.id !== backend.id)!
+    app.setTabTarget(tab.id, other.id)
+    expect(app.assetConsent.get()).toBeUndefined()
+    await request.reviewModel!(0)
+    app.reviewModelDownload(tab, diagnostic)
+    expect(app.assetConsent.get()).toBeUndefined()
+    expect(models(tab)).toEqual([])
+    expect(app.store.executions.get().size).toBe(0)
+  })
 })
 
 describe('workflow asset presence', () => {

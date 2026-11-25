@@ -221,3 +221,59 @@ test('a missing model opens only its own review and never queues a workflow', as
   expect(submissions).toEqual([])
   expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
 })
+
+for (const status of ['model-hidden', 'folder-disabled'] as const) {
+  test(`a ${status} model opens its settings without changing visibility or folders`, async ({ page }) => {
+    const writes: string[] = []
+    page.on('request', (request) => {
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) writes.push(new URL(request.url()).pathname)
+    })
+    await page.route('**/api/models/presence', async (route) => {
+      const { models } = route.request().postDataJSON() as { models: { name: string; kind: string }[] }
+      await route.fulfill({ json: { models: models.map((model) => ({ ...model, status,
+        ...(status === 'folder-disabled' ? { disabledLocations: ['Archive', 'Backup'] } : {}),
+      })) } })
+    })
+    await page.evaluate(async () => {
+      const app = window.__dinksterTest!.app
+      app.registerSchemas([{
+        type: 'SettingsModel', displayName: 'Load checkpoint', category: 'test', source: 'v3', isOutputNode: false,
+        body: [{ kind: 'input', id: 'model', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
+          widget: { widgetType: 'ASSET', kind: 'model/checkpoint', options: {}, default: null } }],
+      }])
+      await app.openDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'model-settings-navigation', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'root', nodes: {
+          gen: { id: 'gen', type: 'SettingsModel', values: { model: 'checkpoint.safetensors' } },
+        }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+        view: { graphs: { g0: { nodes: { gen: { position: { x: 200, y: 120 } } } } } },
+      }, 'Model settings navigation')
+      window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    })
+    await expect.poll(() => page.evaluate(() =>
+      (window.__dinksterTest!.renderer!.getBadges()['gen'] ?? []).map((badge) => badge.id)))
+      .toContain('core.problem.error')
+    const point = await tabPoint(page, 'gen', 'core.problem.error')
+    await page.mouse.click(point.x, point.y)
+    const box = page.getByTestId('problem-box')
+    await expect(box.getByTestId('problem-box-line')).toHaveCount(1)
+    await expect(box).toContainText(status === 'model-hidden'
+      ? 'checkpoint.safetensors is hidden in this project.'
+      : 'checkpoint.safetensors is in a folder this project does not use: Archive and 1 more.')
+    await expect(box.getByRole('button', { name: 'Review download', exact: true })).toHaveCount(0)
+    await page.screenshot({ path: test.info().outputPath(`${status}-box.png`) })
+    await box.getByRole('button', { name: status === 'model-hidden' ? 'Open model management' : 'Open Storage', exact: true }).click()
+    const storage = page.getByTestId('storage-panel')
+    await expect(storage).toBeVisible()
+    await expect(storage.getByTestId('storage-folders')).not.toContainText('Loading')
+    if (status === 'model-hidden') {
+      await expect(storage.getByTestId('hidden-models')).toBeInViewport()
+    } else {
+      await expect(storage.getByTestId('model-settings')).toHaveCount(0)
+      await expect(storage.getByRole('heading', { name: 'Models', exact: true })).toBeVisible()
+    }
+    await page.screenshot({ path: test.info().outputPath(`${status}-settings.png`) })
+    expect(writes.filter((path) => !['/api/models/presence', '/api/workflows/plan'].includes(path))).toEqual([])
+    expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
+  })
+}
