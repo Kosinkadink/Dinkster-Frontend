@@ -96,7 +96,6 @@
   "runs.chosen.openFile": "打开 {name}",
   "runs.chosen.copyJob": "复制任务 ID",
   "runs.chosen.delete": "删除记录",
-  "runs.chosen.deleteConsequence": "移除此运行的记录。已保存的文件会保留。",
   "runs.chosen.finished": "完成于",
   "runs.chosen.took": "耗时",
   "runs.chosen.nodes": "节点",

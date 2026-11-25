@@ -2,7 +2,7 @@ import { For, Show, createSignal, onCleanup, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import type { ExecutionState } from '@dinkster/client'
 import { executionKey, formatNumber, formatRelativeTime, t } from '@dinkster/core'
-import { ProductCancelButton, ProductConfirmation, ProductMenu, ProductRunActivity } from '@dinkster/ui'
+import { ProductCancelButton, ProductMenu, ProductRunActivity } from '@dinkster/ui'
 import Ellipsis from 'lucide-solid/icons/ellipsis'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import Clock from 'lucide-solid/icons/clock'
@@ -273,7 +273,6 @@ export function ChosenRun(props: {
   readonly menuMount?: HTMLElement | undefined
 }) {
   const message = useAppMessage()
-  const [deleting, setDeleting] = createSignal(false)
   const hasButtons = () => props.onRunAgain !== undefined || props.onOpenWorkflow !== undefined
   const menu = () => (
     <ProductMenu icon={Ellipsis} iconOnly label={message('runs.chosen.actions', { name: props.name })} items={[
@@ -285,27 +284,22 @@ export function ChosenRun(props: {
       { label: message('runs.chosen.copyJob'), onSelect: () => props.onCopyJobId() },
       ...(props.onDelete === undefined ? [] : [
         'separator' as const,
-        { label: message('runs.chosen.delete'), intent: 'remove' as const, onSelect: () => setDeleting(true) },
+        { label: message('runs.chosen.delete'), intent: 'remove' as const, onSelect: () => props.onDelete?.() },
       ]),
     ]} />
   )
   return (
     <div class="run-chosen" data-testid="chosen-run" onClick={(event) => event.stopPropagation()}>
       <Show when={props.reason}>{(reason) => <p class="run-chosen-reason" role="status">{reason()}</p>}</Show>
-      <Show when={!deleting()} fallback={
-        <ProductConfirmation consequence={message('runs.chosen.deleteConsequence')} actionLabel={message('runs.chosen.delete')}
-          intent="remove" onCancel={() => setDeleting(false)} onConfirm={() => { setDeleting(false); props.onDelete?.() }} />
-      }>
-        <Show when={props.menuMount === undefined || hasButtons()}><div class="run-chosen-actions">
-          <Show when={props.onRunAgain}>{(runAgain) =>
-            <ProductButton type="button" size="compact" data-testid="chosen-run-again" onClick={() => runAgain()()}>{message('runs.chosen.runAgain')}</ProductButton>
-          }</Show>
-          <Show when={props.onOpenWorkflow}>{(open) =>
-            <ProductButton type="button" size="compact" data-testid="chosen-run-open" onClick={() => open()()}>{message('runs.chosen.openWorkflow')}</ProductButton>
-          }</Show>
-          <span class="run-chosen-menu">{menu()}</span>
-        </div></Show>
-      </Show>
+      <Show when={props.menuMount === undefined || hasButtons()}><div class="run-chosen-actions">
+        <Show when={props.onRunAgain}>{(runAgain) =>
+          <ProductButton type="button" size="compact" data-testid="chosen-run-again" onClick={() => runAgain()()}>{message('runs.chosen.runAgain')}</ProductButton>
+        }</Show>
+        <Show when={props.onOpenWorkflow}>{(open) =>
+          <ProductButton type="button" size="compact" data-testid="chosen-run-open" onClick={() => open()()}>{message('runs.chosen.openWorkflow')}</ProductButton>
+        }</Show>
+        <span class="run-chosen-menu">{menu()}</span>
+      </div></Show>
       <Show when={!hasButtons() && props.menuMount}>{(mount) => <Portal mount={mount()}>{menu()}</Portal>}</Show>
       <Show when={props.detailsOpen}>
         <dl class="run-chosen-facts" data-testid="chosen-run-details">

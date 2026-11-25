@@ -169,25 +169,16 @@ describe('ChosenRun', () => {
     view.unmount()
   })
 
-  it('asks before deleting the record, and Cancel keeps it', async () => {
+  it('removes the record at once when Delete record is chosen, with no confirmation', async () => {
     const remove = vi.fn()
     const view = mount({ remove })
-    const confirm = () => [...view.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === 'Delete record')
-    const cancel = () => [...view.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === 'Cancel')
-
     await view.openMenu()
     menuItem('Delete record').click()
     await settle()
-    expect(remove).not.toHaveBeenCalled()
-    cancel()!.click()
-    expect(confirm()).toBeUndefined()
-    expect(view.root.querySelector('button[aria-label="More for Long run"]')).not.toBeNull()
-
-    await view.openMenu()
-    menuItem('Delete record').click()
-    await settle()
-    confirm()!.click()
     expect(remove).toHaveBeenCalledOnce()
+    const labels = [...view.root.querySelectorAll<HTMLButtonElement>('button')].map((button) => button.textContent?.trim())
+    expect(labels).not.toContain('Cancel')
+    expect(labels).not.toContain('Delete record')
     view.unmount()
   })
 })

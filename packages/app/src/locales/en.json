@@ -96,7 +96,6 @@
   "runs.chosen.openFile": "Open {name}",
   "runs.chosen.copyJob": "Copy job ID",
   "runs.chosen.delete": "Delete record",
-  "runs.chosen.deleteConsequence": "Removes this run's record. Saved files stay.",
   "runs.chosen.finished": "Finished",
   "runs.chosen.took": "Took",
   "runs.chosen.nodes": "Nodes",

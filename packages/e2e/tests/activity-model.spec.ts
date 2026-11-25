@@ -193,11 +193,8 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   const failed = runEntries.filter({ has: page.locator('[data-job^="job-2-"]') }).first()
   await failed.click()
   await expect(failed.locator('.run-chosen-reason')).toHaveText('The sampler failed after preserving two exact node receipts.')
-  await failed.getByRole('button', { name: /^More for / }).click()
-  await page.getByRole('menuitem', { name: 'Delete record', exact: true }).click()
-  await expect(failed.getByRole('button', { name: 'Delete record', exact: true })).toBeVisible()
   await failed.scrollIntoViewIfNeeded()
-  await capture(page, 'after-activity-runs-grouped-paged-confirmation')
+  await capture(page, 'after-activity-runs-grouped-paged')
 
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
