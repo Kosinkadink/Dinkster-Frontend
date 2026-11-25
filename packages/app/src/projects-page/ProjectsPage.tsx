@@ -877,6 +877,7 @@ export function ProjectsView(props: {
     <div class="dinkster-stack projects-page-setup">
       <ProductCodeBlock label={message('projects.setup.how')} value={SETUP_COMMAND} />
       <p class="dinkster-description">{message('projects.setup.platforms')}</p>
+      <p class="dinkster-description">{message('projects.setup.cpuFallback')}</p>
       <p class="dinkster-description">{message('projects.setup.after')}</p>
     </div>
   )
@@ -960,8 +961,8 @@ export function ProjectsView(props: {
 /** A deleted project's record changes no more, so its last change is when it was deleted. */
 const deletedAt = (project: LibraryProject) => Date.parse(project.modified ?? project.created)
 
-/** The command that makes a first installation (Dinkster's docs/install.md). */
-const SETUP_COMMAND = 'dinkster setup --variant linux-cpu --channel nightly'
+/** The process does not report its platform, so show Linux with the other systems named below. */
+const SETUP_COMMAND = 'dinkster setup --variant linux-nvidia --channel nightly'
 
 const widgets = createWidgetRegistry()
 registerCoreWidgets(widgetRegistrationDoors(widgets))

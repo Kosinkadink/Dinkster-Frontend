@@ -305,8 +305,9 @@ it('shows the setup command while there is no installation, and the list once on
   const data = { ...source([]), installations: async () => ({ all: found }) }
   render(() => <ProjectsView shell={shell()} source={data} onCount={counted} />, document.body)
   await settle()
-  expect(document.querySelector('code')?.textContent).toBe('dinkster setup --variant linux-cpu --channel nightly')
-  expect(document.querySelector('[data-testid="projects-first-run"]')?.textContent).toContain('Use win-cpu on Windows or mac-arm64 on Apple Silicon.')
+  expect(document.querySelector('code')?.textContent).toBe('dinkster setup --variant linux-nvidia --channel nightly')
+  expect(document.querySelector('[data-testid="projects-first-run"]')?.textContent).toContain('Use win-nvidia on Windows or mac-arm64 on Apple Silicon.')
+  expect(document.querySelector('[data-testid="projects-first-run"]')?.textContent).toContain('No NVIDIA graphics card? Use linux-cpu (win-cpu on Windows).')
   expect(rows()).toEqual([])
   expect(counted).not.toHaveBeenCalled()
   found = [stable]
@@ -337,7 +338,7 @@ it('keeps projects readable and restorable without an installation, but cannot o
   expect(document.querySelector('[data-testid="projects-first-run"]')).toBeNull()
   expect(rows()).toHaveLength(3)
   expect(document.querySelector('h2')?.textContent).toBe('Film grain tests')
-  expect(document.querySelector('code')?.textContent).toBe('dinkster setup --variant linux-cpu --channel nightly')
+  expect(document.querySelector('code')?.textContent).toBe('dinkster setup --variant linux-nvidia --channel nightly')
   expect(document.querySelector('[data-testid="projects-open"]')?.getAttribute('aria-disabled')).toBe('true')
   const tile = document.querySelector<HTMLButtonElement>('.dinkster-tile')!
   expect(tile.disabled).toBe(true)
