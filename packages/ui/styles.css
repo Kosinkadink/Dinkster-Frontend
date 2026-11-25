@@ -142,6 +142,11 @@
 .dinkster-button[data-icon-only] { width: var(--dinkster-control-compact-height); padding: 0; }
 .dinkster-button:not(:disabled, [aria-disabled='true']):hover { background: var(--dinkster-interaction-hover); }
 .dinkster-button:not(:disabled, [aria-disabled='true']):active { background: var(--dinkster-interaction-pressed); }
+/* An add or remove outline fills with its own colour, quietly: 12% under the pointer and 20% while pressed. Solid and quiet fills keep their own. */
+.dinkster-button[data-role='add']:not([data-fill='quiet'], :disabled, [aria-disabled='true']):hover { background: var(--dinkster-accent-wash); }
+.dinkster-button[data-role='add']:not([data-fill='quiet'], :disabled, [aria-disabled='true']):active { background: var(--dinkster-accent-wash-pressed); }
+.dinkster-button[data-role='remove']:not([data-fill='quiet'], :disabled, [aria-disabled='true']):hover { background: var(--dinkster-danger-wash); }
+.dinkster-button[data-role='remove']:not([data-fill='quiet'], :disabled, [aria-disabled='true']):active { background: var(--dinkster-danger-wash-pressed); }
 .dinkster-button[data-fill='solid']:not(:disabled, [aria-disabled='true']):hover { background: var(--dinkster-action-primary-bg); filter: brightness(0.9); }
 .dinkster-button[data-fill='solid']:not(:disabled, [aria-disabled='true']):active { background: var(--dinkster-action-primary-bg); filter: brightness(0.8); }
 .dinkster-button[data-role='remove'][data-fill='solid']:not(:disabled, [aria-disabled='true']):is(:hover, :active) { background: var(--dinkster-danger-foreground); }
@@ -182,20 +187,17 @@
 .dinkster-menu-item[data-role='remove'] { color: var(--dinkster-danger-foreground); }
 .dinkster-menu-item[data-role='add'] { color: var(--dinkster-accent-foreground); }
 .dinkster-menu-item:not(:disabled):hover, .dinkster-menu-item:focus-visible { background: var(--dinkster-interaction-hover); }
-.dinkster-message { display: flex; align-items: start; gap: var(--dinkster-space-12); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-info-border); border-radius: var(--dinkster-radius-control); background: var(--dinkster-info-background); color: var(--dinkster-info-foreground); }
+/* A message is coloured by what it means, quietly: text and icon in the meaning's colour, over that colour at 7% inside a 1 px outline of it at 38%. A link inside stays primary and the close button secondary, so the strip is not one colour. */
+.dinkster-message { display: flex; align-items: start; gap: var(--dinkster-space-12); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-info-quiet-border); border-radius: var(--dinkster-radius-control); background: var(--dinkster-info-quiet-background); color: var(--dinkster-info-foreground); }
 .dinkster-message > .dinkster-icon, .dinkster-field-error > .dinkster-icon { margin-block: calc((var(--dinkster-type-body-line) - var(--dinkster-icon-size)) / 2); }
 .dinkster-message > .dinkster-button { margin-block: calc((var(--dinkster-type-body-line) - var(--dinkster-control-compact-height)) / 2); }
-.dinkster-message[data-kind='error'] { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-background); }
-/* A quiet error: text and icon in the danger colour, over a faint fill and a reduced-strength outline of that colour, drawn as layers so the danger token is the only colour. */
-.dinkster-message[data-kind='error'][data-quiet] { position: relative; isolation: isolate; border-color: transparent; background: transparent; }
-.dinkster-message[data-kind='error'][data-quiet]::before, .dinkster-message[data-kind='error'][data-quiet]::after { content: ''; position: absolute; inset: calc(-1 * var(--dinkster-border-width)); z-index: -1; border-radius: inherit; pointer-events: none; }
-.dinkster-message[data-kind='error'][data-quiet]::before { background: currentColor; opacity: 0.07; }
-.dinkster-message[data-kind='error'][data-quiet]::after { border: var(--dinkster-border-width) solid currentColor; opacity: 0.38; }
-.dinkster-message[data-kind='error'][data-quiet] .dinkster-text-button { color: var(--dinkster-text-primary); }
-.dinkster-message[data-kind='error'][data-quiet] > .dinkster-button { color: var(--dinkster-text-secondary); }
-.dinkster-message[data-kind='success'] { color: var(--dinkster-success-foreground); border-color: var(--dinkster-success-border); background: var(--dinkster-success-background); }
-.dinkster-message[data-kind='warning'] { color: var(--dinkster-warning-foreground); border-color: var(--dinkster-warning-border); background: var(--dinkster-warning-background); }
-.dinkster-toast { position: fixed; inset: auto var(--dinkster-space-24) var(--dinkster-space-24) auto; max-width: calc(100vw - var(--dinkster-space-32)); z-index: 2; }
+.dinkster-message[data-kind='error'] { color: var(--dinkster-danger-foreground); border-color: var(--dinkster-danger-quiet-border); background: var(--dinkster-danger-quiet-background); }
+.dinkster-message[data-kind='success'] { color: var(--dinkster-success-foreground); border-color: var(--dinkster-success-quiet-border); background: var(--dinkster-success-quiet-background); }
+.dinkster-message[data-kind='warning'] { color: var(--dinkster-warning-foreground); border-color: var(--dinkster-warning-quiet-border); background: var(--dinkster-warning-quiet-background); }
+.dinkster-message :is(.dinkster-link, .dinkster-text-button) { color: var(--dinkster-text-primary); }
+.dinkster-message > .dinkster-button { color: var(--dinkster-text-secondary); }
+/* The toast floats over other content, so the message's quiet fill sits on the raised surface. */
+.dinkster-toast { position: fixed; inset: auto var(--dinkster-space-24) var(--dinkster-space-24) auto; max-width: calc(100vw - var(--dinkster-space-32)); z-index: 2; border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-raised); }
 .dinkster-dialog { width: min(var(--dinkster-empty-state-max-width), calc(100vw - var(--dinkster-space-32))); padding: var(--dinkster-space-24); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-high); }
 .dinkster-dialog::backdrop { background: var(--dinkster-surface-canvas); opacity: var(--dinkster-interaction-disabled-opacity); }
 .dinkster-empty { display: grid; justify-items: center; gap: var(--dinkster-space-16); width: 100%; max-width: var(--dinkster-empty-state-max-width); margin-inline: auto; padding: var(--dinkster-space-32); text-align: center; }
@@ -1129,7 +1131,9 @@
   background: var(--dinkster-surface-panel);
   font-size: var(--dinkster-type-metadata-size);
 }
-.workflow-queue-submit:hover:not(:disabled),
+/* Run fills with its own green, quietly: 12% under the pointer and 20% while pressed. The list beside it takes the neutral hover. */
+.workflow-queue-submit:hover:not(:disabled) { background: var(--dinkster-success-wash); }
+.workflow-queue-submit:active:not(:disabled) { background: var(--dinkster-success-wash-pressed); }
 .workflow-queue-toggle:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .workflow-queue-submit:focus-visible,
 .workflow-queue-toggle:focus-visible { z-index: 1; outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }

@@ -176,6 +176,10 @@
 .product-action-buttons button:not(.product-button):disabled { color: var(--dinkster-text-disabled); cursor: not-allowed; opacity: var(--dinkster-interaction-disabled-opacity); }
 .product-action-buttons button:not(.product-button).primary { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); }
 .product-action-buttons button:not(.product-button).danger { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-border); }
+.product-action-buttons button:not(.product-button).primary:hover:not(:disabled) { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-wash); }
+.product-action-buttons button:not(.product-button).primary:active:not(:disabled) { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-wash-pressed); }
+.product-action-buttons button:not(.product-button).danger:hover:not(:disabled) { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-wash); }
+.product-action-buttons button:not(.product-button).danger:active:not(:disabled) { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-wash-pressed); }
 
 .queue-button {
   background: var(--dinkster-action-primary-bg);

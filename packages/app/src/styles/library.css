@@ -77,6 +77,8 @@
 .library-panel :is(.collection-mode, .collection-source-action, .collection-more, .collection-action):hover:not(:disabled) { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .library-panel :is(.collection-mode, .collection-source-action, .collection-more, .collection-action):focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .library-panel .collection-source-action { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-border); }
+.library-panel .collection-source-action:hover:not(:disabled) { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-wash); }
+.library-panel .collection-source-action:active:not(:disabled) { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-wash-pressed); }
 .library-panel .collection-footer { gap: var(--dinkster-space-8); margin-top: var(--dinkster-space-8); padding-top: var(--dinkster-space-8); border-color: var(--dinkster-border-subtle); }
 .library-panel .collection-total { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .library-panel[data-source-loading='true'] :is(.collection-items, .collection-footer) { display: none; }
@@ -150,9 +152,12 @@
 .library-detail-facts dd + dt { margin-top: var(--dinkster-space-4); }
 .library-detail-actions { position: sticky; bottom: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: var(--dinkster-space-8); margin-top: auto; padding: var(--dinkster-space-8) 0; background: var(--dinkster-surface-inset); border-top: 1px solid var(--dinkster-border-subtle); box-shadow: 0 var(--dinkster-space-12) 0 var(--dinkster-surface-inset); }
 .library-detail-actions button { min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-12); color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border: 1px solid var(--dinkster-accent-border); border-radius: var(--dinkster-radius-control); font: inherit; cursor: pointer; }
-.library-detail-actions button:hover { background: var(--dinkster-interaction-hover); }
+.library-detail-actions button:hover { background: var(--dinkster-accent-wash); }
+.library-detail-actions button:active { background: var(--dinkster-accent-wash-pressed); }
 .library-detail-actions button:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
 .library-detail-actions button[data-tone='danger'] { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-border); }
+.library-detail-actions button[data-tone='danger']:hover { background: var(--dinkster-danger-wash); }
+.library-detail-actions button[data-tone='danger']:active { background: var(--dinkster-danger-wash-pressed); }
 
 @container library-panel (min-width: 560px) {
   :is(.library-panel[data-source='packs'], .library-panel[data-source='templates'], .library-panel[data-source='workflows']) .collection-content { flex-wrap: nowrap; }
@@ -219,6 +224,10 @@
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-entry.collection-child { margin-left: var(--dinkster-space-16); }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='accent'] { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); }
 :is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='danger'] { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); border-color: var(--dinkster-danger-border); }
+:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='accent']:hover:not(:disabled) { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-wash); }
+:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='accent']:active:not(:disabled) { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-wash-pressed); }
+:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='danger']:hover:not(:disabled) { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-wash); }
+:is(.library-panel[data-source='history'], .library-panel[data-source='runs']) .collection-action[data-tone='danger']:active:not(:disabled) { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-wash-pressed); }
 
 .collection-panel {
   flex: 1;

@@ -560,7 +560,7 @@ export function ProjectsGallery() {
         }
       />
       <Show when={state() === 'failed' && banner()}>
-        <ProductErrorBanner quiet onDismiss={() => setBanner(false)}>
+        <ProductErrorBanner onDismiss={() => setBanner(false)}>
           Nightly did not start, so Bookshop diorama could not open. Stable is
           running again.{' '}
           <ProductTextButton
