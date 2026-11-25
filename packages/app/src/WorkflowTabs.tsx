@@ -8,7 +8,6 @@ import Spline from 'lucide-solid/icons/spline'
 import Code from 'lucide-solid/icons/code'
 import File from 'lucide-solid/icons/file'
 import Plus from 'lucide-solid/icons/plus'
-import ChevronDown from 'lucide-solid/icons/chevron-down'
 import X from 'lucide-solid/icons/x'
 import { ContextMenu } from './ContextMenu.js'
 import { Icon } from './Icon.js'
@@ -349,18 +348,18 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
             </span>
           </div>
         )}</For>
-        <Show when={props.showNew !== false}><button
-          class="tab-new"
-          data-testid="new-tab"
-          data-tooltip-label={message('shell.workflow.new')}
-          aria-label={message('shell.workflow.new')}
-          onClick={props.onNew}
-        >
-          <Icon icon={Plus} />
-        </button>
-          <Show when={newItems().length > 1}>
-            <span class="tab-new-options" data-testid="new-tab-options">
-              <ProductMenu label={message('templatesEntry.newTab')} items={newItems()} icon={ChevronDown} iconOnly fill="quiet" />
+        <Show when={props.showNew !== false}>
+          <Show when={newItems().length > 0} fallback={<button
+            class="tab-new"
+            data-testid="new-tab"
+            data-tooltip-label={message('shell.workflow.new')}
+            aria-label={message('shell.workflow.new')}
+            onClick={props.onNew}
+          >
+            <Icon icon={Plus} />
+          </button>}>
+            <span class="tab-new-menu" data-testid="new-tab">
+              <ProductMenu label={message('templatesEntry.newTab')} items={newItems()} icon={Plus} iconOnly fill="quiet" />
             </span>
           </Show>
         </Show>

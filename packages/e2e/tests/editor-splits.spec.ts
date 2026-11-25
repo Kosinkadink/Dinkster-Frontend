@@ -143,6 +143,7 @@ test('divider drag and keyboard arrows change the split ratio', async ({ page })
 test('dragging a tab moves it into a pane center or splits at a pane edge', async ({ page }) => {
   await contextMenuAction(groups(page), 'Subgraph', 'workflow.splitRight')
   await page.getByTestId('new-tab').click()
+  await page.getByRole('menuitem', { name: 'Blank workflow', exact: true }).click()
   const second = groupById(page, 'group-2')
   await expect.poll(() => stripTitles(second)).toEqual(['Subgraph', 'Untitled'])
 
