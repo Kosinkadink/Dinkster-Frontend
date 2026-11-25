@@ -167,6 +167,7 @@ const cards: readonly NoticeCard[] = [
       'One row per node with every change to that node on its row. The count is of changes (4), not of nodes (3). A replaced node is reported here too.',
     changes: four,
     review: true,
+    stage: 'wide',
   },
   {
     id: 'arriving',
