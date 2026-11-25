@@ -3805,7 +3805,7 @@ export class CanvasRenderer {
         ctx.globalAlpha = dragged !== undefined && rowTop >= dragged.top && rowTop < dragged.bottom
           ? rowsAlpha * canvasPaintTokens.widget.inactiveOpacity
           : rowsAlpha
-        if ((row.kind === 'widget' || row.kind === 'ports') && row.crossInset !== undefined && row.remove !== undefined) {
+        if ((row.kind === 'widget' || row.kind === 'ports' || row.kind === 'button') && row.crossInset !== undefined && row.remove !== undefined) {
           paintCross(node.x + l.width - row.crossInset, rowY + t.rowHeight / 2, row.remove.disabledReason !== undefined)
         }
         if ((row.kind === 'widget' || row.kind === 'ports') && row.reorder !== undefined) {

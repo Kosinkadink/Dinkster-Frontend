@@ -288,7 +288,7 @@ export function gripAt(node: SceneNode, wx: number, wy: number): MemberGrip | un
 function memberRemoveAt(node: SceneNode, wx: number, wy: number): MemberRemoval | undefined {
   const box = canvasPaintTokens.node.box
   for (const row of node.layout.rows) {
-    if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports') || row.crossInset === undefined || row.remove === undefined) continue
+    if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports' && row.kind !== 'button') || row.crossInset === undefined || row.remove === undefined) continue
     const right = node.x + node.layout.width - row.crossInset
     const cy = node.y + (row.kind === 'member'
       ? row.top + (defaultTokens.rowHeight - defaultTokens.rowGeometry.fieldInsetY * 2) / 2

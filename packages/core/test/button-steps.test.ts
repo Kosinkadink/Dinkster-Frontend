@@ -278,6 +278,31 @@ describe('each step', () => {
     const boundOutcome = await runPress(boundSession, at('clear'), hostOf())
     expect(boundSession.doc.graphs['g0']!.nodes['n1']!.dynamic!['loras']!.members).toEqual(['lora_1', 'lora_3'])
     expect(boundOutcome.skipped).toEqual([{ id: 'loras.lora_3', why: 'wired' }, { id: 'loras.lora_1', why: 'wired' }])
+
+    const local = documentOf({ n1: { type: 'dev.buttons.member_steps', values: start.values, ...start.extra }, src: { type: 'dev.image.gradient' } })
+    const occurrenceDoc = { ...local, root: asGraphDefId('root'), graphs: { ...local.graphs, root: {
+      id: asGraphDefId('root'), name: 'root', nodes: { a: { id: asNodeId('a'), type: '#g0', values: {} } },
+      links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+    } }, occurrenceTopologies: { a: { owner: { instancePath: [], node: asNodeId('a') }, bodyGraph: asGraphDefId('g0'), nextOrdinal: 1,
+      links: { local: { id: asLinkId('local'), from: { kind: 'body' as const, endpoint: { node: asNodeId('src'), port: asPortId('image') } },
+        to: { kind: 'body' as const, endpoint: { node: asNodeId('n1'), port: asPortId('loras.lora_3.clip') } } } },
+    } } }
+    for (const button of ['remove_last', 'clear']) {
+      const localSession = sessionOf(occurrenceDoc)
+      const localOutcome = await runPress(localSession, at(button), hostOf())
+      expect(localOutcome.skipped).toEqual([{ id: 'loras.lora_3', why: 'wired' }])
+      expect(localSession.doc.graphs['g0']!.nodes['n1']!.dynamic!['loras']!.members)
+        .toEqual(button === 'clear' ? ['lora_3'] : ['lora_1', 'lora_2', 'lora_3'])
+      expect(localSession.doc.occurrenceTopologies).toEqual(occurrenceDoc.occurrenceTopologies)
+    }
+    const continued = sessionOf(occurrenceDoc)
+    const continuedOutcome = await runSteps(continued, [
+      { graphId: 'g0', nodeId: 'n1', prefix: '', steps: decodeSteps([{ step: 'removeMember', group: 'loras', which: 'last' }] as never) },
+      { graphId: 'g0', nodeId: 'n1', prefix: 'loras.lora_1.', steps: decodeSteps([{ step: 'set', field: 'strength', value: { value: 0.5 } }] as never) },
+    ], hostOf())
+    expect(continuedOutcome).toMatchObject({ kind: 'done', skipped: [{ id: 'loras.lora_3', why: 'wired' }] })
+    expect(valuesOf(continued)['loras.lora_1.strength']).toBe(0.5)
+    expect(continued.doc.occurrenceTopologies).toEqual(occurrenceDoc.occurrenceTopologies)
   })
 
   it('SetEach works out every member before it writes any', async () => {
