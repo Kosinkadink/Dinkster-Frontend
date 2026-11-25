@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Locator, type Page } from '../visual.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
-import { unfoldNodeEditor, waitForWorkspaceReady } from './fixtures.js'
+import { subgraphMarkPoint, unfoldNodeEditor, waitForWorkspaceReady } from './fixtures.js'
 import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
@@ -191,6 +191,78 @@ test('hides the histogram input and its wire in one undo step and keeps the over
   expect(await hasWire()).toBe(false)
   expect(browserErrors.get(page)).toEqual({ page: [], console: [], responses: [] })
 })
+
+for (const delivery of ['net', 'boundary', 'parent-boundary'] as const) {
+  test(`hides a drilled histogram fed by ${delivery} and restores it in one undo`, async ({ page }, testInfo) => {
+    await page.evaluate(async (delivery) => {
+      const app = window.__dinksterTest!.app
+      const original = app.activeTab()!.store.doc
+      const graph = original.graphs.g0!
+      const { histogramWire, ...links } = graph.links
+      const document = {
+        ...original, root: 'outer', graphs: {
+          g0: {
+            ...graph, links,
+            nets: delivery === 'net' ? { feed: { id: 'feed', name: 'Histogram', source: histogramWire!.from, sinks: [histogramWire!.to] } } : {},
+            ...(delivery === 'net' ? {} : { boundary: { inputs: [{ id: 'feed', binds: { kind: 'port', node: 'editor', port: 'histogram' } }], outputs: [] } }),
+          },
+          outer: {
+            id: 'outer', name: 'Outer', nextOrdinal: 1, nets: {}, reroutes: {},
+            nodes: { first: { id: 'first', type: '#g0', values: {} }, second: { id: 'second', type: '#g0', values: {} }, parentHistogram: { id: 'parentHistogram', type: 'dinkster.image.image_histogram', values: {} } },
+            links: delivery === 'parent-boundary' ? {
+              firstWire: { id: 'firstWire', from: { node: 'parentHistogram', port: 'rgb' }, to: { node: 'first', port: 'feed' } },
+              secondWire: { id: 'secondWire', from: { node: 'parentHistogram', port: 'rgb' }, to: { node: 'second', port: 'feed' } },
+            } : {},
+          },
+        }, view: { ...original.view, graphs: { ...original.view.graphs, outer: { nodes: { first: { position: { x: 80, y: 110 } }, second: { position: { x: 500, y: 110 } } } } } },
+      }
+      const diagnostics = await app.openDocument(document as never, `Drilled histogram ${delivery}`)
+      if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
+      window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+    }, delivery)
+    const mark = await subgraphMarkPoint(page, 'first')
+    await page.mouse.dblclick(mark.x, mark.y)
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().length)).toBe(2)
+    await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
+    const editor = await unfoldNodeEditor(page, 'editor', 'curve')
+    const before = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
+    await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
+    const height = (await editor.boundingBox())!.height
+    const point = await page.evaluate(() => {
+      const renderer = window.__dinksterTest!.renderer!
+      const node = renderer.getScene().nodes.find((node) => node.id === 'editor')!
+      const row = node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === 'curve')!
+      const viewport = renderer.getViewport()
+      const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+      return { x: canvas.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
+        y: canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y }
+    })
+    await page.mouse.click(point.x, point.y, { button: 'right' })
+    const hide = page.getByRole('menuitem', { name: 'Hide histogram input', exact: true })
+    await expect(hide).toBeEnabled()
+    await hide.click()
+    await expect(editor.getByText('Histogram', { exact: true })).toHaveCount(0)
+    expect(height - (await editor.boundingBox())!.height).toBe(26)
+    expect(await page.evaluate(() => {
+      const node = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'editor')!
+      return node.layout.pins.some((pin) => pin.portId === 'histogram')
+    })).toBe(false)
+    const capture = await page.screenshot({ animations: 'disabled' })
+    await testInfo.attach(`native-drilled-${delivery}-hidden`, { body: capture, contentType: 'image/png' })
+    if (process.env['DINKSTER_CAPTURE_EVIDENCE'] === '1') {
+      mkdirSync(evidenceGroupDir('issue-1268'), { recursive: true })
+      writeFileSync(evidencePath('issue-1268', `native-drilled-${delivery}-hidden.png`), capture)
+    }
+    const after = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
+    expect(JSON.parse(after).graphs).toEqual(JSON.parse(before).graphs)
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+    expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(before)
+    await expect(editor.getByText('Histogram', { exact: true })).toBeVisible()
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.redo())).toBe(true)
+    await expect(editor.getByText('Histogram', { exact: true })).toHaveCount(0)
+    expect(browserErrors.get(page)).toEqual({ page: [], console: [], responses: [] })
+  })
+}
 
 test('renders finite curve geometry across extreme float values', async ({ page }, testInfo) => {
   const extremeCurve = {

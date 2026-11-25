@@ -23,7 +23,11 @@ describe('curve histogram menu', () => {
       { kind: 'input', id: 'bins', type: { kind: 'concrete', name: 'HISTOGRAM' }, optional: true },
     ], keys: { kind: 'numbered', prefix: '', start: 1, pad: 0 }, grows: 'button', minMembers: 2 }],
   }
-  const resolve = (type: string) => type === curve.type ? curve : undefined
+  const source: NodeSchema = {
+    type: 'Source', displayName: 'Source', category: 'test', source: 'v3', isOutputNode: false,
+    body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'HISTOGRAM' } }],
+  }
+  const resolve = (type: string) => type === curve.type ? curve : type === source.type ? source : undefined
   const port = (member: number) => ({ node: 'curves', port: `curves.${member}.bins` })
   const fixture = (delivery: 'link' | 'net' | 'boundary') => loadDocument({
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'histogram-menu', root: 'g0',
@@ -51,7 +55,7 @@ describe('curve histogram menu', () => {
       const before = store.doc
       const action = menu(before)
       expect(action.label).toBe('Hide histogram input')
-      expect(action.disabled).toBe(false)
+      expect(action.disabled, action.disabledReason).toBe(false)
       if (action.action?.kind !== 'command') throw new Error('command missing')
       expect(store.dispatch(action.action.invocation).ok).toBe(true)
       expect(store.doc.view.graphs.g0!.nodes.curves!.histogramVisibility).toEqual({ 'curves.1.curve': false })
@@ -89,6 +93,53 @@ describe('curve histogram menu', () => {
     expect(store.undo()).toBe(true)
     expect(store.doc).toEqual(document)
   })
+  for (const delivery of ['net', 'boundary', 'parent-boundary', 'parent-boundary-fanout'] as const) {
+    it(`hides a drilled ${delivery} histogram without changing its definition or sibling delivery`, () => {
+      const body = fixture(delivery === 'net' ? 'net' : 'boundary')
+      const document = loadDocument({ ...body, root: 'outer', graphs: { ...body.graphs,
+        g0: { ...body.graphs.g0!, ...(delivery === 'parent-boundary' ? {
+          boundary: { inputs: [{ id: 'feed', binds: { kind: 'port', ...port(1) } }], outputs: [] },
+        } : {}) },
+        outer: {
+          id: 'outer', name: 'Outer', nextOrdinal: 1, nets: {}, reroutes: {},
+          nodes: { first: { id: 'first', type: '#g0', values: {} }, second: { id: 'second', type: '#g0', values: {} }, source: { id: 'source', type: 'Source', values: {} } },
+          links: delivery.startsWith('parent-') ? {
+            firstWire: { id: 'firstWire', from: { node: 'source', port: 'out' }, to: { node: 'first', port: 'feed' } },
+            secondWire: { id: 'secondWire', from: { node: 'source', port: 'out' }, to: { node: 'second', port: 'feed' } },
+          } : {},
+        },
+      }, view: { graphs: { g0: { nodes: { curves: { editors: { 'curves.1.curve': { unfolded: true }, 'curves.2.curve': { unfolded: true } } } } } } } }).document!
+      const occurrence = { owner: { instancePath: [], node: asNodeId('first') }, plannerAvailable: true }
+      const store = new DocumentStore(document, coreCommandRegistry())
+      const scene = () => buildScene({ document: store.doc, graphId: 'g0', resolve, tokens: defaultTokens, measure: (text) => text.length * 7,
+        widgetMeasure: () => ({ viewId: 'core.curve', rows: 2 }), occurrence })
+      const before = scene().nodes.find((node) => node.id === 'curves')!
+      const siblingBefore = effectiveOccurrenceTopology(document, resolve, { instancePath: [], node: asNodeId('second') })
+      const action = menu(store.doc, 1, false, occurrence)
+      expect(action.disabled).toBe(false)
+      if (action.action?.kind !== 'command') throw new Error('command missing')
+      const outcome = store.dispatch(action.action.invocation)
+      expect(outcome.ok, JSON.stringify(outcome.diagnostics)).toBe(true)
+      const after = scene().nodes.find((node) => node.id === 'curves')!
+      expect(after.layout.pins.some((pin) => pin.portId === 'curves.1.bins')).toBe(false)
+      expect(after.layout.height).toBe(before.layout.height - defaultTokens.rowHeight)
+      expect(menu(store.doc, 1, false, occurrence).label).toBe('Show histogram input')
+      expect(menu(store.doc, 1, false, occurrence).disabled).toBe(false)
+      const effective = effectiveOccurrenceTopology(store.doc, resolve, occurrence.owner)
+      expect([...effective.links, ...effective.projectedParentLinks].some((link) => isPortEndpoint(link.to.endpoint) && link.to.endpoint.port === 'curves.1.bins')).toBe(false)
+      expect(effectiveOccurrenceTopology(store.doc, resolve, { instancePath: [], node: asNodeId('second') })).toEqual(siblingBefore)
+      expect(store.doc.graphs).toEqual(document.graphs)
+      if (delivery === 'net' || delivery === 'parent-boundary-fanout') {
+        expect([...effective.links, ...effective.projectedParentLinks].some((link) => isPortEndpoint(link.to.endpoint) && link.to.endpoint.port === 'curves.2.bins')).toBe(true)
+      }
+      const saved = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+      expect(menu(saved, 1, false, occurrence).label).toBe('Show histogram input')
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(document)
+      expect(store.redo()).toBe(true)
+      expect(menu(store.doc, 1, false, occurrence).label).toBe('Show histogram input')
+    })
+  }
 })
 
 describe('menuFlat', () => {

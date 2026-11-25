@@ -1036,14 +1036,15 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
     if (isPortEndpoint(toEndpoint)) markConnected(toEndpoint, 'in')
   }
-  for (const net of Object.values(def.nets)) {
+  for (const net of effective === undefined ? Object.values(def.nets) : []) {
     markConnected(net.source, 'out')
     for (const sink of net.sinks) markConnected(sink, 'in')
   }
   // Boundary bindings are connections too: a bound port inside a collapsed
   // section must keep its pin so the boundary noodle never dangles. Family
   // forwarding has no single pin; its noodle anchors dynamically below.
-  if (def.boundary) {
+  // Concrete occurrences use only their unsuppressed effective deliveries.
+  if (def.boundary && effective === undefined) {
     for (const item of def.boundary.inputs) {
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (b.kind === 'port')
