@@ -100,10 +100,20 @@ export const inNodeEditorSchemas: readonly NodeSchema[] = [
     field('zoom', 'FLOAT', 5, { min: 0, max: 10, step: 0.1 }),
     output('conditioning', 'STRING'),
   ]),
+  // The curve names the input beside it that is its histogram: its pin is drawn inside the curve's editor.
   schema('Curve editor', [
+    editor('curve', 'CURVE', { histogram: 'histogram' }),
     socket('histogram', 'HISTOGRAM', true),
-    editor('curve', 'CURVE'),
     output('curve', 'CURVE'),
+  ]),
+  // Each curve of a group names the histogram beside it in its own member.
+  schema('Curves with histograms', [
+    {
+      kind: 'group', id: 'curves', displayName: 'Curves',
+      member: [editor('curve', 'CURVE', { histogram: 'histogram' }), socket('histogram', 'HISTOGRAM', true)],
+      keys: { kind: 'numbered', prefix: '', start: 1, pad: 0 }, grows: 'button', minMembers: 2, maxMembers: 4, addLabel: 'Add curve',
+    },
+    output('text', 'STRING'),
   ]),
   // A node turns the strips on in its curve's declaration, each with its colors from low to high.
   schema('Brightness curve', [
@@ -289,18 +299,31 @@ export const inNodeEditorExamples: readonly InNodeEditorExample[] = [
   { id: 'curve-folded-primitive', card: 35, caption: 'Folded, fed by a Primitive holding 3 points, before a run: the curve it holds, muted with the row', type: 'Curve editor',
     wired: { curve: 'CURVE' },
     carried: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0.2 }, { position: 0.6, value: 0.4 }, { position: 1, value: 0.9 }] } } },
-  { id: 'curve-histogram-before', card: 36, caption: 'A histogram wired in, before a run: its line reads Histogram: not known yet', type: 'Curve editor',
+  { id: 'curve-histogram-unwired', card: 36, caption: 'The histogram input has no wire: its pin is on the line Histogram inside the editor', type: 'Curve editor',
+    values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } }, view: unfold('curve') },
+  { id: 'curve-histogram-before', card: 36, caption: 'A histogram wired in, before a run: no bars yet', type: 'Curve editor',
     values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } },
     wired: { histogram: 'HISTOGRAM' }, view: unfold('curve') },
-  { id: 'curve-histogram', card: 36, caption: "A histogram wired in: after a run, behind the line", type: 'Curve editor',
+  { id: 'curve-histogram', card: 36, caption: 'A histogram wired in: after a run, its bars behind the curve', type: 'Curve editor',
     values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } },
-    wired: { histogram: 'HISTOGRAM' }, view: unfold('curve'), states: { curve: { histogram: true } } },
+    wired: { histogram: 'HISTOGRAM' }, view: unfold('curve'), states: { curve: { histogram: 'rising' } } },
   { id: 'panel-curve', card: 37, caption: "On a subgraph's Inputs panel: the curve folded out under its field, and the panel grown downward", type: 'Curve editor',
     place: 'inputsPanel', values: { curve: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] } },
     view: unfold('curve') },
   { id: 'primitive-curve', card: 38, caption: "In a Primitive wired to a Curve editor's curve: the Primitive takes the curve's widget and folds it out like any node", type: 'Curve editor',
     place: 'primitive', values: { value: { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.4, value: 0.6 }, { position: 1, value: 1 }] } },
     view: unfold('value') },
+  { id: 'curve-histogram-folded', card: 36, caption: "Folded with a wire: the histogram's pin beside the curve's on its row", type: 'Curve editor',
+    values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.45 }, { position: 1, value: 0.95 }] } },
+    wired: { histogram: 'HISTOGRAM' }, view: fold('curve') },
+  { id: 'curves-histograms', card: 39, caption: 'Two curves in one node, each with its own histogram pin and its own bars after a run',
+    type: 'Curves with histograms', members: { curves: ['1', '2'] },
+    values: {
+      'curves.1.curve': { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0 }, { position: 0.5, value: 0.65 }, { position: 1, value: 1 }] },
+      'curves.2.curve': { interpolation: 'monotone_cubic', points: [{ position: 0, value: 0.1 }, { position: 0.5, value: 0.3 }, { position: 1, value: 0.9 }] },
+    },
+    wired: { 'curves.1.histogram': 'HISTOGRAM', 'curves.2.histogram': 'HISTOGRAM' }, view: unfold('curves.1.curve', 'curves.2.curve'),
+    width: 324, states: { 'curves.1.curve': { histogram: 'rising' }, 'curves.2.curve': { histogram: 'falling' } } },
 ]
 
 /**
