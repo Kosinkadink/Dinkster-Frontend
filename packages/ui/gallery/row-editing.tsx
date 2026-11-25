@@ -451,13 +451,14 @@ export function RowEditingExample(props: {
     if (props.example.focus !== undefined) {
       // The default reads as the closed row would read it, in full.
       const declared = effectiveWidgetDefault(row.spec)
-      const defaultText =
+      let defaultText =
         declared === undefined
           ? undefined
           : props.jsonDefault === true
             ? formatWidgetValue(declared, row.spec)
-            : (widgetValueText(props.registry, row.viewId, declared, row.spec) ??
-              formatWidgetValue(declared, row.spec))
+            : widgetValueText(props.registry, row.viewId, declared, row.spec)
+      if (defaultText === undefined && declared !== undefined)
+        defaultText = formatWidgetValue(declared, row.spec)
       if (defaultText == null && help === undefined) return undefined
       return (
         <CanvasSidePart

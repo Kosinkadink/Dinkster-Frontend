@@ -5337,9 +5337,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const help = item?.kind === 'input' ? item.tooltip : undefined
       const declared = effectiveWidgetDefault(row.spec)
       // The default reads as the closed row would read it, in full.
-      const defaultText = declared === undefined
+      let defaultText = declared === undefined
         ? undefined
-        : widgetValueText(widgetRegistry(), row.viewId, declared, row.spec) ?? formatWidgetValue(declared, row.spec)
+        : widgetValueText(widgetRegistry(), row.viewId, declared, row.spec)
+      if (defaultText === undefined && declared !== undefined) defaultText = formatWidgetValue(declared, row.spec)
       return {
         tabId: tab.id,
         graphId: currentGraphId(tab),
