@@ -119,6 +119,21 @@ test('portable Desktop chrome keeps host identity inside a shared toolbar', asyn
       }
     }
   }
+  for (const fullScreen of [true, false]) {
+    await page.evaluate(
+      (fullScreen) =>
+        window.DinksterDesktopChrome.install({
+          title: 'Host toolbar',
+          platform: 'darwin',
+          theme: 'dark',
+          qa: true,
+          development: true,
+          fullScreen,
+        }),
+      fullScreen,
+    )
+    await expect(bar).toHaveCSS('padding-left', fullScreen ? '12px' : '92px')
+  }
   await bar.evaluate((node) => node.remove())
   await expect(page.locator('.dinkster-window-fallback')).toHaveCount(1)
   await page.evaluate((content) => {
@@ -229,7 +244,7 @@ for (const existing of [false, true]) {
         dark: { color: '#090D0D', symbolColor: '#F0F5F5', height: 44 },
         light: { color: '#EDEFF2', symbolColor: '#20252A', height: 44 },
       },
-      trafficLightPosition: { x: 14, y: 10 },
+      trafficLightPosition: { x: 14, y: 14 },
     })
     const requests: string[] = []
     page.on('request', (request) => requests.push(request.url()))
