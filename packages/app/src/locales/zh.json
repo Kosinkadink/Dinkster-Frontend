@@ -1695,6 +1695,7 @@
   "shell.workflowTabs.documents": "工作流文档",
   "shell.workflowTabs.livePreviews": "实时预览",
   "shell.workflowTabs.openWorkflows": "打开的工作流",
+  "shell.pageTabs.open": "打开的页面与工作流",
   "shell.workflowTabs.preview.auto": "自动",
   "shell.workflowTabs.preview.cheap": "便宜",
   "shell.workflowTabs.preview.inheritGlobal": "继承全局",

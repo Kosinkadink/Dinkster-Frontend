@@ -94,6 +94,7 @@ import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
 import { ProjectsGallery } from './projects.js'
 import { TemplatesGallery } from './templates.js'
+import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
 
 const navigation = [
@@ -1532,7 +1533,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#window-toolbar', '#editor-bar', '#projects', '#templates'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'
@@ -1563,6 +1564,9 @@ function GalleryRoot() {
           </Match>
           <Match when={route() === '#templates'}>
             <TemplatesGallery />
+          </Match>
+          <Match when={route() === '#page-tabs'}>
+            <PageTabsGallery />
           </Match>
         </Switch>
       }
