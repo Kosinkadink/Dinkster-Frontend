@@ -142,10 +142,30 @@ test('sound and video play in place, and media can move, resize and undo removal
           .locator('audio, video')
           .evaluate((element) => (element as HTMLMediaElement).currentTime),
       )
-      .toBeGreaterThan(0)
+      .toBeGreaterThan(1)
     await item
       .getByRole('button', { name: `Pause ${name}`, exact: true })
       .click()
+    const elapsed = await item
+      .locator('audio, video')
+      .evaluate((element) => (element as HTMLMediaElement).currentTime)
+    const duration = await item
+      .locator('audio, video')
+      .evaluate((element) => (element as HTMLMediaElement).duration)
+    const progress = item.getByRole('progressbar', {
+      name: `Playback of ${name}`,
+    })
+    await expect(progress).toHaveAttribute('aria-valuenow', String(elapsed))
+    const width = (await progress.locator('span').boundingBox())!.width
+    expect(width / (await progress.boundingBox())!.width).toBeCloseTo(
+      elapsed / duration,
+      2,
+    )
+    await expect(item.locator('.dinkster-board-media-control')).toContainText(
+      `0:${Math.floor(elapsed).toString().padStart(2, '0')} / 0:04`,
+    )
+    await page.waitForTimeout(300)
+    await expect(progress).toHaveAttribute('aria-valuenow', String(elapsed))
     expect((await item.boundingBox())!.x).toBeCloseTo(before.x)
     await page.mouse.move(before.x + 20, before.y + 20)
     await page.mouse.down()
@@ -217,5 +237,6 @@ test('unreadable audio shows its name and reason without waveform or playback', 
   )
   await expect(sound.getByRole('img')).toHaveCount(0)
   await expect(sound.getByRole('button')).toHaveCount(0)
+  await expect(sound.getByRole('progressbar')).toHaveCount(0)
   await expect(sound).not.toContainText('--:--')
 })

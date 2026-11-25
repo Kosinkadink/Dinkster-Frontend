@@ -86,7 +86,7 @@ export function BoardGallery() {
   return (
     <ProductSection title="Board">
       <p class="dinkster-metadata">
-        A document surface with no grid. Drag items to move them. Select a
+        A document surface with canvas dots. Drag items to move them. Select a
         picture to resize it. Add a note or section, then click the board.
         Delete removes the selection; Undo and Redo restore edits.
       </p>

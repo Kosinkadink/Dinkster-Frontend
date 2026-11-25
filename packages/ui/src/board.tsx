@@ -3,6 +3,7 @@ import {
   Show,
   createEffect,
   createSignal,
+  createUniqueId,
   onCleanup,
   type JSX,
 } from 'solid-js'
@@ -26,6 +27,7 @@ import {
   type BoardStore,
 } from '@dinkster/core'
 import {
+  canvasPaintTokens,
   clampScale,
   touchNavViewport,
   wheelNavigationViewport,
@@ -102,6 +104,7 @@ function BoardMedia(props: {
 }) {
   const [playing, setPlaying] = createSignal(false)
   const [duration, setDuration] = createSignal(props.item.asset.duration)
+  const [elapsed, setElapsed] = createSignal(0)
   const [waveform, setWaveform] = createSignal('')
   const [waveformFailed, setWaveformFailed] = createSignal(false)
   const [playFailed, setPlayFailed] = createSignal(false)
@@ -200,7 +203,11 @@ function BoardMedia(props: {
               onLoadedMetadata={metadata}
               onError={() => setPlayFailed(true)}
               onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
+              onTimeUpdate={() => setElapsed(media.currentTime)}
+              onPause={() => {
+                setElapsed(media.currentTime)
+                setPlaying(false)
+              }}
               onEnded={() => setPlaying(false)}
             />
             <Show when={!unreadable()}>
@@ -226,7 +233,11 @@ function BoardMedia(props: {
           preload="metadata"
           onLoadedMetadata={metadata}
           onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
+          onTimeUpdate={() => setElapsed(media.currentTime)}
+          onPause={() => {
+            setElapsed(media.currentTime)
+            setPlaying(false)
+          }}
           onEnded={() => setPlaying(false)}
         />
       </Show>
@@ -254,9 +265,31 @@ function BoardMedia(props: {
             }}
           />
           <Show when={mediaLength(duration())}>
-            {(length) => <span>{length()}</span>}
+            {(length) => (
+              <span>
+                {mediaLength(Math.floor(elapsed()))} / {length()}
+              </span>
+            )}
           </Show>
         </div>
+        <Show when={Number.isFinite(duration()) && duration()! > 0}>
+          <div
+            class="dinkster-board-media-progress"
+            role="progressbar"
+            aria-label={`Playback of ${props.item.asset.name}`}
+            aria-valuemin={0}
+            aria-valuemax={duration()}
+            aria-valuenow={elapsed()}
+          >
+            <span
+              ref={(element) => {
+                createEffect(() => {
+                  element.style.width = `${Math.min(1, elapsed() / duration()!) * 100}%`
+                })
+              }}
+            />
+          </div>
+        </Show>
       </Show>
     </div>
   )
@@ -269,12 +302,19 @@ export function ProductBoard(props: ProductBoardProps) {
   const [editingSection, setEditingSection] = createSignal<string>()
   const [tool, setTool] = createSignal<'select' | 'note' | 'section'>('select')
   const [camera, setCamera] = createSignal({ x: 16, y: 80, scale: 1 })
+  let surface!: HTMLDivElement
+  const gridId = createUniqueId()
+  const gridSpacing = () => {
+    const grid = canvasPaintTokens.grid
+    let spacing: number = grid.spacing
+    while (spacing * camera().scale < grid.minScreenSpacing) spacing *= 2
+    return spacing * camera().scale
+  }
   const [preview, setPreview] = createSignal<{
     id: string
     rect: BoardItem['rect']
     moving: boolean
   }>()
-  let surface!: HTMLDivElement
   createEffect(() => {
     setDocument(props.store.doc)
     onCleanup(props.store.document.subscribe(setDocument))
@@ -573,6 +613,24 @@ export function ProductBoard(props: ProductBoardProps) {
       }}
     >
       <svg class="dinkster-board-world" width="100%" height="100%">
+        <defs>
+          <pattern
+            id={gridId}
+            class="dinkster-board-grid"
+            patternUnits="userSpaceOnUse"
+            x={camera().x - gridSpacing() / 2}
+            y={camera().y - gridSpacing() / 2}
+            width={gridSpacing()}
+            height={gridSpacing()}
+          >
+            <circle
+              cx={gridSpacing() / 2}
+              cy={gridSpacing() / 2}
+              r={canvasPaintTokens.grid.dotRadius * camera().scale}
+            />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill={`url(#${gridId})`} />
         <g
           transform={`translate(${camera().x} ${camera().y}) scale(${camera().scale})`}
         >
