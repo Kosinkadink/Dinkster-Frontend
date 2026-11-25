@@ -159,13 +159,14 @@ export function AssetConsentDialog(props: { app: AppState }) {
               return message(standalone() ? 'modelConsent.reviewConsent' : 'modelConsent.reviewFirst')
             }
             const cancellable = () => { return cancellableModelPhases.has(state().job?.status ?? '') }
+            const duplicate = () => state().plan?.status === 'duplicate'
             return <li class="asset-decision-row" data-testid="model-consent-row">
               <div class="asset-decision-row-copy">
                 <strong>{state().requirement.name}</strong>
                 <span class="asset-kind">{state().requirement.kind}</span>
                 <ProductNotice tone="status" testId="model-consent-phase">{phase()}</ProductNotice>
                 <Show when={state().job?.error}>{(error) => <ProductNotice tone="error">{['credential-required', 'provider-grant-required', 'civitai-access-required', 'model-hidden'].includes(error()) ? message(`modelConsent.plan.${error()}`) : error()}</ProductNotice>}</Show>
-                <Show when={state().source !== undefined || state().plan?.status === 'picker-required'}>
+                <Show when={!duplicate() && (state().source !== undefined || state().plan?.status === 'picker-required')}>
                   <ProductField controlId={`model-source-${index}`} layout="stack"
                     label={message('modelConsent.sourceUrl')} description={message('modelConsent.sourceDescription')}>
                     <ProductTextInput id={`model-source-${index}`} type="url" data-testid="model-consent-source"
@@ -201,8 +202,9 @@ export function AssetConsentDialog(props: { app: AppState }) {
                 </>}</Show>
                 <Show when={state().error}><ProductNotice tone="error">{state().error}</ProductNotice></Show>
                 <Show when={state().plan?.status === 'folder-disabled'}><ProductNotice tone="warning">{message('assetConsent.folderDisabled')}</ProductNotice></Show>
+                <Show when={duplicate()}><ProductNotice tone="warning">{message(standalone() ? 'modelConsent.reviewDuplicateDetail' : 'modelConsent.duplicateDetail', { name: state().requirement.name })}</ProductNotice></Show>
                 <div class="asset-decision-source-details">
-                  <ProductButton disabled={state().pending || request()?.busy} onClick={() => void request()?.reviewModel?.(index)}>{message(state().job || state().interrupted ? 'modelConsent.reconnect' : 'modelConsent.review')}</ProductButton>
+                  <Show when={!duplicate()}><ProductButton disabled={state().pending || request()?.busy} onClick={() => void request()?.reviewModel?.(index)}>{message(state().job || state().interrupted ? 'modelConsent.reconnect' : 'modelConsent.review')}</ProductButton></Show>
                   <Show when={nextDownload() === index}>
                     <ProductButton variant="primary" disabled={state().pending || request()?.busy} data-testid="model-consent-download" onClick={() => void request()?.downloadModel?.(index)}>{message('modelConsent.download')}</ProductButton>
                   </Show>

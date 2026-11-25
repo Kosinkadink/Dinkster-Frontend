@@ -210,6 +210,51 @@ test('model review separates download, reconnect and a single captured-body Run 
   expect(captured).toEqual(bodies[0])
 })
 
+test('duplicate model review blocks only that row without offering a third copy', async ({ page }, testInfo) => {
+  await prepare(page)
+  const duplicate = { name: 'flux1-dev.safetensors', kind: 'model/diffusion' }
+  const local = { name: 'local.safetensors', kind: 'model/vae' }
+  const missing = { name: 'missing.safetensors', kind: 'model/vae' }
+  let starts = 0
+  await page.route('**/api/jobs', (route) => route.fulfill({ status: 409, json: {
+    error: 'assets-missing', assets: [duplicate, local, missing].map((model) => ({ ...model, status: 'missing' })),
+  } }))
+  await page.route('**/api/models/downloads**', async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/start')) {
+      starts++
+      await route.fulfill({ status: 409, json: { error: 'unexpected-download' } })
+    } else if (path.endsWith('/plan')) {
+      const body = route.request().postDataJSON() as { name: string; project: string }
+      await route.fulfill({ json: body.name === duplicate.name ? { status: 'duplicate' }
+        : body.name === local.name ? { ...local, status: 'local' }
+        : { ...missing, status: 'consent-required', planId: 'missing-plan', project: body.project, provider: 'huggingface',
+          source: 'https://huggingface.co/example/vae/resolve/main/missing.safetensors', repo: 'example/vae',
+          revision: 'd'.repeat(40), file: missing.name, sha256: 'e'.repeat(64), size: 137,
+          license: 'apache-2.0', destination: '/models/vae/missing.safetensors', mount: 'studio-vae' },
+      })
+    } else await route.fulfill({ json: { instance: 'duplicate-review', jobs: [] } })
+  })
+  await submitSelection(page)
+  const dialog = page.getByTestId('asset-consent-dialog')
+  const rows = dialog.getByTestId('model-consent-row')
+  await rows.nth(0).getByRole('button', { name: 'Review source', exact: true }).click()
+  await expect(rows.nth(0).getByTestId('model-consent-phase')).toHaveText('Two files with this name')
+  await expect(rows.nth(0)).toContainText("Two files named flux1-dev.safetensors are in this project's model folders. Choose one on the node, then run again.")
+  await expect(rows.nth(0).getByRole('button', { name: 'Review source', exact: true })).toHaveCount(0)
+  await expect(rows.nth(0).getByTestId('model-consent-download')).toHaveCount(0)
+  await expect(rows.nth(0).getByTestId('model-consent-source')).toHaveCount(0)
+  await rows.nth(1).getByRole('button', { name: 'Review source', exact: true }).click()
+  await expect(rows.nth(1).getByTestId('model-consent-phase')).toContainText('Available locally.')
+  await expect(dialog.getByTestId('asset-consent-acquire')).toBeDisabled()
+  await rows.nth(2).getByRole('button', { name: 'Review source', exact: true }).click()
+  await expect(rows.nth(2).getByTestId('model-consent-download')).toBeEnabled()
+  await expect(dialog.getByTestId('asset-consent-acquire')).toHaveCount(0)
+  await dialog.locator('.asset-decision-list').evaluate((element) => { element.scrollTop = 0 })
+  await page.screenshot({ path: testInfo.outputPath('duplicate-model-after-dark.png'), animations: 'disabled' })
+  expect(starts).toBe(0)
+})
+
 test('cancel dismisses without resubmitting', async ({ page }) => {
   await prepare(page)
   let requests = 0
