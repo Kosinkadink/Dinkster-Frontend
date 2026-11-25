@@ -129,6 +129,18 @@ describe('buildParamRows', () => {
     expect(live(rows[0]!).value).toBe(42)
   })
 
+  it('shows an automatic lookup field at the answer the editor holds, and its default before one arrives', () => {
+    const INT: TypeExpr = { kind: 'concrete', name: 'INT' }
+    const automatic: NodeSchema = schemaOf('Sink', [input('seed', { type: INT }), input('steps', { type: INT, automatic: { lookup: 'steps_for', args: ['seed'] } })])
+    const rows = (answer: number | undefined) => buildParamRows(
+      doc({ values: { seed: 21 }, exposed: [entry('sink', 'steps')] }),
+      (type) => type === 'Sink' ? automatic : resolve(type),
+      (lookup, args) => lookup === 'steps_for' && args[0] === 21 && answer !== undefined ? { state: 'ready', answer } : undefined,
+    )
+    expect(live(rows(30)[0]!).value).toBe(30)
+    expect(live(rows(undefined)[0]!).value).toBe(5)
+  })
+
   it('marks a link-driven input linked (read-only in the form)', () => {
     const rows = buildParamRows(
       doc({

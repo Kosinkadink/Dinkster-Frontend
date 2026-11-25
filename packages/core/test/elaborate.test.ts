@@ -1077,7 +1077,11 @@ describe('automatic values', () => {
     expect(automaticOf(() => ({ state: 'loading', answer: 26 })).automatic).not.toHaveProperty('kept')
     expect(automaticOf(() => ({ state: 'stale', answer: 30, reason: 'failed' }))).toMatchObject({ automatic: { value: 30, state: 'worked-out', kept: 'stale' }, warned: false })
     expect(automaticOf(() => ({ state: 'paused', answer: 31 }))).toMatchObject({ automatic: { value: 31, state: 'worked-out', kept: 'paused' }, warned: false })
-    expect(automaticOf(() => ({ state: 'paused' })).automatic?.state).toBe('loading')
+    // Paused with nothing kept, or waiting for a file to be checked: the default, not loading, and no warning.
+    expect(automaticOf(() => ({ state: 'paused' }))).toMatchObject({ automatic: { value: 24, state: 'not-known', reason: 'paused' }, warned: false })
+    expect(automaticOf(() => ({ state: 'unavailable', reason: 'file-unchecked' }))).toMatchObject({
+      automatic: { value: 24, state: 'not-known', reason: 'file-unchecked' }, warned: false,
+    })
     expect(automaticOf(() => ({ state: 'ready', answer: 25.5 })).automatic).toMatchObject({ value: 24, state: 'default', reason: 'wrong-type' })
   })
 
@@ -1089,6 +1093,24 @@ describe('automatic values', () => {
     expect(automaticOf(() => ({ state: 'unavailable', reason: 'offline' }))).toMatchObject({
       automatic: { value: 24, state: 'not-known', reason: 'offline' }, warned: false,
     })
+  })
+
+  it('waits without a warning while an argument reads another automatic field whose lookup is loading', () => {
+    const base = intInput('base', {
+      automatic: { lookup: 'video.base_of', args: ['rate'] },
+      widget: { widgetType: 'INT', options: {}, default: 10 },
+    })
+    const reads = intInput('reads', {
+      automatic: { lookup: 'video.rate_of', args: ['base'] },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const elaborate = (answers: (lookup: string) => unknown) => {
+      const elaborated = elaborateInterface(schemaOf([rate, base, reads]), { values: { rate: 50 } }, EMPTY_CONNECTIVITY, { lookupAnswers: answers as never })
+      return { automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'reads')!.automatic, warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default') }
+    }
+    expect(elaborate(() => undefined)).toEqual({ automatic: { value: 24, state: 'not-known', reason: 'argument-unknown' }, warned: false })
+    expect(elaborate((lookup) => lookup === 'video.base_of' ? { state: 'ready', answer: 12 } : { state: 'ready', answer: 30 }))
+      .toEqual({ automatic: { value: 30, state: 'worked-out', call: { lookup: 'video.rate_of', args: [12] } }, warned: false })
   })
 
   it('works out a fixed field only for its open field, without a warning, while the fixed value stays in use', () => {

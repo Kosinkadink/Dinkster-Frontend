@@ -262,9 +262,11 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
     : undefined
   const lookupNote = (): string | undefined => {
     if (!emptied()) return undefined
-    if (automatic?.().kept === 'stale') return message('automaticField.couldNotRefresh')
-    if (automatic?.().kept === 'paused') return message('automaticField.paused')
-    return automatic?.().state === 'not-known' ? message('automaticField.offline') : undefined
+    const now = automatic?.()
+    if (now?.kept === 'stale') return message('automaticField.couldNotRefresh')
+    if (now?.kept === 'paused' || now?.reason === 'paused') return message('automaticField.paused')
+    if (now?.reason === 'file-unchecked') return message('canvas.lookup.fileUnchecked')
+    return now?.reason === 'offline' ? message('automaticField.offline') : undefined
   }
   const side = createMemo(() => {
     // A limit from a lookup follows the answers as they come, for the row's current arguments.

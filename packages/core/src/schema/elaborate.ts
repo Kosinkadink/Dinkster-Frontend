@@ -280,7 +280,7 @@ export interface ElaboratedEditor {
 }
 
 /** Why an automatic value could not be worked out, so the default is used. */
-export type AutomaticReason = 'unknown' | 'failed' | 'wrong-type' | 'argument-unknown' | 'lookup-failed' | 'lookup-timeout' | 'offline'
+export type AutomaticReason = 'unknown' | 'failed' | 'wrong-type' | 'argument-unknown' | 'lookup-failed' | 'lookup-timeout' | 'offline' | 'paused' | 'file-unchecked'
 
 /**
  * The value an automatic field has in use. Working it out never writes the
@@ -291,9 +291,11 @@ export interface AutomaticState {
   readonly value: Json
   /**
    * 'loading' while a lookup's answer is to come, and 'not-known' while
-   * nothing is under way and the field cannot fix it (the editor is
-   * offline): `value` is then the default, with no warning. 'default' is a
-   * value that cannot be worked out, with the warning.
+   * nothing is under way that the field can wait on: the editor is offline,
+   * the editing budget is spent, the lookup waits for a file to be checked,
+   * or an argument reads a value not known yet. `value` is then the default,
+   * with no warning. 'default' is a value that cannot be worked out, with
+   * the warning.
    */
   readonly state: 'worked-out' | 'default' | 'loading' | 'not-known'
   readonly reason?: AutomaticReason
@@ -1065,6 +1067,9 @@ function elaboratePass(
       const args: Json[] = []
       for (const argument of automatic.args) {
         const outcome = evaluate(typeof argument === 'string' ? argument : argument.formula, scope)
+        // An argument that reads a value not known yet, such as another
+        // automatic field whose lookup is loading, waits without a warning.
+        if (outcome.kind === 'unknown') return { value: fallback, state: 'not-known', reason: 'argument-unknown' }
         if (outcome.kind !== 'value') return standIn('argument-unknown')
         const value = outcome.value
         args.push(Array.isArray(value)
@@ -1080,8 +1085,10 @@ function elaboratePass(
       if (held !== undefined && 'answer' in held && held.answer !== undefined) {
         found = held.answer
         if (held.state === 'stale' || held.state === 'paused') kept = held.state
-      } else if (held?.state === 'unavailable' && held.reason === 'offline') {
-        return { value: fallback, state: 'not-known', reason: 'offline', call }
+      } else if (held?.state === 'unavailable' && (held.reason === 'offline' || held.reason === 'file-unchecked')) {
+        return { value: fallback, state: 'not-known', reason: held.reason, call }
+      } else if (held?.state === 'paused') {
+        return { value: fallback, state: 'not-known', reason: 'paused', call }
       } else if (held?.state === 'unavailable') {
         return standIn(held.reason === 'timeout' ? 'lookup-timeout' : 'lookup-failed', call)
       } else return { value: fallback, state: 'loading', call }
