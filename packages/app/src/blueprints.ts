@@ -20,6 +20,7 @@ import {
   defaultValuesOf,
   diag,
   documentResolver,
+  loadDocument,
   materializeBlueprint,
   type CommandInvocation,
   type Diagnostic,
@@ -27,7 +28,7 @@ import {
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
-import type { DinksterConnection } from '@dinkster/client'
+import type { DinksterConnection, LibraryRecord } from '@dinkster/client'
 
 /** Decoded documents are small; 64 cached bodies is plenty for a session. */
 const BODY_CACHE_MAX = 64
@@ -53,12 +54,21 @@ export class BlueprintBodyCache {
     blueprintId: string,
     digest: string,
   ): Promise<WorkflowDocument | undefined> {
+    return this.loadWith(digest, () => connection.fetchBlueprintBody(packId, blueprintId))
+  }
+
+  /**
+   * The same cache for a body fetched another way, such as a saved
+   * blueprint read from the library by its blake3 digest. Pack digests are
+   * sha256-prefixed, so the two never share a key.
+   */
+  loadWith(digest: string, fetchBody: () => Promise<WorkflowDocument | undefined>): Promise<WorkflowDocument | undefined> {
     const existing = this.entries.get(digest)
     if (existing?.state === 'ready') return Promise.resolve(existing.document)
     if (existing?.state === 'failed') return Promise.resolve(undefined)
     if (existing?.state === 'pending') return existing.promise
 
-    const promise = connection.fetchBlueprintBody(packId, blueprintId)
+    const promise = fetchBody()
       .then((document) => {
         if (document === undefined) {
           this.entries.set(digest, { state: 'failed' })
@@ -216,10 +226,13 @@ export const insertBlueprintIntoTab = async (p: {
 export const blueprintFailureDiagnostic = (
   outcome: BlueprintInsertOutcome,
   blueprintName: string,
-  packId: string,
+  /** The pack it ships in; undefined for a blueprint saved in this project. */
+  packId: string | undefined,
 ): Diagnostic | undefined => {
   if (outcome === 'no-body') {
-    return diag('error', 'import', 'blueprint.loadFailed', `blueprint '${blueprintName}' could not be loaded from pack '${packId}'`)
+    return diag('error', 'import', 'blueprint.loadFailed', packId === undefined
+      ? `saved blueprint '${blueprintName}' could not be loaded from the library`
+      : `blueprint '${blueprintName}' could not be loaded from pack '${packId}'`)
   }
   if (outcome === 'materialize-failed') {
     return diag('error', 'import', 'blueprint.insertFailed', `blueprint '${blueprintName}' could not be inserted into this document`)
@@ -233,3 +246,46 @@ export const blueprintFailureDiagnostic = (
  * blueprint uses neither.
  */
 export const BLUEPRINT_ICON = 'layers' as const
+
+/** One saved blueprint of this project, with its body once it has loaded. */
+export interface SavedBlueprint {
+  readonly record: LibraryRecord
+  readonly document?: WorkflowDocument
+}
+
+/** A saved blueprint body: library bytes by digest, validated like a pack body. */
+export const fetchSavedBlueprintBody = async (
+  connection: Pick<DinksterConnection, 'fetchAssetText'>,
+  digest: string,
+): Promise<WorkflowDocument | undefined> => {
+  const text = await connection.fetchAssetText(digest)
+  if (text === undefined) return undefined
+  let raw: unknown
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    return undefined
+  }
+  const loaded = loadDocument(raw)
+  const root = loaded.document?.graphs[loaded.document.root]
+  return root?.boundary !== undefined ? loaded.document : undefined
+}
+
+/**
+ * The open project's saved blueprints, newest first, each with its body
+ * when it loads (a body that fails to load leaves the record listed
+ * without one, so it can still be renamed or removed).
+ */
+export async function listSavedBlueprints(
+  connection: Pick<DinksterConnection, 'listLibrary' | 'fetchAssetText'>,
+  bodies: BlueprintBodyCache,
+  scope: string,
+  label: string,
+  project: string,
+): Promise<readonly SavedBlueprint[]> {
+  const page = await connection.listLibrary({ scope, label, project, limit: 200 })
+  return Promise.all(page.records.map(async (record) => {
+    const document = await bodies.loadWith(record.digest, () => fetchSavedBlueprintBody(connection, record.digest))
+    return document === undefined ? { record } : { record, document }
+  }))
+}

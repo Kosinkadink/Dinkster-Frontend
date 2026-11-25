@@ -122,7 +122,6 @@ import {
   type MenuTarget,
   type ResolvedMenuGroup,
   type NodeSchema,
-  type PackBlueprintDescriptor,
   type CompanionSourceMap,
   type ResolvedGeometryItem,
   type ViewBookmark,
@@ -133,7 +132,7 @@ import {
 import { Check, CheckCircle2, Dice5, FileUp, LoaderCircle, Lock, Minus, Plus, Snowflake, TriangleAlert, X } from 'lucide-solid'
 import { executionProgress, executionStatusLabel } from './ExecutionActivityCard.js'
 import { runClock } from './execution-activity.js'
-import { controllerAdvancementPlan, currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
+import { controllerAdvancementPlan, currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, BLUEPRINT_LABEL, LIBRARY_SCOPE, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
 import { LookupDemand, lookupAnswersOf, rowListLookupOf } from './lookup-demand.js'
 import { provideRowListLookups } from './editors/InRowListEditor.js'
 import type { RowLookups } from './WidgetEditorController.js'
@@ -151,7 +150,7 @@ import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics,
 import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
 import { problemBoxLines, problemBoxRows, type ProblemBoxLine } from './problem-box.js'
 import { NodeProblemBox } from './NodeProblemBox.js'
-import { BLUEPRINT_ICON, BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
+import { BLUEPRINT_ICON, BlueprintBodyCache, blueprintFailureDiagnostic, fetchSavedBlueprintBody, insertBlueprintIntoTab, listSavedBlueprints, type SavedBlueprint } from './blueprints.js'
 import { pasteClipboardIntoTab } from './clipboard-paste.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
 import { pendingClipboardText, writeClipboardText } from './clipboard-text.js'
@@ -2167,6 +2166,27 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // body fetch, so this loads only on insertion.
   const blueprintBodies = new BlueprintBodyCache()
 
+  // -- saved blueprints (library records labelled 'blueprint' in this project)
+  // Listed when the library backend or the saved set changes, so search
+  // reads them synchronously; bodies share the digest-keyed cache and give
+  // each entry its boundary-derived schema for port filters and previews.
+  const savedBlueprintsTick = useSignal(props.app.savedBlueprintsTick)
+  const [savedBlueprints, setSavedBlueprints] = createSolidSignal<readonly SavedBlueprint[]>([])
+  let savedBlueprintsGeneration = 0
+  createEffect(() => {
+    savedBlueprintsTick()
+    backendsTick()
+    const backend = props.app.libraryBackend()
+    const generation = ++savedBlueprintsGeneration
+    if (backend === undefined || backend.connection.status.get() !== 'connected') {
+      setSavedBlueprints([])
+      return
+    }
+    void listSavedBlueprints(backend.connection, blueprintBodies, LIBRARY_SCOPE, BLUEPRINT_LABEL, activeProjectId())
+      .then((list) => { if (generation === savedBlueprintsGeneration) setSavedBlueprints(list) })
+      .catch(() => { if (generation === savedBlueprintsGeneration) setSavedBlueprints([]) })
+  })
+
   // -- add-node palette -------------------------------------------------------
   // Opened by double-click on empty canvas, or by dropping a fresh noodle
   // there (linkDrop set: the corpus narrows to compatible entries and the
@@ -2318,6 +2338,22 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           })
         }
       }
+    }
+    for (const saved of savedBlueprints()) {
+      const body = saved.document
+      const schema = body !== undefined && reg ? documentResolver(body, reg.resolve)(`#${body.root}`) : undefined
+      entries.push({
+        type: `blueprint:saved/${saved.record.id}`,
+        name: saved.record.name,
+        category: 'This project',
+        kind: 'blueprint',
+        ...(schema !== undefined ? { schema } : {}),
+        blueprint: { recordId: saved.record.id, descriptor: { id: saved.record.id, name: saved.record.name, digest: saved.record.digest } },
+        fields: [
+          { text: saved.record.name, weight: 3 },
+          { text: 'saved blueprint', weight: 1 },
+        ],
+      })
     }
     return entries.sort((a, b) => a.name.localeCompare(b.name))
   }
@@ -3883,7 +3919,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
      */
     const insertBlueprint = async (
       tab: NonNullable<ReturnType<typeof activeTab>>,
-      bp: { readonly packId: string; readonly descriptor: PackBlueprintDescriptor },
+      bp: NonNullable<PaletteEntry['blueprint']>,
       p: { worldX: number; worldY: number; linkDrop?: LinkDropContext },
       graphId = currentGraphId(tab),
     ): Promise<void> => {
@@ -3902,7 +3938,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       })
       try {
         const outcome = await insertBlueprintIntoTab({
-          loadBody: () => blueprintBodies.load(backend.connection, bp.packId, bp.descriptor.id, bp.descriptor.digest),
+          loadBody: () => 'packId' in bp
+            ? blueprintBodies.load(backend.connection, bp.packId, bp.descriptor.id, bp.descriptor.digest)
+            : blueprintBodies.loadWith(bp.descriptor.digest, () => fetchSavedBlueprintBody(backend.connection, bp.descriptor.digest)),
           graphId,
           position: { x: Math.round(p.worldX), y: Math.round(p.worldY) },
           tabStillOpen: () => props.app.tabs.get().includes(tab),
@@ -3924,7 +3962,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         })
         // A live gesture that failed on payload is surfaced; stale-* refusals
         // (tab closed / navigated away during the fetch) stay silent.
-        const failure = blueprintFailureDiagnostic(outcome, bp.descriptor.name, bp.packId)
+        const failure = blueprintFailureDiagnostic(outcome, bp.descriptor.name, 'packId' in bp ? bp.packId : undefined)
         if (failure) props.app.reportProblems(tab.id, [failure])
       } finally {
         unsubscribe()

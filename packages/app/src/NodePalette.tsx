@@ -79,8 +79,13 @@ export interface PaletteEntry {
   readonly kind: 'node' | 'subgraph' | 'blueprint' | 'utility'
   /** Schema backing in:/out: port filters (subgraphs: boundary-derived). */
   readonly schema?: NodeSchema
-  /** Blueprint backing: descriptor for hints + lazy body fetch on insert. */
-  readonly blueprint?: { readonly packId: string; readonly descriptor: PackBlueprintDescriptor }
+  /**
+   * Blueprint backing: descriptor for hints + lazy body fetch on insert. A
+   * pack blueprint names its pack; a saved one names its library record.
+   */
+  readonly blueprint?:
+    | { readonly packId: string; readonly descriptor: PackBlueprintDescriptor }
+    | { readonly recordId: string; readonly descriptor: PackBlueprintDescriptor }
   readonly fields: readonly { readonly text: string; readonly weight: number }[]
 }
 
