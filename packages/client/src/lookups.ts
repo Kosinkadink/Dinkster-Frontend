@@ -10,6 +10,8 @@
  * arguments is never shown as the answer for new ones.
  */
 
+import { valueFromWire } from './pack-functions.js'
+
 export const LOOKUPS_PATH = '/api/lookups'
 export const LOOKUP_ANSWER_MAX_BYTES = 1024 * 1024
 /** Guards against a connection that never answers; the host bounds the call itself. */
@@ -136,7 +138,7 @@ interface Inflight {
 interface Kept {
   state: LookupEntry
   /** The last ready answer for exactly these arguments. */
-  answer?: { readonly value: unknown }
+  answer?: { readonly value: unknown; readonly typed?: unknown }
   old: boolean
   inflight?: Inflight
 }
@@ -184,7 +186,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     return state
   }
 
-  const ask = async (call: LookupCall, askedBy: LookupAsker, signal: AbortSignal): Promise<unknown> => {
+  const ask = async (call: LookupCall, askedBy: LookupAsker, signal: AbortSignal): Promise<NonNullable<Kept['answer']>> => {
     const limit = AbortSignal.timeout(LOOKUP_NETWORK_LIMIT_MS)
     const both = AbortSignal.any([signal, limit])
     let response: Response
@@ -211,7 +213,7 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     if (response.status === 429) throw new Paused()
     if (response.status === 412) throw new Superseded()
     const text = await response.text()
-    if (new TextEncoder().encode(text).length > LOOKUP_ANSWER_MAX_BYTES + 64) throw new LookupFault('wrong-shape')
+    if (new TextEncoder().encode(text).length > 2 * LOOKUP_ANSWER_MAX_BYTES + 64) throw new LookupFault('wrong-shape')
     let body: unknown
     try {
       body = JSON.parse(text)
@@ -223,7 +225,10 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       throw new LookupFault(typeof code === 'string' ? (FAILURE_CODES[code] ?? 'failed') : 'failed')
     }
     if (typeof body !== 'object' || body === null || !('answer' in body)) throw new LookupFault('wrong-shape')
-    return (body as { answer: unknown }).answer
+    for (const value of [body.answer, ...('typedAnswer' in body ? [body.typedAnswer] : [])]) {
+      if (new TextEncoder().encode(JSON.stringify(value)).length > LOOKUP_ANSWER_MAX_BYTES) throw new LookupFault('wrong-shape')
+    }
+    return { value: body.answer, ...('typedAnswer' in body ? { typed: valueFromWire(body.typedAnswer) } : {}) }
   }
 
   const start = (entry: Kept, call: LookupCall, askedBy: LookupAsker, accept?: (answer: unknown) => boolean): Inflight => {
@@ -238,10 +243,10 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       try {
         const answer = await ask(call, askedBy, controller.signal)
         if (kept !== owner) throw aborted()
-        if (accept !== undefined && !accept(answer)) throw new LookupFault('wrong-shape')
-        entry.answer = { value: answer }
+        if (accept !== undefined && !accept(answer.value)) throw new LookupFault('wrong-shape')
+        entry.answer = answer
         entry.old = false
-        return settle(entry, { state: 'ready', answer })
+        return settle(entry, { state: 'ready', answer: answer.value })
       } catch (error) {
         if (controller.signal.aborted || kept !== owner) throw aborted()
         if (error instanceof Paused) {
@@ -347,7 +352,10 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
       if (entry.state === 'paused') return { state: 'paused' }
       if (entry.state === 'ready') {
         if (use === 'options' && !isLookupOptions(entry.answer)) return { state: 'failed', reason: 'wrong-shape' }
-        return { state: 'ready', value: entry.answer }
+        if (use === 'options') return { state: 'ready', value: entry.answer }
+        const cached = kept.get(keyOf(call))
+        if (cached?.state !== entry || cached.answer?.typed === undefined) return { state: 'failed', reason: 'wrong-shape' }
+        return { state: 'ready', value: cached.answer.typed }
       }
       return { state: 'failed', reason: entry.state === 'loading' ? 'failed' : entry.reason }
     },

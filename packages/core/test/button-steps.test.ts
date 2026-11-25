@@ -532,7 +532,7 @@ describe('call answers', () => {
 })
 
 describe('lists, forms and lookups', () => {
-  it('accepts an integer lookup answer through the plain JSON contract', async () => {
+  it.each([{ answer: 2n, accepted: true }, { answer: 2, accepted: false }])('keeps lookup numeric kind for an integer target: $answer', async ({ answer, accepted }) => {
     addSchema('test.typed_lookup', [
       { kind: 'input', id: 'first', type: { kind: 'concrete', types: ['STRING'] }, required: true, default: '' },
       { kind: 'input', id: 'second', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 1 },
@@ -542,10 +542,10 @@ describe('lists, forms and lookups', () => {
       ] },
     ])
     const session = sessionOf(documentOf({ n1: { type: 'test.typed_lookup', values: { first: 'old', second: 1 } } }))
-    const outcome = await runPress(session, at('read'), hostOf({ lookup: async () => ({ state: 'ready', value: 2 }) }))
-    expect(outcome.kind).toBe('done')
-    expect(valuesOf(session)).toEqual({ first: 'staged', second: 2 })
-    expect(session.canUndo).toBe(true)
+    const outcome = await runPress(session, at('read'), hostOf({ lookup: async () => ({ state: 'ready', value: answer }) }))
+    expect(outcome.kind).toBe(accepted ? 'done' : 'failed')
+    expect(valuesOf(session)).toEqual(accepted ? { first: 'staged', second: 2 } : { first: 'old', second: 1 })
+    expect(session.canUndo).toBe(accepted)
   })
 
   it('Pick offers a stale list and passes its choice to later steps, which store a looked-up value', async () => {

@@ -1,19 +1,18 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry, createLocalSession, parseDinksterSchema, type CallAnswer, type DinksterWireSchema, type WorkflowDocument } from '@dinkster/core'
-import { valueFromWire } from '@dinkster/client'
+import { createLookupClient, valueFromWire, type LookupClient } from '@dinkster/client'
 import { createButtonPresses, type ButtonSurfaces } from '../src/button-presses.js'
 import type { AppState, Tab } from '../src/app-state.js'
 
 const fixtures = JSON.parse(readFileSync(new URL('../../core/test/fixtures/button_schemas.json', import.meta.url), 'utf8')) as Record<string, DinksterWireSchema>
 const schema = parseDinksterSchema('dev.buttons.call_probe', fixtures['dev.buttons.call_probe']!).schema!
-const resolve = (type: string) => type === schema.type ? schema : undefined
-
-function setup(call: () => Promise<CallAnswer>) {
+function setup(call: () => Promise<CallAnswer>, nodeSchema = schema, lookups?: LookupClient) {
+  const resolve = (type: string) => type === nodeSchema.type ? nodeSchema : undefined
   const doc = {
     format: 'dinkster-workflow', formatVersion: 1, lineage: 'lin1', root: 'g0',
     graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 100, nodes: {
-      n1: { id: 'n1', type: schema.type, values: { first: 'old', second: 1 } },
+      n1: { id: 'n1', type: nodeSchema.type, values: { first: 'old', second: 1 } },
     }, links: {}, nets: {}, reroutes: {} } },
     view: { graphs: { g0: { nodes: { n1: { position: { x: 0, y: 0 } } } } } },
   } as unknown as WorkflowDocument
@@ -21,7 +20,7 @@ function setup(call: () => Promise<CallAnswer>) {
   const tab = { id: 'tab', store } as Tab
   let tabs = [tab]
   let schemaState = { status: 'ready' }
-  const makeBackend = () => ({ connection: { callPackFunction: call }, schemaState: { get: () => schemaState } })
+  const makeBackend = () => ({ connection: { callPackFunction: call }, lookups, schemaState: { get: () => schemaState } })
   let backend = makeBackend()
   let registry = { resolve }
   const app = {
@@ -42,6 +41,31 @@ function setup(call: () => Promise<CallAnswer>) {
 }
 
 describe('button press authority and typed answers', () => {
+  it.each([{ typedAnswer: 2, accepted: true }, { typedAnswer: { $float: 2 }, accepted: false }])(
+    'preserves lookup numeric kind through the HTTP decoder and press: $typedAnswer', async ({ typedAnswer, accepted }) => {
+      const lookupSchema = parseDinksterSchema('test.lookup_press', {
+        schemaVersion: 2, nodeType: 'test.lookup_press', displayName: 'Lookup', category: 'test', body: [
+          { kind: 'input', id: 'first', type: { kind: 'concrete', types: ['STRING'] }, required: true, default: '' },
+          { kind: 'input', id: 'second', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 1 },
+          { kind: 'button', id: 'call', label: 'Read', steps: [
+            { step: 'set', field: 'first', value: { value: 'staged' } },
+            { step: 'set', field: 'second', value: { lookup: 'test.count', args: [] } },
+          ] },
+        ],
+      } as unknown as DinksterWireSchema).schema!
+      const lookups = createLookupClient({ baseUrl: '', fetchFn: async () => new Response(JSON.stringify({ answer: 2, typedAnswer })) })
+      const test = setup(async () => { throw new Error('not a Call step') }, lookupSchema, lookups)
+      await test.presses.press(test.place)
+      expect(test.store.doc.graphs['g0']!.nodes['n1']!.values).toEqual(accepted
+        ? { first: 'staged', second: 2 } : { first: 'old', second: 1 })
+      expect(test.store.canUndo).toBe(accepted)
+      if (accepted) {
+        expect(test.store.undo()).toBe(true)
+        expect(test.store.doc.graphs['g0']!.nodes['n1']!.values).toEqual({ first: 'old', second: 1 })
+      }
+    },
+  )
+
   it.each(['retarget', 'reload', 'refreshing', 'close', 'unchanged'] as const)('handles a delayed answer after %s', async (change) => {
     let answer!: (value: CallAnswer) => void
     let started!: () => void

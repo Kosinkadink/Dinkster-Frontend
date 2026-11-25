@@ -40,6 +40,30 @@ const call = (node: string, category: string): LookupCall => ({
 })
 
 describe('lookup client', () => {
+  it.each([
+    { typedAnswer: 2, expected: 2n },
+    { typedAnswer: { $float: 2 }, expected: 2 },
+    { typedAnswer: { $int: '9007199254740993' }, expected: 9007199254740993n },
+  ])('keeps typed press values separate from display answers: $typedAnswer', async ({ typedAnswer, expected }) => {
+    const host = fakeHost()
+    const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })
+    const shown = client.request(call('a', 'sd'))
+    await host.answer(200, { answer: 2, typedAnswer })
+    expect(await shown).toEqual({ state: 'ready', answer: 2 })
+    expect(await client.resolve(call('a', 'sd'), 'value', { signal: new AbortController().signal }))
+      .toEqual({ state: 'ready', value: expected })
+    expect(client.entry(call('a', 'sd'))).toEqual({ state: 'ready', answer: 2 })
+    expect(host.seen).toHaveLength(1)
+  })
+
+  it('refuses an untyped value rather than guessing its numeric kind', async () => {
+    const host = fakeHost()
+    const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })
+    const pressed = client.resolve(call('a', 'sd'), 'value', { signal: new AbortController().signal })
+    await host.answer(200, { answer: 2 })
+    expect(await pressed).toEqual({ state: 'failed', reason: 'wrong-shape' })
+  })
+
   it('serves every node asking with equal arguments from one call and keeps the answer', async () => {
     const host = fakeHost()
     const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })

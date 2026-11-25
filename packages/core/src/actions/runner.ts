@@ -247,13 +247,6 @@ function literalOf(raw: unknown): Value {
   return refuse('A step holds a value the editor cannot store.')
 }
 
-/** Lookup answers still arrive as plain JSON numbers. */
-function lookupValue(raw: unknown): unknown {
-  if (typeof raw === 'number') return Number.isInteger(raw) ? BigInt(raw) : raw
-  if (Array.isArray(raw)) return raw.map(lookupValue)
-  return raw
-}
-
 function display(value: unknown): string {
   if (typeof value === 'string') return value
   if (Array.isArray(value)) return value.map(display).join(', ')
@@ -652,7 +645,7 @@ class Press {
     const { result } = await this.lookup(value.function, value.args, 'value', context)
     if (result.state === 'paused') return refuse(PAUSED_MESSAGE)
     if (result.state !== 'ready') return refuse(LOOKUP_FAILED_MESSAGE)
-    return lookupValue(result.value)
+    return result.value
   }
 
   // -- writing ---------------------------------------------------------------
