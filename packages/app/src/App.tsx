@@ -1238,7 +1238,7 @@ export function App(props: {
    */
   const engineGate = () => {
     const sup = supervisorOf(activeBackend())
-    return sup && sup.state !== 'ready' ? sup : undefined
+    return sup && sup.state !== 'ready' && sup.installations !== 0 ? sup : undefined
   }
 
   // The backend the ACTIVE tab works against (frozen: its execution's;
@@ -3123,16 +3123,14 @@ export function App(props: {
               <span class="engine-spinner" />
             </Show>
             <span class="engine-banner-text">
-              {sup().installations === 0
-                ? message('shell.status.notSetUp')
-                : sup().state === 'starting'
+              {sup().state === 'starting'
                 ? message('shell.engine.starting')
                 : sup().state === 'failed'
                   ? message('shell.engine.failed')
                   : message('shell.engine.stopped')}
               {sup().detail ? ` - ${sup().detail}` : ''}
             </span>
-            <Show when={sup().installations !== 0 && (sup().state === 'failed' || sup().state === 'stopped')}>
+            <Show when={sup().state === 'failed' || sup().state === 'stopped'}>
               <ProductButton size="compact"
                 data-testid="engine-restart"
                 onClick={() => void app.restartEngine(activeBackend())}

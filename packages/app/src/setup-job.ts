@@ -24,6 +24,7 @@ export interface SetupPlan {
   readonly choices: readonly { readonly variant: string; readonly label: string; readonly reason: string }[] | null
   readonly gpus: readonly string[]
   readonly downloadBytes: number | null
+  readonly downloadEstimate?: { readonly kind: 'upper-bound'; readonly bytes: number; readonly reason: string } | null
   readonly runtimeDownloadBytes: number | null
   readonly freeBytes: number
   readonly refusal: SetupProblem | null

@@ -585,19 +585,19 @@ export function ProjectsView(props: {
           }
         />
         <Show when={here()?.failed !== undefined && bannerShown()}>
-          <ProductErrorBanner quiet onDismiss={() => setBannerShown(false)}>
+          <ProductErrorBanner onDismiss={() => setBannerShown(false)}>
             {message('projects.failed.banner', { failed: here()!.failed!, project: project.name })}
           </ProductErrorBanner>
         </Show>
         <Show when={restoreFailed()}>
           {(name) => (
-            <ProductErrorBanner quiet onDismiss={() => setRestoreFailed(undefined)}>
+            <ProductErrorBanner onDismiss={() => setRestoreFailed(undefined)}>
               {message('projects.restore.failed', { project: name() })}
             </ProductErrorBanner>
           )}
         </Show>
         <Show when={folderFailed() === project.id}>
-          <ProductErrorBanner quiet onDismiss={() => setFolderFailed(undefined)}>
+          <ProductErrorBanner onDismiss={() => setFolderFailed(undefined)}>
             {message('projects.facts.folderFailed')}
           </ProductErrorBanner>
         </Show>

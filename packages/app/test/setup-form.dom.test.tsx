@@ -11,7 +11,7 @@ import type { SetupJob, SetupPlan } from '../src/setup-job.js'
 const plan: SetupPlan = {
   id: 'plan-1', root: '/install/nightly', channel: 'nightly', variant: 'linux-nvidia',
   buildLabel: 'NVIDIA graphics card build', buildReason: 'Supported graphics card',
-  engineRelease: 'release-1', baseId: 'base-1', detectedCards: [], choices: [], gpus: ['0'],
+  engineRelease: 'release-1', baseId: 'base-1', detectedCards: [], choices: [{ variant: 'linux-nvidia', label: 'NVIDIA', reason: 'Detected card' }], gpus: ['0'],
   downloadBytes: null, runtimeDownloadBytes: 2048, freeBytes: 9000, refusal: null,
 }
 const job: SetupJob = { id: 'job-1', root: plan.root, channel: plan.channel, variant: plan.variant!,
@@ -34,6 +34,7 @@ it.each(['projects', 'editor'] as const)('starts the same process-owned job from
   await vi.advanceTimersByTimeAsync(0)
   expect(document.body.textContent).toContain('NVIDIA graphics card build')
   expect(document.body.textContent).toContain('At least 2 kB - 9 kB free')
+  expect(button('Change build')).toBeUndefined()
   expect(document.body.textContent).not.toContain('Supported graphics card')
   button('Set up').click()
   await vi.advanceTimersByTimeAsync(0)
@@ -53,8 +54,8 @@ it.each(['projects', 'editor'] as const)('starts the same process-owned job from
 
 it('changes builds through a checked menu without adding a facts row', async () => {
   vi.useFakeTimers()
-  const choices = [{ variant: 'linux-nvidia', label: 'NVIDIA', reason: 'Detected card' }, { variant: 'linux-cpu', label: 'CPU', reason: 'CPU only' }]
-  const fetch = vi.fn(async (_url: string) => answer({ plan: { ...plan, choices }, activeJob: null }))
+  const choices = [{ variant: 'win-nvidia', label: 'NVIDIA', reason: 'Detected card' }, { variant: 'win-nvidia-cu126', label: 'NVIDIA CUDA 12.6', reason: 'Compatible card' }]
+  const fetch = vi.fn(async (_url: string) => answer({ plan: { ...plan, variant: 'win-nvidia', choices }, activeJob: null }))
   vi.stubGlobal('fetch', fetch)
   dispose = render(() => <SetupForm surface="projects" />, document.body)
   await vi.advanceTimersByTimeAsync(0)
@@ -62,22 +63,51 @@ it('changes builds through a checked menu without adding a facts row', async () 
   expect(document.querySelector('[role="menuitemcheckbox"][aria-checked="true"]')?.textContent).toContain('NVIDIA')
   expect(document.querySelector('select')).toBeNull()
   expect(document.querySelectorAll('dt').length).toBe(3)
-  const cpu = [...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')].find((node) => node.textContent?.includes('CPU'))!
-  cpu.click()
+  const alternate = [...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')].find((node) => node.textContent?.includes('CUDA 12.6'))!
+  alternate.click()
   await vi.advanceTimersByTimeAsync(0)
-  expect(fetch.mock.calls.at(-1)?.[0]).toContain('variant=linux-cpu')
+  expect(fetch.mock.calls.at(-1)?.[0]).toContain('variant=win-nvidia-cu126')
   expect(document.querySelector('[role="menu"]')).toBeNull()
 })
 
-it('never presents unknown hardware or downloads as none, and refuses a held library before POST', async () => {
+it.each(['projects', 'editor'] as const)('keeps exact, estimated and minimum downloads distinct on %s', async (surface) => {
   vi.useFakeTimers()
-  const fetch = vi.fn(async () => answer({ plan: { ...plan, variant: null, buildLabel: null,
-    buildReason: null, detectedCards: null, choices: null, runtimeDownloadBytes: null,
+  let current: SetupPlan = { ...plan, downloadEstimate: { kind: 'upper-bound', bytes: 7000000000, reason: 'Includes wheel alternatives' }, freeBytes: 5000000000 }
+  vi.stubGlobal('fetch', async () => answer({ plan: current, activeJob: null }))
+  dispose = render(() => <SetupForm surface={surface} />, document.body)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(document.body.textContent).toContain('About 7 GB - 5 GB free')
+  expect(document.querySelector('[role="note"]')?.textContent).toBe('This needs about 7 GB and the disk has 5 GB free.')
+  expect(button('Set up').disabled).toBe(false)
+  for (const [update, expected] of [
+    [{ freeBytes: 7000000000 }, 'About 7 GB - 7 GB free'],
+    [{ downloadBytes: 3000000000 }, '3 GB - 7 GB free'],
+    [{ downloadBytes: null, downloadEstimate: null }, 'At least 2 kB - 7 GB free'],
+  ] as const) {
+    current = { ...current, ...update }
+    dispose!()
+    document.body.replaceChildren()
+    dispose = render(() => <SetupForm surface={surface} />, document.body)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(document.body.textContent).toContain(expected)
+    expect(document.querySelector('[role="note"]')).toBeNull()
+    expect(button('Set up').disabled).toBe(false)
+  }
+})
+
+it.each([false, true])('refuses a held library while preserving only known facts (metadata available: %s)', async (known) => {
+  vi.useFakeTimers()
+  const fetch = vi.fn(async () => answer({ plan: { ...plan, ...(known ? {} : { variant: null, buildLabel: null,
+    buildReason: null, detectedCards: null, choices: null, runtimeDownloadBytes: null }),
     refusal: { code: 'library-held', message: 'The shared library is held.' } }, activeJob: null }))
   vi.stubGlobal('fetch', fetch)
   dispose = render(() => <SetupForm surface="projects" />, document.body)
   await vi.advanceTimersByTimeAsync(0)
-  expect(document.body.textContent).not.toContain('Download')
+  if (known) {
+    expect(document.body.textContent).toContain('NVIDIA graphics card build')
+    expect(document.body.textContent).toContain('At least 2 kB - 9 kB free')
+    expect(document.querySelectorAll('dt').length).toBe(3)
+  } else expect(document.body.textContent).not.toContain('Download')
   expect(document.body.textContent).not.toContain('0 B')
   expect(document.querySelector('[role="note"]')?.textContent).toBe('Another Dinkster installation is running.Stop it, then check again.')
   expect(document.querySelector('[role="alert"]')).toBeNull()

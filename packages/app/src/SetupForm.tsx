@@ -28,6 +28,7 @@ export function SetupForm(props: {
   const download = () => {
     const plan = arrival.value()!
     return plan.downloadBytes !== null ? bytes(plan.downloadBytes)
+      : plan.downloadEstimate ? message('setup.estimatedBytes', { size: bytes(plan.downloadEstimate.bytes) })
       : plan.runtimeDownloadBytes !== null ? message('setup.runtimeBytes', { size: bytes(plan.runtimeDownloadBytes) })
       : undefined
   }
@@ -85,7 +86,7 @@ export function SetupForm(props: {
             <dd><span>{setupJobActive(setup.job()) ? setup.job()!.root : plan().root}</span><Show when={!setupJobActive(setup.job())}><ProductTextButton label={message('setup.chooseFolder')} disabled={busy()} onClick={() => { setDismissed(undefined); void chooseFolder() }} /></Show></dd>
             <Show when={plan().buildLabel || setupJobActive(setup.job())}><dt>{message('setup.build')}</dt>
             <dd><div><span>{setupJobActive(setup.job()) && setup.job()!.variant !== plan().variant ? setup.job()!.variant : plan().buildLabel}</span><For each={plan().detectedCards ?? []}>{(card) => <p class="dinkster-description">{card.name}</p>}</For></div>
-              <Show when={!setupJobActive(setup.job()) && (plan().choices?.length ?? 0) > 1}><ProductMenu label={message('setup.changeBuild')} items={(plan().choices ?? []).map((choice) => ({
+              <Show when={!setupJobActive(setup.job()) && (plan().choices?.length ?? 0) > 1}><ProductMenu fill="quiet" label={message('setup.changeBuild')} items={(plan().choices ?? []).map((choice) => ({
                 label: choice.label,
                 checked: choice.variant === plan().variant,
                 disabled: busy(),
@@ -103,6 +104,9 @@ export function SetupForm(props: {
               {message('setup.libraryHeld')}<br />{message('setup.libraryHeldAction')}
             </Show>
           </ProductNotice>}</Show>
+          <Show when={!plan().refusal && !setupJobActive(setup.job()) && plan().downloadBytes === null && plan().downloadEstimate && plan().downloadEstimate!.bytes > plan().freeBytes}>
+            <ProductNotice tone="warning">{message('setup.estimatedSpaceWarning', { size: bytes(plan().downloadEstimate!.bytes), free: bytes(plan().freeBytes) })}</ProductNotice>
+          </Show>
           <div class="dinkster-actions setup-actions">
             <Show when={setupJobActive(setup.job())} fallback={
               <>
