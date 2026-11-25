@@ -260,6 +260,105 @@ for (const access of ['readOnly', 'disabled'] as const) {
   })
 }
 
+for (const [draft, stored] of [['not-a-number', 7], ['150', 100]] as const) test(`Representation settles ${draft} like Enter before switching`, async ({ page }) => {
+  await openSampler(page)
+  const point = await rowPoint(page, 'n1', 'cfg')
+  await page.mouse.click(point.x, point.y)
+  await field(page).fill(draft)
+  await page.getByRole('button', { name: 'Representation Number', exact: true }).click()
+  await page.getByRole('option', { name: 'Slider', exact: true }).click()
+  await expect(field(page)).toHaveCount(0)
+  await expect.poll(() => value(page, 'cfg')).toBe(stored)
+  await expect.poll(() => page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'n1')!
+    return node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'cfg')?.viewId
+  })).toBe('core.slider')
+  await expect.poll(() => value(page, 'steps')).toBe(20)
+})
+
+test('a selected automatic Slider explains its Number fallback and returns when the formula range is known', async ({ page }, testInfo) => {
+  await openSampler(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'FormulaRange', displayName: 'Formula range', category: 'test', source: 'v3', isOutputNode: false,
+      body: [
+        { kind: 'input', id: 'known', type: { kind: 'concrete', name: 'BOOLEAN' }, optional: false,
+          widget: { widgetType: 'BOOLEAN', options: {}, default: true } },
+        { kind: 'input', id: 'cfg', type: { kind: 'concrete', name: 'FLOAT' }, optional: false, readOnly: true,
+          widget: { widgetType: 'FLOAT', options: { min: 0 }, looked: { max: { formula: '100 if known else 1 // 0' } }, default: 7 } },
+      ],
+    }] as never)
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'formula-range', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n1: { id: 'n1', type: 'FormulaRange', values: { cfg: 7, known: true } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 100, y: 100 }, views: { cfg: 'slider' } } } } } },
+    } as never, 'Formula range')
+    window.__dinksterTest!.renderer!.setViewport({ x: 200, y: 150, scale: 1 })
+  })
+  const rowView = () => page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'n1')!
+    return node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'cfg')?.viewId
+  })
+  await expect.poll(rowView).toBe('core.slider')
+  const point = await rowPoint(page, 'n1', 'cfg')
+  await page.mouse.click(point.x, point.y)
+  const inspection = page.getByTestId('row-focus')
+  await expect(inspection.getByRole('button', { name: 'Representation Slider', exact: true })).toBeVisible()
+  const setKnown = (known: boolean) => page.evaluate((known) => {
+    const result = window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n1', inputId: 'known', value: known,
+    } })
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+  }, known)
+  await setKnown(false)
+  await expect.poll(rowView).toBe('core.number')
+  await expect(inspection).toContainText('Showing Number until the range is known.')
+  await expect(inspection.getByRole('button', { name: 'Representation Slider', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('slider-range-unknown.png') })
+  await setKnown(true)
+  await expect.poll(rowView).toBe('core.slider')
+  await expect(inspection).not.toContainText('Showing Number until the range is known.')
+  await expect.poll(() => value(page, 'cfg')).toBe(7)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.view.graphs.g0!.nodes.n1!.views!.cfg)).toBe('slider')
+  await page.screenshot({ path: testInfo.outputPath('slider-range-restored.png') })
+})
+
+test('a removed pack alternative falls back without losing the saved preference and returns when available', async ({ page }) => {
+  await openSampler(page)
+  const point = await rowPoint(page, 'n1', 'prefix')
+  await page.mouse.click(point.x, point.y)
+  await page.getByRole('button', { name: 'Representation Single line', exact: true }).click()
+  await page.getByRole('option', { name: 'Multiline', exact: true }).click()
+  const rowView = () => page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((item) => item.id === 'n1')!
+    return node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === 'prefix')?.viewId
+  })
+  await expect.poll(rowView).toBe('core.text')
+  const original = await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const schema = app.backends.get()[0]!.registry.get()!.schemas.get('Sampler') as import('@dinkster/core').NodeSchema
+    app.registerSchemas([{ ...schema, body: schema.body.map((item) => item.kind !== 'input' || item.id !== 'prefix' ? item : {
+      ...item, widget: { ...item.widget!, representations: {
+        default: 'single-line', userSwitchable: true, representations: [
+          { id: 'single-line', displayName: 'Single line', widget: { widgetType: 'STRING', options: { multiline: false } } },
+        ],
+      } },
+    }) }])
+    return JSON.stringify(schema)
+  })
+  await expect.poll(rowView).toBe('core.line')
+  await expect.poll(() => value(page, 'prefix')).toBe('Dinkster')
+  const savedChoice = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.view.graphs.g0!.nodes.n1!.views!.prefix)
+  await expect.poll(savedChoice).toBe('multiline')
+  await page.evaluate((schema) => window.__dinksterTest!.app.registerSchemas([JSON.parse(schema)]), original)
+  await expect.poll(rowView).toBe('core.text')
+  await expect.poll(savedChoice).toBe('multiline')
+  await expect.poll(() => value(page, 'prefix')).toBe('Dinkster')
+})
+
 test('a click on each other row stores the open field and opens that row', async ({ page }) => {
   await openSampler(page)
   const rows: readonly [string, string, unknown][] = [

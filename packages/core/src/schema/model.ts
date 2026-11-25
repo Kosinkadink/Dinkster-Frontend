@@ -381,8 +381,12 @@ export function widgetRepresentationsOf(spec: WidgetSpec, registered?: WidgetRep
   if (registered !== undefined) return registered
   if (spec.widgetType === 'FLOAT') {
     const { min, max } = spec.options
-    if (typeof min !== 'number' || typeof max !== 'number' || !Number.isFinite(min)
-      || !Number.isFinite(max) || max <= min || !Number.isFinite(max - min)) return undefined
+    const finiteMin = typeof min === 'number' && Number.isFinite(min)
+    const finiteMax = typeof max === 'number' && Number.isFinite(max)
+    // Worked-out limits can disappear without removing the declared choice.
+    const workedRange = (spec.looked?.min !== undefined || spec.looked?.max !== undefined) &&
+      (finiteMin || spec.looked?.min !== undefined) && (finiteMax || spec.looked?.max !== undefined)
+    if (!workedRange && (!finiteMin || !finiteMax || max <= min || !Number.isFinite(max - min))) return undefined
     return {
       default: spec.options['display'] === 'slider' ? 'slider' : 'number',
       userSwitchable: true,
@@ -427,7 +431,7 @@ export function widgetRepresentationChoices(spec: WidgetSpec, selected: string |
   // A slider needs its range; until it is known the row draws a number field
   // and the choice stays Slider.
   const rangeUnknown = display === 'slider' && !(typeof min === 'number' && typeof max === 'number' &&
-    Number.isFinite(min) && Number.isFinite(max) && max > min)
+    Number.isFinite(min) && Number.isFinite(max) && max > min && Number.isFinite(max - min))
   return {
     choices: set.representations.map((representation) => ({ id: representation.id, label: representation.displayName || representation.id })),
     selected: chosen.id,
