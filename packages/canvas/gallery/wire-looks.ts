@@ -163,7 +163,7 @@ export function wireLooksGallery(
 
   const outlines = scene(pair(loadImage, 'IMAGE', blur, 'image', 0, false, '', 160))
   const outlineGroup = { id: 'sources', title: 'Sources', x: -20, y: 170, width: 600, height: 110 }
-  const bypassRoute = (muted: boolean): Scene => scene({
+  const bypassRoute = (muted: boolean, rerouted = false): Scene => scene({
     nodes: {
       image: { type: loadImage, x: 0, y: 0, width: SOURCE_WIDTH },
       mask: { type: findMask, x: 0, y: 120, width: SOURCE_WIDTH, ...(muted ? { mode: 'muted' as const } : {}) },
@@ -173,8 +173,18 @@ export function wireLooksGallery(
     },
     links: [
       ['image', 'IMAGE', 'bypass', 'image'], ['mask', 'MASK', 'bypass', 'mask'],
-      ['bypass', 'value', 'imageSink', 'image'], ['bypass', 'value', 'maskSink', 'mask'],
+      ...(rerouted ? [
+        { from: { node: 'bypass', port: 'value' }, to: { reroute: 'split' } },
+        { from: { reroute: 'split' }, to: { node: 'imageSink', port: 'image' } },
+        { from: { reroute: 'split' }, to: { node: 'maskSink', port: 'mask' } },
+      ] : [
+        ['bypass', 'value', 'imageSink', 'image'] as const, ['bypass', 'value', 'maskSink', 'mask'] as const,
+      ]),
     ],
+    ...(rerouted ? {
+      extra: { reroutes: { split: { id: 'split' } } },
+      extraView: { reroutes: { split: { position: { x: COLUMN * 2, y: 110 } } } },
+    } : {}),
   })
 
   return [
@@ -203,6 +213,10 @@ export function wireLooksGallery(
     {
       caption: 'With Find mask switched off, only the wire to Use mask and the input pin it enters fade. Its wire keeps its dashes. The wire to Blur stays solid and unfaded.',
       scene: bypassRoute(true),
+    },
+    {
+      caption: 'After a reroute split, Use mask gets the faded, dashed route and Blur gets the ordinary route. The shared trunk is solid and unfaded because the consumers do not agree on either hint.',
+      scene: bypassRoute(true, true),
     },
     {
       caption:

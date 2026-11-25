@@ -44,7 +44,7 @@ const output = (id: string, extra?: Partial<OutputSpec>): OutputSpec => ({
   type: IMAGE,
   ...extra,
 })
-const schemaOf = (type: string, items: (InputSpec | OutputSpec)[]): NodeSchema => ({
+const schemaOf = (type: string, items: NodeSchema['body']): NodeSchema => ({
   type,
   displayName: type,
   category: 'test',
@@ -61,6 +61,22 @@ const schemas: Record<string, NodeSchema> = {
   /** Two inputs of different types; bypassed, its MASK output passes on the MASK input. */
   Blend: schemaOf('Blend', [input('image'), input('mask', { type: MASK }), output('out', { type: MASK })]),
   WildBlend: schemaOf('WildBlend', [input('image'), input('mask', { type: MASK, optional: true }), output('out', { type: { kind: 'wildcard' } })]),
+  OptionalField: schemaOf('OptionalField', [input('optional', { optional: true }), input('fallback'), output('out')]),
+  OpenChoice: schemaOf('OpenChoice', [
+    { kind: 'typeChoice', id: 'optional', type: IMAGE, required: false, rows: [] },
+    input('fallback'), output('out'),
+  ]),
+  OptionalVariant: schemaOf('OptionalVariant', [
+    { kind: 'typeChoice', id: 'optional', required: false, rows: [], variants: [
+      { key: 'image', type: IMAGE, rows: [] }, { key: 'mask', type: MASK, rows: [] },
+    ] },
+    input('fallback'), output('out'),
+  ]),
+  UnstoredMember: schemaOf('UnstoredMember', [
+    { kind: 'group', id: 'items', value: input('item', { optional: true }),
+      keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 }, grows: 'link', minMembers: 0 },
+    input('fallback'), output('out'),
+  ]),
   MaskSrc: schemaOf('MaskSrc', [output('out', { type: MASK })]),
   MaybeMaskSrc: schemaOf('MaybeMaskSrc', [output('out', { type: MASK, optional: true })]),
   MaskSink: schemaOf('MaskSink', [input('in', { type: MASK })]),
@@ -353,6 +369,68 @@ describe('wires out of muted nodes', () => {
         const drawn = sceneOf(doc).links.find((link) => link.id === 'l2')!
         expect(drawn.maybeAbsent, `${sink}, muted=${muted}`).toBe(mask ? true : undefined)
         expect(drawn.sourceMuted, `${sink}, muted=${muted}`).toBe(mask && muted ? true : undefined)
+      }
+    }
+  })
+
+  it('agrees with compilation on newly connected optional fields, choices, variants and unstored members', () => {
+    for (const type of ['OptionalField', 'OpenChoice', 'OptionalVariant', 'UnstoredMember']) {
+      for (const connected of [false, true]) {
+        const member = type === 'UnstoredMember'
+        const doc = docOf({ g0: {
+          nodes: { o: { type: 'MaybeSrc' }, f: { type: 'Src' }, b: { type, mode: 'bypassed' }, k: { type: 'Sink' } },
+          links: [
+            ...(connected ? [[['o', 'out'], ['b', member ? 'items.item0' : 'optional']] as [End, End]] : []),
+            [['f', 'out'], ['b', 'fallback']], [['b', 'out'], ['k', 'in']],
+          ],
+        } })
+        const result = compile({
+          document: doc, revision: 1, resolve: (name) => schemas[name],
+          scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'test',
+        })
+        expect(result.ok, `${type}, connected=${connected}`).toBe(true)
+        if (!result.ok) continue
+        const optional = connected && !member
+        expect(result.artifact.prompt['k']!.inputs['in'], type).toEqual([optional ? 'o' : 'f', 0])
+        const drawn = sceneOf(doc).links.find((link) => 'node' in link.to && link.to.node === 'k')!
+        expect(drawn.maybeAbsent, type).toBe(optional ? true : undefined)
+      }
+    }
+  })
+
+  it('shows each reroute consumer route, and hints a shared trunk only when all consumers agree', () => {
+    for (const sinks of [['Sink', 'MaskSink'], ['MaskSink', 'MaskSink'], ['Sink', 'Sink']]) {
+      const doc = docOf({ g0: {
+        nodes: {
+          i: { type: 'Src' }, m: { type: 'MaybeMaskSrc', mode: 'muted' },
+          b: { type: 'WildBlend', mode: 'bypassed' },
+          a: { type: sinks[0]! }, z: { type: sinks[1]! },
+        },
+        reroutes: ['r', 's'],
+        links: [
+          [['i', 'out'], ['b', 'image']], [['m', 'out'], ['b', 'mask']],
+          [['b', 'out'], { reroute: 'r' }], [{ reroute: 'r' }, { reroute: 's' }],
+          [{ reroute: 's' }, ['a', 'in']], [{ reroute: 's' }, ['z', 'in']],
+        ],
+      } })
+      const result = compile({
+        document: doc, revision: 1, resolve: (type) => schemas[type],
+        scope: { kind: 'full' }, connection: asConnectionId('test'), schemaHash: 'test',
+      })
+      expect(result.ok).toBe(true)
+      if (!result.ok) continue
+      const scene = sceneOf(doc)
+      for (const [index, node] of ['a', 'z'].entries()) {
+        const mask = sinks[index] === 'MaskSink'
+        expect(result.artifact.prompt[node]!.inputs['in']).toEqual(mask ? undefined : ['i', 0])
+        const branch = scene.links.find((link) => link.id === `l${index + 4}`)!
+        expect(branch.maybeAbsent).toBe(mask ? true : undefined)
+        expect(branch.sourceMuted).toBe(mask ? true : undefined)
+      }
+      for (const id of ['l2', 'l3']) {
+        const trunk = scene.links.find((link) => link.id === id)!
+        expect(trunk.maybeAbsent).toBe(sinks.every((sink) => sink === 'MaskSink') ? true : undefined)
+        expect(trunk.sourceMuted).toBe(sinks.every((sink) => sink === 'MaskSink') ? true : undefined)
       }
     }
   })

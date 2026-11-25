@@ -1388,21 +1388,26 @@ export function buildScene(input: BuildSceneInput): Scene {
     if (trace.kind !== 'output') return undefined
     return outputTypeName(trace.ref)
   }
-  /**
-   * True when the REAL producer behind `from` declares an optional output
-   * (may deliberately emit no value at runtime) - a static schema fact, so
-   * it needs no solver.
-   */
-  /**
-   * The real producers behind `from`, routed as the compiler routes a
-   * value: past a bypassed node to the input its passthrough matcher picks,
-   * and past an output that passes on one of its node's inputs (knownValue)
-   * to that input's wire. A muted node stops the walk: it is the producer.
-   */
+  const bypassInput = (ref: PortRef, consumerType?: TypeExpr) => {
+    const node = byId.get(ref.node)
+    const elab = node?.elaborated
+    if (node?.node.mode !== 'bypassed' || elab === undefined) return undefined
+    const outputs = elabOutputsOf(elab).filter((output) => output.wireable !== false)
+    const index = outputs.findIndex((output) => output.address.port === ref.port)
+    const output = outputs[index]
+    if (output === undefined) return undefined
+    const candidates = buildBypassCandidates(elabInputsOf(elab), (input) => {
+      const key = portRefKey({ node: ref.node, port: asPortId(input.address.port) })
+      const from = rerouteIndex.inputDriverOf.get(key)?.from ?? rerouteIndex.netSourceOf.get(key)
+      return from === undefined ? undefined : { input, from }
+    })
+    return matchBypassInput({ index, type: consumerType ?? output.spec.type }, candidates)?.driver
+  }
   const passedOn = (ref: PortRef, consumerType?: TypeExpr): LinkEndpoint | undefined => {
     const node = byId.get(ref.node)
     const elab = node?.elaborated
     if (node === undefined || elab === undefined || node.node.mode === 'muted') return undefined
+    if (node.node.mode === 'bypassed') return bypassInput(ref, consumerType)?.from
     const address = portAddressKey(ref.port)
     const outputs = elabOutputsOf(elab)
     const output = outputs.find((candidate) => portAddressKey(candidate.address.port) === address)
@@ -1411,17 +1416,12 @@ export function buildScene(input: BuildSceneInput): Scene {
       const key = portRefKey({ node: ref.node, port: asPortId(port) })
       return rerouteIndex.inputDriverOf.get(key)?.from ?? rerouteIndex.netSourceOf.get(key)
     }
-    if (node.node.mode === 'bypassed') {
-      const index = outputs.filter((candidate) => candidate.wireable !== false).indexOf(output)
-      if (index < 0) return undefined
-      const candidates = buildBypassCandidates(elabInputsOf(elab), (input) => driverOf(input.address.port))
-      return matchBypassInput({ index, type: consumerType ?? output.spec.type }, candidates)?.driver
-    }
     const known = output.spec.knownValue
     if (known === undefined) return undefined
     const input = elabInputsOf(elab).find((candidate) => candidate.spec.id === known.input)
     return input === undefined ? undefined : driverOf(input.address.port)
   }
+  /** Real producers behind bypass and knownValue routes; a muted node stops the walk. */
   const tracedProducers = (from: LinkEndpoint, consumerType?: TypeExpr, seen = new Set<string>()): RerouteTrace[] =>
     traceEndpointAll(def, from, rerouteIndex).flatMap((t) => {
       if (t.kind !== 'output') return [t]
@@ -1560,16 +1560,46 @@ export function buildScene(input: BuildSceneInput): Scene {
         })),
       ),
   ]
+  const endpointKey = (end: LinkEndpoint): string => isRerouteRef(end)
+    ? `reroute:${end.reroute}`
+    : isPortEndpoint(end) ? `port:${portRefKey(end)}` : `tap:${end.node}:${end.tap}`
+  const successors = new Map<string, LinkEndpoint[]>()
+  for (const c of connections) {
+    const key = endpointKey(c.from)
+    const next = successors.get(key) ?? []
+    next.push(c.to)
+    successors.set(key, next)
+  }
+  // A shared segment uses each final consumer's declared type, not the
+  // solved type of the junction. Bypass inputs count only for routes that
+  // actually select them. A cycle contributes no additional consumers.
+  const consumerTypes = (end: LinkEndpoint, path = new Set<string>()): (TypeExpr | undefined)[] => {
+    const key = endpointKey(end)
+    if (path.has(key)) return []
+    const nextPath = new Set([...path, key])
+    if (isRerouteRef(end)) {
+      return (successors.get(key) ?? []).flatMap((to) => consumerTypes(to, nextPath))
+    }
+    if (!isPortEndpoint(end)) return []
+    const node = byId.get(end.node)
+    const elab = node?.elaborated
+    if (node === undefined || elab === undefined) return []
+    if (node.node.mode !== 'bypassed') {
+      return [elabInputsOf(elab).find((input) => input.address.port === end.port)?.spec.type]
+    }
+    return elabOutputsOf(elab).flatMap((output) => {
+      const ref = { node: end.node, port: asPortId(output.address.port) }
+      return (successors.get(endpointKey(ref)) ?? []).flatMap((to) =>
+        consumerTypes(to, nextPath).filter((type) => bypassInput(ref, type)?.input.address.port === end.port))
+    })
+  }
   for (const c of connections) {
     const from = endPoint(c.from, 'out')
     const to = endPoint(c.to, 'in')
     if (!from || !to) continue
     const typeName = tracedTypeName(c.from)
-    const target = c.to
-    const consumer = isPortEndpoint(target) ? byId.get(target.node)?.elaborated : undefined
-    const consumerType = consumer === undefined || !isPortEndpoint(target)
-      ? undefined
-      : elabInputsOf(consumer).find((input) => input.address.port === target.port)?.spec.type
+    const types = consumerTypes(c.to)
+    if (types.length === 0) types.push(undefined)
     links.push({
       id: c.id,
       from: from.end,
@@ -1581,8 +1611,8 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(from.type !== undefined ? { fromType: from.type } : typeName !== undefined ? { fromType: typeExprFromTypeId(typeName) } : {}),
       ...(to.type !== undefined ? { toType: to.type } : typeName !== undefined ? { toType: typeExprFromTypeId(typeName) } : {}),
       ...(typeName !== undefined ? { typeName } : {}),
-      ...(tracedMaybeAbsent(c.from, consumerType) ? { maybeAbsent: true as const } : {}),
-      ...(tracedSourceMuted(c.from, consumerType) ? { sourceMuted: true as const } : {}),
+      ...(types.every((type) => tracedMaybeAbsent(c.from, type)) ? { maybeAbsent: true as const } : {}),
+      ...(types.every((type) => tracedSourceMuted(c.from, type)) ? { sourceMuted: true as const } : {}),
       ...(from.kept === true ? { dimmed: true as const } : {}),
       ...(c.mismatch === true ? { mismatch: true as const } : {}),
       ...(c.diagnostics !== undefined && c.diagnostics.length > 0 ? { diagnostics: c.diagnostics } : {}),
