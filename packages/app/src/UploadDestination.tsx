@@ -64,7 +64,7 @@ export function UploadDestination(props: {
         disabled={props.disabled === true} ariaLabel={message('uploadDestination.remember')}
         onChange={(remember) => props.onChange({ ...props.value, remember })} />
     </ProductField>
-    <Show when={selected()} keyed>{(mount) => <ProductNotice tone="info">{message('uploadDestination.selected', { path: mount.path, folder: props.value.folder ?? '' })}</ProductNotice>}</Show>
+    <Show when={selected()}>{(mount) => <ProductNotice tone="info">{message('uploadDestination.selected', { path: mount().path, folder: props.value.folder ?? '' })}</ProductNotice>}</Show>
     <Show when={locations() && !props.value.mount && !selected()}><ProductNotice tone="warning">{message('uploadDestination.defaultUnavailable')}</ProductNotice></Show>
     <Show when={settings()?.restartRequired}><ProductNotice tone="warning">{message('uploadDestination.restart')}</ProductNotice></Show>
     <Show when={unavailable()}><ProductNotice tone="error">{message('uploadDestination.missing', { mount: props.value.mount! })}</ProductNotice></Show>
