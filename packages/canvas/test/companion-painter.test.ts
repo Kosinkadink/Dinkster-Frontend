@@ -147,8 +147,8 @@ describe('companion value painting', () => {
 
   it('aligns absence words on seed rows with ordinary numeric rows, without reserving the hidden controller', () => {
     for (const painter of [defaultWidgetPainter, createRegistryPainter(registry)]) {
-      for (const state of ['nothing', 'unknown', 'expected'] as const) {
-        const word = state === 'nothing' ? 'Nothing' : state === 'unknown' ? 'Known after a run' : '42'
+      for (const state of ['nothing', 'expected'] as const) {
+        const word = state === 'nothing' ? 'Nothing' : '42'
         const edges = [row, { ...row, controllerMode: 'fixed' as const }].map((field) => {
           const { ctx, calls } = fakeCtx()
           painter(argsWith(ctx, { row: field, width: 400, connected: true, companion: { state, value: 42 } }))

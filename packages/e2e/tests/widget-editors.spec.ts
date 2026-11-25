@@ -1769,7 +1769,7 @@ test('a click on a wired row whose value is known only after a run explains it, 
   const note = page.getByTestId('row-focus')
   const radius = await nodeRowPoint(page, 'soften', 'radius')
   await page.mouse.click(radius.x, radius.y)
-  await expect(note).toContainText('Known after a run.')
+  await expect(note).toContainText('The wire has no known value yet; this does not mean nothing.')
   await expect(note).toContainText('Stored 12, used again when the wire is removed.')
   await expect(note.locator('[data-testid="canvas-row-focus"]')).toHaveAttribute('data-neutral', 'true')
   await expect(page.locator('.widget-in-row-field')).toHaveCount(0)

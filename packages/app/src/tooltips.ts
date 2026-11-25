@@ -324,7 +324,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     const line = state === 'nothing'
       ? 'Nothing: the node feeding this wire was skipped'
       : state === 'unknown'
-        ? 'Known after a run'
+        ? 'The wire has no known value yet'
         : state === 'expected'
           ? `Current expected value: ${text}`
           : state === 'cached'

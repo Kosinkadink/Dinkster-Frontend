@@ -302,7 +302,7 @@ describe('canvas tooltip provider', () => {
     ['expected', 'Current expected value: 1.30'],
     ['cached', 'Retained last-resolved value: 1.30'],
     ['stale', 'Stale/unproven value: 1.30'],
-    ['unknown', 'Known after a run'],
+    ['unknown', 'The wire has no known value yet'],
     ['nothing', 'Nothing: the node feeding this wire was skipped'],
   ] as const)('names the %s connected display state and dormant stored value truthfully', (state, line) => {
     const row = {

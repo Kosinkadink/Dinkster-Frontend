@@ -306,7 +306,8 @@ export interface CompanionDisplay {
    * expected=current proof, cached=recipe-proven older run, stale=unproven,
    * estimate=locally computed from a schema-declared mirror (display only).
    * nothing=a finished run proved no value arrives; unknown=a wire whose
-   * value is not known yet. Both ignore `value` and read as words.
+   * value is not known yet. Nothing reads as words; unknown keeps the
+   * stored value in its own widget look, struck through.
    */
   readonly state?: 'expected' | 'cached' | 'stale' | 'estimate' | 'nothing' | 'unknown'
   /** Compatibility for existing callers; new retained values use state. */
@@ -314,12 +315,11 @@ export interface CompanionDisplay {
 }
 
 /**
- * The words a wired row reads when no value arrives: "Nothing" when a run
- * proved the value absent, "Known after a run" while it is not known.
+ * The words a wired row reads when a run proved the value absent.
  * Undefined for a companion that carries a value.
  */
 export const companionWords = (companion: CompanionDisplay): string | undefined =>
-  companion.state === 'nothing' ? 'Nothing' : companion.state === 'unknown' ? 'Known after a run' : undefined
+  companion.state === 'nothing' ? 'Nothing' : undefined
 
 /**
  * Whether a row draws a value arriving by wire with its own view, as it draws
@@ -4436,9 +4436,8 @@ export class CanvasRenderer {
 
   /**
    * The value a field row shows in place of its own, or undefined when the
-   * row is not wired. A wired row never shows its stored value as the one
-   * arriving: it reads "Nothing" when a run proved nothing arrives, and
-   * "Known after a run" while the arriving value is not known.
+   * row is not wired. A finished run can prove nothing arrives; an unknown
+   * arriving value leaves the stored value visible and struck through.
    */
   private rowCompanion(
     nodeId: string,
@@ -4482,8 +4481,9 @@ export class CanvasRenderer {
     const rowY = node.y + row.y
     if (this.openRows[sceneNode.id] === row.valueKey) return
     const widgetWidth = row.width ?? l.width - row.inset * 2
-    const companion = this.rowCompanion(sceneNode.id, row, driven)
-    const connected = companion !== undefined
+    const arriving = this.rowCompanion(sceneNode.id, row, driven)
+    const connected = arriving !== undefined
+    const companion = arriving?.state === 'unknown' ? undefined : arriving
     const rowAlpha = ctx.globalAlpha
     if (row.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
     if (row.inactive) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity

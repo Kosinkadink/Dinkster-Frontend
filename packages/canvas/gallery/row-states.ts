@@ -234,12 +234,12 @@ export function rowStateExamples(
     },
     {
       id: 'unknown',
-      caption: 'Wired but value not yet known. radius reads Known after a run: never Nothing, and never the stored 12 as if it arrived.',
+      caption: 'Wired but value not yet known. radius keeps its stored 12 struck through in its own widget look. Nothing is reserved for a finished run that gave nothing.',
       scene: feed(),
     },
     {
       id: 'unknown-narrow',
-      caption: 'The same on a narrow node. The words end in an ellipsis rather than growing the node; the readout on pointing gives them in full with the stored 12, used again when the wire is removed. The Link-driven widgets page showed the stored value struck through here before.',
+      caption: 'The same on a narrow node. The stored 12 stays struck through and is used again when the wire is removed.',
       scene: sceneOf(
         [
           { id: 'measure', schema: measureNode, x: 0, y: 0, width: 120 },

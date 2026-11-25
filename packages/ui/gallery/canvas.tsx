@@ -197,7 +197,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'in-node-editors':
     'The audio recorder, webcam, 3D viewer, image comparison, camera angle and curve fold out inside the node under their editor button row, and the rows below move down; clicking the row again folds them back. A folded row says what the editor holds. A palette is a group of color rows: it grows as colors are added and shows a limit only when its group declares one.',
   'widget-driven':
-    'A wired row is dimmed and reads Known after a run until its arriving value is known. The stored value stays available in its readout.',
+    'A wired row is dimmed and keeps its own widget look, with its stored value struck through until its arriving value is known.',
   'widget-offered':
     'Rows a node offers but does not have yet are dimmed until they are added.',
   'widget-companions':

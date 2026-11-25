@@ -1983,25 +1983,20 @@ describe('node chrome paint on the live renderer', () => {
     expect(single.some((c) => c.method === 'setLineDash' && JSON.stringify(c.args[0]) === '[5,4]')).toBe(false)
   })
 
-  it('shows a wired row with no known value as Known after a run, never its stored value', () => {
+  it('keeps an unknown wired value in its own widget look with the stored value struck through', () => {
     const scene = constructsScene((json) => {
       json.graphs.g0.nodes.fs.values = { f: 3.5 }
     })
     const fs = nodeOf(scene, 'fs')
     const row = fs.layout.rows.find((candidate) => candidate.kind === 'widget')!
     const calls = paint(scene)
-    // The words take the companion layout, whose label starts after the stepper.
     const connectedText = calls.find((c) => c.method === 'fillText' && c.args[0] === row.label &&
       c.args[2] === fs.y + row.y + row.height / 2)
     expect(connectedText?.globalAlpha).toBeCloseTo(0.45)
-    expect(calls.some((c) => c.method === 'fillText' && c.args[0] === '3.5')).toBe(false)
-    // The narrow fixture fits the words to the row's value zone.
-    expect(calls.find((c) => c.method === 'fillText' && String(c.args[0]).startsWith('Known a'))).toMatchObject({
-      fillStyle: defaultTokens.colors.label,
-    })
+    expect(calls.some((c) => c.method === 'fillText' && c.args[0] === '3.5')).toBe(true)
     expect(calls.some((c) =>
       c.method === 'stroke' && c.strokeStyle === defaultTokens.colors.value && c.lineWidth === 1.5,
-    )).toBe(false)
+    )).toBe(true)
 
     const companionCalls = paintWith(scene, (renderer) => {
       renderer.setCompanions({ fs: { f: { value: 2.5 } } })
