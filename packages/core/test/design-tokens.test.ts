@@ -37,17 +37,39 @@ describe('semantic design tokens', () => {
     }
   })
 
-  it('keeps light information notices readable over their tinted host surfaces', () => {
+  it('keeps light information notices and success toasts readable over their tinted host surfaces', () => {
     const { meaning, surface } = semanticTokensForTheme('light')
-    const { foreground, quietBackground } = meaning.info
-    const alpha = Number.parseInt(quietBackground.slice(7, 9), 16) / 255
-    for (const host of [surface.frame, surface.field, surface.canvas, surface.panel, surface.inset, surface.raised, surface.quiet, surface.fieldOpen]) {
-      const background = '#' + [1, 3, 5].map((offset) => {
-        const tint = Number.parseInt(quietBackground.slice(offset, offset + 2), 16)
-        const base = Number.parseInt(host.slice(offset, offset + 2), 16)
-        return Math.round(tint * alpha + base * (1 - alpha)).toString(16).padStart(2, '0')
-      }).join('')
-      expect(contrast(foreground, background)).toBeGreaterThanOrEqual(4.6)
+    for (const { foreground, quietBackground } of [
+      meaning.info,
+      meaning.success,
+    ]) {
+      const alpha = Number.parseInt(quietBackground.slice(7, 9), 16) / 255
+      for (const host of [
+        surface.frame,
+        surface.field,
+        surface.canvas,
+        surface.panel,
+        surface.inset,
+        surface.raised,
+        surface.quiet,
+        surface.fieldOpen,
+      ]) {
+        const background =
+          '#' +
+          [1, 3, 5]
+            .map((offset) => {
+              const tint = Number.parseInt(
+                quietBackground.slice(offset, offset + 2),
+                16,
+              )
+              const base = Number.parseInt(host.slice(offset, offset + 2), 16)
+              return Math.round(tint * alpha + base * (1 - alpha))
+                .toString(16)
+                .padStart(2, '0')
+            })
+            .join('')
+        expect(contrast(foreground, background)).toBeGreaterThanOrEqual(4.6)
+      }
     }
   })
 
