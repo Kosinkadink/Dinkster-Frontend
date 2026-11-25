@@ -567,7 +567,7 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
         roundLabel={message(recording() ? 'inNodeAudio.stop' : 'inNodeAudio.record')}
         roundDisabled={props.wired || busy()}
         onRound={() => recording() ? recorder.stop() : void recorder.record()}
-        status={message(`inNodeAudio.status.${shown()}`)}
+        status={props.wired ? stored() === undefined ? message('inNodeEditor.notKnown') : '' : message(`inNodeAudio.status.${shown()}`)}
         {...(detail() === undefined ? {} : { detail: detail()! })}
         waveform={recorder.waveform()}
         actions={actions()}
@@ -585,9 +585,11 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
           onChange={(seconds) => recorder.setLimit(Math.round(seconds))} />
       </CanvasEditorLine>
       <Show when={shown() === 'uploadFailed'} fallback={
-        <CanvasEditorNote tone={stored() === undefined ? 'muted' : undefined}>
-          {stored() === undefined ? message(props.wired ? 'inNodeEditor.notKnown' : 'inNodeAudio.nothingStored') : message('inNodeAudio.stored', { name: stored()!.name ?? stored()!.digest })}
-        </CanvasEditorNote>
+        <Show when={!props.wired || stored() !== undefined}>
+          <CanvasEditorNote tone={stored() === undefined ? 'muted' : undefined}>
+            {stored() === undefined ? message('inNodeAudio.nothingStored') : props.wired ? stored()!.name ?? stored()!.digest : message('inNodeAudio.stored', { name: stored()!.name ?? stored()!.digest })}
+          </CanvasEditorNote>
+        </Show>
       }>
         <CanvasEditorNote tone="problem">{recorder.error()}</CanvasEditorNote>
       </Show>
@@ -731,7 +733,7 @@ export function CurveSpace(props: {
         />
       </CanvasEditorPicture>
       <CanvasEditorLine dimmed={props.wired === true}>
-        <CanvasEditorChoice label={message('inNodeCurve.interpolation')} value={props.wired && props.value === undefined ? message('inNodeEditor.notKnown') : interpolation() === 'linear' ? linear() : cubic()}
+        <CanvasEditorChoice label={message('inNodeCurve.interpolation')} value={props.wired && props.value === undefined ? '' : interpolation() === 'linear' ? linear() : cubic()}
           options={[linear(), cubic()]}
           onChange={(label) => store(points(), label === linear() ? 'linear' : 'monotone_cubic')} />
       </CanvasEditorLine>
@@ -890,7 +892,7 @@ export function WebcamSpace(props: {
     return stored() === undefined ? message('inNodeWebcam.noFrame') : undefined
   }
   const note = () => {
-    if (props.wired) return carried() === undefined ? message('inNodeWebcam.byWire') : message('inNodeWebcam.lastRun')
+    if (props.wired) return carried() === undefined ? undefined : message('inNodeWebcam.lastRun')
     if (props.ports.upload === undefined) return message('inNodeWebcam.native')
     if (camera() !== 'error' && error() !== undefined) return error()
     return stored() === undefined ? message('inNodeWebcam.nothingStored') : message('inNodeWebcam.stored', { name: stored()!.name ?? stored()!.digest })
@@ -923,7 +925,7 @@ export function WebcamSpace(props: {
           ]
         : [{ label: message('inNodeWebcam.start'), icon: canvasEditorIcons.capture,
             disabled: props.wired || camera() === 'starting' || props.ports.upload === undefined, onClick: () => void start() }]} />
-      <CanvasEditorNote tone={noteTone()}>{note()}</CanvasEditorNote>
+      <Show when={note()}>{(text) => <CanvasEditorNote tone={noteTone()}>{text()}</CanvasEditorNote>}</Show>
     </>
   )
 }
@@ -978,7 +980,8 @@ export function CameraAngleSpace(props: {
     <>
       <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}>
         <CanvasAnglePicture label={message('cameraAngleWidget.preview')}
-          horizontal={angle('horizontal_angle')} vertical={angle('vertical_angle')}
+          horizontal={{ ...angle('horizontal_angle'), degrees: place() === undefined ? undefined : value('horizontal_angle') }}
+          vertical={{ ...angle('vertical_angle'), degrees: place() === undefined ? undefined : value('vertical_angle') }}
           onMove={(part, degrees) => setDraft({ part: part === 'horizontal' ? 'horizontal_angle' : 'vertical_angle', value: degrees })}
           onMoveEnd={() => {
             const moved = draft()

@@ -221,10 +221,11 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
                 { label: 'Stop', icon: canvasEditorIcons.stop, intent: 'remove' },
               ]
             : [{ label: 'Start camera', icon: canvasEditorIcons.capture, disabled: camera() === 'wired' }]} />
-          <CanvasEditorNote tone={stored() || (camera() === 'wired' && state()['known'] !== false) ? undefined : 'muted'}>
-            {camera() === 'wired' ? state()['known'] === false ? 'Comes by wire' : 'The image from the last run'
-              : stored() ? `Stored: ${stored()!.name}` : 'Nothing stored'}
-          </CanvasEditorNote>
+          <Show when={camera() !== 'wired' || state()['known'] !== false}>
+            <CanvasEditorNote tone={stored() || camera() === 'wired' ? undefined : 'muted'}>
+              {camera() === 'wired' ? 'The image from the last run' : stored() ? `Stored: ${stored()!.name}` : 'Nothing stored'}
+            </CanvasEditorNote>
+          </Show>
         </>
       )
     }
@@ -301,7 +302,7 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
             <CanvasAnglePicture
               horizontal={{ degrees: wired() === 'horizontal_angle' && !known() ? undefined : wired() === 'horizontal_angle' ? 120 : 45,
                 fixed: wired() === 'horizontal_angle' }}
-              vertical={{ degrees: 20, fixed: false }}
+              vertical={{ degrees: wired() !== undefined && !known() ? undefined : 20, fixed: false }}
             />,
           )}
           <CanvasEditorNote tone={wired() !== undefined && !known() ? 'muted' : undefined}>

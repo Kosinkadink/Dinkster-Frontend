@@ -3,7 +3,9 @@ import { render } from 'solid-js/web'
 import { defaultTokens, type WidgetMeasure } from '@dinkster/canvas'
 import { createInNodeEditorScene } from '../../canvas/gallery/in-node-editors.js'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
-import { AudioRecordController, AudioRecordSpace, CurveSpace, editorSpaceItems } from '../src/InNodeEditorSpaces.js'
+import { AudioRecordController, AudioRecordSpace, CameraAngleSpace, CurveSpace, WebcamSpace, editorSpaceItems } from '../src/InNodeEditorSpaces.js'
+import { Load3dSpace } from '../src/InNodeLoad3dSpace.js'
+import { Load3dSourceError } from '../src/load3d-source.js'
 
 const registry = createWidgetRegistry()
 registerCoreWidgets(widgetRegistrationDoors(registry))
@@ -56,10 +58,39 @@ it('shows a wired clip with playback enabled and recording and removal disabled 
   await recorder.findMicrophones()
   expect(document.body.textContent).toContain('Carried clip')
   expect(document.body.textContent).not.toContain('Nothing stored')
+  expect(document.body.textContent).not.toContain('Stored:')
+  expect(document.body.textContent).not.toContain('Ready')
   const buttons = [...document.querySelectorAll('button')]
   expect(buttons.find((button) => button.getAttribute('aria-label') === 'Record')?.disabled).toBe(true)
   expect(buttons.find((button) => button.getAttribute('aria-label') === 'Play')?.disabled).toBe(false)
   expect(buttons.find((button) => button.getAttribute('aria-label') === 'Remove clip')?.disabled).toBe(true)
   expect([...document.querySelectorAll('.dinkster-canvas-editor-line')].every((line) => line.hasAttribute('inert'))).toBe(true)
   recorder.dispose()
+})
+
+it('describes unknown wired values once without implying recording or known angles', () => {
+  const recorder = new AudioRecordController({ upload: undefined, fetchBytes: undefined, commit: () => {} })
+  dispose = render(() => <>
+    <section data-editor="audio"><AudioRecordSpace controller={recorder} value={undefined} wired /></section>
+    <section data-editor="curve"><CurveSpace value={undefined} wired options={{}} histogram={undefined} histogramInput="none" commit={() => {}} /></section>
+    <section data-editor="webcam"><WebcamSpace value={undefined} carried={undefined} wired covered={false}
+      ports={{ upload: undefined, fetchBytes: undefined, size: () => ({ width: 32, height: 32 }), commit: () => {} }} /></section>
+    <section data-editor="angle"><CameraAngleSpace fields={{ horizontal_angle: { value: undefined, wired: true },
+      vertical_angle: { value: 20, wired: false }, zoom: { value: 5, wired: false } }} commit={() => {}} /></section>
+  </>, document.body)
+  for (const editor of document.querySelectorAll('section')) {
+    expect(editor.textContent?.match(/Not known yet/g)).toHaveLength(1)
+  }
+  expect(document.body.textContent).not.toContain('Microphone off')
+  expect(document.body.textContent).not.toContain('Comes by wire')
+  expect(document.querySelectorAll('.dinkster-canvas-angle-dot')).toHaveLength(0)
+  recorder.dispose()
+})
+
+it.each([false, true])('distinguishes an empty model from an unknown wired model (wired=%s)', async (wired) => {
+  dispose = render(() => <Load3dSpace value={undefined} wired={wired} sourceKey="empty" captures={false} live={false}
+    onWake={() => {}} openSections={[]} cameraWired={wired} placementWired={wired}
+    ports={{ open: async () => { throw new Load3dSourceError('noModel') }, upload: undefined, commit: () => {}, setSection: () => {} }} />, document.body)
+  await vi.waitFor(() => expect(document.body.textContent).toContain(wired ? 'Not known yet' : 'No model chosen'))
+  expect(document.body.textContent).not.toContain(wired ? 'No model chosen' : 'Not known yet')
 })

@@ -6920,7 +6920,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   options={item()?.field.spec.options ?? {}} />}
               </Show>
               <Show when={load3d()}>
-                {(at) => <Load3dSpace value={item()?.value}
+                {(at) => <Load3dSpace value={item()?.value} wired={item()?.wired === true}
                   sourceKey={at().sourceKey} ports={at().ports} captures={at().captures}
                   live={liveModelViews().has(key) && !covered()}
                   onWake={() => setWokenModelViews((woken) => [key, ...woken.filter((other) => other !== key)].slice(0, LIVE_MODEL_VIEWS))}
