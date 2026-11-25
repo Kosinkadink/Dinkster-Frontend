@@ -62,6 +62,9 @@
 .model-visibility-action { display: grid; gap: var(--dinkster-space-8); }
 .model-visibility-action .model-hide-outline { border-color: var(--dinkster-danger-border); color: var(--dinkster-danger-foreground); background: transparent; }
 .model-visibility-action .product-button[data-variant='danger'] { border-color: var(--dinkster-danger-border); color: var(--dinkster-action-primary-text); background: var(--dinkster-danger-foreground); }
+.model-visibility-action .model-hide-outline:hover:not(:disabled) { background: var(--dinkster-danger-wash); }
+.model-visibility-action .model-hide-outline:active:not(:disabled) { background: var(--dinkster-danger-wash-pressed); }
+.model-visibility-action .product-button[data-variant='danger']:is(:hover, :active):not(:disabled) { background: var(--dinkster-danger-foreground); }
 .model-location-form {
   display: grid;
   gap: var(--dinkster-space-12);
