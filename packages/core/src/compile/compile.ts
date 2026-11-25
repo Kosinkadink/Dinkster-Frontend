@@ -69,7 +69,7 @@ import { companionSourcesOf } from '../companion.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { buildRerouteIndex, rerouteDriverOf, rerouteInputTargets, type RerouteIndex, type TraceVia } from '../reroute.js'
 import { effectivePrimitiveSpec, explicitPrimitiveDefault, explicitPrimitiveLimits, primitiveOf, withPrimitiveValue, type EffectivePrimitiveSpec, type FedField } from '../primitive.js'
-import { matchBypassInput, type BypassCandidate } from './bypass.js'
+import { buildBypassCandidates, matchBypassInput } from './bypass.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../schema/derive-boundary.js'
 import {
   buildGraphConnectivity,
@@ -1382,14 +1382,10 @@ function compileImpl(
     const output = elab.outputsByAddr.get(address)
     const outputIndex = elab.outputIndexByAddr.get(address)
     if (!output || outputIndex === undefined) return undefined
-    const candidates: BypassCandidate<{ readonly driver: LocatedDriver; readonly input: ElaboratedInput }>[] = []
-    let wireIndex = 0
-    for (const input of elab.inputs) {
-      if (input.apiName === undefined || hasSyntheticAncestor(input.ancestry)) continue
-      const index = wireIndex++
+    const candidates = buildBypassCandidates(elab.inputs, (input) => {
       const driver = driverOfInput(at.path, at.defId, at.ref.node, input.address)
-      if (driver) candidates.push({ index, type: input.spec.type, driver: { driver, input } })
-    }
+      return driver === undefined ? undefined : { driver, input }
+    })
     const selected = matchBypassInput(
       { index: outputIndex, type: consumerType ?? output.spec.type },
       candidates,
