@@ -95,6 +95,36 @@ describe('universal search model', () => {
     expect(app.activeTabId.get()).toBe(after.id)
     expect(runSearchAction(app, { kind: 'host', action: 'tab.activate', params: { id: 'gone' } })).toBe(false)
   })
+  it('workflows provider lists saved workflows without loading them and opens the chosen one', async () => {
+    const app = prepareWorkflowApp(new AppState())
+    const listLibrary = vi.fn(async () => ({ records: [
+      { id: 'wf-b', name: 'Portrait upscale', folder: 'clients/acme' },
+      { id: 'wf-a', name: 'Portrait base' },
+    ] }))
+    vi.spyOn(app, 'libraryBackend').mockReturnValue({ id: 'engine-1', connection: { listLibrary } } as never)
+    const openFromLibrary = vi.spyOn(app, 'openFromLibrary').mockResolvedValue(true)
+    const dispose = registerCoreSearchProviders(app)
+    const provider = app.searchRegistry.list().find((item) => item.id === 'core.workflows')!
+    const context = { selection: { nodes: [] }, signal: new AbortController().signal }
+    expect(await provider.query('', context)).toEqual([])
+    expect(listLibrary).not.toHaveBeenCalled()
+    const rows = await provider.query('portrait', context) as readonly SearchResult[]
+    expect(listLibrary).toHaveBeenCalledWith({ scope: 'local', query: 'portrait', label: 'workflow', limit: 20 })
+    expect(rows.map((item) => [item.title, item.detail])).toEqual([['Portrait upscale', 'clients/acme'], ['Portrait base', undefined]])
+    expect(rows[0]!.score).toBeGreaterThan(rows[1]!.score)
+    expect(await runSearchAction(app, rows[1]!.action)).toBe(true)
+    expect(openFromLibrary).toHaveBeenCalledWith('wf-a', 'engine-1')
+    dispose.forEach((fn) => fn())
+  })
+  it('blueprint rows arm the blueprint on the canvas, not a node', () => {
+    const app = prepareWorkflowApp(new AppState())
+    const armBlueprintPlacement = vi.fn(() => true)
+    const armNodePlacement = vi.fn(() => true)
+    app.canvasBridge.set({ armBlueprintPlacement, armNodePlacement } as never)
+    expect(runSearchAction(app, { kind: 'host', action: 'blueprint.armPlacement', params: { packId: 'dev', id: 'upscale-2x', backendId: 'engine-1' } })).toBe(true)
+    expect(armBlueprintPlacement).toHaveBeenCalledWith('dev', 'upscale-2x', 'engine-1')
+    expect(armNodePlacement).not.toHaveBeenCalled()
+  })
   it('closes a requested template gallery when workspaces change or reload', async () => {
     const app = prepareWorkflowApp(new AppState()); const before = app.createWorkflow(); const after = app.createWorkflow()
     app.activeTabId.set(before.id)
@@ -184,7 +214,8 @@ describe('universal search model', () => {
     expect(query()).toEqual([])
     app.searchCatalog.set([{ schema, pack }])
     const row = query()[0]!
-    expect(row.detail).toContain('Image Tools - Not installed')
+    expect(row.detail).toBe('Not installed')
+    expect(row.preview?.fields?.[0]?.value).toContain('Image Tools')
     expect(backend.registry.get()!.resolve(schema.type)).toBeUndefined()
     expect(runSearchAction(app, row.action)).toBe(true)
     expect(app.nodeInstallRequest.get()?.pack.name).toBe('image-tools')

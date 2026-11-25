@@ -12,6 +12,12 @@ export type SearchHostAction =
       readonly action: 'node.armPlacement' | 'node.previewInstall'
       readonly params: { readonly type: string; readonly schemaKey: string; readonly backendId: string }
     }
+  | {
+      readonly kind: 'host'
+      readonly action: 'blueprint.armPlacement'
+      readonly params: { readonly packId: string; readonly id: string; readonly backendId: string }
+    }
+  | { readonly kind: 'host'; readonly action: 'workflow.open'; readonly params: { readonly id: string; readonly backendId: string } }
 
 export type SearchAction = { readonly kind: 'command'; readonly invocation: CommandInvocation } | SearchHostAction
 
@@ -229,6 +235,24 @@ export function decodeSearchHostAction(value: unknown): SearchHostAction | undef
       kind: 'host',
       action: value['action'],
       params: Object.freeze({ type: params['type']!, schemaKey: params['schemaKey']!, backendId: params['backendId']! }),
+    })
+  }
+  if (value['action'] === 'blueprint.armPlacement') {
+    const params = exactStringParams(value['params'], ['packId', 'id', 'backendId'])
+    if (params === undefined) return undefined
+    return Object.freeze({
+      kind: 'host',
+      action: 'blueprint.armPlacement',
+      params: Object.freeze({ packId: params['packId']!, id: params['id']!, backendId: params['backendId']! }),
+    })
+  }
+  if (value['action'] === 'workflow.open') {
+    const params = exactStringParams(value['params'], ['id', 'backendId'])
+    if (params === undefined) return undefined
+    return Object.freeze({
+      kind: 'host',
+      action: 'workflow.open',
+      params: Object.freeze({ id: params['id']!, backendId: params['backendId']! }),
     })
   }
   return undefined

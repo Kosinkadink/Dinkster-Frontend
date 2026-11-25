@@ -38,8 +38,8 @@ test('uninstalled search renders the same real preview as installed search and n
   await page.goto('/')
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('@ catalog-resample')
-  const row = page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]').first()
-  await expect(row).toContainText('Image Tools - Not installed')
+  const row = page.locator('[data-group="core.nodes"] [role="option"]').first()
+  await expect(row).toContainText('Not installed')
   const preview = page.getByTestId('search-node-preview')
   await expect(preview).toHaveAttribute('data-preview-ready', 'image.catalog')
   const uninstalledPixels = await preview.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL())
@@ -123,7 +123,7 @@ async function openInstallPrompt(page: Page) {
   const open = async () => {
     await page.getByTestId('topbar-search').click()
     await page.getByTestId('universal-search-input').fill('@ catalog-resample')
-    await page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]').first().click()
+    await page.locator('[data-group="core.nodes"] [role="option"]').first().click()
     await expect(page.locator('[data-modal="node-install"]')).toBeVisible()
   }
   await open()
@@ -178,7 +178,7 @@ test('managed host commands copy exactly without HTTP apply and refresh permits 
   await prompt.getByRole('button', { name: 'Close', exact: true }).click()
   await page.getByTestId('topbar-search').click()
   await page.getByTestId('universal-search-input').fill('@ catalog-resample')
-  const row = page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]')
+  const row = page.locator('[data-group="core.nodes"] [role="option"]')
   await expect(row).toHaveCount(1)
   await expect(row).not.toContainText('Not installed')
   await row.click()

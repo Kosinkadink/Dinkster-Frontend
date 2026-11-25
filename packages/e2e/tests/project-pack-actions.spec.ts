@@ -74,7 +74,7 @@ for (const entry of ['search', 'import'] as const) {
       if (entry === 'search') {
         await page.getByTestId('topbar-search').click()
         await page.getByTestId('universal-search-input').fill('@ Catalog Image')
-        await page.locator('[data-provider="core.nodes"] [data-testid="search-result-row"]').first().click()
+        await page.locator('[data-group="core.nodes"] [role="option"]').first().click()
         const preview = page.locator('[data-modal="node-install"]')
         await expect(preview).toBeVisible()
         await page.screenshot({ path: info.outputPath('before-project-review.png') })

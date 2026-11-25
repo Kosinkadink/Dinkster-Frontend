@@ -1178,6 +1178,8 @@ export interface CanvasBridge {
     type: string,
     expected?: { readonly schemaKey: string; readonly backendId: string },
   ) => boolean
+  /** Arms the placement ghost for one pack blueprint, as node search does. */
+  readonly armBlueprintPlacement?: (packId: string, blueprintId: string, backendId: string) => boolean
   readonly createEmptySubgraph?: (position?: Vec2) => boolean | Promise<boolean>
   /** Extracts the captured selection and group contents with the default name. */
   readonly extractSubgraph?: () => boolean | Promise<boolean>

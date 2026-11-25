@@ -6288,6 +6288,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (armed) queueMicrotask(() => canvasEl.focus())
         return armed
       },
+      armBlueprintPlacement: (packId, blueprintId, backendId) => {
+        const tab = activeTab()
+        const entry = paletteEntries().find((candidate) =>
+          candidate.kind === 'blueprint' &&
+          candidate.blueprint?.packId === packId &&
+          candidate.blueprint.descriptor.id === blueprintId)
+        if (!entry || !tab || props.app.backendForTab(tab).id !== backendId) {
+          clearArmedPlacement()
+          return false
+        }
+        const armed = armPaletteEntry(entry)
+        if (armed) queueMicrotask(() => canvasEl.focus())
+        return armed
+      },
       createEmptySubgraph: async (position) => {
         const tab = activeTab()
         if (!tab || refuseFrozenEdit()) return false

@@ -1,9 +1,9 @@
 import { decodeSearchHostAction, nodeSearchFields, rankSearch, scoreMatch, searchVisibilityOf, sha256Hex, t, type NodeSchema, type PackInfo, type SearchAction, type SearchProvider, type SearchResult } from '@dinkster/core'
-import type { AppState } from './app-state.js'
+import { LIBRARY_SCOPE, WORKFLOW_LABEL, type AppState } from './app-state.js'
 import { RemoteNodeCatalog, type CatalogNode } from './node-catalog.js'
 import { placementSchemaKey } from './palette-node-preview.js'
 import type { SettingsRegistry } from './settings.js'
-import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions } from './settings-search.js'
+import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, settingsCategoryLabel } from './settings-search.js'
 
 export const SEARCH_RECENTS_SETTING = 'search.recentActivations'
 const fields = (title: string, detail = '', keywords: readonly string[] = []) => [
@@ -15,6 +15,11 @@ const catalogNodeKey = (entry: CatalogNode): string => sha256Hex(JSON.stringify(
 const result = (q: string, id: string, title: string, detail: string | undefined, action: SearchAction, keywords: readonly string[] = []): SearchResult | undefined => {
   const score = scoreMatch(q, fields(title, detail, keywords))
   return score === undefined ? undefined : { id, title, ...(detail !== undefined ? { detail } : {}), score, action, keywords }
+}
+
+/** A category path as the search shows where a thing lives: "dev/image" reads "dev / image". */
+export function searchPlace(category: string): string {
+  return category.split('/').map((part) => part.trim()).filter(Boolean).join(' / ')
 }
 
 /** Secondary context for node rows; canonical identity is added only when a display name collides. */
@@ -42,10 +47,10 @@ export function registerCoreSearchProviders(app: AppState): readonly (() => void
       return match ? [match] : []
     }) },
     { id: 'core.settings', label: 'Settings', prefix: '#', priority: 30, query: (q) => querySettingsIndex(buildSettingsSearchIndex(searchableSettingsDefinitions(app.settings.list()), (d) => app.settings.categoryOf(d), app.commands.list()), q).flatMap((group) => group.matches.map((match) => ({
-      id: match.id, title: match.name, detail: group.category, score: match.score,
+      id: match.id, title: match.name, detail: settingsCategoryLabel(group.category, (key) => t(key)), score: match.score,
       action: { kind: 'host' as const, action: 'settings.open', params: { category: match.action.category, id: match.action.id } },
     }))) },
-    { id: 'core.nodes', label: 'Nodes', prefix: '@', priority: 20, query: (q) => {
+    { id: 'core.nodes', label: 'Nodes', prefix: '@', priority: 60, query: (q) => {
       const tab = app.activeTab()
       const registry = tab && tab.execution === undefined && app.canvasBridge.get() ? app.registryForTab(tab) ?? app.keptRegistryForTab(tab) : undefined
       const external = tab === undefined || tab.execution !== undefined || !app.canvasBridge.get() ? [] : app.searchCatalog.get().filter((entry) =>
@@ -57,10 +62,13 @@ export function registerCoreSearchProviders(app: AppState): readonly (() => void
       return rankSearch(q, schemas, nodeSearchFields).map((schema) => {
         const entry = externalByType.get(schema.type)
         return {
-        id: schema.type, title: schema.displayName, detail: entry === undefined ? nodeSearchDetail(schema, duplicateNames, registry?.packs)
-          : `${entry.pack.displayName} - ${t('search.notInstalled')} - ${schema.category}`,
+        id: schema.type, title: schema.displayName, detail: entry === undefined ? searchPlace(nodeSearchDetail(schema, duplicateNames, registry?.packs))
+          : t('search.notInstalled'),
         score: scoreMatch(q, nodeSearchFields(schema)) ?? 0,
-        preview: { version: 1 as const, title: schema.displayName, ...(schema.description === undefined ? {} : { description: schema.description }) },
+        preview: { version: 1 as const, title: schema.displayName, ...(schema.description === undefined ? {} : { description: schema.description }), fields: [{
+          label: 'Where',
+          value: [searchPlace(schema.category), entry?.pack.displayName ?? (schema.pack === undefined ? undefined : registry?.packs?.get(schema.pack)?.displayName ?? schema.pack)].filter((part) => part !== undefined && part !== '').join(' - '),
+        }].filter((field) => field.value !== '') },
         action: { kind: 'host' as const, action: entry === undefined ? 'node.armPlacement' as const : 'node.previewInstall' as const, params: {
           type: schema.type,
           schemaKey: entry === undefined ? placementSchemaKey(schema) : catalogNodeKey(entry),
@@ -68,15 +76,46 @@ export function registerCoreSearchProviders(app: AppState): readonly (() => void
         } },
       }})
     } },
+    { id: 'core.blueprints', label: 'Blueprints', priority: 55, query: (q) => {
+      const tab = app.activeTab()
+      const registry = tab && tab.execution === undefined && app.canvasBridge.get() ? app.registryForTab(tab) ?? app.keptRegistryForTab(tab) : undefined
+      if (tab === undefined || registry?.packs === undefined) return []
+      const backendId = app.backendForTab(tab).id
+      return [...registry.packs].flatMap(([packId, info]) => (info.blueprints ?? []).flatMap((blueprint) => {
+        const match = result(q, `${packId}/${blueprint.id}`, blueprint.name, t('search.blueprint'), {
+          kind: 'host', action: 'blueprint.armPlacement', params: { packId, id: blueprint.id, backendId },
+        }, [...(blueprint.tags ?? []), ...(blueprint.description === undefined ? [] : [blueprint.description]), info.displayName])
+        return match === undefined ? [] : [{ ...match, preview: {
+          version: 1 as const,
+          title: blueprint.name,
+          ...(blueprint.description === undefined ? {} : { description: blueprint.description }),
+          fields: [{ label: 'Where', value: `${t('search.blueprint')} - ${info.displayName}` }],
+        } }]
+      }))
+    } },
+    { id: 'core.workflows', label: 'Workflows', priority: 20, async: true, query: async (q) => {
+      const backend = app.libraryBackend()
+      if (backend === undefined || q.trim() === '') return []
+      const page = await backend.connection.listLibrary({ scope: LIBRARY_SCOPE, query: q, label: WORKFLOW_LABEL, limit: 20 })
+      // The engine ranks the query; keep its order.
+      return page.records.map((record, index) => ({
+        id: record.id,
+        title: record.name,
+        ...(record.folder === undefined ? {} : { detail: record.folder }),
+        score: page.records.length - index,
+        action: { kind: 'host' as const, action: 'workflow.open' as const, params: { id: record.id, backendId: backend.id } },
+      }))
+    } },
     { id: 'core.tabs', label: 'Tabs', prefix: '~', priority: 10, query: (q) => app.tabs.get().flatMap((tab) => {
-      const match = result(q, tab.id, tab.title, 'Open tab', { kind: 'host', action: 'tab.activate', params: { id: tab.id } })
+      const match = result(q, tab.id, tab.title, app.isTabDirty(tab.id) ? t('search.edited') : undefined, { kind: 'host', action: 'tab.activate', params: { id: tab.id } })
       return match ? [match] : []
     }) },
   ]
   const disposers = providers.map((provider) => app.searchRegistry.register(provider))
-  const nodesProvider = providers.find((provider) => provider.id === 'core.nodes')!
-  let unregisterNodes = disposers[2]!
-  disposers[2] = () => unregisterNodes()
+  const nodesAt = providers.findIndex((provider) => provider.id === 'core.nodes')
+  const nodesProvider = providers[nodesAt]!
+  let unregisterNodes = disposers[nodesAt]!
+  disposers[nodesAt] = () => unregisterNodes()
   disposers.push(app.searchCatalog.subscribe(() => {
     const finish = app.searchRegistry.beginBatch()
     unregisterNodes()
@@ -162,6 +201,12 @@ export function runSearchAction(app: AppState, action: SearchAction): boolean | 
       schemaKey: decoded.params.schemaKey,
       backendId: decoded.params.backendId,
     }) ?? false
+  }
+  else if (decoded.action === 'blueprint.armPlacement') {
+    return app.canvasBridge.get()?.armBlueprintPlacement?.(decoded.params.packId, decoded.params.id, decoded.params.backendId) ?? false
+  }
+  else if (decoded.action === 'workflow.open') {
+    return app.openFromLibrary(decoded.params.id, decoded.params.backendId)
   }
   else if (decoded.action === 'node.previewInstall') {
     const schema = searchNodeSchema(app, decoded)
