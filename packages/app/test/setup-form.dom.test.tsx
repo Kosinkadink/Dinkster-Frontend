@@ -51,6 +51,24 @@ it.each(['projects', 'editor'] as const)('starts the same process-owned job from
   expect(button('Set up').disabled).toBe(false)
 })
 
+it('changes builds through a checked menu without adding a facts row', async () => {
+  vi.useFakeTimers()
+  const choices = [{ variant: 'linux-nvidia', label: 'NVIDIA', reason: 'Detected card' }, { variant: 'linux-cpu', label: 'CPU', reason: 'CPU only' }]
+  const fetch = vi.fn(async (_url: string) => answer({ plan: { ...plan, choices }, activeJob: null }))
+  vi.stubGlobal('fetch', fetch)
+  dispose = render(() => <SetupForm surface="projects" />, document.body)
+  await vi.advanceTimersByTimeAsync(0)
+  button('Change build').click()
+  expect(document.querySelector('[role="menuitemcheckbox"][aria-checked="true"]')?.textContent).toContain('NVIDIA')
+  expect(document.querySelector('select')).toBeNull()
+  expect(document.querySelectorAll('dt').length).toBe(3)
+  const cpu = [...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')].find((node) => node.textContent?.includes('CPU'))!
+  cpu.click()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(fetch.mock.calls.at(-1)?.[0]).toContain('variant=linux-cpu')
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+})
+
 it('never presents unknown hardware or downloads as none, and refuses a held library before POST', async () => {
   vi.useFakeTimers()
   const fetch = vi.fn(async () => answer({ plan: { ...plan, variant: null, buildLabel: null,

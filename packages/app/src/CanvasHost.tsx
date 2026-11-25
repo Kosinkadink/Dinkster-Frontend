@@ -7050,7 +7050,24 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         />
       </Show>
       <CanvasCornerControls
-        ref={(element) => { cornerControlsEl = element }}
+        ref={(element) => {
+          cornerControlsEl = element
+          onMount(() => {
+            const stage = element.closest<HTMLElement>('.canvas-stage')!
+            const measure = (): void => {
+              const inset = stage.getBoundingClientRect().bottom - element.getBoundingClientRect().top
+              stage.style.setProperty('--canvas-corner-inset', `${inset}px`)
+            }
+            const observer = new ResizeObserver(measure)
+            observer.observe(element)
+            observer.observe(stage)
+            measure()
+            onCleanup(() => {
+              observer.disconnect()
+              stage.style.removeProperty('--canvas-corner-inset')
+            })
+          })
+        }}
         minimapRef={(element) => { minimapEl = element }}
         size={(settingsTick(), props.app.settings.get<string>('canvas.minimap.size'))}
         minimapVisible={minimapVisible()}

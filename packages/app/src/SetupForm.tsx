@@ -1,6 +1,6 @@
 import { createSignal, For, Show } from 'solid-js'
 import { activeLocale } from '@dinkster/core'
-import { ProductBrandMark, ProductButton, ProductDialog, ProductErrorBanner, ProductField, ProductLoading, ProductNotice, ProductSelect, ProductTextButton, ProductTextInput } from '@dinkster/ui'
+import { ProductBrandMark, ProductButton, ProductDialog, ProductErrorBanner, ProductField, ProductLoading, ProductMenu, ProductNotice, ProductTextButton, ProductTextInput } from '@dinkster/ui'
 import { createArrival } from './arrival.js'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { useAppMessage } from './locale.js'
@@ -19,7 +19,6 @@ export function SetupForm(props: {
   })
   const arrival = createArrival({ get latest() { return setup.plan() }, get loading() { return setup.planning() } })
   const [folder, setFolder] = createSignal<string>()
-  const [choosingBuild, setChoosingBuild] = createSignal(false)
   const [folderBusy, setFolderBusy] = createSignal(false)
   const [folderError, setFolderError] = createSignal<string>()
   const [dismissed, setDismissed] = createSignal<string>()
@@ -86,13 +85,13 @@ export function SetupForm(props: {
             <dd><span>{setupJobActive(setup.job()) ? setup.job()!.root : plan().root}</span><Show when={!setupJobActive(setup.job())}><ProductTextButton label={message('setup.chooseFolder')} disabled={busy()} onClick={() => { setDismissed(undefined); void chooseFolder() }} /></Show></dd>
             <Show when={plan().buildLabel || setupJobActive(setup.job())}><dt>{message('setup.build')}</dt>
             <dd><div><span>{setupJobActive(setup.job()) && setup.job()!.variant !== plan().variant ? setup.job()!.variant : plan().buildLabel}</span><For each={plan().detectedCards ?? []}>{(card) => <p class="dinkster-description">{card.name}</p>}</For></div>
-              <Show when={!setupJobActive(setup.job()) && (plan().choices?.length ?? 0) > 1}><ProductTextButton label={message('setup.changeBuild')} disabled={busy()} onClick={() => setChoosingBuild(!choosingBuild())} /></Show>
+              <Show when={!setupJobActive(setup.job()) && (plan().choices?.length ?? 0) > 1}><ProductMenu label={message('setup.changeBuild')} items={(plan().choices ?? []).map((choice) => ({
+                label: choice.label,
+                checked: choice.variant === plan().variant,
+                disabled: busy(),
+                onSelect: () => { void setup.refresh({ root: plan().root, channel: plan().channel, variant: choice.variant }) },
+              }))} /></Show>
             </dd></Show>
-            <Show when={choosingBuild() && !setupJobActive(setup.job())}>
-              <dt>{message('setup.chooseBuild')}</dt><dd><ProductSelect aria-label={message('setup.chooseBuild')} value={plan().variant ?? ''} disabled={busy()} onChange={(event) => {
-                void setup.refresh({ root: plan().root, channel: plan().channel, variant: event.currentTarget.value })
-              }}><For each={plan().choices ?? []}>{(choice) => <option value={choice.variant} title={choice.reason}>{choice.label}</option>}</For></ProductSelect></dd>
-            </Show>
             <Show when={download()}>{(size) => <><dt>{message('setup.download')}</dt><dd><span>{message('setup.downloadSpace', { size: size(), free: bytes(plan().freeBytes) })}</span></dd></>}</Show>
           </dl>
           <Show when={setup.job()}><div class="setup-job" role="status">

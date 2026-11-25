@@ -13,7 +13,9 @@
 @keyframes setup-arrival { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .setup-arrival { animation: none; } }
 @media (max-width: 640px) {
+  .editor-first-run-setup { top: var(--canvas-toolbar-bottom, 0px); bottom: var(--canvas-corner-inset, 0px); pointer-events: auto; }
+  .editor-first-run-setup .setup-host { place-content: start center; }
   .setup-facts { grid-template-columns: minmax(0, 1fr); gap: var(--dinkster-space-12); }
   .setup-facts dd { flex-direction: column; align-items: stretch; gap: var(--dinkster-space-12); }
-  .setup-facts dd > button { align-self: flex-end; }
+  .setup-facts dd > button, .setup-facts dd > .dinkster-menu-anchor { align-self: flex-end; }
 }

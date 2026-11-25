@@ -3074,14 +3074,16 @@ export function App(props: {
               <span class="engine-spinner" />
             </Show>
             <span class="engine-banner-text">
-              {sup().state === 'starting'
+              {sup().installations === 0
+                ? message('shell.status.notSetUp')
+                : sup().state === 'starting'
                 ? message('shell.engine.starting')
                 : sup().state === 'failed'
                   ? message('shell.engine.failed')
                   : message('shell.engine.stopped')}
               {sup().detail ? ` - ${sup().detail}` : ''}
             </span>
-            <Show when={sup().state === 'failed' || sup().state === 'stopped'}>
+            <Show when={sup().installations !== 0 && (sup().state === 'failed' || sup().state === 'stopped')}>
               <ProductButton size="compact"
                 data-testid="engine-restart"
                 onClick={() => void app.restartEngine(activeBackend())}

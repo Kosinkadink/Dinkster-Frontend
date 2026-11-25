@@ -241,7 +241,7 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
   const account = createAccountSession(() => connection)
   const [place, setPlace] = createSignal<Place>('projects')
   const [count, setCount] = createSignal<number>()
-  const [engine, setEngine] = createSignal<{ state?: EngineState; open?: PageInstallation }>({})
+  const [engine, setEngine] = createSignal<{ state?: EngineState; open?: PageInstallation; notSetUp: boolean }>({ notSetUp: false })
   // The editor's tooltips, so the frame's controls explain themselves here too.
   const tooltips = new TooltipController()
   tooltips.register({
@@ -331,7 +331,8 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
             <span class="status-connection-name">{message('projects.status.local')}</span>
           </span>
           <Show when={engine().state}><span class="status-item" data-testid="projects-engine-status">
-            {engine().state === 'ready' && engine().open
+            {engine().notSetUp ? message('shell.status.notSetUp')
+              : engine().state === 'ready' && engine().open
               ? message('projects.status.ready', { installation: engine().open!.name })
               : message(ENGINE_WORDS[engine().state ?? 'stopped'])}
           </span></Show>
@@ -351,7 +352,7 @@ export function ProjectsView(props: {
   /** Told how many projects the list holds once it has read them. */
   readonly onCount?: (count: number) => void
   /** Told the engine's state and the open installation once the page has read them. */
-  readonly onEngine?: (engine: { state?: EngineState; open?: PageInstallation }) => void
+  readonly onEngine?: (engine: { state?: EngineState; open?: PageInstallation; notSetUp: boolean }) => void
 }) {
   const message = useAppMessage()
   const locale = useSignal(activeLocale)
@@ -390,7 +391,7 @@ export function ProjectsView(props: {
   })
   createEffect(() => {
     const found = installations()
-    if (painted() && found) props.onEngine?.({ ...(found.engine ? { state: found.engine } : {}), ...(found.open ? { open: found.open } : {}) })
+    if (painted() && found) props.onEngine?.({ ...(found.engine ? { state: found.engine } : {}), ...(found.open ? { open: found.open } : {}), notSetUp: found.all.length === 0 })
   })
   const [chosen, setChosen] = createSignal<string>()
   const [bannerShown, setBannerShown] = createSignal(true)
