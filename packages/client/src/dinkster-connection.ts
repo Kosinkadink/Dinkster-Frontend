@@ -1339,6 +1339,8 @@ export interface LibraryProject {
   readonly created: string
   readonly revision: number
   readonly deleted: boolean
+  /** The project's selected output folder, an absolute path; null when the process has none to name. */
+  readonly folder?: string | null
   readonly environment?: { readonly id: string } & (
     { readonly lastSnapshot: string; readonly lastRunAt: string } |
     { readonly lastSnapshot: null; readonly lastRunAt: null }
@@ -1409,11 +1411,16 @@ function decodeLibraryProject(value: unknown): LibraryProject {
     }
     link = { issuer: record['issuer'], id: record['id'] }
   }
+  const folder = row['folder']
+  if (folder !== undefined && folder !== null && (typeof folder !== 'string' || folder.length === 0)) {
+    throw new Error('Malformed library project folder')
+  }
   return {
     ...(link === undefined ? {} : { accountProject: link }),
     id: row['id'], name: row['name'], created: row['created'], revision: row['revision'] as number, deleted: row['deleted'],
     ...(uid === undefined ? {} : { uid: uid as string }),
     ...(environment === undefined ? {} : { environment: environment as Exclude<LibraryProject['environment'], undefined> }),
+    ...(folder === undefined ? {} : { folder: folder as string | null }),
   }
 }
 

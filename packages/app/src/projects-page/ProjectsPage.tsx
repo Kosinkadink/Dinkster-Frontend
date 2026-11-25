@@ -65,12 +65,15 @@ export interface ProjectsSource {
   listOutputs(project: string, limit: number): Promise<readonly LocalAssetCatalogEntry[]>
   /** Stored bytes and output count; undefined while the process cannot tell. */
   usage(project: string): Promise<{ readonly outputs: number; readonly bytes: number } | undefined>
-  /** Every installation, the one that is open, if any, and the state of its engine. */
+  /** Every installation, the one that is open, if any, the state of its engine, and whether the process can open folders. */
   installations(): Promise<{
     readonly all: readonly PageInstallation[]
     readonly open?: PageInstallation
     readonly engine?: EngineState
+    readonly openFolder?: boolean
   }>
+  /** Opens the project's folder in this computer's file manager. */
+  openFolder(project: string): Promise<void>
 }
 
 /** The process's engine state, from /supervisor/status. */
@@ -170,14 +173,23 @@ export function processSource(connection: DinksterConnection = processConnection
           .then((response) => (response.ok ? response.json() : { installations: [] }))
           .catch(() => ({ installations: [] })),
       ]) as [
-        { state?: EngineState; open?: { root: string; engine: string } },
+        { state?: EngineState; open?: { root: string; engine: string }; openFolder?: boolean },
         { installations?: readonly { root: string }[] },
       ]
       const named = (root: string, engine = 'main'): PageInstallation => ({ root, engine, name: folderName(root) })
       const all = (rows.installations ?? []).map((row) => named(row.root))
       const open = status.open ? named(status.open.root, status.open.engine) : undefined
       if (open && !all.some((row) => row.root === open.root)) all.unshift(open)
-      return { all, ...(open ? { open } : {}), ...(status.state ? { engine: status.state } : {}) }
+      return {
+        all,
+        ...(open ? { open } : {}),
+        ...(status.state ? { engine: status.state } : {}),
+        openFolder: status.openFolder === true,
+      }
+    },
+    async openFolder(project) {
+      const response = await fetch(`/supervisor/projects/${encodeURIComponent(project)}/folder`, { method: 'POST' })
+      if (!response.ok) throw new Error(`POST /supervisor/projects/${project}/folder failed: ${response.status}`)
     },
   }
 }
@@ -332,6 +344,7 @@ export function ProjectsView(props: {
   })
   const [chosen, setChosen] = createSignal<string>()
   const [bannerShown, setBannerShown] = createSignal(true)
+  const [folderFailed, setFolderFailed] = createSignal<string>()
   const [runsOnChoice, setRunsOnChoice] = createSignal(0)
   const [hiddenChange, setHiddenChange] = createSignal(0)
 
@@ -493,10 +506,35 @@ export function ProjectsView(props: {
             {message('projects.failed.banner', { failed: here()!.failed!, project: project.name })}
           </ProductErrorBanner>
         </Show>
+        <Show when={folderFailed() === project.id}>
+          <ProductErrorBanner quiet onDismiss={() => setFolderFailed(undefined)}>
+            {message('projects.facts.folderFailed')}
+          </ProductErrorBanner>
+        </Show>
         <ProductProjectFacts
           label={message('projects.facts.label')}
           columns={[
             [
+              // The folder is the project's output folder, so the fact says Outputs; with no folder there is no fact.
+              ...(project.folder
+                ? [
+                    {
+                      label: message('projects.facts.outputsFolder'),
+                      value: project.folder,
+                      action: (
+                        <Show when={installations()?.openFolder}>
+                          <ProductTextButton
+                            label={message('projects.facts.showInFolder')}
+                            onClick={() => {
+                              setFolderFailed(undefined)
+                              props.source.openFolder(project.id).catch(() => setFolderFailed(project.id))
+                            }}
+                          />
+                        </Show>
+                      ),
+                    },
+                  ]
+                : []),
               {
                 label: message('projects.facts.runsOn'),
                 value: installation()?.name ?? message('projects.facts.noInstallation'),

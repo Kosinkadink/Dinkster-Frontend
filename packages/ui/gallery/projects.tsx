@@ -574,7 +574,7 @@ export function ProjectsGallery() {
         columns={[
           [
             {
-              label: 'Files',
+              label: 'Outputs',
               value: project().path,
               action: (
                 <ProductTextButton

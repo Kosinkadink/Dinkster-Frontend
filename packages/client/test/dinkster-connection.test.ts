@@ -3422,7 +3422,7 @@ describe('workflow library wire', () => {
     { id: 'fork-environment', lastSnapshot: null, lastRunAt: null },
   ])('reads paginated engine projects and preserves library authority during registration and rename (%j)', async (environment) => {
     const project = { id: 'p-film', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Engine name', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false,
-      ...(environment === undefined ? {} : { environment }) }
+      folder: environment === null ? null : '/home/u/Dinkster/library/output', ...(environment === undefined ? {} : { environment }) }
     const { conn, requests } = submitHarness((url, init) => {
       if (init?.method === 'POST') return jsonResponse(200, { project })
       if (init?.method === 'PATCH') return jsonResponse(200, { project: { ...project, name: 'Renamed', revision: 8 } })
@@ -3547,6 +3547,7 @@ describe('workflow library wire', () => {
       { id: 'another-environment', lastSnapshot: '', lastRunAt: '2026-11-19T15:00:00Z' },
     ].map((environment) => ({ items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false,
       environment }], cursor: null })),
+    { items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false, folder: '' }], cursor: null },
     { items: [], cursor: 2 },
   ])('rejects malformed project pages instead of silently dropping projects', async (page) => {
     const { conn } = submitHarness(() => jsonResponse(200, page))

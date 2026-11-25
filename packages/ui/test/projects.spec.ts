@@ -26,7 +26,7 @@ test("each fact's action ends at the right edge of the box that holds the fact",
   await page.goto('/#projects')
   const facts = page.getByRole('group', { name: 'About this project' })
   for (const [fact, action] of [
-    ['Files', 'Show in folder'],
+    ['Outputs', 'Show in folder'],
     ['Runs on', 'Change'],
     ['Packs', 'Manage'],
   ] as const) {

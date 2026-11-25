@@ -53,7 +53,8 @@ function source(projects: readonly LibraryProject[]): ProjectsSource {
           }]
         : [],
     usage: async () => undefined,
-    installations: async () => ({ all: [stable, nightly], open: stable }),
+    installations: async () => ({ all: [stable, nightly], open: stable, openFolder: true }),
+    openFolder: async () => {},
   }
 }
 
@@ -205,4 +206,29 @@ it('keeps selection working when the process cannot list workflows or outputs', 
   await settle()
   expect(document.querySelector('h2')?.textContent).toBe('Bookshop diorama')
   expect(document.querySelector('[role="option"][aria-selected="true"]')?.textContent).toContain('Bookshop diorama')
+})
+
+it('shows the output folder as the Outputs fact, offers Show in folder only when the process can open it, and draws no fact without a folder', async () => {
+  const folder = '/home/u/Dinkster/library/output'
+  const withFolder = [{ ...projects[1]!, folder }, { ...projects[0]!, folder: null }]
+  const data = source(withFolder)
+  const opened = vi.spyOn(data, 'openFolder').mockRejectedValueOnce(new Error('POST failed: 404'))
+  const facts = () => document.querySelector('[aria-label="About this project"]')?.textContent ?? ''
+  const first = render(() => <ProjectsView shell={shell()} source={data} />, document.body)
+  await settle()
+  expect(facts()).toContain('Outputs' + folder)
+  button('Show in folder')!.click()
+  await settle()
+  expect(opened).toHaveBeenCalledWith('p-film')
+  expect(document.body.textContent).toContain('The folder could not be opened on this computer.')
+  ;[...document.querySelectorAll('[role="option"]')].find((row) => row.textContent?.startsWith('Bookshop'))!
+    .dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await settle()
+  expect(facts()).not.toContain('Outputs')
+  first()
+  document.body.replaceChildren()
+  render(() => <ProjectsView shell={shell()} source={{ ...data, installations: async () => ({ all: [stable], openFolder: false }) }} />, document.body)
+  await settle()
+  expect(facts()).toContain(folder)
+  expect(button('Show in folder')).toBeUndefined()
 })
