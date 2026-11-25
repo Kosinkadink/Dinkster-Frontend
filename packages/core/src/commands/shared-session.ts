@@ -55,7 +55,7 @@
  * fake connection deterministically.
  */
 
-import type { Json, WorkflowDocument } from '../format/document.js'
+import type { Json, JsonObject, WorkflowDocument } from '../format/document.js'
 import { ownJson } from '../format/json.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { loadDocument } from '../format/migrate.js'
@@ -574,6 +574,17 @@ class SharedDocumentSession implements DocumentSession {
     const store = this.store
     const prepared = store.prepareDispatch(stamped)
     if (!prepared.ok) return prepared
+    // Keep schema-derived arrival folds in the intention: replay has no live schema authority.
+    const folds = prepared.forward.flatMap((op) => {
+      const [root, graphs, graphId, nodes, nodeId, editors, valueKey] = op.path
+      if (op.op === 'remove' || op.path.length !== 7 || root !== 'view' || graphs !== 'graphs' ||
+        nodes !== 'nodes' || editors !== 'editors' || typeof op.value !== 'object' || op.value === null ||
+        Array.isArray(op.value) || (op.value as JsonObject)['unfolded'] !== false) return []
+      return [{ command: 'view.setEditorUnfolded', params: { graphId: graphId!, nodeId: nodeId!, valueKey: valueKey!, unfolded: false } }]
+    })
+    const replayInvocation: CommandInvocation = folds.length === 0 ? stamped : {
+      ...stamped, command: 'batch', params: { invocations: [{ command: stamped.command, params: stamped.params }, ...folds] },
+    }
     const confirmedRevision = this.confirmedRevision
     const confirmed = this.confirmed
     const freezeHistory = (history: HistorySnapshot): HistorySnapshot => Object.freeze({
@@ -625,7 +636,7 @@ class SharedDocumentSession implements DocumentSession {
             ? { forward: outcome.forward, inverse: outcome.inverse } : undefined
           this.pending.push({
             opId: this.mintOpId(),
-            invocation: stamped,
+            invocation: replayInvocation,
             origin: origin ?? stamped.command,
             predicted: toWirePatch(outcome.forward),
             attempts: [],
