@@ -30,7 +30,9 @@ import {
 } from './shell-route.js'
 import { useAppMessage } from './locale.js'
 
-export const SHELL_FADE_MS = 150
+export const SHELL_FADE_MS = 260
+/** From the start of an editor's arrival to its last part settling: the status bar starts 290 ms after the canvas and moves for 320 ms. */
+const ARRIVAL_MS = 290 + 320
 const ENGINE_POLL_MS = 250
 
 export interface ShellInstallation extends ProjectInstallation {
@@ -168,6 +170,34 @@ export function Shell(props: {
     }
   }
 
+  /** Hides the new editor's arriving parts at once, before anything over it fades. */
+  const hideForArrival = (scope: 'all' | 'centre'): void => {
+    if (reducedMotion()) return
+    editorHost.dataset['stageScope'] = scope
+    editorHost.dataset['stage'] = 'hidden'
+  }
+
+  /** Brings the hidden parts in, in the mock's order, the canvas ``start`` ms from now. */
+  const arrive = async (start: number): Promise<void> => {
+    if (editorHost.dataset['stage'] !== 'hidden') return
+    editorHost.style.setProperty('--app-shell-stage-start', `${start}ms`)
+    // Commit the hidden state so the parts transition from it.
+    editorHost.getBoundingClientRect()
+    editorHost.dataset['stage'] = 'arrive'
+    await wait(start + ARRIVAL_MS)
+    delete editorHost.dataset['stage']
+    delete editorHost.dataset['stageScope']
+  }
+
+  /** Lifts the cover at once; the arriving parts take over the fade. */
+  const uncoverAtOnce = (): void => {
+    coverElement.style.transition = 'none'
+    setCovered(false)
+    coverElement.getBoundingClientRect()
+    coverElement.style.transition = ''
+    coverElement.style.clipPath = ''
+  }
+
   const mount = async (projectId: string): Promise<void> => {
     if (editorProject() === projectId) return
     disposeEditor?.()
@@ -269,8 +299,17 @@ export function Shell(props: {
     push({ kind: 'editor', projectId })
     recordOpened(projectId)
     setOpening(undefined)
-    if (fromEditor) await cover(false)
-    else await fadePage(false)
+    if (switching) {
+      hideForArrival('centre')
+      uncoverAtOnce()
+      await arrive(0)
+    } else if (fromEditor) {
+      await cover(false)
+    } else {
+      // The page's panels fade out while the editor's parts come in behind them, the canvas first.
+      hideForArrival('all')
+      await Promise.all([fadePage(false), arrive(140)])
+    }
   }
 
   const open = async (projectId: string, installation?: ShellInstallation): Promise<void> => {

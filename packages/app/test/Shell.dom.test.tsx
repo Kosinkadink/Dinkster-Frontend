@@ -159,6 +159,32 @@ describe('the one app shell', () => {
     expect(location.search).toBe('')
   })
 
+  it('brings an editor in part by part as the page fades, and only the centre on a switch', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false }))
+    const view = mount()
+    const host = view.root.querySelector<HTMLElement>('[data-testid="app-shell-editor"]')!
+    const order: string[] = []
+    new MutationObserver((records) => {
+      for (const record of records) {
+        const target = record.target as HTMLElement
+        if (record.attributeName === 'data-stage') order.push(`stage ${record.oldValue} ${host.dataset['stageScope']}`)
+        else if (target.dataset['testid'] === 'app-shell-page') order.push(`page ${target.classList.contains('app-shell-faded') ? 'fading' : 'shown'}`)
+      }
+    }).observe(view.root, { attributes: true, subtree: true, attributeOldValue: true, attributeFilter: ['data-stage', 'class'] })
+
+    view.shell.openProject('film', { root: '/same', engine: 'main' })
+    await vi.waitFor(() => expect(view.page()).toBeNull(), { timeout: 3000 })
+    await vi.waitFor(() => expect(host.dataset['stage']).toBeUndefined(), { timeout: 3000 })
+    // Hidden before the page starts to fade, so nothing of the editor shows through early.
+    expect(order).toEqual(['stage null all', 'page fading', 'stage hidden all', 'stage arrive undefined'])
+
+    order.length = 0
+    view.shell.openProject('teapot')
+    await vi.waitFor(() => expect(view.editors).toEqual(['film', 'teapot']), { timeout: 3000 })
+    await vi.waitFor(() => expect(order).toContain('stage arrive undefined'), { timeout: 3000 })
+    expect(order).toEqual(['stage null centre', 'stage hidden centre', 'stage arrive undefined'])
+  })
+
   it('opens an installation on another wire version at its own address once its engine is ready', async () => {
     const view = mount()
     view.shell.openProject('bookshop', { root: '/older', engine: 'main', name: 'Stable 0.0.16' })

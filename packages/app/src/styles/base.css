@@ -166,7 +166,7 @@ body,
 
 .app-shell-page {
   opacity: 1;
-  transition: opacity 150ms var(--dinkster-motion-easing);
+  transition: opacity 260ms var(--dinkster-motion-easing);
 }
 
 .app-shell-page.app-shell-faded { opacity: 0; pointer-events: none; }
@@ -177,10 +177,63 @@ body,
   background: var(--dinkster-surface-frame);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 150ms var(--dinkster-motion-easing);
+  transition: opacity 260ms var(--dinkster-motion-easing);
 }
 
 .app-shell-cover.app-shell-covered { opacity: 1; pointer-events: auto; }
+
+/*
+ * A project's editor arriving, in the order of the design mock: the canvas,
+ * then the icon bar's icons and the project name, then the right side, then
+ * the status bar, each fading over 260 ms and sliding 10 px over 320 ms.
+ * The bars' backgrounds never move. On a switch inside the page the bars keep
+ * their contents too (data-stage-scope="centre").
+ */
+/* :where keeps this rule below the hidden and arriving rules, whose timings must win. */
+.app-shell-layer[data-stage] :where(.canvas-pane, .dock-panel, .statusbar, .rail),
+.app-shell-layer[data-stage-scope="all"] :where(
+  .left-sidebar > *,
+  .dinkster-window-toolbar-brand :is(button:has(.dinkster-project-name), [data-testid="projects-button"]),
+  .dinkster-window-toolbar-search ~ *
+) {
+  transition:
+    opacity 260ms var(--dinkster-motion-easing),
+    transform 320ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.app-shell-layer[data-stage="hidden"] :is(.canvas-pane, .dock-panel, .statusbar) { opacity: 0; transition: none; }
+
+.app-shell-layer[data-stage="hidden"] .rail,
+.app-shell-layer[data-stage="hidden"][data-stage-scope="all"] .dinkster-window-toolbar-search ~ * {
+  opacity: 0;
+  transform: translateX(10px);
+  transition: none;
+}
+
+.app-shell-layer[data-stage="hidden"][data-stage-scope="all"] :is(
+  .left-sidebar > *,
+  .dinkster-window-toolbar-brand :is(button:has(.dinkster-project-name), [data-testid="projects-button"])
+) {
+  opacity: 0;
+  transform: translateX(-10px);
+  transition: none;
+}
+
+.app-shell-layer[data-stage="arrive"] :is(.canvas-pane, .dock-panel) { transition-delay: var(--app-shell-stage-start); }
+
+.app-shell-layer[data-stage="arrive"][data-stage-scope="all"] :is(
+  .left-sidebar > *,
+  .dinkster-window-toolbar-brand :is(button:has(.dinkster-project-name), [data-testid="projects-button"])
+) {
+  transition-delay: calc(var(--app-shell-stage-start) + 90ms);
+}
+
+.app-shell-layer[data-stage="arrive"] .rail,
+.app-shell-layer[data-stage="arrive"][data-stage-scope="all"] .dinkster-window-toolbar-search ~ * {
+  transition-delay: calc(var(--app-shell-stage-start) + 190ms);
+}
+
+.app-shell-layer[data-stage="arrive"] .statusbar { transition-delay: calc(var(--app-shell-stage-start) + 290ms); }
 
 @media (prefers-reduced-motion: reduce) {
   #root,
