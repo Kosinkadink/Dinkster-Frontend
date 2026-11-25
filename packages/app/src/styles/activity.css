@@ -648,3 +648,7 @@
 }
 .run-row-menu { display: inline-flex; flex: none; }
 .run-row-menu > div { display: contents; }
+/* On the title line the menu is a quiet icon like the snowflake beside it. */
+.run-row-line .run-row-menu .dinkster-menu-trigger { width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; border-radius: var(--dinkster-radius-small); color: var(--dinkster-text-secondary); background: transparent; box-shadow: none; font: inherit; }
+.run-row-line .run-row-menu .dinkster-menu-trigger svg { width: 1em; height: 1em; }
+.run-row-line .run-row-menu .dinkster-menu-trigger:is(:hover, [aria-expanded='true']) { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
