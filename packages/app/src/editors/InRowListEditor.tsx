@@ -446,6 +446,8 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
           zoomed={placement().scale > 1}
           place={placement().place}
           sideTop={placement().sideTop}
+          {...(placement().sideLeft === undefined ? {} : { sideLeft: placement().sideLeft! })}
+          sideMaxWidth={placement().sideMaxWidth}
           {...(placement().sideMaxHeight === undefined ? {} : { sideMaxHeight: placement().sideMaxHeight! })}
           listPlace={placement().listPlace}
           {...(placement().listMaxHeight === undefined ? {} : { listMaxHeight: placement().listMaxHeight! })}
