@@ -2902,7 +2902,7 @@ export class InteractionController {
     if (this.renderer.getDesignTokens().widgetEditing !== 'in-row' || pointerType === 'touch') return undefined
     const row = hit.row
     if (row.viewId !== 'core.number' && row.viewId !== 'core.slider') return undefined
-    if (row.derivedValue !== undefined || row.ghost) return undefined
+    if (row.derivedValue !== undefined || row.ghost || row.readOnly || row.disabled) return undefined
     const scene = this.renderer.getScene()
     if (scene.links.some((link) => link.to.kind === 'port' && link.to.node === hit.node.id && link.to.port === row.inputId)) return undefined
     const start = this.numberRowValue(hit)
@@ -3491,6 +3491,10 @@ export class InteractionController {
             return
           }
           const row = g.hit.row
+          if (row.readOnly || row.disabled) {
+            this.host.onWidgetActivate?.(g.hit, clientX, clientY)
+            return
+          }
           // Paint and interaction share the same row-local chip rectangle;
           // the rightmost numeric stepper remains outside it.
           if (row.controllerMode !== undefined && this.controllerChipContains(g.hit)) {

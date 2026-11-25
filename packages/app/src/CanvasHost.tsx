@@ -3303,7 +3303,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onControllerActivate: (hit, screenX, screenY) => {
         const tab = activeTab()
-        if (!tab || refuseFrozenEdit() || hit.row.controllerMode === undefined) return
+        if (!tab || refuseFrozenEdit() || hit.row.controllerMode === undefined || hit.row.readOnly || hit.row.disabled) return
         if (companionInputs.get(hit.node.id)?.has(hit.row.inputId)) return
         const rect = canvasEl.getBoundingClientRect()
         props.tooltips?.hide()
@@ -4663,6 +4663,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           untrack(hostFocused) && editorRestoresCanvasFocus(ed) && (document.activeElement === document.body ||
             Boolean(canvasEl.parentElement?.querySelector('.widget-popover-layer')?.contains(document.activeElement)))
         setEditor(undefined)
+        if (ed?.target.kind === 'input' && ed.tab.id === tab.id && ed.graphId === graphId) {
+          const target = ed.target
+          const node = fieldNodes.find((item) => item.id === target.nodeId)
+          const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === target.valueKey)
+          if (node !== undefined && row?.kind === 'widget' && (row.readOnly || row.disabled)) {
+            setRowFocus(rowFocusAt(tab, node, row))
+          }
+        }
         if (restoreFocus) queueMicrotask(() => {
           if (untrack(editor) === undefined && document.activeElement === document.body) canvasEl.focus()
         })
@@ -4696,6 +4704,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (openController !== undefined) {
         const anchorAlive = openController.tab.id === tab.id && fieldNodes.some((node) =>
           node.layout.rows.some((row) => row.kind === 'widget' && row.controllerMode !== undefined &&
+            !row.readOnly && !row.disabled &&
             (row.familyOwner?.graphId ?? graphId) === openController.graphId &&
             (row.familyOwner?.nodeId ?? node.id) === openController.nodeId &&
             (row.familyOwner?.valueKey ?? row.valueKey) === openController.inputId))
@@ -5351,6 +5360,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string, caret?: { x: number; y: number }): void {
       const tab = activeTab()
       if (!tab) return
+      if (hit.row.readOnly || hit.row.disabled) {
+        focusEditorRow({ nodeId: hit.node.id, valueKey: hit.row.valueKey })
+        return
+      }
       // An editor shown in the node folds out under its row and back, as a
       // section opens and closes, also while a run holds the workflow. A
       // field on the Inputs panel folds out on the panel, which keeps its
@@ -5602,7 +5615,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const reg = registry()
       const schema = reg ? documentResolver(tab.store.doc, reg.resolve)(node.node.type) : undefined
       const item = schema?.body.find((candidate) => candidate.kind === 'input' && candidate.id === row.inputId)
-      const help = item?.kind === 'input' ? item.tooltip : undefined
+      const help = [
+        ...(row.readOnly ? ['Read-only'] : []),
+        ...(row.disabled ? [row.disabledReason || 'Disabled'] : []),
+        ...(item?.kind === 'input' && item.tooltip ? [item.tooltip] : []),
+      ].join('. ') || undefined
       const declared = effectiveWidgetDefault(row.spec)
       return {
         tabId: tab.id,
@@ -6992,8 +7009,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const graphId = currentGraphId(tab)
           const owner = current.field.familyOwner
           const target = { graphId: owner?.graphId ?? graphId, nodeId: owner?.nodeId ?? current.nodeId, inputId: owner?.valueKey ?? current.valueKey }
-          const commit = (value: Json): void => void props.app.dispatchTo(tab,
-            withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
+          const commit = (value: Json): void => {
+            const live = item()
+            if (live === undefined || live.field.readOnly || live.field.disabled) return
+            void props.app.dispatchTo(tab,
+              withMaterializeFrames(target.graphId, target.nodeId, live.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
+          }
           return { tab, graphId, current, target, commit }
         }
         const recorder = () => {
@@ -7092,6 +7113,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           return {
             fields,
             commit: (part: string, value: number) => {
+              const live = item()
+              if (live === undefined || live.field.readOnly || live.field.disabled) return
               const inputId = row(part)
               if (inputId === undefined) return
               void props.app.dispatchTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, at.current.field.materialize,

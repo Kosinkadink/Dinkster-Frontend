@@ -3073,6 +3073,20 @@ describe('dragging a number row', () => {
     return scene as Scene
   }
 
+  it.each(['readOnly', 'disabled'] as const)('drops an unfinished drag when the rebuilt row becomes %s', (flag) => {
+    const harness = inRowHarness(stepsScene())
+    harness.fire('pointerdown', 60, 35)
+    harness.fire('pointermove', 100, 35)
+    expect(harness.rowDrags.at(-1)).toEqual({ nodeId: 'n1', valueKey: 'amount', value: 30 })
+    const next = stepsScene() as any
+    next.nodes[0].layout.rows[0][flag] = true
+    harness.replaceScene(next)
+    harness.fire('pointerup', 100, 35)
+    expect(harness.dispatched).toEqual([])
+    expect(next.nodes[0].node.values.amount).toBe(20)
+    expect(harness.rowDrags.at(-1)).toBeUndefined()
+  })
+
   it('moves one step per 4 pixels, stores once on release, and opens nothing', () => {
     const activate = vi.fn()
     const harness = inRowHarness(stepsScene(), { onWidgetActivate: activate })
@@ -3132,6 +3146,22 @@ describe('dragging a number row', () => {
 })
 
 describe('numeric widget steppers', () => {
+  it.each(['readOnly', 'disabled'] as const)('inspects a %s number without stepping or dragging its stored value', (flag) => {
+    const scene = interactionScene() as any
+    scene.nodes[0].layout.rows[0][flag] = true
+    scene.nodes[0].layout.rows[0].viewId = 'core.number'
+    const harness = interactionHarness(scene)
+    Object.assign(harness.renderer, { setRowDrag: () => undefined })
+    for (const x of [20, 60, 100]) {
+      harness.fire('pointerdown', x, 35)
+      harness.fire('pointerup', x, 35)
+    }
+    harness.fire('pointerdown', 60, 35)
+    harness.fire('pointermove', 90, 35)
+    harness.fire('pointerup', 90, 35)
+    expect(harness.dispatched).toEqual([])
+  })
+
   it('routes a forwarded suffix member value to its occurrence owner', () => {
     const scene = interactionScene() as any
     scene.nodes[0].layout.rows[0].valueKey = 'weights.w.rebased'

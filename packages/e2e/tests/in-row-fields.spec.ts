@@ -14,7 +14,7 @@ async function rowPoint(page: Page, nodeId: string, inputId: string, at = 0.5): 
   }, { nodeId, inputId, at })
 }
 
-async function openSampler(page: Page): Promise<void> {
+async function openSampler(page: Page, access?: 'readOnly' | 'disabled'): Promise<void> {
   await page.route('/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'inrow-fixture', schemaWire: 2, graphFeatures: ['decimalInt'] }, nodes: {},
   } }))
@@ -24,7 +24,7 @@ async function openSampler(page: Page): Promise<void> {
   const close = page.locator('.template-gallery-close')
   if ((await close.count()) > 0 && (await close.first().isVisible())) await close.first().click()
   else await page.evaluate(() => (window.__dinksterTest!.app as unknown as { templateGalleryOpen: { set(v: boolean): void } }).templateGalleryOpen.set(false))
-  await page.evaluate(async () => {
+  await page.evaluate(async (access) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,
       widget: { widgetType, options, default: defaultValue },
@@ -32,7 +32,10 @@ async function openSampler(page: Page): Promise<void> {
     window.__dinksterTest!.app.registerSchemas([{
       type: 'Sampler', displayName: 'Sampler', category: 'test', source: 'v3', isOutputNode: false,
       body: [
-        widget('steps', 'INT', 20, { min: 1, max: 10000, step: 1, tooltip: 'How many denoising steps to run.' }),
+        {
+          ...widget('steps', 'INT', 20, { min: 1, max: 10000, step: 1, tooltip: 'How many denoising steps to run.' }),
+          ...(access === undefined ? {} : { [access]: { formula: 'cfg > 8' }, disabledReason: 'Preset controls this field' }),
+        },
         widget('cfg', 'FLOAT', 7, { min: 0, max: 100, step: 0.1 }),
         widget('prefix', 'STRING', 'Dinkster'),
         widget('denoise', 'FLOAT', 1, { min: 0, max: 1, step: 0.01, display: 'slider' }),
@@ -48,12 +51,50 @@ async function openSampler(page: Page): Promise<void> {
       view: { graphs: { g0: { nodes: { n1: { position: { x: 100, y: 100 } } } } } },
     } as never, 'Sampler')
     window.__dinksterTest!.renderer!.setViewport({ x: 200, y: 150, scale: 1 })
-  })
+  }, access)
 }
 
 const value = (page: Page, key: string) => page.evaluate((key) => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n1!.values[key], key)
 const openLabel = (page: Page) => page.locator('.widget-in-row-field input').getAttribute('aria-label')
 const field = (page: Page) => page.locator('.widget-in-row-field input')
+
+for (const access of ['readOnly', 'disabled'] as const) {
+  test(`a ${access} flag discards the draft and explains the row without preventing non-UI writes`, async ({ page }, testInfo) => {
+    await openSampler(page, access)
+    const steps = await rowPoint(page, 'n1', 'steps')
+    await page.mouse.click(steps.x, steps.y)
+    await field(page).fill('31')
+    await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
+      command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'cfg', value: 9 },
+    }))
+    await expect(field(page)).toHaveCount(0)
+    await expect.poll(() => value(page, 'steps')).toBe(20)
+    const reason = access === 'readOnly' ? 'Read-only' : 'Preset controls this field'
+    await expect(page.getByTestId('row-focus')).toContainText(reason)
+    await page.keyboard.type('44')
+    await page.keyboard.press('Enter')
+    await expect(field(page)).toHaveCount(0)
+    for (const at of [0.07, 0.5, 0.93]) {
+      const point = await rowPoint(page, 'n1', 'steps', at)
+      await page.mouse.click(point.x, point.y)
+    }
+    await page.mouse.move(steps.x, steps.y)
+    await page.mouse.down()
+    await page.mouse.move(steps.x + 40, steps.y)
+    await page.mouse.up()
+    await expect.poll(() => value(page, 'steps')).toBe(20)
+    await page.mouse.click(steps.x, steps.y)
+    await expect(page.getByTestId('row-focus')).toContainText(reason)
+    await page.screenshot({ path: testInfo.outputPath('access-reason.png') })
+    await page.keyboard.press('Tab')
+    await expect.poll(() => openLabel(page)).toBe('cfg')
+    await page.keyboard.press('Escape')
+    await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.dispatch({
+      command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'steps', value: 24 },
+    }))
+    await expect.poll(() => value(page, 'steps')).toBe(24)
+  })
+}
 
 test('a click on each other row stores the open field and opens that row', async ({ page }) => {
   await openSampler(page)
