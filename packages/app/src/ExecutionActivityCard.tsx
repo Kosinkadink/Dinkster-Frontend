@@ -2,7 +2,6 @@ import { For, Show } from 'solid-js'
 import type { ExecutionState } from '@dinkster/client'
 import { isDinksterRegionEntry, type DinksterGraphWire } from '@dinkster/core'
 import { runAttributionLabel } from './run-attribution.js'
-import type { JSX } from 'solid-js'
 import { t } from '@dinkster/core'
 import Snowflake from 'lucide-solid/icons/snowflake'
 import { ProductButton } from './ProductControls.js'
@@ -26,6 +25,8 @@ export interface ExecutionProgress {
   readonly finished: number
   readonly total: number
   readonly value: number
+  /** How far the running node is through its own work, when it reports that. */
+  readonly node?: number | undefined
 }
 
 export interface ExecutionRegionIterationRow {
@@ -85,12 +86,11 @@ export function executionProgress(entry: ExecutionState): ExecutionProgress | un
   if (total === 0) return undefined
   const nodes = [...scheduled].map((nodeId) => entry.nodes[nodeId]).filter((node) => node !== undefined)
   const finished = nodes.filter((node) => terminalNode(node.state)).length
-  const active = nodes.reduce((sum, node) =>
-    node.state === 'running' && node.value !== undefined && Number.isFinite(node.value)
-      ? sum + Math.min(1, Math.max(0, node.value))
-      : sum,
-  0)
-  return { finished, total, value: Math.min(1, (finished + active) / total) }
+  const reported = nodes
+    .filter((node) => node.state === 'running' && node.value !== undefined && Number.isFinite(node.value))
+    .map((node) => Math.min(1, Math.max(0, node.value!)))
+  const active = reported.reduce((sum, value) => sum + value, 0)
+  return { finished, total, value: Math.min(1, (finished + active) / total), node: reported[0] }
 }
 
 export function executionNodeSummary(entry: ExecutionState): string | undefined {
@@ -142,11 +142,9 @@ export function ExecutionActivityCard(props: {
   readonly title: string
   readonly testId: string
   readonly relation?: ExecutionActivityRelation | undefined
-  readonly compact?: boolean | undefined
   readonly hideOpen?: boolean | undefined
   readonly onOpen?: (() => void) | undefined
   readonly onPin?: (() => void) | undefined
-  readonly cancelControl?: JSX.Element
 }) {
   const status = () => executionStatusLabel(props.entry.status)
   const progress = () => executionProgress(props.entry)
@@ -165,14 +163,11 @@ export function ExecutionActivityCard(props: {
 
   return (
     <article
-      class="execution-activity-card dinkster-list-row"
-      classList={{ compact: props.compact === true }}
+      class="execution-activity-card"
       role="listitem"
       data-testid={props.testId}
       data-status={props.entry.status}
       data-overlay={props.relation}
-      aria-current={props.relation !== undefined ? 'true' : undefined}
-      title={props.compact === true ? attribution() : undefined}
     >
       <div class="execution-activity-heading">
         <span class="execution-status-mark" aria-hidden="true" />
@@ -183,7 +178,7 @@ export function ExecutionActivityCard(props: {
         <span class="execution-status">{status()}</span>
       </div>
       <div class="execution-activity-facts">
-        <Show when={props.compact !== true ? attribution() : undefined}>
+        <Show when={attribution()}>
           {(label) => (
             <span class="execution-attribution">
               {label()}
@@ -229,7 +224,6 @@ export function ExecutionActivityCard(props: {
         </div>
       </Show>
       <div class="execution-activity-actions">
-        {props.cancelControl}
         <Show when={!props.hideOpen}>
           <ExecutionOpenButton entry={props.entry} title={props.title} onOpen={props.onOpen} />
         </Show>
