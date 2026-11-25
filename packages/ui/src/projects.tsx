@@ -148,38 +148,50 @@ export function ProductProjectHeader(props: {
   )
 }
 
-/** Facts about a project in two columns, each with an optional action at its end. */
+/** One fact of a project, such as where its files are, with an optional action on it. */
+export interface ProductProjectFact {
+  label: string
+  value: JSX.Element
+  detail?: string | undefined
+  action?: JSX.Element
+}
+
+/**
+ * A project's facts in two equal boxes, one per column, so each action sits
+ * at the right edge of the box that holds its fact.
+ */
 export function ProductProjectFacts(props: {
   label: string
-  items: readonly {
-    label: string
-    value: JSX.Element
-    detail?: string | undefined
-    action?: JSX.Element
-  }[]
+  columns: readonly [readonly ProductProjectFact[], readonly ProductProjectFact[]]
 }) {
   return (
-    <dl class="dinkster-project-facts" aria-label={props.label}>
-      <For each={props.items}>
-        {(item) => (
-          <div class="dinkster-project-fact">
-            <dt>{item.label}</dt>
-            <dd>
-              <span class="dinkster-project-fact-value">
-                {item.value}
-                <Show when={item.detail}>
-                  <span class="dinkster-project-fact-detail">
-                    {' - '}
-                    {item.detail}
-                  </span>
-                </Show>
-              </span>
-              {item.action}
-            </dd>
-          </div>
+    <div class="dinkster-project-facts" role="group" aria-label={props.label}>
+      <For each={props.columns}>
+        {(column) => (
+          <dl class="dinkster-project-facts-box">
+            <For each={column}>
+              {(item) => (
+                <div class="dinkster-project-fact">
+                  <dt>{item.label}</dt>
+                  <dd>
+                    <span class="dinkster-project-fact-value">
+                      {item.value}
+                      <Show when={item.detail}>
+                        <span class="dinkster-project-fact-detail">
+                          {' - '}
+                          {item.detail}
+                        </span>
+                      </Show>
+                    </span>
+                    {item.action}
+                  </dd>
+                </div>
+              )}
+            </For>
+          </dl>
         )}
       </For>
-    </dl>
+    </div>
   )
 }
 

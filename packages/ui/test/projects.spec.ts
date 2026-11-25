@@ -20,6 +20,28 @@ test('the project list selects by pointer and arrow keys and the detail follows'
   await expect(detail).toHaveText('Default')
 })
 
+test("each fact's action ends at the right edge of the box that holds the fact", async ({
+  page,
+}) => {
+  await page.goto('/#projects')
+  const facts = page.getByRole('group', { name: 'About this project' })
+  for (const [fact, action] of [
+    ['Files', 'Show in folder'],
+    ['Runs on', 'Change'],
+    ['Packs', 'Manage'],
+  ] as const) {
+    const term = page.getByRole('term').filter({ hasText: fact })
+    const box = facts.locator('dl').filter({ has: term })
+    const button = box.getByRole('button', { name: action, exact: true })
+    await expect(button).toBeVisible()
+    const outer = (await box.boundingBox())!
+    const inner = (await button.boundingBox())!
+    const termBox = (await term.boundingBox())!
+    expect(Math.abs(inner.y + inner.height / 2 - (termBox.y + termBox.height / 2))).toBeLessThan(4)
+    expect(outer.x + outer.width - (inner.x + inner.width)).toBeCloseTo(16, 0)
+  }
+})
+
 test('latest outputs hide and show per project', async ({ page }) => {
   await page.goto('/#projects')
   const outputs = page.getByRole('region', { name: 'Latest outputs' })
