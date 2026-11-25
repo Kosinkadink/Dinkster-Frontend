@@ -41,10 +41,10 @@ import { CurveEditor } from './CurveEditor.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductActionFooter, ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductRunActivity, type ProductAttention, type ProductMenuItem, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductRunActivity, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
-import { TopBarAccount } from './TopBarAccount.js'
+import { AccountControl, createAccountSession } from './AccountControl.js'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
 import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
@@ -196,11 +196,22 @@ const APP_MENU_COMMAND_GROUPS = [
   { group: '50-settings', ids: ['settings.open'] },
 ] as const
 
+/** A Dinkster menu row that is not a command, such as the account's while the left bar is hidden. */
+export interface AppMenuAction {
+  readonly id: string
+  readonly label: string
+  readonly hint?: string
+  /** Absent for a row that only informs, such as the signed-in name. */
+  readonly run?: () => void
+}
+
 export function DinksterAppMenu(props: {
   commands: CommandRegistry
   keybindings: KeybindingRegistry
   /** Signals that invalidate ContextMenu's deliberate per-open snapshot. */
   invalidationSignals?: () => readonly ReadonlySignal<unknown>[]
+  /** Rows after the commands, in their own group. */
+  account?: () => readonly AppMenuAction[]
 }) {
   const message = useAppMessage()
   const [open, setOpen] = createSolidSignal(false)
@@ -214,7 +225,7 @@ export function DinksterAppMenu(props: {
     setOpen(false)
     if (restoreFocus) queueMicrotask(() => button.focus())
   }
-  const groups = (): readonly ResolvedMenuGroup[] => APP_MENU_COMMAND_GROUPS.flatMap(({ group, ids }) => {
+  const groups = (): readonly ResolvedMenuGroup[] => [...APP_MENU_COMMAND_GROUPS.flatMap(({ group, ids }): ResolvedMenuGroup[] => {
     const items = ids.flatMap((id): MenuItem[] => {
       const command = props.commands.get(id)
       const hint = props.keybindings.combo(id)
@@ -227,7 +238,20 @@ export function DinksterAppMenu(props: {
       }] : []
     })
     return items.length > 0 ? [{ group, items }] : []
-  })
+  }), ...accountGroup()]
+  const accountGroup = (): ResolvedMenuGroup[] => {
+    const actions = props.account?.() ?? []
+    return actions.length === 0 ? [] : [{
+      group: '60-account',
+      items: actions.map((action): MenuItem => ({
+        id: action.id,
+        label: action.label,
+        ...(action.hint ? { hint: action.hint } : {}),
+        action: { kind: 'host', action: action.id },
+        ...(action.run === undefined ? { disabled: true } : {}),
+      })),
+    }]
+  }
   const show = (): void => {
     const rect = button.getBoundingClientRect()
     setAnchor({ x: rect.left, y: rect.bottom + 2 })
@@ -237,6 +261,13 @@ export function DinksterAppMenu(props: {
   }
   const toggle = (): void => open() ? close() : show()
   const invoke = (item: MenuItem): void => {
+    const account = props.account?.().find((action) => action.id === item.id)
+    if (account?.run !== undefined) {
+      close()
+      button.focus()
+      account.run()
+      return
+    }
     const command = props.commands.get(item.id)
     if (!command || command.enabled?.() === false) return
     // The menu itself is transient. Put focus on its persistent trigger
@@ -1718,7 +1749,7 @@ export function App(props: {
       id: 'projects', get title() { return message('shell.panel.projects.title') },
       get description() { return message('shell.panel.projects.description') }, get ariaLabel() { return message('shell.panel.projects.title') },
       placement: 'modal', allowedPlacements: ['modal'], order: 18,
-      component: () => <ProjectsDialog connection={activeBackend().connection} onSwitch={switchProject} onOpenWindow={openProjectWindow} />,
+      component: () => <ProjectsDialog connection={activeBackend().connection} onSwitch={switchProject} onOpenWindow={openProjectWindow} focusNewProject={projectsFocusNew()} />,
     }),
     registerBuiltinPanel({
       id: 'subgraph-definitions', get title() { return message('shell.panel.subgraphDefinitions.title') },
@@ -2353,6 +2384,56 @@ export function App(props: {
       .then((project) => setProjectName(project.name), () => {})
     onCleanup(() => controller.abort())
   })
+  const account = createAccountSession(() => app.connection)
+  const [projectList, setProjectList] = createSolidSignal<readonly ProductProject[]>()
+  const [projectListFailed, setProjectListFailed] = createSolidSignal(false)
+  const [projectsFocusNew, setProjectsFocusNew] = createSolidSignal(false)
+  let projectListRead: AbortController | undefined
+  // The menu shows the first page of projects, read again each time it opens.
+  const readProjectList = (): void => {
+    projectListRead?.abort()
+    setProjectListFailed(false)
+    const backend = primaryConnected()
+    if (backend === undefined) {
+      setProjectListFailed(true)
+      return
+    }
+    const controller = new AbortController()
+    projectListRead = controller
+    backend.connection.listProjects(undefined, controller.signal).then((page) => {
+      setProjectListFailed(false)
+      setProjectList(page.items.filter((project) => !project.deleted).map(({ id, name }) => ({ id, name })))
+    }, () => {
+      if (!controller.signal.aborted) setProjectListFailed(true)
+    })
+  }
+  onCleanup(() => projectListRead?.abort())
+  const openProjects = (focusNewProject: boolean): void => {
+    setProjectsFocusNew(focusNewProject)
+    app.modalPanel.set('projects')
+  }
+  // The account lives in the left bar; while that bar is hidden the Dinkster menu carries it.
+  const accountMenuActions = (): readonly AppMenuAction[] => {
+    const status = account.status()
+    if (activityBarVisible() || status?.available !== true) return []
+    if (account.pending()) {
+      return [
+        ...(account.authorizationUrl() === undefined ? [] : [{ id: 'account.openSignInPage', label: message('shell.account.openSignInPage'), run: () => account.openSignInPage() }]),
+        { id: 'account.cancelSignIn', label: message('shell.account.cancelSignIn'), run: () => account.cancelSignIn() },
+      ]
+    }
+    if (status.signedIn) {
+      const name = status.profile?.displayName?.trim() || ''
+      const email = status.profile?.email?.trim() || ''
+      return [
+        { id: 'account.identity', label: name || email || message('shell.account.signedIn'), ...(name && email && email !== name ? { hint: email } : {}) },
+        { id: 'account.signOut', label: message('shell.account.signOut'), run: () => account.signOut() },
+      ]
+    }
+    return status.signInUnavailableReason === 'account-sign-in-requires-engine-machine'
+      ? [{ id: 'account.signIn', label: message('shell.account.signInRequiresEngineMachine') }]
+      : [{ id: 'account.signIn', label: message('shell.account.signIn'), run: () => account.signIn() }]
+  }
   const modalDescriptor = () => {
     panelsTick()
     const id = modalPanel()
@@ -2843,7 +2924,7 @@ export function App(props: {
       <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
       <ProductWindowToolbar title={message('shell.applicationControls')} platform="linux" service={servicesLabel()}
         serviceKind={servicesKind()}
-        brand={
+        brand={<>
           <DinksterAppMenu
             commands={app.commands}
             keybindings={app.keybindings}
@@ -2856,10 +2937,27 @@ export function App(props: {
               app.backendsTick,
               ...(app.activeTab() ? [app.activeTab()!.store.document] : []),
             ]}
+            account={accountMenuActions}
           />
-        }
+          <Show when={managedContext().kind === 'primary'}>
+            {/* Until the library names the project, the button is the folder alone. */}
+            <Show when={projectName()} keyed fallback={
+              <ProductIconButton label={message('shell.panel.projects.title')} icon={FolderOpen} data-testid="projects-button" data-tooltip-label={message('shell.panel.projects.title')} data-tooltip-detail={message('shell.panel.projects.description')} onClick={() => openProjects(false)} />
+            }>{(name) => (
+              <ProductProjectMenu
+                name={name}
+                projects={projectList()?.filter((project) => project.id !== activeProjectId())}
+                failed={projectListFailed()}
+                onOpen={readProjectList}
+                onSwitch={switchProject}
+                onOpenWindow={openProjectWindow}
+                onAllProjects={() => openProjects(false)}
+                onNewProject={() => openProjects(true)}
+              />
+            )}</Show>
+          </Show>
+        </>}
         search={<UniversalSearchTrigger shortcut={searchShortcut()} onOpen={() => app.searchOpen.set(true)} />}
-        account={<TopBarAccount connection={app.connection} />}
         actions={(narrow) => <>
           <Show when={allWorkflowActivity().running > 0}>
             <ProductRunActivity {...allWorkflowActivity()} label={message('runs.activity', allWorkflowActivity())} />
@@ -2897,25 +2995,6 @@ export function App(props: {
               aria-pressed={railOpen()}
               onClick={() => app.dock.setOpen('right', !railOpen())}
             />
-          </Show>
-          <Show when={managedContext().kind === 'primary'}>
-            {/* Until the library names the project, the button is the folder alone. */}
-            <Show when={projectName()} keyed fallback={
-              <ProductIconButton label={message('shell.panel.projects.title')} icon={FolderOpen} data-testid="projects-button" data-tooltip-label={message('shell.panel.projects.title')} data-tooltip-detail={message('shell.panel.projects.description')} onClick={() => app.modalPanel.set('projects')} />
-            }>{(name) => (
-              <ProductWindowAction
-                label={name}
-                labelContent={
-                  <span class="dinkster-window-project-label">
-                    <ProductIcon icon={FolderOpen} />
-                    <span class="dinkster-window-project-name">{name}</span>
-                  </span>
-                }
-                icon={FolderOpen}
-                data-testid="projects-button"
-                onClick={() => app.modalPanel.set('projects')}
-              />
-            )}</Show>
           </Show>
           <ProductIconButton label={message('shell.panel.workspace.title')} icon={Users} data-testid="collab-button" data-tooltip-label={message('shell.panel.workspace.title')} data-tooltip-detail={message('shell.panel.workspace.description')} onClick={() => app.modalPanel.set('collab')} />
         </>}
@@ -3011,6 +3090,9 @@ export function App(props: {
                 )}
               </For>
             </div>
+          </div>
+          <div class="sidebar-account">
+            <AccountControl session={account} rail />
           </div>
           <ActivityBarButton
             icon={Settings}

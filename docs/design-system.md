@@ -1007,10 +1007,15 @@ spare grid width and gives it back first. Search keeps an unfilled outline, is
 capped at the 480px `toolbarSearchMaxWidth`, and centers on the window when the
 surrounding controls leave room; otherwise it stays within its available grid
 slot. The app-menu button uses the D symbol and chevron at every width, not a
-wordmark or a three-line menu icon. Its accessible name is unchanged. Project labels compose
-`.dinkster-window-project-label` through `labelContent`, with a folder icon and
-`.dinkster-window-project-name` limiting visible text to 160px with an end ellipsis; the required full `label` retains the accessible
-name and tooltip. Service and development become a single
+wordmark or a three-line menu icon. Its accessible name is unchanged. The
+brand slot may follow it with `ProductProjectMenu`: a folder, the project's name
+and a chevron at every width. The name shows at most 160px and shortens to 64px
+before anything else in the slot gives way, ending in an ellipsis; the full
+name is the trigger's accessible name and tooltip. Its menu lists the current
+project checked, up to 8 other projects in the order given, each with an
+open-in-window action shown on hover and keyboard focus, then All projects and
+New project; it opens at once and the other projects fill in when they arrive,
+or one muted line says they could not be loaded. Service and development become a single
 bold warning-colored marking after actions, before the account slot: QA, Custom,
 Dev, QA Dev or Custom Dev. `serviceKind` supplies the stable QA/custom meaning
 independently of the localized full `service` label. Full words remain in the
@@ -1033,9 +1038,10 @@ For a text-only expanded label, it replaces the drawn text at the center while
 the label continues to supply the accessible name. No other control moves when
 an action becomes pending. Ordinary ProductButton presentation is unchanged.
 The actions slot also accepts a render function receiving a reactive `narrow`
-accessor. It switches below the fixed 460px available-content token
+accessor. It switches below the fixed 418px available-content token
 `toolbarFullRowWidth`, after native reservations, independently of account or
-execution state. The layout menu then holds the left, bottom and right panel
+execution state; 418px is the widest gallery row's measured need with the
+project in the brand slot and no account. The layout menu then holds the left, bottom and right panel
 switches together, followed by left bar, status bar and Reset layout. In the full
 row the three panel switches stay in the bar and are not repeated in the menu.
 `ProductMenuItem.checked` draws the shared checkmark and exposes
@@ -1060,7 +1066,9 @@ Cancel sign-in. Changing pending state closes the menu. A host-provided
 The host supplies authoritative account availability and owns all network,
 start/cancel/popup and error handling. ProductButton pending activation remains
 unchanged. Signed-in account triggers use the shared 28px filled avatar in this
-toolbar, with existing name/email/person fallbacks.
+toolbar, with existing name/email/person fallbacks. With `rail`, both account
+controls draw the same circle in a side bar, as the app's left bar does above
+Settings, and their menus open beside the trigger with bottom edges aligned.
 
 The gallery's Window toolbar page demonstrates plain menu and rich brand
 presentations across production and QA/custom services, all three platforms,
