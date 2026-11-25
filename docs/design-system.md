@@ -134,6 +134,13 @@ every core tab once.
   focused. Navigation retains real link targets.
   `ProductPage` owns the page title and the normal/table content width;
   `ProductSection` owns a titled section inside it.
+- `createPageLoad` accepts one async read containing every fact that decides
+  the page, such as a `Promise.all` of independent requests. Before the first
+  result, `loading` stays false for 200ms; once true it stays visible for at
+  least 300ms, including on failure. Render `ProductLoading` only then.
+  `pending` covers the whole read, `value` retains the previous answer during
+  refresh, and `error` exposes a failed read. A newer `load` supersedes an older
+  completion; Solid owner disposal cancels timers and ignores late answers.
 - `ProductButton` names `intent` as add/remove/neutral and `fill` as
   solid/outline, and accepts native button attributes. `ProductIconButton` is
   the quiet, square icon-only control with a required accessible label and the
