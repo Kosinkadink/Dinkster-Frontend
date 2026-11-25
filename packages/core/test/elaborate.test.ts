@@ -1163,6 +1163,46 @@ describe('automatic values', () => {
     expect(elaborate(['video'], { video: 'clip.mp4' }).automatic).toMatchObject({ value: 30, state: 'worked-out' })
   })
 
+  it('hands a lookup argument that names a file field the picked file as stored, and waits quietly for one', () => {
+    const video = socketInput('video', 'ASSET', { displayName: 'Video', optional: true })
+    const fpsOf = intInput('fps', {
+      automatic: { lookup: 'video.rate_of', args: ['video'] },
+      widget: { widgetType: 'INT', options: {}, default: 24 },
+    })
+    const picked = { digest: `blake3:${'a'.repeat(64)}`, name: 'clip_25fps.mp4', size: 12, mediaType: 'video/mp4', virtualPath: '' }
+    const local = { verification: 'unverified', localBinding: 'b1', name: 'clip.mp4', size: 12, virtualPath: 'mounts/m/clip.mp4' }
+    const elaborate = (values: Record<string, unknown>, held: (args: readonly unknown[]) => unknown, connectivity = EMPTY_CONNECTIVITY) => {
+      const asked: unknown[] = []
+      const elaborated = elaborateInterface(schemaOf([video, fpsOf]), { values: values as never }, connectivity,
+        { lookupAnswers: ((_lookup: string, args: readonly unknown[]) => { asked.push(args); return held(args) }) as never })
+      return {
+        automatic: elabInputsOf(elaborated).find((input) => input.spec.id === 'fps')!.automatic,
+        warned: elaborated.diagnostics.some((d) => d.code === 'automatic.default'),
+        asked: [...new Set(asked.map((args) => JSON.stringify(args)))].map((args) => JSON.parse(args) as unknown),
+      }
+    }
+    const answered = () => ({ state: 'ready', answer: 25 })
+    // Nothing picked, or cleared: wait for the file field by its label, without a call or a warning.
+    for (const values of [{}, { video: null }]) {
+      expect(elaborate(values, answered)).toEqual({
+        automatic: { value: 24, state: 'not-known', reason: 'argument-empty', waitingFor: 'Video' }, warned: false, asked: [],
+      })
+    }
+    // A picked file is sent as the node stores it, the same value a run sends.
+    expect(elaborate({ video: picked }, answered)).toEqual({
+      automatic: { value: 25, state: 'worked-out', call: { lookup: 'video.rate_of', args: [picked] } }, warned: false, asked: [[picked]],
+    })
+    // A local file the host has not checked yet waits for it, still without a warning.
+    expect(elaborate({ video: local }, () => ({ state: 'unavailable', reason: 'file-unchecked' }))).toMatchObject({
+      automatic: { value: 24, state: 'not-known', reason: 'file-unchecked', call: { args: [local] } }, warned: false,
+    })
+    // A wired file is never known in the editor; the run gives the default, so the field warns.
+    const wired: Connectivity = { isInputConnected: (port) => port === 'video', isOutputConnected: () => false }
+    expect(elaborate({ video: picked }, answered, wired)).toEqual({
+      automatic: { value: 24, state: 'default', reason: 'argument-unknown' }, warned: true, asked: [],
+    })
+  })
+
   it('works out a fixed field only for its open field, without a warning, while the fixed value stays in use', () => {
     const doubled = intInput('doubled', {
       automatic: { formula: 'rate * 2' },

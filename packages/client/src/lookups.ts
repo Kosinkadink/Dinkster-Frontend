@@ -87,6 +87,11 @@ export interface LookupClient {
   subscribe(listener: () => void): () => void
   /** Make the kept answers of these functions (all when absent) old. */
   invalidate(functions?: readonly string[]): void
+  /**
+   * The host's files changed, so a file a call waited to have checked may be
+   * checked now: those calls are asked again when next shown.
+   */
+  filesChanged(): void
   /** A different backend, catalog or user: drop every answer and call. */
   setPartition(partition: LookupPartition): void
   dispose(): void
@@ -298,6 +303,22 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     }
   }
 
+  /** Kept answers that match become old; a failure with no answer is dropped, so showing it asks again. */
+  const makeOld = (matches: (key: readonly [string, ...unknown[]], entry: Kept) => boolean): void => {
+    let changed = false
+    for (const [key, entry] of kept) {
+      if (!matches(JSON.parse(key) as [string, ...unknown[]], entry)) continue
+      if (entry.answer) {
+        entry.old = true
+        changed = true
+      } else if (!entry.inflight) {
+        kept.delete(key)
+        changed = true
+      }
+    }
+    if (changed) notify()
+  }
+
   const request = (call: LookupCall, options: LookupRequestOptions = {}): Promise<LookupEntry> => {
     const key = keyOf(call)
     let entry = kept.get(key)
@@ -337,19 +358,10 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     },
     invalidate(functions) {
       const names = functions ? new Set(functions) : undefined
-      let changed = false
-      for (const [key, entry] of kept) {
-        const name = (JSON.parse(key) as [string])[0]
-        if (names && !names.has(name)) continue
-        if (entry.answer) {
-          entry.old = true
-          changed = true
-        } else if (!entry.inflight) {
-          kept.delete(key)
-          changed = true
-        }
-      }
-      if (changed) notify()
+      makeOld(([name]) => names === undefined || names.has(name))
+    },
+    filesChanged() {
+      makeOld((_key, entry) => 'reason' in entry.state && entry.state.reason === 'file-unchecked')
     },
     setPartition(next) {
       if (
