@@ -3,6 +3,7 @@ import {
   createComponent,
   createEffect,
   createRoot,
+  getOwner,
   onCleanup,
   Show,
   type Accessor,
@@ -42,8 +43,10 @@ export function createPageTabHost<T extends WorkflowTabItem>(state: {
   readonly setTabs: (tabs: readonly (T | PageTab)[]) => void
   readonly activeId: Accessor<string>
   readonly setActiveId: (id: string) => void
+  readonly onReplace?: (page: PageTab, workflow: T) => void
 }) {
   const pages = new Map<string, PageTabDescriptor<T>>()
+  const registrations = new Set<() => void>()
   const close = (id: string): void => {
     const before = state.tabs()
     const index = before.findIndex((tab) => tab.id === id)
@@ -71,6 +74,7 @@ export function createPageTabHost<T extends WorkflowTabItem>(state: {
     // Workflow opening can publish its tab before the page receives it.
     // Keep that workflow once, at the page's position among its neighbours.
     batch(() => {
+      state.onReplace?.(page, workflow)
       state.setTabs(
         before
           .filter((tab) => tab.id !== workflow.id || tab === page)
@@ -125,11 +129,13 @@ export function createPageTabHost<T extends WorkflowTabItem>(state: {
       if (!registered) return
       registered = false
       dispose()
+      registrations.delete(unregister)
       pages.delete(page.id)
       for (const tab of state.tabs())
         if (isPageTab(tab) && tab.pageId === page.id) close(tab.id)
     }
-    onCleanup(unregister)
+    registrations.add(unregister)
+    if (getOwner()) onCleanup(unregister)
     return unregister
   }
   return {
@@ -139,6 +145,9 @@ export function createPageTabHost<T extends WorkflowTabItem>(state: {
     close,
     replaceWithWorkflow,
     descriptor: (id: string) => pages.get(id),
+    dispose: () => {
+      for (const unregister of registrations) unregister()
+    },
   }
 }
 

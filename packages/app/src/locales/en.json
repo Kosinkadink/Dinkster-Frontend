@@ -1671,6 +1671,7 @@
   "shell.workflowTabs.documents": "Workflow documents",
   "shell.workflowTabs.livePreviews": "Live previews",
   "shell.workflowTabs.openWorkflows": "Open workflows",
+  "shell.pageTabs.open": "Open pages and workflows",
   "shell.workflowTabs.preview.auto": "Auto",
   "shell.workflowTabs.preview.cheap": "Cheap",
   "shell.workflowTabs.preview.inheritGlobal": "Inherit global",
