@@ -166,7 +166,7 @@ async function bootAndOpenRuns(page: Page): Promise<void> {
 }
 
 const entryFor = (page: Page, jobId: string) =>
-  page.getByTestId('runs-panel').getByTestId('collection-entry').filter({ hasText: jobId })
+  page.getByTestId('runs-panel').getByTestId('collection-entry').filter({ has: page.locator(`[data-job="${jobId}"]`) })
 
 test('unseen stored image/video rows show thumbnails without loading jobs, absent and unavailable media show none', async ({ page }) => {
   const asset = (char: string, mediaType: string) => ({ digest: `blake3:${char.repeat(64)}`, name: '', size: 1, mediaType, virtualPath: '' })
@@ -194,7 +194,7 @@ test('unseen stored image/video rows show thumbnails without loading jobs, absen
   })
   await bootAndOpenRuns(page)
   const panel = page.getByTestId('runs-panel')
-  const row = (label: string) => panel.getByTestId('collection-entry').filter({ hasText: label })
+  const row = (jobId: string) => panel.getByTestId('collection-entry').filter({ has: page.locator(`[data-job="${jobId}"]`) })
   await expect(row('Image output').locator('img.run-thumbnail')).toHaveAttribute('data-ready', 'true')
   await expect(row('Video output').locator('video.run-thumbnail')).toHaveAttribute('data-ready', 'true')
   expect(await row('Image output').locator('img').evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)

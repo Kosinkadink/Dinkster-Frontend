@@ -133,7 +133,7 @@ async function openRuns(page: Page): Promise<void> {
 
 /** The runs entry whose subtitle is the run's jobId prefix. */
 const entryFor = (page: Page, jobId: string) =>
-  page.getByTestId('collection-entry').filter({ hasText: jobId.slice(0, 8) })
+  page.getByTestId('collection-entry').filter({ has: page.locator(`[data-job^="${jobId.slice(0, 8)}"]`) })
 
 test.beforeEach(async ({ page }, testInfo) => {
   // Probe outside the skip calls: test.skip signals by throwing, so a skip

@@ -190,7 +190,7 @@ test('activity model remains truthful and usable across wide, narrow, and zoom-e
   await expect(runs.locator('.collection-entry.collection-child')).toHaveCount(2)
   await panel.getByTestId('collection-more').click()
   await expect(runEntries).toHaveCount(28)
-  const failed = runEntries.filter({ hasText: 'job-2-' }).first()
+  const failed = runEntries.filter({ has: page.locator('[data-job^="job-2-"]') }).first()
   await failed.click()
   await failed.locator('.runs-details > summary').click()
   await expect(failed.locator('.output-facts')).toContainText('The sampler failed after preserving two exact node receipts.')

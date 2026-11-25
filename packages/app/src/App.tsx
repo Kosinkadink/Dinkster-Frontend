@@ -1534,7 +1534,7 @@ export function App(props: {
       ]
       return parts.join(', ')
     }
-    return <div class="runs-stored-row">
+    return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
       <div class="run-row-line">
         <span class="run-row-thumbnail" aria-hidden="true">
           <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
