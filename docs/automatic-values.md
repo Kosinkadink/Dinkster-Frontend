@@ -53,7 +53,7 @@ Problems. A lookup takes no None argument, so the editor and the engine both
 use the default without calling it. While a lookup's answer is still to come,
 one of its arguments reads another automatic field still waiting on its
 lookup, or an argument is None because it reads a field left empty - one the
-run is sent nothing for that stores nothing or null, such as an optional
+run would be sent nothing for, storing nothing or null, such as an optional
 source rate not set yet - the field shows the default without a warning. A
 required field with no default whose widget has a start value is not empty:
 the run is sent that value, so the lookup is called with it. For an empty
