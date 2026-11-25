@@ -377,8 +377,6 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
         ...defaultTokens,
         widgetEditing: 'in-row',
         widgetRowLook: 'raised-editors',
-        // As the Node boxes page, the page shows the remove cross the editor leaves off until it works.
-        memberRemoveCross: true,
         ...canvasTypePaintForTheme(theme),
         colors: canvasColorsForTheme(theme),
       }
