@@ -117,6 +117,8 @@
 .boundary-focus-action:where(:hover:not(:disabled)), .boundary-button:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .boundary-focus-action { color: var(--dinkster-accent-foreground); background: var(--dinkster-accent-background); border-color: var(--dinkster-accent-border); }
 :is(.boundary-focus-action, .boundary-button):hover:not(:disabled) { background: var(--dinkster-interaction-hover); }
+.boundary-focus-action:hover:not(:disabled) { background: var(--dinkster-accent-wash); }
+.boundary-focus-action:active:not(:disabled) { background: var(--dinkster-accent-wash-pressed); }
 :is(.boundary-focus-action, .boundary-button):focus-visible,
 .region-control :is(button, input):focus-visible,
 .region-role-controls button:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }

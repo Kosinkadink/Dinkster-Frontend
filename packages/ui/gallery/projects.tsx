@@ -254,7 +254,7 @@ type Place = 'projects' | 'installations' | 'models' | 'docs'
  * Draws one mock workflow as the minimap draws a graph: node boxes and wires,
  * no text, the whole graph fitted inside the tile.
  */
-function WorkflowPicture(props: { scene: CanvasGalleryPage }) {
+export function WorkflowPicture(props: { scene: CanvasGalleryPage }) {
   let canvas!: HTMLCanvasElement
   onMount(() => {
     const paint = () => {
@@ -560,7 +560,7 @@ export function ProjectsGallery() {
         }
       />
       <Show when={state() === 'failed' && banner()}>
-        <ProductErrorBanner quiet onDismiss={() => setBanner(false)}>
+        <ProductErrorBanner onDismiss={() => setBanner(false)}>
           Nightly did not start, so Bookshop diorama could not open. Stable is
           running again.{' '}
           <ProductTextButton

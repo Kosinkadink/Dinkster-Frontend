@@ -31,6 +31,7 @@
       "raised": "#1E292A",
       "quiet": "#192223",
       "hover": "#283537",
+      "pressed": "#324143",
       "activeTabTint": "rgba(120, 205, 210, 0.08)"
     },
     "border": {
@@ -68,6 +69,7 @@
       "raised": "#EDEFF2",
       "quiet": "#F6F7F9",
       "hover": "#E4E8EC",
+      "pressed": "#D3D9DE",
       "activeTabTint": "rgba(120, 205, 210, 0.08)"
     },
     "border": {
