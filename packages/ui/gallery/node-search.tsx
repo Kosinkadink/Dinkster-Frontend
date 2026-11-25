@@ -1,8 +1,9 @@
 import { For, Show, createSignal } from 'solid-js'
-import { ArrowLeft, Download } from 'lucide-solid'
+import { ArrowLeft, Download, Folder, PanelTop, Wrench } from 'lucide-solid'
 import { autoConnectTarget, schemaMatchesAnyPortFilters, type NodeSchema, type WidgetRegistry } from '@dinkster/core'
+import { defaultTokens, typeColor } from '@dinkster/canvas'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
-import { ProductButton, ProductIcon, ProductSearch, ProductSearchNodePreview, ProductSection, ProductSelect, type ProductSearchGroup } from '../src/index.js'
+import { BlueprintIcon, ProductButton, ProductIcon, ProductMenu, ProductSearch, ProductSearchNodePreview, ProductSection, type ProductSearchGroup } from '../src/index.js'
 import { NodeDrawing, node } from './search.js'
 
 type Kind = 'node' | 'blueprint' | 'utility'
@@ -58,6 +59,7 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
   const row = (item: Entry) => ({
     key: item.schema.type,
     title: item.schema.displayName,
+    icon: item.kind === 'blueprint' ? BlueprintIcon : item.kind === 'utility' ? Wrench : PanelTop,
     detail: item.notInstalled ? 'Not installed' : wire() ? `into ${target(item)!.port}` : 'dev / image',
     ...(item.notInstalled ? { detailIcon: Download } : {}),
   })
@@ -69,7 +71,7 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
       return [
         { key: 'recent', label: 'Recent', rows: recent.map(row) },
         { key: 'categories', label: 'Categories', rows: categories.map((name) => ({
-          key: `category:${name}`, title: name, kind: 'folder', count: corpus().filter((item) => item.category === name).length,
+          key: `category:${name}`, title: name, icon: Folder, kind: 'folder', count: corpus().filter((item) => item.category === name).length,
         })) },
       ]
     }
@@ -91,11 +93,15 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
     setChosen(item.notInstalled ? `Install ${item.schema.displayName}` : `Place ${item.schema.displayName}${wire() ? ` connected into ${target(item)!.port}` : ''}`)
   }
   const typeMenu = (direction: 'Takes' | 'Gives', value: string, change: (value: string) => void) => (
-    <ProductSelect aria-label={`${direction} type`} value={value} onChange={(event) => change(event.currentTarget.value)}>
-      <For each={['', 'IMAGE', 'STRING', 'INT']}>{(type) =>
-        <option value={type}>{direction}: {type === '' ? 'any' : type.toLowerCase()}</option>
-      }</For>
-    </ProductSelect>
+    <ProductMenu
+      label={`${direction}: ${value === '' ? 'any' : value.toLowerCase()}`}
+      triggerName={`${direction} type`}
+      items={['', 'IMAGE', 'STRING', 'INT'].map((type) => ({
+        label: type === '' ? 'Any type' : type.toLowerCase(),
+        checked: type === value,
+        onSelect: () => change(type),
+      }))}
+    />
   )
   return (
     <div class="dinkster-node-search-example">
@@ -111,7 +117,7 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
         kinds={KINDS}
         kind={kind()}
         onKind={setKind}
-        {...(wire() ? { chip: { label: 'Takes image', removeLabel: 'Remove image constraint', onRemove: () => setWire(false) } } : {})}
+        {...(wire() ? { chip: { label: 'Takes image', color: typeColor(defaultTokens, 'IMAGE'), removeLabel: 'Remove image constraint', onRemove: () => setWire(false) } } : {})}
         filters={<>
           <Show when={!wire()}>{typeMenu('Takes', takes(), setTakes)}</Show>
           {typeMenu('Gives', gives(), setGives)}

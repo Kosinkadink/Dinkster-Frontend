@@ -65,6 +65,8 @@ export interface ProductSearchHint {
 /** The chip at the start of the field, such as the type a dropped wire carries. */
 export interface ProductSearchChip {
   readonly label: string
+  /** The wire's paint, supplied by the caller from its type palette. */
+  readonly color?: string
   readonly removeLabel: string
   readonly onRemove: () => void
 }
@@ -379,6 +381,11 @@ export function ProductSearch(props: {
           <Show when={props.chip}>
             {(chip) => (
               <span class="dinkster-search-chip">
+                <Show when={chip().color}>{(color) => (
+                  <svg class="dinkster-search-chip-dot" viewBox="0 0 8 8" aria-hidden="true">
+                    <circle cx="4" cy="4" r="4" fill={color()} />
+                  </svg>
+                )}</Show>
                 <span>{chip().label}</span>
                 <button
                   type="button"
