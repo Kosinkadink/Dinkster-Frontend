@@ -157,6 +157,11 @@ export const canvasPaintTokens = {
     modeOpacity: canvasSemanticTokens.interaction.disabledOpacity,
     /** `crisp` is the idle outline of a node look with crisp edges. */
     outline: { idle: 1.25, crisp: 1, strong: 2.5, unrecognizedFactor: 3, screen: 1, strongScreen: 2 },
+    /**
+     * A node that ran, in the frozen view: 2 px in its state's colour at half
+     * strength. A cached node takes the same 2 px, dashed, in the neutral outline.
+     */
+    ranOutline: { stroke: 2, opacity: 0.5 },
     identityBodyTint: 0.18,
     identityHeaderTint: 0.72,
     errorBodyTint: 0.2,
@@ -297,16 +302,17 @@ export const canvasPaintTokens = {
     ghostStroke: 1.5,
     ghostMinScreenStroke: 1,
   },
+  /**
+   * The running node: a 2 px outline in the running colour at 90%, and a
+   * steady glow around it, as a box shadow of 12 px blur and 1 px spread at
+   * 32% would draw it.
+   */
   running: {
-    pulsePeriodMs: 1400,
-    reducedMotionPulse: 0.5,
-    glowOpacity: 0.48,
-    glowPulseOpacity: 0.22,
-    glowOutset: 2,
-    glowStroke: 4.5,
-    glowMinScreenStroke: 3,
-    glowBlur: canvasSemanticTokens.space[8],
-    glowPulseBlur: 5,
+    outlineStroke: 2,
+    outlineOpacity: 0.9,
+    glowOpacity: 0.32,
+    glowBlur: 12,
+    glowSpread: 1,
     accentStroke: 1.5,
     accentMinScreenStroke: 1.5,
     dashSpeed: 0.032,

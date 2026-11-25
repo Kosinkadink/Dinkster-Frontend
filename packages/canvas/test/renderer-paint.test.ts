@@ -2244,17 +2244,20 @@ describe('node chrome paint on the live renderer', () => {
     ).toBe(false)
   })
 
-  it('run states drive the border: running widens + colors it and draws the progress bar', () => {
+  it('run states drive the border: running draws a 2 px outline at 90% with a steady glow, and the progress bar', () => {
     const scene = fixtureScene('clean')
     const n = nodeOf(scene, 'c1')
     const calls = paintWith(scene, (r) =>
       r.setNodeStates({ c1: { state: 'running', value: 0.5, max: 20 }, c2: { state: 'error' } }),
     )
     const running = defaultTokens.stateColors.running
-    expect(calls.some((c) => c.method === 'stroke' && c.strokeStyle === running && c.lineWidth === 2.5)).toBe(true)
-    expect(calls.some((c) =>
-      c.method === 'stroke' && c.strokeStyle === running && c.shadowColor === running && c.shadowBlur > 8,
-    )).toBe(true)
+    const border = nodeBorder(calls, n)
+    expect(border).toMatchObject({ strokeStyle: running, lineWidth: 2, shadowBlur: 0 })
+    expect(border!.globalAlpha).toBeCloseTo(0.9)
+    const glow = calls.filter((c) => c.method === 'stroke' && c.strokeStyle === running && c.shadowColor === running)
+    expect(glow).toHaveLength(1)
+    expect(glow[0]).toMatchObject({ lineWidth: 2, shadowBlur: 12 })
+    expect(glow[0]!.globalAlpha).toBeCloseTo(0.32)
     expect(calls.some((c) =>
       c.method === 'stroke' && c.strokeStyle === defaultTokens.progressBar && c.lineDash.length > 0,
     )).toBe(true)
@@ -2272,6 +2275,17 @@ describe('node chrome paint on the live renderer', () => {
     expect(bar).toBeDefined()
     expect(bar!.args[2]).toBeCloseTo(n.layout.width * 0.5)
     expect(bar!.args[3]).toBe(3)
+  })
+
+  it('nodes that ran draw 2 px: done in its colour at half strength, cached dashed in the neutral outline', () => {
+    const scene = fixtureScene('clean')
+    const calls = paintWith(scene, (r) => r.setNodeStates({ c1: { state: 'done' }, c2: { state: 'cached' } }))
+    const done = nodeBorder(calls, nodeOf(scene, 'c1'))
+    expect(done).toMatchObject({ strokeStyle: defaultTokens.stateColors.done, lineWidth: 2, lineDash: [] })
+    expect(done!.globalAlpha).toBeCloseTo(0.5)
+    const cached = nodeBorder(calls, nodeOf(scene, 'c2'))
+    expect(cached).toMatchObject({ strokeStyle: defaultTokens.colors.nodeOutline, lineWidth: 2, globalAlpha: 1 })
+    expect(cached!.lineDash.length).toBeGreaterThan(0)
   })
 
   it('uses a static glow without scheduling animation under reduced motion', () => {
