@@ -280,6 +280,8 @@ export interface SceneNode {
   readonly unrecognized?: true
   /** Set when the node's schema could not be resolved (rendered as an error shell). */
   readonly missingSchema?: boolean
+  /** Set instead of the two marks above while no node definitions are held yet. */
+  readonly schemaPending?: true
 }
 
 /**
@@ -730,6 +732,11 @@ export interface BuildSceneInput {
   /** Graph definition to render (the root, or a subgraph being edited). */
   readonly graphId: string
   readonly resolve: SchemaResolver
+  /**
+   * No node definitions are held yet, so a node that resolves to no schema
+   * may still have one: it is marked `schemaPending`, not missing.
+   */
+  readonly schemasPending?: boolean
   readonly renderVirtualNode?: (node: NodeData) => VirtualNodeRenderModel | undefined
   readonly tokens: DesignTokens
   readonly measure: TextMeasurer
@@ -1326,7 +1333,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(view?.color !== undefined ? { color: view.color } : {}),
       isSubgraph: subgraphDefIdOf(node.type) !== undefined,
       ...(node.region !== undefined ? { regionKind: node.region.kind } : {}),
-      ...(schema ? {} : { unrecognized: true, missingSchema: true }),
+      ...(schema ? {} : input.schemasPending === true ? { schemaPending: true } : { unrecognized: true, missingSchema: true }),
     }
     nodes.push(sceneNode)
     byId.set(node.id, sceneNode)

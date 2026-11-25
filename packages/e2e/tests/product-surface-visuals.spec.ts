@@ -600,6 +600,69 @@ test('Library Assets and Runs use shared empty and loading states', async ({ pag
   }
 })
 
+test('A reopened workflow shows no missing node until the node definitions arrive without its type', async ({ page }) => {
+  let release!: () => void
+  const released = new Promise<void>((resolve) => { release = resolve })
+  await page.route('/api/nodes*', async (route) => {
+    await released
+    await route.fulfill({ json: {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'visual-fixture', schemaWire: 2 },
+      packs: { visual: { displayName: 'Visual' } },
+      nodes: {
+        'visual.Source': {
+          schemaVersion: 2, nodeType: 'visual.Source', displayName: 'Source', category: 'visual', pack: 'visual', signature: 'source',
+          body: [{ kind: 'output', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+        },
+        'visual.Sink': {
+          schemaVersion: 2, nodeType: 'visual.Sink', displayName: 'Sink', category: 'visual', pack: 'visual', signature: 'sink',
+          body: [{ kind: 'input', id: 'image', type: { kind: 'concrete', types: ['comfy.IMAGE'] } }],
+        },
+      },
+    } })
+  })
+  const document = {
+    format: 'dinkster-workflow', formatVersion: 1, lineage: 'definitions-pending', root: 'g0',
+    graphs: { g0: { id: 'g0', name: 'root', nodes: {
+      source: { id: 'source', type: 'visual.Source', values: {} },
+      sink: { id: 'sink', type: 'visual.Sink', values: {} },
+      absent: { id: 'absent', type: 'visual.Absent', values: {} },
+    }, links: {
+      l0: { id: 'l0', from: { node: 'source', port: 'image' }, to: { node: 'sink', port: 'image' } },
+      l1: { id: 'l1', from: { node: 'source', port: 'image' }, to: { node: 'absent', port: 'image' } },
+    }, nets: {}, reroutes: {}, nextOrdinal: 3 } },
+    view: { graphs: { g0: { nodes: {
+      source: { position: { x: 160, y: 200 } },
+      sink: { position: { x: 480, y: 120 } },
+      absent: { position: { x: 480, y: 300 } },
+    } } } },
+  }
+  await page.addInitScript((doc) => {
+    localStorage.setItem('dinkster.openTabs', JSON.stringify({
+      v: 1, active: doc.lineage, tabs: [{ title: 'Definitions pending', doc, documentRevision: 0 }],
+    }))
+  }, document)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  const drawn = () => page.evaluate(() => ({
+    schemas: window.__dinksterTest!.app.backends.get()[0]?.schemaState.get().status,
+    nodes: Object.fromEntries((window.__dinksterTest?.renderer?.getScene().nodes ?? []).map((node) => [
+      node.id, node.missingSchema === true || node.unrecognized === true ? 'missing' : node.schemaPending === true ? 'pending' : 'resolved',
+    ])),
+    problems: window.__dinksterTest!.app.problems.get().filter((problem) => problem.code === 'schema.unresolvedType').length,
+  }))
+  await expect.poll(drawn, { timeout: 30_000 }).toEqual({
+    schemas: 'loading', nodes: { source: 'pending', sink: 'pending', absent: 'pending' }, problems: 0,
+  })
+  await expect(page.getByTestId('graph-canvas')).toHaveScreenshot('node-definitions-pending-1440.png', {
+    animations: 'disabled',
+    maxDiffPixelRatio: 0.002,
+  })
+  release()
+  await expect.poll(drawn).toEqual({
+    schemas: 'ready', nodes: { source: 'resolved', sink: 'resolved', absent: 'missing' }, problems: 1,
+  })
+})
+
 test('Storage settings distinguish accounting policy and permission failures', async ({ page }) => {
   let state: 'ready' | 'unavailable' | 'forbidden' = 'ready'
   await page.route('**/api/library/storage', (route) => state === 'forbidden'
